@@ -4,6 +4,7 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { SettingsStore } from "./settings.js";
+import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER } from "@ue-mcp-studio/shared";
 
 export type MessageParam = Anthropic.Beta.BetaMessageParam;
 export type ContentBlock = Anthropic.Beta.BetaContentBlock;
@@ -84,6 +85,7 @@ export class GatewayProvider implements ModelProvider {
   constructor(
     private readonly gatewayUrl: string,
     private readonly accountToken: string,
+    private readonly agentVersion: string = "0.0.0",
     private readonly fetchImpl: typeof fetch = fetch,
   ) {}
 
@@ -95,7 +97,8 @@ export class GatewayProvider implements ModelProvider {
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${this.accountToken}`,
-        "x-ue-mcp-session": req.sessionId,
+        [GATEWAY_SESSION_HEADER]: req.sessionId,
+        [GATEWAY_CLIENT_HEADER]: `${GATEWAY_CLIENT_PREFIX}${this.agentVersion}`,
         ...(betas ? { "anthropic-beta": betas.join(",") } : {}),
       },
       body: JSON.stringify(body),
@@ -115,11 +118,15 @@ export class GatewayProvider implements ModelProvider {
 }
 
 /** The provider the settings name, or an error saying what is missing. */
-export function providerFor(settings: SettingsStore): ModelProvider {
+export function providerFor(
+  settings: SettingsStore,
+  context: { registryToken?: string | null; agentVersion?: string } = {},
+): ModelProvider {
   if (settings.provider() === "gateway") {
-    const token = settings.accountToken();
-    if (!token) throw new Error("Sign in to UE-MCP (Settings) to use the hosted model, or switch to your own API key.");
-    return new GatewayProvider(settings.gatewayUrl(), token);
+    // A token saved in Settings wins; otherwise the account from `ue-mcp login`.
+    const token = settings.accountToken() ?? context.registryToken ?? null;
+    if (!token) throw new Error("Sign in with `npx ue-mcp login` (or paste a token in Settings) to use the hosted model, or switch to your own API key.");
+    return new GatewayProvider(settings.gatewayUrl(), token, context.agentVersion);
   }
   const key = settings.apiKey();
   if (!key) throw new Error("Add an Anthropic API key in Settings, or sign in to use the hosted model.");

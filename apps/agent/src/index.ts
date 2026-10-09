@@ -95,7 +95,7 @@ const extension: DaemonExtension = {
       return { body: readConfig(api) };
     });
 
-    const runner = registerChat(api);
+    const runner = registerChat(api, agentVersion);
     return { dispose: () => runner.dispose() };
   },
 };

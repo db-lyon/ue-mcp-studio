@@ -308,7 +308,7 @@ describe("inputs and settings", () => {
       seen.init = init;
       return new Response(JSON.stringify({ content: [{ type: "text", text: "hi" }], stop_reason: "end_turn" }), { status: 200 });
     }) as unknown as typeof fetch;
-    const provider = new GatewayProvider("https://gw.example", "acct-token", fetchImpl);
+    const provider = new GatewayProvider("https://gw.example", "acct-token", "0.0.0-test", fetchImpl);
     const out: string[] = [];
     const turn = await provider.run(
       { sessionId: "sess-1", model: "claude-opus-5-5", system: [{ type: "text", text: "s" }], tools: [], messages: [{ role: "user", content: "hello" }] },
@@ -319,6 +319,7 @@ describe("inputs and settings", () => {
     const headers = seen.init!.headers as Record<string, string>;
     expect(headers.authorization).toBe("Bearer acct-token");
     expect(headers["x-ue-mcp-session"]).toBe("sess-1");
+    expect(headers["x-ue-mcp-client"]).toBe("studio-agent/0.0.0-test");
     const body = JSON.parse(String(seen.init!.body));
     expect(body).toMatchObject({ model: "claude-opus-5-5", fallbacks: "default", cache_control: { type: "ephemeral" } });
     expect(body.betas).toBeUndefined();
