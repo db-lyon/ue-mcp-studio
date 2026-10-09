@@ -21,3 +21,83 @@ export interface StudioConfigFile {
   exists: boolean;
   text: string;
 }
+
+/** Which model access the agent uses. */
+export type ProviderKind = "byok" | "gateway";
+
+/** GET /v1/ext/studio/settings. Secrets are reported by presence only, never returned. */
+export interface StudioSettings {
+  provider: ProviderKind;
+  model: string;
+  gatewayUrl: string;
+  hasApiKey: boolean;
+  hasAccountToken: boolean;
+}
+
+/** PUT /v1/ext/studio/settings. An absent secret is left as it is; an empty string clears it. */
+export interface StudioSettingsUpdate {
+  provider?: ProviderKind;
+  model?: string;
+  gatewayUrl?: string;
+  apiKey?: string;
+  accountToken?: string;
+}
+
+export type TurnStatus = "idle" | "running" | "waiting" | "stopped" | "error";
+
+/** A tool call the agent made, as the UI lists it. */
+export interface ToolCallRecord {
+  id: string;
+  name: string;
+  input: unknown;
+  /** unknown: the editor went away while it ran, so whether it took effect is not known. */
+  outcome: "pending" | "done" | "error" | "unknown";
+  result?: string;
+  startedAt: string;
+  endedAt?: string;
+}
+
+/** Something the session changed, tracked so a crash can be reconciled against disk. */
+export interface TouchedItem {
+  kind: "asset" | "actor";
+  path: string;
+  saved: boolean;
+}
+
+/** A transcript entry the UI renders. */
+export type TranscriptEntry =
+  | { kind: "user"; text: string; at: string }
+  | { kind: "assistant"; text: string; at: string }
+  | { kind: "tool"; call: ToolCallRecord }
+  | { kind: "note"; text: string; at: string };
+
+export interface SessionSummary {
+  id: string;
+  title: string;
+  status: TurnStatus;
+  createdAt: string;
+  updatedAt: string;
+  /** Why a waiting turn is waiting. */
+  waitingCause: string | null;
+}
+
+export interface SessionDetail extends SessionSummary {
+  transcript: TranscriptEntry[];
+  touched: TouchedItem[];
+  draft: string;
+  error: string | null;
+}
+
+/**
+ * Event payloads the agent publishes. The daemon prefixes the extension name,
+ * so `turn.delta` arrives as `studio.turn.delta`.
+ */
+export interface TurnDeltaEvent {
+  sessionId: string;
+  text: string;
+}
+export interface SessionChangedEvent {
+  sessionId: string;
+  status: TurnStatus;
+  waitingCause: string | null;
+}
