@@ -1,0 +1,117 @@
+/* Dark by default, to sit inside the editor; a light scheme for the browser fallback. */
+:root {
+  --bg: #1a1a1a;
+  --panel: #242424;
+  --panel-2: #2c2c2c;
+  --line: #383838;
+  --text: #e6e6e6;
+  --muted: #9a9a9a;
+  --accent: #3d8bfd;
+  --ok: #4caf72;
+  --warn: #e0a43a;
+  --bad: #e05a4f;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f6f6f6;
+    --panel: #ffffff;
+    --panel-2: #f0f0f0;
+    --line: #dddddd;
+    --text: #1d1d1d;
+    --muted: #6b6b6b;
+    color-scheme: light;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.45 system-ui, "Segoe UI", Roboto, sans-serif;
+}
+button {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.45; cursor: default; }
+input {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+}
+h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+
+.app { display: flex; flex-direction: column; height: 100%; }
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  flex-wrap: wrap;
+}
+.brand { font-weight: 700; margin-right: 8px; }
+.tab { background: transparent; border-color: transparent; }
+.tab.active { border-color: var(--accent); color: var(--accent); }
+main { flex: 1; overflow: auto; padding: 12px; }
+
+.spacer { flex: 1; }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+.mono { font-family: ui-monospace, Consolas, monospace; }
+.stack { display: flex; flex-direction: column; gap: 12px; max-width: 980px; }
+.split { display: grid; grid-template-columns: minmax(260px, 1fr) 2fr; gap: 12px; }
+@media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; min-width: 0; }
+.row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0; }
+.actions { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.grid { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 0; }
+.grid dt { color: var(--muted); }
+.grid dd { margin: 0; overflow-wrap: anywhere; }
+
+.pill { border-radius: 10px; padding: 1px 8px; font-size: 12px; border: 1px solid var(--line); }
+.pill.ok { color: var(--ok); border-color: var(--ok); }
+.pill.warn { color: var(--warn); border-color: var(--warn); }
+.pill.bad { color: var(--bad); border-color: var(--bad); }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+.dot.ok { background: var(--ok); }
+.dot.warn { background: var(--warn); }
+.banner { padding: 6px 10px; border-radius: 4px; margin-bottom: 8px; }
+.banner.bad { background: rgba(224, 90, 79, 0.18); }
+.banner.ok { background: rgba(76, 175, 114, 0.18); }
+.problem { border-left: 3px solid var(--warn); padding: 2px 10px; margin: 8px 0; }
+.problem p { margin: 2px 0 0; }
+
+.list .item { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.list .item.selected strong { color: var(--accent); }
+.list .item p { margin: 2px 0 0; }
+.output { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 60vh; overflow: auto; background: var(--panel-2); padding: 8px; border-radius: 4px; }
+.events { max-height: 160px; overflow: auto; margin-bottom: 8px; }
+
+.log { width: 100%; border-collapse: collapse; }
+.log td { padding: 3px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+.log td:last-child { overflow-wrap: anywhere; }
+
+.editor {
+  width: 100%;
+  min-height: 60vh;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 12px;
+  resize: vertical;
+}
