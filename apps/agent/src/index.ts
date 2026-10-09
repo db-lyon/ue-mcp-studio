@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 import type { DaemonExtension, DaemonExtensionApi } from "ue-mcp/daemon";
 import type { StudioAbout, StudioConfigFile } from "@ue-mcp-studio/shared";
+import { registerChat } from "./chat-routes.js";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -93,6 +94,9 @@ const extension: DaemonExtension = {
       api.events.publish("config.saved", { path: configPath(api) });
       return { body: readConfig(api) };
     });
+
+    const runner = registerChat(api);
+    return { dispose: () => runner.dispose() };
   },
 };
 
