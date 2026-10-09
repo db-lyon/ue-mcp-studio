@@ -7,7 +7,7 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "npm run build -w @ue-mcp-studio/shared && npm run build -w @ue-mcp-studio/client-web && npm run build -w @ue-mcp-studio/agent",
+    "build": "npm run build -w @ue-mcp-studio/shared && npm run build -w @ue-mcp-studio/billing && npm run build -w @ue-mcp-studio/gateway && npm run build -w @ue-mcp-studio/client-web && npm run build -w @ue-mcp-studio/agent",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "dev": "npm run dev -w @ue-mcp-studio/client-web",
