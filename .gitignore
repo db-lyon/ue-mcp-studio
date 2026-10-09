@@ -10,3 +10,4 @@ apps/client-plugin/**/Intermediate/
 apps/client-plugin/**/Saved/
 apps/client-plugin/**/DerivedDataCache/
 apps/client-plugin/StudioHost/Plugins/UE_MCP_Bridge/
+release/
