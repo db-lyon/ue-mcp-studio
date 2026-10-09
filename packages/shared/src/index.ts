@@ -21,3 +21,4 @@ export interface StudioConfigFile {
   exists: boolean;
   text: string;
 }
+export * from "./account.js";
