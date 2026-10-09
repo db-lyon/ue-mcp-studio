@@ -115,3 +115,43 @@ main { flex: 1; overflow: auto; padding: 12px; }
   font-size: 12px;
   resize: vertical;
 }
+
+.banner.warn { background: rgba(224, 164, 58, 0.18); }
+select {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+}
+label { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; }
+
+.chat { display: grid; grid-template-columns: minmax(200px, 1fr) 3fr; gap: 12px; height: 100%; min-height: 0; }
+@media (max-width: 760px) { .chat { grid-template-columns: 1fr; } }
+.sessions { overflow: auto; }
+.sessions .item { padding: 6px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.sessions .item.selected strong { color: var(--accent); }
+.conversation { display: flex; flex-direction: column; min-height: 60vh; }
+.transcript { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 8px; padding-bottom: 8px; }
+.msg { white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px 10px; border-radius: 6px; max-width: 90%; }
+.msg.user { align-self: flex-end; background: rgba(61, 139, 253, 0.18); }
+.msg.assistant { align-self: flex-start; background: var(--panel-2); }
+.note { white-space: pre-wrap; }
+.tool { border-left: 3px solid var(--line); padding: 2px 8px; }
+.tool.done { border-color: var(--ok); }
+.tool.error { border-color: var(--bad); }
+.tool.unknown { border-color: var(--warn); }
+.tool summary { cursor: pointer; }
+.composer { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--line); padding-top: 8px; }
+.composer textarea {
+  flex: 1;
+  min-height: 56px;
+  resize: vertical;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font: inherit;
+}

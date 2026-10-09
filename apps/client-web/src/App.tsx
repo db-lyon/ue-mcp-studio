@@ -6,13 +6,15 @@ import { SetupView } from "./views/Setup";
 import { FlowsView } from "./views/Flows";
 import { LogsView } from "./views/Logs";
 import { ConfigView } from "./views/Config";
+import { ChatView } from "./views/Chat";
+import { SettingsView } from "./views/Settings";
 
-const TABS = ["Status", "Setup", "Flows", "Logs", "Config"] as const;
+const TABS = ["Chat", "Status", "Setup", "Flows", "Logs", "Config", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 export function App() {
   const daemon = useDaemon();
-  const [tab, setTab] = useState<Tab>("Status");
+  const [tab, setTab] = useState<Tab>("Chat");
   const editor = daemon.health?.editors[0];
 
   return (
@@ -42,6 +44,8 @@ export function App() {
         {tab === "Flows" && <FlowsView daemon={daemon} />}
         {tab === "Logs" && <LogsView daemon={daemon} />}
         {tab === "Config" && <ConfigView />}
+        {tab === "Chat" && <ChatView daemon={daemon} />}
+        {tab === "Settings" && <SettingsView />}
       </main>
     </div>
   );

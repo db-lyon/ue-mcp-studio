@@ -4,7 +4,14 @@
  * adds the token.
  */
 import type { DaemonEvent, DaemonHealth, StatusReport } from "ue-mcp/daemon";
-import type { StudioAbout, StudioConfigFile } from "@ue-mcp-studio/shared";
+import type {
+  SessionDetail,
+  SessionSummary,
+  StudioAbout,
+  StudioConfigFile,
+  StudioSettings,
+  StudioSettingsUpdate,
+} from "@ue-mcp-studio/shared";
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -43,6 +50,15 @@ export const api = {
   planFlow: (name: string) => call<unknown>("GET", `/v1/flows/${encodeURIComponent(name)}/plan`),
   runFlow: (name: string) => call<unknown>("POST", `/v1/flows/${encodeURIComponent(name)}/run`, {}),
   editor: (op: "start" | "stop" | "restart" | "rebuild") => call<Record<string, unknown>>("POST", `/v1/editor/${op}`),
+  settings: () => call<StudioSettings>("GET", "/v1/ext/studio/settings"),
+  saveSettings: (u: StudioSettingsUpdate) => call<StudioSettings>("PUT", "/v1/ext/studio/settings", u),
+  sessions: () => call<{ sessions: SessionSummary[] }>("GET", "/v1/ext/studio/sessions"),
+  newSession: () => call<SessionDetail>("POST", "/v1/ext/studio/sessions"),
+  session: (id: string) => call<SessionDetail>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
+  deleteSession: (id: string) => call<void>("DELETE", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
+  saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
+  send: (id: string, text: string) => call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, { text }),
+  stop: (id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/stop`),
 };
 
 /**
