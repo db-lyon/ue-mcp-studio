@@ -1,0 +1,21 @@
+{
+  "name": "ue-mcp-studio",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @ue-mcp-studio/shared && npm run build -w @ue-mcp-studio/client-web && npm run build -w @ue-mcp-studio/agent",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "vitest run",
+    "dev": "npm run dev -w @ue-mcp-studio/client-web",
+    "keys:dev": "node scripts/dev-keys.mjs",
+    "install:dev": "node scripts/install-dev.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
+  }
+}
