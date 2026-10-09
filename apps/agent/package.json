@@ -12,7 +12,7 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node ../../scripts/agent-keys.mjs",
+    "build": "tsc -p tsconfig.json --noEmit && node ../../scripts/bundle-agent.mjs && node ../../scripts/agent-keys.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
