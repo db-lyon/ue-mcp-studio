@@ -103,6 +103,9 @@ if (has("--plugin")) {
     descriptor.VersionName = version;
     fs.writeFileSync(uplugin, JSON.stringify(descriptor, null, "\t") + "\n");
   }
+  // BuildPlugin writes a default Config/FilterPlugin.ini into the source plugin; keep the tree clean.
+  const filterIni = path.join(path.dirname(uplugin), "Config", "FilterPlugin.ini");
+  const hadFilterIni = fs.existsSync(filterIni);
   for (const engine of (arg("--engines", "5.7,5.8")).split(",")) {
     const engineRoot = path.join("C:/Program Files/Epic Games", `UE_${engine}`);
     const uat = path.join(engineRoot, "Engine", "Build", "BatchFiles", "RunUAT.bat");
@@ -120,6 +123,7 @@ if (has("--plugin")) {
     const name = `UE_MCP_Studio-${version}-UE${engine}-Win64.zip`;
     zip(pkgStage, "UE_MCP_Studio", path.join(OUT, name));
     fs.rmSync(pkgStage, { recursive: true, force: true });
+    if (!hadFilterIni) fs.rmSync(path.dirname(filterIni), { recursive: true, force: true });
     pluginZips.push(name);
     console.log(`${name} packaged`);
   }
