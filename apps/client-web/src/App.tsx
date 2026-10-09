@@ -6,8 +6,9 @@ import { SetupView } from "./views/Setup";
 import { FlowsView } from "./views/Flows";
 import { LogsView } from "./views/Logs";
 import { ConfigView } from "./views/Config";
+import { AccountView } from "./views/Account";
 
-const TABS = ["Status", "Setup", "Flows", "Logs", "Config"] as const;
+const TABS = ["Status", "Setup", "Flows", "Logs", "Config", "Account"] as const;
 type Tab = (typeof TABS)[number];
 
 export function App() {
@@ -42,6 +43,7 @@ export function App() {
         {tab === "Flows" && <FlowsView daemon={daemon} />}
         {tab === "Logs" && <LogsView daemon={daemon} />}
         {tab === "Config" && <ConfigView />}
+        {tab === "Account" && <AccountView />}
       </main>
     </div>
   );
