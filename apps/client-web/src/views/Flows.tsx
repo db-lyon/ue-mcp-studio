@@ -36,7 +36,7 @@ export function FlowsView({ daemon }: { daemon: DaemonState }) {
         {flows.map((f) => (
           <div key={f.name} className={`item ${selected === f.name ? "selected" : ""}`}>
             <div className="row">
-              <strong>{f.name}</strong>
+              <strong className="mono">{f.name}</strong>
               <span className="spacer" />
               <button onClick={() => plan(f.name)}>Plan</button>
               <button disabled={running} onClick={() => run(f.name)}>Run</button>
@@ -53,7 +53,9 @@ export function FlowsView({ daemon }: { daemon: DaemonState }) {
             <div key={e.id} className="mono small">{e.type.slice(5)} {String(e.data.stepName ?? e.data.flowName ?? "")}</div>
           ))}
         </div>
-        <pre className="output">{output}</pre>
+        {output
+          ? <pre className="output">{output}</pre>
+          : !running && <p className="placeholder">Plan a flow to see its steps, or run it in the editor.</p>}
       </section>
     </div>
   );

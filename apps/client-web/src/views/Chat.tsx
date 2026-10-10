@@ -1,7 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { SessionDetail, SessionSummary, ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { SessionDetail, SessionSummary, StudioSettings, ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
+
+/** Starting points shown on an empty session. Each is a single task the agent can finish through ue-mcp. */
+const EXAMPLES = [
+  "Make a glowing orange material and put it on a sphere in the level",
+  "Build a Niagara fire at the player start",
+  "List every Blueprint that has no references",
+];
 
 const STATUS_LABEL: Record<string, string> = {
   idle: "",
@@ -25,6 +32,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   const seen = useRef(0);
   const streamed = useRef("");
   const [streaming, setStreaming] = useState("");
+  const [settings, setSettings] = useState<StudioSettings | null>(null);
+  const [key, setKey] = useState("");
 
   const loadList = () => api.sessions().then((r) => setSessions(r.sessions), (e: Error) => setError(e.message));
   const loadDetail = (id: string) => api.session(id).then((d) => {
@@ -34,7 +43,14 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
 
   useEffect(() => {
     void loadList();
+    api.settings().then(setSettings, () => setSettings(null));
   }, []);
+
+  const needsKey = settings?.provider === "byok" && !settings.hasApiKey;
+  const saveKey = () => api.saveSettings({ apiKey: key.trim() }).then((s) => {
+    setSettings(s);
+    setKey("");
+  }, (e: Error) => setError(e.message));
 
   useEffect(() => {
     if (!selected) return;
@@ -68,10 +84,12 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     if (relist) void loadList();
   }, [daemon.events, selected]);
 
-  const create = () => api.newSession().then((d) => {
+  // An example prompt lands as the new session's saved draft, so it is in the composer when the session opens.
+  const create = (prompt?: string) => api.newSession().then(async (d) => {
+    if (prompt) await api.saveDraft(d.id, prompt);
     void loadList();
     setSelected(d.id);
-  }, (e: Error) => setError(e.message));
+  }).catch((e: Error) => setError(e.message));
 
   const send = () => {
     if (!selected || !draft.trim()) return;
@@ -91,9 +109,9 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
         <div className="row">
           <h2>Sessions</h2>
           <span className="spacer" />
-          <button onClick={create}>New</button>
+          <button className="primary" onClick={() => void create()}>New</button>
         </div>
-        {sessions.length === 0 && <p className="muted">No sessions yet.</p>}
+        {sessions.length === 0 && <p className="dim small">No sessions yet.</p>}
         {sessions.map((s) => (
           <div key={s.id} className={`item ${s.id === selected ? "selected" : ""}`} onClick={() => setSelected(s.id)}>
             <strong>{s.title}</strong>
@@ -105,7 +123,37 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
       </aside>
       <section className="card conversation">
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
-        {!detail && <p className="muted">Pick a session, or start a new one.</p>}
+        {!detail && (
+          <div className="empty">
+            <h1 className="display"><em>Start</em> a session.</h1>
+            <p className="muted">The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more.</p>
+            {needsKey ? (
+              <div className="keyform">
+                <span className="eyebrow">Add your Anthropic API key</span>
+                <div className="row">
+                  <input
+                    type="password"
+                    placeholder="sk-ant-..."
+                    value={key}
+                    onChange={(e) => setKey(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && key.trim() && void saveKey()}
+                  />
+                  <button className="primary" disabled={!key.trim()} onClick={() => void saveKey()}>Save key</button>
+                </div>
+                <p className="dim small">The key stays on this machine. Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.</p>
+              </div>
+            ) : (
+              <>
+                <button className="primary large" onClick={() => void create()}>New session</button>
+                <div className="examples">
+                  {EXAMPLES.map((x) => (
+                    <button key={x} className="example" onClick={() => void create(x)}>{x}</button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
         {detail && (
           <>
             <div className="transcript">
@@ -132,7 +180,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
               />
               {busy
                 ? <button onClick={() => selected && void api.stop(selected)}>Stop</button>
-                : <button disabled={!draft.trim()} onClick={send}>Send</button>}
+                : <button className="primary" disabled={!draft.trim()} onClick={send}>Send</button>}
             </div>
           </>
         )}
@@ -166,7 +214,9 @@ function ToolCall({ call }: { call: ToolCallRecord }) {
   return (
     <details className={`tool ${call.outcome}`}>
       <summary>
-        <span className="mono">{label}</span> <span className="muted small">{OUTCOME[call.outcome]}</span>
+        <span className="tool-name">ue-mcp</span>
+        <span className="tool-call">{label}</span>
+        <span className="dim">{OUTCOME[call.outcome]}</span>
       </summary>
       <pre className="output">{JSON.stringify(call.input, null, 2)}</pre>
       {call.result && <pre className="output">{call.result}</pre>}

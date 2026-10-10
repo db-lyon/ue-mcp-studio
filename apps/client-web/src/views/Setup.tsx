@@ -18,7 +18,11 @@ export function SetupView() {
   return (
     <div className="stack">
       <section className="card">
-        <h2>{report.ok ? "Ready" : "Needs attention"}</h2>
+        <h2>Install</h2>
+        <div className="status-head">
+          <span className={`dot ${report.ok ? "ok" : "warn"}`} />
+          <span className="title">{report.ok ? "Ready" : "Needs attention"}</span>
+        </div>
         {report.problems.length === 0 && <p>The bridge is installed, enabled and built for this project.</p>}
         {report.problems.map((pr) => (
           <div key={pr.code} className="problem">

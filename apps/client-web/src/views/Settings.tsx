@@ -49,7 +49,7 @@ export function SettingsView() {
             {[...new Set([model, ...MODELS])].map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
-        <div className="actions"><button onClick={() => save()}>Save</button></div>
+        <div className="actions"><button className="primary" onClick={() => save()}>Save</button></div>
       </section>
       {provider === "byok" ? (
         <section className="card">
@@ -57,7 +57,7 @@ export function SettingsView() {
           <p className="muted">{settings.hasApiKey ? "A key is saved. It stays on this machine and is never shown again." : "No key saved."}</p>
           <div className="row">
             <input type="password" placeholder="sk-ant-..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-            <button disabled={!apiKey.trim()} onClick={() => save({ apiKey })}>Save key</button>
+            <button className="primary" disabled={!apiKey.trim()} onClick={() => save({ apiKey })}>Save key</button>
             {settings.hasApiKey && <button onClick={() => save({ apiKey: "" })}>Remove key</button>}
           </div>
         </section>
@@ -67,7 +67,7 @@ export function SettingsView() {
           <p className="muted">{settings.hasAccountToken ? "Signed in." : "Not signed in. Paste the token from your account page."}</p>
           <div className="row">
             <input type="password" placeholder="Account token" value={token} onChange={(e) => setToken(e.target.value)} />
-            <button disabled={!token.trim()} onClick={() => save({ accountToken: token })}>Save token</button>
+            <button className="primary" disabled={!token.trim()} onClick={() => save({ accountToken: token })}>Save token</button>
             {settings.hasAccountToken && <button onClick={() => save({ accountToken: "" })}>Sign out</button>}
           </div>
           <div className="row">

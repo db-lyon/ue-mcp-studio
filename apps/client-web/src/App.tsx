@@ -21,7 +21,11 @@ export function App() {
   return (
     <div className="app">
       <header className="bar">
-        <span className="brand">UE-MCP Studio</span>
+        <span className="brand">
+          <span className="mark" />
+          <span className="name">ue-mcp</span>
+          <span className="product">Studio</span>
+        </span>
         <nav>
           {TABS.map((t) => (
             <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
@@ -30,13 +34,13 @@ export function App() {
           ))}
         </nav>
         <span className="spacer" />
-        <span className={`pill ${editor?.connected ? "ok" : "warn"}`}>
+        <span className={`chip ${editor?.connected ? "ok" : "warn"}`}>
           {editor ? (editor.connected ? "Editor connected" : "Editor offline") : "No editor"}
         </span>
-        <span className={`pill ${daemon.streaming ? "ok" : "bad"}`} title="Daemon event stream">
+        <span className={`chip ${daemon.streaming ? "ok" : "bad"}`} title="Daemon event stream">
           {daemon.streaming ? "Live" : "Reconnecting"}
         </span>
-        {!inEditor() && <span className="pill muted">Browser</span>}
+        {!inEditor() && <span className="chip">Browser</span>}
       </header>
       {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
       <main>

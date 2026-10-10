@@ -9,7 +9,8 @@ import type { StudioAccountResponse } from "@ue-mcp-studio/shared";
 async function loadAccount(): Promise<StudioAccountResponse | { error: string }> {
   const res = await fetch("/v1/ext/studio/account", { credentials: "same-origin" });
   if (res.status === 404) return { error: "This version of the Studio agent does not report accounts yet." };
-  if (!res.ok) return { error: `${res.status} ${res.statusText}` };
+  if (res.status === 502) return { error: "The UE-MCP account service could not be reached. Studio works with your own API key in the meantime." };
+  if (!res.ok) return { error: ((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `${res.status} ${res.statusText}` };
   return (await res.json()) as StudioAccountResponse;
 }
 
@@ -25,20 +26,32 @@ export function AccountView() {
   useEffect(load, []);
 
   if (!state) return <p className="muted">Loading account...</p>;
-  if ("error" in state) return <div className="banner bad">{state.error}</div>;
+  if ("error" in state) {
+    return (
+      <div className="stack">
+        <section className="card">
+          <h2>Account</h2>
+          <p>{state.error}</p>
+          <div className="actions"><button onClick={load}>Check again</button></div>
+        </section>
+      </div>
+    );
+  }
   if (!state.signedIn) {
     return (
-      <section className="card">
-        <h2>Not signed in</h2>
-        <p>{state.reason}</p>
-        <p className="muted">
-          Sign in from a terminal with <span className="mono">npx ue-mcp login</span>, then check again. Hosted models need a
-          subscription; with your own API key Studio works without one.
-        </p>
-        <div className="actions">
-          <button onClick={load}>Check again</button>
-        </div>
-      </section>
+      <div className="stack">
+        <section className="card">
+          <h2>Not signed in</h2>
+          <p>{state.reason}</p>
+          <p className="muted">
+            Sign in from a terminal with <span className="mono">npx ue-mcp login</span>, then check again. Hosted models need a
+            subscription; with your own API key Studio works without one.
+          </p>
+          <div className="actions">
+            <button onClick={load}>Check again</button>
+          </div>
+        </section>
+      </div>
     );
   }
 
