@@ -44,7 +44,7 @@ export function SetupView() {
           <dt>Location</dt><dd className="mono">{p.pluginDir ?? "-"}</dd>
           <dt>Engine</dt><dd>{report.project.engine ?? "?"}</dd>
           <dt>C++ toolchain</dt><dd>{report.toolchain.present ? report.toolchain.name : "none"}</dd>
-          <dt>Node</dt><dd>{report.node.version}</dd>
+          <dt>Runtime</dt><dd>{report.node.version}</dd>
         </dl>
       </section>
       <section className="card">
