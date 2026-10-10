@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { StatusReport } from "ue-mcp/daemon";
 import { api } from "../api";
 import { native } from "../native";
+import { ProjectSetup } from "./ProjectSetup";
 
 export function SetupView() {
   const [report, setReport] = useState<StatusReport | null>(null);
@@ -57,6 +58,7 @@ export function SetupView() {
           </div>
         ))}
       </section>
+      <ProjectSetup onApplied={() => void load()} />
     </div>
   );
 }

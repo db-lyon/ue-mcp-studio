@@ -415,3 +415,9 @@ button.theme-option.selected { border-color: var(--accent); background: var(--ac
 .swatch-editor i:nth-child(1) { background: var(--ue-background, #151515); flex: 3; }
 .swatch-editor i:nth-child(2) { background: var(--ue-panel, #242424); flex: 2; }
 .swatch-editor i:nth-child(3) { background: var(--ue-primary, #0070e0); }
+
+/* Project setup */
+.subhead { font: var(--label-font); text-transform: var(--label-case); letter-spacing: var(--label-spacing); color: var(--dim); margin: 18px 0 6px; }
+label.check { display: flex; align-items: baseline; gap: 9px; margin: 0; padding: 4px 0; color: var(--text); cursor: pointer; }
+label.check input { position: relative; top: 2px; }
+label.check .dim { margin-left: 4px; }

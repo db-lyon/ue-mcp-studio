@@ -12,6 +12,10 @@ interface StudioBinding {
   openprojectfolder(): Promise<boolean>;
   /** JSON of the editor's active theme colors; older host plugins do not have it. */
   geteditortheme?(): Promise<string>;
+  /** `ue-mcp init --dry-run` in the background, its JSON plan, and init with the page's choices. */
+  startsetupplan?(): Promise<boolean>;
+  getsetupplan?(): Promise<string>;
+  runsetup?(options: string): Promise<boolean>;
 }
 
 declare global {
