@@ -11,9 +11,9 @@
  * the manifest `ue-mcp extension install` follows.
  *
  * --plugin    also packages the UE_MCP_Studio editor plugin with RunUAT BuildPlugin
- *             for each engine, as UE_MCP_Studio-<version>-UE<engine>-Win64.zip, and
+ *             for each engine, as UE_MCP_Studio-<plugin version>-UE<engine>-Win64.zip, and
  *             fails on any compiler warning in the plugin's own sources.
- * --fab       also writes UE_MCP_Studio-<version>-UE<engine>-Fab.zip, the source-only
+ * --fab       also writes UE_MCP_Studio-<plugin version>-UE<engine>-Fab.zip, the source-only
  *             submission Fab builds itself: no Binaries or Intermediate, and an
  *             EngineVersion key per engine. --fab-url <launcher url> sets FabURL once
  *             the listing exists. Implies --plugin, which proves the same tree builds.
@@ -58,6 +58,9 @@ for (const p of ["apps/agent/package.json", "apps/client-web/package.json"]) {
   const v = JSON.parse(fs.readFileSync(path.join(ROOT, p), "utf-8")).version;
   if (v !== version) throw new Error(`${p} is ${v}, the root package.json is ${version}; keep them in step`);
 }
+// The oldest ue-mcp this release works with: the version the agent is built against.
+const ueMcpMin = String(agentPkg.dependencies?.["ue-mcp"] ?? agentPkg.devDependencies?.["ue-mcp"] ?? "").replace(/^[\^~]/, "");
+if (!/^\d+\.\d+\.\d+/.test(ueMcpMin)) throw new Error(`apps/agent/package.json pins no ue-mcp version (${ueMcpMin || "none"})`);
 if (!fs.existsSync(RELEASE_KEY)) throw new Error(`no release signing key at ${RELEASE_KEY}`);
 
 fs.rmSync(OUT, { recursive: true, force: true });
@@ -98,6 +101,8 @@ const latest = {
   sha256: sha256(path.join(OUT, zipName)),
   extensionApi: agentPkg.ueMcpExtension.api,
   uiApi: manifest.api,
+  // The host plugin takes its ue-mcp pin from here, so following a ue-mcp release never needs a host update.
+  ueMcp: { min: ueMcpMin, package: `ue-mcp@${ueMcpMin.includes("-") ? ueMcpMin.split("-")[1].split(".")[0] : "latest"}` },
 };
 fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(latest, null, 2) + "\n");
 console.log(`\n${zipName} (${Object.keys(manifest.files).length} UI files) sha256 ${latest.sha256}`);
@@ -110,11 +115,10 @@ const fabUrl = arg("--fab-url", null);
 if (fab && !fabUrl) console.warn("no --fab-url: the Fab zip has no FabURL key, which Fab requires once the listing ID exists");
 if (has("--plugin") || fab) {
   const uplugin = path.join(ROOT, "apps", "client-plugin", "StudioHost", "Plugins", "UE_MCP_Studio", "UE_MCP_Studio.uplugin");
+  // The host plugin has its own version, bumped only when its code changes; a Studio release
+  // that touches only the extension ships no new plugin.
   const descriptor = JSON.parse(fs.readFileSync(uplugin, "utf-8"));
-  if (descriptor.VersionName !== version) {
-    descriptor.VersionName = version;
-    fs.writeFileSync(uplugin, JSON.stringify(descriptor, null, "\t") + "\n");
-  }
+  const pluginVersion = descriptor.VersionName;
   // BuildPlugin writes a default Config/FilterPlugin.ini into the source plugin; keep the tree clean.
   const filterIni = path.join(path.dirname(uplugin), "Config", "FilterPlugin.ini");
   const hadFilterIni = fs.existsSync(filterIni);
@@ -135,7 +139,7 @@ if (has("--plugin") || fab) {
     const warnings = buildWarnings(r.stdout ?? "");
     if (warnings.length) throw new Error(`UE ${engine} build has warnings in the plugin's sources:\n${warnings.join("\n")}`);
     for (const d of ["Intermediate", "HostProject"]) fs.rmSync(path.join(pkg, d), { recursive: true, force: true });
-    const name = `UE_MCP_Studio-${version}-UE${engine}-Win64.zip`;
+    const name = `UE_MCP_Studio-${pluginVersion}-UE${engine}-Win64.zip`;
     zip(pkgStage, "UE_MCP_Studio", path.join(OUT, name));
     fs.rmSync(pkgStage, { recursive: true, force: true });
     if (!hadFilterIni) fs.rmSync(path.dirname(filterIni), { recursive: true, force: true });
@@ -153,7 +157,7 @@ if (has("--plugin") || fab) {
       fs.writeFileSync(path.join(fabPkg, "UE_MCP_Studio.uplugin"), JSON.stringify(fabDescriptor, null, "\t") + "\n");
       const long = walk(fabPkg).map((f) => "UE_MCP_Studio/" + path.relative(fabPkg, f).replaceAll("\\", "/")).filter((f) => f.length > 170);
       if (long.length) throw new Error(`Fab caps paths at 170 characters: ${long.join(", ")}`);
-      const fabName = `UE_MCP_Studio-${version}-UE${engine}-Fab.zip`;
+      const fabName = `UE_MCP_Studio-${pluginVersion}-UE${engine}-Fab.zip`;
       zip(fabStage, "UE_MCP_Studio", path.join(OUT, fabName));
       fs.rmSync(fabStage, { recursive: true, force: true });
       fabZips.push(fabName);
