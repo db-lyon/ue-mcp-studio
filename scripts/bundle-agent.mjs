@@ -19,6 +19,8 @@ const result = await build({
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
   logLevel: "warning",
   metafile: true,
+  // Metafile paths are relative to this, and scripts/notices.mjs resolves them from the root.
+  absWorkingDir: root,
 });
 // Which packages went into the bundle, for the third-party notices.
 fs.writeFileSync(path.join(root, "apps", "agent", "dist", "meta.json"), JSON.stringify(result.metafile));
