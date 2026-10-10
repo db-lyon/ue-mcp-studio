@@ -2,7 +2,7 @@
 /**
  * Build, sign, package and publish a Studio release.
  *
- *   node scripts/release.mjs [--plugin] [--engines 5.7,5.8] [--publish] [--notes-file notes.md]
+ *   node scripts/release.mjs [--plugin] [--fab [--fab-url <url>]] [--engines 5.7,5.8] [--publish] [--notes-file notes.md]
  *
  * Always: builds the UI and the bundled agent (trusting the release key only),
  * signs the UI with the release key from ~/.ue-mcp-studio/keys, and writes
@@ -10,7 +10,12 @@
  * the manifest `ue-mcp extension install` follows.
  *
  * --plugin    also packages the UE_MCP_Studio editor plugin with RunUAT BuildPlugin
- *             for each engine, as UE_MCP_Studio-<version>-UE<engine>-Win64.zip.
+ *             for each engine, as UE_MCP_Studio-<version>-UE<engine>-Win64.zip, and
+ *             fails on any compiler warning in the plugin's own sources.
+ * --fab       also writes UE_MCP_Studio-<version>-UE<engine>-Fab.zip, the source-only
+ *             submission Fab builds itself: no Binaries or Intermediate, and an
+ *             EngineVersion key per engine. --fab-url <launcher url> sets FabURL once
+ *             the listing exists. Implies --plugin, which proves the same tree builds.
  * --publish   creates release v<version> on the public db-lyon/ue-mcp-studio-releases
  *             (downloads, always marked latest so .../releases/latest/download/latest.json
  *             resolves) and on the private db-lyon/ue-mcp-studio (the release record).
@@ -96,7 +101,11 @@ console.log(`\n${zipName} (${Object.keys(manifest.files).length} UI files) sha25
 
 // 4. The editor plugin, per engine.
 const pluginZips = [];
-if (has("--plugin")) {
+const fabZips = [];
+const fab = has("--fab");
+const fabUrl = arg("--fab-url", null);
+if (fab && !fabUrl) console.warn("no --fab-url: the Fab zip has no FabURL key, which Fab requires once the listing ID exists");
+if (has("--plugin") || fab) {
   const uplugin = path.join(ROOT, "apps", "client-plugin", "StudioHost", "Plugins", "UE_MCP_Studio", "UE_MCP_Studio.uplugin");
   const descriptor = JSON.parse(fs.readFileSync(uplugin, "utf-8"));
   if (descriptor.VersionName !== version) {
@@ -117,8 +126,11 @@ if (has("--plugin")) {
     const pkg = path.join(pkgStage, "UE_MCP_Studio");
     fs.rmSync(pkgStage, { recursive: true, force: true });
     const argsLine = [uat, "BuildPlugin", `-Plugin=${uplugin}`, `-Package=${pkg}`, "-TargetPlatforms=Win64", "-Rocket"].map((x) => `"${x}"`).join(" ");
-    const r = spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${argsLine}"`], { stdio: "inherit", windowsVerbatimArguments: true });
+    const r = spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${argsLine}"`], { stdio: ["ignore", "pipe", "inherit"], encoding: "utf-8", maxBuffer: 256 * 1024 * 1024, windowsVerbatimArguments: true });
+    process.stdout.write(r.stdout ?? "");
     if (r.status !== 0) throw new Error(`BuildPlugin UE_MCP_Studio failed for UE ${engine}`);
+    const warnings = buildWarnings(r.stdout ?? "");
+    if (warnings.length) throw new Error(`UE ${engine} build has warnings in the plugin's sources:\n${warnings.join("\n")}`);
     for (const d of ["Intermediate", "HostProject"]) fs.rmSync(path.join(pkg, d), { recursive: true, force: true });
     const name = `UE_MCP_Studio-${version}-UE${engine}-Win64.zip`;
     zip(pkgStage, "UE_MCP_Studio", path.join(OUT, name));
@@ -126,7 +138,39 @@ if (has("--plugin")) {
     if (!hadFilterIni) fs.rmSync(path.dirname(filterIni), { recursive: true, force: true });
     pluginZips.push(name);
     console.log(`${name} packaged`);
+
+    if (fab) {
+      const fabStage = path.join(os.tmpdir(), "uemcps", `UE${engine}-fab`);
+      const fabPkg = path.join(fabStage, "UE_MCP_Studio");
+      fs.rmSync(fabStage, { recursive: true, force: true });
+      fs.mkdirSync(fabPkg, { recursive: true });
+      for (const d of ["Source", "Resources"]) fs.cpSync(path.join(path.dirname(uplugin), d), path.join(fabPkg, d), { recursive: true });
+      const fabDescriptor = { ...descriptor, EngineVersion: `${engine}.0` };
+      if (fabUrl) fabDescriptor.FabURL = fabUrl;
+      fs.writeFileSync(path.join(fabPkg, "UE_MCP_Studio.uplugin"), JSON.stringify(fabDescriptor, null, "\t") + "\n");
+      const long = walk(fabPkg).map((f) => "UE_MCP_Studio/" + path.relative(fabPkg, f).replaceAll("\\", "/")).filter((f) => f.length > 170);
+      if (long.length) throw new Error(`Fab caps paths at 170 characters: ${long.join(", ")}`);
+      const fabName = `UE_MCP_Studio-${version}-UE${engine}-Fab.zip`;
+      zip(fabStage, "UE_MCP_Studio", path.join(OUT, fabName));
+      fs.rmSync(fabStage, { recursive: true, force: true });
+      fabZips.push(fabName);
+      console.log(`${fabName} packaged`);
+    }
   }
+}
+
+/** Every file under dir. */
+function walk(dir) {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
+}
+
+/** Compiler warnings raised in UE_MCP_Studio's own source files, from BuildPlugin's output. */
+function buildWarnings(output) {
+  const found = new Set();
+  for (const line of output.split(/\r?\n/)) {
+    if (/UE_MCP_Studio[\/]Source/.test(line) && /\bwarning\b/i.test(line)) found.add(line.trim());
+  }
+  return [...found];
 }
 
 // 5. Publish.
