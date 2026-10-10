@@ -25,11 +25,16 @@ export interface StudioConfigFile {
 /** Which model access the agent uses. */
 export type ProviderKind = "byok" | "gateway";
 
+/** How the UI looks: the ue-mcp.com look, a light variant, or the editor's own colors. */
+export type StudioTheme = "ue-mcp" | "light" | "editor";
+export const STUDIO_THEMES: readonly StudioTheme[] = ["ue-mcp", "light", "editor"];
+
 /** GET /v1/ext/studio/settings. Secrets are reported by presence only, never returned. */
 export interface StudioSettings {
   provider: ProviderKind;
   model: string;
   gatewayUrl: string;
+  theme: StudioTheme;
   hasApiKey: boolean;
   hasAccountToken: boolean;
 }
@@ -39,6 +44,7 @@ export interface StudioSettingsUpdate {
   provider?: ProviderKind;
   model?: string;
   gatewayUrl?: string;
+  theme?: StudioTheme;
   apiKey?: string;
   accountToken?: string;
 }

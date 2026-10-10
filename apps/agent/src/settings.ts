@@ -7,7 +7,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ProviderKind, StudioSettings, StudioSettingsUpdate } from "@ue-mcp-studio/shared";
+import { STUDIO_THEMES, type ProviderKind, type StudioSettings, type StudioSettingsUpdate, type StudioTheme } from "@ue-mcp-studio/shared";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 export const DEFAULT_GATEWAY_URL = "https://gateway.ue-mcp.com";
@@ -16,6 +16,7 @@ interface StoredSettings {
   provider: ProviderKind;
   model: string;
   gatewayUrl: string;
+  theme: StudioTheme;
 }
 
 export class SettingsStore {
@@ -34,9 +35,10 @@ export class SettingsStore {
         provider: raw.provider === "gateway" ? "gateway" : "byok",
         model: typeof raw.model === "string" && raw.model ? raw.model : DEFAULT_MODEL,
         gatewayUrl: typeof raw.gatewayUrl === "string" && raw.gatewayUrl ? raw.gatewayUrl : DEFAULT_GATEWAY_URL,
+        theme: STUDIO_THEMES.includes(raw.theme as StudioTheme) ? (raw.theme as StudioTheme) : "ue-mcp",
       };
     } catch {
-      return { provider: "byok", model: DEFAULT_MODEL, gatewayUrl: DEFAULT_GATEWAY_URL };
+      return { provider: "byok", model: DEFAULT_MODEL, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp" };
     }
   }
 
@@ -85,6 +87,10 @@ export class SettingsStore {
     if (u.gatewayUrl !== undefined) {
       if (!/^https?:\/\//.test(u.gatewayUrl)) throw new Error("gatewayUrl must be an http(s) URL");
       s.gatewayUrl = u.gatewayUrl.replace(/\/+$/, "");
+    }
+    if (u.theme !== undefined) {
+      if (!STUDIO_THEMES.includes(u.theme)) throw new Error(`theme must be one of ${STUDIO_THEMES.join(", ")}`);
+      s.theme = u.theme;
     }
     fs.writeFileSync(this.file("settings.json"), JSON.stringify(s, null, 2));
     if (u.apiKey !== undefined) this.writeSecret("anthropic.key", u.apiKey.trim());
