@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
-    "@ue-mcp-studio/shared": "0.1.0-beta.1",
+    "@ue-mcp-studio/shared": "*",
     "yaml": "^2.6.1"
   },
   "devDependencies": {
