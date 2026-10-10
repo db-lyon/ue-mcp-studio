@@ -5,7 +5,8 @@
  *   node scripts/release.mjs [--plugin] [--fab [--fab-url <url>]] [--engines 5.7,5.8] [--publish] [--notes-file notes.md]
  *
  * Always: builds the UI and the bundled agent (trusting the release key only),
- * signs the UI with the release key from ~/.ue-mcp-studio/keys, and writes
+ * signs the UI with the release key from ~/.ue-mcp-studio/keys, adds the
+ * third-party notices (scripts/notices.mjs), and writes
  * release/studio-<version>.zip plus release/latest.json ({ version, url, sha256 }),
  * the manifest `ue-mcp extension install` follows.
  *
@@ -27,6 +28,7 @@ import * as path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { signBundle } from "ue-mcp/daemon";
+import { renderNotices } from "./notices.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "release");
@@ -83,6 +85,7 @@ fs.writeFileSync(path.join(ext, "package.json"), JSON.stringify({
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "index.js"), path.join(ext, "dist", "index.js"));
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "keys.json"), path.join(ext, "dist", "keys.json"));
 fs.cpSync(path.join(ROOT, "apps", "client-web", "dist"), path.join(ext, "ui"), { recursive: true });
+fs.writeFileSync(path.join(ext, "THIRD_PARTY_NOTICES.txt"), renderNotices().text);
 const manifest = signBundle(path.join(ext, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(RELEASE_KEY, "utf-8"));
 
 // 3. Package with its manifest.
