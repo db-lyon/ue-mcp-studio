@@ -10,6 +10,8 @@ interface StudioBinding {
   restarteditor(): Promise<boolean>;
   enableplugin(name: string): Promise<boolean>;
   openprojectfolder(): Promise<boolean>;
+  /** JSON of the editor's active theme colors; older host plugins do not have it. */
+  geteditortheme?(): Promise<string>;
 }
 
 declare global {

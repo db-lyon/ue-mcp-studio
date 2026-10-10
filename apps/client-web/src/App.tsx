@@ -1,4 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { StudioTheme } from "@ue-mcp-studio/shared";
+import { api } from "./api";
+import { applyTheme } from "./theme";
 import { useDaemon } from "./state";
 import { inEditor } from "./native";
 import { StatusView } from "./views/Status";
@@ -17,6 +20,10 @@ export function App() {
   const daemon = useDaemon();
   const [tab, setTab] = useState<Tab>("Chat");
   const editor = daemon.health?.editors[0];
+
+  useEffect(() => {
+    api.settings().then((s) => void applyTheme(s.theme), () => void applyTheme("ue-mcp"));
+  }, []);
 
   return (
     <div className="app">
@@ -50,7 +57,7 @@ export function App() {
         {tab === "Logs" && <LogsView daemon={daemon} />}
         {tab === "Config" && <ConfigView />}
         {tab === "Chat" && <ChatView daemon={daemon} />}
-        {tab === "Settings" && <SettingsView />}
+        {tab === "Settings" && <SettingsView onTheme={(t: StudioTheme) => void applyTheme(t)} />}
         {tab === "Account" && <AccountView />}
       </main>
     </div>

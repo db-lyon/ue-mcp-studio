@@ -12,6 +12,7 @@
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/plus-jakarta-sans": "^5.3.0",
     "@fontsource/instrument-serif": "^5.3.0",
+    "@fontsource/roboto": "^5.3.0",
     "@ue-mcp-studio/shared": "*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"

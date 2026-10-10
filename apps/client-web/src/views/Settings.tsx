@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
-import type { ProviderKind, StudioSettings } from "@ue-mcp-studio/shared";
+import type { ProviderKind, StudioSettings, StudioTheme } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
 
 const MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-5-5"];
 
-export function SettingsView() {
+const THEMES: { id: StudioTheme; name: string; about: string }[] = [
+  { id: "ue-mcp", name: "ue-mcp", about: "Dark, with the ue-mcp.com orange." },
+  { id: "light", name: "Light", about: "The same look on a light background." },
+  { id: "editor", name: "Editor", about: "Unreal's own colors and type, so the panel blends in." },
+];
+
+export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const [provider, setProvider] = useState<ProviderKind>("byok");
   const [model, setModel] = useState("");
@@ -33,9 +39,27 @@ export function SettingsView() {
     }, (e: ApiError) => setMessage({ ok: false, text: e.message }));
   };
 
+  // A theme applies as soon as it is picked; saving it is separate from the model form.
+  const pickTheme = (theme: StudioTheme) => {
+    onTheme(theme);
+    api.saveSettings({ theme }).then(apply, (e: ApiError) => setMessage({ ok: false, text: e.message }));
+  };
+
   if (!settings) return message ? <div className="banner bad">{message.text}</div> : <p className="muted">Loading...</p>;
   return (
     <div className="stack">
+      <section className="card">
+        <h2>Appearance</h2>
+        <div className="themes">
+          {THEMES.map((t) => (
+            <button key={t.id} className={`theme-option ${settings.theme === t.id ? "selected" : ""}`} onClick={() => pickTheme(t.id)}>
+              <span className={`swatch swatch-${t.id}`}><i /><i /><i /></span>
+              <strong>{t.name}</strong>
+              <span className="muted small">{t.about}</span>
+            </button>
+          ))}
+        </div>
+      </section>
       <section className="card">
         <h2>Model</h2>
         {message && <div className={`banner ${message.ok ? "ok" : "bad"}`}>{message.text}</div>}
