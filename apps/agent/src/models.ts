@@ -4,7 +4,7 @@
  * release; until then, and when it cannot be reached, a short starting list
  * stands in. Each model names the sign-ins that can run it.
  */
-import { KEY_PROVIDER_IDS, PROVIDERS, type KeyProviderId, type ModelCatalog, type ModelOption, type SignInId } from "@ue-mcp-studio/shared";
+import { KEY_PROVIDER_IDS, PROVIDERS, STUDIO_PLAN_AVAILABLE, type KeyProviderId, type ModelCatalog, type ModelOption, type SignInId } from "@ue-mcp-studio/shared";
 import { OPENAI_BASE_URLS } from "./openai-compat.js";
 
 /**
@@ -73,7 +73,7 @@ export interface SignInCoverage {
 export function signInsFor(vendor: KeyProviderId, model: string, c: SignInCoverage): SignInId[] {
   const out: SignInId[] = [];
   if (vendor === "anthropic") out.push("claude");
-  if (inPlan(vendor, model, c.planModels)) out.push("studio");
+  if (STUDIO_PLAN_AVAILABLE && inPlan(vendor, model, c.planModels)) out.push("studio");
   return out;
 }
 

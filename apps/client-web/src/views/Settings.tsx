@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KEY_PROVIDER_IDS, PROVIDERS, SIGN_IN_IDS, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
 import { KeyForm, ModelPicker, SignInForm } from "./ModelPicker";
 
@@ -63,7 +63,7 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
         <p className="muted">Sign in to run models without an API key.</p>
         {message && <div className={`banner ${message.ok ? "ok" : "bad"}`}>{message.text}</div>}
         <div className="providers">
-          {SIGN_IN_IDS.map((p) => (
+          {OFFERED_SIGN_INS.map((p) => (
             <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={(text) => setMessage({ ok: false, text })} />
           ))}
         </div>

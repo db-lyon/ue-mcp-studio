@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { STUDIO_PLAN_AVAILABLE } from "@ue-mcp-studio/shared";
 import { OpenAICompatibleProvider, PROVIDER_EXTRA, readChatStream, toChatRequest } from "../src/openai-compat.js";
 import { requestBody, type ModelRequest } from "../src/providers.js";
 import { chatModels, signInsFor } from "../src/models.js";
@@ -128,7 +129,7 @@ describe("Studio sign-in", () => {
 describe("sign-ins come before keys", () => {
   it("runs every Claude model on the Claude plan first, and the Studio plan's models on Studio next", () => {
     const coverage = { planModels: ["claude-opus-5-5"] };
-    expect(signInsFor("anthropic", "claude-opus-5-5", coverage)).toEqual(["claude", "studio"]);
+    expect(signInsFor("anthropic", "claude-opus-5-5", coverage)).toEqual(STUDIO_PLAN_AVAILABLE ? ["claude", "studio"] : ["claude"]);
     expect(signInsFor("anthropic", "claude-haiku-5-5", coverage)).toEqual(["claude"]);
     expect(signInsFor("openai", "gpt-6-sol", coverage)).toEqual([]);
   });

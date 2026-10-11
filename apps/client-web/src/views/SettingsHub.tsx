@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { STUDIO_PLAN_AVAILABLE } from "@ue-mcp-studio/shared";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { SettingsView } from "./Settings";
 import { AccountView } from "./Account";
@@ -6,7 +7,7 @@ import { SetupView } from "./Setup";
 
 const SECTIONS = [
   { id: "general", name: "General" },
-  { id: "account", name: "Account" },
+  ...(STUDIO_PLAN_AVAILABLE ? [{ id: "account" as const, name: "Account" }] : []),
   { id: "project", name: "Project" },
 ] as const;
 type Section = (typeof SECTIONS)[number]["id"];

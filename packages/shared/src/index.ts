@@ -35,6 +35,12 @@ export const KEY_PROVIDER_IDS: readonly KeyProviderId[] = ["anthropic", "openai"
 export type SignInId = "claude" | "studio";
 export const SIGN_IN_IDS: readonly SignInId[] = ["claude", "studio"];
 
+/** Whether the panel offers the Studio plan sign-in. Off: it is hidden everywhere. */
+export const STUDIO_PLAN_AVAILABLE = false;
+
+/** The sign-ins the panel offers now. */
+export const OFFERED_SIGN_INS: readonly SignInId[] = SIGN_IN_IDS.filter((s) => s !== "studio" || STUDIO_PLAN_AVAILABLE);
+
 export type ProviderId = SignInId | KeyProviderId;
 export const PROVIDER_IDS: readonly ProviderId[] = [...SIGN_IN_IDS, ...KEY_PROVIDER_IDS];
 
