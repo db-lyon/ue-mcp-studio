@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { UpdatesCard, updateSteps, waiting } from "./Updates";
+import { UpdatesCard, readyLine, updateSteps, waiting } from "./Updates";
 
 const studio = (s: boolean, p: boolean) => ({
   studio: { installed: "0.1.0-beta.9", latest: s ? "0.1.0-beta.10" : "0.1.0-beta.9", available: s },
@@ -19,6 +19,11 @@ describe("updates", () => {
     expect(updateSteps({ studio: studio(true, true), ueMcp: ueMcp(true) })).toEqual(["ueMcp", "plugin", "studio"]);
     expect(updateSteps({ studio: studio(false, false), ueMcp: ueMcp(false) })).toEqual([]);
     expect(waiting({ studio: studio(true, false), ueMcp: ueMcp(true) })).toBe(2);
+  });
+
+  it("names each part that has something newer", () => {
+    expect(readyLine({ studio: studio(false, false), ueMcp: ueMcp(true) })).toBe("Ready to install: ue-mcp 1.4.0-beta.2.");
+    expect(readyLine({ studio: studio(true, true), ueMcp: ueMcp(true) })).toBe("Ready to install: ue-mcp 1.4.0-beta.2, the editor plugin 0.1.0-beta.9 and Studio 0.1.0-beta.10.");
   });
 
   it("shows one Update button that runs every step in order, and stops at the first failure", async () => {
@@ -41,7 +46,7 @@ describe("updates", () => {
   it("says up to date with nothing to do", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(false, false) : ueMcp(false)))));
     render(<UpdatesCard />);
-    await waitFor(() => expect(screen.getByText("Studio is up to date.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Everything is up to date.")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
   });
 });

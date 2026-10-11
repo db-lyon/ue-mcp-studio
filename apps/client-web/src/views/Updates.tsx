@@ -63,6 +63,17 @@ export function updateSteps(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdat
   return steps;
 }
 
+/** "Ready to install: ue-mcp 1.4.0-beta.3 and the editor plugin 0.1.0-beta.9." Names each part that has something newer. */
+export function readyLine(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): string {
+  const parts: string[] = [];
+  if (u.ueMcp?.target) parts.push(`ue-mcp ${u.ueMcp.target}`);
+  if (u.studio?.plugin.available) parts.push(`the editor plugin ${u.studio.plugin.latest}`);
+  if (u.studio?.studio.available) parts.push(`Studio ${u.studio.studio.latest}`);
+  if (!parts.length) return "";
+  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  return `Ready to install: ${list}.`;
+}
+
 const STEP_LABEL = { ueMcp: "Updating ue-mcp", plugin: "Updating the editor plugin: the editor closes and reopens", studio: "Updating Studio: the panel reloads" } as const;
 
 /**
@@ -78,7 +89,7 @@ export function UpdatesCard() {
   useEffect(load, []);
 
   const steps = u ? updateSteps(u) : [];
-  const target = u?.studio?.studio.available ? u.studio.studio.latest : u?.studio?.plugin.available ? u.studio.plugin.latest : u?.ueMcp?.target;
+  const ready = u ? readyLine(u) : "";
   const engineOnly = u?.studio?.plugin.location === "engine" && !!u?.studio?.plugin.latest;
 
   const update = async () => {
@@ -119,7 +130,7 @@ export function UpdatesCard() {
       {u && (
         <div className="row update-status">
           <span className={`pill ${steps.length ? "warn" : "ok"}`}>{steps.length ? "Update available" : "Up to date"}</span>
-          <span className="muted">{working ?? (done && !steps.length ? "Updated." : steps.length ? `Studio ${target ?? ""} is ready to install.` : "Studio is up to date.")}</span>
+          <span className="muted">{working ?? (done && !steps.length ? "Updated." : steps.length ? ready : "Everything is up to date.")}</span>
           <span className="spacer" />
           {steps.length > 0 && <button className="primary" disabled={!!working} onClick={() => void update()}>Update</button>}
         </div>
