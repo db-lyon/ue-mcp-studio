@@ -146,12 +146,38 @@ export class Updater {
     return status;
   }
 
-  /** Reinstall the extension from the channel. The install restarts the daemon, so it runs detached. */
-  updateStudio(): { started: boolean; error?: string } {
+  /**
+   * Run the newest ue-mcp on the channel, detached: npx resolves the channel
+   * (ue-mcp@beta) each time, so a daemon it starts runs the version just
+   * installed rather than the one this daemon runs.
+   */
+  private async ueMcp(args: string[]): Promise<{ started: boolean; error?: string }> {
+    const npx = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
+    if (!fs.existsSync(npx)) return { started: false, error: "npx was not found beside Node" };
+    const pkg = await this.manifest().then((m) => (m as ReleaseManifest & { ueMcp?: { package?: string } }).ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
+    const child = spawn(process.execPath, [npx, "-y", pkg, ...args], { detached: true, stdio: "ignore", windowsHide: true, cwd: this.host.projectDir });
+    child.unref();
+    return { started: true };
+  }
+
+  /** Reinstall the extension from the channel through the newest ue-mcp; the install restarts the daemon on it. */
+  async updateStudio(): Promise<{ started: boolean; error?: string }> {
     const uproject = this.uproject();
-    const cli = process.argv[1];
-    if (!uproject || !cli) return { started: false, error: "could not find the project or the ue-mcp command this daemon runs" };
-    const child = spawn(process.execPath, [cli, "extension", "install", MANIFEST_URL, uproject], { detached: true, stdio: "ignore", windowsHide: true });
+    if (!uproject) return { started: false, error: "could not find the project" };
+    return this.ueMcp(["extension", "install", MANIFEST_URL, uproject]);
+  }
+
+  /** Restart the daemon on the newest ue-mcp, after an update installed it. */
+  async restartDaemon(): Promise<{ started: boolean; error?: string }> {
+    const uproject = this.uproject();
+    if (!uproject) return { started: false, error: "could not find the project" };
+    // Stop, then start: two ue-mcp runs in one detached chain, so the stop does not take the start down with it.
+    const npx = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
+    const pkg = await this.manifest().then((m) => (m as ReleaseManifest & { ueMcp?: { package?: string } }).ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
+    const script = `const {execFileSync}=require("child_process");const a=[${JSON.stringify(npx)},"-y",${JSON.stringify(pkg)}];` +
+      `try{execFileSync(process.execPath,[...a,"daemon","stop",${JSON.stringify(uproject)}],{stdio:"ignore"})}catch{}` +
+      `execFileSync(process.execPath,[...a,"daemon","start",${JSON.stringify(uproject)}],{stdio:"ignore"});`;
+    const child = spawn(process.execPath, ["-e", script], { detached: true, stdio: "ignore", windowsHide: true, cwd: this.host.projectDir });
     child.unref();
     return { started: true };
   }
