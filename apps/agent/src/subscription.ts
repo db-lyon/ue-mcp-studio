@@ -7,7 +7,6 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
-import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createSdkMcpServer, query, tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
@@ -15,6 +14,7 @@ import type { StudioSignIn } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import type { ToolExecution } from "./tools.js";
+import { ensureRuntime, installedRuntime } from "./runtime.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -33,17 +33,6 @@ export function claudeLogin(): { subscription: string } | null {
   }
 }
 
-/** The SDK's own Claude Code binary, from its platform package. */
-export function claudeExecutable(): string | null {
-  try {
-    const pkg = createRequire(import.meta.url).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`);
-    const exe = path.join(path.dirname(pkg), process.platform === "win32" ? "claude.exe" : "claude");
-    return fs.existsSync(exe) ? exe : null;
-  } catch {
-    return null;
-  }
-}
-
 /** The environment the binary runs in: Studio's Claude folder, and no API key to prefer over the login. */
 function claudeEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: claudeHome(), CLAUDE_AGENT_SDK_CLIENT_APP: "ue-mcp-studio-experimental", ...extra };
@@ -53,7 +42,9 @@ function claudeEnv(extra: Record<string, string> = {}): Record<string, string | 
   return env;
 }
 
-const MISSING = "The Claude runtime is missing from this Studio install.";
+/** The runtime, fetched on first use; an error message when it cannot be had. */
+const runtime = (): Promise<{ exe: string } | { error: string }> =>
+  ensureRuntime().then((exe) => ({ exe }), (e: Error) => ({ error: e.message }));
 
 /**
  * Sign in to Claude with the SDK's binary: it prints the page to approve on,
@@ -76,8 +67,9 @@ export class ClaudeSignInFlow {
 
   async start(): Promise<StudioSignIn> {
     this.cancel();
-    const exe = claudeExecutable();
-    if (!exe) return (this.state = { state: "error", error: MISSING });
+    const rt = await runtime();
+    if ("error" in rt) return (this.state = { state: "error", error: rt.error });
+    const exe = rt.exe;
     fs.mkdirSync(claudeHome(), { recursive: true });
     const child = spawn(exe, ["auth", "login", "--claudeai"], { env: claudeEnv({ BROWSER: "none" }), cwd: claudeHome(), windowsHide: true });
     this.child = child;
@@ -133,7 +125,7 @@ export class ClaudeSignInFlow {
   /** Forget Studio's Claude login. */
   async signOut(): Promise<void> {
     this.cancel();
-    const exe = claudeExecutable();
+    const exe = installedRuntime();
     if (exe) await new Promise((r) => spawn(exe, ["auth", "logout"], { env: claudeEnv(), cwd: claudeHome(), windowsHide: true }).once("exit", r).once("error", r));
     fs.rmSync(path.join(claudeHome(), ".credentials.json"), { force: true });
   }
@@ -168,9 +160,10 @@ export interface SubscriptionTurn {
 
 /** Run one turn to the end. Resolves with an error message when the turn failed. */
 export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string | null> {
-  const exe = claudeExecutable();
-  if (!exe) return MISSING;
   if (!claudeLogin()) return "Sign in to your Claude subscription: open the model picker.";
+  const rt = await runtime();
+  if ("error" in rt) return rt.error;
+  const exe = rt.exe;
   fs.mkdirSync(claudeHome(), { recursive: true });
 
   // The SDK does not hand the tool_use id to a handler: match the call to the block the model just sent.
