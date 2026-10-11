@@ -209,3 +209,20 @@ export interface SessionChangedEvent {
   waitingCause: string | null;
 }
 export * from "./account.js";
+
+/** GET /v1/ext/studio/vcs: the project's source control, or null when it has none Studio can see. */
+export interface VcsStatus {
+  kind: "git" | "perforce" | "plastic" | "svn";
+  /** Its product name, for display. */
+  name: string;
+  /** The branch, stream or workspace the project is on. */
+  branch: string | null;
+  /** More about where it is, such as the Perforce workspace of a stream. */
+  detail?: string;
+  /** Changed (Git, Plastic, Subversion) or opened (Perforce) files; null when the tool is not installed. */
+  changes: number | null;
+  /** Git only: commits ahead of and behind the upstream branch. */
+  ahead?: number;
+  behind?: number;
+  root: string;
+}
