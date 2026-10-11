@@ -1,3 +1,4 @@
+import { UpdatesCard } from "./Updates";
 import { useEffect, useState } from "react";
 import { KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
@@ -41,6 +42,7 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
   if (!settings) return message ? <div className="banner bad">{message.text}</div> : <p className="muted">Loading...</p>;
   return (
     <div className="stack">
+      <UpdatesCard />
       <section className="card">
         <h2>Appearance</h2>
         <div className="themes">
