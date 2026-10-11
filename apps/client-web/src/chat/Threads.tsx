@@ -64,9 +64,11 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
         <>
           <button className="agents-fold dim small" aria-expanded={open} onClick={() => setShowFinished(!open)}>
             <span className="agents-caret">{open ? "▾" : "▸"}</span>
-            Finished ({finished.length})
-            {fresh > 0 && <span className="agents-new-count">, {fresh} new</span>}
-            {failed > 0 && <span className="agents-failed">, {failed} failed</span>}
+            <span>
+              Finished ({finished.length})
+              {fresh > 0 && <span className="agents-new-count">, {fresh} new</span>}
+              {failed > 0 && <span className="agents-failed">, {failed} failed</span>}
+            </span>
           </button>
           {open && finished.map(row)}
         </>
