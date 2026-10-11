@@ -6,6 +6,7 @@ import { useDaemon } from "./state";
 import { openDocs } from "./native";
 import { FlowsView } from "./views/Flows";
 import { PluginsView } from "./views/Plugins";
+import { useUpdateCount } from "./views/Updates";
 import { ChatView } from "./views/Chat";
 import { SettingsHub, type SettingsSection } from "./views/SettingsHub";
 import { VcsChip } from "./chat/VcsChip";
@@ -17,6 +18,7 @@ export function App() {
   const daemon = useDaemon();
   const [tab, setTab] = useState<Tab>("Chat");
   const [section, setSection] = useState<SettingsSection>("general");
+  const updates = useUpdateCount();
   const openSettings = (s: SettingsSection) => {
     setSection(s);
     setTab("Settings");
@@ -39,6 +41,7 @@ export function App() {
           {TABS.map((t) => (
             <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
               {t}
+              {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
             </button>
           ))}
         </nav>

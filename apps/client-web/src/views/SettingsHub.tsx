@@ -6,6 +6,7 @@ import { AccountView } from "./Account";
 import { SetupView } from "./Setup";
 import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
+import { UpdatesCard } from "./Updates";
 
 const SECTIONS = [
   { id: "general", name: "General" },
@@ -35,7 +36,12 @@ export function SettingsHub({ daemon, section, onSection, onTheme }: {
           </button>
         ))}
       </nav>
-      {section === "general" && <SettingsView onTheme={onTheme} />}
+      {section === "general" && (
+        <div className="stack">
+          <UpdatesCard />
+          <SettingsView onTheme={onTheme} />
+        </div>
+      )}
       {section === "account" && <AccountView />}
       {section === "project" && <SetupView />}
       {section === "diagnostics" && (

@@ -679,3 +679,8 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .plugin-readme { max-height: 420px; overflow: auto; padding: 8px 12px; border-top: 1px solid var(--line); }
 .plugin-readme img { max-width: 100%; }
 button.danger-button { color: var(--bad); border-color: var(--bad); }
+
+/* Updates */
+.update-status { gap: 10px; }
+.update-details { margin-top: 8px; }
+.tab-dot { display: inline-block; width: 6px; height: 6px; margin: 0 0 6px 4px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
