@@ -511,8 +511,6 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 /* Subagents of the latest turn, under the composer */
 .agents-bar { display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow: auto; padding-top: 4px; border-top: 1px solid var(--line); }
 .agents-head { padding: 2px 2px 4px; }
-.agents-row { display: flex; align-items: center; gap: 8px; height: auto; min-height: 0; padding: 3px 8px; background: transparent; border: 0; border-radius: 6px; text-align: left; font: 12px/1.5 var(--mono); color: var(--text); cursor: pointer; }
-.agents-row:hover { background: var(--accent-wash); }
 .agents-row .agents-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agents-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 .agents-row.current { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
@@ -529,14 +527,6 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 /* The header of a subagent's thread */
 .thread-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
 .thread-head .eyebrow { margin-bottom: 4px; }
-.thread-head::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; order: 1; }
-.thread-head > strong { order: 2; }
-.thread-head > .dim { order: 3; }
-.thread-head.pending::before { animation: pulse 1.2s ease-in-out infinite; }
-.thread-head.done::before { background: var(--ok); }
-.thread-head.error::before { background: var(--bad); }
-.thread-head.unknown::before { background: var(--warn); }
-.composer .agents-row { height: auto; padding: 3px 8px; }
 
 /* Model replies as markdown */
 .msg.md { white-space: normal; }
@@ -550,7 +540,6 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .msg.md table { border-collapse: collapse; }
 .msg.md th, .msg.md td { border: 1px solid var(--line); padding: 3px 10px; text-align: left; }
 .msg.md th { background: var(--panel-2); font-weight: 600; }
-.thread-head .thread-back { order: 0; color: var(--text); background: var(--panel-2); border-color: transparent; }
 .thread-head .thread-back:hover:not(:disabled) { background: var(--panel-3); border-color: transparent; }
 
 /* A subagent's thread slides over the main thread from the right */
@@ -596,3 +585,49 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .session-title-edit { width: 100%; padding: 3px 6px; font-weight: 600; }
 .sessions-fold { display: flex; align-items: center; gap: 6px; height: auto; margin: 8px -6px 2px; padding: 4px 8px; background: transparent; border: 0; text-align: left; cursor: pointer; }
 .sessions-fold:hover:not(:disabled) { background: var(--panel-2); color: var(--text); }
+
+/* A list row: the thread it opens, and a stop button while it runs */
+.agents-row { display: flex; align-items: center; border-radius: 6px; }
+.agents-row:hover { background: var(--accent-wash); }
+.agents-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: auto; padding: 3px 8px; background: transparent; border: 0; text-align: left; font: 12px/1.5 var(--mono); color: var(--text); cursor: pointer; }
+.composer .agents-open, .composer .agents-stop { height: auto; }
+.agents-open:hover:not(:disabled) { background: transparent; }
+.agents-stop { width: 22px; height: 22px; margin-right: 4px; padding: 0; display: grid; place-items: center; font-size: 9px; color: var(--muted); background: transparent; border-color: transparent; opacity: 0; }
+.agents-row:hover .agents-stop, .agents-stop:focus-visible { opacity: 1; }
+.agents-stop:hover:not(:disabled) { color: var(--bad); background: var(--panel-3); border-color: transparent; }
+.agents-new { padding: 0 5px; border-radius: 8px; font-size: 10px; background: var(--accent-wash); color: var(--accent-hi); }
+.agents-new-count { color: var(--accent-hi); }
+.state-stopped .agents-dot, .agent-link.state-stopped::before { background: var(--muted); }
+.state-stopped .agents-state { color: var(--muted); }
+
+/* A subagent thread's header */
+.thread-head .thread-back { color: var(--text); background: var(--panel-2); border-color: transparent; }
+.thread-head .agents-state { font-size: 11px; }
+.thread-stop { color: var(--bad); }
+
+/* Subagents started together, as one block in the main thread */
+.agent-group { display: flex; flex-direction: column; gap: 6px; }
+.agent-group-head { display: flex; align-items: center; gap: 8px; height: auto; padding: 4px 6px; background: transparent; border: 0; text-align: left; font: 12px/1.6 var(--mono); color: var(--muted); cursor: pointer; }
+.agent-group-head .tool-name { color: var(--text); font-weight: 600; }
+.agent-group-head:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; }
+.agent-group .agent-link { margin-left: 16px; width: calc(100% - 16px); }
+
+/* Progress messages of a finished turn, folded */
+.progress-fold { display: flex; flex-direction: column; gap: 10px; }
+.fold-toggle { display: flex; align-items: center; gap: 6px; align-self: flex-start; height: auto; padding: 3px 8px; background: transparent; border: 0; cursor: pointer; }
+.fold-toggle:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--text); }
+
+/* Back to the newest message */
+.jump-latest { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 3; padding: 5px 12px; border-radius: 14px; background: var(--panel-3); border-color: var(--line-strong); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); }
+
+/* A tool result, shortened when long */
+.result { margin: 6px 0 0 14px; }
+.result .output { margin: 2px 0 4px; }
+.result-bar { display: flex; align-items: center; gap: 8px; }
+
+/* Session status in the list */
+.session-dot { display: inline-block; width: 6px; height: 6px; margin: 0 7px 1px 0; border-radius: 50%; vertical-align: middle; background: transparent; }
+.status-running .session-dot { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.status-waiting .session-dot { background: var(--warn); animation: pulse 2s ease-in-out infinite; }
+.status-error .session-dot { background: var(--bad); }
+@media (prefers-reduced-motion: reduce) { .session-dot { animation: none !important; } }

@@ -16,6 +16,8 @@ interface StudioBinding {
   startsetupplan?(): Promise<boolean>;
   getsetupplan?(): Promise<string>;
   runsetup?(options: string): Promise<boolean>;
+  /** Flash the editor in the taskbar and show a toast; older host plugins do not have it. */
+  drawattention?(message: string): Promise<boolean>;
 }
 
 declare global {

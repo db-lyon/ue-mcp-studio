@@ -68,6 +68,8 @@ export const api = {
   deleteSession: (id: string) => call<void>("DELETE", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
   saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
   send: (id: string, text: string) => call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, { text }),
+  stopSubagent: (id: string, callId: string) =>
+    call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/stop`),
   stop: (id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/stop`),
 };
 
