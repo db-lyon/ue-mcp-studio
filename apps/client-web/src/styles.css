@@ -515,20 +515,12 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agents-row:hover { background: var(--accent-wash); }
 .agents-row .agents-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agents-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
-.agents-row.pending .agents-dot { animation: pulse 1.2s ease-in-out infinite; }
-.agents-row.done .agents-dot { background: var(--ok); }
-.agents-row.error .agents-dot { background: var(--bad); }
-.agents-row.unknown .agents-dot { background: var(--warn); }
 .agents-row.current { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
 .agents-row.main .agents-dot { background: var(--text); }
 
 /* A subagent in the main thread: one line that opens its thread */
 .agent-link { display: flex; align-items: center; gap: 8px; height: auto; width: 100%; padding: 6px 10px; text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); cursor: pointer; }
 .agent-link::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
-.agent-link.pending::before { animation: pulse 1.2s ease-in-out infinite; }
-.agent-link.done::before { background: var(--ok); }
-.agent-link.error::before { background: var(--bad); }
-.agent-link.unknown::before { background: var(--warn); }
 .agent-link .tool-name { color: var(--text); font-weight: 600; }
 .agent-link .tool-call { color: var(--text); }
 .agent-link .agent-open { margin-left: auto; color: var(--accent-hi); }
@@ -566,3 +558,26 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .thread-drawer { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--panel); border-left: 1px solid var(--line); box-shadow: -16px 0 32px rgba(0, 0, 0, 0.28); transform: translateX(100%); transition: transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1); }
 .thread-drawer.open { transform: none; }
 @media (prefers-reduced-motion: reduce) { .thread-drawer { transition: none; } }
+
+/* Subagent states: dot, label and activity */
+.agents-row .agents-name { flex: 0 1 auto; }
+.agents-row .agents-state { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.agents-row .agents-activity { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); }
+.agents-row .agents-meta { margin-left: auto; white-space: nowrap; }
+.state-working .agents-dot, .agent-link.state-working::before { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.state-waiting .agents-dot, .agent-link.state-waiting::before { background: var(--warn); animation: pulse 2s ease-in-out infinite; }
+.state-stuck .agents-dot, .agent-link.state-stuck::before { background: var(--warn); }
+.state-done .agents-dot, .agent-link.state-done::before { background: var(--ok); }
+.state-failed .agents-dot, .agent-link.state-failed::before { background: var(--bad); }
+.state-unknown .agents-dot, .agent-link.state-unknown::before { background: var(--warn); }
+.state-working .agents-state { color: var(--accent-hi); }
+.state-waiting .agents-state, .state-stuck .agents-state, .state-unknown .agents-state { color: var(--warn); }
+.state-failed .agents-state { color: var(--bad); }
+.state-done .agents-state { color: var(--ok); }
+.agent-link .agents-state { font-size: 11px; }
+.agents-fold { display: flex; align-items: center; gap: 6px; height: auto; padding: 4px 8px; margin-top: 2px; background: transparent; border: 0; text-align: left; cursor: pointer; }
+.composer .agents-fold { height: auto; }
+.agents-fold:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--text); }
+.agents-caret { width: 10px; }
+.agents-failed { color: var(--bad); }
+@media (prefers-reduced-motion: reduce) { .agents-dot, .agent-link::before { animation: none !important; } }

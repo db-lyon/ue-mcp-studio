@@ -170,7 +170,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
           <>
             <div className="thread-stage">
               <div className="transcript" aria-hidden={drawerOpen || undefined}>
-                {detail.transcript.map((t, i) => (t.parent ? null : <Entry key={i} entry={t} transcript={detail.transcript} onOpen={setThread} />))}
+                {detail.transcript.map((t, i) => (t.parent ? null : <Entry key={i} entry={t} transcript={detail.transcript} onOpen={setThread} sessionWaiting={detail.status === "waiting"} />))}
                 {streaming && <div className="msg assistant">{streaming}</div>}
                 {detail.status === "waiting" && (
                   <div className="banner warn">Waiting for editor: {detail.waitingCause ?? "not connected"}. The turn continues when it is back.</div>
@@ -205,7 +205,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                   ? <button onClick={() => selected && void api.stop(selected)}>Stop</button>
                   : <button className="primary" disabled={!draft.trim() || disconnected} onClick={send}>Send</button>}
               </div>
-              <Threads transcript={detail.transcript} thread={openThread ? thread : null} onThread={setThread} />
+              <Threads transcript={detail.transcript} thread={openThread ? thread : null} onThread={setThread} sessionWaiting={detail.status === "waiting"} />
             </div>
           </>
         )}
@@ -214,11 +214,11 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   );
 }
 
-function Entry({ entry, transcript, onOpen }: { entry: TranscriptEntry; transcript: TranscriptEntry[]; onOpen: (id: string) => void }) {
+function Entry({ entry, transcript, onOpen, sessionWaiting = false }: { entry: TranscriptEntry; transcript: TranscriptEntry[]; onOpen: (id: string) => void; sessionWaiting?: boolean }) {
   if (entry.kind === "user") return <div className="msg user">{entry.text}</div>;
   if (entry.kind === "assistant") return <div className="msg assistant md"><Markdown remarkPlugins={[remarkGfm]}>{entry.text}</Markdown></div>;
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
-  if (entry.call.name === "agent") return <AgentCall call={entry.call} transcript={transcript} onOpen={onOpen} />;
+  if (entry.call.name === "agent") return <AgentCall call={entry.call} transcript={transcript} onOpen={onOpen} sessionWaiting={sessionWaiting} />;
   return <ToolCall call={entry.call} />;
 }
 
@@ -232,54 +232,127 @@ function agentCalls(transcript: TranscriptEntry[]): Call[] {
   return transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call] : []));
 }
 
+/** What a subagent is doing now, read from its transcript entries. */
+type AgentState = "working" | "waiting" | "stuck" | "done" | "failed" | "unknown";
+
+/** A running subagent with nothing new for this long is shown as stuck. */
+const STUCK_MS = 90_000;
+
+const STATE_LABEL: Record<AgentState, string> = {
+  working: "working",
+  waiting: "waiting for editor",
+  stuck: "stuck",
+  done: "done",
+  failed: "failed",
+  unknown: "outcome unknown",
+};
+
+const timeOf = (t: TranscriptEntry): number => Date.parse(t.kind === "tool" ? t.call.endedAt ?? t.call.startedAt : t.at);
+
+function agentStatus(call: Call, transcript: TranscriptEntry[], sessionWaiting: boolean, now: number): { state: AgentState; activity: string | null; secs: number } {
+  const end = call.endedAt ? Date.parse(call.endedAt) : now;
+  const secs = Math.max(1, Math.round((end - Date.parse(call.startedAt)) / 1000));
+  if (call.outcome === "done") return { state: "done", activity: null, secs };
+  if (call.outcome === "error") return { state: "failed", activity: null, secs };
+  if (call.outcome === "unknown") return { state: "unknown", activity: null, secs };
+  const steps = transcript.filter((t) => t.parent === call.id);
+  const running = [...steps].reverse().find((t) => t.kind === "tool" && t.call.outcome === "pending");
+  if (sessionWaiting) return { state: "waiting", activity: null, secs };
+  if (running?.kind === "tool") return { state: "working", activity: toolLabel(running.call), secs };
+  const last = Math.max(Date.parse(call.startedAt), ...steps.map(timeOf));
+  if (now - last > STUCK_MS) return { state: "stuck", activity: `nothing new for ${Math.round((now - last) / 60_000) || 1}m`, secs };
+  return { state: "working", activity: "thinking", secs };
+}
+
+const ACTIVE: AgentState[] = ["working", "waiting", "stuck"];
+
+/** A clock that ticks every second while anything is running, for live elapsed times and stuck detection. */
+function useNow(active: boolean): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [active]);
+  return active ? now : Date.now();
+}
+
 /**
- * The threads of the session: the main agent and each subagent of the latest
- * turn (or still running). A row switches the conversation to that thread.
+ * The threads of the session: the main agent, the subagents still running,
+ * and the finished ones in a section that starts collapsed. A row switches
+ * the conversation to that thread.
  */
-function Threads({ transcript, thread, onThread }: { transcript: TranscriptEntry[]; thread: string | null; onThread: (id: string | null) => void }) {
-  let lastUser = -1;
-  transcript.forEach((t, i) => {
-    if (t.kind === "user" && !t.parent) lastUser = i;
-  });
-  const agents = transcript
-    .map((t, i) => ({ t, i }))
-    .filter(({ t, i }) => t.kind === "tool" && t.call.name === "agent" && (i > lastUser || t.call.outcome === "pending" || t.call.id === thread))
-    .map(({ t }) => (t as Extract<TranscriptEntry, { kind: "tool" }>).call);
+function Threads({ transcript, thread, onThread, sessionWaiting }: {
+  transcript: TranscriptEntry[];
+  thread: string | null;
+  onThread: (id: string | null) => void;
+  sessionWaiting: boolean;
+}) {
+  const agents = agentCalls(transcript);
+  const now = useNow(agents.some((a) => a.outcome === "pending"));
+  const [showFinished, setShowFinished] = useState(false);
   if (agents.length === 0) return null;
-  const running = agents.filter((a) => a.outcome === "pending").length;
+  const rows = agents.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now) }));
+  const active = rows.filter((r) => ACTIVE.includes(r.state));
+  const finished = rows.filter((r) => !ACTIVE.includes(r.state));
+  const count = (st: AgentState) => rows.filter((r) => r.state === st).length;
+  const failed = count("failed") + count("unknown");
+  const summary = [
+    count("working") && `${count("working")} working`,
+    count("waiting") && `${count("waiting")} waiting`,
+    count("stuck") && `${count("stuck")} stuck`,
+    count("done") && `${count("done")} done`,
+    failed && `${failed} failed`,
+  ].filter(Boolean).join(", ");
+  const open = showFinished || finished.some((r) => r.call.id === thread);
+
+  const row = (r: (typeof rows)[number]) => {
+    const calls = callsIn(transcript, r.call.id);
+    return (
+      <button key={r.call.id} role="tab" aria-selected={thread === r.call.id} className={`agents-row state-${r.state} ${thread === r.call.id ? "current" : ""}`} onClick={() => onThread(r.call.id)}>
+        <span className="agents-dot" />
+        <span className="agents-name">{describe(r.call)}</span>
+        <span className="agents-state">{STATE_LABEL[r.state]}</span>
+        {r.activity && <span className="agents-activity dim">{r.activity}</span>}
+        <span className="agents-meta dim small">{calls} {calls === 1 ? "call" : "calls"}, {r.secs}s</span>
+      </button>
+    );
+  };
+
   return (
     <div className="agents-bar" role="tablist">
-      <div className="agents-head dim small">
-        {running > 0 ? `${running} of ${agents.length} subagents running` : `${agents.length} ${agents.length === 1 ? "subagent" : "subagents"} finished`}
-      </div>
+      <div className="agents-head dim small">Subagents: {summary}</div>
       <button role="tab" aria-selected={thread === null} className={`agents-row main ${thread === null ? "current" : ""}`} onClick={() => onThread(null)}>
         <span className="agents-dot" />
         <span className="agents-name">Main</span>
       </button>
-      {agents.map((a) => {
-        const calls = callsIn(transcript, a.id);
-        const secs = seconds(a);
-        return (
-          <button key={a.id} role="tab" aria-selected={thread === a.id} className={`agents-row tool ${a.outcome} ${thread === a.id ? "current" : ""}`} onClick={() => onThread(a.id)}>
-            <span className="agents-dot" />
-            <span className="agents-name">{describe(a)}</span>
-            <span className="dim small">{OUTCOME[a.outcome]}, {calls} {calls === 1 ? "call" : "calls"}{secs ? `, ${secs}s` : ""}</span>
+      {active.map(row)}
+      {finished.length > 0 && (
+        <>
+          <button className="agents-fold dim small" aria-expanded={open} onClick={() => setShowFinished(!open)}>
+            <span className="agents-caret">{open ? "\u25be" : "\u25b8"}</span>
+            Finished ({finished.length}){failed > 0 && <span className="agents-failed">, {failed} failed</span>}
           </button>
-        );
-      })}
+          {open && finished.map(row)}
+        </>
+      )}
     </div>
   );
 }
 
 /** In the main thread, a subagent is one line; its work is in its own thread. */
-function AgentCall({ call, transcript, onOpen }: { call: Call; transcript: TranscriptEntry[]; onOpen: (id: string) => void }) {
+function AgentCall({ call, transcript, onOpen, sessionWaiting }: { call: Call; transcript: TranscriptEntry[]; onOpen: (id: string) => void; sessionWaiting: boolean }) {
+  const now = useNow(call.outcome === "pending");
+  const st = agentStatus(call, transcript, sessionWaiting, now);
   const calls = callsIn(transcript, call.id);
   return (
-    <button className={`tool agent-link ${call.outcome}`} onClick={() => onOpen(call.id)}>
+    <button className={`tool agent-link state-${st.state}`} onClick={() => onOpen(call.id)}>
       <span className="tool-name">subagent</span>
       <span className="tool-call">{describe(call)}</span>
-      <span className="dim">{OUTCOME[call.outcome]}, {calls} {calls === 1 ? "call" : "calls"}</span>
-      <span className="agent-open">Open thread {"›"}</span>
+      <span className="agents-state">{STATE_LABEL[st.state]}</span>
+      <span className="dim">{st.activity ? `${st.activity}, ` : ""}{calls} {calls === 1 ? "call" : "calls"}, {st.secs}s</span>
+      <span className="agent-open">Open thread {"\u203a"}</span>
     </button>
   );
 }
@@ -319,14 +392,17 @@ const OUTCOME: Record<ToolCallRecord["outcome"], string> = {
   unknown: "outcome unknown",
 };
 
+/** A tool call as one short line: the action it ran, the search it made, or what it described. */
+function toolLabel(call: ToolCallRecord): string {
+  const i = call.input as { action?: string; category?: string; method?: string; query?: string; operation?: string };
+  if (call.name === "editor_restart") return `editor ${i.operation ?? ""}`;
+  if (i.action === "call") return `${i.category}.${i.method}`;
+  if (i.action === "search") return `search "${i.query ?? ""}"`;
+  return `describe ${i.category ?? ""}${i.method ? `.${i.method}` : ""}`;
+}
+
 function ToolCall({ call }: { call: ToolCallRecord }) {
-  const label = useMemo(() => {
-    const i = call.input as { action?: string; category?: string; method?: string; query?: string; operation?: string };
-    if (call.name === "editor_restart") return `editor ${i.operation ?? ""}`;
-    if (i.action === "call") return `${i.category}.${i.method}`;
-    if (i.action === "search") return `search "${i.query ?? ""}"`;
-    return `describe ${i.category ?? ""}${i.method ? `.${i.method}` : ""}`;
-  }, [call]);
+  const label = useMemo(() => toolLabel(call), [call]);
   return (
     <details className={`tool ${call.outcome}`}>
       <summary>
