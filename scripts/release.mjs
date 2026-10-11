@@ -19,7 +19,7 @@
  *             the listing exists. Implies --plugin, which proves the same tree builds.
  * --publish   creates release v<version> on the public db-lyon/ue-mcp-studio-releases
  *             (downloads, always marked latest so .../releases/latest/download/latest.json
- *             resolves) and on the private db-lyon/ue-mcp-studio (the release record).
+ *             resolves) and on db-lyon/ue-mcp-studio (the release record beside the source).
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -33,7 +33,7 @@ import { renderNotices } from "./notices.mjs";
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "release");
 const PUBLIC_REPO = "db-lyon/ue-mcp-studio-releases";
-const PRIVATE_REPO = "db-lyon/ue-mcp-studio";
+const SOURCE_REPO = "db-lyon/ue-mcp-studio";
 const RELEASE_KEY = path.join(os.homedir(), ".ue-mcp-studio", "keys", "release-ui-signing.key.pem");
 
 const arg = (name, fallback) => {
@@ -188,6 +188,6 @@ if (has("--publish")) {
   const files = [zipName, "latest.json", ...pluginZips].map((f) => path.join(OUT, f));
   run("gh", ["release", "create", tag, "--repo", PUBLIC_REPO, "--title", tag, "--latest", ...notesArgs, ...files]);
   const pre = version.includes("-") ? ["--prerelease"] : [];
-  run("gh", ["release", "create", tag, "--repo", PRIVATE_REPO, "--title", tag, "--target", "main", ...pre, ...notesArgs, ...files]);
-  console.log(`published ${tag} to ${PUBLIC_REPO} and ${PRIVATE_REPO}`);
+  run("gh", ["release", "create", tag, "--repo", SOURCE_REPO, "--title", tag, "--target", "main", ...pre, ...notesArgs, ...files]);
+  console.log(`published ${tag} to ${PUBLIC_REPO} and ${SOURCE_REPO}`);
 }

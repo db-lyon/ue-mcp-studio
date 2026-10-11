@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-UE-MCP Studio: the paid, closed-source in-editor client for ue-mcp. Private repo. The open server, bridge plugin and daemon live in `db-lyon/ue-mcp` (MIT). Spec: `plans/in-editor-client.md` in that repo.
+UE-MCP Studio: the free, open-source (MIT) in-editor client for ue-mcp. The open server, bridge plugin and daemon live in `db-lyon/ue-mcp` (MIT). Spec: `plans/in-editor-client.md` in the ue-mcp repo.
 
 ## Layout
 
@@ -8,13 +8,12 @@ UE-MCP Studio: the paid, closed-source in-editor client for ue-mcp. Private repo
 - `apps/client-web/` - the UI. Vite + React + TypeScript, built to static files, signed, served by the daemon at `/ui/`.
 - `apps/client-plugin/` - the Unreal editor plugin `UE_MCP_Studio`: dock tab, browser view, native bindings, daemon launch. `StudioHost/` is the project it is built and tested in.
 - `packages/shared/` - types shared by the agent and the UI.
-- Gateway and billing apps arrive in phase 6.
 
 ## The one rule about ue-mcp
 
 Depend on ue-mcp only through `ue-mcp/daemon` (types, discovery helpers, bundle signing) and the daemon's HTTP API. Never import ue-mcp internals, never copy its code, never require a change in ue-mcp that only Studio needs. If Studio needs something the open daemon does not offer, add it to ue-mcp as a general feature first.
 
-Until the daemon is in a published ue-mcp release, the packages depend on `file:../../../ue-mcp-main`, a worktree of ue-mcp `main` built with `npx tsc`. Switch to the published version when it exists.
+The packages depend on a published `ue-mcp` version (the `beta` channel while the daemon is in prerelease).
 
 ## Signing
 
