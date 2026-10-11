@@ -9,6 +9,7 @@ import { FlowsView } from "./views/Flows";
 import { LogsView } from "./views/Logs";
 import { ChatView } from "./views/Chat";
 import { SettingsHub } from "./views/SettingsHub";
+import { VcsChip } from "./chat/VcsChip";
 
 const TABS = ["Chat", "Status", "Flows", "Logs", "Settings"] as const;
 type Tab = (typeof TABS)[number];
@@ -38,6 +39,7 @@ export function App() {
           ))}
         </nav>
         <span className="spacer" />
+        <VcsChip events={daemon.events.filter((e) => e.type === "studio.session.changed")} />
         <span className={`chip ${editor?.connected ? "ok" : "warn"}`}>
           {editor ? (editor.connected ? "Editor connected" : "Editor offline") : "No editor"}
         </span>

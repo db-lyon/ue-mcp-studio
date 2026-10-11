@@ -655,3 +655,8 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .sent-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .sent-file { display: inline-flex; align-items: center; max-width: 100%; padding: 3px 8px; border: 1px solid var(--accent-line); border-radius: 6px; color: var(--text); font-size: 12px; text-decoration: none; }
 .sent-file img { display: block; max-width: 220px; max-height: 160px; margin: -3px -8px; border-radius: 6px; }
+
+/* Source control in the top bar */
+.chip.vcs { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip.vcs .vcs-kind { color: var(--muted); }
+.chip.vcs.dirty { color: var(--warn); }
