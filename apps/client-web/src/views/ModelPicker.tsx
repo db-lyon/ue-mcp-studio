@@ -115,7 +115,7 @@ export function ModelPicker({
                       onClick={() => (runs ? void select(p.id, m.id) : setConnecting({ vendor: p.id, model: m.id }))}
                     >
                       <span>{m.name}</span>
-                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs ? VIA_LABEL[runs] : "sign in"}</span>
+                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs ? VIA_LABEL[runs] : m.signIns.length ? "sign in" : "connect"}</span>
                     </button>
                   );
                 })}
@@ -153,7 +153,7 @@ export function ConnectModel({ catalog, vendor, model, onConnected }: {
         </details>
       ) : (
         <>
-          <p className="dim small">No sign-in runs this model, so it needs your {PROVIDERS[vendor].name} API key.</p>
+          <p className="dim small">Connect {PROVIDERS[vendor].name} with an API key.</p>
           <KeyForm provider={vendor} onSaved={onConnected} />
         </>
       )}
