@@ -266,7 +266,7 @@ function SubagentThread({ call, transcript, onBack }: { call: Call; transcript: 
   return (
     <>
       <div className={`thread-head ${call.outcome}`}>
-        <button className="ghost" onClick={onBack}>{"‹"} Main</button>
+        <button className="thread-back" onClick={onBack}>{"←"} Back to main</button>
         <strong>{describe(call)}</strong>
         <span className="dim small">subagent, {OUTCOME[call.outcome]}{secs ? `, ${secs}s` : ""}</span>
       </div>

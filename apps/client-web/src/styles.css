@@ -558,3 +558,6 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .msg.md table { border-collapse: collapse; }
 .msg.md th, .msg.md td { border: 1px solid var(--line); padding: 3px 10px; text-align: left; }
 .msg.md th { background: var(--panel-2); font-weight: 600; }
+.thread-head .thread-back { order: 0; margin-right: 6px; padding: 7px 14px; font-weight: 600; color: var(--accent-hi); background: var(--accent-wash); border: 1px solid var(--accent-line); }
+.thread-head .thread-back:hover:not(:disabled) { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+:root[data-theme="editor"] .thread-head .thread-back { font-weight: 600; }
