@@ -21,6 +21,13 @@ describe("updates", () => {
     expect(waiting({ studio: studio(true, false), ueMcp: ueMcp(true) })).toBe(2);
   });
 
+  it("leaves out a ue-mcp release that has no binaries for this binary install, and keeps one for a source install", () => {
+    const noBinaries = { ...ueMcp(true), binaries: { available: false, file: "b.zip" } };
+    expect(updateSteps({ studio: studio(false, false), ueMcp: noBinaries })).toEqual([]);
+    expect(waiting({ studio: studio(false, false), ueMcp: noBinaries })).toBe(0);
+    expect(updateSteps({ studio: studio(false, false), ueMcp: { ...ueMcp(true), binaries: null } })).toEqual(["ueMcp"]);
+  });
+
   it("shows one Update button that runs every step in order, and stops at the first failure", async () => {
     const posted: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
