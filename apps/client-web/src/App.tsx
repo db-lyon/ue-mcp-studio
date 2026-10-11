@@ -3,20 +3,24 @@ import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { api } from "./api";
 import { applyTheme } from "./theme";
 import { useDaemon } from "./state";
-import { inEditor } from "./native";
-import { StatusView } from "./views/Status";
+import { openDocs } from "./native";
 import { FlowsView } from "./views/Flows";
-import { LogsView } from "./views/Logs";
+import { PluginsView } from "./views/Plugins";
 import { ChatView } from "./views/Chat";
-import { SettingsHub } from "./views/SettingsHub";
+import { SettingsHub, type SettingsSection } from "./views/SettingsHub";
 import { VcsChip } from "./chat/VcsChip";
 
-const TABS = ["Chat", "Status", "Flows", "Logs", "Settings"] as const;
+const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 export function App() {
   const daemon = useDaemon();
   const [tab, setTab] = useState<Tab>("Chat");
+  const [section, setSection] = useState<SettingsSection>("general");
+  const openSettings = (s: SettingsSection) => {
+    setSection(s);
+    setTab("Settings");
+  };
   const editor = daemon.health?.editors[0];
 
   useEffect(() => {
@@ -39,22 +43,21 @@ export function App() {
           ))}
         </nav>
         <span className="spacer" />
+        <button className="ghost docs-link" onClick={() => void openDocs()} title="The ue-mcp documentation">Docs</button>
         <VcsChip events={daemon.events.filter((e) => e.type === "studio.session.changed")} />
-        <span className={`chip ${editor?.connected ? "ok" : "warn"}`}>
-          {editor ? (editor.connected ? "Editor connected" : "Editor offline") : "No editor"}
-        </span>
-        <span className={`chip ${daemon.streaming ? "ok" : "bad"}`} title="Daemon event stream">
-          {daemon.streaming ? "Live" : "Reconnecting"}
-        </span>
-        {!inEditor() && <span className="chip">Browser</span>}
+        {/* Nothing to say while all is well; a problem shows here and opens Diagnostics. */}
+        {(!daemon.streaming || !editor?.connected) && (
+          <button className={`chip problem ${daemon.streaming ? "warn" : "bad"}`} onClick={() => openSettings("diagnostics")} title="Open Diagnostics">
+            {!daemon.streaming ? "Reconnecting to ue-mcp" : "Editor offline"}
+          </button>
+        )}
       </header>
       {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
       <main>
-        {tab === "Status" && <StatusView daemon={daemon} />}
         {tab === "Flows" && <FlowsView daemon={daemon} />}
-        {tab === "Logs" && <LogsView daemon={daemon} />}
+        {tab === "Plugins" && <PluginsView daemon={daemon} />}
         {tab === "Chat" && <ChatView daemon={daemon} />}
-        {tab === "Settings" && <SettingsHub onTheme={(t: StudioTheme) => void applyTheme(t)} />}
+        {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} />}
       </main>
     </div>
   );

@@ -660,3 +660,22 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .chip.vcs { max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip.vcs .vcs-kind { color: var(--muted); }
 .chip.vcs.dirty { color: var(--warn); }
+
+/* Top bar: the docs link, and a problem chip only when something is wrong */
+.bar .docs-link { height: auto; padding: 4px 10px; }
+.chip.problem { cursor: pointer; }
+
+/* Plugins */
+.plugins-apply { display: flex; align-items: center; gap: 12px; }
+.plugins-apply span { flex: 1; }
+.plugin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.plugin-row:last-child { border-bottom: 0; }
+.plugin-problems { flex-basis: 100%; }
+.plugin-search { width: 240px; }
+.plugin-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; margin-top: 10px; }
+.plugin-card { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.plugin-card.open { grid-column: 1 / -1; }
+.plugin-card p { margin: 0; }
+.plugin-readme { max-height: 420px; overflow: auto; padding: 8px 12px; border-top: 1px solid var(--line); }
+.plugin-readme img { max-width: 100%; }
+button.danger-button { color: var(--bad); border-color: var(--bad); }

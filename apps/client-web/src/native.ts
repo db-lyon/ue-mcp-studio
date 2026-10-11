@@ -18,6 +18,10 @@ interface StudioBinding {
   runsetup?(options: string): Promise<boolean>;
   /** Flash the editor in the taskbar and show a toast; older host plugins do not have it. */
   drawattention?(message: string): Promise<boolean>;
+  /** Open the ue-mcp docs in their own editor tab; older host plugins do not have it. */
+  opendocs?(path: string): Promise<boolean>;
+  /** Start the project's daemon (or install Studio first when it is missing). */
+  startdaemon?(): Promise<boolean>;
 }
 
 declare global {
@@ -43,3 +47,9 @@ const stub: StudioBinding = {
 
 export const inEditor = (): boolean => !!window.ue?.studio;
 export const native = (): StudioBinding => window.ue?.studio ?? stub;
+
+/** The ue-mcp docs: in their own editor tab when the host plugin can, else a browser tab. */
+export async function openDocs(path = "/docs/"): Promise<void> {
+  const opened = await native().opendocs?.(path).catch(() => false);
+  if (!opened) window.open(`https://ue-mcp.com${path}`, "_blank", "noopener");
+}
