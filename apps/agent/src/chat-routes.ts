@@ -4,9 +4,9 @@
  *   GET  /settings                  the selected model, theme, which providers are connected
  *   PUT  /settings                  change them; keys are written, never returned
  *   GET  /models                    every provider and its models, for the picker
- *   GET  /signin                    the in-panel Studio sign-in's progress
- *   POST /signin                    start it: a code to approve on GitHub
- *   DELETE /signin                  cancel it
+ *   GET  /signin/:id                a sign-in's progress (studio or openrouter)
+ *   POST /signin/:id                start it: the page to approve on, and a code for Studio
+ *   DELETE /signin/:id              cancel it
  *   GET  /sessions                  every session, newest first
  *   POST /sessions                  a new session
  *   GET  /sessions/:id              one session's transcript and state
@@ -19,12 +19,13 @@
  * studio.transcript.added, studio.turn.delta and studio.tool.finished.
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import type { StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { ModelRoute, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
 import { providerFor } from "./providers.js";
-import { ModelCatalogSource } from "./models.js";
+import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverage } from "./models.js";
+import { OpenRouterModels, OpenRouterSignInFlow } from "./openrouter.js";
 import { StudioSignInFlow } from "./signin.js";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): AgentRunner {
@@ -34,46 +35,73 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   // The `ue-mcp login` account, kept fresh so a sign-in is picked up without a restart.
   // Older daemons have no registryAccount; the Settings token is the only source then.
   let registry: Awaited<ReturnType<DaemonExtensionApi["registryAccount"]>> = null;
+  // The signed-in plan's models, once the gateway has said; the default plan's until then.
+  let planModels: readonly string[] = DEFAULT_PLAN_MODELS;
   const refreshAccount = async (): Promise<void> => {
     registry = typeof api.registryAccount === "function" ? await api.registryAccount().catch(() => null) : null;
+    const token = accountToken();
+    if (!token) return;
+    const res = await fetchUsage(token).catch(() => null);
+    if (res?.ok) planModels = ((await res.json()) as AccountUsage).plan.models;
+  };
+  // A sign-in from the panel wins; otherwise the account from `ue-mcp login`.
+  const accountToken = (): string | null => settings.accountToken() ?? registry?.token ?? null;
+  const fetchUsage = async (token: string): Promise<Response> =>
+    fetch(`${settings.gatewayUrl()}/v1/account/usage`, { headers: { authorization: `Bearer ${token}` } });
+
+  const openrouterModels = new OpenRouterModels();
+  void openrouterModels.refresh().catch(() => {});
+  const coverage = (): SignInCoverage => ({
+    planModels,
+    openrouterId: (v, m) => openrouterModels.idFor(v, m),
+    publicModels: (v) => openrouterModels.modelsOf(v),
+  });
+  const signedIn = (): Record<SignInId, boolean> => ({ studio: accountToken() !== null, openrouter: settings.openRouterKey() !== null });
+
+  /** A sign-in that runs the model comes first, Studio before OpenRouter; the vendor key is the fallback. */
+  const route = (): ModelRoute => {
+    const vendor = settings.provider();
+    const done = signedIn();
+    const via = signInsFor(vendor, settings.model(), coverage()).find((s) => done[s]);
+    if (via) return via;
+    return settings.key(vendor) ? "key" : null;
   };
   void refreshAccount();
   const accountTimer = setInterval(() => void refreshAccount(), 60_000);
   accountTimer.unref();
 
-  // A sign-in from the panel wins; otherwise the account from `ue-mcp login`.
-  const accountToken = (): string | null => settings.accountToken() ?? registry?.token ?? null;
 
   const view = (): StudioSettings => {
     const { keys, ...rest } = settings.view();
     const login = settings.accountToken() ? settings.accountLogin() ?? "your account" : null;
     return {
       ...rest,
-      connected: { studio: accountToken() !== null, ...keys },
+      route: route(),
+      connected: { ...signedIn(), ...keys },
       account: login ? { login, via: "studio" } : registry ? { login: registry.login, via: "ue-mcp-login" } : null,
     };
   };
 
-  const fetchUsage = async (token: string): Promise<Response> =>
-    fetch(`${settings.gatewayUrl()}/v1/account/usage`, { headers: { authorization: `Bearer ${token}` } });
+  const catalog = new ModelCatalogSource((p) => settings.key(p));
 
-  const catalog = new ModelCatalogSource((p) => settings.key(p), async () => {
-    const token = accountToken();
-    if (!token) return null;
-    const res = await fetchUsage(token);
-    return res.ok ? ((await res.json()) as AccountUsage).plan.models : null;
-  });
-
-  const signin = new StudioSignInFlow((token, login) => {
-    settings.signIn(token, login);
-    api.events.publish("settings.changed", {});
-  });
+  const signins: Record<SignInId, { view(): unknown; start(): Promise<unknown>; cancel(): void }> = {
+    studio: new StudioSignInFlow((token, login) => {
+      settings.signIn(token, login);
+      void refreshAccount().then(() => api.events.publish("settings.changed", {}));
+    }),
+    openrouter: new OpenRouterSignInFlow((key) => {
+      settings.saveOpenRouterKey(key);
+      api.events.publish("settings.changed", {});
+    }),
+  };
+  const signinOf = (id: string) => (id === "studio" || id === "openrouter" ? signins[id] : null);
 
   const runner = new AgentRunner({
     host: api,
     store,
-    provider: () => providerFor(settings, { accountToken: accountToken(), agentVersion }),
-    model: () => settings.model(),
+    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion }),
+    // OpenRouter names models vendor/model, with its own spelling.
+    model: () => (route() === "openrouter" ? openrouterModels.idFor(settings.provider(), settings.model()) ?? settings.model() : settings.model()),
   });
 
   const bad = (error: string) => ({ status: 400, body: { error } });
@@ -81,12 +109,24 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
 
   api.route("GET", "/settings", () => ({ body: view() }));
 
-  api.route("GET", "/models", async () => ({ body: await catalog.catalog(view().connected) }));
+  api.route("GET", "/models", async () => {
+    await openrouterModels.refresh().catch(() => {});
+    return { body: await catalog.catalog(signedIn(), coverage()) };
+  });
 
-  api.route("GET", "/signin", () => ({ body: signin.view() }));
-  api.route("POST", "/signin", async () => ({ body: await signin.start() }));
-  api.route("DELETE", "/signin", () => {
-    signin.cancel();
+  const noSignIn = (id: string) => ({ status: 404, body: { error: `no sign-in ${id}` } });
+  api.route("GET", "/signin/:id", (req) => {
+    const f = signinOf(req.params.id);
+    return f ? { body: f.view() } : noSignIn(req.params.id);
+  });
+  api.route("POST", "/signin/:id", async (req) => {
+    const f = signinOf(req.params.id);
+    return f ? { body: await f.start() } : noSignIn(req.params.id);
+  });
+  api.route("DELETE", "/signin/:id", (req) => {
+    const f = signinOf(req.params.id);
+    if (!f) return noSignIn(req.params.id);
+    f.cancel();
     return { status: 204 };
   });
 

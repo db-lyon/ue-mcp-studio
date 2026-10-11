@@ -24,29 +24,32 @@ describe("theme setting", () => {
 });
 
 describe("providers", () => {
-  it("defaults to the Studio subscription", () => {
-    expect(store().view()).toMatchObject({ provider: "studio", model: "claude-opus-5-5" });
+  it("starts on a Claude model", () => {
+    expect(store().view()).toMatchObject({ provider: "anthropic", model: "claude-opus-5-5" });
   });
 
-  it("reads settings written before providers were named", () => {
+  it("reads settings written before vendors were named as Claude, which is all they ran", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
-    fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ provider: "byok", model: "claude-sonnet-5-5" }));
-    fs.writeFileSync(path.join(dir, "anthropic.key"), "sk-ant-old");
     const s = new SettingsStore(dir);
-    expect(s.view()).toMatchObject({ provider: "anthropic", keys: { anthropic: true } });
-    fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ provider: "gateway" }));
-    expect(s.provider()).toBe("studio");
-    // byok was the old default, saved with the theme by people who never added a key.
-    fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ provider: "byok", theme: "light" }));
-    fs.rmSync(path.join(dir, "anthropic.key"));
-    expect(s.provider()).toBe("studio");
+    for (const provider of ["byok", "gateway", "studio"]) {
+      fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ provider, model: "claude-sonnet-5-5" }));
+      expect(s.view()).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5-5" });
+    }
+  });
+
+  it("forgets an OpenRouter sign-in on sign-out", () => {
+    const s = store();
+    s.saveOpenRouterKey("sk-or-1");
+    expect(s.openRouterKey()).toBe("sk-or-1");
+    s.update({ signOut: "openrouter" });
+    expect(s.openRouterKey()).toBeNull();
   });
 
   it("keeps the signed-in login and forgets it on sign-out", () => {
     const s = store();
     s.signIn("uemcp_tok", "octo");
     expect([s.accountToken(), s.accountLogin()]).toEqual(["uemcp_tok", "octo"]);
-    s.update({ accountToken: "" });
+    s.update({ signOut: "studio" });
     expect([s.accountToken(), s.accountLogin()]).toEqual([null, null]);
   });
 });

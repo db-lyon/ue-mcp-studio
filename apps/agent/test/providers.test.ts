@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { OpenAICompatibleProvider, PROVIDER_EXTRA, readChatStream, toChatRequest } from "../src/openai-compat.js";
 import { requestBody, type ModelRequest } from "../src/providers.js";
-import { chatModels } from "../src/models.js";
+import { chatModels, signInsFor } from "../src/models.js";
+import { OpenRouterModels, OpenRouterSignInFlow } from "../src/openrouter.js";
 import { StudioSignInFlow } from "../src/signin.js";
 import { TOOLS } from "../src/tools.js";
 
@@ -122,5 +123,64 @@ describe("Studio sign-in", () => {
     await flow.start();
     await new Promise((r) => setTimeout(r, 10));
     expect(flow.view()).toMatchObject({ state: "error", error: expect.stringMatching(/declined/) });
+  });
+});
+
+describe("sign-ins come before keys", () => {
+  const coverage = {
+    planModels: ["claude-opus-5-5"],
+    openrouterId: (v: string, m: string) => (["anthropic/claude-opus-5-5", "openai/gpt-6-sol"].includes(`${v}/${m}`) ? `${v}/${m}` : null),
+  };
+
+  it("names Studio first, then OpenRouter, for each model they run", () => {
+    expect(signInsFor("anthropic", "claude-opus-5-5", coverage)).toEqual(["studio", "openrouter"]);
+    expect(signInsFor("openai", "gpt-6-sol", coverage)).toEqual(["openrouter"]);
+    expect(signInsFor("google", "gemini-3.8-flash", coverage)).toEqual([]);
+  });
+
+  it("finds OpenRouter's spelling of a vendor's model", async () => {
+    const fetchImpl = (async () => new Response(JSON.stringify({ data: [{ id: "anthropic/claude-opus-5.5" }, { id: "openai/gpt-6-sol" }] }))) as unknown as typeof fetch;
+    const m = new OpenRouterModels(fetchImpl);
+    await m.refresh();
+    expect(m.idFor("anthropic", "claude-opus-5-5")).toBe("anthropic/claude-opus-5.5");
+    expect(m.idFor("openai", "gpt-6-sol")).toBe("openai/gpt-6-sol");
+    expect(m.idFor("google", "gemini-3.8-flash")).toBeNull();
+  });
+
+  it("signs in to OpenRouter through the redirect and keeps the issued key", async () => {
+    let exchanged: Record<string, string> | null = null;
+    let saved: string | null = null;
+    const fetchImpl = (async (_url: string, init: RequestInit) => {
+      exchanged = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ key: "sk-or-v1-x" }));
+    }) as unknown as typeof fetch;
+    const flow = new OpenRouterSignInFlow((k) => { saved = k; }, fetchImpl);
+    const pending = await flow.start();
+    if (pending.state !== "pending") throw new Error("not pending");
+    const auth = new URL(pending.url);
+    expect(auth.origin + auth.pathname).toBe("https://openrouter.ai/auth");
+    expect(auth.searchParams.get("code_challenge_method")).toBe("S256");
+    const callback = auth.searchParams.get("callback_url")!.replace("localhost", "127.0.0.1");
+    const page = await fetch(`${callback}?code=abc`);
+    expect(page.status).toBe(200);
+    expect(exchanged).toMatchObject({ code: "abc", code_challenge_method: "S256" });
+    expect(exchanged!.code_verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(saved).toBe("sk-or-v1-x");
+    expect(flow.view()).toMatchObject({ state: "done" });
+  });
+});
+
+describe("OpenRouter's public list", () => {
+  it("gives each vendor's newest models under the vendor's own ids", async () => {
+    const data = [
+      { id: "anthropic/claude-opus-5.5", name: "Anthropic: Claude Opus 5.5", created: 3 },
+      { id: "anthropic/claude-opus-5.5:batch", name: "batch", created: 4 },
+      { id: "openai/gpt-6.1-sol", name: "OpenAI: GPT-6.1 Sol", created: 5 },
+      { id: "openai/gpt-6-sol", name: "OpenAI: GPT-6 Sol", created: 2 },
+    ];
+    const m = new OpenRouterModels((async () => new Response(JSON.stringify({ data }))) as unknown as typeof fetch);
+    await m.refresh();
+    expect(m.modelsOf("anthropic")).toEqual([{ id: "claude-opus-5-5", name: "Claude Opus 5.5" }]);
+    expect(m.modelsOf("openai").map((x) => x.id)).toEqual(["gpt-6.1-sol", "gpt-6-sol"]);
   });
 });

@@ -9,10 +9,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   KEY_PROVIDER_IDS,
-  PROVIDER_IDS,
   STUDIO_THEMES,
   type KeyProviderId,
-  type ProviderId,
   type StudioSettingsUpdate,
   type StudioTheme,
 } from "@ue-mcp-studio/shared";
@@ -21,21 +19,18 @@ export const DEFAULT_MODEL = "claude-opus-5-5";
 export const DEFAULT_GATEWAY_URL = "https://gateway.ue-mcp.com";
 
 interface StoredSettings {
-  provider: ProviderId;
+  provider: KeyProviderId;
   model: string;
   gatewayUrl: string;
   theme: StudioTheme;
 }
 
 /**
- * Settings written before providers were named: byok meant an Anthropic key,
- * gateway the subscription. byok was also the old default, written by any save,
- * so it means Anthropic only when an Anthropic key is there.
+ * The selected model's vendor. Settings written before vendors were named said
+ * byok, gateway or studio, all of which ran Claude models.
  */
-function providerOf(raw: unknown, hasAnthropicKey: boolean): ProviderId {
-  if (raw === "byok") return hasAnthropicKey ? "anthropic" : "studio";
-  if (raw === "gateway") return "studio";
-  return PROVIDER_IDS.includes(raw as ProviderId) ? (raw as ProviderId) : "studio";
+function vendorOf(raw: unknown): KeyProviderId {
+  return KEY_PROVIDER_IDS.includes(raw as KeyProviderId) ? (raw as KeyProviderId) : "anthropic";
 }
 
 const keyFile = (p: KeyProviderId) => `${p}.key`;
@@ -53,13 +48,13 @@ export class SettingsStore {
     try {
       const raw = JSON.parse(fs.readFileSync(this.file("settings.json"), "utf-8")) as Record<string, unknown>;
       return {
-        provider: providerOf(raw.provider, this.readSecret(keyFile("anthropic")) !== null),
+        provider: vendorOf(raw.provider),
         model: typeof raw.model === "string" && raw.model ? raw.model : DEFAULT_MODEL,
         gatewayUrl: typeof raw.gatewayUrl === "string" && raw.gatewayUrl ? raw.gatewayUrl : DEFAULT_GATEWAY_URL,
         theme: STUDIO_THEMES.includes(raw.theme as StudioTheme) ? (raw.theme as StudioTheme) : "ue-mcp",
       };
     } catch {
-      return { provider: "studio", model: DEFAULT_MODEL, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp" };
+      return { provider: "anthropic", model: DEFAULT_MODEL, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp" };
     }
   }
 
@@ -94,7 +89,7 @@ export class SettingsStore {
   update(u: StudioSettingsUpdate): void {
     const s = this.stored();
     if (u.provider !== undefined) {
-      if (!PROVIDER_IDS.includes(u.provider)) throw new Error(`provider must be one of ${PROVIDER_IDS.join(", ")}`);
+      if (!KEY_PROVIDER_IDS.includes(u.provider)) throw new Error(`provider must be one of ${KEY_PROVIDER_IDS.join(", ")}`);
       s.provider = u.provider;
     }
     if (u.model !== undefined) {
@@ -115,10 +110,23 @@ export class SettingsStore {
     }
     fs.writeFileSync(this.file("settings.json"), JSON.stringify(s, null, 2));
     for (const [p, v] of Object.entries(u.keys ?? {})) this.writeSecret(keyFile(p as KeyProviderId), (v as string).trim());
-    if (u.accountToken !== undefined) {
-      this.writeSecret("account.token", u.accountToken.trim());
-      if (!u.accountToken.trim()) fs.rmSync(this.file("account.json"), { force: true });
+    if (u.signOut === "studio") {
+      this.writeSecret("account.token", "");
+      fs.rmSync(this.file("account.json"), { force: true });
+    } else if (u.signOut === "openrouter") {
+      this.writeSecret("openrouter.key", "");
+    } else if (u.signOut !== undefined) {
+      throw new Error("signOut must be studio or openrouter");
     }
+  }
+
+  /** After the OpenRouter sign-in: the key it issued for this app. */
+  saveOpenRouterKey(key: string): void {
+    this.writeSecret("openrouter.key", key);
+  }
+
+  openRouterKey(): string | null {
+    return this.readSecret("openrouter.key");
   }
 
   /** After an in-panel sign-in: the account token, and the login to show beside it. */
@@ -149,7 +157,7 @@ export class SettingsStore {
     return this.stored().model;
   }
 
-  provider(): ProviderId {
+  provider(): KeyProviderId {
     return this.stored().provider;
   }
 

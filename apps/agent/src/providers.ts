@@ -5,8 +5,9 @@
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { SettingsStore } from "./settings.js";
-import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER, PROVIDERS } from "@ue-mcp-studio/shared";
+import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER, type ModelRoute } from "@ue-mcp-studio/shared";
 import { OpenAICompatibleProvider, OPENAI_BASE_URLS, PROVIDER_EXTRA } from "./openai-compat.js";
+import { OPENROUTER_BASE_URL } from "./openrouter.js";
 
 export type MessageParam = Anthropic.Beta.BetaMessageParam;
 export type ContentBlock = Anthropic.Beta.BetaContentBlock;
@@ -132,17 +133,20 @@ export class GatewayProvider implements ModelProvider {
   }
 }
 
-/** The provider the settings name, or an error saying what is missing. */
+/** The provider that runs the selected model on its route, or an error saying how to connect one. */
 export function providerFor(
   settings: SettingsStore,
+  route: ModelRoute,
   context: { accountToken?: string | null; agentVersion?: string } = {},
 ): ModelProvider {
-  const p = settings.provider();
-  if (p === "studio") {
-    if (!context.accountToken) throw new Error("Sign in to Studio to use this model, or pick a model from a provider you have a key for.");
+  const vendor = settings.provider();
+  if (route === "studio" && context.accountToken) {
     return new GatewayProvider(settings.gatewayUrl(), context.accountToken, context.agentVersion);
   }
-  const key = settings.key(p);
-  if (!key) throw new Error(`Add your ${PROVIDERS[p].name} API key to use this model, or pick another model.`);
-  return p === "anthropic" ? new AnthropicProvider(key) : new OpenAICompatibleProvider(OPENAI_BASE_URLS[p], key);
+  if (route === "openrouter") return new OpenAICompatibleProvider(OPENROUTER_BASE_URL, settings.openRouterKey()!);
+  if (route === "key") {
+    const key = settings.key(vendor)!;
+    return vendor === "anthropic" ? new AnthropicProvider(key) : new OpenAICompatibleProvider(OPENAI_BASE_URLS[vendor], key);
+  }
+  throw new Error(`Sign in to run ${settings.model()}: open the model picker.`);
 }

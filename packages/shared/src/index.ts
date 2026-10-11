@@ -22,26 +22,33 @@ export interface StudioConfigFile {
   text: string;
 }
 
-/**
- * Where a model runs. `studio` is the Studio subscription, through the UE-MCP
- * gateway and the account sign-in; the others take the user's own key.
- */
-export type ProviderId = "studio" | "anthropic" | "openai" | "google";
-export const PROVIDER_IDS: readonly ProviderId[] = ["studio", "anthropic", "openai", "google"];
-/** Providers connected with the user's own API key. */
-export type KeyProviderId = Exclude<ProviderId, "studio">;
+/** Model vendors: each model belongs to one, and each can take the user's own API key. */
+export type KeyProviderId = "anthropic" | "openai" | "google";
 export const KEY_PROVIDER_IDS: readonly KeyProviderId[] = ["anthropic", "openai", "google"];
+
+/**
+ * Accounts the user signs in to instead of pasting a key. Studio runs the
+ * models its plan includes; OpenRouter runs most vendors' models on the user's
+ * OpenRouter account. A sign-in is the default way to run a model; a vendor
+ * key is the fallback.
+ */
+export type SignInId = "studio" | "openrouter";
+export const SIGN_IN_IDS: readonly SignInId[] = ["studio", "openrouter"];
+
+export type ProviderId = SignInId | KeyProviderId;
+export const PROVIDER_IDS: readonly ProviderId[] = [...SIGN_IN_IDS, ...KEY_PROVIDER_IDS];
 
 export interface ProviderInfo {
   id: ProviderId;
   name: string;
-  /** For key providers: what the key looks like and where to get one. */
+  /** For vendors: what the key looks like and where to get one. */
   keyPlaceholder?: string;
   keyUrl?: string;
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   studio: { id: "studio", name: "Studio" },
+  openrouter: { id: "openrouter", name: "OpenRouter" },
   anthropic: { id: "anthropic", name: "Anthropic", keyPlaceholder: "sk-ant-...", keyUrl: "https://console.anthropic.com/settings/keys" },
   openai: { id: "openai", name: "OpenAI", keyPlaceholder: "sk-...", keyUrl: "https://platform.openai.com/api-keys" },
   google: { id: "google", name: "Google", keyPlaceholder: "AIza...", keyUrl: "https://aistudio.google.com/apikey" },
@@ -53,12 +60,14 @@ export const STUDIO_THEMES: readonly StudioTheme[] = ["ue-mcp", "light", "editor
 
 /** GET /v1/ext/studio/settings. Secrets are reported by presence only, never returned. */
 export interface StudioSettings {
-  /** The selected model and where it runs. */
-  provider: ProviderId;
+  /** The selected model and its vendor. */
+  provider: KeyProviderId;
   model: string;
+  /** How the selected model runs now, or null when nothing that can run it is connected. */
+  route: ModelRoute;
   gatewayUrl: string;
   theme: StudioTheme;
-  /** Which providers can run a request now: signed in for studio, a key saved for the rest. */
+  /** Which sign-ins are done and which vendor keys are saved. */
   connected: Record<ProviderId, boolean>;
   /** The Studio account's login, when signed in. */
   account: { login: string; via: "studio" | "ue-mcp-login" } | null;
@@ -66,36 +75,44 @@ export interface StudioSettings {
 
 /** PUT /v1/ext/studio/settings. An absent secret is left as it is; an empty string clears it. */
 export interface StudioSettingsUpdate {
-  provider?: ProviderId;
+  provider?: KeyProviderId;
   model?: string;
   gatewayUrl?: string;
   theme?: StudioTheme;
   keys?: Partial<Record<KeyProviderId, string>>;
-  /** Signs out of the Studio account when empty. */
-  accountToken?: string;
+  signOut?: SignInId;
 }
+
+/** How a model runs: a sign-in, or the vendor key. Sign-ins come first. */
+export type ModelRoute = SignInId | "key" | null;
 
 export interface ModelOption {
   id: string;
   name: string;
+  /** The sign-ins that can run this model, in the order they are preferred. */
+  signIns: SignInId[];
 }
 
-/** GET /v1/ext/studio/models: every provider and the models it offers, for the picker. */
+/** GET /v1/ext/studio/models: every vendor's models, each listed once, for the picker. */
 export interface ModelCatalog {
+  /** Which sign-ins are done. */
+  signedIn: Record<SignInId, boolean>;
   providers: Array<{
-    id: ProviderId;
+    id: KeyProviderId;
     name: string;
+    /** The user's own key is saved. */
     connected: boolean;
-    /** live: listed by the provider for this account; default: a starting list until it is connected. */
+    /** live: listed by the vendor for this key; default: a starting list until a key is saved. */
     source: "live" | "default";
     models: ModelOption[];
   }>;
 }
 
-/** GET and POST /v1/ext/studio/signin: signing in to the Studio account from the panel. */
+/** GET and POST /v1/ext/studio/signin/:id: signing in to Studio or OpenRouter from the panel. */
 export type StudioSignIn =
   | { state: "idle" }
-  | { state: "pending"; userCode: string; verificationUri: string; expiresAt: string }
+  /** Open `url` to sign in; a device-code sign-in also shows `userCode` to enter there. */
+  | { state: "pending"; url: string; userCode?: string; expiresAt: string }
   | { state: "done"; login: string }
   | { state: "error"; error: string };
 

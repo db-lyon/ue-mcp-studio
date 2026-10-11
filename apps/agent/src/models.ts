@@ -1,17 +1,25 @@
 /**
- * The models the picker offers. A connected provider is asked for its own list,
- * so new models appear without a Studio release; until then, and when the
- * provider cannot be reached, a short starting list stands in.
+ * The models the picker offers, each once, under its vendor. A vendor with a
+ * saved key is asked for its own list, so new models appear without a Studio
+ * release; until then, and when it cannot be reached, a short starting list
+ * stands in. Each model names the sign-ins that can run it.
  */
-import { KEY_PROVIDER_IDS, PROVIDERS, type KeyProviderId, type ModelCatalog, type ModelOption, type ProviderId } from "@ue-mcp-studio/shared";
+import { KEY_PROVIDER_IDS, PROVIDERS, type KeyProviderId, type ModelCatalog, type ModelOption, type SignInId } from "@ue-mcp-studio/shared";
 import { OPENAI_BASE_URLS } from "./openai-compat.js";
 
-export const DEFAULT_MODELS: Record<ProviderId, ModelOption[]> = {
-  studio: [
-    { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
-    { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
-    { id: "claude-fable-5-1", name: "Claude Fable 5.1" },
-  ],
+/**
+ * The Studio plan's models until the signed-in plan says otherwise. The gateway
+ * runs Anthropic models only.
+ */
+export const DEFAULT_PLAN_MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1"];
+
+/** Whether the Studio plan can run a model. */
+export const inPlan = (vendor: KeyProviderId, model: string, planModels: readonly string[]): boolean =>
+  vendor === "anthropic" && planModels.includes(model);
+
+type Listed = Omit<ModelOption, "signIns">;
+
+export const DEFAULT_MODELS: Record<KeyProviderId, Listed[]> = {
   anthropic: [
     { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
     { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
@@ -35,7 +43,7 @@ const NOT_CHAT = /(embed|image|audio|realtime|live|tts|transcribe|whisper|dall-e
 /** OpenAI lists a dated snapshot beside each model it already names. */
 const DATED = /-\d{4}-\d{2}-\d{2}$|-\d{8}$/;
 
-export function chatModels(provider: KeyProviderId, ids: Array<{ id: string; name?: string }>): ModelOption[] {
+export function chatModels(provider: KeyProviderId, ids: Array<{ id: string; name?: string }>): Listed[] {
   const keep = (id: string) =>
     !NOT_CHAT.test(id) && !(provider === "openai" && DATED.test(id)) && (provider === "anthropic" ? id.startsWith("claude-") : provider === "openai" ? /^(gpt-|o\d)/.test(id) : id.startsWith("gemini-"));
   return ids
@@ -45,7 +53,7 @@ export function chatModels(provider: KeyProviderId, ids: Array<{ id: string; nam
     .sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true }));
 }
 
-async function listLive(provider: KeyProviderId, key: string): Promise<ModelOption[]> {
+async function listLive(provider: KeyProviderId, key: string): Promise<Listed[]> {
   const res = provider === "anthropic"
     ? await fetch("https://api.anthropic.com/v1/models?limit=100", { headers: { "x-api-key": key, "anthropic-version": "2023-06-01" } })
     : await fetch(`${OPENAI_BASE_URLS[provider]}/models`, { headers: { authorization: `Bearer ${key}` } });
@@ -56,30 +64,35 @@ async function listLive(provider: KeyProviderId, key: string): Promise<ModelOpti
 
 const TTL_MS = 10 * 60_000;
 
+/** What can run models besides a vendor key: the Studio plan's models and OpenRouter's lookup. */
+export interface SignInCoverage {
+  planModels: readonly string[];
+  openrouterId: (vendor: KeyProviderId, model: string) => string | null;
+  /** A vendor's models from OpenRouter's public list, newest first, when it has been read. */
+  publicModels?: (vendor: KeyProviderId) => Array<{ id: string; name?: string }>;
+}
+
+/** How many of a vendor's newest models the picker shows from the public list. */
+const PUBLIC_SHOWN = 8;
+
+/** The sign-ins that can run a model, Studio first. */
+export function signInsFor(vendor: KeyProviderId, model: string, c: SignInCoverage): SignInId[] {
+  const out: SignInId[] = [];
+  if (inPlan(vendor, model, c.planModels)) out.push("studio");
+  if (c.openrouterId(vendor, model)) out.push("openrouter");
+  return out;
+}
+
 export class ModelCatalogSource {
-  private readonly cache = new Map<string, { at: number; models: ModelOption[] }>();
+  private readonly cache = new Map<string, { at: number; models: Listed[] }>();
 
-  constructor(
-    private readonly keyOf: (p: KeyProviderId) => string | null,
-    /** The models the signed-in plan may run, or null when not signed in or not known. */
-    private readonly planModels: () => Promise<string[] | null>,
-  ) {}
+  constructor(private readonly keyOf: (p: KeyProviderId) => string | null) {}
 
-  async catalog(connected: Record<ProviderId, boolean>): Promise<ModelCatalog> {
+  async catalog(signedIn: Record<SignInId, boolean>, coverage: SignInCoverage): Promise<ModelCatalog> {
     const providers: ModelCatalog["providers"] = [];
-
-    const plan = connected.studio ? await this.planModels().catch(() => null) : null;
-    providers.push({
-      id: "studio",
-      name: PROVIDERS.studio.name,
-      connected: connected.studio,
-      source: plan ? "live" : "default",
-      models: plan ? plan.map((id) => DEFAULT_MODELS.studio.find((m) => m.id === id) ?? { id, name: id }) : DEFAULT_MODELS.studio,
-    });
-
     for (const p of KEY_PROVIDER_IDS) {
       const key = this.keyOf(p);
-      let models: ModelOption[] | null = null;
+      let models: Listed[] | null = null;
       if (key) {
         // Keyed on the key's tail, so a changed key is asked again.
         const id = `${p}:${key.slice(-6)}`;
@@ -90,9 +103,25 @@ export class ModelCatalogSource {
           if (models && models.length) this.cache.set(id, { at: Date.now(), models });
         }
       }
+      // Without a key, OpenRouter's public list is the freshest source there is.
+      if (!models?.length && coverage.publicModels) {
+        const newest = coverage.publicModels(p).filter((m) => chatModels(p, [m]).length > 0).slice(0, PUBLIC_SHOWN);
+        if (newest.length) models = newest.map((m) => ({ id: m.id, name: m.name ?? m.id }));
+      }
       const live = !!models && models.length > 0;
-      providers.push({ id: p, name: PROVIDERS[p].name, connected: !!key, source: live ? "live" : "default", models: live ? models! : DEFAULT_MODELS[p] });
+      const list = live ? models! : DEFAULT_MODELS[p];
+      // A plan model the vendor's list does not name still belongs in the picker.
+      const extra = live && p === "anthropic"
+        ? DEFAULT_MODELS.anthropic.filter((m) => coverage.planModels.includes(m.id) && !list.some((x) => x.id === m.id))
+        : [];
+      providers.push({
+        id: p,
+        name: PROVIDERS[p].name,
+        connected: !!key,
+        source: live ? "live" : "default",
+        models: [...list, ...extra].map((m) => ({ ...m, signIns: signInsFor(p, m.id, coverage) })),
+      });
     }
-    return { providers };
+    return { signedIn, providers };
   }
 }

@@ -41,7 +41,7 @@ export class StudioSignInFlow {
     }
     const d = (await res.json()) as { device_code: string; user_code: string; verification_uri: string; expires_in: number; interval: number };
     const expiresAt = Date.now() + d.expires_in * 1000;
-    this.state = { state: "pending", userCode: d.user_code, verificationUri: d.verification_uri, expiresAt: new Date(expiresAt).toISOString() };
+    this.state = { state: "pending", url: d.verification_uri, userCode: d.user_code, expiresAt: new Date(expiresAt).toISOString() };
     void this.poll(run, d.device_code, Math.max(d.interval, 5), expiresAt);
     return this.state;
   }
