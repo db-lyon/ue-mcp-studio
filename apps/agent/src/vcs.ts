@@ -136,3 +136,86 @@ export async function detectVcs(projectDir: string, r: Run = run): Promise<VcsSt
   }
   return null;
 }
+
+/** One changed file, its path relative to the repository root. */
+export interface VcsChange {
+  path: string;
+  status: "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflicted";
+  /** Perforce: the changelist the file is open in. */
+  changelist?: string;
+}
+
+/** `git status --porcelain=v1 -z`: entries are XY path, renames carry the old path after them. */
+export function parseGitChanges(out: string): VcsChange[] {
+  const parts = out.split("\0").filter(Boolean);
+  const changes: VcsChange[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const xy = parts[i].slice(0, 2);
+    const p = parts[i].slice(3);
+    let status: VcsChange["status"] = "modified";
+    if (xy === "??") status = "untracked";
+    else if (xy.includes("U") || xy === "AA" || xy === "DD") status = "conflicted";
+    else if (xy.includes("R")) {
+      status = "renamed";
+      i++;
+    } else if (xy.includes("A")) status = "added";
+    else if (xy.includes("D")) status = "deleted";
+    changes.push({ path: p, status });
+  }
+  return changes;
+}
+
+/** `p4 -ztag -F %depotFile%|%action%|%change% opened`. */
+export function parseP4Opened(out: string): VcsChange[] {
+  return out.split(/\r?\n/).filter((l) => l.trim()).map((l) => {
+    const [file, action, change] = l.split("|");
+    const status: VcsChange["status"] = /add|branch/.test(action) ? "added" : /delete/.test(action) ? "deleted" : /move/.test(action) ? "renamed" : "modified";
+    return { path: file, status, changelist: change };
+  });
+}
+
+/** `svn status -q` and `cm status --short` both lead with a status letter. */
+export function parseLetterStatus(out: string): VcsChange[] {
+  return out.split(/\r?\n/).filter((l) => l.trim()).map((l) => {
+    const m = /^\s*([A-Z?!]{1,2})\s+(.+)$/.exec(l) ?? [];
+    const code = m[1] ?? "M";
+    const status: VcsChange["status"] = code.startsWith("A") ? "added" : code.startsWith("D") || code === "!" ? "deleted" : code === "?" ? "untracked" : code.startsWith("C") && code !== "CH" ? "conflicted" : code.startsWith("MV") || code.startsWith("R") ? "renamed" : "modified";
+    return { path: (m[2] ?? l).trim(), status };
+  });
+}
+
+/** Every changed file in the project's source control, at most `limit` of them. */
+export async function listChanges(projectDir: string, r: Run = run, limit = 2000): Promise<{ vcs: VcsStatus | null; changes: VcsChange[]; truncated: boolean }> {
+  const vcs = await detectVcs(projectDir, r);
+  if (!vcs) return { vcs: null, changes: [], truncated: false };
+  let changes: VcsChange[] = [];
+  if (vcs.kind === "git") changes = parseGitChanges((await r("git", ["status", "--porcelain=v1", "-z", "--untracked-files=all"], vcs.root)) ?? "");
+  else if (vcs.kind === "perforce") changes = parseP4Opened((await r("p4", ["-ztag", "-F", "%depotFile%|%action%|%change%", "opened"], projectDir)) ?? "");
+  else if (vcs.kind === "plastic") changes = parseLetterStatus((await r("cm", ["status", "--short"], vcs.root)) ?? "");
+  else if (vcs.kind === "svn") changes = parseLetterStatus((await r("svn", ["status", "-q"], vcs.root)) ?? "");
+  return { vcs, changes: changes.slice(0, limit), truncated: changes.length > limit };
+}
+
+const BINARY_EXT = /\.(uasset|umap|ubulk|uexp|png|jpe?g|tga|exr|hdr|psd|fbx|obj|wav|ogg|mp3|mp4|dll|pdb|exe|lib|zip|bin)$/i;
+const MAX_DIFF = 200 * 1024;
+
+/** The diff of one changed file, or why there is none to show. */
+export async function diffOf(projectDir: string, file: string, r: Run = run): Promise<{ diff: string | null; reason?: string }> {
+  const vcs = await detectVcs(projectDir, r);
+  if (!vcs) return { diff: null, reason: "The project is not under source control." };
+  if (BINARY_EXT.test(file)) return { diff: null, reason: "A binary file: open it in the editor to see it." };
+  if (file.includes("\0") || /(^|[\/])\.\.([\/]|$)/.test(file)) return { diff: null, reason: "Not a path in this project." };
+  let out: string | null = null;
+  if (vcs.kind === "git") {
+    out = await r("git", ["diff", "--no-color", "HEAD", "--", file], vcs.root);
+    // An untracked file has no diff against HEAD: show it as added.
+    if (!out) {
+      const full = path.join(vcs.root, file);
+      if (fs.existsSync(full) && fs.statSync(full).size <= MAX_DIFF) out = fs.readFileSync(full, "utf-8").split(/\r?\n/).map((l) => `+${l}`).join("\n");
+    }
+  } else if (vcs.kind === "perforce") out = await r("p4", ["diff", "-du", file], projectDir);
+  else if (vcs.kind === "svn") out = await r("svn", ["diff", file], vcs.root);
+  else if (vcs.kind === "plastic") out = await r("cm", ["diff", file], vcs.root);
+  if (!out) return { diff: null, reason: "No text changes to show." };
+  return { diff: out.length > MAX_DIFF ? `${out.slice(0, MAX_DIFF)}\n(shortened)` : out };
+}

@@ -27,7 +27,7 @@ import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverage } from "./models.js";
 import { StudioSignInFlow } from "./signin.js";
 import { AttachmentStore } from "./attachments.js";
-import { detectVcs } from "./vcs.js";
+import { detectVcs, diffOf, listChanges } from "./vcs.js";
 import { Updater } from "./updates.js";
 import * as fs from "node:fs";
 import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
@@ -131,13 +131,24 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   // Studio's own updates: the extension and the editor plugin, against the release channel.
   const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data));
   api.route("GET", "/updates", async () => ({ body: await updater.check() }));
-  api.route("POST", "/updates/studio", () => {
-    const r = updater.updateStudio();
+  api.route("POST", "/updates/restart", async () => {
+    const r = await updater.restartDaemon();
+    return r.started ? { status: 202, body: r } : { status: 500, body: { error: r.error } };
+  });
+  api.route("POST", "/updates/studio", async () => {
+    const r = await updater.updateStudio();
     return r.started ? { status: 202, body: r } : { status: 500, body: { error: r.error } };
   });
   api.route("POST", "/updates/plugin", async () => {
     const r = await updater.updatePlugin();
     return r.ok ? { body: r } : { status: 500, body: { error: r.error } };
+  });
+
+  api.route("GET", "/vcs/changes", async () => ({ body: await listChanges(api.projectDir) }));
+  api.route("GET", "/vcs/diff", async (req) => {
+    const file = req.query.path;
+    if (typeof file !== "string" || !file) return bad("query must name ?path=");
+    return { body: await diffOf(api.projectDir, file) };
   });
 
   api.route("GET", "/models", async () => {

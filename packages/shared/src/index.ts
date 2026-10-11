@@ -233,3 +233,10 @@ export interface VcsStatus {
   behind?: number;
   root: string;
 }
+
+/** GET /v1/ext/studio/vcs/changes: one changed file. */
+export interface VcsChange {
+  path: string;
+  status: "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflicted";
+  changelist?: string;
+}
