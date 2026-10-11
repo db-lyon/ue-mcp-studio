@@ -687,15 +687,16 @@ button.danger-button { color: var(--bad); border-color: var(--bad); }
 
 /* Changes: the files source control sees changed, and a diff */
 button.chip.vcs { cursor: pointer; height: auto; }
-.changes-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0, 0, 0, 0.45); }
-.changes-panel { width: min(1200px, 94vw); height: min(780px, 88vh); display: flex; flex-direction: column; gap: 10px; }
+.changes-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; justify-content: center; align-items: flex-start; padding: 64px 16px 16px; background: rgba(0, 0, 0, 0.5); }
+.changes-panel { width: min(1200px, 100%); height: min(780px, calc(100vh - 96px)); display: flex; flex-direction: column; gap: 10px; background: var(--panel); box-shadow: 0 16px 48px rgba(0, 0, 0, 0.45); }
 .changes-head { gap: 10px; }
 .changes-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 34%) 1fr; gap: 12px; }
 .changes-list { list-style: none; margin: 0; padding: 0; overflow: auto; border-right: 1px solid var(--line); }
 .change-row { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; padding: 4px 8px; background: transparent; border: 0; text-align: left; font: 12px var(--mono); color: var(--text); cursor: pointer; }
 .change-row:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; }
 .change-row.current { background: var(--accent-wash); }
-.change-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.change-name { flex-shrink: 0; }
+.change-dir { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .change-status { width: 16px; flex-shrink: 0; font-weight: 700; text-align: center; }
 .s-modified, .s-renamed { color: var(--warn); }
 .s-added, .s-untracked { color: var(--ok); }

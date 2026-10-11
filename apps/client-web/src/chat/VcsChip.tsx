@@ -9,6 +9,12 @@ export function vcsLine(v: VcsStatus): string {
   return [v.branch ?? "no branch", changed, ...sync].filter(Boolean).join(", ");
 }
 
+const baseName = (p: string) => p.replace(/\\/g, "/").split("/").pop() ?? p;
+const dirName = (p: string) => {
+  const parts = p.replace(/\\/g, "/").split("/");
+  return parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+};
+
 const LETTER: Record<VcsChange["status"], string> = { modified: "M", added: "A", deleted: "D", renamed: "R", untracked: "U", conflicted: "C" };
 
 /**
@@ -83,7 +89,8 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
                 <li key={c.path}>
                   <button className={`change-row ${c.path === picked ? "current" : ""}`} onClick={() => setPicked(c.path)} title={c.path}>
                     <span className={`change-status s-${c.status}`} title={c.status}>{LETTER[c.status]}</span>
-                    <span className="change-path">{c.path}</span>
+                    <span className="change-name">{baseName(c.path)}</span>
+                    <span className="change-dir dim">{dirName(c.path)}</span>
                   </button>
                 </li>
               ))}
