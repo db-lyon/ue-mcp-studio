@@ -7,6 +7,9 @@ import { ConnectModel, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 
 /** Starting points shown on an empty session. Each is a single task the agent can finish through ue-mcp. */
+/** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
+const DRAWER_MS = 260;
+
 const EXAMPLES = [
   "Make a glowing orange material and put it on a sphere in the level",
   "Build a Niagara fire at the player start",
@@ -38,6 +41,9 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   /** The subagent thread on screen, by its agent call id; null is the main thread. */
   const [thread, setThread] = useState<string | null>(null);
+  /** The thread the drawer shows, kept while it slides out, and whether it is in. */
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const loadList = () => api.sessions().then((r) => setSessions(r.sessions), (e: Error) => setError(e.message));
   const loadDetail = (id: string) => api.session(id).then((d) => {
@@ -56,7 +62,10 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
 
   useEffect(() => {
     if (!selected) return;
+    // Another session opens on its main thread, with no drawer sliding out over it.
     setThread(null);
+    setDrawerId(null);
+    setDrawerOpen(false);
     setDraft("");
     streamed.current = "";
     setStreaming("");
@@ -108,6 +117,20 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
   const openThread = (thread && detail && agentCalls(detail.transcript).find((c) => c.id === thread)) || null;
+  const drawerCall = (drawerId && detail && agentCalls(detail.transcript).find((c) => c.id === drawerId)) || null;
+
+  // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
+  // slid out, then unmounted once the slide has finished.
+  useEffect(() => {
+    if (thread) {
+      setDrawerId(thread);
+      const raf = requestAnimationFrame(() => requestAnimationFrame(() => setDrawerOpen(true)));
+      return () => cancelAnimationFrame(raf);
+    }
+    setDrawerOpen(false);
+    const t = setTimeout(() => setDrawerId(null), DRAWER_MS);
+    return () => clearTimeout(t);
+  }, [thread]);
 
   return (
     <div className="chat">
@@ -145,10 +168,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
         )}
         {detail && (
           <>
-            {openThread ? (
-              <SubagentThread call={openThread} transcript={detail.transcript} onBack={() => setThread(null)} />
-            ) : (
-              <div className="transcript">
+            <div className="thread-stage">
+              <div className="transcript" aria-hidden={drawerOpen || undefined}>
                 {detail.transcript.map((t, i) => (t.parent ? null : <Entry key={i} entry={t} transcript={detail.transcript} onOpen={setThread} />))}
                 {streaming && <div className="msg assistant">{streaming}</div>}
                 {detail.status === "waiting" && (
@@ -156,7 +177,12 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 )}
                 {detail.status === "error" && detail.error && <div className="banner bad">{detail.error}</div>}
               </div>
-            )}
+              {drawerCall && (
+                <div className={`thread-drawer ${drawerOpen ? "open" : ""}`}>
+                  <SubagentThread call={drawerCall} transcript={detail.transcript} onBack={() => setThread(null)} />
+                </div>
+              )}
+            </div>
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
             <div className="composer">
               <textarea
