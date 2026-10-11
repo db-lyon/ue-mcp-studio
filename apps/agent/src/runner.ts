@@ -13,16 +13,32 @@ import * as fs from "node:fs";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam } from "./providers.js";
 import { SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
-import { TOOLS, editorConnected, executeTool, packageFile, verifyUnknown, type AgentHost } from "./tools.js";
+import { EDITOR_TOOLS, TOOLS, editorConnected, executeTool, packageFile, verifyUnknown, type AgentHost } from "./tools.js";
 import { runSubscriptionTurn } from "./subscription.js";
 
-const SYSTEM = [
-  "You work inside Unreal Editor for the user, through ue-mcp.",
+const WORK = [
   "Find the action for a task with ue_mcp search, check its parameters with ue_mcp describe, then call it.",
   "Prefer a dedicated action to editor.execute_python. Save what you change when the task is done, unless the user says otherwise.",
   "Results report what happened (created, existed, updated, saved): read them instead of assuming.",
+];
+
+const SYSTEM = [
+  "You work inside Unreal Editor for the user, through ue-mcp.",
+  ...WORK,
+  "For work that splits into independent parts, start a subagent per part with the agent tool, several in one message so they run at the same time. Give each one different assets, then check what they report.",
   "When the editor restarts or crashes during your work, a note tells you why and what was lost. Do not repeat a call whose outcome is unknown without reading the state first.",
 ].join("\n");
+
+/** What a subagent is told: the same way of working, and to end with a report for the agent that started it. */
+export const SUBAGENT_SYSTEM = [
+  "You are a subagent working inside Unreal Editor through ue-mcp, on one task another agent gave you.",
+  ...WORK,
+  "Stay within the task. Other subagents may be working on other assets at the same time.",
+  "Finish with a short report: what you created or changed (asset paths), what you saved, and anything that failed.",
+].join("\n");
+
+/** How many model calls one subagent may make before it is stopped. */
+const SUBAGENT_STEPS = 200;
 
 export interface RunnerOptions {
   host: AgentHost;
@@ -114,11 +130,14 @@ export class AgentRunner {
     this.active.set(id, controller);
     const s = this.require(id);
     let lastId: string | null = null;
+    // Agent calls the SDK runs in the background: their tool result only says they started.
+    const background = new Set<string>();
     try {
       const error = await runSubscriptionTurn({
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         system: SYSTEM,
+        subagentSystem: SUBAGENT_SYSTEM,
         prompt,
         resume: s.sdkSession ?? null,
         signal: controller.signal,
@@ -127,23 +146,49 @@ export class AgentRunner {
           this.o.store.save(s);
         },
         onDelta: (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
-        onAssistant: (mid, blocks) => {
-          const last = s.messages[s.messages.length - 1];
-          if (mid === lastId && last?.role === "assistant" && Array.isArray(last.content)) (last.content as ContentBlock[]).push(...blocks);
-          else s.messages.push({ role: "assistant", content: blocks } as MessageParam);
-          lastId = mid;
+        onAssistant: (mid, blocks, parent) => {
+          // A subagent's messages are its own conversation: only the main agent's mirror into the session's.
+          if (!parent) {
+            const last = s.messages[s.messages.length - 1];
+            if (mid === lastId && last?.role === "assistant" && Array.isArray(last.content)) (last.content as ContentBlock[]).push(...blocks);
+            else s.messages.push({ role: "assistant", content: blocks } as MessageParam);
+            lastId = mid;
+          }
+          const tag = parent ? { parent } : {};
           for (const b of blocks) {
-            if (b.type === "text" && b.text) this.addEntry(s, { kind: "assistant", text: b.text, at: now() });
+            if (b.type === "text" && b.text) this.addEntry(s, { kind: "assistant", text: b.text, at: now(), ...tag });
             if (b.type === "tool_use") {
-              this.addEntry(s, { kind: "tool", call: { id: b.id, name: b.name, input: b.input, outcome: "pending", startedAt: now() } });
+              this.addEntry(s, { kind: "tool", call: { id: b.id, name: b.name, input: b.input, outcome: "pending", startedAt: now() }, ...tag });
             }
           }
           this.o.store.save(s);
         },
-        onToolResults: (content) => {
-          s.messages.push({ role: "user", content } as MessageParam);
-          lastId = null;
+        onToolResults: (content, parent) => {
+          if (!parent) {
+            s.messages.push({ role: "user", content } as MessageParam);
+            lastId = null;
+          }
+          // Studio's own tools record their outcome as they run; an agent call's result arrives only here.
+          for (const b of content as Array<{ type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
+            if (b.type !== "tool_result" || !b.tool_use_id) continue;
+            const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === b.tool_use_id);
+            if (entry?.kind !== "tool" || entry.call.outcome !== "pending" || background.has(b.tool_use_id)) continue;
+            const text = typeof b.content === "string" ? b.content
+              : Array.isArray(b.content) ? b.content.map((c: { text?: string }) => c.text ?? "").join("") : "";
+            this.recordOutcome(s, { id: b.tool_use_id, name: entry.call.name, input: {}, state: "done", result: text, isError: !!b.is_error }, b.is_error ? "error" : "done");
+          }
           this.o.store.save(s);
+        },
+        onTask: (toolUseId, status, detail) => {
+          if (status === "started") {
+            if (detail.background) background.add(toolUseId);
+            return;
+          }
+          const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId);
+          if (entry?.kind !== "tool" || entry.call.outcome !== "pending") return;
+          const failed = status !== "completed";
+          const result = detail.summary || (status === "stopped" ? "Stopped before it finished." : "");
+          this.recordOutcome(s, { id: toolUseId, name: entry.call.name, input: {}, state: "done", result, isError: failed }, failed ? "error" : "done");
         },
         runTool: async (toolId, name, input) => {
           if (name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, controller.signal);
@@ -161,6 +206,12 @@ export class AgentRunner {
       this.setStatus(s, error ? "error" : "idle", null);
     } finally {
       if (this.active.get(id) === controller) this.active.delete(id);
+      // A call the turn ended or was stopped without answering never finishes now.
+      for (const t of s.transcript) {
+        if (t.kind === "tool" && t.call.outcome === "pending") {
+          this.recordOutcome(s, { id: t.call.id, name: t.call.name, input: {}, state: "done", result: "Stopped before it finished.", isError: true }, "error");
+        }
+      }
     }
   }
 
@@ -272,9 +323,32 @@ export class AgentRunner {
    */
   private async answerPending(s: StoredSession, signal: AbortSignal): Promise<boolean> {
     const pending = s.pending!;
+    // Subagents run at the same time, before the calls the main agent makes itself.
+    const agents = pending.filter((p) => p.name === "agent" && p.state === "queued");
+    if (agents.length > 0) {
+      for (const p of agents) p.state = "running";
+      this.o.store.save(s);
+      await Promise.all(agents.map(async (p) => {
+        const r = await this.runSubagent(s, p, signal);
+        if (signal.aborted) return;
+        p.state = "done";
+        p.result = r.text;
+        p.isError = r.isError;
+        this.recordOutcome(s, p, r.isError ? "error" : "done");
+      }));
+      if (signal.aborted) return true;
+    }
     for (const p of pending) {
       if (signal.aborted) return true;
       if (p.state === "done") continue;
+
+      if (p.state === "unknown" && p.name === "agent") {
+        p.state = "done";
+        p.result = `The subagent was cut off (${s.waitingCause ?? this.lastCause}) before it reported. Read back the state of what it was working on before redoing any of it.`;
+        p.isError = true;
+        this.recordOutcome(s, p, "unknown");
+        continue;
+      }
 
       if (p.state === "unknown") {
         if (!editorConnected(this.o.host)) return this.pause(s);
@@ -311,6 +385,55 @@ export class AgentRunner {
     }
     this.flushPending(s);
     return false;
+  }
+
+  /**
+   * One subagent: its own conversation on the same model, with the editor tools
+   * only. Its steps go into the session's transcript under the agent call; the
+   * main agent gets its final report as the call's result.
+   */
+  private async runSubagent(s: StoredSession, call: PendingTool, signal: AbortSignal): Promise<{ text: string; isError: boolean }> {
+    const prompt = call.input.prompt;
+    if (typeof prompt !== "string" || !prompt.trim()) return { text: "Invalid input: agent needs prompt", isError: true };
+    const parent = call.id;
+    const messages: MessageParam[] = [{ role: "user", content: prompt }];
+    let report = "";
+    try {
+      for (let step = 0; step < SUBAGENT_STEPS; step++) {
+        if (signal.aborted) return { text: "Stopped by the user.", isError: true };
+        const turn = await this.o.provider().run(
+          { sessionId: s.id, model: this.o.model(), system: [{ type: "text", text: SUBAGENT_SYSTEM }], tools: EDITOR_TOOLS, messages },
+          () => {},
+          signal,
+        );
+        messages.push({ role: "assistant", content: turn.content } as MessageParam);
+        const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
+        if (text) {
+          report = text;
+          this.addEntry(s, { kind: "assistant", text, at: now(), parent });
+        }
+        if (turn.stopReason === "refusal") return { text: `The subagent's model declined: ${turn.refusal ?? "no reason given"}`, isError: true };
+        const uses = turn.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
+        if (turn.stopReason !== "tool_use" || uses.length === 0) return { text: report || "The subagent finished without a report.", isError: false };
+        const results: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
+        for (const u of uses) {
+          const input = (u.input ?? {}) as Record<string, unknown>;
+          this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() }, parent });
+          if (u.name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal);
+          if (signal.aborted) return { text: "Stopped by the user.", isError: true };
+          const exec = await executeTool(this.o.host, u.name, input);
+          this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+          this.markSaved(s, exec.saved);
+          this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError }, exec.outcome);
+          results.push({ type: "tool_result", tool_use_id: u.id, content: exec.text, is_error: exec.isError || undefined });
+        }
+        messages.push({ role: "user", content: results } as MessageParam);
+      }
+      return { text: `The subagent stopped after ${SUBAGENT_STEPS} steps without finishing. Its last report: ${report || "none"}`, isError: true };
+    } catch (e) {
+      if (signal.aborted) return { text: "Stopped by the user.", isError: true };
+      return { text: `The subagent failed: ${e instanceof Error ? e.message : String(e)}`, isError: true };
+    }
   }
 
   private pause(s: StoredSession): boolean {

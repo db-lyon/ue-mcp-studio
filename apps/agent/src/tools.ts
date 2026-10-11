@@ -28,7 +28,8 @@ export interface AgentHost {
   log: { info(message: string): void; warn(message: string, detail?: unknown): void };
 }
 
-export const TOOLS: Anthropic.Beta.BetaToolUnion[] = [
+/** The editor tools: what the main agent and every subagent can call. */
+export const EDITOR_TOOLS: Anthropic.Beta.BetaToolUnion[] = [
   {
     name: "ue_mcp",
     description:
@@ -66,6 +67,25 @@ export const TOOLS: Anthropic.Beta.BetaToolUnion[] = [
     eager_input_streaming: true,
   },
 ];
+
+/** The subagent tool. A subagent gets the editor tools only, so it cannot start subagents itself. */
+export const AGENT_TOOL: Anthropic.Beta.BetaToolUnion = {
+  name: "agent",
+  description:
+    "Hand a self-contained task to a subagent. It works in the editor with the same ue_mcp and editor_restart tools "
+    + "and reports back what it did. It sees only the prompt you write, so include every path, name and constraint it needs. "
+    + "Call agent several times in one message to run independent tasks at the same time; never give two subagents the same assets.",
+  input_schema: {
+    type: "object",
+    properties: {
+      description: { type: "string", description: "A short (3-5 word) name for the task, shown to the user" },
+      prompt: { type: "string", description: "The complete task for the subagent" },
+    },
+    required: ["description", "prompt"],
+  },
+};
+
+export const TOOLS: Anthropic.Beta.BetaToolUnion[] = [...EDITOR_TOOLS, AGENT_TOOL];
 
 export type CallOutcome = "done" | "error" | "unknown";
 

@@ -114,7 +114,7 @@ describe("a turn", () => {
     expect(fin.transcript.map((t) => t.kind)).toEqual(["user", "tool", "assistant"]);
     expect(host.published.some((e) => e.type === "turn.delta")).toBe(true);
     // The model request carries the cached system prompt and the two tools.
-    expect(model.requests[0].tools.map((t) => (t as { name: string }).name)).toEqual(["ue_mcp", "editor_restart"]);
+    expect(model.requests[0].tools.map((t) => (t as { name: string }).name)).toEqual(["ue_mcp", "editor_restart", "agent"]);
   });
 
   it("finds and describes actions through ue-mcp's own discovery actions", async () => {
@@ -129,6 +129,57 @@ describe("a turn", () => {
       { category: "project", action: "search_tools", args: { query: "spawn a light", limit: 15 } },
       { category: "project", action: "describe_action", args: { name: "level.spawn_light" } },
     ]);
+  });
+});
+
+describe("subagents", () => {
+  it("runs each agent call as its own conversation, at the same time, and returns each report", async () => {
+    let running = 0;
+    let most = 0;
+    const requests: ModelRequest[] = [];
+    const model: ModelProvider = {
+      async run(req) {
+        requests.push(JSON.parse(JSON.stringify(req)));
+        const sub = req.system.some((b) => b.text.includes("You are a subagent"));
+        if (!sub) {
+          if (req.messages.length === 1) {
+            return {
+              content: [
+                { type: "tool_use", id: "a1", name: "agent", input: { description: "Red material", prompt: "make red" } },
+                { type: "tool_use", id: "a2", name: "agent", input: { description: "Blue material", prompt: "make blue" } },
+              ] as never,
+              stopReason: "tool_use",
+            };
+          }
+          return text("Both made.");
+        }
+        const task = req.messages[0].content as string;
+        if (req.messages.length === 1) {
+          running++;
+          most = Math.max(most, running);
+          await new Promise((r) => setTimeout(r, 20));
+          running--;
+          return call(`c-${task}`, "material", "create", { name: task });
+        }
+        return text(`Report: ${task} done.`);
+      },
+    };
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5" });
+    const s = store.create();
+    await runner.send(s.id, "make two materials");
+
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    expect(most).toBe(2);
+    // A subagent gets the editor tools only, so it cannot start subagents of its own.
+    const subTools = requests.find((r) => r.system.some((b) => b.text.includes("You are a subagent")))!.tools.map((t) => (t as { name: string }).name);
+    expect(subTools).toEqual(["ue_mcp", "editor_restart"]);
+    const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string }>;
+    expect(results.map((r) => [r.tool_use_id, r.content])).toEqual([["a1", "Report: make red done."], ["a2", "Report: make blue done."]]);
+    // Their steps are in the transcript under the call that started them.
+    expect(fin.transcript.filter((t) => t.parent === "a1").map((t) => t.kind)).toEqual(["tool", "assistant"]);
+    expect(fin.transcript.filter((t) => t.parent === "a2").map((t) => t.kind)).toEqual(["tool", "assistant"]);
+    expect(fin.transcript.filter((t) => !t.parent).map((t) => t.kind)).toEqual(["user", "tool", "tool", "assistant"]);
   });
 });
 

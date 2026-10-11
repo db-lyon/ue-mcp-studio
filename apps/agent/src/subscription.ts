@@ -18,6 +18,14 @@ import { ensureRuntime, installedRuntime } from "./runtime.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
+const STUDIO_TOOLS = [`${PREFIX}ue_mcp`, `${PREFIX}editor_restart`];
+/** The SDK's subagent tool, and the subagent Studio defines for it. */
+const AGENT = "Agent";
+const WORKER = "editor-worker";
+
+/** Tool names as Studio's transcript writes them: its own tools unprefixed, the SDK's subagent tool as agent. */
+const studioName = (name: string): string =>
+  name.startsWith(PREFIX) ? name.slice(PREFIX.length) : name === AGENT || name === "Task" ? "agent" : name;
 
 /** Studio's Claude login and SDK sessions, shared by every project. */
 export const claudeHome = (): string => process.env.STUDIO_CLAUDE_HOME || path.join(os.homedir(), ".ue-mcp", "studio", "claude");
@@ -145,15 +153,22 @@ export interface SubscriptionTurn {
   projectDir: string;
   model: string;
   system: string;
+  /** What each subagent the model starts is told. */
+  subagentSystem: string;
   prompt: string;
   /** The SDK session to continue, from this Studio session's last turn. */
   resume: string | null;
   signal: AbortSignal;
   onSession: (id: string) => void;
   onDelta: (text: string) => void;
-  /** One assistant message, merged by message id when the SDK splits it per block. */
-  onAssistant: (messageId: string, content: ContentBlock[]) => void;
-  onToolResults: (content: unknown[]) => void;
+  /**
+   * One assistant message, merged by message id when the SDK splits it per
+   * block. `parent` is the agent call a subagent's message belongs to.
+   */
+  onAssistant: (messageId: string, content: ContentBlock[], parent: string | null) => void;
+  onToolResults: (content: unknown[], parent: string | null) => void;
+  /** A subagent's lifecycle, by the agent call that started it. A background one reports here, not in its tool result. */
+  onTask: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
 }
@@ -215,9 +230,17 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       options: {
         model: t.model,
         systemPrompt: t.system,
-        tools: [],
+        // The SDK's subagent tool is the only built-in one; every editor action goes through Studio's tools.
+        tools: [AGENT],
+        agents: {
+          [WORKER]: {
+            description: "Works on one self-contained Unreal Editor task through ue-mcp and reports what it changed.",
+            prompt: t.subagentSystem,
+            tools: STUDIO_TOOLS,
+          },
+        },
         mcpServers: { [SERVER]: server },
-        allowedTools: [`${PREFIX}ue_mcp`, `${PREFIX}editor_restart`],
+        allowedTools: [...STUDIO_TOOLS, AGENT],
         settingSources: [],
         includePartialMessages: true,
         resume: t.resume ?? undefined,
@@ -230,18 +253,21 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     let error: string | null = null;
     for await (const m of q as AsyncIterable<SDKMessage>) {
       if (m.type === "system" && "subtype" in m && m.subtype === "init") t.onSession(m.session_id);
+      else if (m.type === "system" && "subtype" in m && m.subtype === "task_started") {
+        if (m.tool_use_id) t.onTask(m.tool_use_id, "started", { background: m.is_backgrounded });
+      } else if (m.type === "system" && "subtype" in m && m.subtype === "task_notification") {
+        if (m.tool_use_id) t.onTask(m.tool_use_id, m.status, { summary: m.summary });
+      }
       else if (m.type === "stream_event") {
         const e = m.event;
-        if (e.type === "content_block_delta" && e.delta.type === "text_delta") t.onDelta(e.delta.text);
+        if (!m.parent_tool_use_id && e.type === "content_block_delta" && e.delta.type === "text_delta") t.onDelta(e.delta.text);
       } else if (m.type === "assistant") {
         if (m.error) error = `Claude: ${m.error}`;
-        const content = (m.message.content as ContentBlock[]).map((b) =>
-          b.type === "tool_use" && b.name.startsWith(PREFIX) ? ({ ...b, name: b.name.slice(PREFIX.length) } as ContentBlock) : b,
-        );
+        const content = (m.message.content as ContentBlock[]).map((b) => (b.type === "tool_use" ? ({ ...b, name: studioName(b.name) } as ContentBlock) : b));
         for (const b of content) if (b.type === "tool_use") waiting.push({ id: b.id, name: b.name, input: b.input });
-        t.onAssistant(m.message.id, content);
+        t.onAssistant(m.message.id, content, m.parent_tool_use_id);
       } else if (m.type === "user" && Array.isArray(m.message.content)) {
-        t.onToolResults(m.message.content as unknown[]);
+        t.onToolResults(m.message.content as unknown[], m.parent_tool_use_id);
       } else if (m.type === "result") {
         t.onSession(m.session_id);
         if (m.subtype !== "success") error = error ?? `The turn ended: ${m.subtype}`;

@@ -138,11 +138,16 @@ export interface TouchedItem {
 }
 
 /** A transcript entry the UI renders. */
-export type TranscriptEntry =
+/**
+ * One line of the conversation. `parent` is the id of the agent call whose
+ * subagent wrote it; the main agent's entries have none.
+ */
+export type TranscriptEntry = (
   | { kind: "user"; text: string; at: string }
   | { kind: "assistant"; text: string; at: string }
   | { kind: "tool"; call: ToolCallRecord }
-  | { kind: "note"; text: string; at: string };
+  | { kind: "note"; text: string; at: string }
+) & { parent?: string };
 
 export interface SessionSummary {
   id: string;

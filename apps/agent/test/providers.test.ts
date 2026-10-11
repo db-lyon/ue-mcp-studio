@@ -43,7 +43,7 @@ describe("OpenAI compatible translation", () => {
       tool_calls: [{ id: "call_1", function: { name: "ue_mcp", arguments: JSON.stringify({ action: "search", query: "cube" }) }, extra_content: { google: { thought_signature: "sig" } } }],
     });
     expect(body.messages[3]).toEqual({ role: "tool", tool_call_id: "call_1", content: "level.spawn_actor" });
-    expect(body.tools.map((t) => t.function.name)).toEqual(["ue_mcp", "editor_restart"]);
+    expect(body.tools.map((t) => t.function.name)).toEqual(["ue_mcp", "editor_restart", "agent"]);
   });
 
   it("never sends another provider's tool-call data to the Messages API", () => {
