@@ -1,10 +1,12 @@
 /**
- * Model access behind one interface: BYOK (the user's Anthropic API key) or
- * the UE-MCP gateway (the account token). The agent loop never knows which.
+ * Model access behind one interface: the Studio subscription through the
+ * UE-MCP gateway, or the user's own Anthropic, OpenAI or Google key. The agent
+ * loop speaks the Messages format; other providers are translated at this edge.
  */
 import Anthropic from "@anthropic-ai/sdk";
 import type { SettingsStore } from "./settings.js";
-import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER } from "@ue-mcp-studio/shared";
+import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER, PROVIDERS } from "@ue-mcp-studio/shared";
+import { OpenAICompatibleProvider, OPENAI_BASE_URLS, PROVIDER_EXTRA } from "./openai-compat.js";
 
 export type MessageParam = Anthropic.Beta.BetaMessageParam;
 export type ContentBlock = Anthropic.Beta.BetaContentBlock;
@@ -44,7 +46,7 @@ export function requestBody(req: ModelRequest): Anthropic.Beta.MessageCreatePara
     max_tokens: MAX_TOKENS,
     system: req.system,
     tools: req.tools,
-    messages: req.messages,
+    messages: withoutProviderExtra(req.messages),
     output_config: { effort: "high" },
     cache_control: { type: "ephemeral" },
   };
@@ -55,13 +57,26 @@ export function requestBody(req: ModelRequest): Anthropic.Beta.MessageCreatePara
   return body;
 }
 
+/** The messages without what another provider stored on its tool calls, which the Messages API refuses. */
+function withoutProviderExtra(messages: MessageParam[]): MessageParam[] {
+  return messages.map((m) => {
+    if (typeof m.content === "string" || !m.content.some((b) => PROVIDER_EXTRA in b)) return m;
+    return { ...m, content: m.content.map((b) => {
+      if (!(PROVIDER_EXTRA in b)) return b;
+      const { [PROVIDER_EXTRA]: _, ...rest } = b as unknown as Record<string, unknown>;
+      return rest as unknown as typeof b;
+    }) };
+  });
+}
+
 function refusalOf(stopReason: string | null, details: unknown): string | undefined {
   if (stopReason !== "refusal") return undefined;
   const d = details as { category?: string | null; explanation?: string | null } | null | undefined;
   return d?.explanation ?? d?.category ?? "declined";
 }
 
-export class ByokProvider implements ModelProvider {
+/** The user's own Anthropic key. */
+export class AnthropicProvider implements ModelProvider {
   constructor(private readonly apiKey: string, private readonly client = new Anthropic({ apiKey })) {}
 
   async run(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<ModelTurn> {
@@ -120,15 +135,14 @@ export class GatewayProvider implements ModelProvider {
 /** The provider the settings name, or an error saying what is missing. */
 export function providerFor(
   settings: SettingsStore,
-  context: { registryToken?: string | null; agentVersion?: string } = {},
+  context: { accountToken?: string | null; agentVersion?: string } = {},
 ): ModelProvider {
-  if (settings.provider() === "gateway") {
-    // A token saved in Settings wins; otherwise the account from `ue-mcp login`.
-    const token = settings.accountToken() ?? context.registryToken ?? null;
-    if (!token) throw new Error("Sign in with `npx ue-mcp login` (or paste a token in Settings) to use the hosted model, or switch to your own API key.");
-    return new GatewayProvider(settings.gatewayUrl(), token, context.agentVersion);
+  const p = settings.provider();
+  if (p === "studio") {
+    if (!context.accountToken) throw new Error("Sign in to Studio to use this model, or pick a model from a provider you have a key for.");
+    return new GatewayProvider(settings.gatewayUrl(), context.accountToken, context.agentVersion);
   }
-  const key = settings.apiKey();
-  if (!key) throw new Error("Add an Anthropic API key in Settings, or sign in to use the hosted model.");
-  return new ByokProvider(key);
+  const key = settings.key(p);
+  if (!key) throw new Error(`Add your ${PROVIDERS[p].name} API key to use this model, or pick another model.`);
+  return p === "anthropic" ? new AnthropicProvider(key) : new OpenAICompatibleProvider(OPENAI_BASE_URLS[p], key);
 }

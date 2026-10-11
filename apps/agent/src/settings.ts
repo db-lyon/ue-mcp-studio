@@ -1,23 +1,44 @@
 /**
  * Model settings and secrets, per project, under the extension's data dir.
  *
- * Secrets (the BYOK key, the account token) live in their own files, written
- * with mode 600. They are read only to make a request: never logged, never
- * returned by a route. The settings route reports whether each one is set.
+ * Secrets (each provider's key, the account token) live in their own files,
+ * written with mode 600. They are read only to make a request: never logged,
+ * never returned by a route. The settings route reports whether each one is set.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { STUDIO_THEMES, type ProviderKind, type StudioSettings, type StudioSettingsUpdate, type StudioTheme } from "@ue-mcp-studio/shared";
+import {
+  KEY_PROVIDER_IDS,
+  PROVIDER_IDS,
+  STUDIO_THEMES,
+  type KeyProviderId,
+  type ProviderId,
+  type StudioSettingsUpdate,
+  type StudioTheme,
+} from "@ue-mcp-studio/shared";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 export const DEFAULT_GATEWAY_URL = "https://gateway.ue-mcp.com";
 
 interface StoredSettings {
-  provider: ProviderKind;
+  provider: ProviderId;
   model: string;
   gatewayUrl: string;
   theme: StudioTheme;
 }
+
+/**
+ * Settings written before providers were named: byok meant an Anthropic key,
+ * gateway the subscription. byok was also the old default, written by any save,
+ * so it means Anthropic only when an Anthropic key is there.
+ */
+function providerOf(raw: unknown, hasAnthropicKey: boolean): ProviderId {
+  if (raw === "byok") return hasAnthropicKey ? "anthropic" : "studio";
+  if (raw === "gateway") return "studio";
+  return PROVIDER_IDS.includes(raw as ProviderId) ? (raw as ProviderId) : "studio";
+}
+
+const keyFile = (p: KeyProviderId) => `${p}.key`;
 
 export class SettingsStore {
   constructor(private readonly dir: string) {
@@ -30,15 +51,15 @@ export class SettingsStore {
 
   private stored(): StoredSettings {
     try {
-      const raw = JSON.parse(fs.readFileSync(this.file("settings.json"), "utf-8")) as Partial<StoredSettings>;
+      const raw = JSON.parse(fs.readFileSync(this.file("settings.json"), "utf-8")) as Record<string, unknown>;
       return {
-        provider: raw.provider === "gateway" ? "gateway" : "byok",
+        provider: providerOf(raw.provider, this.readSecret(keyFile("anthropic")) !== null),
         model: typeof raw.model === "string" && raw.model ? raw.model : DEFAULT_MODEL,
         gatewayUrl: typeof raw.gatewayUrl === "string" && raw.gatewayUrl ? raw.gatewayUrl : DEFAULT_GATEWAY_URL,
         theme: STUDIO_THEMES.includes(raw.theme as StudioTheme) ? (raw.theme as StudioTheme) : "ue-mcp",
       };
     } catch {
-      return { provider: "byok", model: DEFAULT_MODEL, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp" };
+      return { provider: "studio", model: DEFAULT_MODEL, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp" };
     }
   }
 
@@ -64,20 +85,16 @@ export class SettingsStore {
     fs.chmodSync(target, 0o600);
   }
 
-  /** What the UI may see. */
-  view(): StudioSettings {
-    const s = this.stored();
-    return {
-      ...s,
-      hasApiKey: this.readSecret("anthropic.key") !== null,
-      hasAccountToken: this.readSecret("account.token") !== null,
-    };
+  /** The stored choices, without secrets. The route adds which providers are connected. */
+  view(): StoredSettings & { keys: Record<KeyProviderId, boolean> } {
+    const keys = Object.fromEntries(KEY_PROVIDER_IDS.map((p) => [p, this.readSecret(keyFile(p)) !== null])) as Record<KeyProviderId, boolean>;
+    return { ...this.stored(), keys };
   }
 
-  update(u: StudioSettingsUpdate): StudioSettings {
+  update(u: StudioSettingsUpdate): void {
     const s = this.stored();
     if (u.provider !== undefined) {
-      if (u.provider !== "byok" && u.provider !== "gateway") throw new Error("provider must be byok or gateway");
+      if (!PROVIDER_IDS.includes(u.provider)) throw new Error(`provider must be one of ${PROVIDER_IDS.join(", ")}`);
       s.provider = u.provider;
     }
     if (u.model !== undefined) {
@@ -92,15 +109,36 @@ export class SettingsStore {
       if (!STUDIO_THEMES.includes(u.theme)) throw new Error(`theme must be one of ${STUDIO_THEMES.join(", ")}`);
       s.theme = u.theme;
     }
+    for (const [p, v] of Object.entries(u.keys ?? {})) {
+      if (!KEY_PROVIDER_IDS.includes(p as KeyProviderId)) throw new Error(`no key provider ${p}`);
+      if (typeof v !== "string") throw new Error(`the ${p} key must be a string`);
+    }
     fs.writeFileSync(this.file("settings.json"), JSON.stringify(s, null, 2));
-    if (u.apiKey !== undefined) this.writeSecret("anthropic.key", u.apiKey.trim());
-    if (u.accountToken !== undefined) this.writeSecret("account.token", u.accountToken.trim());
-    return this.view();
+    for (const [p, v] of Object.entries(u.keys ?? {})) this.writeSecret(keyFile(p as KeyProviderId), (v as string).trim());
+    if (u.accountToken !== undefined) {
+      this.writeSecret("account.token", u.accountToken.trim());
+      if (!u.accountToken.trim()) fs.rmSync(this.file("account.json"), { force: true });
+    }
   }
 
-  /** For the provider only. */
-  apiKey(): string | null {
-    return this.readSecret("anthropic.key");
+  /** After an in-panel sign-in: the account token, and the login to show beside it. */
+  signIn(token: string, login: string): void {
+    this.writeSecret("account.token", token);
+    fs.writeFileSync(this.file("account.json"), JSON.stringify({ login }));
+  }
+
+  accountLogin(): string | null {
+    try {
+      const v = (JSON.parse(fs.readFileSync(this.file("account.json"), "utf-8")) as { login?: unknown }).login;
+      return typeof v === "string" ? v : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** For the providers only. */
+  key(p: KeyProviderId): string | null {
+    return this.readSecret(keyFile(p));
   }
 
   accountToken(): string | null {
@@ -111,7 +149,7 @@ export class SettingsStore {
     return this.stored().model;
   }
 
-  provider(): ProviderKind {
+  provider(): ProviderId {
     return this.stored().provider;
   }
 

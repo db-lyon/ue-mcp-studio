@@ -290,15 +290,18 @@ describe("inputs and settings", () => {
     expect(validateInput("ue_mcp", { action: "call", category: "a", method: "b", args: {} })).toBeNull();
   });
 
-  it("stores the API key apart from the settings and never reports it back", () => {
+  it("stores each provider's key apart from the settings and never reports it back", () => {
     const settings = new SettingsStore(path.join(root, "settings"));
-    const view = settings.update({ apiKey: "sk-test-123", model: "claude-opus-5-5" });
-    expect(view).toMatchObject({ provider: "byok", hasApiKey: true });
+    settings.update({ keys: { openai: "sk-test-123" }, provider: "openai", model: "gpt-6-sol" });
+    const view = settings.view();
+    expect(view).toMatchObject({ provider: "openai", model: "gpt-6-sol", keys: { openai: true, anthropic: false, google: false } });
     expect(JSON.stringify(view)).not.toContain("sk-test-123");
     expect(fs.readFileSync(path.join(root, "settings", "settings.json"), "utf-8")).not.toContain("sk-test-123");
-    expect(settings.apiKey()).toBe("sk-test-123");
-    expect(settings.update({ apiKey: "" }).hasApiKey).toBe(false);
+    expect(settings.key("openai")).toBe("sk-test-123");
+    settings.update({ keys: { openai: "" } });
+    expect(settings.view().keys.openai).toBe(false);
     expect(() => settings.update({ gatewayUrl: "ftp://x" })).toThrow(/http/);
+    expect(() => settings.update({ keys: { studio: "x" } as never })).toThrow(/no key provider/);
   });
 
   it("sends the gateway the Messages body with the account token and session id", async () => {

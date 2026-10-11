@@ -1,8 +1,12 @@
 /**
  * The agent's routes, under /v1/ext/studio:
  *
- *   GET  /settings                  provider, model, gateway URL, which secrets are set
- *   PUT  /settings                  change them; secrets are written, never returned
+ *   GET  /settings                  the selected model, theme, which providers are connected
+ *   PUT  /settings                  change them; keys are written, never returned
+ *   GET  /models                    every provider and its models, for the picker
+ *   GET  /signin                    the in-panel Studio sign-in's progress
+ *   POST /signin                    start it: a code to approve on GitHub
+ *   DELETE /signin                  cancel it
  *   GET  /sessions                  every session, newest first
  *   POST /sessions                  a new session
  *   GET  /sessions/:id              one session's transcript and state
@@ -15,11 +19,13 @@
  * studio.transcript.added, studio.turn.delta and studio.tool.finished.
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import type { StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
 import { providerFor } from "./providers.js";
+import { ModelCatalogSource } from "./models.js";
+import { StudioSignInFlow } from "./signin.js";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): AgentRunner {
   const settings = new SettingsStore(api.dataDir);
@@ -35,29 +41,66 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   const accountTimer = setInterval(() => void refreshAccount(), 60_000);
   accountTimer.unref();
 
+  // A sign-in from the panel wins; otherwise the account from `ue-mcp login`.
+  const accountToken = (): string | null => settings.accountToken() ?? registry?.token ?? null;
+
+  const view = (): StudioSettings => {
+    const { keys, ...rest } = settings.view();
+    const login = settings.accountToken() ? settings.accountLogin() ?? "your account" : null;
+    return {
+      ...rest,
+      connected: { studio: accountToken() !== null, ...keys },
+      account: login ? { login, via: "studio" } : registry ? { login: registry.login, via: "ue-mcp-login" } : null,
+    };
+  };
+
+  const fetchUsage = async (token: string): Promise<Response> =>
+    fetch(`${settings.gatewayUrl()}/v1/account/usage`, { headers: { authorization: `Bearer ${token}` } });
+
+  const catalog = new ModelCatalogSource((p) => settings.key(p), async () => {
+    const token = accountToken();
+    if (!token) return null;
+    const res = await fetchUsage(token);
+    return res.ok ? ((await res.json()) as AccountUsage).plan.models : null;
+  });
+
+  const signin = new StudioSignInFlow((token, login) => {
+    settings.signIn(token, login);
+    api.events.publish("settings.changed", {});
+  });
+
   const runner = new AgentRunner({
     host: api,
     store,
-    provider: () => providerFor(settings, { registryToken: registry?.token ?? null, agentVersion }),
+    provider: () => providerFor(settings, { accountToken: accountToken(), agentVersion }),
     model: () => settings.model(),
   });
 
   const bad = (error: string) => ({ status: 400, body: { error } });
   const missing = (id: string) => ({ status: 404, body: { error: `no session ${id}` } });
 
-  api.route("GET", "/settings", () => ({ body: settings.view() }));
+  api.route("GET", "/settings", () => ({ body: view() }));
+
+  api.route("GET", "/models", async () => ({ body: await catalog.catalog(view().connected) }));
+
+  api.route("GET", "/signin", () => ({ body: signin.view() }));
+  api.route("POST", "/signin", async () => ({ body: await signin.start() }));
+  api.route("DELETE", "/signin", () => {
+    signin.cancel();
+    return { status: 204 };
+  });
 
   // Plan and usage from the gateway, for the Account tab.
   api.route("GET", "/account", async () => {
     await refreshAccount();
-    const token = settings.accountToken() ?? registry?.token ?? null;
+    const token = accountToken();
     if (!token) {
-      const out: StudioAccountResponse = { signedIn: false, reason: "Not signed in. Run npx ue-mcp login, or paste a token in Settings." };
+      const out: StudioAccountResponse = { signedIn: false, reason: "Not signed in." };
       return { body: out };
     }
     try {
-      const res = await fetch(`${settings.gatewayUrl()}/v1/account/usage`, { headers: { authorization: `Bearer ${token}` } });
-      if (res.status === 401) return { body: { signedIn: false, reason: "The gateway did not accept this sign-in. Run npx ue-mcp login again." } satisfies StudioAccountResponse };
+      const res = await fetchUsage(token);
+      if (res.status === 401) return { body: { signedIn: false, reason: "The sign-in has expired. Sign in again." } satisfies StudioAccountResponse };
       if (!res.ok) return { status: 502, body: { error: `gateway ${res.status}` } };
       const usage = (await res.json()) as AccountUsage;
       const out: StudioAccountResponse = { signedIn: true, usage, manageUrl: process.env.UE_MCP_STUDIO_MANAGE_URL ?? null };
@@ -68,7 +111,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   });
   api.route("PUT", "/settings", (req) => {
     try {
-      return { body: settings.update((req.body ?? {}) as StudioSettingsUpdate) };
+      settings.update((req.body ?? {}) as StudioSettingsUpdate);
+      return { body: view() };
     } catch (e) {
       return bad(e instanceof Error ? e.message : String(e));
     }
