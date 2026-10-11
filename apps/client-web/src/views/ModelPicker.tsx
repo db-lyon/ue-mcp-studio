@@ -18,7 +18,7 @@ export function runsVia(catalog: Catalog, vendor: Vendor, m: ModelOption): SignI
   return m.signIns.find((s) => catalog.signedIn[s]) ?? (vendor.connected ? "key" : null);
 }
 
-const VIA_LABEL: Record<SignInId | "key", string> = { studio: "Studio plan", openrouter: "OpenRouter", key: "your key" };
+const VIA_LABEL: Record<SignInId | "key", string> = { studio: "Studio plan", key: "your key" };
 
 function find(catalog: Catalog | null, vendor: KeyProviderId, model: string): { vendor: Vendor; model: ModelOption } | null {
   const v = catalog?.providers.find((p) => p.id === vendor);
@@ -191,7 +191,6 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 
 const SIGN_IN_ABOUT: Record<SignInId, string> = {
   studio: "With your GitHub account. Runs the models in your Studio plan.",
-  openrouter: "With your OpenRouter account. Usage is billed by OpenRouter.",
 };
 
 /** One sign-in: a button, then the page to approve on (and Studio's code), until it finishes. */
@@ -251,7 +250,7 @@ export function SignInForm({ id, primary = true, onDone }: { id: SignInId; prima
   return (
     <div className="connect signin">
       {state.state === "error" && <div className="banner bad small">{state.error}</div>}
-      <button className={primary ? "primary" : ""} onClick={() => void start()}>{id === "studio" ? "Sign in to Studio" : `Sign in with ${name}`}</button>
+      <button className={primary ? "primary" : ""} onClick={() => void start()}>Sign in to {name}</button>
       <p className="dim small">{SIGN_IN_ABOUT[id]}</p>
     </div>
   );
