@@ -18,6 +18,14 @@ for (const [what, p] of [["UI build", webDist], ["agent build", path.join(agentD
   if (!fs.existsSync(p)) throw new Error(`missing ${what}: ${p}`);
 }
 
+// A release build trusts only the release key; installed beside a dev-signed UI, the daemon
+// rejects the UI and serves the last one it can verify, so the panel silently shows an old build.
+const devPub = fs.readFileSync(path.join(root, "keys", "dev-ui-signing.pub.pem"), "utf-8").trim();
+const trusted = JSON.parse(fs.readFileSync(path.join(agentDir, "dist", "keys.json"), "utf-8")).map((k) => k.trim());
+if (!trusted.includes(devPub)) {
+  throw new Error("the agent build trusts only the release key (left by scripts/release.mjs): run npm run build -w apps/agent first");
+}
+
 const webPkg = JSON.parse(fs.readFileSync(path.join(root, "apps", "client-web", "package.json"), "utf-8"));
 const staging = `${target}.staging`;
 fs.rmSync(staging, { recursive: true, force: true });
