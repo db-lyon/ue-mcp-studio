@@ -113,6 +113,8 @@ export class SettingsStore {
     if (u.signOut === "studio") {
       this.writeSecret("account.token", "");
       fs.rmSync(this.file("account.json"), { force: true });
+    } else if (u.signOut === "claude") {
+      throw new Error("Sign out of Claude in Claude Code: run claude, then /logout.");
     } else if (u.signOut !== undefined) {
       throw new Error("signOut must be studio");
     }

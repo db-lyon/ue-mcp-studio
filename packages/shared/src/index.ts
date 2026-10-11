@@ -27,12 +27,13 @@ export type KeyProviderId = "anthropic" | "openai" | "google";
 export const KEY_PROVIDER_IDS: readonly KeyProviderId[] = ["anthropic", "openai", "google"];
 
 /**
- * Accounts the user signs in to instead of pasting a key. Studio runs the
- * models its plan includes. A sign-in is the default way to run a model; a
- * vendor key is the fallback.
+ * Accounts the user signs in to instead of pasting a key. Claude (experimental)
+ * runs Claude models on the user's Claude plan through their Claude Code login;
+ * Studio runs the models its plan includes. A sign-in is the default way to run
+ * a model; a vendor key is the fallback.
  */
-export type SignInId = "studio";
-export const SIGN_IN_IDS: readonly SignInId[] = ["studio"];
+export type SignInId = "claude" | "studio";
+export const SIGN_IN_IDS: readonly SignInId[] = ["claude", "studio"];
 
 export type ProviderId = SignInId | KeyProviderId;
 export const PROVIDER_IDS: readonly ProviderId[] = [...SIGN_IN_IDS, ...KEY_PROVIDER_IDS];
@@ -46,6 +47,7 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
+  claude: { id: "claude", name: "Claude subscription" },
   studio: { id: "studio", name: "Studio" },
   anthropic: { id: "anthropic", name: "Anthropic", keyPlaceholder: "sk-ant-...", keyUrl: "https://console.anthropic.com/settings/keys" },
   openai: { id: "openai", name: "OpenAI", keyPlaceholder: "sk-...", keyUrl: "https://platform.openai.com/api-keys" },

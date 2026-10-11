@@ -26,6 +26,7 @@ import { SettingsStore } from "./settings.js";
 import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverage } from "./models.js";
 import { StudioSignInFlow } from "./signin.js";
+import { claudeLogin } from "./subscription.js";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): AgentRunner {
   const settings = new SettingsStore(api.dataDir);
@@ -49,7 +50,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     fetch(`${settings.gatewayUrl()}/v1/account/usage`, { headers: { authorization: `Bearer ${token}` } });
 
   const coverage = (): SignInCoverage => ({ planModels });
-  const signedIn = (): Record<SignInId, boolean> => ({ studio: accountToken() !== null });
+  const signedIn = (): Record<SignInId, boolean> => ({ claude: claudeLogin() !== null, studio: accountToken() !== null });
 
   /** A sign-in that runs the model comes first; the vendor key is the fallback. */
   const route = (): ModelRoute => {
@@ -77,19 +78,30 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
 
   const catalog = new ModelCatalogSource((p) => settings.key(p));
 
+  // The Claude login belongs to Claude Code: Studio only reports it.
+  const claudeView = () => {
+    const login = claudeLogin();
+    return login ? { state: "done", login: `Claude ${login.subscription}` } : { state: "idle" };
+  };
   const signins: Record<SignInId, { view(): unknown; start(): Promise<unknown>; cancel(): void }> = {
+    claude: {
+      view: claudeView,
+      start: async () => (claudeLogin() ? claudeView() : { state: "error", error: "Run claude in a terminal and sign in with /login, then try again." }),
+      cancel: () => {},
+    },
     studio: new StudioSignInFlow((token, login) => {
       settings.signIn(token, login);
       void refreshAccount().then(() => api.events.publish("settings.changed", {}));
     }),
   };
-  const signinOf = (id: string) => (id === "studio" ? signins[id] : null);
+  const signinOf = (id: string) => (id === "studio" || id === "claude" ? signins[id] : null);
 
   const runner = new AgentRunner({
     host: api,
     store,
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion }),
     model: () => settings.model(),
+    subscription: () => route() === "claude",
   });
 
   const bad = (error: string) => ({ status: 400, body: { error } });

@@ -40,6 +40,8 @@ export interface StoredSession {
   notes: string[];
   /** The editor crashed since the last reconcile. */
   crashed: boolean;
+  /** Experimental: the Agent SDK session a Claude subscription turn continues. */
+  sdkSession?: string | null;
 }
 
 export class SessionStore {

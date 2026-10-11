@@ -126,9 +126,10 @@ describe("Studio sign-in", () => {
 });
 
 describe("sign-ins come before keys", () => {
-  it("names the Studio sign-in for the models in the plan, and none for the rest", () => {
+  it("runs every Claude model on the Claude plan first, and the Studio plan's models on Studio next", () => {
     const coverage = { planModels: ["claude-opus-5-5"] };
-    expect(signInsFor("anthropic", "claude-opus-5-5", coverage)).toEqual(["studio"]);
-    expect(signInsFor("anthropic", "claude-haiku-5-5", coverage)).toEqual([]);
+    expect(signInsFor("anthropic", "claude-opus-5-5", coverage)).toEqual(["claude", "studio"]);
+    expect(signInsFor("anthropic", "claude-haiku-5-5", coverage)).toEqual(["claude"]);
+    expect(signInsFor("openai", "gpt-6-sol", coverage)).toEqual([]);
   });
 });

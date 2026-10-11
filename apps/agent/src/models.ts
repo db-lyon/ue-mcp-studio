@@ -71,7 +71,10 @@ export interface SignInCoverage {
 
 /** The sign-ins that can run a model, in the order they are preferred. */
 export function signInsFor(vendor: KeyProviderId, model: string, c: SignInCoverage): SignInId[] {
-  return inPlan(vendor, model, c.planModels) ? ["studio"] : [];
+  const out: SignInId[] = [];
+  if (vendor === "anthropic") out.push("claude");
+  if (inPlan(vendor, model, c.planModels)) out.push("studio");
+  return out;
 }
 
 export class ModelCatalogSource {
