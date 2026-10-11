@@ -20,7 +20,6 @@ export function FlowsView({ daemon }: { daemon: DaemonState }) {
   const [running, setRunning] = useState(false);
   const [mode, setMode] = useState<Mode>("graph");
   const [step, setStep] = useState<string | null>(null);
-  const [runId, setRunId] = useState<string | null>(null);
 
   useEffect(() => {
     api.flows().then((r) => setFlows(r.flows), (e: Error) => setError(e.message));
@@ -29,7 +28,6 @@ export function FlowsView({ daemon }: { daemon: DaemonState }) {
   const open = (name: string) => {
     setSelected(name);
     setStep(null);
-    setRunId(null);
     setPlan(null);
     api.planFlow(name).then((r) => {
       setPlan(r as PlanResult);
@@ -39,24 +37,19 @@ export function FlowsView({ daemon }: { daemon: DaemonState }) {
   const run = (name: string) => {
     if (selected !== name) open(name);
     setRunning(true);
-    setRunId(null);
     api.runFlow(name).then((r) => setOutput(JSON.stringify(r, null, 2)), (e: Error) => setOutput(e.message))
       .finally(() => setRunning(false));
   };
 
   const flowEvents = daemon.events.filter((e) => e.type.startsWith("flow."));
 
-  // The latest run of the open flow, step by step, from the event stream.
+  // The latest run of the open flow, step by step. The run is taken from the newest event rather
+  // than its run_started, so a long run keeps its highlights after that event leaves the buffer.
   const states = useMemo(() => {
     const out: Record<number, StepState> = {};
-    let current = runId;
-    for (const e of flowEvents) {
-      if (e.data.flowName !== selected) continue;
-      if (e.type === "flow.run_started") {
-        current = String(e.data.runId);
-        for (const k of Object.keys(out)) delete out[Number(k)];
-        continue;
-      }
+    const mine = flowEvents.filter((e) => e.data.flowName === selected);
+    const current = mine.length ? String(mine[mine.length - 1].data.runId) : null;
+    for (const e of mine) {
       if (String(e.data.runId) !== current) continue;
       const n = (e.data.step as { stepNumber?: number } | undefined)?.stepNumber;
       if (n === undefined) continue;
@@ -68,7 +61,7 @@ export function FlowsView({ daemon }: { daemon: DaemonState }) {
       }
     }
     return out;
-  }, [flowEvents, selected, runId]);
+  }, [flowEvents, selected]);
 
   if (error) return <div className="banner bad">{error}</div>;
   if (!flows) return <p className="muted">Loading flows</p>;
