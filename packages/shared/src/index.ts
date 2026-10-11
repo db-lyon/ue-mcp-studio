@@ -27,13 +27,18 @@ export type KeyProviderId = "anthropic" | "openai" | "google";
 export const KEY_PROVIDER_IDS: readonly KeyProviderId[] = ["anthropic", "openai", "google"];
 
 /**
- * Accounts the user signs in to instead of pasting a key. Studio runs the
- * models its plan includes; OpenRouter runs most vendors' models on the user's
- * OpenRouter account. A sign-in is the default way to run a model; a vendor
- * key is the fallback.
+ * The vendors the picker offers. OpenAI and Google wait for their own
+ * sign-ins (docs/plans/vendor-sign-in.md), so a key is never the only way in.
  */
-export type SignInId = "studio" | "openrouter";
-export const SIGN_IN_IDS: readonly SignInId[] = ["studio", "openrouter"];
+export const OFFERED_VENDORS: readonly KeyProviderId[] = ["anthropic"];
+
+/**
+ * Accounts the user signs in to instead of pasting a key. Studio runs the
+ * models its plan includes. A sign-in is the default way to run a model; a
+ * vendor key is the fallback.
+ */
+export type SignInId = "studio";
+export const SIGN_IN_IDS: readonly SignInId[] = ["studio"];
 
 export type ProviderId = SignInId | KeyProviderId;
 export const PROVIDER_IDS: readonly ProviderId[] = [...SIGN_IN_IDS, ...KEY_PROVIDER_IDS];
@@ -48,7 +53,6 @@ export interface ProviderInfo {
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
   studio: { id: "studio", name: "Studio" },
-  openrouter: { id: "openrouter", name: "OpenRouter" },
   anthropic: { id: "anthropic", name: "Anthropic", keyPlaceholder: "sk-ant-...", keyUrl: "https://console.anthropic.com/settings/keys" },
   openai: { id: "openai", name: "OpenAI", keyPlaceholder: "sk-...", keyUrl: "https://platform.openai.com/api-keys" },
   google: { id: "google", name: "Google", keyPlaceholder: "AIza...", keyUrl: "https://aistudio.google.com/apikey" },
@@ -108,7 +112,7 @@ export interface ModelCatalog {
   }>;
 }
 
-/** GET and POST /v1/ext/studio/signin/:id: signing in to Studio or OpenRouter from the panel. */
+/** GET and POST /v1/ext/studio/signin/:id: signing in to Studio from the panel. */
 export type StudioSignIn =
   | { state: "idle" }
   /** Open `url` to sign in; a device-code sign-in also shows `userCode` to enter there. */

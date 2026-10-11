@@ -292,14 +292,14 @@ describe("inputs and settings", () => {
 
   it("stores each provider's key apart from the settings and never reports it back", () => {
     const settings = new SettingsStore(path.join(root, "settings"));
-    settings.update({ keys: { openai: "sk-test-123" }, provider: "openai", model: "gpt-6-sol" });
+    settings.update({ keys: { anthropic: "sk-test-123" }, model: "claude-sonnet-5-5" });
     const view = settings.view();
-    expect(view).toMatchObject({ provider: "openai", model: "gpt-6-sol", keys: { openai: true, anthropic: false, google: false } });
+    expect(view).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5-5", keys: { anthropic: true, openai: false, google: false } });
     expect(JSON.stringify(view)).not.toContain("sk-test-123");
     expect(fs.readFileSync(path.join(root, "settings", "settings.json"), "utf-8")).not.toContain("sk-test-123");
-    expect(settings.key("openai")).toBe("sk-test-123");
-    settings.update({ keys: { openai: "" } });
-    expect(settings.view().keys.openai).toBe(false);
+    expect(settings.key("anthropic")).toBe("sk-test-123");
+    settings.update({ keys: { anthropic: "" } });
+    expect(settings.view().keys.anthropic).toBe(false);
     expect(() => settings.update({ gatewayUrl: "ftp://x" })).toThrow(/http/);
     expect(() => settings.update({ keys: { studio: "x" } as never })).toThrow(/no key provider/);
   });

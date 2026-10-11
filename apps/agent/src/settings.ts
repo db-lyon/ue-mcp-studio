@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   KEY_PROVIDER_IDS,
+  OFFERED_VENDORS,
   STUDIO_THEMES,
   type KeyProviderId,
   type StudioSettingsUpdate,
@@ -27,10 +28,11 @@ interface StoredSettings {
 
 /**
  * The selected model's vendor. Settings written before vendors were named said
- * byok, gateway or studio, all of which ran Claude models.
+ * byok, gateway or studio, all of which ran Claude models; a vendor no longer
+ * offered falls back the same way.
  */
 function vendorOf(raw: unknown): KeyProviderId {
-  return KEY_PROVIDER_IDS.includes(raw as KeyProviderId) ? (raw as KeyProviderId) : "anthropic";
+  return OFFERED_VENDORS.includes(raw as KeyProviderId) ? (raw as KeyProviderId) : "anthropic";
 }
 
 const keyFile = (p: KeyProviderId) => `${p}.key`;
@@ -89,7 +91,7 @@ export class SettingsStore {
   update(u: StudioSettingsUpdate): void {
     const s = this.stored();
     if (u.provider !== undefined) {
-      if (!KEY_PROVIDER_IDS.includes(u.provider)) throw new Error(`provider must be one of ${KEY_PROVIDER_IDS.join(", ")}`);
+      if (!OFFERED_VENDORS.includes(u.provider)) throw new Error(`provider must be one of ${OFFERED_VENDORS.join(", ")}`);
       s.provider = u.provider;
     }
     if (u.model !== undefined) {
@@ -113,20 +115,9 @@ export class SettingsStore {
     if (u.signOut === "studio") {
       this.writeSecret("account.token", "");
       fs.rmSync(this.file("account.json"), { force: true });
-    } else if (u.signOut === "openrouter") {
-      this.writeSecret("openrouter.key", "");
     } else if (u.signOut !== undefined) {
-      throw new Error("signOut must be studio or openrouter");
+      throw new Error("signOut must be studio");
     }
-  }
-
-  /** After the OpenRouter sign-in: the key it issued for this app. */
-  saveOpenRouterKey(key: string): void {
-    this.writeSecret("openrouter.key", key);
-  }
-
-  openRouterKey(): string | null {
-    return this.readSecret("openrouter.key");
   }
 
   /** After an in-panel sign-in: the account token, and the login to show beside it. */

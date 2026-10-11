@@ -7,7 +7,6 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { SettingsStore } from "./settings.js";
 import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER, type ModelRoute } from "@ue-mcp-studio/shared";
 import { OpenAICompatibleProvider, OPENAI_BASE_URLS, PROVIDER_EXTRA } from "./openai-compat.js";
-import { OPENROUTER_BASE_URL } from "./openrouter.js";
 
 export type MessageParam = Anthropic.Beta.BetaMessageParam;
 export type ContentBlock = Anthropic.Beta.BetaContentBlock;
@@ -143,7 +142,6 @@ export function providerFor(
   if (route === "studio" && context.accountToken) {
     return new GatewayProvider(settings.gatewayUrl(), context.accountToken, context.agentVersion);
   }
-  if (route === "openrouter") return new OpenAICompatibleProvider(OPENROUTER_BASE_URL, settings.openRouterKey()!);
   if (route === "key") {
     const key = settings.key(vendor)!;
     return vendor === "anthropic" ? new AnthropicProvider(key) : new OpenAICompatibleProvider(OPENAI_BASE_URLS[vendor], key);

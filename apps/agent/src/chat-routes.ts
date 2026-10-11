@@ -4,7 +4,7 @@
  *   GET  /settings                  the selected model, theme, which providers are connected
  *   PUT  /settings                  change them; keys are written, never returned
  *   GET  /models                    every provider and its models, for the picker
- *   GET  /signin/:id                a sign-in's progress (studio or openrouter)
+ *   GET  /signin/:id                a sign-in's progress (studio)
  *   POST /signin/:id                start it: the page to approve on, and a code for Studio
  *   DELETE /signin/:id              cancel it
  *   GET  /sessions                  every session, newest first
@@ -25,7 +25,6 @@ import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
 import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverage } from "./models.js";
-import { OpenRouterModels, OpenRouterSignInFlow } from "./openrouter.js";
 import { StudioSignInFlow } from "./signin.js";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): AgentRunner {
@@ -49,16 +48,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   const fetchUsage = async (token: string): Promise<Response> =>
     fetch(`${settings.gatewayUrl()}/v1/account/usage`, { headers: { authorization: `Bearer ${token}` } });
 
-  const openrouterModels = new OpenRouterModels();
-  void openrouterModels.refresh().catch(() => {});
-  const coverage = (): SignInCoverage => ({
-    planModels,
-    openrouterId: (v, m) => openrouterModels.idFor(v, m),
-    publicModels: (v) => openrouterModels.modelsOf(v),
-  });
-  const signedIn = (): Record<SignInId, boolean> => ({ studio: accountToken() !== null, openrouter: settings.openRouterKey() !== null });
+  const coverage = (): SignInCoverage => ({ planModels });
+  const signedIn = (): Record<SignInId, boolean> => ({ studio: accountToken() !== null });
 
-  /** A sign-in that runs the model comes first, Studio before OpenRouter; the vendor key is the fallback. */
+  /** A sign-in that runs the model comes first; the vendor key is the fallback. */
   const route = (): ModelRoute => {
     const vendor = settings.provider();
     const done = signedIn();
@@ -89,19 +82,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
       settings.signIn(token, login);
       void refreshAccount().then(() => api.events.publish("settings.changed", {}));
     }),
-    openrouter: new OpenRouterSignInFlow((key) => {
-      settings.saveOpenRouterKey(key);
-      api.events.publish("settings.changed", {});
-    }),
   };
-  const signinOf = (id: string) => (id === "studio" || id === "openrouter" ? signins[id] : null);
+  const signinOf = (id: string) => (id === "studio" ? signins[id] : null);
 
   const runner = new AgentRunner({
     host: api,
     store,
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion }),
-    // OpenRouter names models vendor/model, with its own spelling.
-    model: () => (route() === "openrouter" ? openrouterModels.idFor(settings.provider(), settings.model()) ?? settings.model() : settings.model()),
+    model: () => settings.model(),
   });
 
   const bad = (error: string) => ({ status: 400, body: { error } });
@@ -109,10 +97,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
 
   api.route("GET", "/settings", () => ({ body: view() }));
 
-  api.route("GET", "/models", async () => {
-    await openrouterModels.refresh().catch(() => {});
-    return { body: await catalog.catalog(signedIn(), coverage()) };
-  });
+  api.route("GET", "/models", async () => ({ body: await catalog.catalog(signedIn(), coverage()) }));
 
   const noSignIn = (id: string) => ({ status: 404, body: { error: `no sign-in ${id}` } });
   api.route("GET", "/signin/:id", (req) => {

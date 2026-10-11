@@ -37,12 +37,12 @@ describe("providers", () => {
     }
   });
 
-  it("forgets an OpenRouter sign-in on sign-out", () => {
-    const s = store();
-    s.saveOpenRouterKey("sk-or-1");
-    expect(s.openRouterKey()).toBe("sk-or-1");
-    s.update({ signOut: "openrouter" });
-    expect(s.openRouterKey()).toBeNull();
+  it("offers Claude models only until OpenAI and Google have sign-ins", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
+    fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ provider: "openai", model: "gpt-6-sol" }));
+    const s = new SettingsStore(dir);
+    expect(s.provider()).toBe("anthropic");
+    expect(() => s.update({ provider: "google" })).toThrow(/provider must be one of anthropic/);
   });
 
   it("keeps the signed-in login and forgets it on sign-out", () => {

@@ -4,7 +4,7 @@
  * release; until then, and when it cannot be reached, a short starting list
  * stands in. Each model names the sign-ins that can run it.
  */
-import { KEY_PROVIDER_IDS, PROVIDERS, type KeyProviderId, type ModelCatalog, type ModelOption, type SignInId } from "@ue-mcp-studio/shared";
+import { OFFERED_VENDORS, PROVIDERS, type KeyProviderId, type ModelCatalog, type ModelOption, type SignInId } from "@ue-mcp-studio/shared";
 import { OPENAI_BASE_URLS } from "./openai-compat.js";
 
 /**
@@ -64,23 +64,14 @@ async function listLive(provider: KeyProviderId, key: string): Promise<Listed[]>
 
 const TTL_MS = 10 * 60_000;
 
-/** What can run models besides a vendor key: the Studio plan's models and OpenRouter's lookup. */
+/** What can run models besides a vendor key: the Studio plan's models. */
 export interface SignInCoverage {
   planModels: readonly string[];
-  openrouterId: (vendor: KeyProviderId, model: string) => string | null;
-  /** A vendor's models from OpenRouter's public list, newest first, when it has been read. */
-  publicModels?: (vendor: KeyProviderId) => Array<{ id: string; name?: string }>;
 }
 
-/** How many of a vendor's newest models the picker shows from the public list. */
-const PUBLIC_SHOWN = 8;
-
-/** The sign-ins that can run a model, Studio first. */
+/** The sign-ins that can run a model, in the order they are preferred. */
 export function signInsFor(vendor: KeyProviderId, model: string, c: SignInCoverage): SignInId[] {
-  const out: SignInId[] = [];
-  if (inPlan(vendor, model, c.planModels)) out.push("studio");
-  if (c.openrouterId(vendor, model)) out.push("openrouter");
-  return out;
+  return inPlan(vendor, model, c.planModels) ? ["studio"] : [];
 }
 
 export class ModelCatalogSource {
@@ -90,7 +81,7 @@ export class ModelCatalogSource {
 
   async catalog(signedIn: Record<SignInId, boolean>, coverage: SignInCoverage): Promise<ModelCatalog> {
     const providers: ModelCatalog["providers"] = [];
-    for (const p of KEY_PROVIDER_IDS) {
+    for (const p of OFFERED_VENDORS) {
       const key = this.keyOf(p);
       let models: Listed[] | null = null;
       if (key) {
@@ -102,11 +93,6 @@ export class ModelCatalogSource {
           models = await listLive(p, key).catch(() => null);
           if (models && models.length) this.cache.set(id, { at: Date.now(), models });
         }
-      }
-      // Without a key, OpenRouter's public list is the freshest source there is.
-      if (!models?.length && coverage.publicModels) {
-        const newest = coverage.publicModels(p).filter((m) => chatModels(p, [m]).length > 0).slice(0, PUBLIC_SHOWN);
-        if (newest.length) models = newest.map((m) => ({ id: m.id, name: m.name ?? m.id }));
       }
       const live = !!models && models.length > 0;
       const list = live ? models! : DEFAULT_MODELS[p];
