@@ -1,12 +1,8 @@
 # Vendor sign-in
 
-Status: parked on 2026-10-11. The picker offers Anthropic models only
-(`OFFERED_VENDORS` in `packages/shared`), run by the Studio plan sign-in with
-the user's own Anthropic key as the fallback. OpenAI and Google come back when
-each has a first-party sign-in, so a pasted key is never the only way in.
-
-The translation layer for non-Anthropic models (`apps/agent/src/openai-compat.ts`)
-and its tests stay in the tree for that work.
+Each vendor connects through its own sign-in where it offers one to other
+apps, and through its API key where it does not. Today that is the Studio plan
+sign-in for Claude models, and an API key for Anthropic, OpenAI and Google.
 
 ## Where each vendor stands
 
@@ -39,10 +35,10 @@ and its tests stay in the tree for that work.
       expiry.
 - [ ] Add a Responses API provider beside the Chat Completions one, streaming,
       with `store: false`.
-- [ ] Add `openai` back to `OFFERED_VENDORS` with `chatgpt` as its sign-in.
+- [ ] List `chatgpt` as the sign-in for OpenAI models in the picker, ahead of the key.
 - [ ] Check again whether Anthropic offers a third-party sign-in. Until it does,
       the Studio plan is the only sign-in for Claude models.
 - [ ] Check again whether Google offers a sign-in that bills the user's own
-      plan. Add `google` back to `OFFERED_VENDORS` only with one.
+      plan, and add it ahead of the key when it does.
 - [ ] Studio plan: add OpenAI and Google models to the gateway, so the Studio
       sign-in runs them without waiting on either vendor.
