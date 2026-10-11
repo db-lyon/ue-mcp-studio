@@ -9,7 +9,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createSdkMcpServer, query, tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { createSdkMcpServer, query, tool, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { StudioSignIn } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
@@ -155,7 +155,8 @@ export interface SubscriptionTurn {
   system: string;
   /** What each subagent the model starts is told. */
   subagentSystem: string;
-  prompt: string;
+  /** The user's message as content blocks: text, and any images or documents attached. */
+  prompt: unknown[];
   /** The SDK session to continue, from this Studio session's last turn. */
   resume: string | null;
   signal: AbortSignal;
@@ -173,6 +174,15 @@ export interface SubscriptionTurn {
   onTask: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
+}
+
+/** Text alone goes as a string; with an image or a document, as one user message of blocks. */
+function promptOf(blocks: unknown[], resume: string | null): string | AsyncIterable<SDKUserMessage> {
+  const all = blocks as Array<{ type: string; text?: string }>;
+  if (all.every((b) => b.type === "text")) return all.map((b) => b.text).join("\n\n");
+  return (async function* () {
+    yield { type: "user", message: { role: "user", content: blocks }, parent_tool_use_id: null, session_id: resume ?? "" } as unknown as SDKUserMessage;
+  })();
 }
 
 /** Run one turn to the end. Resolves with an error message when the turn failed. */
@@ -228,7 +238,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
 
   try {
     const q = query({
-      prompt: t.prompt,
+      prompt: promptOf(t.prompt, t.resume),
       options: {
         model: t.model,
         systemPrompt: t.system,

@@ -19,18 +19,21 @@
  * studio.transcript.added, studio.turn.delta and studio.tool.finished.
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import type { ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
 import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverage } from "./models.js";
 import { StudioSignInFlow } from "./signin.js";
+import { AttachmentStore } from "./attachments.js";
+import * as fs from "node:fs";
 import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): AgentRunner {
   const settings = new SettingsStore(api.dataDir);
   const store = new SessionStore(api.dataDir);
+  const attachments = new AttachmentStore(api.dataDir);
 
   // The `ue-mcp login` account, kept fresh so a sign-in is picked up without a restart.
   // Older daemons have no registryAccount; the Settings token is the only source then.
@@ -169,6 +172,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     if (!store.get(req.params.id)) return missing(req.params.id);
     runner.stop(req.params.id);
     store.delete(req.params.id);
+    attachments.removeSession(req.params.id);
     return { status: 204 };
   });
   api.route("PUT", "/sessions/:id", (req) => {
@@ -183,6 +187,22 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     api.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
     return { body: SessionStore.summary(s) };
   });
+  // A dropped or pasted file, saved before the message that carries it is sent.
+  api.route("POST", "/sessions/:id/attachments", (req) => {
+    if (!store.get(req.params.id)) return missing(req.params.id);
+    try {
+      const { path: _path, ...a } = attachments.save(req.params.id, req.body as AttachmentUpload);
+      return { status: 201, body: a };
+    } catch (e) {
+      return bad(e instanceof Error ? e.message : String(e));
+    }
+  });
+  // The file itself, for the panel's thumbnails and downloads.
+  api.route("GET", "/sessions/:id/attachments/:aid", (req) => {
+    const a = attachments.get(req.params.id, req.params.aid);
+    if (!a) return { status: 404, body: { error: "no such attachment" } };
+    return { headers: { "content-type": a.type, "content-disposition": `inline; filename="${a.name.replace(/"/g, "")}"` }, body: fs.readFileSync(a.path) };
+  });
   api.route("PUT", "/sessions/:id/draft", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
@@ -195,11 +215,15 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   api.route("POST", "/sessions/:id/messages", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
-    const text = (req.body as { text?: unknown } | undefined)?.text;
-    if (typeof text !== "string" || !text.trim()) return bad("body must be { text: string }");
+    const body = req.body as { text?: unknown; attachments?: unknown } | undefined;
+    const text = typeof body?.text === "string" ? body.text : "";
+    const ids = Array.isArray(body?.attachments) ? body.attachments.filter((x): x is string => typeof x === "string") : [];
+    if (!text.trim() && ids.length === 0) return bad("body must be { text: string, attachments?: string[] } with text or a file");
+    const files = ids.map((a) => attachments.get(s.id, a));
+    if (files.some((f) => !f)) return bad("an attachment is missing; add the file again");
     if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress" } };
     // The turn runs past this response; its progress is on the event stream.
-    runner.send(s.id, text).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
+    runner.send(s.id, text, files as Array<NonNullable<(typeof files)[number]>>).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });
   // Stop one subagent; the turn goes on without it.

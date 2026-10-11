@@ -145,8 +145,24 @@ export interface TouchedItem {
  * One line of the conversation. `parent` is the id of the agent call whose
  * subagent wrote it; the main agent's entries have none.
  */
+/** A file the user dropped or pasted into a message. */
+export interface Attachment {
+  id: string;
+  name: string;
+  /** MIME type, as the browser reported it. */
+  type: string;
+  size: number;
+}
+
+/** POST /v1/ext/studio/sessions/:id/attachments: one file, its bytes as base64. */
+export interface AttachmentUpload {
+  name: string;
+  type: string;
+  data: string;
+}
+
 export type TranscriptEntry = (
-  | { kind: "user"; text: string; at: string }
+  | { kind: "user"; text: string; at: string; attachments?: Attachment[] }
   | { kind: "assistant"; text: string; at: string }
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }

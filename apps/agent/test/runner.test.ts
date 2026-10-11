@@ -132,6 +132,20 @@ describe("a turn", () => {
   });
 });
 
+describe("attachments in a message", () => {
+  it("go to the model before the text, and into the transcript by name", async () => {
+    const model = new ScriptedModel([() => text("Seen.")]);
+    const s = store.create();
+    const file = path.join(root, "ref.png");
+    fs.writeFileSync(file, Buffer.from([1, 2, 3]));
+    await runnerWith(model).send(s.id, "use this", [{ id: "a1", name: "ref.png", type: "image/png", size: 3, path: file }]);
+    const sent = model.requests[0].messages[0].content as Array<{ type: string }>;
+    expect(sent.map((b) => b.type)).toEqual(["text", "image", "text"]);
+    const entry = store.get(s.id)!.transcript[0];
+    expect(entry.kind === "user" && entry.attachments).toEqual([{ id: "a1", name: "ref.png", type: "image/png", size: 3 }]);
+  });
+});
+
 describe("archived sessions", () => {
   it("are listed as archived, and come back when the user sends to one", async () => {
     const s = store.create();

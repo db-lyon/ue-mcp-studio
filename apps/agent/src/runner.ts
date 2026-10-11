@@ -15,6 +15,8 @@ import type { ContentBlock, ModelProvider, MessageParam } from "./providers.js";
 import { SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import { EDITOR_TOOLS, TOOLS, editorConnected, executeTool, packageFile, verifyUnknown, type AgentHost } from "./tools.js";
 import { runSubscriptionTurn } from "./subscription.js";
+import { contentFor } from "./attachments.js";
+import type { Attachment } from "@ue-mcp-studio/shared";
 
 const WORK = [
   "Find the action for a task with ue_mcp search, check its parameters with ue_mcp describe, then call it.",
@@ -107,28 +109,34 @@ export class AgentRunner {
   }
 
   /** Add the user's message and run the turn. Resolves when the turn ends, pauses or fails. */
-  async send(sessionId: string, text: string): Promise<void> {
+  async send(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = []): Promise<void> {
     const s = this.require(sessionId);
     if (this.active.has(s.id) || s.status === "running" || s.status === "waiting") {
       throw new Error("a turn is already in progress; stop it or wait for it to finish");
     }
     s.archived = false;
-    if (s.messages.length === 0) s.title = text.trim().split("\n")[0].slice(0, 60) || s.title;
+    if (s.messages.length === 0) s.title = text.trim().split("\n")[0].slice(0, 60) || attachments[0]?.name || s.title;
     if (s.crashed) this.reconcileCrash(s);
-    const content: Array<{ type: "text"; text: string }> = [];
+    const content: unknown[] = [];
     for (const note of s.notes.splice(0)) content.push({ type: "text", text: `[Studio] ${note}` });
-    content.push({ type: "text", text });
-    s.messages.push({ role: "user", content });
-    s.transcript.push({ kind: "user", text, at: now() });
+    for (const a of attachments) content.push(...contentFor(a));
+    if (text.trim()) content.push({ type: "text", text });
+    s.messages.push({ role: "user", content } as MessageParam);
+    s.transcript.push({
+      kind: "user",
+      text,
+      at: now(),
+      ...(attachments.length ? { attachments: attachments.map(({ id, name, type, size }) => ({ id, name, type, size })) } : {}),
+    });
     s.draft = "";
     s.error = null;
     this.setStatus(s, "running", null);
-    if (this.o.subscription?.()) return this.runSubscription(s.id, content.map((c) => c.text).join("\n\n"));
+    if (this.o.subscription?.()) return this.runSubscription(s.id, content);
     await this.runTurn(s.id);
   }
 
   /** Experimental: the Agent SDK runs the loop; tool calls still go through executeTool and the transcript. */
-  private async runSubscription(id: string, prompt: string): Promise<void> {
+  private async runSubscription(id: string, prompt: unknown[]): Promise<void> {
     const controller = new AbortController();
     this.active.set(id, controller);
     const s = this.require(id);
