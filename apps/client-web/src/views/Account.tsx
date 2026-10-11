@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { StudioAccountResponse } from "@ue-mcp-studio/shared";
-import { ConnectProvider } from "./ModelPicker";
+import { SignInForm } from "./ModelPicker";
 
 /**
  * The signed-in account, its plan and usage against the period's quota. The
@@ -10,7 +10,7 @@ import { ConnectProvider } from "./ModelPicker";
 async function loadAccount(): Promise<StudioAccountResponse | { error: string }> {
   const res = await fetch("/v1/ext/studio/account", { credentials: "same-origin" });
   if (res.status === 404) return { error: "This version of the Studio agent does not report accounts yet." };
-  if (res.status === 502) return { error: "The Studio account service could not be reached. Models from a provider you have a key for still work." };
+  if (res.status === 502) return { error: "The Studio account service could not be reached. Models you reach through another sign-in or your own key still work." };
   if (!res.ok) return { error: ((await res.json().catch(() => null)) as { error?: string } | null)?.error ?? `${res.status} ${res.statusText}` };
   return (await res.json()) as StudioAccountResponse;
 }
@@ -44,7 +44,7 @@ export function AccountView() {
         <section className="card">
           <h2>Not signed in</h2>
           <p className="muted">{state.reason} The Studio plan runs models without an API key.</p>
-          <ConnectProvider provider="studio" onConnected={load} />
+          <SignInForm id="studio" onDone={load} />
         </section>
       </div>
     );

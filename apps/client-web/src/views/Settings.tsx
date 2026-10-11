@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { PROVIDER_IDS, PROVIDERS, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { KEY_PROVIDER_IDS, PROVIDERS, SIGN_IN_IDS, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
-import { ConnectProvider, ModelPicker } from "./ModelPicker";
+import { KeyForm, ModelPicker, SignInForm } from "./ModelPicker";
 
 const THEMES: { id: StudioTheme; name: string; about: string }[] = [
   { id: "ue-mcp", name: "ue-mcp", about: "Dark, with the ue-mcp.com orange." },
@@ -36,6 +36,8 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
     api.saveSettings({ theme }).then(apply, (e: ApiError) => setMessage({ ok: false, text: e.message }));
   };
 
+  const refresh = () => void api.settings().then(apply);
+
   if (!settings) return message ? <div className="banner bad">{message.text}</div> : <p className="muted">Loading...</p>;
   return (
     <div className="stack">
@@ -57,17 +59,12 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
         <ModelPicker settings={settings} onSettings={apply} />
       </section>
       <section className="card">
-        <h2>Providers</h2>
+        <h2>Sign-ins</h2>
+        <p className="muted">Sign in to run models without an API key.</p>
         {message && <div className={`banner ${message.ok ? "ok" : "bad"}`}>{message.text}</div>}
         <div className="providers">
-          {PROVIDER_IDS.map((p) => (
-            <ProviderRow
-              key={p}
-              provider={p}
-              settings={settings}
-              onChange={() => void api.settings().then(apply)}
-              onError={(text) => setMessage({ ok: false, text })}
-            />
+          {SIGN_IN_IDS.map((p) => (
+            <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={(text) => setMessage({ ok: false, text })} />
           ))}
         </div>
         <details className="advanced">
@@ -78,6 +75,15 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
             <button onClick={() => save()}>Save</button>
           </div>
         </details>
+      </section>
+      <section className="card">
+        <h2>API keys</h2>
+        <p className="muted">Optional. A model runs on your key only when no sign-in above runs it.</p>
+        <div className="providers">
+          {KEY_PROVIDER_IDS.map((p) => (
+            <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={(text) => setMessage({ ok: false, text })} />
+          ))}
+        </div>
       </section>
     </div>
   );
@@ -91,11 +97,14 @@ function ProviderRow({ provider, settings, onChange, onError }: {
 }) {
   const [open, setOpen] = useState(false);
   const connected = settings.connected[provider];
+  const signIn = provider === "studio" || provider === "openrouter";
   const status = provider === "studio"
     ? settings.account ? `Signed in as @${settings.account.login}` : "Not signed in"
-    : connected ? "Key saved on this machine" : "No key";
+    : provider === "openrouter"
+      ? connected ? "Signed in" : "Not signed in"
+      : connected ? "Key saved on this machine" : "No key";
   const disconnect = () =>
-    api.saveSettings(provider === "studio" ? { accountToken: "" } : { keys: { [provider]: "" } }).then(onChange, (e: Error) => onError(e.message));
+    api.saveSettings(signIn ? { signOut: provider } : { keys: { [provider]: "" } }).then(onChange, (e: Error) => onError(e.message));
   return (
     <div className="provider-row">
       <div className="row">
@@ -106,12 +115,13 @@ function ProviderRow({ provider, settings, onChange, onError }: {
         {connected && provider === "studio" && settings.account?.via === "ue-mcp-login" ? (
           <span className="dim small">from ue-mcp login</span>
         ) : connected ? (
-          <button onClick={() => void disconnect()}>{provider === "studio" ? "Sign out" : "Remove key"}</button>
-        ) : (
-          <button className={open ? "" : "primary"} onClick={() => setOpen(!open)}>{open ? "Cancel" : provider === "studio" ? "Sign in" : "Add key"}</button>
+          <button onClick={() => void disconnect()}>{signIn ? "Sign out" : "Remove key"}</button>
+        ) : signIn ? null : (
+          <button onClick={() => setOpen(!open)}>{open ? "Cancel" : "Add key"}</button>
         )}
       </div>
-      {open && !connected && <ConnectProvider provider={provider} onConnected={() => { setOpen(false); onChange(); }} />}
+      {signIn && !connected && <SignInForm id={provider} onDone={onChange} />}
+      {!signIn && open && !connected && <KeyForm provider={provider} onSaved={() => { setOpen(false); onChange(); }} />}
     </div>
   );
 }

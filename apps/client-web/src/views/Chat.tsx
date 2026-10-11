@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary, StudioSettings, ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { PROVIDERS } from "@ue-mcp-studio/shared";
 import { api } from "../api";
-import { ConnectProvider, ModelPicker } from "./ModelPicker";
+import { ConnectModel, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 
 /** Starting points shown on an empty session. Each is a single task the agent can finish through ue-mcp. */
@@ -48,8 +47,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     void loadSettings();
   }, []);
 
-  // The selected model's provider has no sign-in or key yet.
-  const disconnected = settings !== null && !settings.connected[settings.provider];
+  // Nothing connected runs the selected model yet.
+  const disconnected = settings !== null && settings.route === null;
 
   useEffect(() => {
     if (!selected) return;
@@ -212,13 +211,20 @@ function ToolCall({ call }: { call: ToolCallRecord }) {
   );
 }
 
-/** The selected model's provider is not connected: sign in or add its key here, or pick another model. */
+/** Nothing connected runs the selected model: sign in here (a key is the fallback), or pick another model. */
 function ConnectCard({ settings, onSettings }: { settings: StudioSettings; onSettings: (s: StudioSettings) => void }) {
-  const p = settings.provider;
+  const catalog = useCatalog(settings);
   return (
     <div className="keyform">
-      <span className="eyebrow">{p === "studio" ? "Sign in to start" : `Add your ${PROVIDERS[p].name} API key`}</span>
-      <ConnectProvider provider={p} onConnected={() => void api.settings().then(onSettings)} />
+      <span className="eyebrow">Sign in to start</span>
+      {catalog && (
+        <ConnectModel
+          catalog={catalog}
+          vendor={settings.provider}
+          model={settings.model}
+          onConnected={() => void api.settings().then(onSettings)}
+        />
+      )}
       <div className="row connect-other">
         <span className="dim small">Or choose another model:</span>
         <ModelPicker settings={settings} onSettings={onSettings} />
