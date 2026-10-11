@@ -5,12 +5,14 @@
  */
 import type { DaemonEvent, DaemonHealth, StatusReport } from "ue-mcp/daemon";
 import type {
+  ModelCatalog,
   SessionDetail,
   SessionSummary,
   StudioAbout,
   StudioConfigFile,
   StudioSettings,
   StudioSettingsUpdate,
+  StudioSignIn,
 } from "@ue-mcp-studio/shared";
 
 export class ApiError extends Error {
@@ -52,6 +54,10 @@ export const api = {
   editor: (op: "start" | "stop" | "restart" | "rebuild") => call<Record<string, unknown>>("POST", `/v1/editor/${op}`),
   settings: () => call<StudioSettings>("GET", "/v1/ext/studio/settings"),
   saveSettings: (u: StudioSettingsUpdate) => call<StudioSettings>("PUT", "/v1/ext/studio/settings", u),
+  models: () => call<ModelCatalog>("GET", "/v1/ext/studio/models"),
+  signIn: () => call<StudioSignIn>("GET", "/v1/ext/studio/signin"),
+  startSignIn: () => call<StudioSignIn>("POST", "/v1/ext/studio/signin"),
+  cancelSignIn: () => call<void>("DELETE", "/v1/ext/studio/signin"),
   sessions: () => call<{ sessions: SessionSummary[] }>("GET", "/v1/ext/studio/sessions"),
   newSession: () => call<SessionDetail>("POST", "/v1/ext/studio/sessions"),
   session: (id: string) => call<SessionDetail>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),

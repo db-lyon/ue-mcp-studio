@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import type { ProviderKind, StudioSettings, StudioTheme } from "@ue-mcp-studio/shared";
+import { PROVIDER_IDS, PROVIDERS, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
-
-const MODELS = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5-1", "claude-haiku-5-5"];
+import { ConnectProvider, ModelPicker } from "./ModelPicker";
 
 const THEMES: { id: StudioTheme; name: string; about: string }[] = [
   { id: "ue-mcp", name: "ue-mcp", about: "Dark, with the ue-mcp.com orange." },
@@ -12,17 +11,11 @@ const THEMES: { id: StudioTheme; name: string; about: string }[] = [
 
 export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
-  const [provider, setProvider] = useState<ProviderKind>("byok");
-  const [model, setModel] = useState("");
   const [gatewayUrl, setGatewayUrl] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [token, setToken] = useState("");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
 
   const apply = (s: StudioSettings) => {
     setSettings(s);
-    setProvider(s.provider);
-    setModel(s.model);
     setGatewayUrl(s.gatewayUrl);
   };
 
@@ -30,11 +23,9 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
     api.settings().then(apply, (e: Error) => setMessage({ ok: false, text: e.message }));
   }, []);
 
-  const save = (extra: { apiKey?: string; accountToken?: string } = {}) => {
-    api.saveSettings({ provider, model, gatewayUrl, ...extra }).then((s) => {
+  const save = () => {
+    api.saveSettings({ gatewayUrl }).then((s) => {
       apply(s);
-      setApiKey("");
-      setToken("");
       setMessage({ ok: true, text: "Saved." });
     }, (e: ApiError) => setMessage({ ok: false, text: e.message }));
   };
@@ -62,44 +53,65 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
       </section>
       <section className="card">
         <h2>Model</h2>
-        {message && <div className={`banner ${message.ok ? "ok" : "bad"}`}>{message.text}</div>}
-        <div className="row">
-          <label><input type="radio" checked={provider === "byok"} onChange={() => setProvider("byok")} /> My Anthropic API key</label>
-          <label><input type="radio" checked={provider === "gateway"} onChange={() => setProvider("gateway")} /> UE-MCP hosted model</label>
-        </div>
-        <div className="row">
-          <span className="muted">Model</span>
-          <select value={model} onChange={(e) => setModel(e.target.value)}>
-            {[...new Set([model, ...MODELS])].map((m) => <option key={m} value={m}>{m}</option>)}
-          </select>
-        </div>
-        <div className="actions"><button className="primary" onClick={() => save()}>Save</button></div>
+        <p className="muted">The model new turns run on. The chat input has the same picker.</p>
+        <ModelPicker settings={settings} onSettings={apply} />
       </section>
-      {provider === "byok" ? (
-        <section className="card">
-          <h2>Anthropic API key</h2>
-          <p className="muted">{settings.hasApiKey ? "A key is saved. It stays on this machine and is never shown again." : "No key saved."}</p>
+      <section className="card">
+        <h2>Providers</h2>
+        {message && <div className={`banner ${message.ok ? "ok" : "bad"}`}>{message.text}</div>}
+        <div className="providers">
+          {PROVIDER_IDS.map((p) => (
+            <ProviderRow
+              key={p}
+              provider={p}
+              settings={settings}
+              onChange={() => void api.settings().then(apply)}
+              onError={(text) => setMessage({ ok: false, text })}
+            />
+          ))}
+        </div>
+        <details className="advanced">
+          <summary className="muted small">Advanced</summary>
           <div className="row">
-            <input type="password" placeholder="sk-ant-..." value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
-            <button className="primary" disabled={!apiKey.trim()} onClick={() => save({ apiKey })}>Save key</button>
-            {settings.hasApiKey && <button onClick={() => save({ apiKey: "" })}>Remove key</button>}
-          </div>
-        </section>
-      ) : (
-        <section className="card">
-          <h2>UE-MCP account</h2>
-          <p className="muted">{settings.hasAccountToken ? "Signed in." : "Not signed in. Paste the token from your account page."}</p>
-          <div className="row">
-            <input type="password" placeholder="Account token" value={token} onChange={(e) => setToken(e.target.value)} />
-            <button className="primary" disabled={!token.trim()} onClick={() => save({ accountToken: token })}>Save token</button>
-            {settings.hasAccountToken && <button onClick={() => save({ accountToken: "" })}>Sign out</button>}
-          </div>
-          <div className="row">
-            <span className="muted">Gateway</span>
+            <span className="muted">Studio gateway</span>
             <input value={gatewayUrl} onChange={(e) => setGatewayUrl(e.target.value)} />
+            <button onClick={() => save()}>Save</button>
           </div>
-        </section>
-      )}
+        </details>
+      </section>
+    </div>
+  );
+}
+
+function ProviderRow({ provider, settings, onChange, onError }: {
+  provider: ProviderId;
+  settings: StudioSettings;
+  onChange: () => void;
+  onError: (text: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const connected = settings.connected[provider];
+  const status = provider === "studio"
+    ? settings.account ? `Signed in as @${settings.account.login}` : "Not signed in"
+    : connected ? "Key saved on this machine" : "No key";
+  const disconnect = () =>
+    api.saveSettings(provider === "studio" ? { accountToken: "" } : { keys: { [provider]: "" } }).then(onChange, (e: Error) => onError(e.message));
+  return (
+    <div className="provider-row">
+      <div className="row">
+        <strong>{PROVIDERS[provider].name}</strong>
+        <span className={`dot ${connected ? "ok" : ""}`} />
+        <span className="muted small">{status}</span>
+        <span className="spacer" />
+        {connected && provider === "studio" && settings.account?.via === "ue-mcp-login" ? (
+          <span className="dim small">from ue-mcp login</span>
+        ) : connected ? (
+          <button onClick={() => void disconnect()}>{provider === "studio" ? "Sign out" : "Remove key"}</button>
+        ) : (
+          <button className={open ? "" : "primary"} onClick={() => setOpen(!open)}>{open ? "Cancel" : provider === "studio" ? "Sign in" : "Add key"}</button>
+        )}
+      </div>
+      {open && !connected && <ConnectProvider provider={provider} onConnected={() => { setOpen(false); onChange(); }} />}
     </div>
   );
 }

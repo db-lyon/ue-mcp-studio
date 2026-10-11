@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary, StudioSettings, ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
+import { PROVIDERS } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import { ConnectProvider, ModelPicker } from "./ModelPicker";
 import type { DaemonState } from "../state";
 
 /** Starting points shown on an empty session. Each is a single task the agent can finish through ue-mcp. */
@@ -33,7 +35,6 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   const streamed = useRef("");
   const [streaming, setStreaming] = useState("");
   const [settings, setSettings] = useState<StudioSettings | null>(null);
-  const [key, setKey] = useState("");
 
   const loadList = () => api.sessions().then((r) => setSessions(r.sessions), (e: Error) => setError(e.message));
   const loadDetail = (id: string) => api.session(id).then((d) => {
@@ -41,16 +42,14 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     setDraft((cur) => (cur ? cur : d.draft));
   }, (e: Error) => setError(e.message));
 
+  const loadSettings = () => api.settings().then(setSettings, () => setSettings(null));
   useEffect(() => {
     void loadList();
-    api.settings().then(setSettings, () => setSettings(null));
+    void loadSettings();
   }, []);
 
-  const needsKey = settings?.provider === "byok" && !settings.hasApiKey;
-  const saveKey = () => api.saveSettings({ apiKey: key.trim() }).then((s) => {
-    setSettings(s);
-    setKey("");
-  }, (e: Error) => setError(e.message));
+  // The selected model's provider has no sign-in or key yet.
+  const disconnected = settings !== null && !settings.connected[settings.provider];
 
   useEffect(() => {
     if (!selected) return;
@@ -71,6 +70,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
       if (!e.type.startsWith("studio.")) continue;
       const id = sessionOf(e.data);
       if (e.type === "studio.session.changed") relist = true;
+      if (e.type === "studio.settings.changed") void loadSettings();
       if (id !== selected) continue;
       if (e.type === "studio.turn.delta") {
         streamed.current += String(e.data.text ?? "");
@@ -92,7 +92,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   }).catch((e: Error) => setError(e.message));
 
   const send = () => {
-    if (!selected || !draft.trim()) return;
+    if (!selected || !draft.trim() || disconnected) return;
     const text = draft;
     setDraft("");
     api.send(selected, text).then(() => loadDetail(selected), (e: Error) => {
@@ -127,31 +127,14 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
           <div className="empty">
             <h1 className="display"><em>Start</em> a session.</h1>
             <p className="muted">The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more.</p>
-            {needsKey ? (
-              <div className="keyform">
-                <span className="eyebrow">Add your Anthropic API key</span>
-                <div className="row">
-                  <input
-                    type="password"
-                    placeholder="sk-ant-..."
-                    value={key}
-                    onChange={(e) => setKey(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && key.trim() && void saveKey()}
-                  />
-                  <button className="primary" disabled={!key.trim()} onClick={() => void saveKey()}>Save key</button>
-                </div>
-                <p className="dim small">The key stays on this machine. Get one at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.</p>
-              </div>
-            ) : (
-              <>
-                <button className="primary large" onClick={() => void create()}>New session</button>
-                <div className="examples">
-                  {EXAMPLES.map((x) => (
-                    <button key={x} className="example" onClick={() => void create(x)}>{x}</button>
-                  ))}
-                </div>
-              </>
-            )}
+            {settings && disconnected && <ConnectCard settings={settings} onSettings={setSettings} />}
+            {settings && !disconnected && <ModelPicker settings={settings} onSettings={setSettings} />}
+            <button className="primary large" onClick={() => void create()}>New session</button>
+            <div className="examples">
+              {EXAMPLES.map((x) => (
+                <button key={x} className="example" onClick={() => void create(x)}>{x}</button>
+              ))}
+            </div>
           </div>
         )}
         {detail && (
@@ -164,6 +147,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
               )}
               {detail.status === "error" && detail.error && <div className="banner bad">{detail.error}</div>}
             </div>
+            {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
             <div className="composer">
               <textarea
                 value={draft}
@@ -178,9 +162,13 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                   }
                 }}
               />
-              {busy
-                ? <button onClick={() => selected && void api.stop(selected)}>Stop</button>
-                : <button className="primary" disabled={!draft.trim()} onClick={send}>Send</button>}
+              <div className="composer-bar">
+                {settings && <ModelPicker settings={settings} onSettings={setSettings} up />}
+                <span className="spacer" />
+                {busy
+                  ? <button onClick={() => selected && void api.stop(selected)}>Stop</button>
+                  : <button className="primary" disabled={!draft.trim() || disconnected} onClick={send}>Send</button>}
+              </div>
             </div>
           </>
         )}
@@ -221,5 +209,20 @@ function ToolCall({ call }: { call: ToolCallRecord }) {
       <pre className="output">{JSON.stringify(call.input, null, 2)}</pre>
       {call.result && <pre className="output">{call.result}</pre>}
     </details>
+  );
+}
+
+/** The selected model's provider is not connected: sign in or add its key here, or pick another model. */
+function ConnectCard({ settings, onSettings }: { settings: StudioSettings; onSettings: (s: StudioSettings) => void }) {
+  const p = settings.provider;
+  return (
+    <div className="keyform">
+      <span className="eyebrow">{p === "studio" ? "Sign in to start" : `Add your ${PROVIDERS[p].name} API key`}</span>
+      <ConnectProvider provider={p} onConnected={() => void api.settings().then(onSettings)} />
+      <div className="row connect-other">
+        <span className="dim small">Or choose another model:</span>
+        <ModelPicker settings={settings} onSettings={onSettings} />
+      </div>
+    </div>
   );
 }
