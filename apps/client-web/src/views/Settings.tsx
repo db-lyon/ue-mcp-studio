@@ -99,8 +99,8 @@ function ProviderRow({ provider, settings, onChange, onError }: {
 }) {
   const [open, setOpen] = useState(false);
   const connected = settings.connected[provider];
-  const signIn = provider === "studio" || provider === "claude";
-  const status = provider === "claude"
+  const signIn = provider === "studio" || provider === "claude" || provider === "chatgpt";
+  const status = provider === "claude" || provider === "chatgpt"
     ? connected ? "Signed in" : "Not signed in"
     : signIn
       ? settings.account ? `Signed in as @${settings.account.login}` : "Not signed in"

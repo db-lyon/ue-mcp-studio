@@ -18,7 +18,7 @@ export function runsVia(catalog: Catalog, vendor: Vendor, m: ModelOption): SignI
   return m.signIns.find((s) => catalog.signedIn[s]) ?? (vendor.connected ? "key" : null);
 }
 
-const VIA_LABEL: Record<SignInId | "key", string> = { claude: "Claude plan", studio: "Studio plan", key: "your key" };
+const VIA_LABEL: Record<SignInId | "key", string> = { chatgpt: "ChatGPT plan", claude: "Claude plan", studio: "Studio plan", key: "your key" };
 
 function find(catalog: Catalog | null, vendor: KeyProviderId, model: string): { vendor: Vendor; model: ModelOption } | null {
   const v = catalog?.providers.find((p) => p.id === vendor);
@@ -190,6 +190,7 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 }
 
 const SIGN_IN_ABOUT: Record<SignInId, string> = {
+  chatgpt: "With your ChatGPT account. OpenAI models run on your ChatGPT plan's limits.",
   claude: "Experimental. Runs Claude models on your Claude plan's limits.",
   studio: "With your GitHub account. Runs the models in your Studio plan.",
 };

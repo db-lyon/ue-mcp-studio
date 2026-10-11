@@ -16,7 +16,8 @@ Unreal Engine 5.7 and 5.8 on Windows. Requires ue-mcp 1.4.0-beta.1 or later.
 Pick a model in the chat box. Each vendor connects through its own sign-in where it offers one, and through your API key where it does not:
 
 - **Anthropic:** your API key. Running Claude models on your own Claude plan is an experimental option, at your own risk under Anthropic's terms.
-- **OpenAI** and **Google:** your API key.
+- **OpenAI:** sign in with ChatGPT, so your ChatGPT plan pays for the calls, or your API key.
+- **Google:** your API key.
 
 ## Development
 

@@ -20,17 +20,18 @@ apps, and through its API key where it does not.
 
 ## TODO
 
-- [ ] Add a `chatgpt` sign-in through the open-source path: first sign-in with
+- [x] Add a `chatgpt` sign-in through the open-source path: first sign-in with
       `dynamic_agent_client` and a stable `ext_agent_host_id`, then keep the
       issued `oaiapp_` client id per account. Loopback listener on
       `127.0.0.1`, PKCE, state and nonce, the token exchange, ID token
       validation against OpenAI's JWKS, and a check that
       `chatgpt.tokens.use.direct` was granted.
-- [ ] Store the access and refresh tokens as secrets and refresh them before
+- [x] Store the access and refresh tokens as secrets and refresh them before
       expiry.
-- [ ] Add a Responses API provider beside the Chat Completions one, streaming,
+- [x] Add a Responses API provider beside the Chat Completions one, streaming,
       with `store: false`.
-- [ ] List `chatgpt` as the sign-in for OpenAI models in the picker, ahead of
+- [x] List `chatgpt` as the sign-in for OpenAI models in the picker, ahead of
       the key.
+- [ ] Sign in with a real ChatGPT account and run a turn with tool calls.
 - [ ] Check again whether Anthropic or Google offers a sign-in to the user's own
       plan, and add it ahead of the key when one does.
