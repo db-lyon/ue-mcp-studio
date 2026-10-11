@@ -112,7 +112,7 @@ export interface ModelCatalog {
 export type StudioSignIn =
   | { state: "idle" }
   /** Open `url` to sign in; a device-code sign-in also shows `userCode` to enter there. */
-  | { state: "pending"; url: string; userCode?: string; expiresAt: string }
+  | { state: "pending"; url: string; userCode?: string; needsCode?: boolean; expiresAt: string }
   | { state: "done"; login: string }
   | { state: "error"; error: string };
 

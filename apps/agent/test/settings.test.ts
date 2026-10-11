@@ -51,3 +51,19 @@ describe("providers", () => {
     expect([s.accountToken(), s.accountLogin()]).toEqual([null, null]);
   });
 });
+
+describe("Claude subscription login", () => {
+  it("reads the login from Studio's own Claude folder, never the user's Claude Code", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "studio-claude-"));
+    process.env.STUDIO_CLAUDE_HOME = home;
+    try {
+      const { claudeLogin, claudeHome } = await import("../src/subscription.js");
+      expect(claudeHome()).toBe(home);
+      expect(claudeLogin()).toBeNull();
+      fs.writeFileSync(path.join(home, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "x", subscriptionType: "max" } }));
+      expect(claudeLogin()).toEqual({ subscription: "max" });
+    } finally {
+      delete process.env.STUDIO_CLAUDE_HOME;
+    }
+  });
+});

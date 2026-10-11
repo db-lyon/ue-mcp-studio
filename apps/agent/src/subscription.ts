@@ -1,13 +1,17 @@
 /**
  * Experimental: run a turn on the user's Claude subscription through the
- * Claude Agent SDK, which drives the user's installed Claude Code with its own
- * login. The SDK owns the model loop; Studio's tools are an in-process MCP
- * server whose handlers run the same executor as the API path.
+ * Claude Agent SDK. The SDK's own Claude Code binary runs it, with a login and
+ * session store kept in Studio's folder, apart from any Claude Code the user
+ * has installed. The SDK owns the model loop; Studio's tools are an in-process
+ * MCP server whose handlers run the same executor as the API path.
  */
+import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
+import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createSdkMcpServer, query, tool, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { StudioSignIn } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import type { ToolExecution } from "./tools.js";
@@ -15,10 +19,13 @@ import type { ToolExecution } from "./tools.js";
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
 
-/** The Claude Code login, when there is one: present means signed in. Tokens are never read here. */
+/** Studio's Claude login and SDK sessions, shared by every project. */
+export const claudeHome = (): string => process.env.STUDIO_CLAUDE_HOME || path.join(os.homedir(), ".ue-mcp", "studio", "claude");
+
+/** Studio's Claude login, when there is one: present means signed in. Tokens are never read here. */
 export function claudeLogin(): { subscription: string } | null {
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".claude", ".credentials.json"), "utf-8"));
+    const raw = JSON.parse(fs.readFileSync(path.join(claudeHome(), ".credentials.json"), "utf-8"));
     const o = raw?.claudeAiOauth;
     return o?.accessToken ? { subscription: String(o.subscriptionType ?? "claude") } : null;
   } catch {
@@ -26,13 +33,120 @@ export function claudeLogin(): { subscription: string } | null {
   }
 }
 
-/** The installed Claude Code, from STUDIO_CLAUDE_PATH or PATH. */
+/** The SDK's own Claude Code binary, from its platform package. */
 export function claudeExecutable(): string | null {
-  if (process.env.STUDIO_CLAUDE_PATH) return process.env.STUDIO_CLAUDE_PATH;
-  const names = process.platform === "win32" ? ["claude.exe", "claude.cmd"] : ["claude"];
-  const dirs = [...(process.env.PATH ?? "").split(path.delimiter), path.join(os.homedir(), ".local", "bin")];
-  for (const d of dirs) for (const n of names) if (d && fs.existsSync(path.join(d, n))) return path.join(d, n);
-  return null;
+  try {
+    const pkg = createRequire(import.meta.url).resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/package.json`);
+    const exe = path.join(path.dirname(pkg), process.platform === "win32" ? "claude.exe" : "claude");
+    return fs.existsSync(exe) ? exe : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The environment the binary runs in: Studio's Claude folder, and no API key to prefer over the login. */
+function claudeEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: claudeHome(), CLAUDE_AGENT_SDK_CLIENT_APP: "ue-mcp-studio-experimental", ...extra };
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  return env;
+}
+
+const MISSING = "The Claude runtime is missing from this Studio install.";
+
+/**
+ * Sign in to Claude with the SDK's binary: it prints the page to approve on,
+ * the page shows a code, and the code goes back on the binary's input.
+ */
+export class ClaudeSignInFlow {
+  private state: StudioSignIn = { state: "idle" };
+  private child: ChildProcess | null = null;
+  private output = "";
+
+  constructor(private readonly onDone: () => void) {}
+
+  view(): StudioSignIn {
+    if (this.state.state !== "pending") {
+      const login = claudeLogin();
+      if (login) return { state: "done", login: `Claude ${login.subscription}` };
+    }
+    return this.state;
+  }
+
+  async start(): Promise<StudioSignIn> {
+    this.cancel();
+    const exe = claudeExecutable();
+    if (!exe) return (this.state = { state: "error", error: MISSING });
+    fs.mkdirSync(claudeHome(), { recursive: true });
+    const child = spawn(exe, ["auth", "login", "--claudeai"], { env: claudeEnv({ BROWSER: "none" }), cwd: claudeHome(), windowsHide: true });
+    this.child = child;
+    this.output = "";
+    const url = await new Promise<string | null>((resolve) => {
+      const timer = setTimeout(() => resolve(null), 20_000);
+      const read = (b: Buffer) => {
+        this.output += b.toString();
+        const m = this.output.match(/https:\/\/\S+oauth\/authorize\S+/);
+        if (m) {
+          clearTimeout(timer);
+          resolve(m[0]);
+        }
+      };
+      child.stdout?.on("data", read);
+      child.stderr?.on("data", read);
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+    });
+    if (!url || child !== this.child) {
+      this.stop();
+      return (this.state = { state: "error", error: `Claude did not start the sign-in. ${this.tail()}` });
+    }
+    child.once("exit", (code) => {
+      if (child !== this.child) return;
+      this.child = null;
+      const login = claudeLogin();
+      if (code === 0 && login) {
+        this.state = { state: "done", login: `Claude ${login.subscription}` };
+        this.onDone();
+      } else {
+        this.state = { state: "error", error: `The sign-in did not complete. ${this.tail()}` };
+      }
+    });
+    this.state = { state: "pending", url, needsCode: true, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() };
+    return this.state;
+  }
+
+  /** The code the approval page showed. */
+  submit(code: string): StudioSignIn {
+    if (!this.child?.stdin || this.state.state !== "pending") return (this.state = { state: "error", error: "No sign-in is waiting for a code. Start again." });
+    this.child.stdin.write(`${code.trim()}\n`);
+    return this.state;
+  }
+
+  cancel(): void {
+    this.stop();
+    this.state = { state: "idle" };
+  }
+
+  /** Forget Studio's Claude login. */
+  async signOut(): Promise<void> {
+    this.cancel();
+    const exe = claudeExecutable();
+    if (exe) await new Promise((r) => spawn(exe, ["auth", "logout"], { env: claudeEnv(), cwd: claudeHome(), windowsHide: true }).once("exit", r).once("error", r));
+    fs.rmSync(path.join(claudeHome(), ".credentials.json"), { force: true });
+  }
+
+  private stop(): void {
+    const c = this.child;
+    this.child = null;
+    c?.kill();
+  }
+
+  private tail(): string {
+    return this.output.replace(/https:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(-200);
+  }
 }
 
 export interface SubscriptionTurn {
@@ -55,7 +169,9 @@ export interface SubscriptionTurn {
 /** Run one turn to the end. Resolves with an error message when the turn failed. */
 export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string | null> {
   const exe = claudeExecutable();
-  if (!exe) return "Claude Code is not installed: install it and run claude, then /login.";
+  if (!exe) return MISSING;
+  if (!claudeLogin()) return "Sign in to your Claude subscription: open the model picker.";
+  fs.mkdirSync(claudeHome(), { recursive: true });
 
   // The SDK does not hand the tool_use id to a handler: match the call to the block the model just sent.
   const waiting: Array<{ id: string; name: string; input: unknown }> = [];
@@ -98,10 +214,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   const abort = new AbortController();
   const onAbort = () => abort.abort();
   t.signal.addEventListener("abort", onAbort);
-  // Without an API key in the environment, Claude Code uses its own login.
-  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: "ue-mcp-studio-experimental" };
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
+  const env = claudeEnv();
 
   try {
     const q = query({
