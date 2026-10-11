@@ -37,14 +37,9 @@ export async function readUpdates(): Promise<{ studio: StudioUpdates | null; ueM
   return { studio, ueMcp };
 }
 
-/** A newer ue-mcp that can actually be installed: a binary install needs binaries for this engine in that release. */
-export function ueMcpReady(m: UeMcpUpdate | null): boolean {
-  return !!m?.target && (m.binaries === null || m.binaries.available);
-}
-
 /** How many parts have an update waiting. */
 export function waiting(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): number {
-  return (u.studio?.studio.available ? 1 : 0) + (u.studio?.plugin.available ? 1 : 0) + (ueMcpReady(u.ueMcp) ? 1 : 0);
+  return (u.studio?.studio.available ? 1 : 0) + (u.studio?.plugin.available ? 1 : 0) + (u.ueMcp?.target ? 1 : 0);
 }
 
 /** Updates waiting, read when the panel opens and every six hours, for the dot on Settings. */
@@ -62,7 +57,7 @@ export function useUpdateCount(): number {
 /** The steps one Update runs, in order: ue-mcp, then the editor plugin (the editor closes and reopens), then Studio, which restarts ue-mcp. */
 export function updateSteps(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): Array<"ueMcp" | "plugin" | "studio"> {
   const steps: Array<"ueMcp" | "plugin" | "studio"> = [];
-  if (ueMcpReady(u.ueMcp)) steps.push("ueMcp");
+  if (u.ueMcp?.target) steps.push("ueMcp");
   if (u.studio?.plugin.available) steps.push("plugin");
   if (u.studio?.studio.available) steps.push("studio");
   return steps;
@@ -109,7 +104,7 @@ export function UpdatesCard() {
     ? [
         ["Studio", u.studio?.studio.installed ?? null, u.studio?.studio.latest ?? null, !!u.studio?.studio.available],
         ["Editor plugin", u.studio?.plugin.installed ?? null, u.studio?.plugin.latest ?? null, !!u.studio?.plugin.available],
-        ["ue-mcp", u.ueMcp?.server ?? null, u.ueMcp?.latest ?? null, ueMcpReady(u.ueMcp)],
+        ["ue-mcp", u.ueMcp?.server ?? null, u.ueMcp?.latest ?? null, !!u.ueMcp?.target],
       ]
     : [];
 
