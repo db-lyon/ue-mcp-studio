@@ -181,6 +181,44 @@ function buildWarnings(output) {
 }
 
 // 5. Publish.
+// 5. The editor plugin in latest.json, so the panel can update it: this release's
+// zips, or when this release builds none, the newest release that has them.
+const pluginEntry = (() => {
+  const parse = (name) => /^UE_MCP_Studio-(.+)-UE(\d+\.\d+)-Win64\.zip$/.exec(name);
+  if (pluginZips.length) {
+    const files = {};
+    let pluginVer = null;
+    for (const name of pluginZips) {
+      const m = parse(name);
+      pluginVer = m[1];
+      files[m[2]] = { url: `https://github.com/${PUBLIC_REPO}/releases/download/v${version}/${name}`, sha256: sha256(path.join(OUT, name)) };
+    }
+    return { version: pluginVer, files };
+  }
+  const releases = JSON.parse(execFileSync("gh", ["release", "list", "--repo", PUBLIC_REPO, "--limit", "30", "--json", "tagName"], { encoding: "utf-8" }));
+  for (const { tagName } of releases) {
+    const assets = JSON.parse(execFileSync("gh", ["release", "view", tagName, "--repo", PUBLIC_REPO, "--json", "assets"], { encoding: "utf-8" })).assets.map((a) => a.name).filter((n) => parse(n));
+    if (!assets.length) continue;
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-plugin-carry-"));
+    execFileSync("gh", ["release", "download", tagName, "--repo", PUBLIC_REPO, "--dir", dir, ...assets.flatMap((n) => ["--pattern", n])], { stdio: "inherit" });
+    const files = {};
+    let pluginVer = null;
+    for (const name of assets) {
+      const m = parse(name);
+      pluginVer = m[1];
+      files[m[2]] = { url: `https://github.com/${PUBLIC_REPO}/releases/download/${tagName}/${name}`, sha256: sha256(path.join(dir, name)) };
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+    console.log(`latest.json carries the editor plugin ${pluginVer} from ${tagName}`);
+    return { version: pluginVer, files };
+  }
+  return null;
+})();
+if (pluginEntry) {
+  latest.plugin = pluginEntry;
+  fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(latest, null, 2) + "\n");
+}
+
 if (has("--publish")) {
   const tag = `v${version}`;
   const notes = arg("--notes-file", null);
