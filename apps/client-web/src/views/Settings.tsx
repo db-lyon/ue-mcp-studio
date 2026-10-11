@@ -97,10 +97,12 @@ function ProviderRow({ provider, settings, onChange, onError }: {
 }) {
   const [open, setOpen] = useState(false);
   const connected = settings.connected[provider];
-  const signIn = provider === "studio";
-  const status = signIn
-    ? settings.account ? `Signed in as @${settings.account.login}` : "Not signed in"
-    : connected ? "Key saved on this machine" : "No key";
+  const signIn = provider === "studio" || provider === "claude";
+  const status = provider === "claude"
+    ? connected ? "Signed in" : "Not signed in"
+    : signIn
+      ? settings.account ? `Signed in as @${settings.account.login}` : "Not signed in"
+      : connected ? "Key saved on this machine" : "No key";
   const disconnect = () =>
     api.saveSettings(signIn ? { signOut: provider } : { keys: { [provider]: "" } }).then(onChange, (e: Error) => onError(e.message));
   return (

@@ -14,6 +14,7 @@ import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam } from "./providers.js";
 import { SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import { TOOLS, editorConnected, executeTool, packageFile, verifyUnknown, type AgentHost } from "./tools.js";
+import { runSubscriptionTurn } from "./subscription.js";
 
 const SYSTEM = [
   "You work inside Unreal Editor for the user, through ue-mcp.",
@@ -28,6 +29,8 @@ export interface RunnerOptions {
   store: SessionStore;
   provider: () => ModelProvider;
   model: () => string;
+  /** Experimental: the turn runs on the Claude subscription through the Agent SDK. */
+  subscription?: () => boolean;
 }
 
 const now = (): string => new Date().toISOString();
@@ -101,7 +104,72 @@ export class AgentRunner {
     s.draft = "";
     s.error = null;
     this.setStatus(s, "running", null);
+    if (this.o.subscription?.()) return this.runSubscription(s.id, content.map((c) => c.text).join("\n\n"));
     await this.runTurn(s.id);
+  }
+
+  /** Experimental: the Agent SDK runs the loop; tool calls still go through executeTool and the transcript. */
+  private async runSubscription(id: string, prompt: string): Promise<void> {
+    const controller = new AbortController();
+    this.active.set(id, controller);
+    const s = this.require(id);
+    let lastId: string | null = null;
+    try {
+      const error = await runSubscriptionTurn({
+        projectDir: this.o.host.projectDir,
+        model: this.o.model(),
+        system: SYSTEM,
+        prompt,
+        resume: s.sdkSession ?? null,
+        signal: controller.signal,
+        onSession: (sid) => {
+          s.sdkSession = sid;
+          this.o.store.save(s);
+        },
+        onDelta: (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
+        onAssistant: (mid, blocks) => {
+          const last = s.messages[s.messages.length - 1];
+          if (mid === lastId && last?.role === "assistant" && Array.isArray(last.content)) (last.content as ContentBlock[]).push(...blocks);
+          else s.messages.push({ role: "assistant", content: blocks } as MessageParam);
+          lastId = mid;
+          for (const b of blocks) {
+            if (b.type === "text" && b.text) this.addEntry(s, { kind: "assistant", text: b.text, at: now() });
+            if (b.type === "tool_use") {
+              this.addEntry(s, { kind: "tool", call: { id: b.id, name: b.name, input: b.input, outcome: "pending", startedAt: now() } });
+            }
+          }
+          this.o.store.save(s);
+        },
+        onToolResults: (content) => {
+          s.messages.push({ role: "user", content } as MessageParam);
+          lastId = null;
+          this.o.store.save(s);
+        },
+        runTool: async (toolId, name, input) => {
+          if (name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, controller.signal);
+          const exec = await executeTool(this.o.host, name, input);
+          this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+          this.markSaved(s, exec.saved);
+          const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError };
+          this.recordOutcome(s, p, exec.outcome);
+          if (s.status !== "running") this.setStatus(s, "running", null);
+          return exec;
+        },
+      });
+      if (controller.signal.aborted) return;
+      s.error = error;
+      this.setStatus(s, error ? "error" : "idle", null);
+    } finally {
+      if (this.active.get(id) === controller) this.active.delete(id);
+    }
+  }
+
+  /** Hold a tool call until the editor is back, showing the session as waiting meanwhile. */
+  private async waitForEditor(s: StoredSession, signal: AbortSignal): Promise<void> {
+    if (editorConnected(this.o.host)) return;
+    this.setStatus(s, "waiting", this.lastCause);
+    while (!editorConnected(this.o.host) && !signal.aborted) await new Promise((r) => setTimeout(r, 1000));
+    if (!signal.aborted) this.setStatus(s, "running", null);
   }
 
   /** Stop a turn. Unanswered tool calls are answered as stopped so the conversation stays valid. */
@@ -146,6 +214,13 @@ export class AgentRunner {
     const controller = new AbortController();
     this.active.set(id, controller);
     const s = this.require(id);
+    if (this.o.subscription?.()) {
+      // The SDK cannot pick up a turn a restart cut off; its session continues from the next message.
+      this.active.delete(id);
+      s.error = "The turn was interrupted. Send the next message to continue.";
+      this.setStatus(s, "error", null);
+      return;
+    }
     try {
       for (;;) {
         if (controller.signal.aborted) return;

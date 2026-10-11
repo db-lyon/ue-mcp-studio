@@ -18,7 +18,7 @@ export function runsVia(catalog: Catalog, vendor: Vendor, m: ModelOption): SignI
   return m.signIns.find((s) => catalog.signedIn[s]) ?? (vendor.connected ? "key" : null);
 }
 
-const VIA_LABEL: Record<SignInId | "key", string> = { studio: "Studio plan", key: "your key" };
+const VIA_LABEL: Record<SignInId | "key", string> = { claude: "Claude plan", studio: "Studio plan", key: "your key" };
 
 function find(catalog: Catalog | null, vendor: KeyProviderId, model: string): { vendor: Vendor; model: ModelOption } | null {
   const v = catalog?.providers.find((p) => p.id === vendor);
@@ -190,6 +190,7 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 }
 
 const SIGN_IN_ABOUT: Record<SignInId, string> = {
+  claude: "Experimental. Runs Claude models on your Claude plan's limits.",
   studio: "With your GitHub account. Runs the models in your Studio plan.",
 };
 
@@ -222,6 +223,12 @@ export function SignInForm({ id, primary = true, onDone }: { id: SignInId; prima
     if (s.state === "pending") window.open(s.url, "_blank");
   }, (e: Error) => setState({ state: "error", error: e.message }));
 
+  const [code, setCode] = useState("");
+  const submit = () => api.submitSignInCode(id, code).then((s) => {
+    setCode("");
+    setState(s);
+  }, (e: Error) => setState({ state: "error", error: e.message }));
+
   const name = PROVIDERS[id].name;
   if (!state) return null;
   if (state.state === "pending") {
@@ -234,6 +241,15 @@ export function SignInForm({ id, primary = true, onDone }: { id: SignInId; prima
               <span className="signin-code mono">{state.userCode}</span>
               <button onClick={() => void navigator.clipboard?.writeText(state.userCode!)}>Copy</button>
               <a href={state.url} target="_blank" rel="noreferrer"><button className="primary">Open GitHub</button></a>
+            </div>
+          </>
+        ) : state.needsCode ? (
+          <>
+            <p className="small muted">Approve the sign-in in your browser, then paste the code the page shows.</p>
+            <div className="row">
+              <input placeholder="Code" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && code.trim() && void submit()} />
+              <button className="primary" disabled={!code.trim()} onClick={() => void submit()}>Sign in</button>
+              <a href={state.url} target="_blank" rel="noreferrer"><button>Open again</button></a>
             </div>
           </>
         ) : (

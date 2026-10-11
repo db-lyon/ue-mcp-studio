@@ -26,6 +26,7 @@ import { SettingsStore } from "./settings.js";
 import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverage } from "./models.js";
 import { StudioSignInFlow } from "./signin.js";
+import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): AgentRunner {
   const settings = new SettingsStore(api.dataDir);
@@ -49,7 +50,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     fetch(`${settings.gatewayUrl()}/v1/account/usage`, { headers: { authorization: `Bearer ${token}` } });
 
   const coverage = (): SignInCoverage => ({ planModels });
-  const signedIn = (): Record<SignInId, boolean> => ({ studio: accountToken() !== null });
+  const signedIn = (): Record<SignInId, boolean> => ({ claude: claudeLogin() !== null, studio: accountToken() !== null });
 
   /** A sign-in that runs the model comes first; the vendor key is the fallback. */
   const route = (): ModelRoute => {
@@ -77,19 +78,22 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
 
   const catalog = new ModelCatalogSource((p) => settings.key(p));
 
+  const claudeSignIn = new ClaudeSignInFlow(() => api.events.publish("settings.changed", {}));
   const signins: Record<SignInId, { view(): unknown; start(): Promise<unknown>; cancel(): void }> = {
+    claude: claudeSignIn,
     studio: new StudioSignInFlow((token, login) => {
       settings.signIn(token, login);
       void refreshAccount().then(() => api.events.publish("settings.changed", {}));
     }),
   };
-  const signinOf = (id: string) => (id === "studio" ? signins[id] : null);
+  const signinOf = (id: string) => (id === "studio" || id === "claude" ? signins[id] : null);
 
   const runner = new AgentRunner({
     host: api,
     store,
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion }),
     model: () => settings.model(),
+    subscription: () => route() === "claude",
   });
 
   const bad = (error: string) => ({ status: 400, body: { error } });
@@ -107,6 +111,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   api.route("POST", "/signin/:id", async (req) => {
     const f = signinOf(req.params.id);
     return f ? { body: await f.start() } : noSignIn(req.params.id);
+  });
+  // The code Claude's approval page shows, for a sign-in that asks for one.
+  api.route("POST", "/signin/:id/code", (req) => {
+    if (req.params.id !== "claude") return noSignIn(req.params.id);
+    const code = (req.body as { code?: unknown } | undefined)?.code;
+    if (typeof code !== "string" || !code.trim()) return bad("code must be a non-empty string");
+    return { body: claudeSignIn.submit(code) };
   });
   api.route("DELETE", "/signin/:id", (req) => {
     const f = signinOf(req.params.id);
@@ -134,9 +145,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
       return { status: 502, body: { error: `gateway unreachable: ${e instanceof Error ? e.message : String(e)}` } };
     }
   });
-  api.route("PUT", "/settings", (req) => {
+  api.route("PUT", "/settings", async (req) => {
     try {
-      settings.update((req.body ?? {}) as StudioSettingsUpdate);
+      const u = (req.body ?? {}) as StudioSettingsUpdate;
+      if (u.signOut === "claude") {
+        await claudeSignIn.signOut();
+        delete u.signOut;
+      }
+      settings.update(u);
       return { body: view() };
     } catch (e) {
       return bad(e instanceof Error ? e.message : String(e));
