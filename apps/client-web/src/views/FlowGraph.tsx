@@ -59,12 +59,10 @@ function detailOf(step: DeclaredStep): string {
 }
 
 /**
- * Lay the steps out by data dependency: a step sits one column right of the
- * latest step it reads from, so a column holds steps that could run together.
- * A flow whose steps read nothing from each other is drawn as its run order,
- * wrapped into columns.
+ * Lay the steps out in run order: a flow runs one step at a time, top to
+ * bottom, wrapped into columns.
  */
-function layout(definition: Record<string, DeclaredStep> | null, plan: PlannedStep[]): { nodes: Node[]; chain: boolean } {
+function layout(definition: Record<string, DeclaredStep> | null, plan: PlannedStep[]): Node[] {
   let nodes: Node[];
   if (definition) {
     const ids = Object.keys(definition).sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
@@ -84,25 +82,18 @@ function layout(definition: Record<string, DeclaredStep> | null, plan: PlannedSt
   } else {
     nodes = plan.map((p) => ({ id: String(p.stepNumber), number: p.stepNumber, title: p.name, detail: "", refs: [], layer: 0, row: 0 }));
   }
-  const chain = nodes.every((n) => n.refs.length === 0);
-  if (chain) {
-    nodes.forEach((n, i) => {
-      n.layer = Math.floor(i / CHAIN_ROWS);
-      n.row = i % CHAIN_ROWS;
-    });
-    return { nodes, chain };
-  }
-  const byId = new Map(nodes.map((n) => [n.id, n]));
-  for (const n of nodes) n.layer = n.refs.length ? 1 + Math.max(...n.refs.map((r) => byId.get(r)!.layer)) : 0;
-  const rows = new Map<number, number>();
-  for (const n of nodes) {
-    n.row = rows.get(n.layer) ?? 0;
-    rows.set(n.layer, n.row + 1);
-  }
-  return { nodes, chain };
+  nodes.forEach((n, i) => {
+    n.layer = Math.floor(i / CHAIN_ROWS);
+    n.row = i % CHAIN_ROWS;
+  });
+  return nodes;
 }
 
-/** The flow as a node graph: steps as nodes, ${steps.N...} references as edges, run state as color. */
+/**
+ * The flow as a node graph: steps as nodes in run order, joined by the order
+ * they run in. A step that reads an earlier step's result says which, and the
+ * run's progress colors each node.
+ */
 export function FlowGraph({
   definition,
   plan,
@@ -116,16 +107,14 @@ export function FlowGraph({
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
-  const { nodes, chain } = useMemo(() => layout(definition, plan), [definition, plan]);
-  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const nodes = useMemo(() => layout(definition, plan), [definition, plan]);
+  const numberOf = new Map(nodes.map((n) => [n.id, n.number]));
   const x = (n: Node) => PAD + n.layer * (W + GAP_X);
   const y = (n: Node) => PAD + n.row * (H + GAP_Y);
   const width = PAD * 2 + (Math.max(0, ...nodes.map((n) => n.layer)) + 1) * (W + GAP_X) - GAP_X;
   const height = PAD * 2 + (Math.max(0, ...nodes.map((n) => n.row)) + 1) * (H + GAP_Y) - GAP_Y;
 
-  const edges: { from: Node; to: Node }[] = chain
-    ? nodes.slice(1).map((to, i) => ({ from: nodes[i], to }))
-    : nodes.flatMap((to) => to.refs.map((r) => ({ from: byId.get(r)!, to })));
+  const edges = nodes.slice(1).map((to, i) => ({ from: nodes[i], to }));
 
   return (
     <div className="graph">
@@ -136,15 +125,11 @@ export function FlowGraph({
           </marker>
         </defs>
         {edges.map(({ from, to }) => {
-          const d = chain
-            ? from.layer === to.layer
-              ? `M${x(from) + W / 2},${y(from) + H} L${x(to) + W / 2},${y(to)}`
-              : `M${x(from) + W},${y(from) + H / 2} C${x(from) + W + GAP_X},${y(from) + H / 2} ${x(to) - GAP_X},${y(to) + H / 2} ${x(to)},${y(to) + H / 2}`
-            : (() => {
-                const x1 = x(from) + W, y1 = y(from) + H / 2, x2 = x(to), y2 = y(to) + H / 2, mid = (x1 + x2) / 2;
-                return `M${x1},${y1} C${mid},${y1} ${mid},${y2} ${x2},${y2}`;
-              })();
-          return <path key={`${from.id}-${to.id}`} d={d} className={chain ? "graph-edge chain" : "graph-edge"} markerEnd="url(#arrow)" />;
+          // Down a column, then from the bottom of one column to the top of the next.
+          const d = from.layer === to.layer
+            ? `M${x(from) + W / 2},${y(from) + H} L${x(to) + W / 2},${y(to)}`
+            : `M${x(from) + W},${y(from) + H / 2} C${x(from) + W + GAP_X},${y(from) + H / 2} ${x(to) - GAP_X},${y(to) + H / 2} ${x(to)},${y(to) + H / 2}`;
+          return <path key={`${from.id}-${to.id}`} d={d} className="graph-edge" markerEnd="url(#arrow)" />;
         })}
         {nodes.map((n) => {
           const state = states[n.number];
@@ -158,7 +143,12 @@ export function FlowGraph({
               <rect width={W} height={H} rx="6" />
               <text x="12" y="21" className="graph-num">{n.number}</text>
               <text x="34" y="21" className="graph-title">{clip(n.title, 23)}</text>
-              <text x="12" y="40" className="graph-detail">{clip(n.detail, 34)}</text>
+              <text x="12" y="40" className="graph-detail">{clip(n.detail, n.refs.length ? 22 : 34)}</text>
+              {n.refs.length > 0 && (
+                <text x={W - 12} y="40" textAnchor="end" className="graph-reads">
+                  reads {n.refs.map((r) => numberOf.get(r) ?? 0).sort((a, b) => a - b).join(", ")}
+                </text>
+              )}
               {state && <circle cx={W - 14} cy="16" r="4" className="graph-state" />}
             </g>
           );

@@ -442,9 +442,9 @@ button.subtab.active { color: var(--text); border-bottom-color: var(--accent); }
 .segmented button.active { background: var(--accent-wash); color: var(--text); }
 .graph { overflow: auto; max-height: 64vh; border: 1px solid var(--line); border-radius: var(--radius); background: var(--code-bg); }
 .graph svg { display: block; }
-.graph-edge { fill: none; stroke: var(--accent-line); stroke-width: 1.5; }
-.graph-edge.chain { stroke: var(--line-strong); }
-.graph-arrow { fill: var(--accent-line); }
+.graph-edge { fill: none; stroke: var(--line-strong); stroke-width: 1.5; }
+.graph-reads { fill: var(--accent-hi); font: 500 11px var(--mono); }
+.graph-arrow { fill: var(--line-strong); }
 .graph-node { cursor: pointer; }
 .graph-node rect { fill: var(--panel-2); stroke: var(--line-strong); stroke-width: 1; transition: stroke 0.15s; }
 .graph-node:hover rect { stroke: var(--accent-line); }
