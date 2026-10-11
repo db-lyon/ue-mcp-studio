@@ -97,10 +97,12 @@ function ProviderRow({ provider, settings, onChange, onError }: {
 }) {
   const [open, setOpen] = useState(false);
   const connected = settings.connected[provider];
-  const signIn = provider === "studio";
-  const status = signIn
-    ? settings.account ? `Signed in as @${settings.account.login}` : "Not signed in"
-    : connected ? "Key saved on this machine" : "No key";
+  const signIn = provider === "studio" || provider === "claude";
+  const status = provider === "claude"
+    ? connected ? "Signed in through Claude Code" : "Not signed in to Claude Code"
+    : signIn
+      ? settings.account ? `Signed in as @${settings.account.login}` : "Not signed in"
+      : connected ? "Key saved on this machine" : "No key";
   const disconnect = () =>
     api.saveSettings(signIn ? { signOut: provider } : { keys: { [provider]: "" } }).then(onChange, (e: Error) => onError(e.message));
   return (
@@ -110,7 +112,9 @@ function ProviderRow({ provider, settings, onChange, onError }: {
         <span className={`dot ${connected ? "ok" : ""}`} />
         <span className="muted small">{status}</span>
         <span className="spacer" />
-        {connected && provider === "studio" && settings.account?.via === "ue-mcp-login" ? (
+        {connected && provider === "claude" ? (
+          <span className="dim small">/logout in Claude Code</span>
+        ) : connected && provider === "studio" && settings.account?.via === "ue-mcp-login" ? (
           <span className="dim small">from ue-mcp login</span>
         ) : connected ? (
           <button onClick={() => void disconnect()}>{signIn ? "Sign out" : "Remove key"}</button>
