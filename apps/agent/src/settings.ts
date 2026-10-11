@@ -9,7 +9,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import {
   KEY_PROVIDER_IDS,
-  OFFERED_VENDORS,
   STUDIO_THEMES,
   type KeyProviderId,
   type StudioSettingsUpdate,
@@ -28,11 +27,10 @@ interface StoredSettings {
 
 /**
  * The selected model's vendor. Settings written before vendors were named said
- * byok, gateway or studio, all of which ran Claude models; a vendor no longer
- * offered falls back the same way.
+ * byok, gateway or studio, all of which ran Claude models.
  */
 function vendorOf(raw: unknown): KeyProviderId {
-  return OFFERED_VENDORS.includes(raw as KeyProviderId) ? (raw as KeyProviderId) : "anthropic";
+  return KEY_PROVIDER_IDS.includes(raw as KeyProviderId) ? (raw as KeyProviderId) : "anthropic";
 }
 
 const keyFile = (p: KeyProviderId) => `${p}.key`;
@@ -91,7 +89,7 @@ export class SettingsStore {
   update(u: StudioSettingsUpdate): void {
     const s = this.stored();
     if (u.provider !== undefined) {
-      if (!OFFERED_VENDORS.includes(u.provider)) throw new Error(`provider must be one of ${OFFERED_VENDORS.join(", ")}`);
+      if (!KEY_PROVIDER_IDS.includes(u.provider)) throw new Error(`provider must be one of ${KEY_PROVIDER_IDS.join(", ")}`);
       s.provider = u.provider;
     }
     if (u.model !== undefined) {

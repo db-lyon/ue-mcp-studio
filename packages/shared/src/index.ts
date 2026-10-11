@@ -27,12 +27,6 @@ export type KeyProviderId = "anthropic" | "openai" | "google";
 export const KEY_PROVIDER_IDS: readonly KeyProviderId[] = ["anthropic", "openai", "google"];
 
 /**
- * The vendors the picker offers. OpenAI and Google wait for their own
- * sign-ins (docs/plans/vendor-sign-in.md), so a key is never the only way in.
- */
-export const OFFERED_VENDORS: readonly KeyProviderId[] = ["anthropic"];
-
-/**
  * Accounts the user signs in to instead of pasting a key. Studio runs the
  * models its plan includes. A sign-in is the default way to run a model; a
  * vendor key is the fallback.

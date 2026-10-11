@@ -4,7 +4,7 @@
  * release; until then, and when it cannot be reached, a short starting list
  * stands in. Each model names the sign-ins that can run it.
  */
-import { OFFERED_VENDORS, PROVIDERS, type KeyProviderId, type ModelCatalog, type ModelOption, type SignInId } from "@ue-mcp-studio/shared";
+import { KEY_PROVIDER_IDS, PROVIDERS, type KeyProviderId, type ModelCatalog, type ModelOption, type SignInId } from "@ue-mcp-studio/shared";
 import { OPENAI_BASE_URLS } from "./openai-compat.js";
 
 /**
@@ -81,7 +81,7 @@ export class ModelCatalogSource {
 
   async catalog(signedIn: Record<SignInId, boolean>, coverage: SignInCoverage): Promise<ModelCatalog> {
     const providers: ModelCatalog["providers"] = [];
-    for (const p of OFFERED_VENDORS) {
+    for (const p of KEY_PROVIDER_IDS) {
       const key = this.keyOf(p);
       let models: Listed[] | null = null;
       if (key) {
