@@ -97,7 +97,7 @@ export function UpdatesCard() {
     for (const step of steps) {
       setWorking(STEP_LABEL[step]);
       const r = step === "ueMcp"
-        ? await post("/v1/update/apply", { version: u!.ueMcp!.target, binaries: u!.ueMcp!.binaries?.available ? u!.ueMcp!.binaries.file : null })
+        ? await post("/v1/update/apply", { version: u!.ueMcp!.target })
         : await post(`/v1/ext/studio/updates/${step}`);
       if (!r.ok) {
         setError(r.error ?? `${STEP_LABEL[step]} failed`);
