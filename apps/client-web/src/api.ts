@@ -20,6 +20,50 @@ import type {
   StudioSignIn,
 } from "@ue-mcp-studio/shared";
 
+/** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
+export interface InstalledPlugin {
+  name: string;
+  version: string | null;
+  pinned: string | null;
+  status: "ok" | "missing" | "invalid";
+  categories: string[];
+  problems: string[];
+}
+
+/** A plugin the registry publishes. */
+export interface CatalogPlugin {
+  slug: string;
+  name: string;
+  packageName?: string;
+  tagline?: string;
+  description?: string;
+  readme?: string;
+  category?: string;
+  tags?: string[];
+  repoUrl?: string;
+  homepageUrl?: string;
+}
+
+/** What an install, update or uninstall did. */
+export interface PluginCommandResult {
+  ok: boolean;
+  exitCode: number | null;
+  output: string;
+  restartRequired: boolean;
+}
+
+async function pluginCommand(command: "install" | "update" | "uninstall", body: Record<string, string>): Promise<PluginCommandResult> {
+  const res = await fetch(`/v1/plugins/${command}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    credentials: "same-origin",
+  });
+  const parsed = (await res.json().catch(() => ({}))) as Partial<PluginCommandResult> & { error?: string };
+  if (res.status === 200 || res.status === 422) return parsed as PluginCommandResult;
+  throw new ApiError(res.status, parsed.error ?? `${res.status} ${res.statusText}`);
+}
+
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -64,6 +108,12 @@ export const api = {
   startSignIn: (id: SignInId) => call<StudioSignIn>("POST", `/v1/ext/studio/signin/${id}`),
   cancelSignIn: (id: SignInId) => call<void>("DELETE", `/v1/ext/studio/signin/${id}`),
   submitSignInCode: (id: SignInId, code: string) => call<StudioSignIn>("POST", `/v1/ext/studio/signin/${id}/code`, { code }),
+  plugins: () => call<{ plugins: InstalledPlugin[] }>("GET", "/v1/plugins"),
+  pluginCatalog: () => call<{ plugins: CatalogPlugin[] }>("GET", "/v1/plugins/catalog"),
+  installPlugin: (name: string) => pluginCommand("install", { name }),
+  updatePlugin: (name?: string) => pluginCommand("update", name ? { name } : {}),
+  uninstallPlugin: (name: string) => pluginCommand("uninstall", { name }),
+  shutdownDaemon: () => call<unknown>("POST", "/v1/shutdown"),
   vcs: () => call<{ vcs: VcsStatus | null }>("GET", "/v1/ext/studio/vcs"),
   sessions: () => call<{ sessions: SessionSummary[] }>("GET", "/v1/ext/studio/sessions"),
   newSession: () => call<SessionDetail>("POST", "/v1/ext/studio/sessions"),
