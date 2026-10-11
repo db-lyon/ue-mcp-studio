@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { VcsChange, VcsStatus } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 
@@ -42,7 +43,8 @@ export function VcsChip({ events }: { events: unknown[] }) {
       <button className={`chip vcs ${dirty ? "dirty" : ""}`} title={`${vcs.name} at ${vcs.root}${vcs.detail ? `, ${vcs.detail}` : ""}. Click to see the changes.`} onClick={() => setOpen(true)}>
         <span className="vcs-kind">{vcs.name}</span> {vcsLine(vcs)}
       </button>
-      {open && <ChangesPanel vcs={vcs} onClose={() => { setOpen(false); void load(); }} />}
+      {/* Into the page body: the top bar's styles would otherwise make it the panel's frame. */}
+      {open && createPortal(<ChangesPanel vcs={vcs} onClose={() => { setOpen(false); void load(); }} />, document.body)}
     </>
   );
 }
