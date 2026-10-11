@@ -127,10 +127,10 @@ describe("Studio sign-in", () => {
 });
 
 describe("sign-ins come before keys", () => {
-  it("runs every Claude model on the Claude plan first, and the Studio plan's models on Studio next", () => {
+  it("runs OpenAI models on a ChatGPT sign-in, Claude models on the Claude plan, and the Studio plan's models on Studio next", () => {
     const coverage = { planModels: ["claude-opus-5-5"] };
     expect(signInsFor("anthropic", "claude-opus-5-5", coverage)).toEqual(STUDIO_PLAN_AVAILABLE ? ["claude", "studio"] : ["claude"]);
     expect(signInsFor("anthropic", "claude-haiku-5-5", coverage)).toEqual(["claude"]);
-    expect(signInsFor("openai", "gpt-6-sol", coverage)).toEqual([]);
+    expect(signInsFor("openai", "gpt-6-sol", coverage)).toEqual(["chatgpt"]);
   });
 });

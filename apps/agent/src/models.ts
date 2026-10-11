@@ -64,14 +64,17 @@ async function listLive(provider: KeyProviderId, key: string): Promise<Listed[]>
 
 const TTL_MS = 10 * 60_000;
 
-/** What can run models besides a vendor key: the Studio plan's models. */
+/** What can run models besides a vendor key: the Studio plan's models, and the ChatGPT account's. */
 export interface SignInCoverage {
   planModels: readonly string[];
+  /** The OpenAI models the signed-in ChatGPT account may use; null when no one is signed in. */
+  chatgptModels?: ReadonlyArray<{ id: string; name: string }> | null;
 }
 
 /** The sign-ins that can run a model, in the order they are preferred. */
 export function signInsFor(vendor: KeyProviderId, model: string, c: SignInCoverage): SignInId[] {
   const out: SignInId[] = [];
+  if (vendor === "openai") out.push("chatgpt");
   if (vendor === "anthropic") out.push("claude");
   if (STUDIO_PLAN_AVAILABLE && inPlan(vendor, model, c.planModels)) out.push("studio");
   return out;
@@ -97,6 +100,8 @@ export class ModelCatalogSource {
           if (models && models.length) this.cache.set(id, { at: Date.now(), models });
         }
       }
+      // A ChatGPT sign-in names the OpenAI models it can run; that list leads.
+      if (p === "openai" && coverage.chatgptModels?.length) models = [...coverage.chatgptModels];
       const live = !!models && models.length > 0;
       const list = live ? models! : DEFAULT_MODELS[p];
       // A plan model the vendor's list does not name still belongs in the picker.

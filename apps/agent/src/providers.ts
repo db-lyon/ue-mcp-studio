@@ -7,6 +7,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { SettingsStore } from "./settings.js";
 import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER, type ModelRoute } from "@ue-mcp-studio/shared";
 import { OpenAICompatibleProvider, OPENAI_BASE_URLS, PROVIDER_EXTRA } from "./openai-compat.js";
+import { ResponsesProvider } from "./responses.js";
 
 export type MessageParam = Anthropic.Beta.BetaMessageParam;
 export type ContentBlock = Anthropic.Beta.BetaContentBlock;
@@ -136,9 +137,10 @@ export class GatewayProvider implements ModelProvider {
 export function providerFor(
   settings: SettingsStore,
   route: ModelRoute,
-  context: { accountToken?: string | null; agentVersion?: string } = {},
+  context: { accountToken?: string | null; agentVersion?: string; chatgptToken?: () => Promise<string> } = {},
 ): ModelProvider {
   const vendor = settings.provider();
+  if (route === "chatgpt" && context.chatgptToken) return new ResponsesProvider(context.chatgptToken);
   if (route === "studio" && context.accountToken) {
     return new GatewayProvider(settings.gatewayUrl(), context.accountToken, context.agentVersion);
   }

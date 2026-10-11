@@ -30,6 +30,7 @@ import { AttachmentStore } from "./attachments.js";
 import { detectVcs } from "./vcs.js";
 import * as fs from "node:fs";
 import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
+import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): AgentRunner {
   const settings = new SettingsStore(api.dataDir);
@@ -53,8 +54,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   const fetchUsage = async (token: string): Promise<Response> =>
     fetch(`${settings.gatewayUrl()}/v1/account/usage`, { headers: { authorization: `Bearer ${token}` } });
 
-  const coverage = (): SignInCoverage => ({ planModels });
-  const signedIn = (): Record<SignInId, boolean> => ({ claude: claudeLogin() !== null, studio: accountToken() !== null });
+  const coverage = (): SignInCoverage => ({ planModels, chatgptModels: chatgpt.signedIn() ? chatgptList?.models ?? null : null });
+  const chatgpt = new ChatGptAuth();
+  // The signed-in ChatGPT account's models, read once per sign-in.
+  let chatgptList: { email: string | null; models: Array<{ id: string; name: string }> } | null = null;
+  const refreshChatgptModels = async (): Promise<void> => {
+    const who = chatgpt.signedIn();
+    if (!who) return void (chatgptList = null);
+    if (chatgptList && chatgptList.email === who.email) return;
+    const models = await chatgpt.accessToken().then((t) => chatgptModels(t)).catch(() => null);
+    chatgptList = models ? { email: who.email, models } : null;
+  };
+  const signedIn = (): Record<SignInId, boolean> => ({ chatgpt: chatgpt.signedIn() !== null, claude: claudeLogin() !== null, studio: accountToken() !== null });
 
   /** A sign-in that runs the model comes first; the vendor key is the fallback. */
   const route = (): ModelRoute => {
@@ -85,17 +96,21 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   const claudeSignIn = new ClaudeSignInFlow(() => api.events.publish("settings.changed", {}));
   const signins: Record<SignInId, { view(): unknown; start(): Promise<unknown>; cancel(): void }> = {
     claude: claudeSignIn,
+    chatgpt: new ChatGptSignInFlow(chatgpt, () => {
+      chatgptList = null;
+      void refreshChatgptModels().then(() => api.events.publish("settings.changed", {}));
+    }),
     studio: new StudioSignInFlow((token, login) => {
       settings.signIn(token, login);
       void refreshAccount().then(() => api.events.publish("settings.changed", {}));
     }),
   };
-  const signinOf = (id: string) => (id === "studio" || id === "claude" ? signins[id] : null);
+  const signinOf = (id: string) => (id === "studio" || id === "claude" || id === "chatgpt" ? signins[id] : null);
 
   const runner = new AgentRunner({
     host: api,
     store,
-    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion }),
+    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
     model: () => settings.model(),
     subscription: () => route() === "claude",
   });
@@ -112,7 +127,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     return { body: { vcs: await vcs.value } };
   });
 
-  api.route("GET", "/models", async () => ({ body: await catalog.catalog(signedIn(), coverage()) }));
+  api.route("GET", "/models", async () => {
+    await refreshChatgptModels();
+    return { body: await catalog.catalog(signedIn(), coverage()) };
+  });
 
   const noSignIn = (id: string) => ({ status: 404, body: { error: `no sign-in ${id}` } });
   api.route("GET", "/signin/:id", (req) => {
@@ -161,6 +179,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
       const u = (req.body ?? {}) as StudioSettingsUpdate;
       if (u.signOut === "claude") {
         await claudeSignIn.signOut();
+        delete u.signOut;
+      } else if (u.signOut === "chatgpt") {
+        await chatgpt.signOut();
+        chatgptList = null;
         delete u.signOut;
       }
       settings.update(u);

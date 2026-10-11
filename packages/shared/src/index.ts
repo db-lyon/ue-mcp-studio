@@ -32,8 +32,8 @@ export const KEY_PROVIDER_IDS: readonly KeyProviderId[] = ["anthropic", "openai"
  * Studio runs the models its plan includes. A sign-in is the default way to run
  * a model; a vendor key is the fallback.
  */
-export type SignInId = "claude" | "studio";
-export const SIGN_IN_IDS: readonly SignInId[] = ["claude", "studio"];
+export type SignInId = "chatgpt" | "claude" | "studio";
+export const SIGN_IN_IDS: readonly SignInId[] = ["chatgpt", "claude", "studio"];
 
 /** Whether the panel offers the Studio plan sign-in. Off: it is hidden everywhere. */
 export const STUDIO_PLAN_AVAILABLE = false;
@@ -53,6 +53,7 @@ export interface ProviderInfo {
 }
 
 export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
+  chatgpt: { id: "chatgpt", name: "ChatGPT" },
   claude: { id: "claude", name: "Claude subscription" },
   studio: { id: "studio", name: "Studio" },
   anthropic: { id: "anthropic", name: "Anthropic", keyPlaceholder: "sk-ant-...", keyUrl: "https://console.anthropic.com/settings/keys" },

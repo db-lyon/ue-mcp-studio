@@ -140,7 +140,7 @@ export async function readChatStream(lines: AsyncIterable<string>, onText: (text
   };
 }
 
-async function* sseLines(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
+export async function* sseLines(body: ReadableStream<Uint8Array>): AsyncIterable<string> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buf = "";
