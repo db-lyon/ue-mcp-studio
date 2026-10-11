@@ -391,10 +391,6 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 .tool summary .tool-name { color: var(--accent-hi); }
 .tool summary .tool-call { color: var(--text); }
 .tool .output { margin: 6px 0 0 14px; }
-.tool.agent summary .tool-name { color: var(--text); font-weight: 600; }
-.subagent { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 4px 2px; padding: 4px 0 4px 14px; border-left: 2px solid var(--line); font: var(--base-font); }
-.subagent .msg { max-width: 100%; }
-.subagent .msg.subagent-task { align-self: stretch; background: transparent; border: 1px dashed var(--line); color: var(--muted); font-size: 13px; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 .composer { display: flex; gap: 10px; align-items: flex-end; border-top: 1px solid var(--line); padding: 12px 16px 14px; background: var(--composer-bg); }
 .composer textarea { flex: 1; min-height: 60px; max-height: 40vh; resize: vertical; padding: 10px 12px; border-radius: 8px; line-height: 1.5; }
@@ -515,7 +511,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 /* Subagents of the latest turn, under the composer */
 .agents-bar { display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow: auto; padding-top: 4px; border-top: 1px solid var(--line); }
 .agents-head { padding: 2px 2px 4px; }
-.agents-row { display: flex; align-items: center; gap: 8px; height: auto; padding: 4px 6px; background: transparent; border: 0; border-radius: 6px; text-align: left; font: 12px/1.5 var(--mono); color: var(--text); cursor: pointer; }
+.agents-row { display: flex; align-items: center; gap: 8px; height: auto; min-height: 0; padding: 3px 8px; background: transparent; border: 0; border-radius: 6px; text-align: left; font: 12px/1.5 var(--mono); color: var(--text); cursor: pointer; }
 .agents-row:hover { background: var(--accent-wash); }
 .agents-row .agents-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agents-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
@@ -523,3 +519,42 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agents-row.done .agents-dot { background: var(--ok); }
 .agents-row.error .agents-dot { background: var(--bad); }
 .agents-row.unknown .agents-dot { background: var(--warn); }
+.agents-row.current { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
+.agents-row.main .agents-dot { background: var(--text); }
+
+/* A subagent in the main thread: one line that opens its thread */
+.agent-link { display: flex; align-items: center; gap: 8px; height: auto; width: 100%; padding: 6px 10px; text-align: left; background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); cursor: pointer; }
+.agent-link::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.agent-link.pending::before { animation: pulse 1.2s ease-in-out infinite; }
+.agent-link.done::before { background: var(--ok); }
+.agent-link.error::before { background: var(--bad); }
+.agent-link.unknown::before { background: var(--warn); }
+.agent-link .tool-name { color: var(--text); font-weight: 600; }
+.agent-link .tool-call { color: var(--text); }
+.agent-link .agent-open { margin-left: auto; color: var(--accent-hi); }
+.agent-link:hover { border-color: var(--accent-line); }
+
+/* The header of a subagent's thread */
+.thread-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.thread-head .eyebrow { margin-bottom: 4px; }
+.thread-head::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; order: 1; }
+.thread-head > strong { order: 2; }
+.thread-head > .dim { order: 3; }
+.thread-head.pending::before { animation: pulse 1.2s ease-in-out infinite; }
+.thread-head.done::before { background: var(--ok); }
+.thread-head.error::before { background: var(--bad); }
+.thread-head.unknown::before { background: var(--warn); }
+.composer .agents-row { height: auto; padding: 3px 8px; }
+
+/* Model replies as markdown */
+.msg.md { white-space: normal; }
+.msg.md > :first-child { margin-top: 0; }
+.msg.md > :last-child { margin-bottom: 0; }
+.msg.md p, .msg.md ul, .msg.md ol, .msg.md table, .msg.md pre { margin: 0 0 8px; }
+.msg.md ul, .msg.md ol { padding-left: 20px; }
+.msg.md code { font: 12px var(--mono); background: var(--panel-2); padding: 1px 4px; border-radius: 4px; }
+.msg.md pre { background: var(--panel-2); padding: 8px 10px; border-radius: 6px; overflow: auto; }
+.msg.md pre code { background: none; padding: 0; }
+.msg.md table { border-collapse: collapse; }
+.msg.md th, .msg.md td { border: 1px solid var(--line); padding: 3px 10px; text-align: left; }
+.msg.md th { background: var(--panel-2); font-weight: 600; }
