@@ -28,6 +28,7 @@ import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverag
 import { StudioSignInFlow } from "./signin.js";
 import { AttachmentStore } from "./attachments.js";
 import { detectVcs } from "./vcs.js";
+import { Updater } from "./updates.js";
 import * as fs from "node:fs";
 import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
@@ -125,6 +126,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   api.route("GET", "/vcs", async () => {
     if (!vcs || Date.now() - vcs.at > 5000) vcs = { at: Date.now(), value: detectVcs(api.projectDir).catch(() => null) };
     return { body: { vcs: await vcs.value } };
+  });
+
+  // Studio's own updates: the extension and the editor plugin, against the release channel.
+  const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data));
+  api.route("GET", "/updates", async () => ({ body: await updater.check() }));
+  api.route("POST", "/updates/studio", () => {
+    const r = updater.updateStudio();
+    return r.started ? { status: 202, body: r } : { status: 500, body: { error: r.error } };
+  });
+  api.route("POST", "/updates/plugin", async () => {
+    const r = await updater.updatePlugin();
+    return r.ok ? { body: r } : { status: 500, body: { error: r.error } };
   });
 
   api.route("GET", "/models", async () => {
