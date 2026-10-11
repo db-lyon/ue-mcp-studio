@@ -432,3 +432,31 @@ button.subtab {
 }
 button.subtab:hover:not(:disabled) { background: transparent; color: var(--text); border-color: transparent; }
 button.subtab.active { color: var(--text); border-bottom-color: var(--accent); }
+
+/* Flows: graph and JSON */
+.list .item { cursor: pointer; }
+.flow-view { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.segmented { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.segmented button { border: 0; border-radius: 0; padding: 5px 12px; background: transparent; color: var(--muted); }
+.segmented button + button { border-left: 1px solid var(--line-strong); }
+.segmented button.active { background: var(--accent-wash); color: var(--text); }
+.graph { overflow: auto; max-height: 64vh; border: 1px solid var(--line); border-radius: var(--radius); background: var(--code-bg); }
+.graph svg { display: block; }
+.graph-edge { fill: none; stroke: var(--accent-line); stroke-width: 1.5; }
+.graph-edge.chain { stroke: var(--line-strong); }
+.graph-arrow { fill: var(--accent-line); }
+.graph-node { cursor: pointer; }
+.graph-node rect { fill: var(--panel-2); stroke: var(--line-strong); stroke-width: 1; transition: stroke 0.15s; }
+.graph-node:hover rect { stroke: var(--accent-line); }
+.graph-node.selected rect { stroke: var(--accent); stroke-width: 1.5; }
+.graph-num { fill: var(--dim); font: 600 11px var(--mono); }
+.graph-title { fill: var(--text); font: 600 12.5px var(--mono); }
+.graph-detail { fill: var(--muted); font: 400 11px var(--sans); }
+.graph-state { fill: var(--dim); }
+.graph-node.running .graph-state { fill: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.graph-node.running rect { stroke: var(--accent); }
+.graph-node.done .graph-state { fill: var(--ok); }
+.graph-node.failed .graph-state { fill: var(--bad); }
+.graph-node.failed rect { stroke: var(--bad); }
+.graph-node.skipped { opacity: 0.55; }
+.step-detail .output { max-height: 30vh; }
