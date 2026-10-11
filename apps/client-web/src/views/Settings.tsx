@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
 import { KeyForm, ModelPicker, SignInForm } from "./ModelPicker";
 
@@ -67,14 +67,16 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
             <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={(text) => setMessage({ ok: false, text })} />
           ))}
         </div>
-        <details className="advanced">
-          <summary className="muted small">Advanced</summary>
-          <div className="row">
-            <span className="muted">Studio gateway</span>
-            <input value={gatewayUrl} onChange={(e) => setGatewayUrl(e.target.value)} />
-            <button onClick={() => save()}>Save</button>
-          </div>
-        </details>
+        {STUDIO_PLAN_AVAILABLE && (
+          <details className="advanced">
+            <summary className="muted small">Advanced</summary>
+            <div className="row">
+              <span className="muted">Studio gateway</span>
+              <input value={gatewayUrl} onChange={(e) => setGatewayUrl(e.target.value)} />
+              <button onClick={() => save()}>Save</button>
+            </div>
+          </details>
+        )}
       </section>
       <section className="card">
         <h2>API keys</h2>
