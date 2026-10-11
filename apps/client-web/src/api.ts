@@ -59,6 +59,7 @@ export const api = {
   signIn: (id: SignInId) => call<StudioSignIn>("GET", `/v1/ext/studio/signin/${id}`),
   startSignIn: (id: SignInId) => call<StudioSignIn>("POST", `/v1/ext/studio/signin/${id}`),
   cancelSignIn: (id: SignInId) => call<void>("DELETE", `/v1/ext/studio/signin/${id}`),
+  submitSignInCode: (id: SignInId, code: string) => call<StudioSignIn>("POST", `/v1/ext/studio/signin/${id}/code`, { code }),
   sessions: () => call<{ sessions: SessionSummary[] }>("GET", "/v1/ext/studio/sessions"),
   newSession: () => call<SessionDetail>("POST", "/v1/ext/studio/sessions"),
   session: (id: string) => call<SessionDetail>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
