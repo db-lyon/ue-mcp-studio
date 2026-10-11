@@ -5,15 +5,12 @@ import { applyTheme } from "./theme";
 import { useDaemon } from "./state";
 import { inEditor } from "./native";
 import { StatusView } from "./views/Status";
-import { SetupView } from "./views/Setup";
 import { FlowsView } from "./views/Flows";
 import { LogsView } from "./views/Logs";
-import { ConfigView } from "./views/Config";
 import { ChatView } from "./views/Chat";
-import { SettingsView } from "./views/Settings";
-import { AccountView } from "./views/Account";
+import { SettingsHub } from "./views/SettingsHub";
 
-const TABS = ["Chat", "Status", "Setup", "Flows", "Logs", "Config", "Settings", "Account"] as const;
+const TABS = ["Chat", "Status", "Flows", "Logs", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 export function App() {
@@ -52,13 +49,10 @@ export function App() {
       {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
       <main>
         {tab === "Status" && <StatusView daemon={daemon} />}
-        {tab === "Setup" && <SetupView />}
         {tab === "Flows" && <FlowsView daemon={daemon} />}
         {tab === "Logs" && <LogsView daemon={daemon} />}
-        {tab === "Config" && <ConfigView />}
         {tab === "Chat" && <ChatView daemon={daemon} />}
-        {tab === "Settings" && <SettingsView onTheme={(t: StudioTheme) => void applyTheme(t)} />}
-        {tab === "Account" && <AccountView />}
+        {tab === "Settings" && <SettingsHub onTheme={(t: StudioTheme) => void applyTheme(t)} />}
       </main>
     </div>
   );

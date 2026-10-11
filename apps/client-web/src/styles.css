@@ -421,3 +421,14 @@ button.theme-option.selected { border-color: var(--accent); background: var(--ac
 label.check { display: flex; align-items: baseline; gap: 9px; margin: 0; padding: 4px 0; color: var(--text); cursor: pointer; }
 label.check input { position: relative; top: 2px; }
 label.check .dim { margin-left: 4px; }
+
+/* Settings sections */
+.hub { display: flex; flex-direction: column; gap: 14px; }
+.hub > .stack, .hub > .card { width: 100%; max-width: 920px; margin: 0 auto; }
+.subtabs { display: flex; gap: 4px; width: 100%; max-width: 920px; margin: 0 auto; border-bottom: 1px solid var(--line); height: auto; overflow-x: auto; }
+button.subtab {
+  background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; margin-bottom: -1px;
+  padding: 8px 12px; color: var(--muted); font: 500 13px/1 var(--sans); letter-spacing: 0;
+}
+button.subtab:hover:not(:disabled) { background: transparent; color: var(--text); border-color: transparent; }
+button.subtab.active { color: var(--text); border-bottom-color: var(--accent); }
