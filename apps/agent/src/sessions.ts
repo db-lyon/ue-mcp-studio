@@ -46,6 +46,17 @@ export interface StoredSession {
   sdkSession?: string | null;
 }
 
+function agentCounts(s: StoredSession): { total: number; running: number } {
+  let total = 0;
+  let running = 0;
+  for (const t of s.transcript) {
+    if (t.kind !== "tool" || t.call.name !== "agent") continue;
+    total++;
+    if (t.call.outcome === "pending") running++;
+  }
+  return { total, running };
+}
+
 export class SessionStore {
   private readonly dir: string;
   private readonly cache = new Map<string, StoredSession>();
@@ -113,7 +124,7 @@ export class SessionStore {
   }
 
   static summary(s: StoredSession): SessionSummary {
-    return { id: s.id, title: s.title, status: s.status, createdAt: s.createdAt, updatedAt: s.updatedAt, waitingCause: s.waitingCause, archived: !!s.archived };
+    return { id: s.id, title: s.title, status: s.status, createdAt: s.createdAt, updatedAt: s.updatedAt, waitingCause: s.waitingCause, archived: !!s.archived, agents: agentCounts(s) };
   }
 
   static detail(s: StoredSession): SessionDetail {

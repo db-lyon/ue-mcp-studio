@@ -123,8 +123,11 @@ export interface ToolCallRecord {
   id: string;
   name: string;
   input: unknown;
-  /** unknown: the editor went away while it ran, so whether it took effect is not known. */
-  outcome: "pending" | "done" | "error" | "unknown";
+  /**
+   * unknown: the editor went away while it ran, so whether it took effect is
+   * not known. stopped: the user stopped it (a whole turn, or one subagent).
+   */
+  outcome: "pending" | "done" | "error" | "unknown" | "stopped";
   result?: string;
   startedAt: string;
   endedAt?: string;
@@ -159,6 +162,8 @@ export interface SessionSummary {
   waitingCause: string | null;
   /** Hidden from the session list until restored. */
   archived: boolean;
+  /** The session's subagents: how many there are, and how many are still running. */
+  agents: { total: number; running: number };
 }
 
 /** PUT /v1/ext/studio/sessions/:id: rename, archive or restore. */

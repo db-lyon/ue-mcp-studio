@@ -53,6 +53,8 @@ const now = (): string => new Date().toISOString();
 
 export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
+  /** Each running subagent, by its agent call id, so one can be stopped without the turn. */
+  private readonly subagents = new Map<string, () => void>();
   /** Why the editor last went away, for waiting turns and unknown outcomes. */
   private lastCause = "the editor is not connected";
   private readonly unsubscribe: () => void;
@@ -188,8 +190,12 @@ export class AgentRunner {
           const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId);
           if (entry?.kind !== "tool" || entry.call.outcome !== "pending") return;
           const failed = status !== "completed";
-          const result = detail.summary || (status === "stopped" ? "Stopped before it finished." : "");
-          this.recordOutcome(s, { id: toolUseId, name: entry.call.name, input: {}, state: "done", result, isError: failed }, failed ? "error" : "done");
+          const result = detail.summary || (status === "stopped" ? "Stopped by the user." : "");
+          this.recordOutcome(s, { id: toolUseId, name: entry.call.name, input: {}, state: "done", result, isError: failed }, status === "stopped" ? "stopped" : failed ? "error" : "done");
+        },
+        onStopper: (callId, stop) => {
+          if (stop) this.subagents.set(callId, () => void stop());
+          else this.subagents.delete(callId);
         },
         runTool: async (toolId, name, input) => {
           if (name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, controller.signal);
@@ -208,11 +214,7 @@ export class AgentRunner {
     } finally {
       if (this.active.get(id) === controller) this.active.delete(id);
       // A call the turn ended or was stopped without answering never finishes now.
-      for (const t of s.transcript) {
-        if (t.kind === "tool" && t.call.outcome === "pending") {
-          this.recordOutcome(s, { id: t.call.id, name: t.call.name, input: {}, state: "done", result: "Stopped before it finished.", isError: true }, "error");
-        }
-      }
+      this.markStopped(s);
     }
   }
 
@@ -239,7 +241,29 @@ export class AgentRunner {
       }
       this.flushPending(s);
     }
+    this.markStopped(s);
     this.setStatus(s, "stopped", null);
+  }
+
+  /** Every call the transcript still shows running, recorded as stopped by the user. */
+  private markStopped(s: StoredSession): void {
+    for (const t of s.transcript) {
+      if (t.kind === "tool" && t.call.outcome === "pending") {
+        this.recordOutcome(s, { id: t.call.id, name: t.call.name, input: {}, state: "done", result: "Stopped by the user.", isError: true }, "stopped");
+      }
+    }
+  }
+
+  /**
+   * Stop one subagent and let the turn go on: the main agent is told the user
+   * stopped it. Returns false when no subagent of that id is running.
+   */
+  stopSubagent(sessionId: string, callId: string): boolean {
+    this.require(sessionId);
+    const stop = this.subagents.get(callId);
+    if (!stop) return false;
+    stop();
+    return true;
   }
 
   private require(id: string): StoredSession {
@@ -335,7 +359,7 @@ export class AgentRunner {
         p.state = "done";
         p.result = r.text;
         p.isError = r.isError;
-        this.recordOutcome(s, p, r.isError ? "error" : "done");
+        this.recordOutcome(s, p, r.stopped ? "stopped" : r.isError ? "error" : "done");
       }));
       if (signal.aborted) return true;
     }
@@ -393,15 +417,24 @@ export class AgentRunner {
    * only. Its steps go into the session's transcript under the agent call; the
    * main agent gets its final report as the call's result.
    */
-  private async runSubagent(s: StoredSession, call: PendingTool, signal: AbortSignal): Promise<{ text: string; isError: boolean }> {
+  private async runSubagent(s: StoredSession, call: PendingTool, signal: AbortSignal): Promise<{ text: string; isError: boolean; stopped?: boolean }> {
     const prompt = call.input.prompt;
     if (typeof prompt !== "string" || !prompt.trim()) return { text: "Invalid input: agent needs prompt", isError: true };
     const parent = call.id;
     const messages: MessageParam[] = [{ role: "user", content: prompt }];
     let report = "";
+    const turnSignal = signal;
+    const own = new AbortController();
+    const follow = () => own.abort();
+    turnSignal.addEventListener("abort", follow);
+    this.subagents.set(call.id, () => own.abort());
+    signal = own.signal;
+    const stopped = () => (turnSignal.aborted
+      ? { text: "Stopped by the user.", isError: true }
+      : { text: "The user stopped this subagent before it finished. Do not redo its task unless the user asks.", isError: true, stopped: true });
     try {
       for (let step = 0; step < SUBAGENT_STEPS; step++) {
-        if (signal.aborted) return { text: "Stopped by the user.", isError: true };
+        if (signal.aborted) return stopped();
         const turn = await this.o.provider().run(
           { sessionId: s.id, model: this.o.model(), system: [{ type: "text", text: SUBAGENT_SYSTEM }], tools: EDITOR_TOOLS, messages },
           () => {},
@@ -421,7 +454,7 @@ export class AgentRunner {
           const input = (u.input ?? {}) as Record<string, unknown>;
           this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() }, parent });
           if (u.name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal);
-          if (signal.aborted) return { text: "Stopped by the user.", isError: true };
+          if (signal.aborted) return stopped();
           const exec = await executeTool(this.o.host, u.name, input);
           this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
           this.markSaved(s, exec.saved);
@@ -432,8 +465,11 @@ export class AgentRunner {
       }
       return { text: `The subagent stopped after ${SUBAGENT_STEPS} steps without finishing. Its last report: ${report || "none"}`, isError: true };
     } catch (e) {
-      if (signal.aborted) return { text: "Stopped by the user.", isError: true };
+      if (signal.aborted) return stopped();
       return { text: `The subagent failed: ${e instanceof Error ? e.message : String(e)}`, isError: true };
+    } finally {
+      turnSignal.removeEventListener("abort", follow);
+      this.subagents.delete(call.id);
     }
   }
 
@@ -442,7 +478,7 @@ export class AgentRunner {
     return true;
   }
 
-  private recordOutcome(s: StoredSession, p: PendingTool, outcome: "done" | "error" | "unknown"): void {
+  private recordOutcome(s: StoredSession, p: PendingTool, outcome: "done" | "error" | "unknown" | "stopped"): void {
     const entry = [...s.transcript].reverse().find((t) => t.kind === "tool" && t.call.id === p.id);
     if (entry && entry.kind === "tool") {
       entry.call.outcome = outcome === "done" && p.isError ? "error" : outcome;

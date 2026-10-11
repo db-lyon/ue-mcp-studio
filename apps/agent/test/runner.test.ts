@@ -194,6 +194,72 @@ describe("subagents", () => {
   });
 });
 
+describe("stopping one subagent", () => {
+  it("stops that subagent, lets the other finish, and tells the main agent the user stopped it", async () => {
+    let mainCalls = 0;
+    let seenResults: Array<{ tool_use_id: string; content: string }> = [];
+    const model: ModelProvider = {
+      async run(req, _onText, signal) {
+        const sub = req.system.some((b) => b.text.includes("You are a subagent"));
+        if (!sub) {
+          mainCalls++;
+          if (mainCalls === 1) {
+            return {
+              content: [
+                { type: "tool_use", id: "slow", name: "agent", input: { description: "Slow", prompt: "slow" } },
+                { type: "tool_use", id: "fast", name: "agent", input: { description: "Fast", prompt: "fast" } },
+              ] as never,
+              stopReason: "tool_use",
+            };
+          }
+          seenResults = req.messages[2].content as never;
+          return text("Carried on.");
+        }
+        if ((req.messages[0].content as string) === "fast") return text("Fast done.");
+        // The slow one waits until it is stopped.
+        await new Promise((_r, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+        return text("never");
+      },
+    };
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5" });
+    const s = store.create();
+    const turn = runner.send(s.id, "two");
+    await until(() => store.get(s.id)!.transcript.some((t) => t.kind === "tool" && t.call.id === "fast" && t.call.outcome === "done"));
+    expect(SessionStore.summary(store.get(s.id)!).agents).toEqual({ total: 2, running: 1 });
+    expect(runner.stopSubagent(s.id, "slow")).toBe(true);
+    await turn;
+
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    const slow = fin.transcript.find((t) => t.kind === "tool" && t.call.id === "slow");
+    expect(slow?.kind === "tool" && slow.call.outcome).toBe("stopped");
+    expect(seenResults.find((r) => r.tool_use_id === "slow")!.content).toMatch(/user stopped this subagent/);
+    expect(seenResults.find((r) => r.tool_use_id === "fast")!.content).toBe("Fast done.");
+    expect(runner.stopSubagent(s.id, "slow")).toBe(false);
+    expect(SessionStore.summary(fin).agents).toEqual({ total: 2, running: 0 });
+  });
+
+  it("marks every running call stopped when the whole turn is stopped", async () => {
+    const model: ModelProvider = {
+      async run(req, _onText, signal) {
+        if (!req.system.some((b) => b.text.includes("You are a subagent"))) {
+          return { content: [{ type: "tool_use", id: "a", name: "agent", input: { description: "A", prompt: "a" } }] as never, stopReason: "tool_use" };
+        }
+        await new Promise((_r, reject) => signal?.addEventListener("abort", () => reject(new Error("aborted"))));
+        return text("never");
+      },
+    };
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5" });
+    const s = store.create();
+    void runner.send(s.id, "go");
+    await until(() => store.get(s.id)!.transcript.some((t) => t.kind === "tool" && t.call.id === "a"));
+    runner.stop(s.id);
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("stopped");
+    expect(fin.transcript.filter((t) => t.kind === "tool").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["stopped"]);
+  });
+});
+
 describe("the editor going away", () => {
   it("pauses at the tool-call boundary and resumes when the editor is back", async () => {
     host.connected = false;

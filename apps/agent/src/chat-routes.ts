@@ -202,6 +202,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     runner.send(s.id, text).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });
+  // Stop one subagent; the turn goes on without it.
+  api.route("POST", "/sessions/:id/agents/:callId/stop", (req) => {
+    if (!store.get(req.params.id)) return missing(req.params.id);
+    return runner.stopSubagent(req.params.id, req.params.callId) ? { status: 204 } : { status: 404, body: { error: `no running subagent ${req.params.callId}` } };
+  });
   api.route("POST", "/sessions/:id/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
     runner.stop(req.params.id);

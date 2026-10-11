@@ -168,6 +168,8 @@ export interface SubscriptionTurn {
   onAssistant: (messageId: string, content: ContentBlock[], parent: string | null) => void;
   onToolResults: (content: unknown[], parent: string | null) => void;
   /** A subagent's lifecycle, by the agent call that started it. A background one reports here, not in its tool result. */
+  /** A subagent that can be stopped on its own, by its agent call id; null once it has finished. */
+  onStopper: (callId: string, stop: (() => Promise<void>) | null) => void;
   onTask: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
@@ -254,9 +256,16 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     for await (const m of q as AsyncIterable<SDKMessage>) {
       if (m.type === "system" && "subtype" in m && m.subtype === "init") t.onSession(m.session_id);
       else if (m.type === "system" && "subtype" in m && m.subtype === "task_started") {
-        if (m.tool_use_id) t.onTask(m.tool_use_id, "started", { background: m.is_backgrounded });
+        if (m.tool_use_id) {
+          const taskId = m.task_id;
+          t.onStopper(m.tool_use_id, () => q.stopTask(taskId));
+          t.onTask(m.tool_use_id, "started", { background: m.is_backgrounded });
+        }
       } else if (m.type === "system" && "subtype" in m && m.subtype === "task_notification") {
-        if (m.tool_use_id) t.onTask(m.tool_use_id, m.status, { summary: m.summary });
+        if (m.tool_use_id) {
+          t.onStopper(m.tool_use_id, null);
+          t.onTask(m.tool_use_id, m.status, { summary: m.summary });
+        }
       }
       else if (m.type === "stream_event") {
         const e = m.event;
