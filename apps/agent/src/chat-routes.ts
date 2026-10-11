@@ -19,7 +19,7 @@
  * studio.transcript.added, studio.turn.delta and studio.tool.finished.
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import type { ModelRoute, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
@@ -170,6 +170,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     runner.stop(req.params.id);
     store.delete(req.params.id);
     return { status: 204 };
+  });
+  api.route("PUT", "/sessions/:id", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const u = (req.body ?? {}) as SessionUpdate;
+    if (u.title !== undefined && (typeof u.title !== "string" || !u.title.trim())) return bad("title must be a non-empty string");
+    if (u.archived !== undefined && typeof u.archived !== "boolean") return bad("archived must be a boolean");
+    if (u.title !== undefined) s.title = u.title.trim().slice(0, 120);
+    if (u.archived !== undefined) s.archived = u.archived;
+    store.save(s);
+    api.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+    return { body: SessionStore.summary(s) };
   });
   api.route("PUT", "/sessions/:id/draft", (req) => {
     const s = store.get(req.params.id);

@@ -157,6 +157,14 @@ export interface SessionSummary {
   updatedAt: string;
   /** Why a waiting turn is waiting. */
   waitingCause: string | null;
+  /** Hidden from the session list until restored. */
+  archived: boolean;
+}
+
+/** PUT /v1/ext/studio/sessions/:id: rename, archive or restore. */
+export interface SessionUpdate {
+  title?: string;
+  archived?: boolean;
 }
 
 export interface SessionDetail extends SessionSummary {

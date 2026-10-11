@@ -132,6 +132,17 @@ describe("a turn", () => {
   });
 });
 
+describe("archived sessions", () => {
+  it("are listed as archived, and come back when the user sends to one", async () => {
+    const s = store.create();
+    s.archived = true;
+    store.save(s);
+    expect(SessionStore.summary(store.get(s.id)!).archived).toBe(true);
+    await runnerWith(new ScriptedModel([() => text("Hi.")])).send(s.id, "hello again");
+    expect(SessionStore.summary(store.get(s.id)!).archived).toBe(false);
+  });
+});
+
 describe("subagents", () => {
   it("runs each agent call as its own conversation, at the same time, and returns each report", async () => {
     let running = 0;

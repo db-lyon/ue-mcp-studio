@@ -40,6 +40,8 @@ export interface StoredSession {
   notes: string[];
   /** The editor crashed since the last reconcile. */
   crashed: boolean;
+  /** Hidden from the session list until restored. */
+  archived?: boolean;
   /** Experimental: the Agent SDK session a Claude subscription turn continues. */
   sdkSession?: string | null;
 }
@@ -111,7 +113,7 @@ export class SessionStore {
   }
 
   static summary(s: StoredSession): SessionSummary {
-    return { id: s.id, title: s.title, status: s.status, createdAt: s.createdAt, updatedAt: s.updatedAt, waitingCause: s.waitingCause };
+    return { id: s.id, title: s.title, status: s.status, createdAt: s.createdAt, updatedAt: s.updatedAt, waitingCause: s.waitingCause, archived: !!s.archived };
   }
 
   static detail(s: StoredSession): SessionDetail {

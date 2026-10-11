@@ -110,6 +110,7 @@ export class AgentRunner {
     if (this.active.has(s.id) || s.status === "running" || s.status === "waiting") {
       throw new Error("a turn is already in progress; stop it or wait for it to finish");
     }
+    s.archived = false;
     if (s.messages.length === 0) s.title = text.trim().split("\n")[0].slice(0, 60) || s.title;
     if (s.crashed) this.reconcileCrash(s);
     const content: Array<{ type: "text"; text: string }> = [];
