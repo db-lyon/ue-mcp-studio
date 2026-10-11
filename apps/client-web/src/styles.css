@@ -581,3 +581,18 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agents-caret { width: 10px; }
 .agents-failed { color: var(--bad); }
 @media (prefers-reduced-motion: reduce) { .agents-dot, .agent-link::before { animation: none !important; } }
+
+/* Session actions: a menu on each row, and archived sessions folded at the bottom */
+.sessions .item { position: relative; padding-right: 34px; }
+.sessions .item.archived { opacity: 0.7; }
+.session-more { position: absolute; top: 8px; right: 6px; width: 24px; height: 24px; padding: 0; display: grid; place-items: center; background: transparent; border-color: transparent; color: var(--muted); font-size: 16px; line-height: 1; opacity: 0; }
+.sessions .item:hover .session-more, .sessions .item.selected .session-more, .session-more.open, .session-more:focus-visible { opacity: 1; }
+.session-more:hover:not(:disabled), .session-more.open { background: var(--panel-3); border-color: transparent; color: var(--text); }
+.session-menu { position: absolute; top: 34px; right: 6px; z-index: 5; display: flex; flex-direction: column; min-width: 150px; padding: 4px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35); }
+.session-menu button { text-align: left; background: transparent; border-color: transparent; padding: 6px 10px; }
+.session-menu button:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; }
+.session-menu button.danger { color: var(--bad); }
+.session-menu button.danger.confirm { background: var(--bad); color: #fff; }
+.session-title-edit { width: 100%; padding: 3px 6px; font-weight: 600; }
+.sessions-fold { display: flex; align-items: center; gap: 6px; height: auto; margin: 8px -6px 2px; padding: 4px 8px; background: transparent; border: 0; text-align: left; cursor: pointer; }
+.sessions-fold:hover:not(:disabled) { background: var(--panel-2); color: var(--text); }
