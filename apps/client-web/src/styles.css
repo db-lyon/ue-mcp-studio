@@ -626,8 +626,32 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .result-bar { display: flex; align-items: center; gap: 8px; }
 
 /* Session status in the list */
-.session-dot { display: inline-block; width: 6px; height: 6px; margin: 0 7px 1px 0; border-radius: 50%; vertical-align: middle; background: transparent; }
+.session-dot { display: none; width: 6px; height: 6px; margin: 0 7px 1px 0; border-radius: 50%; vertical-align: middle; background: transparent; }
+.status-running .session-dot, .status-waiting .session-dot, .status-error .session-dot { display: inline-block; }
 .status-running .session-dot { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .status-waiting .session-dot { background: var(--warn); animation: pulse 2s ease-in-out infinite; }
 .status-error .session-dot { background: var(--bad); }
 @media (prefers-reduced-motion: reduce) { .session-dot { animation: none !important; } }
+
+/* Files added to the message being written */
+.attach-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.attach-chip { display: flex; align-items: center; gap: 8px; max-width: 280px; padding: 4px 4px 4px 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); font-size: 12px; }
+.attach-chip img { width: 36px; height: 36px; object-fit: cover; border-radius: 5px; }
+.attach-ext { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 5px; background: var(--panel-3); font: 600 10px var(--mono); color: var(--muted); }
+.attach-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-chip.uploading { opacity: 0.7; }
+.attach-chip.error { border-color: var(--bad); }
+.attach-chip.error .dim { color: var(--bad); }
+.attach-remove { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; background: transparent; border-color: transparent; color: var(--muted); font-size: 15px; }
+.composer .attach-remove { height: 22px; }
+.attach-remove:hover:not(:disabled) { color: var(--text); background: var(--panel-3); border-color: transparent; }
+.composer .attach-button { height: 36px; }
+
+/* Dropping files on the conversation */
+.conversation { position: relative; }
+.drop-overlay { position: absolute; inset: 8px; z-index: 20; display: grid; place-items: center; border: 2px dashed var(--accent-line); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--panel) 85%, transparent); color: var(--text); font-weight: 600; pointer-events: none; }
+
+/* Files a sent message carried */
+.sent-files { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.sent-file { display: inline-flex; align-items: center; max-width: 100%; padding: 3px 8px; border: 1px solid var(--accent-line); border-radius: 6px; color: var(--text); font-size: 12px; text-decoration: none; }
+.sent-file img { display: block; max-width: 220px; max-height: 160px; margin: -3px -8px; border-radius: 6px; }

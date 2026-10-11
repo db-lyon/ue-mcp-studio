@@ -7,6 +7,8 @@ import type { DaemonEvent, DaemonHealth, StatusReport } from "ue-mcp/daemon";
 import type {
   ModelCatalog,
   SessionDetail,
+  Attachment,
+  AttachmentUpload,
   SessionSummary,
   SessionUpdate,
   SignInId,
@@ -67,7 +69,10 @@ export const api = {
   updateSession: (id: string, u: SessionUpdate) => call<SessionSummary>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`, u),
   deleteSession: (id: string) => call<void>("DELETE", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
   saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
-  send: (id: string, text: string) => call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, { text }),
+  send: (id: string, text: string, attachments: string[] = []) =>
+    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, { text, attachments }),
+  uploadAttachment: (id: string, upload: AttachmentUpload) =>
+    call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, upload),
   stopSubagent: (id: string, callId: string) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/stop`),
   stop: (id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/stop`),

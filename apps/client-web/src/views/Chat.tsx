@@ -9,6 +9,8 @@ import { useSeen } from "../chat/hooks";
 import { MainTranscript, SubagentThread } from "../chat/Transcript";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
+import { Composer } from "../chat/Composer";
+import { SessionIdContext, useAttachments } from "../chat/attachments";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -42,6 +44,10 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { seen, markSeen } = useSeen(selected);
+  const attach = useAttachments(selected);
+  /** Files are being dragged over the conversation. */
+  const [dragging, setDragging] = useState(false);
+  const dragDepth = useRef(0);
   const lastList = useRef<SessionSummary[] | null>(null);
 
   const loadList = () => api.sessions().then((r) => {
@@ -111,15 +117,44 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     setSelected(d.id);
   }).catch((e: Error) => setError(e.message));
 
+  const canSend = !!selected && !disconnected && !attach.uploading && (draft.trim().length > 0 || attach.ready.length > 0);
   const send = () => {
-    if (!selected || !draft.trim() || disconnected) return;
+    if (!selected || !canSend) return;
     const text = draft;
+    const files = attach.ready.map((a) => a.id);
     setDraft("");
+    attach.clear();
     setThread(null);
-    api.send(selected, text).then(() => loadDetail(selected), (e: Error) => {
+    api.send(selected, text, files).then(() => loadDetail(selected), (e: Error) => {
       setDraft(text);
       setError(e.message);
     });
+  };
+
+  // Files dropped anywhere on the conversation are added to the message being written.
+  const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
+  const drop = {
+    onDragEnter: (e: React.DragEvent) => {
+      if (!detail || !hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current++;
+      setDragging(true);
+    },
+    onDragOver: (e: React.DragEvent) => {
+      if (detail && hasFiles(e)) e.preventDefault();
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!detail || !hasFiles(e)) return;
+      dragDepth.current = Math.max(0, dragDepth.current - 1);
+      if (dragDepth.current === 0) setDragging(false);
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!detail || !hasFiles(e)) return;
+      e.preventDefault();
+      dragDepth.current = 0;
+      setDragging(false);
+      attach.add(e.dataTransfer.files);
+    },
   };
 
   const openThreadId = (id: string | null) => {
@@ -177,7 +212,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
           </>
         )}
       </aside>
-      <section className="card conversation">
+      <section className={`card conversation ${dragging ? "dragging" : ""}`} {...drop}>
+        {dragging && <div className="drop-overlay">Drop files to attach them to your message</div>}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
         {!detail && (
           <div className="empty">
@@ -194,7 +230,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
           </div>
         )}
         {detail && (
-          <>
+          <SessionIdContext.Provider value={detail.id}>
             <div className="thread-stage">
               <MainTranscript
                 transcript={detail.transcript}
@@ -218,27 +254,20 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
               )}
             </div>
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
-            <div className="composer">
-              <textarea
-                value={draft}
-                placeholder={busy ? "The agent is working. You can stop it." : openThread ? "Message the main agent" : "Ask for something in the editor"}
-                disabled={busy}
-                onChange={(e) => setDraft(e.target.value)}
-                onBlur={() => selected && void api.saveDraft(selected, draft)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    send();
-                  }
-                }}
-              />
-              <div className="composer-bar">
-                {settings && <ModelPicker settings={settings} onSettings={setSettings} up />}
-                <span className="spacer" />
-                {busy
-                  ? <button onClick={() => selected && void api.stop(selected)}>Stop</button>
-                  : <button className="primary" disabled={!draft.trim() || disconnected} onClick={send}>Send</button>}
-              </div>
+            <Composer
+              draft={draft}
+              onDraft={setDraft}
+              onBlur={() => selected && void api.saveDraft(selected, draft)}
+              placeholder={busy ? "The agent is working. You can stop it." : openThread ? "Message the main agent" : "Ask for something in the editor, or drop files here"}
+              busy={busy}
+              canSend={canSend}
+              onSend={send}
+              onStop={() => selected && void api.stop(selected)}
+              files={attach.files}
+              onAddFiles={attach.add}
+              onRemoveFile={attach.remove}
+              picker={settings && <ModelPicker settings={settings} onSettings={setSettings} up />}
+            >
               <Threads
                 transcript={detail.transcript}
                 thread={openThread ? thread : null}
@@ -247,8 +276,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 sessionWaiting={detail.status === "waiting"}
                 seen={seen}
               />
-            </div>
-          </>
+            </Composer>
+          </SessionIdContext.Provider>
         )}
       </section>
     </div>

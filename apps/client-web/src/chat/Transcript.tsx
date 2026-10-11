@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import remarkBreaks from "remark-breaks";
+import type { Attachment, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import {
   OUTCOME_LABEL,
   RESULT_PREVIEW_LINES,
@@ -21,15 +23,39 @@ import { useFollow, useNow } from "./hooks";
 
 /** One line of a conversation that is not a subagent: a message, a note or a tool call. */
 export function Entry({ entry }: { entry: TranscriptEntry }) {
-  if (entry.kind === "user") return <div className="msg user">{entry.text}</div>;
+  if (entry.kind === "user") {
+    return (
+      <div className="msg user">
+        {entry.attachments && entry.attachments.length > 0 && <SentFiles files={entry.attachments} />}
+        {entry.text}
+      </div>
+    );
+  }
   if (entry.kind === "assistant") return <Reply text={entry.text} />;
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   return <ToolCall call={entry.call} />;
 }
 
-/** A model reply, rendered as markdown without raw HTML. */
+/** The files a message carried: images as thumbnails, the rest by name. Each opens the file. */
+function SentFiles({ files }: { files: Attachment[] }) {
+  const sessionId = useContext(SessionIdContext);
+  return (
+    <div className="sent-files">
+      {files.map((f) => {
+        const url = sessionId ? attachmentUrl(sessionId, f.id) : undefined;
+        return (
+          <a key={f.id} className="sent-file" href={url} target="_blank" rel="noreferrer" title={`${f.name}, ${formatBytes(f.size)}`}>
+            {isImage(f.type) && url ? <img src={url} alt={f.name} /> : <span>{f.name} <span className="dim">{formatBytes(f.size)}</span></span>}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A model reply, rendered as markdown without raw HTML; a single line break stays a line break. */
 export function Reply({ text }: { text: string }) {
-  return <div className="msg assistant md"><Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown></div>;
+  return <div className="msg assistant md"><Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{text}</Markdown></div>;
 }
 
 /**
