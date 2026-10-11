@@ -351,7 +351,7 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 .log td:last-child { overflow-wrap: anywhere; color: var(--muted); }
 .editor {
   width: 100%;
-  min-height: 60vh;
+  min-height: 360px;
   background: var(--code-bg);
   font: 12px/1.6 var(--mono);
   padding: 12px;

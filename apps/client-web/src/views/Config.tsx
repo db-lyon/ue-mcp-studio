@@ -29,8 +29,8 @@ export function ConfigView() {
   return (
     <section className="card">
       <div className="row">
-        <h2>ue-mcp.yml</h2>
-        <span className="muted mono small">{file.path}</span>
+        <h2>Project config</h2>
+        <span className="muted mono small" title={file.path}>{file.path.split(/[\/]/).pop()}</span>
         <span className="spacer" />
         <button disabled={!dirty} onClick={() => setText(file.text)}>Revert</button>
         <button disabled={!dirty} onClick={save}>Save</button>

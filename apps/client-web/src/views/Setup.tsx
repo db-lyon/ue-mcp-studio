@@ -3,6 +3,7 @@ import type { StatusReport } from "ue-mcp/daemon";
 import { api } from "../api";
 import { native } from "../native";
 import { ProjectSetup } from "./ProjectSetup";
+import { ConfigView } from "./Config";
 
 export function SetupView() {
   const [report, setReport] = useState<StatusReport | null>(null);
@@ -59,6 +60,7 @@ export function SetupView() {
         ))}
       </section>
       <ProjectSetup onApplied={() => void load()} />
+      <ConfigView />
     </div>
   );
 }
