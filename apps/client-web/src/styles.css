@@ -684,3 +684,25 @@ button.danger-button { color: var(--bad); border-color: var(--bad); }
 .update-status { gap: 10px; }
 .update-details { margin-top: 8px; }
 .tab-dot { display: inline-block; width: 6px; height: 6px; margin: 0 0 6px 4px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+
+/* Changes: the files source control sees changed, and a diff */
+button.chip.vcs { cursor: pointer; height: auto; }
+.changes-backdrop { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; background: rgba(0, 0, 0, 0.45); }
+.changes-panel { width: min(1200px, 94vw); height: min(780px, 88vh); display: flex; flex-direction: column; gap: 10px; }
+.changes-head { gap: 10px; }
+.changes-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(240px, 34%) 1fr; gap: 12px; }
+.changes-list { list-style: none; margin: 0; padding: 0; overflow: auto; border-right: 1px solid var(--line); }
+.change-row { display: flex; align-items: center; gap: 8px; width: 100%; height: auto; padding: 4px 8px; background: transparent; border: 0; text-align: left; font: 12px var(--mono); color: var(--text); cursor: pointer; }
+.change-row:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; }
+.change-row.current { background: var(--accent-wash); }
+.change-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.change-status { width: 16px; flex-shrink: 0; font-weight: 700; text-align: center; }
+.s-modified, .s-renamed { color: var(--warn); }
+.s-added, .s-untracked { color: var(--ok); }
+.s-deleted, .s-conflicted { color: var(--bad); }
+.changes-diff { min-width: 0; overflow: auto; }
+.change-file { margin-bottom: 6px; font-family: var(--mono); }
+pre.diff { margin: 0; font: 12px/1.5 var(--mono); white-space: pre; }
+pre.diff .add { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); display: block; }
+pre.diff .del { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); display: block; }
+pre.diff .hunk { color: var(--accent-hi); display: block; }

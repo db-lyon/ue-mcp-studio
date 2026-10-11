@@ -106,6 +106,11 @@ export function UpdatesCard() {
         return;
       }
     }
+    // A new ue-mcp runs once the daemon restarts on it; Studio's own update already does that.
+    if (steps.includes("ueMcp") && !steps.includes("studio")) {
+      setWorking("Restarting ue-mcp on the new version: the panel reloads");
+      await post("/v1/ext/studio/updates/restart");
+    }
     setWorking(null);
     setDone(true);
     load();

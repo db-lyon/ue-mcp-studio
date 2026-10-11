@@ -1,15 +1,15 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { VcsStatus } from "@ue-mcp-studio/shared";
 
-const vcs = vi.fn();
-vi.mock("../api", () => ({ api: { vcs: () => vcs() } }));
+const m = vi.hoisted(() => ({ vcs: vi.fn(), vcsChanges: vi.fn(), vcsDiff: vi.fn() }));
+vi.mock("../api", () => ({ api: m }));
 import { VcsChip, vcsLine } from "./VcsChip";
 
 afterEach(() => {
   cleanup();
-  vcs.mockReset();
+  vi.clearAllMocks();
 });
 
 const git: VcsStatus = { kind: "git", name: "Git", branch: "main", changes: 3, ahead: 2, behind: 0, root: "C:/Game" };
@@ -22,15 +22,25 @@ describe("source control in the top bar", () => {
     expect(vcsLine({ ...git, changes: null, ahead: 0 })).toBe("main");
   });
 
-  it("shows the project's source control, and nothing when it has none", async () => {
-    vcs.mockResolvedValueOnce({ vcs: git });
-    const { unmount } = render(<VcsChip events={[]} />);
-    await waitFor(() => expect(screen.getByText(/main, 3 changed, 2 ahead/)).toBeTruthy());
-    expect(screen.getByText("Git")).toBeTruthy();
-    unmount();
-    vcs.mockResolvedValueOnce({ vcs: null });
+  it("shows nothing when the project has no source control", async () => {
+    m.vcs.mockResolvedValue({ vcs: null });
     const { container } = render(<VcsChip events={[]} />);
-    await waitFor(() => expect(vcs).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(m.vcs).toHaveBeenCalled());
     expect(container.textContent).toBe("");
+  });
+
+  it("opens the changes, and shows the picked file's diff", async () => {
+    m.vcs.mockResolvedValue({ vcs: git });
+    m.vcsChanges.mockResolvedValue({ changes: [{ path: "Config/DefaultEngine.ini", status: "modified" }, { path: "Content/Map.umap", status: "added" }], truncated: false });
+    m.vcsDiff.mockImplementation(async (p: string) => (p.endsWith(".ini") ? { diff: "@@ -1 +1 @@\n-old\n+new" } : { diff: null, reason: "A binary file: open it in the editor to see it." }));
+    render(<VcsChip events={[]} />);
+    await waitFor(() => expect(screen.getByText(/main, 3 changed, 2 ahead/)).toBeTruthy());
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Git/ })));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Changes" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("+new")).toBeTruthy());
+    await act(async () => fireEvent.click(screen.getByTitle("Content/Map.umap")));
+    await waitFor(() => expect(screen.getByText(/A binary file/)).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });
