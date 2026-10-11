@@ -17,9 +17,8 @@
  *             submission Fab builds itself: no Binaries or Intermediate, and an
  *             EngineVersion key per engine. --fab-url <launcher url> sets FabURL once
  *             the listing exists. Implies --plugin, which proves the same tree builds.
- * --publish   creates release v<version> on the public db-lyon/ue-mcp-studio-releases
- *             (downloads, always marked latest so .../releases/latest/download/latest.json
- *             resolves) and on db-lyon/ue-mcp-studio (the release record beside the source).
+ * --publish   creates release v<version> on db-lyon/ue-mcp-studio, always marked latest
+ *             (betas too) so .../releases/latest/download/latest.json resolves.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -32,8 +31,7 @@ import { renderNotices } from "./notices.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "release");
-const PUBLIC_REPO = "db-lyon/ue-mcp-studio-releases";
-const SOURCE_REPO = "db-lyon/ue-mcp-studio";
+const REPO = "db-lyon/ue-mcp-studio";
 const RELEASE_KEY = path.join(os.homedir(), ".ue-mcp-studio", "keys", "release-ui-signing.key.pem");
 
 const arg = (name, fallback) => {
@@ -191,22 +189,22 @@ const pluginEntry = (() => {
     for (const name of pluginZips) {
       const m = parse(name);
       pluginVer = m[1];
-      files[m[2]] = { url: `https://github.com/${PUBLIC_REPO}/releases/download/v${version}/${name}`, sha256: sha256(path.join(OUT, name)) };
+      files[m[2]] = { url: `https://github.com/${REPO}/releases/download/v${version}/${name}`, sha256: sha256(path.join(OUT, name)) };
     }
     return { version: pluginVer, files };
   }
-  const releases = JSON.parse(execFileSync("gh", ["release", "list", "--repo", PUBLIC_REPO, "--limit", "30", "--json", "tagName"], { encoding: "utf-8" }));
+  const releases = JSON.parse(execFileSync("gh", ["release", "list", "--repo", REPO, "--limit", "30", "--json", "tagName"], { encoding: "utf-8" }));
   for (const { tagName } of releases) {
-    const assets = JSON.parse(execFileSync("gh", ["release", "view", tagName, "--repo", PUBLIC_REPO, "--json", "assets"], { encoding: "utf-8" })).assets.map((a) => a.name).filter((n) => parse(n));
+    const assets = JSON.parse(execFileSync("gh", ["release", "view", tagName, "--repo", REPO, "--json", "assets"], { encoding: "utf-8" })).assets.map((a) => a.name).filter((n) => parse(n));
     if (!assets.length) continue;
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-plugin-carry-"));
-    execFileSync("gh", ["release", "download", tagName, "--repo", PUBLIC_REPO, "--dir", dir, ...assets.flatMap((n) => ["--pattern", n])], { stdio: "inherit" });
+    execFileSync("gh", ["release", "download", tagName, "--repo", REPO, "--dir", dir, ...assets.flatMap((n) => ["--pattern", n])], { stdio: "inherit" });
     const files = {};
     let pluginVer = null;
     for (const name of assets) {
       const m = parse(name);
       pluginVer = m[1];
-      files[m[2]] = { url: `https://github.com/${PUBLIC_REPO}/releases/download/${tagName}/${name}`, sha256: sha256(path.join(dir, name)) };
+      files[m[2]] = { url: `https://github.com/${REPO}/releases/download/${tagName}/${name}`, sha256: sha256(path.join(dir, name)) };
     }
     fs.rmSync(dir, { recursive: true, force: true });
     console.log(`latest.json carries the editor plugin ${pluginVer} from ${tagName}`);
@@ -224,8 +222,6 @@ if (has("--publish")) {
   const notes = arg("--notes-file", null);
   const notesArgs = notes ? ["--notes-file", notes] : ["--notes", `UE-MCP Studio ${version}.`];
   const files = [zipName, "latest.json", ...pluginZips].map((f) => path.join(OUT, f));
-  run("gh", ["release", "create", tag, "--repo", PUBLIC_REPO, "--title", tag, "--latest", ...notesArgs, ...files]);
-  const pre = version.includes("-") ? ["--prerelease"] : [];
-  run("gh", ["release", "create", tag, "--repo", SOURCE_REPO, "--title", tag, "--target", "main", ...pre, ...notesArgs, ...files]);
-  console.log(`published ${tag} to ${PUBLIC_REPO} and ${SOURCE_REPO}`);
+  run("gh", ["release", "create", tag, "--repo", REPO, "--title", tag, "--target", "main", "--latest", ...notesArgs, ...files]);
+  console.log(`published ${tag} to ${REPO}`);
 }

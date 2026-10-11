@@ -16,7 +16,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
-export const MANIFEST_URL = process.env.UE_MCP_STUDIO_CHANNEL || "https://github.com/db-lyon/ue-mcp-studio-releases/releases/latest/download/latest.json";
+export const MANIFEST_URL = process.env.UE_MCP_STUDIO_CHANNEL || "https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/latest.json";
 const PLUGIN = "UE_MCP_Studio";
 
 export interface ReleaseManifest {

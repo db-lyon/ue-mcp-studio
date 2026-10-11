@@ -4,7 +4,7 @@ The in-editor client for [ue-mcp](https://github.com/db-lyon/ue-mcp): an agent t
 
 ## Install
 
-Studio is a ue-mcp daemon extension plus a small editor plugin. Releases are on [ue-mcp-studio-releases](https://github.com/db-lyon/ue-mcp-studio-releases/releases):
+Studio is a ue-mcp daemon extension plus a small editor plugin. Releases are on [this repository's releases page](https://github.com/db-lyon/ue-mcp-studio/releases):
 
 - `studio-<version>.zip`, the extension: `npx ue-mcp@beta extension install <zip url> --sha256 <hex from latest.json>`.
 - `UE_MCP_Studio-<version>-UE<engine>-Win64.zip`, the editor plugin: unpack it into the project's `Plugins/` folder.
