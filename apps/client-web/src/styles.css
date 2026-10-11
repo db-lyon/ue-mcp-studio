@@ -391,6 +391,10 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 .tool summary .tool-name { color: var(--accent-hi); }
 .tool summary .tool-call { color: var(--text); }
 .tool .output { margin: 6px 0 0 14px; }
+.tool.agent summary .tool-name { color: var(--text); font-weight: 600; }
+.subagent { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 4px 2px; padding: 4px 0 4px 14px; border-left: 2px solid var(--line); font: var(--base-font); }
+.subagent .msg { max-width: 100%; }
+.subagent .msg.subagent-task { align-self: stretch; background: transparent; border: 1px dashed var(--line); color: var(--muted); font-size: 13px; }
 @keyframes pulse { 50% { opacity: 0.3; } }
 .composer { display: flex; gap: 10px; align-items: flex-end; border-top: 1px solid var(--line); padding: 12px 16px 14px; background: var(--composer-bg); }
 .composer textarea { flex: 1; min-height: 60px; max-height: 40vh; resize: vertical; padding: 10px 12px; border-radius: 8px; line-height: 1.5; }
@@ -507,3 +511,15 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .key-fallback .connect { margin-top: 8px; }
 .connect.signin { align-items: flex-start; }
 .picker-connect .connect.signin > button { width: 100%; }
+
+/* Subagents of the latest turn, under the composer */
+.agents-bar { display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow: auto; padding-top: 4px; border-top: 1px solid var(--line); }
+.agents-head { padding: 2px 2px 4px; }
+.agents-row { display: flex; align-items: center; gap: 8px; height: auto; padding: 4px 6px; background: transparent; border: 0; border-radius: 6px; text-align: left; font: 12px/1.5 var(--mono); color: var(--text); cursor: pointer; }
+.agents-row:hover { background: var(--accent-wash); }
+.agents-row .agents-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agents-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.agents-row.pending .agents-dot { animation: pulse 1.2s ease-in-out infinite; }
+.agents-row.done .agents-dot { background: var(--ok); }
+.agents-row.error .agents-dot { background: var(--bad); }
+.agents-row.unknown .agents-dot { background: var(--warn); }

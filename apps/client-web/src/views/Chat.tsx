@@ -139,7 +139,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
         {detail && (
           <>
             <div className="transcript">
-              {detail.transcript.map((t, i) => <Entry key={i} entry={t} />)}
+              {detail.transcript.map((t, i) => (t.parent ? null : <Entry key={i} entry={t} transcript={detail.transcript} />))}
               {streaming && <div className="msg assistant">{streaming}</div>}
               {detail.status === "waiting" && (
                 <div className="banner warn">Waiting for editor: {detail.waitingCause ?? "not connected"}. The turn continues when it is back.</div>
@@ -168,6 +168,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                   ? <button onClick={() => selected && void api.stop(selected)}>Stop</button>
                   : <button className="primary" disabled={!draft.trim() || disconnected} onClick={send}>Send</button>}
               </div>
+              <AgentsBar transcript={detail.transcript} />
             </div>
           </>
         )}
@@ -176,11 +177,77 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   );
 }
 
-function Entry({ entry }: { entry: TranscriptEntry }) {
+function Entry({ entry, transcript }: { entry: TranscriptEntry; transcript: TranscriptEntry[] }) {
   if (entry.kind === "user") return <div className="msg user">{entry.text}</div>;
   if (entry.kind === "assistant") return <div className="msg assistant">{entry.text}</div>;
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
+  if (entry.call.name === "agent") {
+    return <AgentCall call={entry.call} steps={transcript.filter((t) => t.parent === entry.call.id)} transcript={transcript} />;
+  }
   return <ToolCall call={entry.call} />;
+}
+
+/**
+ * The subagents of the latest turn, and any still running, as a list under
+ * the composer. A row opens that subagent's steps in the transcript.
+ */
+function AgentsBar({ transcript }: { transcript: TranscriptEntry[] }) {
+  let lastUser = -1;
+  transcript.forEach((t, i) => {
+    if (t.kind === "user" && !t.parent) lastUser = i;
+  });
+  const agents = transcript
+    .map((t, i) => ({ t, i }))
+    .filter(({ t, i }) => t.kind === "tool" && t.call.name === "agent" && (i > lastUser || t.call.outcome === "pending"))
+    .map(({ t }) => (t as Extract<TranscriptEntry, { kind: "tool" }>).call);
+  if (agents.length === 0) return null;
+  const running = agents.filter((a) => a.outcome === "pending").length;
+  const open = (id: string) => {
+    const el = document.getElementById(`agent-${id}`) as HTMLDetailsElement | null;
+    if (!el) return;
+    el.open = true;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  return (
+    <div className="agents-bar">
+      <div className="agents-head dim small">
+        {running > 0 ? `${running} of ${agents.length} subagents running` : `${agents.length} ${agents.length === 1 ? "subagent" : "subagents"} finished`}
+      </div>
+      {agents.map((a) => {
+        const input = a.input as { description?: string };
+        const calls = transcript.filter((t) => t.parent === a.id && t.kind === "tool").length;
+        const secs = a.endedAt ? Math.max(1, Math.round((Date.parse(a.endedAt) - Date.parse(a.startedAt)) / 1000)) : null;
+        return (
+          <button key={a.id} className={`agents-row tool ${a.outcome}`} onClick={() => open(a.id)}>
+            <span className="agents-dot" />
+            <span className="agents-name">{input.description ?? "task"}</span>
+            <span className="dim small">{OUTCOME[a.outcome]}, {calls} {calls === 1 ? "call" : "calls"}{secs ? `, ${secs}s` : ""}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A subagent: its task, then its own messages and tool calls, open while it runs. */
+function AgentCall({ call, steps, transcript }: { call: ToolCallRecord; steps: TranscriptEntry[]; transcript: TranscriptEntry[] }) {
+  const input = call.input as { description?: string; prompt?: string };
+  const calls = steps.filter((t) => t.kind === "tool").length;
+  const running = call.outcome === "pending";
+  return (
+    <details id={`agent-${call.id}`} className={`tool agent ${call.outcome}`} open={running ? true : undefined}>
+      <summary>
+        <span className="tool-name">subagent</span>
+        <span className="tool-call">{input.description ?? "task"}</span>
+        <span className="dim">{OUTCOME[call.outcome]}, {calls} {calls === 1 ? "call" : "calls"}</span>
+      </summary>
+      <div className="subagent">
+        {input.prompt && <div className="msg user subagent-task">{input.prompt}</div>}
+        {steps.map((t, i) => <Entry key={i} entry={t} transcript={transcript} />)}
+        {call.outcome === "error" && call.result && <div className="banner bad">{call.result}</div>}
+      </div>
+    </details>
+  );
 }
 
 const OUTCOME: Record<ToolCallRecord["outcome"], string> = {
