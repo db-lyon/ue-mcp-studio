@@ -12,6 +12,7 @@ import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
 import { Approvals } from "../chat/Approvals";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
+import { readLocation, writeLocation } from "../location";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -30,7 +31,7 @@ function sessionOf(data: Record<string, unknown>): string | null {
 
 export function ChatView({ daemon }: { daemon: DaemonState }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(() => readLocation().session);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -59,6 +60,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     }
     lastList.current = r.sessions;
     setSessions(r.sessions);
+    // A session the location names but that is gone (deleted elsewhere) is not opened.
+    setSelected((cur) => (cur && !r.sessions.some((x) => x.id === cur) ? null : cur));
   }, (e: Error) => setError(e.message));
   const loadDetail = (id: string) => api.session(id).then((d) => {
     setDetail(d);
@@ -66,6 +69,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   }, (e: Error) => setError(e.message));
 
   const loadSettings = () => api.settings().then(setSettings, () => setSettings(null));
+  useEffect(() => writeLocation({ tab: "Chat", session: selected }), [selected]);
   useEffect(() => {
     void loadList();
     void loadSettings();

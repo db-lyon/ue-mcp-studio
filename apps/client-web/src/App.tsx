@@ -14,14 +14,21 @@ import { SettingsHub, type SettingsSection } from "./views/SettingsHub";
 import { VcsChip } from "./chat/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
 import { DockToggle } from "./views/DockToggle";
+import { readLocation, writeLocation } from "./location";
 
 const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
+const SECTIONS: SettingsSection[] = ["general", "account", "project", "diagnostics"];
 
 export function App() {
   const daemon = useDaemon();
-  const [tab, setTab] = useState<Tab>("Chat");
-  const [section, setSection] = useState<SettingsSection>("general");
+  // Where the panel was, from the URL's hash: a reload, or ue-mcp back on a new port, lands there.
+  const [tab, setTab] = useState<Tab>(() => readLocation().tab);
+  const [section, setSection] = useState<SettingsSection>(() => {
+    const s = readLocation().section;
+    return s && (SECTIONS as string[]).includes(s) ? (s as SettingsSection) : "general";
+  });
+  useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
   const [feedback, setFeedback] = useState(false);
   const updates = useUpdateCount();
 
