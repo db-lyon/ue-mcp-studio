@@ -41,7 +41,7 @@ import { issueBody, submitFeedback, validate, type Environment } from "./feedbac
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ClaudeSignInFlow, claudeHome, claudeLogin, oldClaudeHome } from "./subscription.js";
-import { activeElsewhere, claudeCodeSessions, importTranscript, migrateHome, transcriptTime, writtenElsewhere } from "./claude-sessions.js";
+import { activeElsewhere, claudeCodeRows, importSession, migrateHome, projectSessions, writtenElsewhere } from "./claude-sessions.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
@@ -304,33 +304,40 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
 
   // One Claude home with Claude Code: its sessions for this project list here, and open on first use.
+  if (process.env.STUDIO_CLAUDE_HOME) process.env.CLAUDE_CONFIG_DIR = claudeHome();
   try {
     migrateHome(oldClaudeHome(), claudeHome());
   } catch (e) {
     api.log.warn("could not move Studio's old Claude home into the shared one", e);
   }
-  const elsewhere = (s: { status: string; sdkSession?: string | null; updatedAt: string }) =>
-    s.status !== "running" && s.status !== "waiting" && activeElsewhere(transcriptTime(claudeHome(), api.projectDir, s.sdkSession), s.updatedAt);
-  api.route("GET", "/sessions", () => {
+  const lastWritten = async () => new Map((await projectSessions(api.projectDir)).map((i) => [i.sessionId, i] as const));
+  const idle = (s: { status: string }) => s.status !== "running" && s.status !== "waiting";
+  api.route("GET", "/sessions", async () => {
+    const claude = await lastWritten();
     const own = store.all();
     const known = new Set(own.flatMap((s) => [s.id, s.sdkSession ?? ""]));
-    const listed = own.map((s) => ({ ...SessionStore.summary(s), ...(elsewhere(s) ? { activeElsewhere: true } : {}) }));
-    return { body: { sessions: [...listed, ...claudeCodeSessions(claudeHome(), api.projectDir, known)].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)) } };
+    const listed = own.map((s) => ({
+      ...SessionStore.summary(s),
+      ...(idle(s) && activeElsewhere(claude.get(s.sdkSession ?? "")?.lastModified, s.updatedAt) ? { activeElsewhere: true } : {}),
+    }));
+    return { body: { sessions: [...listed, ...claudeCodeRows([...claude.values()], known)].sort((x, y) => y.updatedAt.localeCompare(x.updatedAt)) } };
   });
   api.route("POST", "/sessions", () => ({ status: 201, body: SessionStore.detail(store.create()) }));
-  api.route("GET", "/sessions/:id", (req) => {
+  api.route("GET", "/sessions/:id", async (req) => {
     let s = store.get(req.params.id);
+    const claude = s?.sdkSession || !s ? await lastWritten() : null;
+    const info = claude?.get(s?.sdkSession ?? req.params.id);
     // Continued in Claude Code since Studio last saw it: show what happened there.
-    if (s && s.status !== "running" && s.status !== "waiting" && writtenElsewhere(transcriptTime(claudeHome(), api.projectDir, s.sdkSession), s.updatedAt)) {
-      const fresh = importTranscript(claudeHome(), api.projectDir, s.sdkSession!);
+    if (s && info && idle(s) && writtenElsewhere(info.lastModified, s.updatedAt)) {
+      const fresh = await importSession(api.projectDir, info);
       if (fresh) {
         s.messages = fresh.messages;
         s.transcript = fresh.transcript;
         store.save(s);
       }
     }
-    if (!s) {
-      const imported = importTranscript(claudeHome(), api.projectDir, req.params.id);
+    if (!s && info) {
+      const imported = await importSession(api.projectDir, info);
       if (imported) {
         store.save(imported);
         s = imported;
@@ -382,7 +389,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     store.save(s);
     return { status: 204 };
   });
-  api.route("POST", "/sessions/:id/messages", (req) => {
+  api.route("POST", "/sessions/:id/messages", async (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
     const body = req.body as { text?: unknown; attachments?: unknown } | undefined;
@@ -392,7 +399,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const files = ids.map((a) => attachments.get(s.id, a));
     if (files.some((f) => !f)) return bad("an attachment is missing; add the file again");
     if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress" } };
-    if (elsewhere(s)) return { status: 409, body: { error: "This session is open in Claude Code right now. Continue it there, or wait until it is idle." } };
+    if (s.sdkSession && activeElsewhere((await lastWritten()).get(s.sdkSession)?.lastModified, s.updatedAt)) return { status: 409, body: { error: "This session is open in Claude Code right now. Continue it there, or wait until it is idle." } };
     // The turn runs past this response; its progress is on the event stream.
     runner.send(s.id, text, files as Array<NonNullable<(typeof files)[number]>>).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
