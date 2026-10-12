@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SettingsStore } from "../src/settings.js";
 
-const store = () => new SettingsStore(fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-")));
+const store = () => ((d) => new SettingsStore(d, path.join(d, "keys")))(fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-")));
 
 describe("theme setting", () => {
   it("defaults to the ue-mcp look", () => {
@@ -42,7 +42,7 @@ describe("providers", () => {
 
   it("reads settings written before vendors were named as Claude, which is all they ran", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
-    const s = new SettingsStore(dir);
+    const s = new SettingsStore(dir, path.join(dir, "keys"));
     for (const provider of ["byok", "gateway", "studio"]) {
       fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ provider, model: "claude-sonnet-5-5" }));
       expect(s.view()).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5-5" });
@@ -96,5 +96,21 @@ describe("the dialog policy", () => {
   it("refuses a policy it cannot run", () => {
     expect(() => store().update({ dialogPolicy: { kind: "agent", minutes: 0 } })).toThrow(/dialogPolicy/);
     expect(() => store().update({ dialogPolicy: { kind: "soon" } as never })).toThrow(/dialogPolicy/);
+  });
+
+  it("uses one vendor key for every project, and a project's older key until a new one is entered", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "studio-keys-"));
+    const keys = path.join(root, "keys");
+    const a = new SettingsStore(path.join(root, "a"), keys);
+    const b = new SettingsStore(path.join(root, "b"), keys);
+    fs.writeFileSync(path.join(root, "b", "openai.key"), "sk-old");
+    expect(b.key("openai")).toBe("sk-old");
+    a.update({ keys: { openai: "sk-new" } });
+    expect(a.key("openai")).toBe("sk-new");
+    expect(b.key("openai")).toBe("sk-new");
+    b.update({ keys: { openai: "" } });
+    expect(b.key("openai")).toBeNull();
+    expect(a.key("openai")).toBeNull();
+    expect(fs.existsSync(path.join(root, "b", "openai.key"))).toBe(false);
   });
 });

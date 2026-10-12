@@ -6,6 +6,7 @@
  * never returned by a route. The settings route reports whether each one is set.
  */
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import {
   DEFAULT_DIALOG_POLICY,
@@ -62,13 +63,28 @@ function vendorOf(raw: unknown): KeyProviderId {
 
 const keyFile = (p: KeyProviderId) => `${p}.key`;
 
+/** Vendor keys every project uses, like the sign-ins: enter a key once. */
+export const globalKeysDir = (): string => process.env.STUDIO_KEYS_HOME || path.join(os.homedir(), ".ue-mcp", "studio", "keys");
+
 export class SettingsStore {
-  constructor(private readonly dir: string) {
+  constructor(private readonly dir: string, private readonly keysDir = globalKeysDir()) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
   private file(name: string): string {
     return path.join(this.dir, name);
+  }
+
+  /** A vendor key: the global one, or a key this project kept from before keys were global. */
+  private readKey(p: KeyProviderId): string | null {
+    return this.readSecretAt(path.join(this.keysDir, keyFile(p))) ?? this.readSecret(keyFile(p));
+  }
+
+  /** A new key, or its removal, applies to every project. */
+  private writeKey(p: KeyProviderId, value: string): void {
+    fs.mkdirSync(this.keysDir, { recursive: true });
+    this.writeSecretAt(path.join(this.keysDir, keyFile(p)), value);
+    this.writeSecret(keyFile(p), "");
   }
 
   private stored(): StoredSettings {
@@ -90,8 +106,12 @@ export class SettingsStore {
   }
 
   private readSecret(name: string): string | null {
+    return this.readSecretAt(this.file(name));
+  }
+
+  private readSecretAt(file: string): string | null {
     try {
-      const v = fs.readFileSync(this.file(name), "utf-8").trim();
+      const v = fs.readFileSync(file, "utf-8").trim();
       return v || null;
     } catch {
       return null;
@@ -99,7 +119,10 @@ export class SettingsStore {
   }
 
   private writeSecret(name: string, value: string): void {
-    const target = this.file(name);
+    this.writeSecretAt(this.file(name), value);
+  }
+
+  private writeSecretAt(target: string, value: string): void {
     if (value === "") {
       fs.rmSync(target, { force: true });
       return;
@@ -113,7 +136,7 @@ export class SettingsStore {
 
   /** The stored choices, without secrets. The route adds which providers are connected. */
   view(): StoredSettings & { keys: Record<KeyProviderId, boolean> } {
-    const keys = Object.fromEntries(KEY_PROVIDER_IDS.map((p) => [p, this.readSecret(keyFile(p)) !== null])) as Record<KeyProviderId, boolean>;
+    const keys = Object.fromEntries(KEY_PROVIDER_IDS.map((p) => [p, this.readKey(p) !== null])) as Record<KeyProviderId, boolean>;
     return { ...this.stored(), keys };
   }
 
@@ -157,7 +180,7 @@ export class SettingsStore {
       if (typeof v !== "string") throw new Error(`the ${p} key must be a string`);
     }
     fs.writeFileSync(this.file("settings.json"), JSON.stringify(s, null, 2));
-    for (const [p, v] of Object.entries(u.keys ?? {})) this.writeSecret(keyFile(p as KeyProviderId), (v as string).trim());
+    for (const [p, v] of Object.entries(u.keys ?? {})) this.writeKey(p as KeyProviderId, (v as string).trim());
     if (u.signOut === "studio") {
       this.writeSecret("account.token", "");
       fs.rmSync(this.file("account.json"), { force: true });
@@ -183,7 +206,7 @@ export class SettingsStore {
 
   /** For the providers only. */
   key(p: KeyProviderId): string | null {
-    return this.readSecret(keyFile(p));
+    return this.readKey(p);
   }
 
   accountToken(): string | null {

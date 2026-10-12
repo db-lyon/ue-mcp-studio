@@ -492,7 +492,7 @@ describe("inputs and settings", () => {
   });
 
   it("stores each provider's key apart from the settings and never reports it back", () => {
-    const settings = new SettingsStore(path.join(root, "settings"));
+    const settings = new SettingsStore(path.join(root, "settings"), path.join(root, "keys"));
     settings.update({ keys: { openai: "sk-test-123" }, provider: "openai", model: "gpt-6-sol" });
     const view = settings.view();
     expect(view).toMatchObject({ provider: "openai", model: "gpt-6-sol", keys: { openai: true, anthropic: false, google: false } });

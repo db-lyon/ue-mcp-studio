@@ -18,7 +18,7 @@ const req = (model: string, effort?: ModelRequest["effort"]): ModelRequest => ({
 });
 
 describe("the effort setting", () => {
-  const store = () => new SettingsStore(fs.mkdtempSync(path.join(os.tmpdir(), "studio-effort-")));
+  const store = () => ((d) => new SettingsStore(d, path.join(d, "keys")))(fs.mkdtempSync(path.join(os.tmpdir(), "studio-effort-")));
 
   it("starts at high and keeps a chosen level", () => {
     const s = store();
