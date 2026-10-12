@@ -14,6 +14,10 @@
 //
 // The page's native calls (window.ue.studio, as the editor binds them) are
 // answered here over postMessage, so they work while the editor is busy.
+//
+// The browser lives in a view child window (createView) that only fills its
+// parent; the top-level window around it owns the chrome: title, placement,
+// and following the editor. The view does not depend on that window.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -197,6 +201,11 @@ Options gOpt;
 HINSTANCE gInstance;
 HWND gMain = nullptr;
 HWND gMessage = nullptr;
+// The view: a child window that holds the browser and nothing else. Top-level
+// chrome (title, placement, following the editor) lives on gMain; the view
+// only fills its parent, so another parent can host it.
+HWND gView = nullptr;
+const wchar_t* kViewClass = L"UEMCPStudioView";
 HANDLE gMutex = nullptr;
 ComPtr<ICoreWebView2Environment> gEnv;
 ComPtr<ICoreWebView2Controller> gController;
@@ -733,7 +742,7 @@ void pollDaemon() {
 void resize() {
   if (!gController) return;
   RECT r;
-  GetClientRect(gMain, &r);
+  GetClientRect(gView, &r);
   gController->put_Bounds(r);
 }
 
@@ -757,7 +766,7 @@ void createWebView() {
         return S_OK;
       }
       gEnv = environment;
-      return environment->CreateCoreWebView2Controller(gMain, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
+      return environment->CreateCoreWebView2Controller(gView, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
         [](HRESULT hr, ICoreWebView2Controller* controller) -> HRESULT {
           if (FAILED(hr) || !controller) {
             openInBrowserAndQuit(L"Studio's window could not create its browser view.");
@@ -900,16 +909,53 @@ LRESULT CALLBACK messageProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
   return DefWindowProcW(w, msg, wp, lp);
 }
 
-LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
+/** The view fills whatever parent it has and hands focus to the browser. */
+LRESULT CALLBACK viewProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
   switch (msg) {
     case WM_SIZE:
       resize();
       return 0;
+    case WM_SETFOCUS:
+      if (gController) gController->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+      return 0;
+    case WM_ERASEBKGND: {
+      RECT r;
+      GetClientRect(w, &r);
+      HBRUSH brush = CreateSolidBrush(RGB(0x0c, 0x0c, 0x0b));
+      FillRect(reinterpret_cast<HDC>(wp), &r, brush);
+      DeleteObject(brush);
+      return 1;
+    }
+  }
+  return DefWindowProcW(w, msg, wp, lp);
+}
+
+/** The view inside a parent window. Window chrome stays with the parent. */
+HWND createView(HINSTANCE instance, HWND parent) {
+  WNDCLASSEXW vc = {sizeof vc};
+  vc.lpfnWndProc = viewProc;
+  vc.hInstance = instance;
+  vc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+  vc.lpszClassName = kViewClass;
+  RegisterClassExW(&vc);
+  RECT r;
+  GetClientRect(parent, &r);
+  return CreateWindowExW(0, kViewClass, L"", WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN, 0, 0, r.right, r.bottom, parent, nullptr, instance, nullptr);
+}
+
+LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
+  switch (msg) {
+    case WM_SIZE: {
+      RECT r;
+      GetClientRect(w, &r);
+      if (gView) MoveWindow(gView, 0, 0, r.right, r.bottom, TRUE);
+      return 0;
+    }
     case WM_MOVE:
       if (gController) gController->NotifyParentWindowPositionChanged();
       return 0;
     case WM_SETFOCUS:
-      if (gController) gController->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+      if (gView) SetFocus(gView);
       return 0;
     case WM_DPICHANGED: {
       const RECT* r = reinterpret_cast<const RECT*>(lp);
@@ -1076,10 +1122,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   wc.lpszClassName = kMainClass;
   RegisterClassExW(&wc);
   std::wstring title = gOpt.title.empty() ? L"UE-MCP Studio" : L"UE-MCP Studio - " + gOpt.title;
-  gMain = CreateWindowExW(0, kMainClass, title.c_str(), WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 640, 900, nullptr, nullptr, instance, nullptr);
+  gMain = CreateWindowExW(0, kMainClass, title.c_str(), WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT, 640, 900, nullptr, nullptr, instance, nullptr);
   if (!gMain) return 1;
   BOOL dark = TRUE;
   DwmSetWindowAttribute(gMain, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof dark);
+  gView = createView(instance, gMain);
+  if (!gView) return 1;
   placeWindow();
   WINDOWPLACEMENT wp = {sizeof wp};
   GetWindowPlacement(gMain, &wp);
