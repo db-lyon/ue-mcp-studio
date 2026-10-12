@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { UpdatesCard, readyLine, updateSteps, waiting } from "./Updates";
+import { UpdateRunner } from "./UpdateOverlay";
 
 const studio = (s: boolean, p: boolean) => ({
   studio: { installed: "0.1.0-beta.9", latest: s ? "0.1.0-beta.10" : "0.1.0-beta.9", available: s },
@@ -35,7 +36,7 @@ describe("updates", () => {
         ? new Response(JSON.stringify({ error: "the editor would not stop" }), { status: 500 })
         : new Response(JSON.stringify({ ok: true }));
     }));
-    render(<UpdatesCard />);
+    render(<><UpdatesCard /><UpdateRunner streaming events={[]} /></>);
     await waitFor(() => expect(screen.getByText("Update available")).toBeTruthy());
     expect(screen.getAllByRole("button", { name: "Update" })).toHaveLength(1);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Update" })));
@@ -44,6 +45,9 @@ describe("updates", () => {
     // ue-mcp's update fetches the binaries for the version itself; the file name is not a source to pass.
     const apply = (fetch as unknown as { mock: { calls: Array<[string, RequestInit?]> } }).mock.calls.find(([u]) => u === "/v1/update/apply")!;
     expect(JSON.parse(String(apply[1]!.body))).toEqual({ version: "1.4.0-beta.2" });
+    expect(screen.getByRole("dialog", { name: "Update stopped" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("says up to date with nothing to do", async () => {
@@ -51,5 +55,18 @@ describe("updates", () => {
     render(<UpdatesCard />);
     await waitFor(() => expect(screen.getByText("Everything is up to date.")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
+  });
+
+  it("picks the update up again in the page that loads after the editor restarted for the plugin", async () => {
+    localStorage.setItem("studio.update", JSON.stringify({ target: null, at: Date.now(), steps: [{ key: "plugin", state: "active" }, { key: "studio", state: "pending" }] }));
+    const posted: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method) return posted.push(url), new Response(JSON.stringify({ started: true }));
+      return new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(true, false) : ueMcp(false)));
+    }));
+    render(<UpdateRunner streaming events={[]} />);
+    await waitFor(() => expect(posted).toEqual(["/v1/ext/studio/updates/studio"]));
+    expect(screen.getByRole("dialog", { name: "Updating" }).textContent).toMatch(/This panel reloads when it is back/);
+    localStorage.clear();
   });
 });

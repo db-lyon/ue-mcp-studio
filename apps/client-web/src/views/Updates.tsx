@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { startUpdate, useRun } from "./UpdateOverlay";
 
 /** GET /v1/ext/studio/updates. */
 export interface StudioUpdates {
@@ -19,17 +20,6 @@ export interface UeMcpUpdate {
 async function get<T>(url: string): Promise<T | null> {
   const res = await fetch(url, { credentials: "same-origin" }).catch(() => null);
   return res?.ok ? ((await res.json()) as T) : null;
-}
-
-async function post(url: string, body?: unknown): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(url, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: body ? { "content-type": "application/json" } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  }).catch((e: Error) => ({ ok: false, json: async () => ({ error: e.message }) }) as Response);
-  const j = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
-  return { ok: res.ok && j.ok !== false, error: j.error };
 }
 
 export async function readUpdates(): Promise<{ studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }> {
@@ -74,47 +64,24 @@ export function readyLine(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate 
   return `Ready to install: ${list}.`;
 }
 
-const STEP_LABEL = { ueMcp: "Updating ue-mcp", plugin: "Updating the editor plugin: the editor closes and reopens", studio: "Updating Studio: the panel reloads" } as const;
-
 /**
  * The Updates card: one status and one button. Update runs every part that
  * has something newer, in the order that keeps each step alive.
  */
 export function UpdatesCard() {
   const [u, setU] = useState<{ studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null } | null>(null);
-  const [working, setWorking] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const run = useRun();
+  const working = !!run && run.summary === undefined && !run.error;
   const load = () => void readUpdates().then(setU, () => setU({ studio: null, ueMcp: null }));
   useEffect(load, []);
+  // Read again once an update finishes or stops.
+  useEffect(() => {
+    if (run && !working) load();
+  }, [working]);
 
   const steps = u ? updateSteps(u) : [];
   const ready = u ? readyLine(u) : "";
   const engineOnly = u?.studio?.plugin.location === "engine" && !!u?.studio?.plugin.latest;
-
-  const update = async () => {
-    setError(null);
-    for (const step of steps) {
-      setWorking(STEP_LABEL[step]);
-      const r = step === "ueMcp"
-        ? await post("/v1/update/apply", { version: u!.ueMcp!.target })
-        : await post(`/v1/ext/studio/updates/${step}`);
-      if (!r.ok) {
-        setError(r.error ?? `${STEP_LABEL[step]} failed`);
-        setWorking(null);
-        load();
-        return;
-      }
-    }
-    // A new ue-mcp runs once the daemon restarts on it; Studio's own update already does that.
-    if (steps.includes("ueMcp") && !steps.includes("studio")) {
-      setWorking("Restarting ue-mcp on the new version: the panel reloads");
-      await post("/v1/ext/studio/updates/restart");
-    }
-    setWorking(null);
-    setDone(true);
-    load();
-  };
 
   const rows: Array<[string, string | null, string | null, boolean]> = u
     ? [
@@ -135,12 +102,11 @@ export function UpdatesCard() {
       {u && (
         <div className="row update-status">
           <span className={`pill ${steps.length ? "warn" : "ok"}`}>{steps.length ? "Update available" : "Up to date"}</span>
-          <span className="muted">{working ?? (done && !steps.length ? "Updated." : steps.length ? ready : "Everything is up to date.")}</span>
+          <span className="muted">{working ? "Updating" : steps.length ? ready : "Everything is up to date."}</span>
           <span className="spacer" />
-          {steps.length > 0 && <button className="primary" disabled={!!working} onClick={() => void update()}>Update</button>}
+          {steps.length > 0 && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>
       )}
-      {error && <div className="banner bad">{error}</div>}
       {engineOnly && <p className="dim small">The editor plugin was installed with the engine; the Epic launcher updates it.</p>}
       {u && (
         <details className="update-details">

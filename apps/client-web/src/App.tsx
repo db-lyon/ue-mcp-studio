@@ -7,6 +7,7 @@ import { openDocs } from "./native";
 import { FlowsView } from "./views/Flows";
 import { PluginsView } from "./views/Plugins";
 import { useUpdateCount } from "./views/Updates";
+import { UpdateRunner } from "./views/UpdateOverlay";
 import { ChatView } from "./views/Chat";
 import { SettingsHub, type SettingsSection } from "./views/SettingsHub";
 import { VcsChip } from "./chat/VcsChip";
@@ -49,10 +50,8 @@ export function App() {
         <button className="ghost docs-link" onClick={() => void openDocs()} title="The ue-mcp documentation">Docs</button>
         <VcsChip events={daemon.events.filter((e) => e.type === "studio.session.changed")} />
         {/* Nothing to say while all is well; a problem shows here and opens Diagnostics. */}
-        {(!daemon.streaming || !editor?.connected) && (
-          <button className={`chip problem ${daemon.streaming ? "warn" : "bad"}`} onClick={() => openSettings("diagnostics")} title="Open Diagnostics">
-            {!daemon.streaming ? "Reconnecting to ue-mcp" : "Editor offline"}
-          </button>
+        {daemon.streaming && !editor?.connected && (
+          <button className="chip problem warn" onClick={() => openSettings("diagnostics")} title="Open Diagnostics">Editor offline</button>
         )}
       </header>
       {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
@@ -62,6 +61,7 @@ export function App() {
         {tab === "Chat" && <ChatView daemon={daemon} />}
         {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} />}
       </main>
+      <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
     </div>
   );
 }
