@@ -35,6 +35,11 @@ describe("an update run", () => {
     expect(settle(run, { studio: studio(true, false), ueMcp: ueMcp("1.4.0-beta.4", null) }).steps.map((s) => s.state)).toEqual(["done", "pending"]);
   });
 
+  it("goes on to a plugin update the new Studio found after it reloaded", () => {
+    const run: UpdateRun = { target: null, at: Date.now(), steps: [{ key: "studio", state: "active" }] };
+    expect(settle(run, { studio: studio(false, true), ueMcp: ueMcp("1.4.0-beta.4", null) }).steps).toEqual([{ key: "studio", state: "done" }, { key: "plugin", state: "pending" }]);
+  });
+
   it("says a step did not finish when the updates still offer it", () => {
     const run: UpdateRun = { target: "1.4.0-beta.4", at: Date.now(), steps: [{ key: "ueMcp", state: "done" }, { key: "restart", state: "active" }] };
     const next = settle(run, { studio: studio(false, false), ueMcp: ueMcp("1.4.0-beta.3", "1.4.0-beta.4") });

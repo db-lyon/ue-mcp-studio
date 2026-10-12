@@ -4,12 +4,12 @@ The in-editor client for [ue-mcp](https://github.com/db-lyon/ue-mcp): an agent t
 
 ## Install
 
-Studio is a ue-mcp daemon extension plus a small editor plugin. Releases are on [this repository's releases page](https://github.com/db-lyon/ue-mcp-studio/releases):
+Studio comes as two packages, each with its own releases:
 
-- `studio-<version>.zip`, the extension: `npx ue-mcp@beta extension install <zip url> --sha256 <hex from latest.json>`.
-- `UE_MCP_Studio-<version>-UE<engine>-Win64.zip`, the editor plugin: unpack it into the project's `Plugins/` folder.
+- **The editor plugin**, from [db-lyon/ue-mcp-studio-plugin](https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest). Unzip `UE_MCP_Studio-<version>-UE<engine>-Win64.zip` into your project's `Plugins/` folder and open the project. On first start the plugin installs ue-mcp and the Studio extension.
+- **The Studio extension**, from [this repository's releases](https://github.com/db-lyon/ue-mcp-studio/releases/latest): `studio-<version>.zip` and `latest.json`, which the plugin and `npx ue-mcp@beta extension install <latest.json url> <uproject>` follow.
 
-Unreal Engine 5.7 and 5.8 on Windows. Requires ue-mcp 1.4.0-beta.1 or later.
+Unreal Engine 5.7 and 5.8 on Windows, with Node.js installed. Requires ue-mcp 1.4.0-beta.1 or later. **Settings > Update** keeps ue-mcp, the plugin and the extension current with one button.
 
 ## Models
 

@@ -4,7 +4,7 @@ import { startUpdate, useRun } from "./UpdateOverlay";
 /** GET /v1/ext/studio/updates. */
 export interface StudioUpdates {
   studio: { installed: string; latest: string | null; available: boolean };
-  plugin: { installed: string | null; latest: string | null; available: boolean; location: "project" | "engine" | "none"; engine: string | null };
+  plugin: { installed: string | null; latest: string | null; available: boolean; location: "project" | "engine" | "none"; engine: string | null; required?: boolean };
   error?: string;
 }
 
@@ -107,6 +107,7 @@ export function UpdatesCard() {
           {steps.length > 0 && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>
       )}
+      {u?.studio?.plugin.required && <div className="banner warn small">This version of Studio needs a newer editor plugin. Update installs it and restarts the editor.</div>}
       {engineOnly && <p className="dim small">The editor plugin was installed with the engine; the Epic launcher updates it.</p>}
       {u && (
         <details className="update-details">

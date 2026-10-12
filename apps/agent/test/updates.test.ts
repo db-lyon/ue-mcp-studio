@@ -42,8 +42,13 @@ function fakeHost(dir: string) {
   };
 }
 
-const manifestFetch = (manifest: unknown, zip?: Buffer) => (async (url: string) =>
-  url.endsWith(".json") ? new Response(JSON.stringify(manifest)) : new Response(zip ?? Buffer.alloc(0))) as unknown as typeof fetch;
+/** Studio's latest.json, and the plugin's own plugin.json (404 when `plugin` is absent), then the zip. */
+const manifestFetch = (manifest: { plugin?: unknown } & Record<string, unknown>, zip?: Buffer) => (async (url: string) => {
+  const { plugin, ...studio } = manifest;
+  if (url.endsWith("latest.json")) return new Response(JSON.stringify(studio));
+  if (url.endsWith("plugin.json")) return plugin ? new Response(JSON.stringify(plugin)) : new Response("Not Found", { status: 404 });
+  return new Response(zip ?? Buffer.alloc(0));
+}) as unknown as typeof fetch;
 
 describe("Studio updates", () => {
   it("orders versions the way the channel numbers them", () => {
@@ -65,10 +70,17 @@ describe("Studio updates", () => {
     });
   });
 
-  it("leaves a plugin alone when the release only carries it under its own version", async () => {
-    const m = (changedIn: string) => ({ version: "0.1.0-beta.27", url: "s", sha256: "x", plugin: { version: "0.1.0-beta.27", changedIn, files: { "5.8": { url: "u", sha256: "y" } } } });
-    expect((await new Updater(fakeHost(project("0.1.0-beta.26")), "0.1.0-beta.26", () => {}, manifestFetch(m("0.1.0-beta.26"))).check()).plugin).toMatchObject({ latest: "0.1.0-beta.27", available: false });
-    expect((await new Updater(fakeHost(project("0.1.0-beta.25")), "0.1.0-beta.26", () => {}, manifestFetch(m("0.1.0-beta.26"))).check()).plugin.available).toBe(true);
+  it("reads the plugin from its own channel, and says when the installed one is older than Studio needs", async () => {
+    const m = { version: "0.1.0-beta.27", url: "s", sha256: "x", pluginMin: "0.1.0-beta.27", plugin: { version: "0.1.0-beta.27", files: { "5.8": { url: "u", sha256: "y" } } } };
+    expect((await new Updater(fakeHost(project("0.1.0-beta.26")), "0.1.0-beta.26", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ latest: "0.1.0-beta.27", available: true, required: true });
+    expect((await new Updater(fakeHost(project("0.1.0-beta.27")), "0.1.0-beta.26", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ available: false, required: false });
+  });
+
+  it("offers no plugin update while the plugin's channel has no release", async () => {
+    const status = await new Updater(fakeHost(project("0.1.0-beta.11")), "0.1.0-beta.26", () => {}, manifestFetch({ version: "0.1.0-beta.27", url: "s", sha256: "x" })).check();
+    expect(status.error).toBeUndefined();
+    expect(status.plugin).toMatchObject({ latest: null, available: false });
+    expect(status.studio.available).toBe(true);
   });
 
   it("does not offer a plugin update for an engine the release does not build, or a plugin installed with the engine", async () => {

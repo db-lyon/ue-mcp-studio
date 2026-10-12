@@ -1,6 +1,7 @@
 /**
  * Keeping Studio current from the panel: the extension (this agent and its
- * UI) and the editor plugin, read against the release channel's latest.json.
+ * UI) against Studio's latest.json, and the editor plugin, a package of its
+ * own, against its channel's plugin.json.
  *
  * The extension updates through `ue-mcp extension install`, run in the background
  * because it restarts the daemon this agent lives in. The editor plugin
@@ -17,17 +18,24 @@ import * as os from "node:os";
 import * as path from "node:path";
 
 export const MANIFEST_URL = process.env.UE_MCP_STUDIO_CHANNEL || "https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/latest.json";
+/** The editor plugin's own channel, when a Studio manifest does not name one. */
+export const PLUGIN_MANIFEST_URL = process.env.UE_MCP_STUDIO_PLUGIN_CHANNEL || "https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest/download/plugin.json";
 const PLUGIN = "UE_MCP_Studio";
 
 export interface ReleaseManifest {
   version: string;
   url: string;
   sha256: string;
-  /**
-   * The editor plugin, under the release's own version. changedIn is the release
-   * whose build it is: a release that only renames it asks for no editor restart.
-   */
-  plugin?: { version: string; changedIn?: string; files: Record<string, { url: string; sha256: string }> };
+  /** Where the editor plugin's manifest is; the plugin is released on its own. */
+  pluginChannel?: string;
+  /** The oldest editor plugin this Studio works with. */
+  pluginMin?: string;
+}
+
+/** plugin.json on the editor plugin's channel: its version and a zip per engine. */
+export interface PluginManifest {
+  version: string;
+  files: Record<string, { url: string; sha256: string }>;
 }
 
 export interface UpdateStatus {
@@ -39,6 +47,8 @@ export interface UpdateStatus {
     /** project: in the project's Plugins folder, which the panel can update. engine: installed with the engine. */
     location: "project" | "engine" | "none";
     engine: string | null;
+    /** The installed plugin is older than this Studio needs. */
+    required: boolean;
   };
   error?: string;
 }
@@ -129,20 +139,30 @@ export class Updater {
     return (await res.json()) as ReleaseManifest;
   }
 
+  /** The editor plugin's manifest, or null when its channel has none yet. */
+  async pluginManifest(m?: ReleaseManifest): Promise<PluginManifest | null> {
+    const res = await this.fetchImpl(m?.pluginChannel ?? PLUGIN_MANIFEST_URL, { signal: AbortSignal.timeout(10_000) });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`the editor plugin's channel answered ${res.status}`);
+    return (await res.json()) as PluginManifest;
+  }
+
   async check(): Promise<UpdateStatus> {
     const engine = this.engine();
     const installedPlugin = this.pluginVersion();
     const status: UpdateStatus = {
       studio: { installed: this.installedVersion, latest: null, available: false },
-      plugin: { installed: installedPlugin, latest: null, available: false, location: installedPlugin ? "project" : "engine", engine },
+      plugin: { installed: installedPlugin, latest: null, available: false, location: installedPlugin ? "project" : "engine", engine, required: false },
     };
     try {
       const m = await this.manifest();
       status.studio.latest = m.version;
       status.studio.available = isNewer(m.version, this.installedVersion);
-      if (m.plugin) {
-        status.plugin.latest = m.plugin.version;
-        status.plugin.available = !!installedPlugin && !!engine && !!m.plugin.files[engine] && isNewer(m.plugin.changedIn ?? m.plugin.version, installedPlugin);
+      status.plugin.required = !!installedPlugin && !!m.pluginMin && isNewer(m.pluginMin, installedPlugin);
+      const p = await this.pluginManifest(m);
+      if (p) {
+        status.plugin.latest = p.version;
+        status.plugin.available = !!installedPlugin && !!engine && !!p.files[engine] && isNewer(p.version, installedPlugin);
       }
     } catch (e) {
       status.error = e instanceof Error ? e.message : String(e);
@@ -200,10 +220,10 @@ export class Updater {
     try {
       if (!fs.existsSync(path.join(target, `${PLUGIN}.uplugin`))) throw new Error("the Studio plugin is not in this project's Plugins folder; update it where it was installed");
       const engine = this.engine();
-      const m = await this.manifest();
-      const file = engine ? m.plugin?.files[engine] : undefined;
-      if (!m.plugin || !file) throw new Error(`no Studio plugin for Unreal Engine ${engine ?? "(unknown)"} in the latest release`);
-      this.step(`Downloading the plugin ${m.plugin.version} for Unreal Engine ${engine}`);
+      const p = await this.pluginManifest(await this.manifest().catch(() => undefined));
+      const file = engine ? p?.files[engine] : undefined;
+      if (!p || !file) throw new Error(`no editor plugin for Unreal Engine ${engine ?? "(unknown)"} in the latest plugin release`);
+      this.step(`Downloading the plugin ${p.version} for Unreal Engine ${engine}`);
       const res = await this.fetchImpl(file.url);
       if (!res.ok) throw new Error(`the download answered ${res.status}`);
       const zip = path.join(tmp, "plugin.zip");
@@ -226,8 +246,8 @@ export class Updater {
       fs.rmSync(previous, { recursive: true, force: true });
       this.step("Starting the editor");
       const notStarted = await startFailure(this.host);
-      if (notStarted) return { ok: false, version: m.plugin.version, error: `The plugin is updated to ${m.plugin.version}, but the editor did not start: ${notStarted}` };
-      return { ok: true, version: m.plugin.version };
+      if (notStarted) return { ok: false, version: p.version, error: `The plugin is updated to ${p.version}, but the editor did not start: ${notStarted}` };
+      return { ok: true, version: p.version };
     } catch (e) {
       // Put the old plugin back if it was moved aside and the new one is not in place.
       if (swapped && !fs.existsSync(path.join(target, `${PLUGIN}.uplugin`)) && fs.existsSync(previous)) {

@@ -82,6 +82,8 @@ export function settle(run: UpdateRun, u: Updates): UpdateRun {
         return { ...s, state: !run.target || u.ueMcp?.server === run.target ? "done" : "failed" };
     }
   });
+  // A Studio that reads the plugin's own channel can find a plugin update the run did not plan.
+  if (!steps.some((s) => s.key === "plugin") && u.studio?.plugin.available) steps.push({ key: "plugin", state: "pending" });
   const failed = steps.find((s) => s.state === "failed");
   return { ...run, steps, detail: undefined, error: failed ? `${STEP_NAME[failed.key]} did not finish. Open Details in Updates to see what is installed.` : run.error };
 }

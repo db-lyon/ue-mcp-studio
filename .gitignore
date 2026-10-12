@@ -4,10 +4,4 @@ dist/
 # Signing keys stay off the repo. Only public keys under keys/ are tracked.
 *.key.pem
 .env*
-# Unreal build output for the client plugin and its host project.
-apps/client-plugin/**/Binaries/
-apps/client-plugin/**/Intermediate/
-apps/client-plugin/**/Saved/
-apps/client-plugin/**/DerivedDataCache/
-apps/client-plugin/StudioHost/Plugins/UE_MCP_Bridge/
 release/

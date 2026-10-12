@@ -6,8 +6,9 @@ UE-MCP Studio: the free, open-source (MIT) in-editor client for ue-mcp. The open
 
 - `apps/agent/` - the daemon extension. Loaded by the open ue-mcp daemon from `~/.ue-mcp/extensions/studio/`. Owns Studio's HTTP routes, the UI signing key it trusts, and (later) the agent loop and sessions.
 - `apps/client-web/` - the UI. Vite + React + TypeScript, built to static files, signed, served by the daemon at `/ui/`.
-- `apps/client-plugin/` - the Unreal editor plugin `UE_MCP_Studio`: dock tab, browser view, native bindings, daemon launch. `StudioHost/` is the project it is built and tested in.
 - `packages/shared/` - types shared by the agent and the UI.
+
+The Unreal editor plugin `UE_MCP_Studio` (dock tab, browser view, native bindings, daemon launch) is its own package in `db-lyon/ue-mcp-studio-plugin`, with its own versions and releases. This repo's releases carry the extension only: `studio-<version>.zip` and `latest.json`, whose `pluginChannel` names the plugin's `plugin.json` and `pluginMin` the oldest plugin this Studio works with. The UI feature-detects the plugin's native calls (`apps/client-web/src/native.ts`), so a change that needs a new native call ships in the plugin first. The plugin fetches this repo's `releases/latest/download/latest.json` by a URL compiled into it: every release here is marked latest and must keep that file valid.
 
 ## The one rule about ue-mcp
 

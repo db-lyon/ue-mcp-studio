@@ -2,21 +2,16 @@
 /**
  * Build, sign, package and publish a Studio release.
  *
- *   node scripts/release.mjs [--plugin] [--fab [--fab-url <url>]] [--engines 5.7,5.8] [--publish] [--notes-file notes.md]
+ *   node scripts/release.mjs [--publish] [--notes-file notes.md]
  *
- * Always: builds the UI and the bundled agent (trusting the release key only),
- * signs the UI with the release key from ~/.ue-mcp-studio/keys, adds the
- * third-party notices (scripts/notices.mjs), and writes
- * release/studio-<version>.zip plus release/latest.json ({ version, url, sha256 }),
- * the manifest `ue-mcp extension install` follows.
+ * Builds the UI and the bundled agent (trusting the release key only), signs
+ * the UI with the release key from ~/.ue-mcp-studio/keys, adds the third-party
+ * notices (scripts/notices.mjs), and writes release/studio-<version>.zip plus
+ * release/latest.json, the manifest `ue-mcp extension install` follows and the
+ * editor plugin fetches on first start. The editor plugin is its own package,
+ * released from db-lyon/ue-mcp-studio-plugin; latest.json names where its
+ * manifest is and the oldest plugin this release works with.
  *
- * --plugin    also packages the UE_MCP_Studio editor plugin with RunUAT BuildPlugin
- *             for each engine, as UE_MCP_Studio-<plugin version>-UE<engine>-Win64.zip, and
- *             fails on any compiler warning in the plugin's own sources.
- * --fab       also writes UE_MCP_Studio-<plugin version>-UE<engine>-Fab.zip, the source-only
- *             submission Fab builds itself: no Binaries or Intermediate, and an
- *             EngineVersion key per engine. --fab-url <launcher url> sets FabURL once
- *             the listing exists. Implies --plugin, which proves the same tree builds.
  * --publish   creates release v<version> on db-lyon/ue-mcp-studio, always marked latest
  *             (betas too) so .../releases/latest/download/latest.json resolves.
  */
@@ -51,10 +46,10 @@ const zip = (parent, folder, out) => {
 };
 
 const version = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")).version;
-// One version for everything a release ships: the editor plugin carries Studio's.
-const UPLUGIN = path.join(ROOT, "apps", "client-plugin", "StudioHost", "Plugins", "UE_MCP_Studio", "UE_MCP_Studio.uplugin");
-const pluginVersionName = JSON.parse(fs.readFileSync(UPLUGIN, "utf-8")).VersionName;
-if (pluginVersionName !== version) throw new Error(`UE_MCP_Studio.uplugin is ${pluginVersionName}, the root package.json is ${version}; keep them in step`);
+const PLUGIN_CHANNEL = "https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest/download/plugin.json";
+// The oldest editor plugin this release works with; the UI feature-detects anything newer.
+const pluginMin = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")).studioPlugin?.min;
+if (!/^\d+\.\d+\.\d+/.test(pluginMin ?? "")) throw new Error("package.json names no studioPlugin.min");
 const agentPkg = JSON.parse(fs.readFileSync(path.join(ROOT, "apps", "agent", "package.json"), "utf-8"));
 for (const p of ["apps/agent/package.json", "apps/client-web/package.json"]) {
   const v = JSON.parse(fs.readFileSync(path.join(ROOT, p), "utf-8")).version;
@@ -105,145 +100,20 @@ const latest = {
   uiApi: manifest.api,
   // The host plugin takes its ue-mcp pin from here, so following a ue-mcp release never needs a host update.
   ueMcp: { min: ueMcpMin, package: `ue-mcp@${ueMcpMin.includes("-") ? ueMcpMin.split("-")[1].split(".")[0] : "latest"}` },
+  // The editor plugin is released on its own: where its manifest is, and the oldest one this release works with.
+  pluginChannel: PLUGIN_CHANNEL,
+  pluginMin,
 };
 fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(latest, null, 2) + "\n");
 console.log(`\n${zipName} (${Object.keys(manifest.files).length} UI files) sha256 ${latest.sha256}`);
 
-// 4. The editor plugin, per engine.
-const pluginZips = [];
-const fabZips = [];
-const fab = has("--fab");
-const fabUrl = arg("--fab-url", null);
-if (fab && !fabUrl) console.warn("no --fab-url: the Fab zip has no FabURL key, which Fab requires once the listing ID exists");
-if (has("--plugin") || fab) {
-  const uplugin = UPLUGIN;
-  const descriptor = JSON.parse(fs.readFileSync(uplugin, "utf-8"));
-  const pluginVersion = version;
-  // BuildPlugin writes a default Config/FilterPlugin.ini into the source plugin; keep the tree clean.
-  const filterIni = path.join(path.dirname(uplugin), "Config", "FilterPlugin.ini");
-  const hadFilterIni = fs.existsSync(filterIni);
-  for (const engine of (arg("--engines", "5.7,5.8")).split(",")) {
-    const engineRoot = path.join("C:/Program Files/Epic Games", `UE_${engine}`);
-    const uat = path.join(engineRoot, "Engine", "Build", "BatchFiles", "RunUAT.bat");
-    if (!fs.existsSync(uat)) {
-      console.warn(`skip UE ${engine}: no ${uat}`);
-      continue;
-    }
-    const pkgStage = path.join(os.tmpdir(), "uemcps", `UE${engine}`);
-    const pkg = path.join(pkgStage, "UE_MCP_Studio");
-    fs.rmSync(pkgStage, { recursive: true, force: true });
-    const argsLine = [uat, "BuildPlugin", `-Plugin=${uplugin}`, `-Package=${pkg}`, "-TargetPlatforms=Win64", "-Rocket"].map((x) => `"${x}"`).join(" ");
-    const r = spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${argsLine}"`], { stdio: ["ignore", "pipe", "inherit"], encoding: "utf-8", maxBuffer: 256 * 1024 * 1024, windowsVerbatimArguments: true });
-    process.stdout.write(r.stdout ?? "");
-    if (r.status !== 0) throw new Error(`BuildPlugin UE_MCP_Studio failed for UE ${engine}`);
-    const warnings = buildWarnings(r.stdout ?? "");
-    if (warnings.length) throw new Error(`UE ${engine} build has warnings in the plugin's sources:\n${warnings.join("\n")}`);
-    for (const d of ["Intermediate", "HostProject"]) fs.rmSync(path.join(pkg, d), { recursive: true, force: true });
-    const name = `UE_MCP_Studio-${pluginVersion}-UE${engine}-Win64.zip`;
-    zip(pkgStage, "UE_MCP_Studio", path.join(OUT, name));
-    fs.rmSync(pkgStage, { recursive: true, force: true });
-    if (!hadFilterIni) fs.rmSync(path.dirname(filterIni), { recursive: true, force: true });
-    pluginZips.push(name);
-    console.log(`${name} packaged`);
-
-    if (fab) {
-      const fabStage = path.join(os.tmpdir(), "uemcps", `UE${engine}-fab`);
-      const fabPkg = path.join(fabStage, "UE_MCP_Studio");
-      fs.rmSync(fabStage, { recursive: true, force: true });
-      fs.mkdirSync(fabPkg, { recursive: true });
-      for (const d of ["Source", "Resources"]) fs.cpSync(path.join(path.dirname(uplugin), d), path.join(fabPkg, d), { recursive: true });
-      const fabDescriptor = { ...descriptor, EngineVersion: `${engine}.0` };
-      if (fabUrl) fabDescriptor.FabURL = fabUrl;
-      fs.writeFileSync(path.join(fabPkg, "UE_MCP_Studio.uplugin"), JSON.stringify(fabDescriptor, null, "\t") + "\n");
-      const long = walk(fabPkg).map((f) => "UE_MCP_Studio/" + path.relative(fabPkg, f).replaceAll("\\", "/")).filter((f) => f.length > 170);
-      if (long.length) throw new Error(`Fab caps paths at 170 characters: ${long.join(", ")}`);
-      const fabName = `UE_MCP_Studio-${pluginVersion}-UE${engine}-Fab.zip`;
-      zip(fabStage, "UE_MCP_Studio", path.join(OUT, fabName));
-      fs.rmSync(fabStage, { recursive: true, force: true });
-      fabZips.push(fabName);
-      console.log(`${fabName} packaged`);
-    }
-  }
-}
-
-/** Every file under dir. */
-function walk(dir) {
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]));
-}
-
-/** Compiler warnings raised in UE_MCP_Studio's own source files, from BuildPlugin's output. */
-function buildWarnings(output) {
-  const found = new Set();
-  for (const line of output.split(/\r?\n/)) {
-    if (/UE_MCP_Studio[\/]Source/.test(line) && /\bwarning\b/i.test(line)) found.add(line.trim());
-  }
-  return [...found];
-}
-
-// 5. Publish.
-// 5. The editor plugin in latest.json, so the panel can update it: this release's
-// zips, or when this release builds none, the newest release that has them.
-const pluginEntry = (() => {
-  const parse = (name) => /^UE_MCP_Studio-(.+)-UE(\d+\.\d+)-Win64\.zip$/.exec(name);
-  if (pluginZips.length) {
-    const files = {};
-    let pluginVer = null;
-    for (const name of pluginZips) {
-      const m = parse(name);
-      pluginVer = m[1];
-      files[m[2]] = { url: `https://github.com/${REPO}/releases/download/v${version}/${name}`, sha256: sha256(path.join(OUT, name)) };
-    }
-    return { version: pluginVer, changedIn: version, files };
-  }
-  // No new build: the newest release's plugin, renamed to this version. Its binaries are
-  // unchanged, so changedIn keeps the release whose build it is and Update leaves it alone.
-  const releases = JSON.parse(execFileSync("gh", ["release", "list", "--repo", REPO, "--limit", "30", "--json", "tagName"], { encoding: "utf-8" }));
-  for (const { tagName } of releases) {
-    const assets = JSON.parse(execFileSync("gh", ["release", "view", tagName, "--repo", REPO, "--json", "assets"], { encoding: "utf-8" })).assets.map((a) => a.name);
-    const zips = assets.filter((n) => parse(n));
-    if (!zips.length) continue;
-    const carry = fs.mkdtempSync(path.join(os.tmpdir(), "studio-plugin-carry-"));
-    execFileSync("gh", ["release", "download", tagName, "--repo", REPO, "--dir", carry, ...[...zips, "latest.json"].filter((n) => assets.includes(n)).flatMap((n) => ["--pattern", n])], { stdio: "inherit" });
-    const before = fs.existsSync(path.join(carry, "latest.json")) ? JSON.parse(fs.readFileSync(path.join(carry, "latest.json"), "utf-8")).plugin : null;
-    const files = {};
-    for (const old of zips) {
-      const engine = parse(old)[2];
-      const stage = path.join(carry, `UE${engine}`);
-      fs.mkdirSync(stage, { recursive: true });
-      execFileSync(tar, ["-xf", path.join(carry, old), "-C", stage]);
-      const descriptorFile = path.join(stage, "UE_MCP_Studio", "UE_MCP_Studio.uplugin");
-      const d = JSON.parse(fs.readFileSync(descriptorFile, "utf-8"));
-      d.VersionName = version;
-      fs.writeFileSync(descriptorFile, JSON.stringify(d, null, "\t") + "\n");
-      const name = `UE_MCP_Studio-${version}-UE${engine}-Win64.zip`;
-      zip(stage, "UE_MCP_Studio", path.join(OUT, name));
-      pluginZips.push(name);
-      files[engine] = { url: `https://github.com/${REPO}/releases/download/v${version}/${name}`, sha256: sha256(path.join(OUT, name)) };
-    }
-    fs.rmSync(carry, { recursive: true, force: true });
-    // A manifest from before changedIn existed: this release is the first to carry the shared version.
-    const changedIn = before?.changedIn ?? version;
-    console.log(`the editor plugin from ${tagName} ships as ${version}; its build is from ${changedIn}`);
-    return { version, changedIn, files };
-  }
-  return null;
-})();
-if (pluginEntry) {
-  latest.plugin = pluginEntry;
-  fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(latest, null, 2) + "\n");
-}
-
 if (has("--publish")) {
   const tag = `v${version}`;
-  // Every release carries the editor plugin for every engine, so its page alone installs Studio.
-  for (const engine of arg("--engines", "5.7,5.8").split(",")) {
-    const zip = pluginZips.find((n) => n.endsWith(`-UE${engine}-Win64.zip`));
-    if (!zip || !fs.existsSync(path.join(OUT, zip))) throw new Error(`refusing to publish ${tag}: no editor plugin zip for UE ${engine}`);
-    if (!latest.plugin?.files[engine]?.url.includes(`/download/${tag}/`)) throw new Error(`refusing to publish ${tag}: latest.json's UE ${engine} plugin is not on this release`);
-  }
+  // Every release carries everything the extension install needs.
+  for (const f of [zipName, "latest.json"]) if (!fs.existsSync(path.join(OUT, f))) throw new Error(`refusing to publish ${tag}: no ${f}`);
   const notes = arg("--notes-file", null);
   const notesArgs = notes ? ["--notes-file", notes] : ["--notes", `UE-MCP Studio ${version}.`];
-  const files = [zipName, "latest.json", ...pluginZips].map((f) => path.join(OUT, f));
+  const files = [zipName, "latest.json"].map((f) => path.join(OUT, f));
   run("gh", ["release", "create", tag, "--repo", REPO, "--title", tag, "--target", "main", "--latest", ...notesArgs, ...files]);
   console.log(`published ${tag} to ${REPO}`);
 }

@@ -1,8 +1,0 @@
-ue-mcp:
-  version: 1
-  disable:
-    - feedback
-  contentRoots:
-    - /Game/
-tasks: {}
-flows: {}
