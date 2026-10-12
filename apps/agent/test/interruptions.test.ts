@@ -47,3 +47,9 @@ describe("the note for the model's next message", () => {
     expect([rebuild, python, shell, { name: "read_file", input: {} }].map(describeCall)).toEqual(["editor_restart (rebuild)", "ue_mcp editor.execute_python", "a shell command", "read_file"]);
   });
 });
+
+describe("a note that starts with a plain call", () => {
+  it("starts the sentence with a capital", () => {
+    expect(interruptionNote([shell], { by: "studio", why: "the user chose Restart now to install an update" })).toMatch(/update\. A shell command never returned a result\./);
+  });
+});

@@ -56,7 +56,9 @@ export function interruptedResult(c: Call, cause: Interruption, ran = true): str
 /** The note the model gets with the next message, saying how its last turn ended. */
 export function interruptionNote(running: Call[], cause: Interruption): string {
   const calls = running.map(describeCall);
-  const list = calls.length === 0 ? "" : calls.length === 1 ? calls[0] : `${calls.slice(0, -1).join(", ")} and ${calls[calls.length - 1]}`;
+  // The list starts a sentence: "A shell command", while tool names stay as written.
+  const joined = calls.length === 0 ? "" : calls.length === 1 ? calls[0] : `${calls.slice(0, -1).join(", ")} and ${calls[calls.length - 1]}`;
+  const list = joined.replace(/^a /, "A ");
   const restart = running.find((c) => c.name === "editor_restart");
   if (cause.by === "user") {
     return [
