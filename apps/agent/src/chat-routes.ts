@@ -41,6 +41,7 @@ import { issueBody, submitFeedback, validate, type Environment } from "./feedbac
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ClaudeSignInFlow, claudeHome, claudeLogin, oldClaudeHome } from "./subscription.js";
+import { deleteSession, renameSession, type SDKSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 import { activeElsewhere, claudeCodeRows, importSession, migrateHome, projectSessions, writtenElsewhere } from "./claude-sessions.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
@@ -312,6 +313,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   }
   const lastWritten = async () => new Map((await projectSessions(api.projectDir)).map((i) => [i.sessionId, i] as const));
   const idle = (s: { status: string }) => s.status !== "running" && s.status !== "waiting";
+  /** A Claude Code session Studio does not hold yet, brought into its store. */
+  const openClaudeSession = async (id: string, known?: SDKSessionInfo) => {
+    const info = known ?? (await lastWritten()).get(id);
+    const imported = info ? await importSession(api.projectDir, info) : null;
+    if (imported) store.save(imported);
+    return imported ?? undefined;
+  };
   api.route("GET", "/sessions", async () => {
     const claude = await lastWritten();
     const own = store.all();
@@ -336,29 +344,41 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
         store.save(s);
       }
     }
-    if (!s && info) {
-      const imported = await importSession(api.projectDir, info);
-      if (imported) {
-        store.save(imported);
-        s = imported;
-      }
-    }
+    if (!s && info) s = await openClaudeSession(req.params.id, info);
     return s ? { body: SessionStore.detail(s) } : missing(req.params.id);
   });
-  api.route("DELETE", "/sessions/:id", (req) => {
-    if (!store.get(req.params.id)) return missing(req.params.id);
-    runner.stop(req.params.id);
-    store.delete(req.params.id);
-    attachments.removeSession(req.params.id);
+  // One conversation on both sides: deleting it removes the Claude transcript too, or it would come back as a Claude Code row.
+  api.route("DELETE", "/sessions/:id", async (req) => {
+    const s = store.get(req.params.id);
+    const sdk = s ? s.sdkSession : req.params.id;
+    const claude = sdk ? (await lastWritten()).get(sdk) : undefined;
+    if (!s && !claude) return missing(req.params.id);
+    if (claude) {
+      if (s && idle(s) && activeElsewhere(claude.lastModified, s.updatedAt)) return { status: 409, body: { error: "This session is open in Claude Code right now. Close it there first." } };
+      try {
+        await deleteSession(claude.sessionId, { dir: api.projectDir });
+      } catch (e) {
+        return { status: 500, body: { error: `could not delete the Claude transcript: ${e instanceof Error ? e.message : String(e)}` } };
+      }
+    }
+    if (s) {
+      runner.stop(s.id);
+      store.delete(s.id);
+      attachments.removeSession(s.id);
+    }
     return { status: 204 };
   });
-  api.route("PUT", "/sessions/:id", (req) => {
-    const s = store.get(req.params.id);
+  api.route("PUT", "/sessions/:id", async (req) => {
+    const s = store.get(req.params.id) ?? (await openClaudeSession(req.params.id));
     if (!s) return missing(req.params.id);
     const u = (req.body ?? {}) as SessionUpdate;
     if (u.title !== undefined && (typeof u.title !== "string" || !u.title.trim())) return bad("title must be a non-empty string");
     if (u.archived !== undefined && typeof u.archived !== "boolean") return bad("archived must be a boolean");
-    if (u.title !== undefined) s.title = u.title.trim().slice(0, 120);
+    if (u.title !== undefined) {
+      s.title = u.title.trim().slice(0, 120);
+      // The same name in Claude Code's /resume.
+      if (s.sdkSession) await renameSession(s.sdkSession, s.title, { dir: api.projectDir }).catch(() => undefined);
+    }
     if (u.archived !== undefined) s.archived = u.archived;
     store.save(s);
     api.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
