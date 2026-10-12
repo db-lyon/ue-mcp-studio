@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { lineDiff, type Attachment, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
+import { DialogLine } from "./Dialogs";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import {
   OUTCOME_LABEL,
@@ -42,6 +43,7 @@ export function Entry({ entry }: { entry: TranscriptEntry }) {
     return <Reply text={entry.text} at={at < 0 ? undefined : at} />;
   }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
+  if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
   return <ToolCall call={entry.call} />;
 }
 

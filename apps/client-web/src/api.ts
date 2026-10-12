@@ -10,6 +10,8 @@ import type {
   AssetRef,
   AssetResolveResponse,
   BusyState,
+  DialogAnswer,
+  DialogsState,
   FeedbackReport,
   FeedbackResult,
   ModelCatalog,
@@ -141,6 +143,8 @@ export const api = {
   approve: (id: string, approvalId: string, decision: ApprovalDecision) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
+  dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),
+  answerDialog: (id: string, answer: DialogAnswer) => call<void>("POST", `/v1/ext/studio/dialogs/${encodeURIComponent(id)}`, answer),
   resolveAssets: (refs: AssetRef[], sessionId: string | null) =>
     call<AssetResolveResponse>("POST", "/v1/ext/studio/assets/resolve", sessionId ? { refs, sessionId } : { refs }),
   reportAssetMiss: (name: string, candidates: number) => call<void>("POST", "/v1/ext/studio/assets/missed", { name, candidates }),

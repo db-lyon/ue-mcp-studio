@@ -11,6 +11,8 @@ import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
 import { Approvals } from "../chat/Approvals";
+import { DialogCards } from "../chat/Dialogs";
+import { useDialogs } from "../chat/dialog-model";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
 import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../chat/asset-links";
 import { readLocation, writeLocation } from "../location";
@@ -174,6 +176,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
+  const dialogs = useDialogs(daemon);
   const assetLinks = useAssetLinks(detail?.id ?? null);
   const live = sessions.filter((s) => !s.archived);
   const archived = sessions.filter((s) => s.archived);
@@ -264,6 +267,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 </div>
               )}
             </div>
+            <DialogCards dialogs={(dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === detail.id)} now={dialogs.now()} />
             <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
             <Composer

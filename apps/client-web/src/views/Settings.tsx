@@ -1,6 +1,6 @@
 import { UpdatesCard } from "./Updates";
 import { useEffect, useState } from "react";
-import { KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { KEY_PROVIDER_IDS, MAX_DIALOG_MINUTES, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, type DialogPolicy, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
 import { EffortPicker, KeyForm, ModelPicker, SignInForm } from "./ModelPicker";
 
@@ -74,6 +74,10 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
           <span>Ask before running commands and editing files</span>
         </label>
         <p className="muted small">On: each shell command and each file write or edit waits in the chat for Allow or Deny. Reading files and the web never asks. Saved for this project.</p>
+        <DialogPolicyField
+          policy={settings.dialogPolicy}
+          onSave={(dialogPolicy) => api.saveSettings({ dialogPolicy }).then(apply, (err: ApiError) => setMessage({ ok: false, text: err.message }))}
+        />
       </section>
       <section className="card">
         <h2>Sign-ins</h2>
@@ -142,5 +146,54 @@ function ProviderRow({ provider, settings, onChange, onError }: {
       {signIn && !connected && <SignInForm id={provider} onDone={onChange} />}
       {!signIn && open && !connected && <KeyForm provider={provider} onSaved={() => { setOpen(false); onChange(); }} />}
     </div>
+  );
+}
+
+/** "When an editor dialog needs an answer": the project's policy for a dialog nobody answers. */
+export function DialogPolicyField({ policy, onSave }: { policy: DialogPolicy; onSave: (p: DialogPolicy) => void }) {
+  const [minutes, setMinutes] = useState(policy.kind === "wait" ? "2" : String(policy.minutes));
+  useEffect(() => {
+    if (policy.kind !== "wait") setMinutes(String(policy.minutes));
+  }, [policy]);
+  const n = Number(minutes);
+  const valid = Number.isFinite(n) && n > 0 && n <= MAX_DIALOG_MINUTES;
+  const pick = (kind: DialogPolicy["kind"]) => onSave(kind === "wait" ? { kind } : { kind, minutes: valid ? n : 2 });
+  const saveMinutes = () => {
+    if (policy.kind !== "wait" && valid && n !== policy.minutes) onSave({ kind: policy.kind, minutes: n });
+  };
+  return (
+    <fieldset className="dialog-policy">
+      <legend>When an editor dialog needs an answer</legend>
+      <label className="row toggle">
+        <input type="radio" name="dialog-policy" checked={policy.kind === "wait"} onChange={() => pick("wait")} />
+        <span>Ask me and wait</span>
+      </label>
+      <label className="row toggle">
+        <input type="radio" name="dialog-policy" checked={policy.kind === "agent"} onChange={() => pick("agent")} />
+        <span>Ask me, then let the agent decide</span>
+      </label>
+      <label className="row toggle">
+        <input type="radio" name="dialog-policy" checked={policy.kind === "safe"} onChange={() => pick("safe")} />
+        <span>Ask me, then press the safe default (Cancel or Keep)</span>
+      </label>
+      {policy.kind !== "wait" && (
+        <label className="row">
+          <span>after</span>
+          <input
+            type="number"
+            min={1}
+            max={MAX_DIALOG_MINUTES}
+            aria-label="Minutes"
+            className="minutes"
+            value={minutes}
+            onChange={(e) => setMinutes(e.target.value)}
+            onBlur={saveMinutes}
+            onKeyDown={(e) => e.key === "Enter" && saveMinutes()}
+          />
+          <span>minutes</span>
+        </label>
+      )}
+      <p className="muted small">A dialog in the editor stops every call until it is answered. It shows in the chat with its buttons, and the window flashes when you are elsewhere. When the agent answers dialogs itself (dialog mode auto), an answer that discards work, such as Don't Save, waits 10 seconds so you can override it. Saved for this project.</p>
+    </fieldset>
   );
 }

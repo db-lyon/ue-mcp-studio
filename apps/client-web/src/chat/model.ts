@@ -92,7 +92,8 @@ export function formatDuration(secs: number): string {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
-const timeOf = (t: TranscriptEntry): number => Date.parse(t.kind === "tool" ? t.call.endedAt ?? t.call.startedAt : t.at);
+const timeOf = (t: TranscriptEntry): number =>
+  t.kind === "dialog" ? t.dialog.openedAt : Date.parse(t.kind === "tool" ? t.call.endedAt ?? t.call.startedAt : t.at);
 
 export interface AgentStatus {
   state: AgentState;

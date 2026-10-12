@@ -786,3 +786,14 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .asset-chooser button { font: 12px var(--mono); text-align: left; color: inherit; background: none; border: 0; padding: 4px 6px; border-radius: 4px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asset-chooser button:hover, .asset-chooser button:focus-visible { background: var(--accent-wash); }
 .asset-toast { margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--accent-line); white-space: nowrap; }
+
+/* Editor dialogs: a card while one is open, a line in the transcript after. */
+.dialog-card .dialog-title { font-size: 14px; }
+.dialog-card .dialog-message { max-height: 24vh; margin: 0; white-space: pre-wrap; }
+.dialog-items { display: flex; flex-direction: column; gap: 4px; max-height: 20vh; overflow: auto; }
+.dialog-items .mono { overflow-wrap: anywhere; }
+.dialog-hold { margin: 0; }
+.dialog-line { border-left: 2px solid var(--accent-line); padding: 4px 10px; margin: 6px 0; }
+.dialog-policy { border: 0; padding: 0; margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; }
+.dialog-policy legend { font-weight: 600; margin-bottom: 4px; }
+.dialog-policy .minutes { width: 5em; }

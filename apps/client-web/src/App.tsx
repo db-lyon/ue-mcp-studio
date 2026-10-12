@@ -13,6 +13,7 @@ import { ChatView } from "./views/Chat";
 import { SettingsHub, type SettingsSection } from "./views/SettingsHub";
 import { VcsChip } from "./chat/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
+import { DialogBanner } from "./views/DialogBanner";
 import { DockToggle } from "./views/DockToggle";
 import { readLocation, writeLocation } from "./location";
 
@@ -59,6 +60,7 @@ export function App() {
         <VcsChip events={daemon.events.filter((e) => e.type === "studio.session.changed")} />
       </header>
       {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
+      <DialogBanner daemon={daemon} />
       <EditorBanner daemon={daemon} />
       <main>
         {tab === "Flows" && <FlowsView daemon={daemon} />}
