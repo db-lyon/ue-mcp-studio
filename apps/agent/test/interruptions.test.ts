@@ -36,10 +36,10 @@ describe("the note for the model's next message", () => {
     );
   });
 
-  it("after Studio ended the turn: why, and that it was not the user", () => {
+  it("after Studio ended the turn: why, and that nothing failed", () => {
     expect(interruptionNote([python], daemon)).toBe(
       "Your last turn ended because Studio's daemon restarted to install an update. ue_mcp editor.execute_python never returned a result. "
-      + "That was Studio, not the user and not the editor. Check the current state before going on.",
+      + "Nothing failed in the editor or the connection. Check the current state before going on.",
     );
   });
 

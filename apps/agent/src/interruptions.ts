@@ -69,6 +69,6 @@ export function interruptionNote(running: Call[], cause: Interruption): string {
   return [
     `Your last turn ended because ${cause.why}.`,
     list ? `${list} never returned a result.` : "",
-    "That was Studio, not the user and not the editor. Check the current state before going on.",
+    "Nothing failed in the editor or the connection. Check the current state before going on.",
   ].filter(Boolean).join(" ");
 }

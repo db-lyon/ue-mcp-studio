@@ -15,6 +15,8 @@
  *   POST /sessions/:id/messages     send a message; the turn runs in the background
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
+ *   POST /updates/{plugin,studio,restart}       run an update step, or keep it until no turn is in progress
+ *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
  * Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts.
@@ -25,7 +27,7 @@
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import type { ApprovalDecision, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
-import { AgentRunner } from "./runner.js";
+import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
 import { providerFor } from "./providers.js";
@@ -34,6 +36,7 @@ import { StudioSignInFlow } from "./signin.js";
 import { AttachmentStore } from "./attachments.js";
 import { detectVcs, diffOf, listChanges } from "./vcs.js";
 import { Updater } from "./updates.js";
+import { DEFERRED_STEPS, UpdateQueue, type DeferredStep } from "./update-queue.js";
 import { issueBody, submitFeedback, validate, type Environment } from "./feedback.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -146,7 +149,37 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   // Studio's own updates: the extension and the editor plugin, against the release channel.
   const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data));
-  api.route("GET", "/updates", async () => ({ body: await updater.check() }));
+  // A step that restarts the daemon or closes the editor waits while any turn is in progress.
+  const writeRestartCause = (cause: string) => {
+    fs.mkdirSync(api.dataDir, { recursive: true });
+    fs.writeFileSync(path.join(api.dataDir, RESTART_CAUSE_FILE), JSON.stringify({ cause, at: Date.now() }));
+  };
+  const updates = new UpdateQueue({
+    dataDir: api.dataDir,
+    busy: () => runner.activeSessions().length > 0,
+    interruptTurns: () => {
+      for (const id of runner.activeSessions()) runner.interrupt(id, { by: "studio", why: "the user chose Restart now to install an update" });
+    },
+    run: async (step) => {
+      if (step === "plugin") return updater.updatePlugin();
+      writeRestartCause(step === "studio" ? "Studio's daemon restarted to install a Studio update" : "Studio's daemon restarted to load the updated ue-mcp");
+      const r = step === "studio" ? await updater.updateStudio() : await updater.restartDaemon();
+      if (!r.started) fs.rmSync(path.join(api.dataDir, RESTART_CAUSE_FILE), { force: true });
+      return { ok: r.started, started: r.started, error: r.error };
+    },
+    publish: (type, data) => api.events.publish(type, data),
+  });
+  const stepBody = (body: unknown): { now?: boolean; then?: DeferredStep[] } => {
+    const b = (body ?? {}) as { now?: unknown; then?: unknown };
+    return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [] };
+  };
+  const stepRoute = async (step: DeferredStep, body: unknown) => {
+    const r = await updates.request(step, stepBody(body));
+    if (r.deferred) return { status: 202, body: { ok: true, deferred: r.deferred } };
+    if (!r.ok) return { status: 500, body: { error: r.error } };
+    return { status: r.started ? 202 : 200, body: r };
+  };
+  api.route("GET", "/updates", async () => ({ body: { ...(await updater.check()), deferred: updates.steps() } }));
   // Reports for Studio's tracker, with what is installed when the user includes it.
   const environment = (): Environment => ({
     studio: agentVersion,
@@ -179,17 +212,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     else fs.writeFileSync(runFile, JSON.stringify(run));
     return { body: { ok: true } };
   });
-  api.route("POST", "/updates/restart", async () => {
-    const r = await updater.restartDaemon();
-    return r.started ? { status: 202, body: r } : { status: 500, body: { error: r.error } };
-  });
-  api.route("POST", "/updates/studio", async () => {
-    const r = await updater.updateStudio();
-    return r.started ? { status: 202, body: r } : { status: 500, body: { error: r.error } };
-  });
-  api.route("POST", "/updates/plugin", async () => {
-    const r = await updater.updatePlugin();
-    return r.ok ? { body: r } : { status: 500, body: { error: r.error } };
+  api.route("POST", "/updates/restart", (req) => stepRoute("restart", req.body));
+  api.route("POST", "/updates/studio", (req) => stepRoute("studio", req.body));
+  api.route("POST", "/updates/plugin", (req) => stepRoute("plugin", req.body));
+  // Restart now: end the turns in progress and run the waiting steps.
+  api.route("POST", "/updates/deferred/now", async () => {
+    if (updates.steps().length === 0) return { status: 404, body: { error: "no update is waiting" } };
+    const r = await updates.runNow();
+    return r.ok ? { status: 202, body: r } : { status: 500, body: { error: r.error } };
   });
 
   api.route("GET", "/vcs/changes", async () => ({ body: await listChanges(api.projectDir) }));
@@ -397,6 +427,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dispose: () => {
       unobserve();
       unwatchAssets();
+      updates.stop();
       runner.dispose();
     },
   };

@@ -269,7 +269,7 @@ describe("a daemon restart on the subscription route", () => {
     expect(call).toMatchObject({ call: { outcome: "unknown" } });
     expect(call?.kind === "tool" && call.call.result).toMatch(/^Interrupted: Studio's daemon restarted to install/);
     expect(JSON.stringify(fin)).not.toMatch(/by the user/);
-    expect(fin.notes[0]).toMatch(/That was Studio, not the user/);
+    expect(fin.notes[0]).toMatch(/^Your last turn ended because Studio.s daemon restarted to install Studio 0.1.0-beta.99/);
   });
 
   it("a daemon that died without saying so: the next one ends the turn with the same account", () => {
