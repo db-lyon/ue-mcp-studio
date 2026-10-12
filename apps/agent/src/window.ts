@@ -47,7 +47,8 @@ export function parseWindowRequest(body: unknown): WindowRequest | string {
   const b = body as Record<string, unknown>;
   if (b.editorPid !== undefined && pid(b.editorPid) === undefined) return "editorPid must be a process id";
   if (b.fromEditor !== undefined && typeof b.fromEditor !== "boolean") return "fromEditor must be a boolean";
-  return { editorPid: pid(b.editorPid), fromEditor: b.fromEditor as boolean | undefined };
+  if (b.mode !== undefined && b.mode !== "docked" && b.mode !== "window") return 'mode must be "docked" or "window"';
+  return { editorPid: pid(b.editorPid), fromEditor: b.fromEditor as boolean | undefined, mode: b.mode as WindowRequest["mode"] };
 }
 
 /** The project's name, for the window title: its .uproject, else its folder. */
@@ -74,6 +75,7 @@ export function windowArgs(host: WindowHost, req: WindowRequest): string[] {
   ];
   if (editorPid) args.push("--editor-pid", String(editorPid));
   if (editorPid && req.fromEditor && req.editorPid) args.push("--close-with-editor");
+  if (req.mode) args.push("--mode", req.mode);
   return args;
 }
 

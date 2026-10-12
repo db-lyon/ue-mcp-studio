@@ -399,6 +399,8 @@ export interface WindowRequest {
   editorPid?: number;
   /** Opened from the editor: the window closes when that editor exits. */
   fromEditor?: boolean;
+  /** Switch to this mode and keep it for the project: over the editor's dock tab, or a window of its own. */
+  mode?: "docked" | "window";
 }
 
 /** What POST /v1/ext/studio/window did: Studio's window, the system browser where there is none, or nothing. */

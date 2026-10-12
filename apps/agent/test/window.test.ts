@@ -83,6 +83,16 @@ describe("POST /window", () => {
     expect(windowArgs({ ...host, editors: () => [] }, {})).not.toContain("--editor-pid");
   });
 
+  it("passes the mode the editor asks for, and none otherwise", async () => {
+    const { host, spawned, ship } = fakeHost();
+    ship();
+    await routes(host)("POST", "/window", { editorPid: 999, fromEditor: true, mode: "docked" });
+    const args = spawned[0].args;
+    expect(args[args.indexOf("--mode") + 1]).toBe("docked");
+    expect(windowArgs(host, { mode: "window" })).toEqual(expect.arrayContaining(["--mode", "window"]));
+    expect(windowArgs(host, {})).not.toContain("--mode");
+  });
+
   it("opens the system browser when the build has no window", async () => {
     const { host, spawned, opened } = fakeHost();
     const res = await routes(host)("POST", "/window", {});
@@ -116,6 +126,8 @@ describe("POST /window", () => {
     expect((await routes(host)("POST", "/window", { editorPid: "1" })).status).toBe(400);
     expect(parseWindowRequest({ editorPid: -3 })).toMatch(/process id/);
     expect(parseWindowRequest({ fromEditor: "yes" })).toMatch(/boolean/);
+    expect(parseWindowRequest({ mode: "floating" })).toMatch(/docked/);
+    expect(parseWindowRequest({ mode: "docked" })).toEqual({ mode: "docked" });
     expect(parseWindowRequest(undefined)).toEqual({});
   });
 
