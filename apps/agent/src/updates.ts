@@ -190,6 +190,31 @@ export class Updater {
     return this.ueMcp(["extension", "install", MANIFEST_URL, uproject]);
   }
 
+  /**
+   * Update a project whose bridge is installed from source: a daemon can only
+   * deploy its own version's source, so the new package runs `ue-mcp update`
+   * (package, then bridge source), and the editor is rebuilt on it.
+   */
+  async updateUeMcpSource(version: string): Promise<{ ok: boolean; error?: string }> {
+    const uproject = this.uproject();
+    if (!uproject) return { ok: false, error: "could not find the project" };
+    if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) return { ok: false, error: `not a version: ${version}` };
+    const npx = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
+    if (!fs.existsSync(npx)) return { ok: false, error: "npx was not found beside Node" };
+    this.publish("update.progress", { part: "ueMcp", message: `Installing ue-mcp ${version} and its bridge source` });
+    const code = await new Promise<number | null>((resolve) => {
+      const c = spawn(process.execPath, [npx, "-y", `ue-mcp@${version}`, "update", uproject, "--no-build"], { cwd: this.host.projectDir, stdio: "ignore", windowsHide: true });
+      c.on("exit", resolve);
+      c.on("error", () => resolve(null));
+    });
+    if (code !== 0) return { ok: false, error: `ue-mcp ${version} update exited with ${code ?? "an error"}` };
+    if (this.host.editors().some((e) => e.connected)) {
+      this.publish("update.progress", { part: "ueMcp", message: "Rebuilding the editor on the new bridge" });
+      await this.host.editorOperation("rebuild");
+    }
+    return { ok: true };
+  }
+
   /** Restart the daemon on the newest ue-mcp, after an update installed it. */
   async restartDaemon(): Promise<{ started: boolean; error?: string }> {
     const uproject = this.uproject();

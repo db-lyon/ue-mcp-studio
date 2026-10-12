@@ -66,6 +66,25 @@ describe("an update run", () => {
     expect((await loadRun())!.steps.map((s) => s.state)).toEqual(["done", "done", "active"]);
   });
 
+  it("updates a bridge installed from source through the new package instead of failing", async () => {
+    agent(() => ({}));
+    const sent: Array<[string, unknown]> = [];
+    const run = planRun({ studio: studio(false, false), ueMcp: ueMcp("1.4.0-beta.3", "1.4.1") })!;
+    let last: UpdateRun | null = null;
+    await execute(run, (r) => (last = r), async (url, body) => {
+      sent.push([url, body]);
+      return url === "/v1/update/apply"
+        ? { ok: false, error: "this process runs ue-mcp 1.4.0-beta.3; a source install updates to the version of the package that deploys it. Run ue-mcp update." }
+        : { ok: true };
+    });
+    expect(sent).toEqual([
+      ["/v1/update/apply", { version: "1.4.1" }],
+      ["/v1/ext/studio/updates/ueMcp", { version: "1.4.1" }],
+      ["/v1/ext/studio/updates/restart", { then: [] }],
+    ]);
+    expect(last!.error).toBeUndefined();
+  });
+
   it("finishes with what is installed now, and forgets the run", async () => {
     agent(() => ({}));
     const reads = fetch as unknown as ReturnType<typeof vi.fn>;

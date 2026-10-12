@@ -218,6 +218,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/updates/restart", (req) => stepRoute("restart", req.body));
   api.route("POST", "/updates/studio", (req) => stepRoute("studio", req.body));
   api.route("POST", "/updates/plugin", (req) => stepRoute("plugin", req.body));
+  api.route("POST", "/updates/ueMcp", async (req) => {
+    const version = String((req.body as { version?: unknown } | undefined)?.version ?? "");
+    const r = await updater.updateUeMcpSource(version);
+    return r.ok ? { body: { ok: true } } : { status: 500, body: { ok: false, error: r.error } };
+  });
   // Restart now: end the turns in progress and run the waiting steps.
   api.route("POST", "/updates/deferred/now", async () => {
     if (updates.steps().length === 0) return { status: 404, body: { error: "no update is waiting" } };
