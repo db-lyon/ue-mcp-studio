@@ -51,6 +51,10 @@ const zip = (parent, folder, out) => {
 };
 
 const version = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")).version;
+// One version for everything a release ships: the editor plugin carries Studio's.
+const UPLUGIN = path.join(ROOT, "apps", "client-plugin", "StudioHost", "Plugins", "UE_MCP_Studio", "UE_MCP_Studio.uplugin");
+const pluginVersionName = JSON.parse(fs.readFileSync(UPLUGIN, "utf-8")).VersionName;
+if (pluginVersionName !== version) throw new Error(`UE_MCP_Studio.uplugin is ${pluginVersionName}, the root package.json is ${version}; keep them in step`);
 const agentPkg = JSON.parse(fs.readFileSync(path.join(ROOT, "apps", "agent", "package.json"), "utf-8"));
 for (const p of ["apps/agent/package.json", "apps/client-web/package.json"]) {
   const v = JSON.parse(fs.readFileSync(path.join(ROOT, p), "utf-8")).version;
@@ -112,11 +116,9 @@ const fab = has("--fab");
 const fabUrl = arg("--fab-url", null);
 if (fab && !fabUrl) console.warn("no --fab-url: the Fab zip has no FabURL key, which Fab requires once the listing ID exists");
 if (has("--plugin") || fab) {
-  const uplugin = path.join(ROOT, "apps", "client-plugin", "StudioHost", "Plugins", "UE_MCP_Studio", "UE_MCP_Studio.uplugin");
-  // The host plugin has its own version, bumped only when its code changes; a Studio release
-  // that touches only the extension ships no new plugin.
+  const uplugin = UPLUGIN;
   const descriptor = JSON.parse(fs.readFileSync(uplugin, "utf-8"));
-  const pluginVersion = descriptor.VersionName;
+  const pluginVersion = version;
   // BuildPlugin writes a default Config/FilterPlugin.ini into the source plugin; keep the tree clean.
   const filterIni = path.join(path.dirname(uplugin), "Config", "FilterPlugin.ini");
   const hadFilterIni = fs.existsSync(filterIni);
@@ -191,24 +193,38 @@ const pluginEntry = (() => {
       pluginVer = m[1];
       files[m[2]] = { url: `https://github.com/${REPO}/releases/download/v${version}/${name}`, sha256: sha256(path.join(OUT, name)) };
     }
-    return { version: pluginVer, files };
+    return { version: pluginVer, changedIn: version, files };
   }
+  // No new build: the newest release's plugin, renamed to this version. Its binaries are
+  // unchanged, so changedIn keeps the release whose build it is and Update leaves it alone.
   const releases = JSON.parse(execFileSync("gh", ["release", "list", "--repo", REPO, "--limit", "30", "--json", "tagName"], { encoding: "utf-8" }));
   for (const { tagName } of releases) {
-    const assets = JSON.parse(execFileSync("gh", ["release", "view", tagName, "--repo", REPO, "--json", "assets"], { encoding: "utf-8" })).assets.map((a) => a.name).filter((n) => parse(n));
-    if (!assets.length) continue;
-    // Attached to this release too, so its page has every download a new user needs.
-    execFileSync("gh", ["release", "download", tagName, "--repo", REPO, "--dir", OUT, "--clobber", ...assets.flatMap((n) => ["--pattern", n])], { stdio: "inherit" });
+    const assets = JSON.parse(execFileSync("gh", ["release", "view", tagName, "--repo", REPO, "--json", "assets"], { encoding: "utf-8" })).assets.map((a) => a.name);
+    const zips = assets.filter((n) => parse(n));
+    if (!zips.length) continue;
+    const carry = fs.mkdtempSync(path.join(os.tmpdir(), "studio-plugin-carry-"));
+    execFileSync("gh", ["release", "download", tagName, "--repo", REPO, "--dir", carry, ...[...zips, "latest.json"].filter((n) => assets.includes(n)).flatMap((n) => ["--pattern", n])], { stdio: "inherit" });
+    const before = fs.existsSync(path.join(carry, "latest.json")) ? JSON.parse(fs.readFileSync(path.join(carry, "latest.json"), "utf-8")).plugin : null;
     const files = {};
-    let pluginVer = null;
-    for (const name of assets) {
-      const m = parse(name);
-      pluginVer = m[1];
+    for (const old of zips) {
+      const engine = parse(old)[2];
+      const stage = path.join(carry, `UE${engine}`);
+      fs.mkdirSync(stage, { recursive: true });
+      execFileSync(tar, ["-xf", path.join(carry, old), "-C", stage]);
+      const descriptorFile = path.join(stage, "UE_MCP_Studio", "UE_MCP_Studio.uplugin");
+      const d = JSON.parse(fs.readFileSync(descriptorFile, "utf-8"));
+      d.VersionName = version;
+      fs.writeFileSync(descriptorFile, JSON.stringify(d, null, "\t") + "\n");
+      const name = `UE_MCP_Studio-${version}-UE${engine}-Win64.zip`;
+      zip(stage, "UE_MCP_Studio", path.join(OUT, name));
       pluginZips.push(name);
-      files[m[2]] = { url: `https://github.com/${REPO}/releases/download/v${version}/${name}`, sha256: sha256(path.join(OUT, name)) };
+      files[engine] = { url: `https://github.com/${REPO}/releases/download/v${version}/${name}`, sha256: sha256(path.join(OUT, name)) };
     }
-    console.log(`this release carries the editor plugin ${pluginVer} from ${tagName}`);
-    return { version: pluginVer, files };
+    fs.rmSync(carry, { recursive: true, force: true });
+    // A manifest from before changedIn existed: this release is the first to carry the shared version.
+    const changedIn = before?.changedIn ?? version;
+    console.log(`the editor plugin from ${tagName} ships as ${version}; its build is from ${changedIn}`);
+    return { version, changedIn, files };
   }
   return null;
 })();

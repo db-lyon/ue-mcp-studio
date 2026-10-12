@@ -65,6 +65,12 @@ describe("Studio updates", () => {
     });
   });
 
+  it("leaves a plugin alone when the release only carries it under its own version", async () => {
+    const m = (changedIn: string) => ({ version: "0.1.0-beta.27", url: "s", sha256: "x", plugin: { version: "0.1.0-beta.27", changedIn, files: { "5.8": { url: "u", sha256: "y" } } } });
+    expect((await new Updater(fakeHost(project("0.1.0-beta.26")), "0.1.0-beta.26", () => {}, manifestFetch(m("0.1.0-beta.26"))).check()).plugin).toMatchObject({ latest: "0.1.0-beta.27", available: false });
+    expect((await new Updater(fakeHost(project("0.1.0-beta.25")), "0.1.0-beta.26", () => {}, manifestFetch(m("0.1.0-beta.26"))).check()).plugin.available).toBe(true);
+  });
+
   it("does not offer a plugin update for an engine the release does not build, or a plugin installed with the engine", async () => {
     const m = { version: "0.1.0-beta.9", url: "s", sha256: "x", plugin: { version: "0.1.0-beta.9", files: { "5.7": { url: "u", sha256: "y" } } } };
     expect((await new Updater(fakeHost(project("0.1.0-beta.4")), "0.1.0-beta.9", () => {}, manifestFetch(m)).check()).plugin.available).toBe(false);

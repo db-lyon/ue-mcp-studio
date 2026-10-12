@@ -23,7 +23,11 @@ export interface ReleaseManifest {
   version: string;
   url: string;
   sha256: string;
-  plugin?: { version: string; files: Record<string, { url: string; sha256: string }> };
+  /**
+   * The editor plugin, under the release's own version. changedIn is the release
+   * whose build it is: a release that only renames it asks for no editor restart.
+   */
+  plugin?: { version: string; changedIn?: string; files: Record<string, { url: string; sha256: string }> };
 }
 
 export interface UpdateStatus {
@@ -138,7 +142,7 @@ export class Updater {
       status.studio.available = isNewer(m.version, this.installedVersion);
       if (m.plugin) {
         status.plugin.latest = m.plugin.version;
-        status.plugin.available = !!installedPlugin && !!engine && !!m.plugin.files[engine] && isNewer(m.plugin.version, installedPlugin);
+        status.plugin.available = !!installedPlugin && !!engine && !!m.plugin.files[engine] && isNewer(m.plugin.changedIn ?? m.plugin.version, installedPlugin);
       }
     } catch (e) {
       status.error = e instanceof Error ? e.message : String(e);
