@@ -22,6 +22,10 @@ interface StudioBinding {
   opendocs?(path: string): Promise<boolean>;
   /** Start the project's daemon (or install Studio first when it is missing). */
   startdaemon?(): Promise<boolean>;
+  /** Studio's own window only: JSON of { mode: "docked" | "window", canDock }. canDock is false with a plugin that has no dock tab. */
+  getwindowmode?(): Promise<string>;
+  /** Studio's own window only: dock it in the editor's tab, or open it as a window, and keep that for the project. */
+  setwindowmode?(mode: "docked" | "window"): Promise<boolean>;
 }
 
 declare global {

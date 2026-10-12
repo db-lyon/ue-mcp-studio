@@ -13,6 +13,7 @@ import { ChatView } from "./views/Chat";
 import { SettingsHub, type SettingsSection } from "./views/SettingsHub";
 import { VcsChip } from "./chat/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
+import { DockToggle } from "./views/DockToggle";
 
 const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
@@ -45,6 +46,7 @@ export function App() {
           ))}
         </nav>
         <span className="spacer" />
+        <DockToggle />
         <button className="ghost docs-link" onClick={() => setFeedback(true)} title="Report a problem or suggest an idea">Feedback</button>
         <button className="ghost docs-link" onClick={() => void openDocs()} title="The ue-mcp documentation">Docs</button>
         <VcsChip events={daemon.events.filter((e) => e.type === "studio.session.changed")} />
