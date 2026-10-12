@@ -412,3 +412,4 @@ export interface WindowLaunch {
   pid?: number;
   reason?: string;
 }
+export * from "./assets.js";
