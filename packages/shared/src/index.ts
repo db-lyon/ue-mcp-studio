@@ -82,6 +82,8 @@ export interface StudioSettings {
   theme: StudioTheme;
   /** Ask the user before the agent runs a command or edits a file. */
   askBeforeChanges: boolean;
+  /** The height dragged on the chat composer's divider, in pixels, or null for the default. */
+  composerHeight: number | null;
   /** Which sign-ins are done and which vendor keys are saved. */
   connected: Record<ProviderId, boolean>;
   /** The Studio account's login, when signed in. */
@@ -96,6 +98,7 @@ export interface StudioSettingsUpdate {
   gatewayUrl?: string;
   theme?: StudioTheme;
   askBeforeChanges?: boolean;
+  composerHeight?: number | null;
   keys?: Partial<Record<KeyProviderId, string>>;
   signOut?: SignInId;
 }

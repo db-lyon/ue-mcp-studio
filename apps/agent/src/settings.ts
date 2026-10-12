@@ -28,7 +28,13 @@ interface StoredSettings {
   gatewayUrl: string;
   theme: StudioTheme;
   askBeforeChanges: boolean;
+  composerHeight: number | null;
 }
+
+/** The tallest composer height kept; anything larger is a mistake, not a layout. */
+const MAX_COMPOSER_HEIGHT = 4000;
+const composerHeightOf = (v: unknown): number | null =>
+  typeof v === "number" && Number.isFinite(v) && v > 0 && v <= MAX_COMPOSER_HEIGHT ? Math.round(v) : null;
 
 /**
  * The selected model's vendor. Settings written before vendors were named said
@@ -59,9 +65,10 @@ export class SettingsStore {
         gatewayUrl: typeof raw.gatewayUrl === "string" && raw.gatewayUrl ? raw.gatewayUrl : DEFAULT_GATEWAY_URL,
         theme: STUDIO_THEMES.includes(raw.theme as StudioTheme) ? (raw.theme as StudioTheme) : "ue-mcp",
         askBeforeChanges: raw.askBeforeChanges !== false,
+        composerHeight: composerHeightOf(raw.composerHeight),
       };
     } catch {
-      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true };
+      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, composerHeight: null };
     }
   }
 
@@ -118,6 +125,10 @@ export class SettingsStore {
     if (u.askBeforeChanges !== undefined) {
       if (typeof u.askBeforeChanges !== "boolean") throw new Error("askBeforeChanges must be a boolean");
       s.askBeforeChanges = u.askBeforeChanges;
+    }
+    if (u.composerHeight !== undefined) {
+      if (u.composerHeight !== null && composerHeightOf(u.composerHeight) === null) throw new Error(`composerHeight must be null or a number from 1 to ${MAX_COMPOSER_HEIGHT}`);
+      s.composerHeight = u.composerHeight === null ? null : composerHeightOf(u.composerHeight);
     }
     for (const [p, v] of Object.entries(u.keys ?? {})) {
       if (!KEY_PROVIDER_IDS.includes(p as KeyProviderId)) throw new Error(`no key provider ${p}`);
