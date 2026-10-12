@@ -56,7 +56,7 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
   // The plugin step reports each stage as it goes.
   const last = events[events.length - 1];
   useEffect(() => {
-    if (current && last?.type === "update.progress" && typeof last.data.message === "string") setRun({ ...current, detail: last.data.message });
+    if (current && last?.type === "studio.update.progress" && typeof last.data.message === "string") setRun({ ...current, detail: last.data.message });
   }, [last?.id]);
 
   useEffect(() => {
