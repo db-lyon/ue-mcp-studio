@@ -9,6 +9,8 @@ export const MIN_HEIGHT = 60;
 export const MIN_TRANSCRIPT = 120;
 /** One arrow key press on the divider moves it this far. */
 export const NUDGE = 16;
+/** Arrow key presses are saved once they stop for this long, so a held key sends one save. */
+export const NUDGE_SAVE_MS = 400;
 
 /** A dragged height, kept between MIN_HEIGHT and the room the transcript can give up. */
 export function clampHeight(h: number, room: number): number {
@@ -88,9 +90,19 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     el.style.overflowY = fit.scroll ? "auto" : "hidden";
   }, [draft, floor, viewport, placeholder]);
 
-  const save = (h: number | null) => {
+  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (pending.current) clearTimeout(pending.current);
+  }, []);
+  const save = (h: number | null, later = false) => {
     setFloor(h);
-    onHeight?.(h);
+    if (pending.current) clearTimeout(pending.current);
+    pending.current = null;
+    if (later) pending.current = setTimeout(() => {
+      pending.current = null;
+      onHeight?.(h);
+    }, NUDGE_SAVE_MS);
+    else onHeight?.(h);
   };
   const startDrag = (e: React.MouseEvent) => {
     if (e.button !== 0) return;
@@ -110,7 +122,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
       window.removeEventListener("mouseup", up);
       setDragging(false);
       document.body.classList.remove("row-resizing");
-      if (last !== floor) onHeight?.(last);
+      if (last !== floor) save(last);
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -119,7 +131,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     const step = e.key === "ArrowUp" ? NUDGE : e.key === "ArrowDown" ? -NUDGE : 0;
     if (!step) return;
     e.preventDefault();
-    save(clampHeight((floor ?? current()) + step, room()));
+    save(clampHeight((floor ?? current()) + step, room()), true);
   };
 
   return (

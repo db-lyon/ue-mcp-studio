@@ -7,7 +7,7 @@ vi.mock("../api", () => ({
 }));
 import { api } from "../api";
 import { useRef } from "react";
-import { Composer, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, clampHeight, fitHeight } from "./Composer";
+import { Composer, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, fitHeight } from "./Composer";
 import { useAttachments, type PendingFile } from "./attachments";
 
 afterEach(() => {
@@ -209,17 +209,29 @@ describe("the composer's height", () => {
     expect(boxHeight()).toBe(180);
   });
 
-  it("moves with the arrow keys, clamped", () => {
-    const onHeight = vi.fn();
-    render(<Laid draft="" stageHeight={140} onHeight={onHeight} />);
-    fireEvent.keyDown(divider(), { key: "ArrowUp" });
-    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT + NUDGE);
-    fireEvent.keyDown(divider(), { key: "ArrowUp" });
-    // The room is the box plus the transcript less its minimum: 60 + 140 - 120.
-    expect(onHeight).toHaveBeenLastCalledWith(80);
-    fireEvent.keyDown(divider(), { key: "ArrowDown" });
-    fireEvent.keyDown(divider(), { key: "ArrowDown" });
-    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT);
+  it("moves with the arrow keys, clamped, and saves once the keys stop", () => {
+    vi.useFakeTimers();
+    try {
+      const onHeight = vi.fn();
+      render(<Laid draft="" stageHeight={140} onHeight={onHeight} />);
+      const press = (key: string) => fireEvent.keyDown(divider(), { key });
+      press("ArrowUp");
+      expect(boxHeight()).toBe(MIN_HEIGHT + NUDGE);
+      press("ArrowUp");
+      // The room is the box plus the transcript less its minimum: 60 + 140 - 120.
+      expect(boxHeight()).toBe(80);
+      expect(onHeight).not.toHaveBeenCalled();
+      act(() => vi.advanceTimersByTime(NUDGE_SAVE_MS));
+      expect(onHeight).toHaveBeenCalledTimes(1);
+      expect(onHeight).toHaveBeenLastCalledWith(80);
+      press("ArrowDown");
+      press("ArrowDown");
+      act(() => vi.advanceTimersByTime(NUDGE_SAVE_MS));
+      expect(onHeight).toHaveBeenCalledTimes(2);
+      expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
