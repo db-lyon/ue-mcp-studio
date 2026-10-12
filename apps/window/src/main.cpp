@@ -164,7 +164,7 @@ struct Options {
   std::wstring senderVersion;
   std::wstring mode;       // "docked" or "window": the choice to switch to and keep
   DWORD editorPid = 0;
-  bool closeWithEditor = false;
+  bool closeWithEditor = false;  // accepted from older plugins; Studio no longer closes with the editor
   bool quit = false;
 };
 
@@ -483,12 +483,10 @@ void updateDock();
 void trackEditor() {
   if (!gMain) return;
   if (gEditorProcess && WaitForSingleObject(gEditorProcess, 0) == WAIT_OBJECT_0) {
-    bool close = gOpt.closeWithEditor && !gRestartingEditor;
+    // Studio outlives the editor: a crash or a restart keeps the chat. With no editor
+    // it is a window with the "not running" banner; the next editor's dock tab takes it back.
     setEditor(0);
-    if (close) {
-      PostMessageW(gMain, WM_CLOSE, 0, 0);
-      return;
-    }
+    if (docked()) updateDock();
   }
   if (!gEditorProcess) {
     if (gTopmost) {
@@ -684,7 +682,13 @@ void setChrome(bool dockedChrome) {
   gTopmost = false;
 }
 
+/** The browser renders only while it is told it is visible, and a view created hidden is not. */
+void browserVisible(bool visible) {
+  if (gController) gController->put_IsVisible(visible ? TRUE : FALSE);
+}
+
 void present(const dock::Placement& p) {
+  browserVisible(p.show != dock::Show::Hidden);
   if (p.show == dock::Show::Window) {
     if (gShown == Shown::Window) return;
     if (gShown != Shown::None) setChrome(false);
@@ -1062,6 +1066,7 @@ void createWebView() {
             }).Get(), nullptr);
 
           resize();
+          browserVisible(gShown != Shown::Hidden);
           pollDaemon();
           gController->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
           return S_OK;
