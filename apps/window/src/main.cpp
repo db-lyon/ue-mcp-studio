@@ -18,6 +18,11 @@
 // The browser lives in a view child window (createView) that only fills its
 // parent; the top-level window around it owns the chrome: title, placement,
 // and following the editor. The view does not depend on that window.
+//
+// Docked mode puts the same window over the editor's "UE-MCP Studio" dock
+// tab as a borderless popup, still unowned and still placed from here; the
+// tab reports its rect through shared memory (dock.h). The choice between the
+// two is kept per project in Saved/UE_MCP_Studio/window-mode.txt.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -33,6 +38,7 @@
 #include <vector>
 
 #include "WebView2.h"
+#include "dock.h"
 #include "json.h"
 
 #ifndef STUDIO_WINDOW_VERSION
@@ -47,6 +53,7 @@ namespace {
 constexpr UINT_PTR kDaemonTimer = 1;
 constexpr UINT_PTR kEditorTimer = 2;
 constexpr UINT_PTR kTestTimer = 3;
+constexpr UINT_PTR kDockTimer = 4;
 constexpr ULONG_PTR kCopyArgs = 0x53545544;  // "STUD"
 constexpr LRESULT kHandedOff = 1;
 constexpr LRESULT kReplaceMe = 2;
@@ -155,6 +162,7 @@ struct Options {
   std::wstring ueMcp;      // the ue-mcp package the daemon runs, e.g. ue-mcp@1.4.0
   std::wstring instanceTest;  // tests only: no window, report hand-offs to this file
   std::wstring senderVersion;
+  std::wstring mode;       // "docked" or "window": the choice to switch to and keep
   DWORD editorPid = 0;
   bool closeWithEditor = false;
   bool quit = false;
@@ -178,6 +186,7 @@ bool parseArgs(const wchar_t* commandLine, Options& o) {
     else if (a == L"--ue-mcp") next(o.ueMcp);
     else if (a == L"--instance-test") next(o.instanceTest);
     else if (a == L"--sender-version") next(o.senderVersion);
+    else if (a == L"--mode") next(o.mode);
     else if (a == L"--editor-pid" && i + 1 < argc) o.editorPid = (DWORD)_wtoi(argv[++i]);
     else if (a == L"--close-with-editor") o.closeWithEditor = true;
     else if (a == L"--quit") o.quit = true;
@@ -221,6 +230,26 @@ bool gMinimizedByEditor = false;
 bool gTopmost = false;
 bool gRestartingEditor = false;
 HWINEVENTHOOK gHooks[2] = {};
+
+// Docked mode (dock.h). The mode is the user's choice, kept per project; how
+// the window shows follows from it and from the dock tab's report.
+enum class Shown { None, Window, Docked, Hidden };
+dock::Mode gMode = dock::Mode::Window;
+Shown gShown = Shown::None;
+HANDLE gDockMap = nullptr;
+HANDLE gDockEvent = nullptr;
+volatile uint8_t* gDockMem = nullptr;
+dock::Report gReport;
+bool gHaveReport = false;
+bool gDockAlive = false;
+HWND gHost = nullptr;
+RECT gDockedAt = {};
+uint32_t gRequestSeq = 0;
+dock::Request gRequest = dock::Request::None;
+HWINEVENTHOOK gEditorHook = nullptr;
+DWORD gEditorHookPid = 0;
+
+bool docked() { return gShown == Shown::Docked || gShown == Shown::Hidden; }
 
 bool readDaemon(Daemon& out) {
   std::string text;
@@ -447,6 +476,8 @@ bool attachedInFront(HWND fg) {
 }
 
 void saveState();
+void restack();
+void updateDock();
 
 /** Follow the editor: its exit, its minimize and restore, and the z-order while either is in front. */
 void trackEditor() {
@@ -464,6 +495,11 @@ void trackEditor() {
       SetWindowPos(gMain, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
       gTopmost = false;
     }
+    return;
+  }
+  if (docked()) {
+    // Docked, the dock tab's report decides; only the z-order needs following here.
+    restack();
     return;
   }
   if (!gEditorMain || !IsWindow(gEditorMain)) gEditorMain = findEditorMain();
@@ -531,7 +567,8 @@ bool restartEditor() {
 // ---------------------------------------------------------------- window state
 
 void saveState() {
-  if (!gMain || gOpt.state.empty()) return;
+  // Only the window's own placement; docked, the tab decides where it is.
+  if (!gMain || gOpt.state.empty() || gShown != Shown::Window) return;
   WINDOWPLACEMENT wp = {sizeof wp};
   if (!GetWindowPlacement(gMain, &wp)) return;
   const RECT& r = wp.rcNormalPosition;
@@ -573,6 +610,170 @@ void placeWindow() {
   int left = work.right - width - margin;
   int top = work.top + ((work.bottom - work.top) - height) / 2;
   SetWindowPos(gMain, nullptr, left, top, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+// ---------------------------------------------------------------- docked mode
+//
+// Docked, the window is a borderless popup held over the editor's dock tab.
+// It stays unowned, placed from this process, directly above the window that
+// holds the tab: the editor's menus, popups and dialogs, which sit above that
+// window, stay above Studio, and a busy editor cannot stall it. The tab
+// reports its rect through dock.h's shared block; the block and the editor's
+// windows are read without sending the editor a message.
+
+std::wstring modePath() { return join(studioDir(), L"window-mode.txt"); }
+
+dock::Mode savedMode() {
+  std::string text;
+  return readFile(modePath(), text) ? dock::parseMode(text) : dock::Mode::None;
+}
+
+void openDock() {
+  std::wstring name = L"Local\\UEMCPStudioDock." + gOpt.key;
+  gDockMap = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, (DWORD)dock::kSize, name.c_str());
+  if (gDockMap) gDockMem = static_cast<volatile uint8_t*>(MapViewOfFile(gDockMap, FILE_MAP_ALL_ACCESS, 0, 0, dock::kSize));
+  if (gDockMem) dock::init(gDockMem);
+  gDockEvent = CreateEventW(nullptr, FALSE, FALSE, (name + L".changed").c_str());
+}
+
+/** This window's side of the block: that it runs, its mode, and what it asks the plugin for. */
+void publishStudio() {
+  if (!gDockMem) return;
+  dock::StudioSection s;
+  s.pid = gMain ? GetCurrentProcessId() : 0;
+  s.mode = gMain ? gMode : dock::Mode::None;
+  s.requestSeq = gRequestSeq;
+  s.request = gRequest;
+  dock::writeStudio(gDockMem, s);
+}
+
+void refreshReport() {
+  gHaveReport = gDockMem && dock::readReport(gDockMem, dock::kSize, gReport);
+  if (!gHaveReport) {
+    gDockAlive = false;
+  } else if (gReport.pid == gEditorPid && gEditorProcess) {
+    gDockAlive = WaitForSingleObject(gEditorProcess, 0) == WAIT_TIMEOUT;
+  } else {
+    gDockAlive = processAlive(gReport.pid);
+  }
+  gHost = gDockAlive ? reinterpret_cast<HWND>(static_cast<uintptr_t>(gReport.host)) : nullptr;
+}
+
+uintptr_t zPrev(uintptr_t w) { return reinterpret_cast<uintptr_t>(GetWindow(reinterpret_cast<HWND>(w), GW_HWNDPREV)); }
+bool zTopmost(uintptr_t w) { return (GetWindowLongW(reinterpret_cast<HWND>(w), GWL_EXSTYLE) & WS_EX_TOPMOST) != 0; }
+
+/** The window to go under: directly above the host. 0 for the top of the non-topmost band. */
+uintptr_t dockSlot() { return dock::slotAbove(reinterpret_cast<uintptr_t>(gHost), reinterpret_cast<uintptr_t>(gMain), zPrev, zTopmost); }
+
+HWND insertAfter(uintptr_t slot) { return slot ? reinterpret_cast<HWND>(slot) : HWND_TOP; }
+
+/** Back directly above the host, when something came between or the host rose over it. */
+void restack() {
+  if (gShown != Shown::Docked || !gHost || !IsWindow(gHost)) return;
+  uintptr_t slot = dockSlot();
+  if (dock::inSlot(slot, reinterpret_cast<uintptr_t>(gMain), zPrev, zTopmost)) return;
+  SetWindowPos(gMain, insertAfter(slot), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+}
+
+/** A borderless tool window over the tab, or the window's own chrome. */
+void setChrome(bool dockedChrome) {
+  ShowWindow(gMain, SW_HIDE);
+  SetWindowLongW(gMain, GWL_STYLE, dockedChrome ? (WS_POPUP | WS_CLIPCHILDREN) : (WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN));
+  SetWindowLongW(gMain, GWL_EXSTYLE, dockedChrome ? WS_EX_TOOLWINDOW : 0);
+  SetWindowPos(gMain, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+  gTopmost = false;
+}
+
+void present(const dock::Placement& p) {
+  if (p.show == dock::Show::Window) {
+    if (gShown == Shown::Window) return;
+    if (gShown != Shown::None) setChrome(false);
+    gShown = Shown::Window;
+    placeWindow();
+    WINDOWPLACEMENT wp = {sizeof wp};
+    GetWindowPlacement(gMain, &wp);
+    // Shown explicitly: a launcher that asked for a hidden start would otherwise hide the window.
+    ShowWindow(gMain, wp.showCmd == SW_SHOWMAXIMIZED ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
+    SetForegroundWindow(gMain);
+    trackEditor();
+    return;
+  }
+  if (!docked()) {
+    saveState();
+    setChrome(true);
+  }
+  if (p.show == dock::Show::Hidden) {
+    if (gShown != Shown::Hidden) ShowWindow(gMain, SW_HIDE);
+    gShown = Shown::Hidden;
+    return;
+  }
+  RECT want = {p.x, p.y, p.x + p.w, p.y + p.h};
+  bool moved = gShown != Shown::Docked || !EqualRect(&want, &gDockedAt);
+  gShown = Shown::Docked;
+  if (!moved) {
+    restack();
+    return;
+  }
+  gDockedAt = want;
+  SetWindowPos(gMain, insertAfter(dockSlot()), p.x, p.y, p.w, p.h, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+}
+
+void CALLBACK onEditorEvent(HWINEVENTHOOK, DWORD event, HWND w, LONG idObject, LONG idChild, DWORD, DWORD) {
+  if (idObject != OBJID_WINDOW || idChild != CHILDID_SELF || !w || gMode != dock::Mode::Docked) return;
+  if (event == EVENT_OBJECT_LOCATIONCHANGE && w != gHost) return;
+  if (GetAncestor(w, GA_ROOT) != w) return;
+  updateDock();
+}
+
+/** The editor's top-level windows moving, showing and hiding, as it happens. */
+void watchEditor() {
+  DWORD pid = gDockAlive && gMode == dock::Mode::Docked ? gReport.pid : 0;
+  if (pid == gEditorHookPid) return;
+  if (gEditorHook) UnhookWinEvent(gEditorHook);
+  gEditorHook = pid ? SetWinEventHook(EVENT_OBJECT_SHOW, EVENT_OBJECT_LOCATIONCHANGE, nullptr, onEditorEvent, pid, 0, WINEVENT_OUTOFCONTEXT) : nullptr;
+  gEditorHookPid = gEditorHook ? pid : 0;
+}
+
+/** Read the dock's report and put the window where the mode and the report say. */
+void updateDock() {
+  if (!gMain) return;
+  refreshReport();
+  if (gDockAlive && !gEditorPid) setEditor(gReport.pid);
+  watchEditor();
+  dock::Host host;
+  if (gHost && IsWindow(gHost) && pidOf(gHost) == gReport.pid) {
+    host.exists = true;
+    host.visible = IsWindowVisible(gHost) != FALSE;
+    host.iconic = IsIconic(gHost) != FALSE;
+    POINT origin = {0, 0};
+    ClientToScreen(gHost, &origin);
+    host.originX = origin.x;
+    host.originY = origin.y;
+  }
+  present(dock::place(gMode, gHaveReport, gReport, gDockAlive, host));
+}
+
+bool canDockNow() {
+  refreshReport();
+  return dock::canDock(gHaveReport, gDockAlive);
+}
+
+/**
+ * Switch to a mode and keep it for the project. A switch made in Studio asks
+ * the plugin to open the dock tab, or to close it when leaving docked mode.
+ */
+void setMode(dock::Mode m, bool fromStudio) {
+  if (m == dock::Mode::None) return;
+  bool changed = m != gMode;
+  gMode = m;
+  makeDirs(studioDir());
+  writeFile(modePath(), std::string(dock::modeName(m)) + "\n");
+  if (fromStudio && changed) {
+    ++gRequestSeq;
+    gRequest = m == dock::Mode::Docked ? dock::Request::OpenTab : dock::Request::CloseTab;
+  }
+  publishStudio();
+  updateDock();
 }
 
 // ---------------------------------------------------------------- the page
@@ -631,7 +832,8 @@ const wchar_t* kShim = LR"JS((function () {
     }
   });
   var names = ["getstatus", "startdaemon", "installbridge", "startsetupplan", "getsetupplan", "runsetup", "restarteditor",
-    "enableplugin", "openprojectfolder", "geteditortheme", "opennodedownload", "drawattention", "opendocs"];
+    "enableplugin", "openprojectfolder", "geteditortheme", "opennodedownload", "drawattention", "opendocs",
+    "getwindowmode", "setwindowmode"];
   var studio = {};
   names.forEach(function (name) {
     studio[name] = function (arg) {
@@ -710,6 +912,16 @@ std::string dispatch(const std::string& method, const std::string& arg) {
     std::string path = arg.empty() ? "/docs/" : arg;
     if (path.rfind("/docs", 0) != 0 || path.find("..") != std::string::npos || path.find("://") != std::string::npos) return b(false);
     openExternal(L"https://ue-mcp.com" + widen(path));
+    return b(true);
+  }
+  if (method == "getwindowmode") {
+    // canDock: the editor's plugin has a dock tab to hold Studio; older plugins do not.
+    return s(std::string("{\"mode\":\"") + dock::modeName(gMode) + "\",\"canDock\":" + b(canDockNow()) + "}");
+  }
+  if (method == "setwindowmode") {
+    dock::Mode m = dock::parseMode(arg);
+    if (m == dock::Mode::None || (m == dock::Mode::Docked && !canDockNow())) return b(false);
+    setMode(m, true);
     return b(true);
   }
   return "null";
@@ -862,6 +1074,12 @@ void createWebView() {
 
 void bringToFront() {
   if (!gMain) return;
+  updateDock();
+  if (gShown == Shown::Hidden) return;
+  if (gShown == Shown::Docked) {
+    SetForegroundWindow(gMain);
+    return;
+  }
   if (IsIconic(gMain)) ShowWindow(gMain, SW_RESTORE);
   else ShowWindow(gMain, SW_SHOW);
   gMinimizedByEditor = false;
@@ -899,6 +1117,7 @@ LRESULT onHandOff(const COPYDATASTRUCT* cds) {
   }
   if (!o.node.empty()) gOpt.node = o.node;
   if (!o.ueMcp.empty()) gOpt.ueMcp = o.ueMcp;
+  if (!o.mode.empty()) setMode(dock::parseMode(narrow(o.mode)), false);
   bringToFront();
   return kHandedOff;
 }
@@ -957,7 +1176,16 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SETFOCUS:
       if (gView) SetFocus(gView);
       return 0;
+    case WM_WINDOWPOSCHANGING: {
+      // Docked, every z-order change lands directly above the host, activation included:
+      // the editor's menus and dialogs stay above Studio.
+      auto* pos = reinterpret_cast<WINDOWPOS*>(lp);
+      if (gShown == Shown::Docked && !(pos->flags & SWP_NOZORDER) && gHost && IsWindow(gHost)) pos->hwndInsertAfter = insertAfter(dockSlot());
+      break;
+    }
     case WM_DPICHANGED: {
+      // Docked, the tab's report sets the size in physical pixels; the suggested rect does not apply.
+      if (gShown != Shown::Window) return 0;
       const RECT* r = reinterpret_cast<const RECT*>(lp);
       SetWindowPos(w, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top, SWP_NOZORDER | SWP_NOACTIVATE);
       return 0;
@@ -965,9 +1193,13 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_GETMINMAXINFO: {
       auto* mm = reinterpret_cast<MINMAXINFO*>(lp);
       UINT dpi = GetDpiForWindow(w);
-      mm->ptMinTrackSize = {MulDiv(320, dpi, 96), MulDiv(360, dpi, 96)};
+      mm->ptMinTrackSize = gShown == Shown::Window ? POINT{MulDiv(320, dpi, 96), MulDiv(360, dpi, 96)} : POINT{1, 1};
       return 0;
     }
+    case WM_SYSCOMMAND:
+      // Docked, Studio is part of the editor's layout; Alt+F4 does not close it out of its tab.
+      if (docked() && (wp & 0xFFF0) == SC_CLOSE) return 0;
+      break;
     case WM_ERASEBKGND: {
       RECT r;
       GetClientRect(w, &r);
@@ -979,6 +1211,7 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_TIMER:
       if (wp == kDaemonTimer) pollDaemon();
       else if (wp == kEditorTimer) trackEditor();
+      else if (wp == kDockTimer && gMode == dock::Mode::Docked) updateDock();
       return 0;
     case WM_EXITSIZEMOVE:
       saveState();
@@ -994,10 +1227,13 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     case WM_DESTROY:
       for (HWINEVENTHOOK h : gHooks) if (h) UnhookWinEvent(h);
+      if (gEditorHook) UnhookWinEvent(gEditorHook);
+      gEditorHook = nullptr;
       if (gController) gController->Close();
       gController.Reset();
       gWeb.Reset();
       gMain = nullptr;
+      publishStudio();
       PostQuitMessage(0);
       return 0;
   }
@@ -1128,24 +1364,40 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   DwmSetWindowAttribute(gMain, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof dark);
   gView = createView(instance, gMain);
   if (!gView) return 1;
-  placeWindow();
-  WINDOWPLACEMENT wp = {sizeof wp};
-  GetWindowPlacement(gMain, &wp);
-  // Shown explicitly: a launcher that asked for a hidden start would otherwise hide the window.
-  ShowWindow(gMain, wp.showCmd == SW_SHOWMAXIMIZED ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
-  SetForegroundWindow(gMain);
+  openDock();
+  dock::Mode mode = dock::parseMode(narrow(gOpt.mode));
+  if (mode != dock::Mode::None) {
+    setMode(mode, false);
+  } else {
+    mode = savedMode();
+    gMode = mode == dock::Mode::None ? dock::Mode::Window : mode;
+    publishStudio();
+    // As a window, or over the dock tab, or hidden until the tab shows.
+    updateDock();
+  }
 
   gHooks[0] = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, onWinEvent, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
   gHooks[1] = SetWinEventHook(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, nullptr, onWinEvent, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
   SetTimer(gMain, kDaemonTimer, 1000, nullptr);
   SetTimer(gMain, kEditorTimer, 200, nullptr);
+  SetTimer(gMain, kDockTimer, 100, nullptr);
   trackEditor();
   createWebView();
 
-  MSG m;
-  while (GetMessageW(&m, nullptr, 0, 0) > 0) {
-    TranslateMessage(&m);
-    DispatchMessageW(&m);
+  // Messages, and the dock tab's reports the moment the plugin writes one.
+  for (bool running = true; running;) {
+    DWORD waits = gDockEvent ? 1 : 0;
+    DWORD r = MsgWaitForMultipleObjectsEx(waits, &gDockEvent, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+    if (waits && r == WAIT_OBJECT_0 && gMode == dock::Mode::Docked) updateDock();
+    MSG m;
+    while (PeekMessageW(&m, nullptr, 0, 0, PM_REMOVE)) {
+      if (m.message == WM_QUIT) {
+        running = false;
+        break;
+      }
+      TranslateMessage(&m);
+      DispatchMessageW(&m);
+    }
   }
   if (gEditorProcess) CloseHandle(gEditorProcess);
   CoUninitialize();
