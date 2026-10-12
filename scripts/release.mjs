@@ -13,8 +13,9 @@
  * released from db-lyon/ue-mcp-studio-plugin; latest.json names where its
  * manifest is and the oldest plugin this release works with.
  *
- * --publish   creates release v<version> on db-lyon/ue-mcp-studio, always marked latest
- *             (betas too) so .../releases/latest/download/latest.json resolves.
+ * --publish   creates release v<version> on db-lyon/ue-mcp-studio. A stable version is marked
+ *             latest, so .../releases/latest/download/latest.json resolves to it; a
+ *             prerelease is published beside it for testers and never becomes latest.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -120,6 +121,8 @@ if (has("--publish")) {
   const notes = arg("--notes-file", null);
   const notesArgs = notes ? ["--notes-file", notes] : ["--notes", `UE-MCP Studio ${version}.`];
   const files = [zipName, "latest.json"].map((f) => path.join(OUT, f));
-  run("gh", ["release", "create", tag, "--repo", REPO, "--title", tag, "--target", "main", "--latest", ...notesArgs, ...files]);
+  // A prerelease is for testers: it never becomes latest, so the stable channel cannot pick it up.
+  const channel = version.includes("-") ? ["--prerelease", "--latest=false"] : ["--latest"];
+  run("gh", ["release", "create", tag, "--repo", REPO, "--title", tag, "--target", "main", ...channel, ...notesArgs, ...files]);
   console.log(`published ${tag} to ${REPO}`);
 }
