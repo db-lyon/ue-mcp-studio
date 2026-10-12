@@ -23,6 +23,7 @@ import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateI
 import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
 import { runSubscriptionTurn } from "./subscription.js";
 import { contentFor } from "./attachments.js";
+import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
 import type { Attachment } from "@ue-mcp-studio/shared";
 
 const WORK = [
@@ -66,6 +67,10 @@ type GateResult = null | { declined: string } | { stopped: true };
 
 /** How many model calls one subagent may make before it is stopped. */
 const SUBAGENT_STEPS = 200;
+
+/** Why the daemon went down, written by whatever restarts it on purpose and read by the next daemon. */
+export const RESTART_CAUSE_FILE = "restart-cause.json";
+const RESTART_CAUSE_TTL_MS = 10 * 60_000;
 
 export interface RunnerOptions {
   host: AgentHost;
@@ -123,23 +128,47 @@ export class AgentRunner {
     return this.o.busy ? this.o.busy.wrap(this.o.host, sessionId) : this.o.host;
   }
 
+  /** The daemon is going down: every turn on the SDK route ends here, saying so. An API turn resumes in the next daemon. */
   dispose(): void {
     this.unsubscribe();
-    for (const c of this.active.values()) c.abort();
+    const cause: Interruption = { by: "studio", why: this.restartCause(false) ?? "Studio's daemon shut down" };
+    for (const [id, c] of [...this.active]) {
+      if (this.o.subscription?.()) this.interrupt(id, cause);
+      else c.abort(cause);
+    }
+  }
+
+  /** Why a deliberate daemon restart happened, when it left a recent note. `consume` deletes the note. */
+  private restartCause(consume: boolean): string | null {
+    const file = `${this.o.host.dataDir}/${RESTART_CAUSE_FILE}`;
+    try {
+      const r = JSON.parse(fs.readFileSync(file, "utf-8")) as { cause?: unknown; at?: unknown };
+      if (consume) fs.rmSync(file, { force: true });
+      return typeof r.cause === "string" && typeof r.at === "number" && Date.now() - r.at < RESTART_CAUSE_TTL_MS ? r.cause : null;
+    } catch {
+      return null;
+    }
   }
 
   /** After a daemon restart: anything that was mid-turn continues, and a call that was mid-flight becomes unknown. */
   recover(): void {
+    const why = this.restartCause(true) ?? "Studio's daemon restarted";
     for (const s of this.o.store.all()) {
+      const asked = new Set((s.approvals ?? []).map((a) => a.toolUseId));
       // An approval only the previous daemon could answer; its call asks again when the turn resumes.
       if (s.approvals?.length) {
         s.approvals = [];
         this.o.store.save(s);
       }
       if (s.status !== "running" && s.status !== "waiting") continue;
+      if (this.o.subscription?.()) {
+        // The SDK cannot pick up a turn a restart cut off: end it, saying what was cut off and by what.
+        this.endTurn(s, { by: "studio", why }, asked);
+        continue;
+      }
       for (const p of s.pending ?? []) if (p.state === "running") p.state = "unknown";
       s.status = "waiting";
-      s.waitingCause = s.waitingCause ?? "the daemon restarted";
+      s.waitingCause = s.waitingCause ?? why.replace(/^Studio's daemon/, "the daemon");
       this.o.store.save(s);
     }
     this.resumeAll();
@@ -252,6 +281,8 @@ export class AgentRunner {
           else this.subagents.delete(callId);
         },
         runTool: async (toolId, name, input) => {
+          // The turn ended while the binary was still asking: nothing runs after a stop.
+          if (controller.signal.aborted) return { text: interruptedResult({ name, input }, this.causeOf(controller), false), isError: true, outcome: "error", touched: [], saved: [] };
           if (name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, controller.signal);
           const gate = await this.gate(s, toolId, name, input, controller.signal);
           if (gate) {
@@ -275,9 +306,15 @@ export class AgentRunner {
       this.setStatus(s, error ? "error" : "idle", null);
     } finally {
       if (this.active.get(id) === controller) this.active.delete(id);
-      // A call the turn ended or was stopped without answering never finishes now.
-      this.markStopped(s);
+      // A call the turn ended without answering never finishes now. A stop answered its own already.
+      if (!controller.signal.aborted) this.endCalls(s, () => "The turn ended before this call returned a result.", "error");
     }
+  }
+
+  /** What a turn's controller was aborted for. */
+  private causeOf(c: AbortController): Interruption {
+    const r = c.signal.reason as Interruption | undefined;
+    return r && (r.by === "user" || r.by === "studio") ? r : USER_STOP;
   }
 
   /** Hold a tool call until the editor is back, showing the session as waiting meanwhile. */
@@ -288,31 +325,73 @@ export class AgentRunner {
     if (!signal.aborted) this.setStatus(s, "running", null);
   }
 
-  /** Stop a turn. Unanswered tool calls are answered as stopped so the conversation stays valid. */
+  /** The user's Stop. Unanswered tool calls are answered as stopped so the conversation stays valid. */
   stop(sessionId: string): void {
+    this.interrupt(sessionId, USER_STOP);
+  }
+
+  /** The sessions with a turn running or waiting. */
+  activeSessions(): string[] {
+    return this.o.store.all().filter((s) => s.status === "running" || s.status === "waiting").map((s) => s.id);
+  }
+
+  /**
+   * End a turn now: the user stopped it, or Studio has to (its daemon is about
+   * to restart). Every call it leaves unanswered says who ended it and what
+   * goes on regardless, and the model hears the same with the next message.
+   */
+  interrupt(sessionId: string, cause: Interruption): void {
     const s = this.require(sessionId);
-    this.active.get(s.id)?.abort();
+    const asked = new Set((s.approvals ?? []).map((a) => a.toolUseId));
+    this.active.get(s.id)?.abort(cause);
     this.active.delete(s.id);
+    this.endTurn(s, cause, asked);
+  }
+
+  /** Answer what a turn left open, leave the model a note, and set the session's state. `asked`: calls waiting for approval, which never ran. */
+  private endTurn(s: StoredSession, cause: Interruption, asked: Set<string>): void {
+    const running: Array<{ name: string; input: Record<string, unknown> }> = [];
+    const outcome = cause.by === "user" ? "stopped" : "unknown";
     if (s.pending) {
       for (const p of s.pending) {
-        if (p.state !== "done") {
-          p.state = "done";
-          p.result = "Stopped by the user before this ran.";
-          p.isError = true;
-        }
+        if (p.state === "done") continue;
+        const ran = p.state === "running" || p.state === "unknown";
+        if (ran) running.push(p);
+        p.state = "done";
+        p.result = interruptedResult(p, cause, ran);
+        p.isError = true;
+        this.recordOutcome(s, p, outcome);
       }
       this.flushPending(s);
     }
-    this.markStopped(s);
-    this.setStatus(s, "stopped", null);
+    this.endCalls(s, (call) => {
+      const ran = !asked.has(call.id);
+      if (ran && !call.parent) running.push(call);
+      return interruptedResult(call, cause, ran);
+    }, outcome);
+    if (running.length > 0 || cause.by === "studio") {
+      const note = interruptionNote(running, cause);
+      s.notes.push(note);
+      this.addEntry(s, { kind: "note", text: note, at: now() });
+    }
+    if (cause.by === "user") {
+      this.setStatus(s, "stopped", null);
+    } else {
+      s.error = `The turn ended because ${cause.why}. Send a message to continue.`;
+      this.setStatus(s, "error", null);
+    }
   }
 
-  /** Every call the transcript still shows running, recorded as stopped by the user. */
-  private markStopped(s: StoredSession): void {
+  /** Every call the transcript still shows running, answered with the text `result` gives it. */
+  private endCalls(
+    s: StoredSession,
+    result: (call: { id: string; name: string; input: Record<string, unknown>; parent?: string }) => string,
+    outcome: "stopped" | "unknown" | "error",
+  ): void {
     for (const t of s.transcript) {
-      if (t.kind === "tool" && t.call.outcome === "pending") {
-        this.recordOutcome(s, { id: t.call.id, name: t.call.name, input: {}, state: "done", result: "Stopped by the user.", isError: true }, "stopped");
-      }
+      if (t.kind !== "tool" || t.call.outcome !== "pending") continue;
+      const call = { id: t.call.id, name: t.call.name, input: (t.call.input ?? {}) as Record<string, unknown>, ...(t.parent ? { parent: t.parent } : {}) };
+      this.recordOutcome(s, { id: call.id, name: call.name, input: call.input, state: "done", result: result(call), isError: true }, outcome);
     }
   }
 

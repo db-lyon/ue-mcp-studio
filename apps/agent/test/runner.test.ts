@@ -415,6 +415,36 @@ describe("persistence", () => {
     expect(store2.get(s.id)!.transcript[0]).toMatchObject({ kind: "user", text: "add a lamp" });
   });
 
+  it("a Stop during editor_restart says the rebuild goes on, and the next message carries that to the model", async () => {
+    let finish!: () => void;
+    host.editorOperation = (op: string) => new Promise((resolve) => {
+      host.connected = false;
+      finish = () => resolve({ op, steps: [{ step: "project.build", ok: true }] });
+    });
+    const model = new ScriptedModel([
+      () => ({ content: [{ type: "tool_use", id: "r", name: "editor_restart", input: { operation: "rebuild", reason: "C++" } } as never], stopReason: "tool_use" }),
+      (req) => {
+        const last = req.messages.at(-1)!.content as Array<{ type: string; text?: string }>;
+        expect(last[0].text).toMatch(/^\[Studio\] The user pressed Stop.*editor_restart \(rebuild\) was running/);
+        return text("The rebuild was still going.");
+      },
+    ]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    const turn = runner.send(s.id, "rebuild");
+    await until(() => store.get(s.id)!.pending?.[0]?.state === "running");
+    runner.stop(s.id);
+    finish();
+    await turn;
+    const stopped = store.get(s.id)!;
+    expect(stopped.transcript.find((t) => t.kind === "tool")).toMatchObject({ call: { outcome: "stopped" } });
+    const result = (stopped.messages.at(-1)!.content as Array<{ content: string }>)[0].content;
+    expect(result).toMatch(/^Stopped by the user while this was running.*the rebuild goes on in the daemon/);
+    host.connected = true;
+    await runner.send(s.id, "what happened?");
+    expect(store.get(s.id)!.status).toBe("idle");
+  });
+
   it("stopping answers the unanswered calls so the conversation stays valid", async () => {
     host.connected = false;
     const model = new ScriptedModel([() => call("t1", "level", "get_outliner")]);
