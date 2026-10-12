@@ -16,7 +16,8 @@
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *
- * Studio's window and the editor's busy state are in window-routes.ts.
+ * Studio's window and the editor's busy state are in window-routes.ts; resolving
+ * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts.
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,
  * studio.transcript.added, studio.turn.delta, studio.tool.finished,
@@ -40,6 +41,7 @@ import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
+import { AssetResolver, knownPaths, openAsset } from "./asset-links.js";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
@@ -345,6 +347,37 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return { status: 204 };
   });
 
+  // Asset names in the chat: resolved from disk, opened in the editor on a click.
+  const assets = new AssetResolver(api);
+  // A finished call may have created an asset that was missing a moment ago.
+  const unwatchAssets = api.events.subscribe((e) => {
+    if (/tool\.finished$/.test(e.type)) assets.forgetMissing();
+  });
+  api.route("POST", "/assets/resolve", async (req) => {
+    const b = (req.body ?? {}) as { tokens?: unknown; sessionId?: unknown };
+    if (!Array.isArray(b.tokens) || !b.tokens.every((t) => typeof t === "string")) return bad("body must be { tokens: string[], sessionId?: string }");
+    const own = typeof b.sessionId === "string" ? store.get(b.sessionId) : null;
+    const known = [...knownPaths(own), ...store.all().filter((s) => s !== own).flatMap((s) => knownPaths(s))];
+    return { body: { results: await assets.resolve(b.tokens as string[], known) } };
+  });
+  api.route("POST", "/assets/open", async (req) => {
+    const r = await openAsset({
+      host: api,
+      connected: () => api.editors().some((e) => e.connected),
+      busy: () => busy.state(),
+      track: async (f) => {
+        const id = busy.start({ category: "editor", action: "open_asset", source: "studio" });
+        try {
+          return await f();
+        } finally {
+          busy.finish(id);
+        }
+      },
+      resolver: assets,
+    }, (req.body as { path?: unknown } | undefined)?.path);
+    return r;
+  });
+
   if (packageDir) registerWindowRoutes(api, { busy, stopSession: (id) => runner.stop(id), window: () => daemonWindowHost(api, packageDir, agentVersion) });
 
   runner.recover();
@@ -352,6 +385,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     runner,
     dispose: () => {
       unobserve();
+      unwatchAssets();
       runner.dispose();
     },
   };
