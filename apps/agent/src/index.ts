@@ -12,6 +12,7 @@ import { parseDocument } from "yaml";
 import type { DaemonExtension, DaemonExtensionApi } from "ue-mcp/daemon";
 import type { StudioAbout, StudioConfigFile } from "@ue-mcp-studio/shared";
 import { registerChat } from "./chat-routes.js";
+import { isNewer } from "./updates.js";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -30,17 +31,13 @@ function trustedKeys(): string[] {
   return readJson<string[]>(path.join(packageDir, "dist", "keys.json")) ?? [];
 }
 
-function newer(a: string, b: string): boolean {
-  return a.localeCompare(b, undefined, { numeric: true }) > 0;
-}
-
 /** Install the UI bundle shipped beside this package when it is newer than the one being served. */
 function installShippedUi(api: DaemonExtensionApi): void {
   const shipped = path.join(packageDir, "ui");
   const manifest = readJson<{ version: string }>(path.join(shipped, "manifest.json"));
   if (!manifest) return;
   const active = api.ui.active();
-  if (active && !newer(manifest.version, active.version)) return;
+  if (active && !isNewer(manifest.version, active.version)) return;
   try {
     const installed = api.ui.install(shipped);
     api.log.info(`installed UI ${installed.version}`);
