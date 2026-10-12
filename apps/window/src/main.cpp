@@ -56,6 +56,10 @@ constexpr UINT_PTR kEditorTimer = 2;
 constexpr UINT_PTR kTestTimer = 3;
 constexpr UINT_PTR kDockTimer = 4;
 constexpr UINT_PTR kRaiseTimer = 5;
+constexpr UINT_PTR kNotifyTimer = 6;
+constexpr UINT kNotifyId = 1;
+/** How long a notification's tray icon stays after it was posted. */
+constexpr UINT kNotifyMs = 30000;
 constexpr ULONG_PTR kCopyArgs = 0x53545544;  // "STUD"
 constexpr LRESULT kHandedOff = 1;
 constexpr LRESULT kReplaceMe = 2;
@@ -480,6 +484,7 @@ bool attachedInFront(HWND fg) {
 void saveState();
 void restack();
 void updateDock();
+bool drawAttention(const std::wstring& text);
 
 /** Follow the editor: its exit, its minimize and restore, and the z-order while either is in front. */
 void trackEditor() {
@@ -970,13 +975,7 @@ std::string dispatch(const std::string& method, const std::string& arg) {
     openExternal(L"https://nodejs.org/en/download");
     return b(true);
   }
-  if (method == "drawattention") {
-    if (GetForegroundWindow() != gMain) {
-      FLASHWINFO fi = {sizeof fi, gMain, FLASHW_ALL | FLASHW_TIMERNOFG, 0, 0};
-      FlashWindowEx(&fi);
-    }
-    return b(true);
-  }
+  if (method == "drawattention") return b(drawAttention(widen(arg)));
   if (method == "opendocs") {
     std::string path = arg.empty() ? "/docs/" : arg;
     if (path.rfind("/docs", 0) != 0 || path.find("..") != std::string::npos || path.find("://") != std::string::npos) return b(false);
@@ -995,6 +994,47 @@ std::string dispatch(const std::string& method, const std::string& arg) {
   }
   if (method == "raiseeditor") return b(raiseEditor());  // after an asset opens from the chat
   return "null";
+}
+
+/**
+ * Studio needs the user while they are elsewhere: flash the taskbar button and
+ * post a notification. Docked, Studio's window has no taskbar button, so the
+ * editor's window holding the tab flashes instead.
+ */
+bool drawAttention(const std::wstring& text) {
+  HWND fg = GetForegroundWindow();
+  if (fg == gMain) return true;
+  HWND target = gMain;
+  if (docked() && gHost && IsWindow(gHost)) target = GetAncestor(gHost, GA_ROOTOWNER);
+  if (target && fg != target) {
+    FLASHWINFO fi = {sizeof fi, target, FLASHW_ALL | FLASHW_TIMERNOFG, 0, 0};
+    FlashWindowEx(&fi);
+  }
+  if (text.empty()) return true;
+  // A tray icon's balloon, which Windows 10 and 11 show as a notification. The icon goes
+  // again after a while; a newer message replaces the one showing.
+  NOTIFYICONDATAW nid = {};
+  nid.cbSize = sizeof nid;
+  nid.hWnd = gMain;
+  nid.uID = kNotifyId;
+  nid.uFlags = NIF_ICON | NIF_TIP | NIF_INFO;
+  nid.hIcon = reinterpret_cast<HICON>(GetClassLongPtrW(gMain, GCLP_HICONSM));
+  if (!nid.hIcon) nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+  wcsncpy_s(nid.szTip, L"UE-MCP Studio", _TRUNCATE);
+  wcsncpy_s(nid.szInfoTitle, L"UE-MCP Studio", _TRUNCATE);
+  wcsncpy_s(nid.szInfo, text.c_str(), _TRUNCATE);
+  nid.dwInfoFlags = NIIF_INFO;
+  bool shown = Shell_NotifyIconW(NIM_MODIFY, &nid) || Shell_NotifyIconW(NIM_ADD, &nid);
+  if (shown) SetTimer(gMain, kNotifyTimer, kNotifyMs, nullptr);
+  return true;
+}
+
+void removeNotification() {
+  NOTIFYICONDATAW nid = {};
+  nid.cbSize = sizeof nid;
+  nid.hWnd = gMain;
+  nid.uID = kNotifyId;
+  Shell_NotifyIconW(NIM_DELETE, &nid);
 }
 
 void showLocalPage() {
@@ -1342,7 +1382,10 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       if (wp == kDaemonTimer) pollDaemon();
       else if (wp == kEditorTimer) trackEditor();
       else if (wp == kDockTimer && gMode == dock::Mode::Docked) updateDock();
-      else if (wp == kRaiseTimer) {
+      else if (wp == kNotifyTimer) {
+        KillTimer(w, kNotifyTimer);
+        removeNotification();
+      } else if (wp == kRaiseTimer) {
         // The editor's windows rose: keep Studio over them.
         KillTimer(w, kRaiseTimer);
         restack();
@@ -1361,6 +1404,7 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       DestroyWindow(w);
       return 0;
     case WM_DESTROY:
+      removeNotification();
       for (HWINEVENTHOOK h : gHooks) if (h) UnhookWinEvent(h);
       if (gEditorHook) UnhookWinEvent(gEditorHook);
       gEditorHook = nullptr;
