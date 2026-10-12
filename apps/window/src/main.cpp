@@ -1203,6 +1203,18 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_SETFOCUS:
       if (gView) SetFocus(gView);
       return 0;
+    case WM_ACTIVATE: {
+      // Docked Studio activated from another app: the editor around it comes forward too,
+      // just under Studio. Posted to the editor's thread (SWP_ASYNCWINDOWPOS), so a busy
+      // editor cannot stall this; it rises when it next pumps messages.
+      HWND from = reinterpret_cast<HWND>(lp);
+      if (LOWORD(wp) != WA_INACTIVE && gShown == Shown::Docked && gHost && IsWindow(gHost) && (!from || pidOf(from) != gReport.pid)) {
+        HWND top = GetAncestor(gHost, GA_ROOTOWNER);
+        SetWindowPos(top ? top : gHost, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
+        restack();
+      }
+      break;
+    }
     case WM_WINDOWPOSCHANGING: {
       // Docked and not topmost, every z-order change lands directly above the host,
       // activation included: the editor's menus and dialogs stay above Studio.
