@@ -253,12 +253,17 @@ async function startFailure(host: UpdaterHost): Promise<string | null> {
 }
 
 /**
- * Run node in a console of its own with no window. npx runs ue-mcp under
- * cmd.exe; a detached parent has no console to share, so that cmd opened a
- * blank window of its own. The chain outlives this daemon either way.
+ * Run node in the background with no console window. npx runs ue-mcp under
+ * cmd.exe, which opens a window of its own unless it inherits a console, and
+ * a child that is not detached dies with this daemon, which the chain stops.
+ * So a detached wrapper outlives the daemon and runs the chain in a console
+ * that has no window.
  */
-function runHidden(args: string[], cwd: string): void {
-  spawn(process.execPath, args, { stdio: "ignore", windowsHide: true, cwd }).unref();
+export function runHidden(args: string[], cwd: string): void {
+  const wrapper =
+    'const c=require("child_process").spawn(process.execPath,JSON.parse(process.env.STUDIO_CHAIN),{stdio:"ignore",windowsHide:true});' +
+    'c.on("exit",(x)=>process.exit(x??0));c.on("error",()=>process.exit(1));';
+  spawn(process.execPath, ["-e", wrapper], { detached: true, stdio: "ignore", windowsHide: true, cwd, env: { ...process.env, STUDIO_CHAIN: JSON.stringify(args) } }).unref();
 }
 
 /** A file the editor just let go of can stay locked for a moment on Windows. */
