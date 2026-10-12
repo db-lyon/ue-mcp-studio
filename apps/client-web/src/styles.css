@@ -773,3 +773,14 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .feedback-kind { gap: 6px; }
 .feedback-kind button.current { background: var(--accent-wash); border-color: var(--accent-line); color: var(--text); }
 .feedback-env { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--bg, rgba(0, 0, 0, 0.25)); white-space: pre-wrap; font: 12px/1.5 var(--mono, monospace); }
+
+/* Asset names in the chat: inline code that opens the asset in the editor. */
+.asset-ref { position: relative; display: inline; }
+.asset-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-decoration: none; }
+.asset-link.code { font: 12px var(--mono); background: var(--panel-2); padding: 1px 4px; border-radius: 4px; box-shadow: inset 0 -1px 0 var(--accent-line); }
+.asset-link:hover, .asset-link:focus-visible { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
+.asset-link:focus-visible { outline: 1px solid var(--accent-line); outline-offset: 1px; }
+.asset-chooser { position: absolute; left: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; min-width: 220px; max-width: min(480px, 90vw); padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
+.asset-chooser button { font: 12px var(--mono); text-align: left; color: inherit; background: none; border: 0; padding: 4px 6px; border-radius: 4px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.asset-chooser button:hover, .asset-chooser button:focus-visible { background: var(--accent-wash); }
+.asset-toast { margin-left: 6px; font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--panel-2); border: 1px solid var(--accent-line); white-space: nowrap; }

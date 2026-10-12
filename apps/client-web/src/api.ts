@@ -6,6 +6,8 @@
 import type { DaemonEvent, DaemonHealth, StatusReport } from "ue-mcp/daemon";
 import type {
   ApprovalDecision,
+  AssetOpenResponse,
+  AssetResolveResponse,
   BusyState,
   FeedbackReport,
   FeedbackResult,
@@ -138,6 +140,9 @@ export const api = {
   approve: (id: string, approvalId: string, decision: ApprovalDecision) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
+  resolveAssets: (tokens: string[], sessionId: string | null) =>
+    call<AssetResolveResponse>("POST", "/v1/ext/studio/assets/resolve", sessionId ? { tokens, sessionId } : { tokens }),
+  openAsset: (path: string) => call<AssetOpenResponse>("POST", "/v1/ext/studio/assets/open", { path }),
   stopBusy: () => call<{ stopped: string[] }>("POST", "/v1/ext/studio/busy/stop"),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),
   sendFeedback: (report: FeedbackReport) => call<FeedbackResult>("POST", "/v1/ext/studio/feedback", report),

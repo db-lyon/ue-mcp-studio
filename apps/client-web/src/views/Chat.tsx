@@ -12,6 +12,7 @@ import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
 import { Approvals } from "../chat/Approvals";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
+import { AssetLinksContext, useAssetLinks } from "../chat/asset-links";
 import { readLocation, writeLocation } from "../location";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
@@ -173,6 +174,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
+  const assetLinks = useAssetLinks(detail?.id ?? null);
   const live = sessions.filter((s) => !s.archived);
   const archived = sessions.filter((s) => s.archived);
   // After a rename, archive or delete: list again, and close the open session if it is gone.
@@ -238,6 +240,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
         )}
         {detail && (
           <SessionIdContext.Provider value={detail.id}>
+          <AssetLinksContext.Provider value={assetLinks}>
             <div className="thread-stage" ref={stage}>
               <MainTranscript
                 transcript={detail.transcript}
@@ -288,6 +291,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 seen={seen}
               />
             </Composer>
+          </AssetLinksContext.Provider>
           </SessionIdContext.Provider>
         )}
       </section>

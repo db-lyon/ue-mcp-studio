@@ -26,6 +26,8 @@ interface StudioBinding {
   getwindowmode?(): Promise<string>;
   /** Studio's own window only: dock it in the editor's tab, or open it as a window, and keep that for the project. */
   setwindowmode?(mode: "docked" | "window"): Promise<boolean>;
+  /** Studio's own window only: bring the editor's windows forward, under Studio, without taking focus. */
+  raiseeditor?(): Promise<boolean>;
 }
 
 declare global {

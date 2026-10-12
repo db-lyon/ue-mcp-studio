@@ -22,6 +22,9 @@ import {
   type Call,
 } from "./model";
 import { useFollow, useNow } from "./hooks";
+import { remarkAssets } from "./asset-links";
+import { AssetToken, LinkedText } from "./AssetLink";
+import type { Components } from "react-markdown";
 
 /** One line of a conversation that is not a subagent: a message, a note or a tool call. */
 export function Entry({ entry }: { entry: TranscriptEntry }) {
@@ -55,9 +58,22 @@ function SentFiles({ files }: { files: Attachment[] }) {
   );
 }
 
+/** Inline code and bare object paths that name an asset render as links once resolved. */
+const REPLY_COMPONENTS: Components = {
+  code: ({ node: _node, children, ...props }) => {
+    const token = (props as { "data-asset"?: string })["data-asset"];
+    return token ? <AssetToken token={token} code /> : <code {...props}>{children}</code>;
+  },
+  span: ({ node: _node, children, ...props }) => {
+    const token = (props as { "data-asset"?: string })["data-asset"];
+    return token ? <AssetToken token={token} code={false} /> : <span {...props}>{children}</span>;
+  },
+};
+const REPLY_PLUGINS = [remarkGfm, remarkBreaks, remarkAssets];
+
 /** A model reply, rendered as markdown without raw HTML; a single line break stays a line break. */
 export function Reply({ text }: { text: string }) {
-  return <div className="msg assistant md"><Markdown remarkPlugins={[remarkGfm, remarkBreaks]}>{text}</Markdown></div>;
+  return <div className="msg assistant md"><Markdown remarkPlugins={REPLY_PLUGINS} components={REPLY_COMPONENTS}>{text}</Markdown></div>;
 }
 
 /**
@@ -193,7 +209,7 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack, onSto
 }
 
 /** How a call's input reads when opened: the command, the change as a diff, or the input itself. */
-function CallInput({ call }: { call: Call }) {
+function CallInput({ call, links }: { call: Call; links: boolean }) {
   const i = call.input as { command?: string; path?: string; content?: string; old_string?: string; new_string?: string; replace_all?: boolean };
   if (call.name === "shell") return <pre className="output command">{`$ ${i.command ?? ""}`}</pre>;
   if (call.name === "edit_file") {
@@ -210,7 +226,7 @@ function CallInput({ call }: { call: Call }) {
     return <DiffView lines={lines.length > WRITE_PREVIEW_LINES ? [...shown, { op: "gap", count: lines.length - WRITE_PREVIEW_LINES }] : shown} label={`Content of ${i.path ?? ""}`} />;
   }
   if (call.name === "web_search" || call.name === "read_file" || call.name === "glob" || call.name === "grep" || call.name === "web_fetch") return null;
-  return <pre className="output">{JSON.stringify(call.input, null, 2)}</pre>;
+  return <pre className="output">{links ? <LinkedText text={JSON.stringify(call.input, null, 2)} /> : JSON.stringify(call.input, null, 2)}</pre>;
 }
 
 /** How many lines of a written file the transcript shows. */
@@ -219,6 +235,8 @@ const WRITE_PREVIEW_LINES = 40;
 /** A tool call: its label and outcome; open, its input and its result, long results shortened. */
 export function ToolCall({ call }: { call: Call }) {
   const label = useMemo(() => toolLabel(call), [call]);
+  // Paths in the input and result become links only while the call is open.
+  const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
   const [copied, setCopied] = useState(false);
   // A machine tool's result is text as it came; ue-mcp's is JSON, indented.
@@ -234,20 +252,20 @@ export function ToolCall({ call }: { call: Call }) {
     });
   };
   return (
-    <details className={`tool ${call.outcome}`}>
+    <details className={`tool ${call.outcome}`} onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary>
         <span className="tool-name">{TOOL_TAG[call.name] ?? call.name}</span>
         <span className="tool-call">{label}</span>
         <span className="dim">{OUTCOME_LABEL[call.outcome]}</span>
       </summary>
-      <CallInput call={call} />
+      <CallInput call={call} links={open} />
       {result && (
         <div className="result">
           <div className="result-bar">
             <span className="dim small">{call.name === "shell" ? "Output" : "Result"}, {result.lines} {result.lines === 1 ? "line" : "lines"}</span>
             <button className="ghost small-button" onClick={copy}>{copied ? "Copied" : "Copy"}</button>
           </div>
-          <pre className="output">{shown}</pre>
+          <pre className="output">{open && shown ? <LinkedText text={shown} /> : shown}</pre>
           {result.lines > RESULT_PREVIEW_LINES && (
             <button className="ghost small-button" onClick={() => setAll(!all)}>{all ? "Show less" : `Show all ${result.lines} lines`}</button>
           )}
