@@ -59,23 +59,47 @@ export function objectPathOf(packagePath: string): string {
   return `${packagePath}.${leaf}`;
 }
 
-/** POST /v1/ext/studio/assets/resolve. sessionId lets the agent start from what that session already knows. */
+/** The object path a markdown link's target names, or null when it names no asset. */
+export function assetLinkTarget(url: string): string | null {
+  const t = classifyAssetToken(url);
+  if (!t || t.kind !== "path") return null;
+  return t.path.includes(".") ? t.path.replace(/:.*$/, "") : objectPathOf(t.packagePath);
+}
+
+/**
+ * One token to resolve. at: the transcript index of the message it is in, so
+ * a name resolves by what the session did up to that message.
+ */
+export interface AssetRef {
+  token: string;
+  at?: number;
+}
+
+/** POST /v1/ext/studio/assets/resolve. */
 export interface AssetResolveRequest {
-  tokens: string[];
+  refs: AssetRef[];
   sessionId?: string;
 }
 
 /**
- * resolved: one or more object paths. unresolved: no such asset, stays text.
- * retry: not answerable right now (the lookup failed or the batch was full); ask again later.
+ * resolved: one object path, or several when nothing narrows a name (the
+ * chooser, a miss). unresolved: no such asset, stays text. retry: not
+ * answerable right now; ask again later.
  */
 export type AssetResolution =
   | { status: "resolved"; paths: string[] }
   | { status: "unresolved" }
   | { status: "retry" };
 
+/** Results in the order of the request's refs. */
 export interface AssetResolveResponse {
-  results: Record<string, AssetResolution>;
+  results: AssetResolution[];
+}
+
+/** POST /v1/ext/studio/assets/missed: the chooser was shown, logged so the miss can be fixed. */
+export interface AssetMissReport {
+  name: string;
+  candidates: number;
 }
 
 /** POST /v1/ext/studio/assets/open. */

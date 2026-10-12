@@ -41,7 +41,8 @@ import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
-import { AssetResolver, knownPaths, openAsset } from "./asset-links.js";
+import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js";
+import type { AssetRef } from "@ue-mcp-studio/shared";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
@@ -354,11 +355,21 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (/tool\.finished$/.test(e.type)) assets.forgetMissing();
   });
   api.route("POST", "/assets/resolve", async (req) => {
-    const b = (req.body ?? {}) as { tokens?: unknown; sessionId?: unknown };
-    if (!Array.isArray(b.tokens) || !b.tokens.every((t) => typeof t === "string")) return bad("body must be { tokens: string[], sessionId?: string }");
+    const b = (req.body ?? {}) as { refs?: unknown; sessionId?: unknown };
+    const refs = Array.isArray(b.refs) ? (b.refs as Array<{ token?: unknown; at?: unknown }>) : null;
+    if (!refs || !refs.every((r) => r && typeof r.token === "string" && (r.at === undefined || Number.isInteger(r.at)))) {
+      return bad("body must be { refs: [{ token: string, at?: integer }], sessionId?: string }");
+    }
     const own = typeof b.sessionId === "string" ? store.get(b.sessionId) : null;
-    const known = [...knownPaths(own), ...store.all().filter((s) => s !== own).flatMap((s) => knownPaths(s))];
-    return { body: { results: await assets.resolve(b.tokens as string[], known) } };
+    const running = own?.status === "running" || own?.status === "waiting";
+    const trace = (name: string, at?: number) => (own ? traceName(own.transcript, name, at, running) : ({ status: "none" } as const));
+    return { body: { results: await assets.resolve(refs as AssetRef[], trace) } };
+  });
+  api.route("POST", "/assets/missed", async (req) => {
+    const line = missLine(req.body);
+    if (!line) return bad("body must be { name: string, candidates: integer }");
+    api.log.warn(line);
+    return { status: 204 };
   });
   api.route("POST", "/assets/open", async (req) => {
     const r = await openAsset({

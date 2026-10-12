@@ -1,27 +1,32 @@
 /**
  * Asset names in the chat, resolved to object paths and opened in the editor:
  *
- *   POST /assets/resolve   { tokens, sessionId? } -> { results: { token: AssetResolution } }
+ *   POST /assets/resolve   { refs: [{ token, at? }], sessionId? } -> { results: AssetResolution[] }
  *   POST /assets/open      { path } -> { path, alreadyOpen }
+ *   POST /assets/missed    { name, candidates } -> 204, logs a chooser that was shown
  *
- * Resolution reads the package files on disk through project.list_content_assets,
- * which the daemon answers without the editor. A session's own paths (what it
- * touched and what its calls named) come first. Lookups are cached per project
+ * A path is checked on disk. A name is traced through the session's own calls
+ * (main agent and subagents): the most recent call before the message that
+ * names a path ending in it wins. Only a name the session never referenced up
+ * to there is looked up in the project, through project.list_content_assets,
+ * which the daemon answers without the editor. Lookups are cached per project
  * and run a few at a time; a token that cannot be answered now comes back as
  * retry and stays plain text until the UI asks again.
  */
 import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
 import {
   MAX_RESOLVE_TOKENS,
+  OBJECT_PATH_IN_TEXT,
   classifyAssetToken,
   objectPathOf,
   type AssetOpenResponse,
+  type AssetRef,
   type AssetResolution,
   type AssetToken,
   type BusyState,
+  type ToolCallRecord,
   type TranscriptEntry,
 } from "@ue-mcp-studio/shared";
-import { namedTargets } from "./tools.js";
 
 type Host = Pick<DaemonExtensionApi, "callAction">;
 
@@ -41,22 +46,87 @@ interface Entry {
   at: number;
 }
 
-/** The asset paths a session already knows: what it touched and what its editor calls named. */
-export function knownPaths(session: { touched: Array<{ kind: string; path: string }>; transcript: TranscriptEntry[] } | null | undefined): string[] {
-  if (!session) return [];
-  const out = new Set<string>();
-  for (const t of session.touched) if (t.kind === "asset") out.add(t.path);
-  for (const e of session.transcript) {
-    if (e.kind !== "tool" || e.call.name !== "ue_mcp") continue;
-    const args = (e.call.input as { args?: unknown } | null)?.args;
-    if (!args || typeof args !== "object" || Array.isArray(args)) continue;
-    for (const t of namedTargets(args as Record<string, unknown>)) if (t.kind === "asset") out.add(t.path);
+/** Keys whose path is what a call made: a duplicate's copy outranks its source. */
+const MADE_KEYS = new Set(["destinationPath", "destPath", "newPath", "new_path", "targetPath", "outputPath"]);
+
+/**
+ * The object paths one call names that end in `name`: what it made when it
+ * made one, otherwise every path in its input and result. Several means the
+ * call itself does not say which.
+ */
+export function callRefs(call: ToolCallRecord, name: string): string[] {
+  if (call.outcome === "declined") return [];
+  const want = name.toLowerCase();
+  const ranked = [new Map<string, string>(), new Map<string, string>()];
+  const scan = (text: string, rank: number) => {
+    for (const m of text.matchAll(new RegExp(OBJECT_PATH_IN_TEXT.source, "g"))) {
+      const t = classifyAssetToken(m[0]);
+      if (t?.kind !== "path" || t.name.toLowerCase() !== want) continue;
+      const key = t.packagePath.toLowerCase();
+      if (!ranked[rank].has(key)) ranked[rank].set(key, t.path.includes(".") ? t.path.replace(/:.*$/, "") : objectPathOf(t.packagePath));
+    }
+  };
+  const visit = (v: unknown, rank: number, depth = 0): void => {
+    if (depth > 12) return;
+    if (typeof v === "string") scan(v, rank);
+    else if (Array.isArray(v)) for (const x of v) visit(x, rank, depth + 1);
+    else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) visit(x, MADE_KEYS.has(k) ? 0 : rank, depth + 1);
+  };
+  visit(call.input, 1);
+  if (call.result) {
+    let json: unknown;
+    try {
+      json = JSON.parse(call.result);
+    } catch {
+      json = undefined;
+    }
+    if (json && typeof json === "object") visit(json, 1);
+    else scan(call.result, 1);
   }
-  return [...out];
+  return [...(ranked[0].size ? ranked[0] : ranked[1]).values()];
+}
+
+/**
+ * found: the paths the most recent call naming it gave (one is exact).
+ * open: no call named it yet, and the message's turn is still running.
+ * none: the session never referenced it up to that message.
+ */
+export type Trace = { status: "found"; paths: string[] } | { status: "open" } | { status: "none" };
+
+/**
+ * Trace a name through a session's calls, subagents' included: the most
+ * recent call before the message at `at`, then the rest of that turn. With no
+ * `at`, the whole transcript.
+ */
+export function traceName(transcript: TranscriptEntry[], name: string, at?: number, running = false): Trace {
+  const end = at === undefined ? transcript.length : Math.min(Math.max(at, 0), transcript.length);
+  for (let j = end - 1; j >= 0; j--) {
+    const e = transcript[j];
+    if (e.kind !== "tool") continue;
+    const paths = callRefs(e.call, name);
+    if (paths.length) return { status: "found", paths };
+  }
+  if (at === undefined) return { status: "none" };
+  let j = end + 1;
+  for (; j < transcript.length; j++) {
+    const e = transcript[j];
+    if (e.kind === "user" && !e.parent) break;
+    if (e.kind !== "tool") continue;
+    const paths = callRefs(e.call, name);
+    if (paths.length) return { status: "found", paths };
+  }
+  return j >= transcript.length && running ? { status: "open" } : { status: "none" };
+}
+
+/** The log line for a chooser the UI showed, or null for a report that is not one. */
+export function missLine(body: unknown): string | null {
+  const b = (body ?? {}) as { name?: unknown; candidates?: unknown };
+  if (typeof b.name !== "string" || classifyAssetToken(b.name)?.kind !== "name") return null;
+  if (typeof b.candidates !== "number" || !Number.isInteger(b.candidates) || b.candidates < 2 || b.candidates > 500) return null;
+  return `asset chooser shown for ${b.name}, ${b.candidates} candidates, no link or trace`;
 }
 
 const packageOf = (p: string): string => p.replace(/[.:].*$/, "");
-const leafOf = (p: string): string => packageOf(p).slice(packageOf(p).lastIndexOf("/") + 1);
 
 function parse(r: ActionResult): Record<string, unknown> | null {
   try {
@@ -153,37 +223,46 @@ export class AssetResolver {
       a.filter((x) => x.name.toLowerCase() === name.toLowerCase()).map((x) => objectPathOf(x.assetPath)).sort());
   }
 
-  async resolve(tokens: string[], known: string[] = []): Promise<Record<string, AssetResolution>> {
-    const out: Record<string, AssetResolution> = {};
+  /**
+   * Resolve refs in order: a path on disk; a name by the session's trace, then
+   * by the project only when the session never referenced it. Several project
+   * matches come back as they are, for the chooser.
+   */
+  async resolve(refs: AssetRef[], trace: (name: string, at?: number) => Trace = () => ({ status: "none" })): Promise<AssetResolution[]> {
+    const out: AssetResolution[] = [];
     const work: Array<Promise<void>> = [];
     let started = 0;
-    for (const token of [...new Set(tokens)].slice(0, MAX_RESOLVE_TOKENS)) {
-      const t = classifyAssetToken(token);
+    refs.slice(0, MAX_RESOLVE_TOKENS).forEach((ref, i) => {
+      const t = classifyAssetToken(ref.token);
       if (!t) {
-        out[token] = { status: "unresolved" };
-        continue;
+        out[i] = { status: "unresolved" };
+        return;
       }
       if (t.kind === "name") {
-        const mine = [...new Set(known.filter((p) => leafOf(p).toLowerCase() === t.name.toLowerCase()).map((p) => (p.includes(".") ? p : objectPathOf(p))))];
-        if (mine.length) {
-          out[token] = { status: "resolved", paths: mine };
-          continue;
+        const tr = trace(t.name, ref.at);
+        if (tr.status === "found") {
+          out[i] = { status: "resolved", paths: [...tr.paths].sort() };
+          return;
+        }
+        if (tr.status === "open") {
+          out[i] = { status: "retry" };
+          return;
         }
       }
       const key = t.kind === "name" ? `name:${t.name.toLowerCase()}` : `dir:${t.packagePath.slice(0, t.packagePath.lastIndexOf("/")).toLowerCase()}`;
       const needsCall = this.cached(key) === undefined && !this.inflight.has(key);
       if (needsCall && started >= LOOKUPS_PER_REQUEST) {
-        out[token] = { status: "retry" };
-        continue;
+        out[i] = { status: "retry" };
+        return;
       }
       if (needsCall) started++;
       const answer = t.kind === "name" ? this.byName(t.name) : this.byPath(t);
       const settle = (paths: string[] | null) => {
-        out[token] = paths === null ? { status: "retry" } : paths.length ? { status: "resolved", paths } : { status: "unresolved" };
+        out[i] = paths === null ? { status: "retry" } : paths.length ? { status: "resolved", paths } : { status: "unresolved" };
       };
       if (Array.isArray(answer)) settle(answer);
       else work.push(answer.then(settle));
-    }
+    });
     await Promise.all(work);
     return out;
   }
