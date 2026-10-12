@@ -241,6 +241,19 @@ describe("the agent's answer in auto mode", () => {
     expect(r.content[0].text).toMatch(/overrode your choice: "Cancel" was pressed instead of "Don't Save"/);
   });
 
+  it("shows the countdown on a dialog the user handed to the agent", async () => {
+    const { host, broker, calls, s } = setup();
+    void broker.prompt(s.id, "editor", "stop_editor", request());
+    vi.advanceTimersByTime(1000);
+    await broker.answer(broker.state().dialogs[0].id, { answer: "delegate" });
+    expect(broker.state().dialogs).toEqual([]);
+    const press = broker.wrap(host, s.id).callAction("editor", "respond_to_dialog", { buttonLabel: "Don't Save" });
+    expect(broker.state().dialogs[0]).toMatchObject({ held: { button: "Don't Save" }, outcome: null });
+    await vi.advanceTimersByTimeAsync(10_000);
+    await press;
+    expect(calls.at(-1)).toMatchObject({ args: { buttonLabel: "Don't Save" } });
+  });
+
   it("presses the held answer at once on Press now", async () => {
     const { host, broker, calls, emit, s } = setup();
     openAuto(emit);

@@ -145,7 +145,7 @@ export class DialogBroker {
   state(): DialogsState {
     return {
       now: this.now(),
-      dialogs: [...this.live.values()].filter((l) => l.view.outcome === null).map((l) => ({ ...l.view })),
+      dialogs: [...this.live.values()].filter((l) => l.view.outcome === null || l.view.held !== null).map((l) => ({ ...l.view })),
       supported: this.supported(),
     };
   }
@@ -323,6 +323,8 @@ export class DialogBroker {
 
     const held = l ?? this.recordFor("", "Editor dialog", [], { message: "", mode: "auto" });
     this.attribute(held, sessionId, "editor", "respond_to_dialog");
+    // Handed to the agent earlier: it is open again until the press lands.
+    if (held.view.outcome?.kind === "delegated") held.view.outcome = null;
     held.view.held = { button: label, until: this.now() + this.holdMs };
     const decided = await new Promise<{ button: string; by: "agent" | "you" } | null>((resolve) => {
       const timer = setTimeout(() => held.hold?.release({ button: label, by: "agent" }), this.holdMs);
