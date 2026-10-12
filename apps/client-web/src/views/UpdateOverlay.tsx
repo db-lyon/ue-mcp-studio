@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
-import { STEP_NAME, STEP_NOTE, execute, loadRun, planRun, saveRun, settle, type UpdateRun } from "./update-run";
+import { STEP_NAME, STEP_NOTE, execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
 
 let current: UpdateRun | null = null;
 const listeners = new Set<() => void>();
@@ -57,6 +57,8 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
   const last = events[events.length - 1];
   useEffect(() => {
     if (current && last?.type === "studio.update.progress" && typeof last.data.message === "string") setRun({ ...current, detail: last.data.message });
+    // A step the agent kept for a turn to finish: it says when it starts and how it ends.
+    if (last?.type === "studio.update.run") setRun((last.data.run as UpdateRun | null) ?? null);
   }, [last?.id]);
 
   useEffect(() => {
@@ -83,6 +85,7 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
     return () => clearTimeout(t);
   }, [run?.summary]);
 
+  if (run && waitingSteps(run).length > 0) return <UpdateWaiting run={run} />;
   if (run) return createPortal(<UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} />, document.body);
   if (away) {
     return createPortal(
@@ -96,6 +99,23 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
     );
   }
   return null;
+}
+
+/** An update kept until the turn in progress finishes, with a way to install it now. */
+export function UpdateWaiting({ run }: { run: UpdateRun }) {
+  const [sure, setSure] = useState(false);
+  const steps = waitingSteps(run);
+  const restarts = steps.some((k) => k === "studio" || k === "restart");
+  return (
+    <div className="banner warn update-waiting" role="status">
+      <span className="editor-banner-text">
+        <strong>Update ready,</strong> {restarts ? "restarts" : "the editor restarts for it"} when the current turn finishes.
+        {sure && <span className="dim"> Restarting now stops the turn in progress.</span>}
+      </span>
+      {sure && <button className="ghost" onClick={() => setSure(false)}>Cancel</button>}
+      <button className={sure ? "primary" : ""} onClick={() => (sure ? void restartNow(run, setRun) : setSure(true))}>{sure ? "Restart and stop the turn" : "Restart now"}</button>
+    </div>
+  );
 }
 
 export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boolean; onClose: () => void }) {

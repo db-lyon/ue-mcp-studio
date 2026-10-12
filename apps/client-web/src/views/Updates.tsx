@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { startUpdate, useRun } from "./UpdateOverlay";
+import { waitingSteps } from "./update-run";
 
 /** GET /v1/ext/studio/updates. */
 export interface StudioUpdates {
@@ -72,6 +73,7 @@ export function UpdatesCard() {
   const [u, setU] = useState<{ studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null } | null>(null);
   const run = useRun();
   const working = !!run && run.summary === undefined && !run.error;
+  const waiting = !!run && waitingSteps(run).length > 0;
   const load = () => void readUpdates().then(setU, () => setU({ studio: null, ueMcp: null }));
   useEffect(load, []);
   // Read again once an update finishes or stops.
@@ -102,7 +104,7 @@ export function UpdatesCard() {
       {u && (
         <div className="row update-status">
           <span className={`pill ${steps.length ? "warn" : "ok"}`}>{steps.length ? "Update available" : "Up to date"}</span>
-          <span className="muted">{working ? "Updating" : steps.length ? ready : "Everything is up to date."}</span>
+          <span className="muted">{waiting ? "Update ready, restarts when the current turn finishes." : working ? "Updating" : steps.length ? ready : "Everything is up to date."}</span>
           <span className="spacer" />
           {steps.length > 0 && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>

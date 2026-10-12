@@ -9,7 +9,8 @@
 import { readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 
 export type StepKey = "ueMcp" | "plugin" | "studio" | "restart";
-export type StepState = "pending" | "active" | "done" | "failed";
+/** deferred: the agent keeps the step until no turn is in progress, then runs it. */
+export type StepState = "pending" | "active" | "done" | "failed" | "deferred";
 export interface RunStep {
   key: StepKey;
   state: StepState;
@@ -51,8 +52,15 @@ export function saveRun(run: UpdateRun | null): Promise<void> {
 export async function loadRun(now = Date.now()): Promise<UpdateRun | null> {
   const res = await fetch(RUN_URL, { credentials: "same-origin" }).catch(() => null);
   const run = res?.ok ? ((await res.json()) as { run: UpdateRun | null }).run : null;
-  return run && now - run.at < STALE_MS ? run : null;
+  // A run waiting for a turn to finish is not stale however long the turn takes.
+  return run && (now - run.at < STALE_MS || waitingSteps(run).length > 0) ? run : null;
 }
+
+/** The steps the agent keeps until no turn is in progress. */
+export const waitingSteps = (run: UpdateRun): StepKey[] => run.steps.filter((s) => s.state === "deferred").map((s) => s.key);
+
+/** The steps that restart the daemon or close the editor: they wait for the turns. */
+const WAITS: StepKey[] = ["plugin", "studio", "restart"];
 
 /** The steps one Update runs: ue-mcp, the editor plugin, then Studio, which restarts ue-mcp; else a restart onto the new ue-mcp. */
 export function planRun(u: Updates, now = Date.now()): UpdateRun | null {
@@ -88,6 +96,20 @@ export function settle(run: UpdateRun, u: Updates): UpdateRun {
   return { ...run, steps, detail: undefined, error: failed ? `${STEP_NAME[failed.key]} did not finish. Open Details in Updates to see what is installed.` : run.error };
 }
 
+/** Restart now: the agent ends the turns in progress and runs the waiting steps. */
+export async function restartNow(run: UpdateRun, onChange: (run: UpdateRun) => void, send = post): Promise<void> {
+  const first = waitingSteps(run)[0];
+  const next = { ...run, steps: run.steps.map((s) => (s.key === first ? { ...s, state: "active" as const } : s)) };
+  onChange(next);
+  await saveRun(next);
+  const r = await send("/v1/ext/studio/updates/deferred/now");
+  if (!r.ok) {
+    const failed = { ...next, steps: next.steps.map((s) => (s.key === first ? { ...s, state: "failed" as const } : s)), error: r.error ?? "The update did not start." };
+    onChange(failed);
+    await saveRun(null);
+  }
+}
+
 /** "Studio 0.1.0-beta.24, editor plugin 0.1.0-beta.11, ue-mcp 1.4.0-beta.4." */
 export function summaryOf(u: Updates): string {
   const parts = [
@@ -98,22 +120,22 @@ export function summaryOf(u: Updates): string {
   return parts.length ? `${parts.join(", ")}.` : "";
 }
 
-async function post(url: string, body?: unknown): Promise<{ ok: boolean; error?: string }> {
+async function post(url: string, body?: unknown): Promise<{ ok: boolean; error?: string; deferred?: StepKey[] }> {
   const res = await fetch(url, {
     method: "POST",
     credentials: "same-origin",
     headers: body ? { "content-type": "application/json" } : undefined,
     body: body ? JSON.stringify(body) : undefined,
   }).catch((e: Error) => ({ ok: false, json: async () => ({ error: e.message }) }) as Response);
-  const j = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean };
-  return { ok: res.ok && j.ok !== false, error: j.error };
+  const j = (await res.json().catch(() => ({}))) as { error?: string; ok?: boolean; deferred?: StepKey[] };
+  return { ok: res.ok && j.ok !== false, error: j.error, ...(Array.isArray(j.deferred) ? { deferred: j.deferred } : {}) };
 }
 
 /**
  * Run the pending steps in order, reporting each change. A step that takes
  * the daemon down ends this page's part: the page that loads next resumes.
  */
-export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => void, send = post): Promise<void> {
+export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => void, send: (url: string, body?: unknown) => Promise<{ ok: boolean; error?: string; deferred?: StepKey[] }> = post): Promise<void> {
   let run = start;
   const set = (next: UpdateRun) => {
     run = next;
@@ -123,14 +145,21 @@ export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => vo
   const mark = (key: StepKey, state: StepState, extra: Partial<UpdateRun> = {}) =>
     set({ ...run, ...extra, steps: run.steps.map((s) => (s.key === key ? { ...s, state } : s)) });
 
+  if (waitingSteps(run).length > 0) return onChange(run);
   for (const step of start.steps) {
     if (step.state !== "pending") continue;
     mark(step.key, "active", { detail: undefined });
     // The next page reads this, so it must be kept before ue-mcp or the editor goes away.
     await saving;
+    const then = run.steps.filter((s) => s.state === "pending" && WAITS.includes(s.key)).map((s) => s.key);
     const r = step.key === "ueMcp"
       ? await send("/v1/update/apply", { version: run.target })
-      : await send(`/v1/ext/studio/updates/${step.key}`);
+      : await send(`/v1/ext/studio/updates/${step.key}`, { then });
+    // A turn is in progress: the agent runs this and the rest once it finishes.
+    if (r.ok && r.deferred) {
+      set({ ...run, detail: undefined, steps: run.steps.map((s) => (r.deferred!.includes(s.key) && s.state !== "done" ? { ...s, state: "deferred" } : s)) });
+      return;
+    }
     if (!r.ok) {
       mark(step.key, "failed", { error: r.error ?? `${STEP_NAME[step.key]} failed.` });
       await saveRun(null);

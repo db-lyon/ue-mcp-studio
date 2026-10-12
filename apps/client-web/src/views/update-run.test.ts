@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { execute, loadRun, planRun, saveRun, settle, type UpdateRun } from "./update-run";
+import { execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
 
 const studio = (s: boolean, p: boolean) => ({
   studio: { installed: s ? "0.1.0-beta.9" : "0.1.0-beta.10", latest: "0.1.0-beta.10", available: s },
@@ -76,5 +76,35 @@ describe("an update run", () => {
     await execute({ target: null, at: Date.now(), steps: [{ key: "plugin", state: "pending" }] }, (r) => (last = r), async () => ({ ok: true }));
     expect(last!.summary).toBe("Studio 0.1.0-beta.10, editor plugin 0.1.0-beta.9, ue-mcp 1.4.0-beta.4.");
     expect(await loadRun()).toBeNull();
+  });
+
+  it("hands the rest to the agent when a turn is in progress, and keeps that run however long the turn takes", async () => {
+    agent(() => ({}));
+    const sent: Array<[string, unknown]> = [];
+    let last: UpdateRun | null = null;
+    const run = planRun({ studio: studio(true, true), ueMcp: ueMcp("1.4.0-beta.3", "1.4.0-beta.4") })!;
+    await execute(run, (r) => (last = r), async (url, body) => {
+      sent.push([url, body]);
+      return url.endsWith("/plugin") ? { ok: true, deferred: ["plugin", "studio"] } : { ok: true };
+    });
+    expect(sent).toEqual([["/v1/update/apply", { version: "1.4.0-beta.4" }], ["/v1/ext/studio/updates/plugin", { then: ["studio"] }]]);
+    expect(last!.steps.map((s) => s.state)).toEqual(["done", "deferred", "deferred"]);
+    expect(waitingSteps(last!)).toEqual(["plugin", "studio"]);
+    const kept = (await loadRun(Date.now() + 3 * 3600_000))!;
+    expect(kept.steps.map((s) => s.state)).toEqual(["done", "deferred", "deferred"]);
+    // A page that loads meanwhile shows the wait rather than running anything.
+    const again: string[] = [];
+    await execute(kept, () => {}, async (url) => (again.push(url), { ok: true }));
+    expect(again).toEqual([]);
+  });
+
+  it("Restart now asks the agent to run the waiting steps", async () => {
+    agent(() => ({}));
+    const sent: string[] = [];
+    const seen: UpdateRun[] = [];
+    const run: UpdateRun = { target: null, at: Date.now(), steps: [{ key: "studio", state: "deferred" }] };
+    await restartNow(run, (r) => seen.push(r), async (url) => (sent.push(url), { ok: true }));
+    expect(sent).toEqual(["/v1/ext/studio/updates/deferred/now"]);
+    expect(seen[0].steps).toEqual([{ key: "studio", state: "active" }]);
   });
 });
