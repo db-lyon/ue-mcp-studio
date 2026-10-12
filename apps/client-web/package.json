@@ -1,6 +1,6 @@
 {
   "name": "@ue-mcp-studio/client-web",
-  "version": "0.1.0-beta.29",
+  "version": "0.1.0-beta.30",
   "private": true,
   "type": "module",
   "scripts": {
