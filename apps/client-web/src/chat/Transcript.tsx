@@ -22,12 +22,13 @@ import {
   type Call,
 } from "./model";
 import { useFollow, useNow } from "./hooks";
-import { remarkAssets } from "./asset-links";
-import { AssetToken, LinkedText } from "./AssetLink";
+import { AssetAnchorContext, AssetTranscriptContext, remarkAssets } from "./asset-links";
+import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";
 import type { Components } from "react-markdown";
 
 /** One line of a conversation that is not a subagent: a message, a note or a tool call. */
 export function Entry({ entry }: { entry: TranscriptEntry }) {
+  const transcript = useContext(AssetTranscriptContext);
   if (entry.kind === "user") {
     return (
       <div className="msg user">
@@ -36,7 +37,10 @@ export function Entry({ entry }: { entry: TranscriptEntry }) {
       </div>
     );
   }
-  if (entry.kind === "assistant") return <Reply text={entry.text} />;
+  if (entry.kind === "assistant") {
+    const at = transcript?.indexOf(entry) ?? -1;
+    return <Reply text={entry.text} at={at < 0 ? undefined : at} />;
+  }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   return <ToolCall call={entry.call} />;
 }
@@ -58,22 +62,34 @@ function SentFiles({ files }: { files: Attachment[] }) {
   );
 }
 
-/** Inline code and bare object paths that name an asset render as links once resolved. */
+/**
+ * Markdown links to object paths render as exact asset links; inline code and
+ * bare object paths that name an asset render as links once resolved.
+ */
 const REPLY_COMPONENTS: Components = {
   code: ({ node: _node, children, ...props }) => {
     const token = (props as { "data-asset"?: string })["data-asset"];
     return token ? <AssetToken token={token} code /> : <code {...props}>{children}</code>;
   },
   span: ({ node: _node, children, ...props }) => {
+    const exact = props as { "data-asset-path"?: string; "data-asset-label"?: string };
+    if (exact["data-asset-path"]) return <ExactAssetLink path={exact["data-asset-path"]} label={exact["data-asset-label"] ?? ""} />;
     const token = (props as { "data-asset"?: string })["data-asset"];
     return token ? <AssetToken token={token} code={false} /> : <span {...props}>{children}</span>;
   },
 };
 const REPLY_PLUGINS = [remarkGfm, remarkBreaks, remarkAssets];
 
-/** A model reply, rendered as markdown without raw HTML; a single line break stays a line break. */
-export function Reply({ text }: { text: string }) {
-  return <div className="msg assistant md"><Markdown remarkPlugins={REPLY_PLUGINS} components={REPLY_COMPONENTS}>{text}</Markdown></div>;
+/**
+ * A model reply, rendered as markdown without raw HTML; a single line break
+ * stays a line break. at: its transcript index, for tracing the names in it.
+ */
+export function Reply({ text, at }: { text: string; at?: number }) {
+  return (
+    <AssetAnchorContext.Provider value={at}>
+      <div className="msg assistant md"><Markdown remarkPlugins={REPLY_PLUGINS} components={REPLY_COMPONENTS}>{text}</Markdown></div>
+    </AssetAnchorContext.Provider>
+  );
 }
 
 /**

@@ -19,11 +19,26 @@ export async function openInEditor(path: string): Promise<string | null> {
 }
 
 /**
+ * A markdown link from the model to an object path: exact, never looked up.
+ * It reads as the short name in code style, the full path in its tooltip.
+ */
+export function ExactAssetLink({ path, label }: { path: string; label: string }) {
+  return <AssetButton token={label} code paths={[path]} />;
+}
+
+/**
  * A token that may name an asset: plain until the agent resolves it, then a
- * link that opens it. Several matches open a small chooser.
+ * link that opens it. A name still ambiguous after the session trace and the
+ * project lookup opens a small chooser; that is a miss, reported to the log.
  */
 export function AssetToken({ token, code }: { token: string; code: boolean }) {
   const state = useAssetLink(token);
+  const plain: ReactNode = code ? <code>{token}</code> : token;
+  if (state.status !== "resolved") return <>{plain}</>;
+  return <AssetButton token={token} code={code} paths={state.paths} />;
+}
+
+function AssetButton({ token, code, paths }: { token: string; code: boolean; paths: string[] }) {
   const [toast, setToast] = useState<string | null>(null);
   const [choosing, setChoosing] = useState(false);
   const box = useRef<HTMLSpanElement>(null);
@@ -46,30 +61,31 @@ export function AssetToken({ token, code }: { token: string; code: boolean }) {
     };
   }, [choosing]);
 
-  const plain: ReactNode = code ? <code>{token}</code> : token;
-  if (state.status !== "resolved") return <>{plain}</>;
+  const several = paths.length > 1;
+  useEffect(() => {
+    if (several) void api.reportAssetMiss(token, paths.length).catch(() => {});
+  }, [several, token, paths.length]);
 
   const open = async (path: string) => {
     setChoosing(false);
     const error = await openInEditor(path);
     if (error) setToast(error);
   };
-  const several = state.paths.length > 1;
   return (
     <span className="asset-ref" ref={box}>
       <button
         type="button"
         className={`asset-link${code ? " code" : ""}`}
-        title={several ? `${state.paths.length} assets named ${token}:\n${state.paths.join("\n")}` : state.paths[0]}
+        title={several ? `${paths.length} assets named ${token}:\n${paths.join("\n")}` : paths[0]}
         aria-haspopup={several ? "menu" : undefined}
         aria-expanded={several ? choosing : undefined}
-        onClick={() => (several ? setChoosing(!choosing) : void open(state.paths[0]))}
+        onClick={() => (several ? setChoosing(!choosing) : void open(paths[0]))}
       >
         {token}
       </button>
       {choosing && (
         <span className="asset-chooser" role="menu">
-          {state.paths.map((p) => (
+          {paths.map((p) => (
             <button key={p} type="button" role="menuitem" title={p} onClick={() => void open(p)}>{p}</button>
           ))}
         </span>

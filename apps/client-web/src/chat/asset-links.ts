@@ -2,24 +2,46 @@
  * Asset names in the chat as links: which tokens are candidates, and the
  * store that resolves them through the agent.
  *
- * Candidates are inline code spans and bare object paths in a reply, never
- * fenced code. A reply renders as plain text first; the store asks the agent
- * in batches, one request at a time, and a token turns into a link when its
- * answer comes back. A token the agent could not answer yet (retry, or the
- * request failed) stays plain and is asked again later, backing off.
+ * A markdown link to an object path is exact: it links that path and is never
+ * looked up. Other candidates are inline code spans and bare object paths in a
+ * reply, never fenced code. A reply renders as plain text first; the store asks
+ * the agent in batches, one request at a time, with the message's transcript
+ * index so a name resolves by what the session did up to it. A token the agent
+ * could not answer yet (retry, or the request failed) stays plain and is asked
+ * again later, backing off.
  */
 import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } from "react";
 import { api } from "../api";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
-import { MAX_RESOLVE_TOKENS, OBJECT_PATH_IN_TEXT, classifyAssetToken, type AssetResolution } from "@ue-mcp-studio/shared";
+import { MAX_RESOLVE_TOKENS, OBJECT_PATH_IN_TEXT, assetLinkTarget, classifyAssetToken, type AssetRef, type AssetResolution } from "@ue-mcp-studio/shared";
 
 interface MdNode {
   type: string;
   value?: string;
   children?: MdNode[];
+  url?: string;
   data?: Record<string, unknown>;
+}
+
+/** The text a node shows. */
+function textOf(node: MdNode): string {
+  return node.value ?? (node.children ?? []).map(textOf).join("");
+}
+
+/**
+ * A link whose target starts with one slash is never a web link: an asset's
+ * object path becomes an exact asset link showing its text, anything else
+ * stays its text.
+ */
+function rootedLink(node: MdNode): MdNode[] | null {
+  const url = node.url ?? "";
+  if (node.type !== "link" || !url.startsWith("/") || url.startsWith("//")) return null;
+  const path = assetLinkTarget(url);
+  if (!path) return node.children ?? [];
+  const label = textOf(node).trim() || path.slice(path.lastIndexOf(".") + 1);
+  return [{ type: "assetLink", data: { hName: "span", hProperties: { "data-asset-path": path, "data-asset-label": label } }, children: [{ type: "text", value: label }] }];
 }
 
 /** Node types whose text is never scanned for bare paths. */
@@ -47,7 +69,10 @@ function walk(node: MdNode, found: (token: string) => void): void {
   if (!node.children) return;
   const next: MdNode[] = [];
   for (const child of node.children) {
-    if (child.type === "inlineCode") {
+    const linked = rootedLink(child);
+    if (linked) {
+      next.push(...linked);
+    } else if (child.type === "inlineCode") {
       const token = child.value ?? "";
       if (classifyAssetToken(token)) {
         child.data = { ...child.data, hProperties: { "data-asset": token.trim() } };
@@ -65,9 +90,10 @@ function walk(node: MdNode, found: (token: string) => void): void {
 }
 
 /**
- * The remark plugin: marks inline code that names an asset (data-asset on the
- * code element) and wraps bare object paths in a span.asset-path. Fenced code
- * is left alone.
+ * The remark plugin: turns markdown links to object paths into exact asset
+ * links (a span with data-asset-path), marks inline code that names an asset
+ * (data-asset on the code element) and wraps bare object paths in a
+ * span.asset-path. Fenced code is left alone.
  */
 export function remarkAssets(options: { found?: (token: string) => void } = {}) {
   return (tree: MdNode) => walk(tree, options.found ?? (() => {}));
@@ -103,16 +129,22 @@ export type LinkState = { status: "pending" } | { status: "resolved"; paths: str
 
 const PENDING: LinkState = { status: "pending" };
 
-export type Resolve = (tokens: string[], sessionId: string | null) => Promise<Record<string, AssetResolution>>;
+export type Resolve = (refs: AssetRef[], sessionId: string | null) => Promise<AssetResolution[]>;
 
 /** How long a token waits before it is asked again: grows with each try, to a minute. */
 export const RETRY_MS = [3000, 10_000, 30_000, 60_000];
+
+/** A path resolves the same anywhere; a name resolves per message. */
+function refOf(token: string, at?: number): AssetRef {
+  return at === undefined || classifyAssetToken(token)?.kind !== "name" ? { token } : { token, at };
+}
+const keyOf = (r: AssetRef): string => (r.at === undefined ? r.token : `${r.at}|${r.token}`);
 
 /** Resolutions for one session's view, asked in debounced batches, one request at a time. */
 export class AssetLinks {
   private readonly states = new Map<string, LinkState>();
   private readonly tries = new Map<string, number>();
-  private readonly queue = new Set<string>();
+  private readonly queue = new Map<string, AssetRef>();
   private readonly listeners = new Set<() => void>();
   private timer: ReturnType<typeof setTimeout> | null = null;
   private inflight = false;
@@ -124,9 +156,9 @@ export class AssetLinks {
     private readonly debounceMs = 120,
   ) {}
 
-  /** The same object until the token's state changes, as useSyncExternalStore needs. */
-  state(token: string): LinkState {
-    return this.states.get(token) ?? PENDING;
+  /** The same object until the token's state changes, as useSyncExternalStore needs. at: the message's transcript index. */
+  state(token: string, at?: number): LinkState {
+    return this.states.get(keyOf(refOf(token, at))) ?? PENDING;
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -135,10 +167,12 @@ export class AssetLinks {
   };
 
   /** Ask for a token the first time it shows; later asks are free. */
-  request(token: string): void {
-    if (this.states.has(token) || this.queue.has(token) || this.disposed) return;
-    this.states.set(token, PENDING);
-    this.enqueue(token, this.debounceMs);
+  request(token: string, at?: number): void {
+    const ref = refOf(token, at);
+    const key = keyOf(ref);
+    if (this.states.has(key) || this.queue.has(key) || this.disposed) return;
+    this.states.set(key, PENDING);
+    this.enqueue(ref, this.debounceMs);
   }
 
   dispose(): void {
@@ -146,8 +180,8 @@ export class AssetLinks {
     if (this.timer) clearTimeout(this.timer);
   }
 
-  private enqueue(token: string, delay: number): void {
-    this.queue.add(token);
+  private enqueue(ref: AssetRef, delay: number): void {
+    this.queue.set(keyOf(ref), ref);
     this.schedule(delay);
   }
 
@@ -159,27 +193,28 @@ export class AssetLinks {
     }, delay);
   }
 
-  private later(tokens: string[]): void {
-    for (const t of tokens) {
-      const n = this.tries.get(t) ?? 0;
-      this.tries.set(t, n + 1);
-      setTimeout(() => !this.disposed && this.enqueue(t, 0), RETRY_MS[Math.min(n, RETRY_MS.length - 1)]);
+  private later(refs: AssetRef[]): void {
+    for (const r of refs) {
+      const key = keyOf(r);
+      const n = this.tries.get(key) ?? 0;
+      this.tries.set(key, n + 1);
+      setTimeout(() => !this.disposed && this.enqueue(r, 0), RETRY_MS[Math.min(n, RETRY_MS.length - 1)]);
     }
   }
 
   private async flush(): Promise<void> {
     if (this.inflight || this.queue.size === 0 || this.disposed) return;
-    const batch = [...this.queue].slice(0, MAX_RESOLVE_TOKENS);
-    for (const t of batch) this.queue.delete(t);
+    const batch = [...this.queue.values()].slice(0, MAX_RESOLVE_TOKENS);
+    for (const r of batch) this.queue.delete(keyOf(r));
     this.inflight = true;
     try {
       const results = await this.resolve(batch, this.sessionId);
-      const again: string[] = [];
-      for (const t of batch) {
-        const r = results[t];
-        if (!r || r.status === "retry") again.push(t);
-        else this.states.set(t, r.status === "resolved" && r.paths.length ? { status: "resolved", paths: r.paths } : { status: "unresolved" });
-      }
+      const again: AssetRef[] = [];
+      batch.forEach((ref, i) => {
+        const r = results[i];
+        if (!r || r.status === "retry") again.push(ref);
+        else this.states.set(keyOf(ref), r.status === "resolved" && r.paths.length ? { status: "resolved", paths: r.paths } : { status: "unresolved" });
+      });
       this.later(again);
       this.emit();
     } catch {
@@ -201,16 +236,23 @@ export const AssetLinksContext = createContext<AssetLinks | null>(null);
 
 const noop = () => () => {};
 
+/** The session's transcript, so a reply knows its own index in it. */
+export const AssetTranscriptContext = createContext<readonly unknown[] | null>(null);
+
+/** The transcript index of the message being rendered, for tracing the names in it. */
+export const AssetAnchorContext = createContext<number | undefined>(undefined);
+
 /** One token's state, asked for on first render. */
 export function useAssetLink(token: string): LinkState {
   const store = useContext(AssetLinksContext);
-  useEffect(() => store?.request(token), [store, token]);
-  return useSyncExternalStore(store ? store.subscribe : noop, () => (store ? store.state(token) : PENDING));
+  const at = useContext(AssetAnchorContext);
+  useEffect(() => store?.request(token, at), [store, token, at]);
+  return useSyncExternalStore(store ? store.subscribe : noop, () => (store ? store.state(token, at) : PENDING));
 }
 
 /** A store for the open session, asking the agent; replaced when the session changes. */
 export function useAssetLinks(sessionId: string | null): AssetLinks {
-  const store = useMemo(() => new AssetLinks(async (tokens, id) => (await api.resolveAssets(tokens, id)).results, sessionId), [sessionId]);
+  const store = useMemo(() => new AssetLinks(async (refs, id) => (await api.resolveAssets(refs, id)).results, sessionId), [sessionId]);
   useEffect(() => () => store.dispose(), [store]);
   return store;
 }

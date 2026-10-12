@@ -12,7 +12,7 @@ import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
 import { Approvals } from "../chat/Approvals";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
-import { AssetLinksContext, useAssetLinks } from "../chat/asset-links";
+import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../chat/asset-links";
 import { readLocation, writeLocation } from "../location";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
@@ -241,6 +241,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
         {detail && (
           <SessionIdContext.Provider value={detail.id}>
           <AssetLinksContext.Provider value={assetLinks}>
+          <AssetTranscriptContext.Provider value={detail.transcript}>
             <div className="thread-stage" ref={stage}>
               <MainTranscript
                 transcript={detail.transcript}
@@ -291,6 +292,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 seen={seen}
               />
             </Composer>
+          </AssetTranscriptContext.Provider>
           </AssetLinksContext.Provider>
           </SessionIdContext.Provider>
         )}
