@@ -797,3 +797,6 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .dialog-policy { border: 0; padding: 0; margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; }
 .dialog-policy legend { font-weight: 600; margin-bottom: 4px; }
 .dialog-policy .minutes { width: 5em; }
+.dialog-steps { margin: 2px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.dialog-status { font-weight: 600; }
+.dialog-status.agent { color: var(--accent); }
