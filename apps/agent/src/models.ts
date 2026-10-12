@@ -119,3 +119,9 @@ export class ModelCatalogSource {
     return { signedIn, providers };
   }
 }
+
+/** A model's display name, or its id when it is not one Studio lists. */
+export function modelName(id: string): string {
+  for (const list of Object.values(DEFAULT_MODELS)) for (const m of list) if (m.id === id) return m.name;
+  return id;
+}

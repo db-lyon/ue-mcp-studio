@@ -137,6 +137,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     model: () => settings.model(),
     effort: () => settings.effort(),
     subscription: () => route() === "claude",
+    route: () => ({ claude: "Claude sign-in", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: "API key" } as Record<string, string>)[route() ?? ""] ?? null,
     askBeforeChanges: () => settings.askBeforeChanges(),
   });
 
@@ -323,7 +324,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("GET", "/sessions", async () => {
     const claude = await lastWritten();
     const own = store.all();
-    const known = new Set(own.flatMap((s) => [s.id, s.sdkSession ?? ""]));
+    const known = new Set(own.flatMap((s) => [s.id, s.sdkSession ?? "", ...(s.sdkPast ?? [])]));
     const listed = own.map((s) => ({
       ...SessionStore.summary(s),
       ...(idle(s) && activeElsewhere(claude.get(s.sdkSession ?? "")?.lastModified, s.updatedAt) ? { activeElsewhere: true } : {}),

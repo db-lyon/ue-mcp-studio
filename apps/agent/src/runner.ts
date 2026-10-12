@@ -23,6 +23,7 @@ import type { DialogBroker } from "./dialogs.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
 import { runSubscriptionTurn } from "./subscription.js";
+import { modelName } from "./models.js";
 import { contentFor } from "./attachments.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
 import type { Attachment } from "@ue-mcp-studio/shared";
@@ -85,6 +86,8 @@ export interface RunnerOptions {
   effort?: () => Effort;
   /** Experimental: the turn runs on the Claude subscription through the Agent SDK. */
   subscription?: () => boolean;
+  /** How the model is reached for this turn: a sign-in or a key, by name. */
+  route?: () => string | null;
   /** Ask the user before a command runs or a file changes; on when not given. */
   askBeforeChanges?: () => boolean;
   /** Tracks each turn's editor calls, for the window's busy state. */
@@ -94,6 +97,21 @@ export interface RunnerOptions {
 }
 
 const now = (): string => new Date().toISOString();
+
+/** The conversation so far as text, for a Claude session that starts in the middle of it. Keeps the most recent part when long. */
+export function carryOver(messages: MessageParam[], max = 60_000): string {
+  const lines: string[] = [];
+  for (const m of messages) {
+    const parts = typeof m.content === "string" ? [{ type: "text", text: m.content }] : (m.content as Array<{ type: string; text?: string; name?: string; input?: unknown }>);
+    for (const p of parts) {
+      if (p.type === "text" && p.text?.trim() && !p.text.startsWith("[Studio]")) lines.push(`${m.role === "user" ? "User" : "Assistant"}: ${p.text.trim()}`);
+      else if (p.type === "tool_use" && p.name) lines.push(`Assistant called ${p.name} ${JSON.stringify(p.input ?? {}).slice(0, 300)}`);
+    }
+  }
+  let text = lines.join("\n\n");
+  if (text.length > max) text = `(earlier part left out)\n\n${text.slice(text.length - max)}`;
+  return `[Studio] This session continues a conversation that ran on other models. Here it is so far:\n\n${text}\n\n[Studio] End of the earlier conversation. The user's new message follows.`;
+}
 
 export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
@@ -210,7 +228,25 @@ export class AgentRunner {
     s.draft = "";
     s.error = null;
     this.setStatus(s, "running", null);
-    if (this.o.subscription?.()) return this.runSubscription(s.id, content);
+    const onClaude = !!this.o.subscription?.();
+    s.model = this.o.model();
+    s.route = this.o.route?.() ?? null;
+    if (onClaude) {
+      // The SDK session has not seen the turns that ran on other models: a new one starts, carrying the whole conversation.
+      const earlier = s.messages.slice(0, -1);
+      if (earlier.length > 0 && (!s.sdkSession || s.offClaude)) {
+        if (s.sdkSession) s.sdkPast = [...(s.sdkPast ?? []), s.sdkSession];
+        s.sdkSession = null;
+        s.offClaude = false;
+        this.addEntry(s, { kind: "note", text: "On your Claude sign-in from here. A new Claude Code conversation starts with this whole session in it.", at: now() });
+        return this.runSubscription(s.id, [{ type: "text", text: carryOver(earlier) }, ...content]);
+      }
+      return this.runSubscription(s.id, content);
+    }
+    if (s.sdkSession && !s.offClaude) {
+      s.offClaude = true;
+      this.addEntry(s, { kind: "note", text: `On ${modelName(s.model)} from here. Claude Code has this conversation up to this point; the rest stays in Studio.`, at: now() });
+    }
     await this.runTurn(s.id);
   }
 

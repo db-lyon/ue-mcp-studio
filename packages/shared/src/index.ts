@@ -211,6 +211,12 @@ export interface SessionSummary {
   origin?: "claude-code";
   /** Its transcript was written moments ago by another program, so it is open there. */
   activeElsewhere?: boolean;
+  /** The model of its last turn, by name. */
+  model?: string;
+  /** How that model was reached: a sign-in or a key. */
+  route?: string;
+  /** The conversation continues in Claude Code too. */
+  inClaudeCode?: boolean;
 }
 
 /** PUT /v1/ext/studio/sessions/:id: rename, archive or restore. */

@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ApprovalRequest, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
+import { modelName } from "./models.js";
 
 /** A tool call the model asked for that has not been answered yet. */
 export interface PendingTool {
@@ -44,6 +45,13 @@ export interface StoredSession {
   archived?: boolean;
   /** Experimental: the Agent SDK session a Claude subscription turn continues. */
   sdkSession?: string | null;
+  /** Earlier Agent SDK sessions of this conversation, so their transcripts are not listed as Claude Code sessions. */
+  sdkPast?: string[];
+  /** Turns ran on another model since the SDK session last saw the conversation. */
+  offClaude?: boolean;
+  /** The model and the way it was reached for the last turn. */
+  model?: string;
+  route?: string | null;
   /** Calls waiting for the user to allow them. Only the running daemon can answer one. */
   approvals?: ApprovalRequest[];
   /** Kinds of call the user allowed for the rest of the session: shell, edit. */
@@ -131,6 +139,8 @@ export class SessionStore {
     return {
       id: s.id, title: s.title, status: s.status, createdAt: s.createdAt, updatedAt: s.updatedAt, waitingCause: s.waitingCause, archived: !!s.archived,
       agents: agentCounts(s), awaiting: s.approvals?.length ?? 0,
+      ...(s.model ? { model: modelName(s.model) } : {}), ...(s.route ? { route: s.route } : {}),
+      ...(s.sdkSession && !s.offClaude ? { inClaudeCode: true } : {}),
     };
   }
 

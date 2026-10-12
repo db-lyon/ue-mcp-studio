@@ -108,3 +108,12 @@ describe("machine tool calls in the transcript", () => {
     expect(screen.getByText("declined")).toBeTruthy();
   });
 });
+
+describe("where a session runs", () => {
+  const base = { id: "s", title: "t", status: "idle" as const, createdAt: "", updatedAt: "2026-10-12T10:00:00Z", waitingCause: null, archived: false, agents: { total: 0, running: 0 }, awaiting: 0 };
+  it("names the model, how it was reached, and whether Claude Code has it too", () => {
+    expect(sessionLine({ ...base, model: "Claude Opus 5.5", route: "Claude sign-in", inClaudeCode: true, status: "running" })).toBe("Claude Opus 5.5 via Claude sign-in, also in Claude Code. Working");
+    expect(sessionLine({ ...base, model: "Gemini 3.8 Flash", route: "API key", status: "running" })).toBe("Gemini 3.8 Flash via API key. Working");
+    expect(sessionLine({ ...base, origin: "claude-code", activeElsewhere: true })).toBe("Claude Code. Open in Claude Code");
+  });
+});
