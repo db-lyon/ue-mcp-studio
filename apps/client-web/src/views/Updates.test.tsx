@@ -30,6 +30,7 @@ describe("updates", () => {
   it("shows one Update button that runs every step in order, and stops at the first failure", async () => {
     const posted: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/v1/ext/studio/updates/run") return new Response(JSON.stringify({ run: null }));
       if (!init?.method) return new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(true, true) : ueMcp(true)));
       posted.push(url);
       return url.endsWith("/plugin")
@@ -58,15 +59,19 @@ describe("updates", () => {
   });
 
   it("picks the update up again in the page that loads after the editor restarted for the plugin", async () => {
-    localStorage.setItem("studio.update", JSON.stringify({ target: null, at: Date.now(), steps: [{ key: "plugin", state: "active" }, { key: "studio", state: "pending" }] }));
+    let kept: unknown = { target: null, at: Date.now(), steps: [{ key: "plugin", state: "active" }, { key: "studio", state: "pending" }] };
     const posted: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/v1/ext/studio/updates/run") {
+        if (init?.method === "PUT") kept = (JSON.parse(String(init.body)) as { run: unknown }).run;
+        return new Response(JSON.stringify({ run: kept }));
+      }
       if (init?.method) return posted.push(url), new Response(JSON.stringify({ started: true }));
       return new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(true, false) : ueMcp(false)));
     }));
     render(<UpdateRunner streaming events={[]} />);
     await waitFor(() => expect(posted).toEqual(["/v1/ext/studio/updates/studio"]));
     expect(screen.getByRole("dialog", { name: "Updating" }).textContent).toMatch(/This panel reloads when it is back/);
-    localStorage.clear();
+    expect((kept as { steps: Array<{ state: string }> }).steps.map((s) => s.state)).toEqual(["done", "active"]);
   });
 });

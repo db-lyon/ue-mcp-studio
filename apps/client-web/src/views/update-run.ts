@@ -1,9 +1,10 @@
 /**
  * One Update, as steps that survive the page going away. Updating Studio or
  * restarting ue-mcp reloads the panel, and updating the editor plugin closes
- * the editor the panel lives in, so the run is kept in localStorage: the page
- * that loads next settles the step that was running against what the updates
- * now say, then runs the rest.
+ * the editor the panel lives in, so the run is kept by Studio's agent (the
+ * next page is served on another port, so the browser's storage is not
+ * shared): the page that loads next settles the step that was running against
+ * what the updates now say, then runs the rest.
  */
 import { readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 
@@ -27,7 +28,6 @@ export interface UpdateRun {
 
 type Updates = { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null };
 
-const KEY = "studio.update";
 /** A run older than this is from an update that never came back; it is dropped rather than resumed. */
 const STALE_MS = 30 * 60_000;
 
@@ -38,22 +38,20 @@ export const STEP_NOTE: Partial<Record<StepKey, string>> = {
   restart: "ue-mcp restarts. This panel reloads when it is back.",
 };
 
-export function saveRun(run: UpdateRun | null): void {
-  try {
-    if (run) localStorage.setItem(KEY, JSON.stringify(run));
-    else localStorage.removeItem(KEY);
-  } catch {
-    // Storage can be off; the run then lasts as long as this page.
-  }
+const RUN_URL = "/v1/ext/studio/updates/run";
+let saving: Promise<unknown> = Promise.resolve();
+
+/** Keep the run, in order: each write waits for the one before it. */
+export function saveRun(run: UpdateRun | null): Promise<void> {
+  saving = saving.then(() =>
+    fetch(RUN_URL, { method: "PUT", credentials: "same-origin", headers: { "content-type": "application/json" }, body: JSON.stringify({ run }) }).catch(() => {}));
+  return saving.then(() => {});
 }
 
-export function loadRun(now = Date.now()): UpdateRun | null {
-  try {
-    const run = JSON.parse(localStorage.getItem(KEY) ?? "null") as UpdateRun | null;
-    return run && now - run.at < STALE_MS ? run : null;
-  } catch {
-    return null;
-  }
+export async function loadRun(now = Date.now()): Promise<UpdateRun | null> {
+  const res = await fetch(RUN_URL, { credentials: "same-origin" }).catch(() => null);
+  const run = res?.ok ? ((await res.json()) as { run: UpdateRun | null }).run : null;
+  return run && now - run.at < STALE_MS ? run : null;
 }
 
 /** The steps one Update runs: ue-mcp, the editor plugin, then Studio, which restarts ue-mcp; else a restart onto the new ue-mcp. */
@@ -117,7 +115,7 @@ export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => vo
   let run = start;
   const set = (next: UpdateRun) => {
     run = next;
-    saveRun(run);
+    void saveRun(run);
     onChange(run);
   };
   const mark = (key: StepKey, state: StepState, extra: Partial<UpdateRun> = {}) =>
@@ -126,12 +124,14 @@ export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => vo
   for (const step of start.steps) {
     if (step.state !== "pending") continue;
     mark(step.key, "active", { detail: undefined });
+    // The next page reads this, so it must be kept before ue-mcp or the editor goes away.
+    await saving;
     const r = step.key === "ueMcp"
       ? await send("/v1/update/apply", { version: run.target })
       : await send(`/v1/ext/studio/updates/${step.key}`);
     if (!r.ok) {
       mark(step.key, "failed", { error: r.error ?? `${STEP_NAME[step.key]} failed.` });
-      saveRun(null);
+      await saveRun(null);
       return;
     }
     // ue-mcp goes away now; this page reloads or closes with it.
@@ -139,6 +139,6 @@ export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => vo
     mark(step.key, "done");
   }
   const after = await readUpdates().catch(() => null);
-  saveRun(null);
+  await saveRun(null);
   onChange({ ...run, detail: undefined, summary: after ? summaryOf(after) : "" });
 }

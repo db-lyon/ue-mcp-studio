@@ -43,13 +43,12 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
   useEffect(() => {
     if (!streaming || resumed.current) return;
     resumed.current = true;
-    const saved = loadRun();
-    if (!saved) return;
-    setRun(saved);
-    void readUpdates().then((u) => {
-      const next = settle(saved, u);
+    void loadRun().then(async (saved) => {
+      if (!saved) return;
+      setRun(saved);
+      const next = settle(saved, await readUpdates());
       setRun(next);
-      if (next.error) saveRun(null);
+      if (next.error) void saveRun(null);
       else void execute(next, setRun);
     });
   }, [streaming]);

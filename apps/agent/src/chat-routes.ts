@@ -30,6 +30,7 @@ import { AttachmentStore } from "./attachments.js";
 import { detectVcs, diffOf, listChanges } from "./vcs.js";
 import { Updater } from "./updates.js";
 import * as fs from "node:fs";
+import * as path from "node:path";
 import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 
@@ -132,6 +133,21 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   // Studio's own updates: the extension and the editor plugin, against the release channel.
   const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data));
   api.route("GET", "/updates", async () => ({ body: await updater.check() }));
+  // The panel's update run, kept here because the page that resumes it is served on the next daemon's port.
+  const runFile = path.join(api.dataDir, "update-run.json");
+  api.route("GET", "/updates/run", () => {
+    try {
+      return { body: { run: JSON.parse(fs.readFileSync(runFile, "utf-8")) as unknown } };
+    } catch {
+      return { body: { run: null } };
+    }
+  });
+  api.route("PUT", "/updates/run", (req) => {
+    const run = (req.body as { run?: unknown } | undefined)?.run ?? null;
+    if (run === null) fs.rmSync(runFile, { force: true });
+    else fs.writeFileSync(runFile, JSON.stringify(run));
+    return { body: { ok: true } };
+  });
   api.route("POST", "/updates/restart", async () => {
     const r = await updater.restartDaemon();
     return r.started ? { status: 202, body: r } : { status: 500, body: { error: r.error } };
