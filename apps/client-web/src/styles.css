@@ -363,7 +363,11 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 
 /* Chat */
 .chat { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 14px; height: 100%; min-height: 0; }
-@media (max-width: 760px) { .chat { grid-template-columns: 1fr; } }
+/* Narrow: the session list on top, at most a third of the height, and the conversation in the rest. */
+@media (max-width: 760px) {
+  .chat { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .chat > .sessions { max-height: 33vh; }
+}
 .sessions { overflow: auto; display: flex; flex-direction: column; }
 .sessions .item {
   padding: 9px 10px;
