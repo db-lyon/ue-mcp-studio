@@ -28,6 +28,39 @@ export interface ModelTurn {
   stopReason: string | null;
   /** Set when stop_reason is refusal. */
   refusal?: string;
+  /** Web searches the provider ran on its side during the turn, for the transcript. */
+  searches?: WebSearchRecord[];
+}
+
+export interface WebSearchRecord {
+  id: string;
+  query: string;
+  /** The pages found. */
+  results: Array<{ title: string; url: string }>;
+  /** Why the search failed, when it did. */
+  error?: string;
+}
+
+/** The Messages API's own web search, which runs on Anthropic's side. */
+export const ANTHROPIC_WEB_SEARCH = { type: "web_search_20250305", name: "web_search", max_uses: 8 } as const;
+
+/** A request refused because of the native search tool, which some accounts and models do not have. */
+export const isSearchRefusal = (e: unknown): boolean =>
+  (e as { status?: number })?.status === 400 && /web.?search/i.test(e instanceof Error ? e.message : String(e));
+
+/** The searches a Messages response ran: each server_tool_use with its result block. */
+export function searchesIn(content: ContentBlock[]): WebSearchRecord[] {
+  const blocks = content as unknown as Array<Record<string, unknown>>;
+  const out: WebSearchRecord[] = [];
+  for (const b of blocks) {
+    if (b.type !== "server_tool_use" || b.name !== "web_search") continue;
+    const res = blocks.find((r) => r.type === "web_search_tool_result" && r.tool_use_id === b.id);
+    const c = res?.content;
+    const query = String((b.input as { query?: unknown } | undefined)?.query ?? "");
+    if (Array.isArray(c)) out.push({ id: String(b.id), query, results: c.map((r: { title?: string; url?: string }) => ({ title: r.title ?? "", url: r.url ?? "" })) });
+    else out.push({ id: String(b.id), query, results: [], error: (c as { error_code?: string } | undefined)?.error_code ?? "no result" });
+  }
+  return out;
 }
 
 export interface ModelProvider {
@@ -84,21 +117,35 @@ const isEffortRefusal = (e: unknown): boolean =>
 
 /** The user's own Anthropic key. */
 export class AnthropicProvider implements ModelProvider {
+  /** Off once the API refused the native search for this key; turns go on without it. */
+  private search = true;
+
   constructor(private readonly apiKey: string, private readonly client = new Anthropic({ apiKey })) {}
 
   async run(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<ModelTurn> {
+    const attempt = async (r: ModelRequest): Promise<Anthropic.Beta.BetaMessage> => {
+      if (!this.search) return this.stream(r, onText, signal);
+      try {
+        return await this.stream({ ...r, tools: [...r.tools, ANTHROPIC_WEB_SEARCH] }, onText, signal);
+      } catch (e) {
+        if (!isSearchRefusal(e)) throw e;
+        this.search = false;
+        return this.stream(r, onText, signal);
+      }
+    };
     let message: Anthropic.Beta.BetaMessage;
     try {
-      message = await this.stream(req, onText, signal);
+      message = await attempt(req);
     } catch (e) {
       // A model without the chosen level refuses it before writing anything: run at high.
       if (!isEffortRefusal(e) || (req.effort ?? "high") === "high") throw e;
-      message = await this.stream({ ...req, effort: "high" }, onText, signal);
+      message = await attempt({ ...req, effort: "high" });
     }
     return {
       content: message.content,
       stopReason: message.stop_reason,
       refusal: refusalOf(message.stop_reason, (message as { stop_details?: unknown }).stop_details),
+      searches: searchesIn(message.content),
     };
   }
 

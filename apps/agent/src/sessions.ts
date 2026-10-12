@@ -7,7 +7,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import type { ApprovalRequest, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
 
 /** A tool call the model asked for that has not been answered yet. */
@@ -44,6 +44,10 @@ export interface StoredSession {
   archived?: boolean;
   /** Experimental: the Agent SDK session a Claude subscription turn continues. */
   sdkSession?: string | null;
+  /** Calls waiting for the user to allow them. Only the running daemon can answer one. */
+  approvals?: ApprovalRequest[];
+  /** Kinds of call the user allowed for the rest of the session: shell, edit. */
+  allowed?: string[];
 }
 
 function agentCounts(s: StoredSession): { total: number; running: number } {
@@ -124,10 +128,13 @@ export class SessionStore {
   }
 
   static summary(s: StoredSession): SessionSummary {
-    return { id: s.id, title: s.title, status: s.status, createdAt: s.createdAt, updatedAt: s.updatedAt, waitingCause: s.waitingCause, archived: !!s.archived, agents: agentCounts(s) };
+    return {
+      id: s.id, title: s.title, status: s.status, createdAt: s.createdAt, updatedAt: s.updatedAt, waitingCause: s.waitingCause, archived: !!s.archived,
+      agents: agentCounts(s), awaiting: s.approvals?.length ?? 0,
+    };
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, error: s.error };
+    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, error: s.error, approvals: s.approvals ?? [] };
   }
 }

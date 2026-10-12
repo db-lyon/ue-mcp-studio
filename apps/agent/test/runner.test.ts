@@ -114,7 +114,7 @@ describe("a turn", () => {
     expect(fin.transcript.map((t) => t.kind)).toEqual(["user", "tool", "assistant"]);
     expect(host.published.some((e) => e.type === "turn.delta")).toBe(true);
     // The model request carries the cached system prompt and the two tools.
-    expect(model.requests[0].tools.map((t) => (t as { name: string }).name)).toEqual(["ue_mcp", "editor_restart", "agent"]);
+    expect(model.requests[0].tools.map((t) => (t as { name: string }).name)).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "agent"]);
   });
 
   it("finds and describes actions through ue-mcp's own discovery actions", async () => {
@@ -196,9 +196,9 @@ describe("subagents", () => {
     const fin = store.get(s.id)!;
     expect(fin.status).toBe("idle");
     expect(most).toBe(2);
-    // A subagent gets the editor tools only, so it cannot start subagents of its own.
+    // A subagent gets the work tools only, so it cannot start subagents of its own.
     const subTools = requests.find((r) => r.system.some((b) => b.text.includes("You are a subagent")))!.tools.map((t) => (t as { name: string }).name);
-    expect(subTools).toEqual(["ue_mcp", "editor_restart"]);
+    expect(subTools).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch"]);
     const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string }>;
     expect(results.map((r) => [r.tool_use_id, r.content])).toEqual([["a1", "Report: make red done."], ["a2", "Report: make blue done."]]);
     // Their steps are in the transcript under the call that started them.
@@ -470,5 +470,151 @@ describe("inputs and settings", () => {
     expect(body.betas).toBeUndefined();
     expect(out).toEqual(["hi"]);
     expect(turn.stopReason).toBe("end_turn");
+  });
+});
+
+describe("asking before a command or a file change", () => {
+  const use = (id: string, name: string, input: Record<string, unknown>): ModelTurn => ({
+    content: [{ type: "tool_use", id, name, input } as never],
+    stopReason: "tool_use",
+  });
+  const write = (id: string, file: string) => use(id, "write_file", { path: file, content: "hello" });
+  const resultOf = (sid: string, id: string) => {
+    const s = store.get(sid)!;
+    for (const m of s.messages) {
+      if (!Array.isArray(m.content)) continue;
+      const r = (m.content as Array<{ type: string; tool_use_id?: string; content?: string; is_error?: boolean }>).find((b) => b.type === "tool_result" && b.tool_use_id === id);
+      if (r) return r;
+    }
+    return null;
+  };
+  const waiting = (sid: string) => () => (store.get(sid)!.approvals ?? []).length > 0;
+
+  it("holds the call until the user allows it, then runs it", async () => {
+    const runner = runnerWith(new ScriptedModel([() => write("w1", "out.txt"), () => text("Written.")]));
+    const s = store.create();
+    const turn = runner.send(s.id, "write it");
+    await until(waiting(s.id));
+
+    const a = SessionStore.detail(store.get(s.id)!).approvals[0];
+    expect(a).toMatchObject({ tool: "write_file", toolUseId: "w1", parent: null, creates: true, path: path.join(host.projectDir, "out.txt"), diff: [{ op: "+", text: "hello" }] });
+    expect(SessionStore.summary(store.get(s.id)!).awaiting).toBe(1);
+    expect(host.published.some((e) => e.type === "approval.requested" && e.data?.approvalId === a.id)).toBe(true);
+    expect(fs.existsSync(path.join(host.projectDir, "out.txt"))).toBe(false);
+
+    expect(runner.answerApproval(s.id, a.id, "allow")).toBe(true);
+    await turn;
+    expect(fs.readFileSync(path.join(host.projectDir, "out.txt"), "utf-8")).toBe("hello");
+    expect(resultOf(s.id, "w1")?.is_error).toBeUndefined();
+    expect(store.get(s.id)!.approvals).toEqual([]);
+    expect(store.get(s.id)!.status).toBe("idle");
+    expect(runner.answerApproval(s.id, a.id, "allow")).toBe(false);
+  });
+
+  it("tells the model the user declined, and never runs the call", async () => {
+    const runner = runnerWith(new ScriptedModel([() => write("w1", "no.txt"), () => text("Understood.")]));
+    const s = store.create();
+    const turn = runner.send(s.id, "write it");
+    await until(waiting(s.id));
+    runner.answerApproval(s.id, store.get(s.id)!.approvals![0].id, "deny");
+    await turn;
+
+    expect(fs.existsSync(path.join(host.projectDir, "no.txt"))).toBe(false);
+    const r = resultOf(s.id, "w1")!;
+    expect(r.is_error).toBe(true);
+    expect(r.content).toMatch(/user declined this file change/);
+    const entry = store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "w1");
+    expect(entry?.kind === "tool" && entry.call.outcome).toBe("declined");
+  });
+
+  it("asks a command once when the user allows commands for the session", async () => {
+    const runner = runnerWith(new ScriptedModel([
+      () => use("c1", "shell", { command: "echo one" }),
+      () => use("c2", "shell", { command: "echo two" }),
+      () => text("Ran both."),
+    ]));
+    const s = store.create();
+    const turn = runner.send(s.id, "run");
+    await until(waiting(s.id));
+    const a = store.get(s.id)!.approvals![0];
+    expect(a).toMatchObject({ tool: "shell", command: "echo one", cwd: host.projectDir });
+    runner.answerApproval(s.id, a.id, "session");
+    await turn;
+    expect(resultOf(s.id, "c1")!.content).toContain("one");
+    expect(resultOf(s.id, "c2")!.content).toMatch(/two\s+Exit code: 0/);
+    expect(host.published.filter((e) => e.type === "approval.requested")).toHaveLength(1);
+    expect(store.get(s.id)!.allowed).toEqual(["shell"]);
+  });
+
+  it("does not ask for reads, or at all when the setting is off", async () => {
+    fs.writeFileSync(path.join(host.projectDir, "r.txt"), "x");
+    const model = new ScriptedModel([() => use("r1", "read_file", { path: "r.txt" }), () => write("w1", "free.txt"), () => text("ok")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", askBeforeChanges: () => false });
+    const s = store.create();
+    await runner.send(s.id, "go");
+    expect(resultOf(s.id, "r1")!.content).toBe("1\tx");
+    expect(fs.existsSync(path.join(host.projectDir, "free.txt"))).toBe(true);
+    expect(host.published.some((e) => e.type === "approval.requested")).toBe(false);
+  });
+
+  it("asks for a subagent's call, naming the subagent, and runs it once allowed", async () => {
+    const model: ModelProvider = {
+      async run(req) {
+        const sub = req.system.some((b) => b.text.includes("You are a subagent"));
+        if (!sub) {
+          return req.messages.length === 1
+            ? { content: [{ type: "tool_use", id: "a1", name: "agent", input: { description: "Write notes", prompt: "write notes" } }] as never, stopReason: "tool_use" }
+            : text("Done.");
+        }
+        return req.messages.length === 1 ? write("sw1", "Docs/notes.md") : text("Wrote Docs/notes.md.");
+      },
+    };
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5" });
+    const s = store.create();
+    const turn = runner.send(s.id, "notes");
+    await until(waiting(s.id));
+    const a = store.get(s.id)!.approvals![0];
+    expect(a).toMatchObject({ toolUseId: "sw1", parent: "a1", subagent: "Write notes", tool: "write_file" });
+    runner.answerApproval(s.id, a.id, "allow");
+    await turn;
+    expect(fs.readFileSync(path.join(host.projectDir, "Docs", "notes.md"), "utf-8")).toBe("hello");
+    expect(resultOf(s.id, "a1")!.content).toBe("Wrote Docs/notes.md.");
+  });
+
+  it("drops a waiting approval when the turn is stopped", async () => {
+    const runner = runnerWith(new ScriptedModel([() => use("c1", "shell", { command: "echo never" })]));
+    const s = store.create();
+    const turn = runner.send(s.id, "run");
+    await until(waiting(s.id));
+    runner.stop(s.id);
+    await turn;
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("stopped");
+    expect(fin.approvals).toEqual([]);
+    expect(resultOf(s.id, "c1")!.content).toMatch(/Stopped by the user/);
+  });
+
+  it("forgets approvals a previous daemon was holding", () => {
+    const s = store.create();
+    s.approvals = [{ id: "old", toolUseId: "t", tool: "shell", parent: null, command: "ls", at: new Date().toISOString() }];
+    store.save(s);
+    runnerWith(new ScriptedModel([])).recover();
+    expect(store.get(s.id)!.approvals).toEqual([]);
+  });
+});
+
+describe("the provider's own web search", () => {
+  it("is recorded in the transcript, and a paused turn is sent back to go on", async () => {
+    const model = new ScriptedModel([
+      () => ({ content: [], stopReason: "pause_turn", searches: [{ id: "ws1", query: "ue 5.8 notes", results: [{ title: "Notes", url: "https://example.com/n" }] }] }),
+      () => text("Found it."),
+    ]);
+    const s = store.create();
+    await runnerWith(model).send(s.id, "search");
+    expect(model.requests).toHaveLength(2);
+    const fin = store.get(s.id)!;
+    const ws = fin.transcript.find((t) => t.kind === "tool" && t.call.name === "web_search");
+    expect(ws?.kind === "tool" && ws.call).toMatchObject({ input: { query: "ue 5.8 notes" }, outcome: "done", result: "Notes\nhttps://example.com/n" });
+    expect(fin.status).toBe("idle");
   });
 });

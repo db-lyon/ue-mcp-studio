@@ -80,6 +80,8 @@ export interface StudioSettings {
   effort: Effort;
   gatewayUrl: string;
   theme: StudioTheme;
+  /** Ask the user before the agent runs a command or edits a file. */
+  askBeforeChanges: boolean;
   /** Which sign-ins are done and which vendor keys are saved. */
   connected: Record<ProviderId, boolean>;
   /** The Studio account's login, when signed in. */
@@ -93,6 +95,7 @@ export interface StudioSettingsUpdate {
   effort?: Effort;
   gatewayUrl?: string;
   theme?: StudioTheme;
+  askBeforeChanges?: boolean;
   keys?: Partial<Record<KeyProviderId, string>>;
   signOut?: SignInId;
 }
@@ -140,8 +143,9 @@ export interface ToolCallRecord {
   /**
    * unknown: the editor went away while it ran, so whether it took effect is
    * not known. stopped: the user stopped it (a whole turn, or one subagent).
+   * declined: the user did not allow it, so it never ran.
    */
-  outcome: "pending" | "done" | "error" | "unknown" | "stopped";
+  outcome: "pending" | "done" | "error" | "unknown" | "stopped" | "declined";
   result?: string;
   startedAt: string;
   endedAt?: string;
@@ -194,6 +198,8 @@ export interface SessionSummary {
   archived: boolean;
   /** The session's subagents: how many there are, and how many are still running. */
   agents: { total: number; running: number };
+  /** Tool calls waiting for the user to allow or deny them. */
+  awaiting: number;
 }
 
 /** PUT /v1/ext/studio/sessions/:id: rename, archive or restore. */
@@ -207,7 +213,36 @@ export interface SessionDetail extends SessionSummary {
   touched: TouchedItem[];
   draft: string;
   error: string | null;
+  /** Tool calls waiting for the user, oldest first. */
+  approvals: ApprovalRequest[];
 }
+
+/** One line of a diff: kept, removed or added. A gap stands for unchanged lines left out. */
+export type DiffLine = { op: " " | "-" | "+"; text: string } | { op: "gap"; count: number };
+
+/** A command or a file change the agent wants to make, waiting for the user. */
+export interface ApprovalRequest {
+  id: string;
+  /** The tool call it belongs to. */
+  toolUseId: string;
+  tool: "shell" | "write_file" | "edit_file";
+  /** The agent call of the subagent that asked, when a subagent did. */
+  parent: string | null;
+  /** That subagent's short task name. */
+  subagent?: string;
+  /** shell: the command and where it runs. */
+  command?: string;
+  cwd?: string;
+  /** write_file and edit_file: the file, absolute, and the change. */
+  path?: string;
+  diff?: DiffLine[];
+  /** write_file: the file does not exist yet. */
+  creates?: boolean;
+  at: string;
+}
+
+/** POST /v1/ext/studio/sessions/:id/approvals/:approvalId. session: allow this kind of call for the rest of the session. */
+export type ApprovalDecision = "allow" | "session" | "deny";
 
 /**
  * Event payloads the agent publishes. The daemon prefixes the extension name,
@@ -261,3 +296,78 @@ export interface FeedbackReport {
 export type FeedbackResult =
   | { filed: true; url: string; number: number }
   | { filed: false; reason: string; link: string };
+
+/** How many unchanged lines a diff keeps around each change. */
+export const DIFF_CONTEXT = 3;
+
+/**
+ * A line diff of two texts, unchanged runs cut to DIFF_CONTEXT lines around
+ * each change. Past a size where the table would be too large, it shows the
+ * old text removed and the new one added.
+ */
+export function lineDiff(before: string, after: string, context = DIFF_CONTEXT): DiffLine[] {
+  const lines = (t: string): string[] => {
+    const l = t === "" ? [] : t.replace(/\r\n/g, "\n").split("\n");
+    if (l[l.length - 1] === "") l.pop();
+    return l;
+  };
+  const a = lines(before);
+  const b = lines(after);
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) start++;
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) {
+    endA--;
+    endB--;
+  }
+  const ma = a.slice(start, endA);
+  const mb = b.slice(start, endB);
+  const mid: DiffLine[] = [];
+  if (ma.length * mb.length > 4_000_000) {
+    for (const t of ma) mid.push({ op: "-", text: t });
+    for (const t of mb) mid.push({ op: "+", text: t });
+  } else {
+    // Longest common subsequence, walked from the front.
+    const n = ma.length;
+    const m = mb.length;
+    const w = m + 1;
+    const lcs = new Uint32Array((n + 1) * w);
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        lcs[i * w + j] = ma[i] === mb[j] ? lcs[(i + 1) * w + j + 1] + 1 : Math.max(lcs[(i + 1) * w + j], lcs[i * w + j + 1]);
+      }
+    }
+    let i = 0;
+    let j = 0;
+    while (i < n || j < m) {
+      if (i < n && j < m && ma[i] === mb[j]) {
+        mid.push({ op: " ", text: ma[i++] });
+        j++;
+      } else if (i < n && (j >= m || lcs[(i + 1) * w + j] >= lcs[i * w + j + 1])) {
+        // Removed lines before added ones, as a diff reads.
+        mid.push({ op: "-", text: ma[i++] });
+      } else {
+        mid.push({ op: "+", text: mb[j++] });
+      }
+    }
+  }
+  const all: DiffLine[] = [...a.slice(0, start).map((text) => ({ op: " " as const, text })), ...mid, ...a.slice(endA).map((text) => ({ op: " " as const, text }))];
+  // Keep only the unchanged lines near a change.
+  const near = new Array<boolean>(all.length).fill(false);
+  all.forEach((l, k) => {
+    if (l.op === " ") return;
+    for (let x = Math.max(0, k - context); x <= Math.min(all.length - 1, k + context); x++) near[x] = true;
+  });
+  const out: DiffLine[] = [];
+  let skipped = 0;
+  all.forEach((l, k) => {
+    if (near[k]) {
+      if (skipped) out.push({ op: "gap", count: skipped });
+      skipped = 0;
+      out.push(l);
+    } else skipped++;
+  });
+  if (skipped && out.length) out.push({ op: "gap", count: skipped });
+  return out;
+}

@@ -8,36 +8,59 @@
  * reattach the runner reports what it can establish from disk and tells the
  * model to read the state back. After a crash, every change the session made
  * and never saved is listed as lost before the model continues.
+ *
+ * A command or a file change waits for the user to allow it (gate), unless the
+ * setting is off or the user allowed that kind for the session. The request
+ * goes out on the event stream and the answer comes back through answerApproval.
  */
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
-import type { Effort, TranscriptEntry } from "@ue-mcp-studio/shared";
-import type { ContentBlock, ModelProvider, MessageParam } from "./providers.js";
+import type { ApprovalDecision, ApprovalRequest, Effort, TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
-import { EDITOR_TOOLS, TOOLS, editorConnected, executeTool, packageFile, verifyUnknown, type AgentHost } from "./tools.js";
+import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost } from "./tools.js";
+import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
 import { runSubscriptionTurn } from "./subscription.js";
 import { contentFor } from "./attachments.js";
 import type { Attachment } from "@ue-mcp-studio/shared";
 
 const WORK = [
-  "Find the action for a task with ue_mcp search, check its parameters with ue_mcp describe, then call it.",
+  "Anything in the running editor (assets, levels, actors, Blueprints, materials, Niagara) goes through ue_mcp: find the action with ue_mcp search, check its parameters with ue_mcp describe, then call it.",
   "Prefer a dedicated action to editor.execute_python. Save what you change when the task is done, unless the user says otherwise.",
   "Results report what happened (created, existed, updated, saved): read them instead of assuming.",
+  "You also have the user's machine: shell for git, builds and scripts; read_file, glob and grep for source, docs and config; write_file and edit_file to change text files; web_fetch to read a URL or call a web API; and web_search when it is offered.",
+  "Use those for files, version control and the web, never for what ue_mcp does in the editor. .uasset and .umap files are binary and the editor owns them: change them through ue_mcp, not the file tools.",
+  "Read a file before you edit it. Commands and file changes may wait for the user to allow them; when the user declines one, do not try it again in another form: take another way or ask.",
 ];
 
-const SYSTEM = [
-  "You work inside Unreal Editor for the user, through ue-mcp.",
+/** Where the machine tools work, for the prompts. */
+const where = (projectDir: string): string =>
+  `The project folder is ${projectDir}: commands run there and relative paths start there. The shell is ${shell().name}.`;
+
+const system = (projectDir: string): string => [
+  "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
-  "For work that splits into independent parts, start a subagent per part with the agent tool, several in one message so they run at the same time. Give each one different assets, then check what they report.",
+  where(projectDir),
+  "For work that splits into independent parts, start a subagent per part with the agent tool, several in one message so they run at the same time. Give each one different assets and files, then check what they report.",
   "When the editor restarts or crashes during your work, a note tells you why and what was lost. Do not repeat a call whose outcome is unknown without reading the state first.",
 ].join("\n");
 
 /** What a subagent is told: the same way of working, and to end with a report for the agent that started it. */
 export const SUBAGENT_SYSTEM = [
-  "You are a subagent working inside Unreal Editor through ue-mcp, on one task another agent gave you.",
+  "You are a subagent working inside Unreal Editor through ue-mcp, and on the project's files, on one task another agent gave you.",
   ...WORK,
-  "Stay within the task. Other subagents may be working on other assets at the same time.",
-  "Finish with a short report: what you created or changed (asset paths), what you saved, and anything that failed.",
+  "Stay within the task. Other subagents may be working on other assets and files at the same time.",
+  "Finish with a short report: what you created or changed (asset paths and files), what you saved, and anything that failed.",
 ].join("\n");
+
+const subagentSystem = (projectDir: string): string => `${SUBAGENT_SYSTEM}\n${where(projectDir)}`;
+
+/** What the model is told when the user declines a call. */
+const declinedText = (name: string): string =>
+  `The user declined this ${name === "shell" ? "command" : "file change"}, so it did not run. Do not try it again in another form: take a different approach, or ask the user what they want.`;
+
+/** A gate's answer: run the call (null), or why it must not. */
+type GateResult = null | { declined: string } | { stopped: true };
 
 /** How many model calls one subagent may make before it is stopped. */
 const SUBAGENT_STEPS = 200;
@@ -51,6 +74,8 @@ export interface RunnerOptions {
   effort?: () => Effort;
   /** Experimental: the turn runs on the Claude subscription through the Agent SDK. */
   subscription?: () => boolean;
+  /** Ask the user before a command runs or a file changes; on when not given. */
+  askBeforeChanges?: () => boolean;
 }
 
 const now = (): string => new Date().toISOString();
@@ -59,6 +84,8 @@ export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
   /** Each running subagent, by its agent call id, so one can be stopped without the turn. */
   private readonly subagents = new Map<string, () => void>();
+  /** Calls waiting for the user, by approval id, with how to answer each. */
+  private readonly waitingApprovals = new Map<string, { sessionId: string; parent: string | null; answer: (d: ApprovalDecision | "stopped") => void }>();
   /** Why the editor last went away, for waiting turns and unknown outcomes. */
   private lastCause = "the editor is not connected";
   private readonly unsubscribe: () => void;
@@ -95,6 +122,11 @@ export class AgentRunner {
   /** After a daemon restart: anything that was mid-turn continues, and a call that was mid-flight becomes unknown. */
   recover(): void {
     for (const s of this.o.store.all()) {
+      // An approval only the previous daemon could answer; its call asks again when the turn resumes.
+      if (s.approvals?.length) {
+        s.approvals = [];
+        this.o.store.save(s);
+      }
       if (s.status !== "running" && s.status !== "waiting") continue;
       for (const p of s.pending ?? []) if (p.state === "running") p.state = "unknown";
       s.status = "waiting";
@@ -150,8 +182,8 @@ export class AgentRunner {
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",
-        system: SYSTEM,
-        subagentSystem: SUBAGENT_SYSTEM,
+        system: system(this.o.host.projectDir),
+        subagentSystem: subagentSystem(this.o.host.projectDir),
         prompt,
         resume: s.sdkSession ?? null,
         signal: controller.signal,
@@ -198,6 +230,8 @@ export class AgentRunner {
             if (detail.background) background.add(toolUseId);
             return;
           }
+          // A subagent that ended cannot be waiting on the user any more.
+          this.dropApprovals(s.id, toolUseId);
           const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId);
           if (entry?.kind !== "tool" || entry.call.outcome !== "pending") return;
           const failed = status !== "completed";
@@ -210,7 +244,13 @@ export class AgentRunner {
         },
         runTool: async (toolId, name, input) => {
           if (name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, controller.signal);
-          const exec = await executeTool(this.o.host, name, input);
+          const gate = await this.gate(s, toolId, name, input, controller.signal);
+          if (gate) {
+            const text = "stopped" in gate ? "Stopped by the user." : gate.declined;
+            this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
+            return { text, isError: true, outcome: "error", touched: [], saved: [] };
+          }
+          const exec = await executeTool(this.o.host, name, input, controller.signal);
           this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
           this.markSaved(s, exec.saved);
           const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError };
@@ -277,6 +317,77 @@ export class AgentRunner {
     return true;
   }
 
+  /**
+   * Hold a command or a file change until the user answers. Returns null to
+   * run it, or why it must not run: declined, or the turn was stopped.
+   */
+  private async gate(s: StoredSession, toolUseId: string, name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<GateResult> {
+    if (!(CHANGING_TOOLS as readonly string[]).includes(name)) return null;
+    // A bad input fails in the executor without changing anything.
+    if (validateInput(name, input)) return null;
+    if (!(this.o.askBeforeChanges?.() ?? true)) return null;
+    const kind = name === "shell" ? "shell" : "edit";
+    if (s.allowed?.includes(kind)) return null;
+    const preview = approvalFor(this.o.host.projectDir, name, input);
+    if (!preview) return null;
+    if (signal.aborted) return { stopped: true };
+
+    const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId);
+    const parent = entry?.parent ?? null;
+    const agent = parent ? s.transcript.find((t) => t.kind === "tool" && t.call.id === parent) : undefined;
+    const subagent = agent?.kind === "tool" ? (agent.call.input as { description?: unknown }).description : undefined;
+    const req: ApprovalRequest = { id: crypto.randomUUID(), toolUseId, parent, ...(typeof subagent === "string" ? { subagent } : {}), ...preview, at: now() };
+
+    const decision = await new Promise<ApprovalDecision | "stopped">((resolve) => {
+      const onAbort = () => resolve("stopped");
+      signal.addEventListener("abort", onAbort, { once: true });
+      this.waitingApprovals.set(req.id, {
+        sessionId: s.id,
+        parent,
+        answer: (d) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(d);
+        },
+      });
+      s.approvals = [...(s.approvals ?? []), req];
+      this.o.store.save(s);
+      this.o.host.events.publish("approval.requested", { sessionId: s.id, approvalId: req.id, tool: name });
+      this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+    });
+
+    this.waitingApprovals.delete(req.id);
+    s.approvals = (s.approvals ?? []).filter((a) => a.id !== req.id);
+    if (decision === "session") s.allowed = [...new Set([...(s.allowed ?? []), kind])];
+    this.o.store.save(s);
+    this.o.host.events.publish("approval.resolved", { sessionId: s.id, approvalId: req.id, decision });
+    this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+    if (decision === "stopped") return { stopped: true };
+    if (decision === "deny") return { declined: declinedText(name) };
+    return null;
+  }
+
+  /** The user's answer to a waiting call. False when no such approval is waiting in that session. */
+  answerApproval(sessionId: string, approvalId: string, decision: ApprovalDecision): boolean {
+    const w = this.waitingApprovals.get(approvalId);
+    if (!w || w.sessionId !== sessionId) return false;
+    w.answer(decision);
+    return true;
+  }
+
+  /** Answer as stopped every approval a subagent left waiting. */
+  private dropApprovals(sessionId: string, parent: string): void {
+    for (const w of [...this.waitingApprovals.values()]) if (w.sessionId === sessionId && w.parent === parent) w.answer("stopped");
+  }
+
+  /** A provider's own web searches, as finished calls in the transcript. */
+  private recordSearches(s: StoredSession, searches: WebSearchRecord[] | undefined, parent?: string): void {
+    for (const w of searches ?? []) {
+      const result = w.error ? `The search failed: ${w.error}` : w.results.map((r) => `${r.title}\n${r.url}`).join("\n\n") || "No results.";
+      const at = now();
+      this.addEntry(s, { kind: "tool", call: { id: w.id, name: "web_search", input: { query: w.query }, outcome: w.error ? "error" : "done", result, startedAt: at, endedAt: at }, ...(parent ? { parent } : {}) });
+    }
+  }
+
   private require(id: string): StoredSession {
     const s = this.o.store.get(id);
     if (!s) throw new Error(`no session ${id}`);
@@ -319,13 +430,14 @@ export class AgentRunner {
 
         if (s.status !== "running") this.setStatus(s, "running", null);
         const turn = await this.o.provider().run(
-          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: SYSTEM }], tools: TOOLS, messages: s.messages },
+          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: system(this.o.host.projectDir) }], tools: TOOLS, messages: s.messages },
           (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
           controller.signal,
         );
         if (controller.signal.aborted) return;
 
         s.messages.push({ role: "assistant", content: turn.content } as MessageParam);
+        this.recordSearches(s, turn.searches);
         const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
         if (text) this.addEntry(s, { kind: "assistant", text, at: now() });
 
@@ -334,6 +446,8 @@ export class AgentRunner {
           this.setStatus(s, "error", null);
           return;
         }
+        // A long server-side step (a web search) paused the turn: send it back to go on.
+        if (turn.stopReason === "pause_turn") continue;
         const uses = turn.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
         if (turn.stopReason !== "tool_use" || uses.length === 0) {
           this.setStatus(s, "idle", null);
@@ -398,9 +512,20 @@ export class AgentRunner {
       const needsEditor = p.name === "ue_mcp" && p.input.action === "call";
       if (needsEditor && !editorConnected(this.o.host)) return this.pause(s);
 
+      // Waiting for the user leaves the call queued, so a daemon restart asks again rather than guessing.
+      const gate = await this.gate(s, p.id, p.name, p.input, signal);
+      if (gate && "stopped" in gate) return true;
+      if (gate) {
+        p.state = "done";
+        p.result = gate.declined;
+        p.isError = true;
+        this.recordOutcome(s, p, "declined");
+        continue;
+      }
+
       p.state = "running";
       this.o.store.save(s);
-      const exec = await executeTool(this.o.host, p.name, p.input);
+      const exec = await executeTool(this.o.host, p.name, p.input, signal);
       if (exec.outcome === "unknown") {
         p.state = "unknown";
         this.mergeTouched(s, exec.touched, false);
@@ -424,7 +549,7 @@ export class AgentRunner {
   }
 
   /**
-   * One subagent: its own conversation on the same model, with the editor tools
+   * One subagent: its own conversation on the same model, with the work tools
    * only. Its steps go into the session's transcript under the agent call; the
    * main agent gets its final report as the call's result.
    */
@@ -447,17 +572,19 @@ export class AgentRunner {
       for (let step = 0; step < SUBAGENT_STEPS; step++) {
         if (signal.aborted) return stopped();
         const turn = await this.o.provider().run(
-          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: SUBAGENT_SYSTEM }], tools: EDITOR_TOOLS, messages },
+          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: subagentSystem(this.o.host.projectDir) }], tools: WORK_TOOLS, messages },
           () => {},
           signal,
         );
         messages.push({ role: "assistant", content: turn.content } as MessageParam);
+        this.recordSearches(s, turn.searches, parent);
         const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
         if (text) {
           report = text;
           this.addEntry(s, { kind: "assistant", text, at: now(), parent });
         }
         if (turn.stopReason === "refusal") return { text: `The subagent's model declined: ${turn.refusal ?? "no reason given"}`, isError: true };
+        if (turn.stopReason === "pause_turn") continue;
         const uses = turn.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
         if (turn.stopReason !== "tool_use" || uses.length === 0) return { text: report || "The subagent finished without a report.", isError: false };
         const results: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
@@ -466,7 +593,14 @@ export class AgentRunner {
           this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() }, parent });
           if (u.name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal);
           if (signal.aborted) return stopped();
-          const exec = await executeTool(this.o.host, u.name, input);
+          const gate = await this.gate(s, u.id, u.name, input, signal);
+          if (gate && "stopped" in gate) return stopped();
+          if (gate) {
+            this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: gate.declined, isError: true }, "declined");
+            results.push({ type: "tool_result", tool_use_id: u.id, content: gate.declined, is_error: true });
+            continue;
+          }
+          const exec = await executeTool(this.o.host, u.name, input, signal);
           this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
           this.markSaved(s, exec.saved);
           this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError }, exec.outcome);
@@ -489,7 +623,7 @@ export class AgentRunner {
     return true;
   }
 
-  private recordOutcome(s: StoredSession, p: PendingTool, outcome: "done" | "error" | "unknown" | "stopped"): void {
+  private recordOutcome(s: StoredSession, p: PendingTool, outcome: "done" | "error" | "unknown" | "stopped" | "declined"): void {
     const entry = [...s.transcript].reverse().find((t) => t.kind === "tool" && t.call.id === p.id);
     if (entry && entry.kind === "tool") {
       entry.call.outcome = outcome === "done" && p.isError ? "error" : outcome;

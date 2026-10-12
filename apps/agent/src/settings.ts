@@ -27,6 +27,7 @@ interface StoredSettings {
   effort: Effort;
   gatewayUrl: string;
   theme: StudioTheme;
+  askBeforeChanges: boolean;
 }
 
 /**
@@ -57,9 +58,10 @@ export class SettingsStore {
         effort: EFFORTS.includes(raw.effort as Effort) ? (raw.effort as Effort) : DEFAULT_EFFORT,
         gatewayUrl: typeof raw.gatewayUrl === "string" && raw.gatewayUrl ? raw.gatewayUrl : DEFAULT_GATEWAY_URL,
         theme: STUDIO_THEMES.includes(raw.theme as StudioTheme) ? (raw.theme as StudioTheme) : "ue-mcp",
+        askBeforeChanges: raw.askBeforeChanges !== false,
       };
     } catch {
-      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp" };
+      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true };
     }
   }
 
@@ -113,6 +115,10 @@ export class SettingsStore {
       if (!STUDIO_THEMES.includes(u.theme)) throw new Error(`theme must be one of ${STUDIO_THEMES.join(", ")}`);
       s.theme = u.theme;
     }
+    if (u.askBeforeChanges !== undefined) {
+      if (typeof u.askBeforeChanges !== "boolean") throw new Error("askBeforeChanges must be a boolean");
+      s.askBeforeChanges = u.askBeforeChanges;
+    }
     for (const [p, v] of Object.entries(u.keys ?? {})) {
       if (!KEY_PROVIDER_IDS.includes(p as KeyProviderId)) throw new Error(`no key provider ${p}`);
       if (typeof v !== "string") throw new Error(`the ${p} key must be a string`);
@@ -165,5 +171,10 @@ export class SettingsStore {
 
   gatewayUrl(): string {
     return this.stored().gatewayUrl;
+  }
+
+  /** Ask the user before a command runs or a file changes. On unless turned off. */
+  askBeforeChanges(): boolean {
+    return this.stored().askBeforeChanges;
   }
 }

@@ -172,7 +172,10 @@ describe("the Responses API", () => {
       { type: "function_call", call_id: "c1", name: "ue_mcp", arguments: '{"action":"search","query":"x"}' },
       { type: "function_call_output", call_id: "c1", output: "found" },
     ]);
-    expect((req.tools as Array<{ type: string; name: string }>).map((t) => [t.type, t.name])).toEqual([["function", "ue_mcp"], ["function", "editor_restart"], ["function", "agent"]]);
+    expect((req.tools as Array<{ type: string; name: string }>).map((t) => t.name)).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "agent"]);
+    // OpenAI's own web search goes along when the route offers it.
+    const withSearch = toResponsesRequest({ sessionId: "s", model: "gpt-6.1-sol", system: [], tools: TOOLS, messages: [] }, true);
+    expect((withSearch.tools as Array<{ type: string }>).at(-1)).toEqual({ type: "web_search" });
   });
 
   const stream = async function* (events: unknown[]) {

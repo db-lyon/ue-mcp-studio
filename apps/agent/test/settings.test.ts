@@ -23,6 +23,18 @@ describe("theme setting", () => {
   });
 });
 
+describe("asking before changes", () => {
+  it("is on until the user turns it off, and kept apart from the model settings", () => {
+    const s = store();
+    expect(s.askBeforeChanges()).toBe(true);
+    s.update({ model: "claude-sonnet-5-5" });
+    expect(s.askBeforeChanges()).toBe(true);
+    s.update({ askBeforeChanges: false });
+    expect(s.view()).toMatchObject({ askBeforeChanges: false, model: "claude-sonnet-5-5" });
+    expect(() => s.update({ askBeforeChanges: "no" as never })).toThrow(/must be a boolean/);
+  });
+});
+
 describe("providers", () => {
   it("starts on a Claude model", () => {
     expect(store().view()).toMatchObject({ provider: "anthropic", model: "claude-opus-5-5" });

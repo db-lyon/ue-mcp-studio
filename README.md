@@ -19,6 +19,12 @@ Pick a model in the chat box. Each vendor connects through its own sign-in where
 - **OpenAI:** sign in with ChatGPT, so your ChatGPT plan pays for the calls, or your API key.
 - **Google:** your API key.
 
+## Tools
+
+The agent works in the editor through ue-mcp, and on your machine through Studio's own tools: `shell` (Git Bash on Windows when Git is installed, otherwise PowerShell), `read_file`, `write_file`, `edit_file`, `glob`, `grep` and `web_fetch`, plus the model provider's own web search where the route has one. Commands run in the project folder, and relative paths start there.
+
+Reads, searches and fetches run freely. A command, a file write or an edit waits in the chat with the command or the diff until you choose Allow, Allow for this session or Deny. **Settings > Agent** turns the asking off for a project.
+
 ## Development
 
 See [`CLAUDE.md`](CLAUDE.md) for the layout, the rule about depending on ue-mcp, signing, and releases.

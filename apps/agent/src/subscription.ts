@@ -15,17 +15,37 @@ import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import type { ToolExecution } from "./tools.js";
 import { ensureRuntime, installedRuntime } from "./runtime.js";
+import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
-const STUDIO_TOOLS = [`${PREFIX}ue_mcp`, `${PREFIX}editor_restart`];
+export const STUDIO_TOOLS = ["ue_mcp", "editor_restart", ...LOCAL_TOOL_NAMES].map((n) => `${PREFIX}${n}`);
 /** The SDK's subagent tool, and the subagent Studio defines for it. */
 const AGENT = "Agent";
 const WORKER = "editor-worker";
+/** The SDK's web search, which runs on Anthropic's side: the one built-in tool besides Agent. */
+const SEARCH = "WebSearch";
 
 /** Tool names as Studio's transcript writes them: its own tools unprefixed, the SDK's subagent tool as agent. */
-const studioName = (name: string): string =>
-  name.startsWith(PREFIX) ? name.slice(PREFIX.length) : name === AGENT || name === "Task" ? "agent" : name;
+export const studioName = (name: string): string =>
+  name.startsWith(PREFIX) ? name.slice(PREFIX.length)
+    : name === AGENT || name === "Task" ? "agent"
+    : name === SEARCH ? "web_search"
+    : name;
+
+/** Studio's machine tools in the SDK's form: the same names and descriptions as the API path, checked by zod. */
+function localSdkTools(handler: (name: string) => (args: Record<string, unknown>) => Promise<{ content: Array<{ type: "text"; text: string }>; isError: boolean }>) {
+  const desc = Object.fromEntries(localToolDefinitions().map((t) => [(t as { name: string }).name, (t as { description?: string }).description ?? ""]));
+  return [
+    tool("shell", desc.shell, { command: z.string(), timeout: z.number().optional(), description: z.string().optional() }, handler("shell")),
+    tool("read_file", desc.read_file, { path: z.string(), offset: z.number().optional(), limit: z.number().optional() }, handler("read_file")),
+    tool("write_file", desc.write_file, { path: z.string(), content: z.string() }, handler("write_file")),
+    tool("edit_file", desc.edit_file, { path: z.string(), old_string: z.string(), new_string: z.string(), replace_all: z.boolean().optional() }, handler("edit_file")),
+    tool("glob", desc.glob, { pattern: z.string(), path: z.string().optional() }, handler("glob")),
+    tool("grep", desc.grep, { pattern: z.string(), path: z.string().optional(), glob: z.string().optional(), ignore_case: z.boolean().optional() }, handler("grep")),
+    tool("web_fetch", desc.web_fetch, { url: z.string(), max_length: z.number().optional() }, handler("web_fetch")),
+  ];
+}
 
 /** Studio's Claude login and SDK sessions, shared by every project. */
 export const claudeHome = (): string => process.env.STUDIO_CLAUDE_HOME || path.join(os.homedir(), ".ue-mcp", "studio", "claude");
@@ -230,13 +250,15 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         { operation: z.enum(["restart", "rebuild"]), reason: z.string() },
         handler("editor_restart"),
       ),
+      ...localSdkTools(handler),
     ],
   });
 
   const abort = new AbortController();
   const onAbort = () => abort.abort();
   t.signal.addEventListener("abort", onAbort);
-  const env = claudeEnv();
+  // A command or a file change can wait on the user for as long as they take: no MCP call timeout cuts it off.
+  const env = claudeEnv({ MCP_TOOL_TIMEOUT: String(24 * 60 * 60 * 1000) });
 
   try {
     const q = query({
@@ -245,18 +267,19 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         model: t.model,
         effort: t.effort,
         systemPrompt: t.system,
-        // The SDK's subagent tool is the only built-in one; every editor action goes through Studio's tools.
-        tools: [AGENT],
+        // Built-ins: the subagent tool, and web search, which runs on Anthropic's side and touches nothing here.
+        // Everything else goes through Studio's tools, so one approval model and one transcript cover every route.
+        tools: [AGENT, SEARCH],
         agents: {
           [WORKER]: {
-            description: "Works on one self-contained Unreal Editor task through ue-mcp and reports what it changed.",
+            description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
             prompt: t.subagentSystem,
             effort: t.effort,
-            tools: STUDIO_TOOLS,
+            tools: [...STUDIO_TOOLS, SEARCH],
           },
         },
         mcpServers: { [SERVER]: server },
-        allowedTools: [...STUDIO_TOOLS, AGENT],
+        allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH],
         settingSources: [],
         includePartialMessages: true,
         resume: t.resume ?? undefined,

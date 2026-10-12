@@ -14,12 +14,14 @@
  *   PUT  /sessions/:id/draft        the unsent message, kept across reloads
  *   POST /sessions/:id/messages     send a message; the turn runs in the background
  *   POST /sessions/:id/stop         stop the turn
+ *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,
- * studio.transcript.added, studio.turn.delta and studio.tool.finished.
+ * studio.transcript.added, studio.turn.delta, studio.tool.finished,
+ * studio.approval.requested and studio.approval.resolved.
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import type { FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { ApprovalDecision, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
@@ -117,6 +119,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     model: () => settings.model(),
     effort: () => settings.effort(),
     subscription: () => route() === "claude",
+    askBeforeChanges: () => settings.askBeforeChanges(),
   });
 
   const bad = (error: string) => ({ status: 400, body: { error } });
@@ -319,6 +322,15 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   api.route("POST", "/sessions/:id/agents/:callId/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
     return runner.stopSubagent(req.params.id, req.params.callId) ? { status: 204 } : { status: 404, body: { error: `no running subagent ${req.params.callId}` } };
+  });
+  // The user's answer to a command or file change the agent asked to make.
+  api.route("POST", "/sessions/:id/approvals/:approvalId", (req) => {
+    if (!store.get(req.params.id)) return missing(req.params.id);
+    const decision = (req.body as { decision?: unknown } | undefined)?.decision;
+    if (decision !== "allow" && decision !== "session" && decision !== "deny") return bad("body must be { decision: allow | session | deny }");
+    return runner.answerApproval(req.params.id, req.params.approvalId, decision as ApprovalDecision)
+      ? { status: 204 }
+      : { status: 404, body: { error: `no approval ${req.params.approvalId} is waiting` } };
   });
   api.route("POST", "/sessions/:id/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);

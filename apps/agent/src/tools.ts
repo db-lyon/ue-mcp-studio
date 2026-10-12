@@ -6,12 +6,14 @@
  * project(describe_action), and call runs the named action, all in process
  * through the daemon's dispatch (api.callAction). editor_restart has the
  * daemon stop, rebuild if asked, and start the editor, announcing why first.
+ * The machine tools (shell, files, search, web) live in local-tools.ts.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import type { TouchedItem } from "@ue-mcp-studio/shared";
+import { isLocalTool, localToolDefinitions, runLocal, validateLocal } from "./local-tools.js";
 
 /** The part of the daemon's extension API the agent uses, so tests can stand in for it. */
 export interface AgentHost {
@@ -68,12 +70,15 @@ export const EDITOR_TOOLS: Anthropic.Beta.BetaToolUnion[] = [
   },
 ];
 
-/** The subagent tool. A subagent gets the editor tools only, so it cannot start subagents itself. */
+/** Every tool a subagent has: the editor's, and the machine's (shell, files, search, web). */
+export const WORK_TOOLS: Anthropic.Beta.BetaToolUnion[] = [...EDITOR_TOOLS, ...localToolDefinitions()];
+
+/** The subagent tool. A subagent gets the work tools only, so it cannot start subagents itself. */
 export const AGENT_TOOL: Anthropic.Beta.BetaToolUnion = {
   name: "agent",
   description:
-    "Hand a self-contained task to a subagent. It works in the editor with the same ue_mcp and editor_restart tools "
-    + "and reports back what it did. It sees only the prompt you write, so include every path, name and constraint it needs. "
+    "Hand a self-contained task to a subagent. It has the same tools: ue_mcp and editor_restart for the editor, "
+    + "and the shell, file, search and web tools for the project's files, git and the internet. It reports back what it did. It sees only the prompt you write, so include every path, name and constraint it needs. "
     + "Call agent several times in one message to run independent tasks at the same time; never give two subagents the same assets.",
   input_schema: {
     type: "object",
@@ -85,7 +90,7 @@ export const AGENT_TOOL: Anthropic.Beta.BetaToolUnion = {
   },
 };
 
-export const TOOLS: Anthropic.Beta.BetaToolUnion[] = [...EDITOR_TOOLS, AGENT_TOOL];
+export const TOOLS: Anthropic.Beta.BetaToolUnion[] = [...WORK_TOOLS, AGENT_TOOL];
 
 export type CallOutcome = "done" | "error" | "unknown";
 
@@ -102,6 +107,7 @@ export interface ToolExecution {
 export function validateInput(name: string, input: unknown): string | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return "input must be an object";
   const i = input as Record<string, unknown>;
+  if (isLocalTool(name)) return validateLocal(name, i);
   if (name === "editor_restart") {
     if (i.operation !== "restart" && i.operation !== "rebuild") return "operation must be restart or rebuild";
     return null;
@@ -175,9 +181,14 @@ export function editorConnected(host: AgentHost): boolean {
 }
 
 /** Run one tool call. An error while the editor went away is reported as an unknown outcome, never as a failure. */
-export async function executeTool(host: AgentHost, name: string, input: Record<string, unknown>): Promise<ToolExecution> {
+export async function executeTool(host: AgentHost, name: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<ToolExecution> {
   const invalid = validateInput(name, input);
   if (invalid) return { text: `Invalid input: ${invalid}`, isError: true, outcome: "error", touched: [], saved: [] };
+
+  if (isLocalTool(name)) {
+    const r = await runLocal(host.projectDir, name, input, signal);
+    return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
+  }
 
   if (name === "editor_restart") {
     const op = input.operation as "restart" | "rebuild";

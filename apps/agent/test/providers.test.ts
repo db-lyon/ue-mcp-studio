@@ -1,7 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { STUDIO_PLAN_AVAILABLE } from "@ue-mcp-studio/shared";
 import { OpenAICompatibleProvider, PROVIDER_EXTRA, readChatStream, toChatRequest } from "../src/openai-compat.js";
-import { requestBody, type ModelRequest } from "../src/providers.js";
+import { AnthropicProvider, requestBody, searchesIn, type ModelRequest } from "../src/providers.js";
 import { chatModels, signInsFor } from "../src/models.js";
 import { StudioSignInFlow } from "../src/signin.js";
 import { TOOLS } from "../src/tools.js";
@@ -44,7 +44,7 @@ describe("OpenAI compatible translation", () => {
       tool_calls: [{ id: "call_1", function: { name: "ue_mcp", arguments: JSON.stringify({ action: "search", query: "cube" }) }, extra_content: { google: { thought_signature: "sig" } } }],
     });
     expect(body.messages[3]).toEqual({ role: "tool", tool_call_id: "call_1", content: "level.spawn_actor" });
-    expect(body.tools.map((t) => t.function.name)).toEqual(["ue_mcp", "editor_restart", "agent"]);
+    expect(body.tools.map((t) => t.function.name)).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "agent"]);
   });
 
   it("never sends another provider's tool-call data to the Messages API", () => {
@@ -132,5 +132,46 @@ describe("sign-ins come before keys", () => {
     expect(signInsFor("anthropic", "claude-opus-5-5", coverage)).toEqual(STUDIO_PLAN_AVAILABLE ? ["claude", "studio"] : ["claude"]);
     expect(signInsFor("anthropic", "claude-haiku-5-5", coverage)).toEqual(["claude"]);
     expect(signInsFor("openai", "gpt-6-sol", coverage)).toEqual(["chatgpt"]);
+  });
+});
+
+describe("the Anthropic API's own web search", () => {
+  const message = {
+    content: [
+      { type: "server_tool_use", id: "srv1", name: "web_search", input: { query: "unreal 5.8" } },
+      { type: "web_search_tool_result", tool_use_id: "srv1", content: [{ type: "web_search_result", title: "Release notes", url: "https://example.com/58" }] },
+      { type: "text", text: "Here." },
+    ],
+    stop_reason: "end_turn",
+  };
+  const req: ModelRequest = { sessionId: "s", model: "claude-opus-5-5", system: [], tools: TOOLS, messages: [{ role: "user", content: "hi" }] };
+
+  it("goes with Studio's tools, and its searches come back for the transcript", async () => {
+    const sent: string[][] = [];
+    const client = { beta: { messages: { stream: vi.fn((body: { tools: Array<{ name: string }> }) => {
+      sent.push(body.tools.map((t) => t.name));
+      return { on: () => {}, finalMessage: () => Promise.resolve(message) };
+    }) } } };
+    const turn = await new AnthropicProvider("k", client as never).run(req, () => {}, new AbortController().signal);
+    expect(sent[0].at(-1)).toBe("web_search");
+    expect(turn.searches).toEqual([{ id: "srv1", query: "unreal 5.8", results: [{ title: "Release notes", url: "https://example.com/58" }] }]);
+  });
+
+  it("is left out when the API refuses it, and the turn runs without it", async () => {
+    const sent: number[] = [];
+    const client = { beta: { messages: { stream: vi.fn((body: { tools: unknown[] }) => {
+      sent.push(body.tools.length);
+      const refuse = body.tools.length > TOOLS.length;
+      return { on: () => {}, finalMessage: () => (refuse ? Promise.reject(Object.assign(new Error("400 web_search is not enabled"), { status: 400 })) : Promise.resolve({ content: [], stop_reason: "end_turn" })) };
+    }) } } };
+    const p = new AnthropicProvider("k", client as never);
+    await p.run(req, () => {}, new AbortController().signal);
+    await p.run(req, () => {}, new AbortController().signal);
+    expect(sent).toEqual([TOOLS.length + 1, TOOLS.length, TOOLS.length]);
+  });
+
+  it("reads a failed search as an error", () => {
+    expect(searchesIn([{ type: "server_tool_use", id: "x", name: "web_search", input: { query: "q" } }, { type: "web_search_tool_result", tool_use_id: "x", content: { type: "web_search_tool_result_error", error_code: "max_uses_exceeded" } }] as never))
+      .toEqual([{ id: "x", query: "q", results: [], error: "max_uses_exceeded" }]);
   });
 });
