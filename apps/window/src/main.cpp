@@ -713,10 +713,13 @@ void restack() {
  * (SWP_ASYNCWINDOWPOS), so a busy editor cannot stall this; lowest window first, so
  * their order is kept.
  */
-void raiseEditor() {
+bool raiseEditor() {
+  // Docked, the editor is the one holding the tab; as a window, the one Studio follows.
+  DWORD pid = docked() && gDockAlive ? gReport.pid : gEditorPid;
+  if (!pid) return false;
   std::vector<HWND> windows;  // the editor's visible normal-band windows, top first
   for (HWND w = GetTopWindow(nullptr); w; w = GetWindow(w, GW_HWNDNEXT)) {
-    if (pidOf(w) == gReport.pid && IsWindowVisible(w) && !zTopmost(reinterpret_cast<uintptr_t>(w))) windows.push_back(w);
+    if (pidOf(w) == pid && IsWindowVisible(w) && !zTopmost(reinterpret_cast<uintptr_t>(w))) windows.push_back(w);
   }
   const UINT flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS;
   for (auto it = windows.rbegin(); it != windows.rend(); ++it) {
@@ -724,6 +727,7 @@ void raiseEditor() {
     SetWindowPos(*it, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
   }
   SetTimer(gMain, kRaiseTimer, 50, nullptr);
+  return !windows.empty();
 }
 
 /** A borderless tool window over the tab, or the window's own chrome. */
@@ -898,7 +902,7 @@ const wchar_t* kShim = LR"JS((function () {
   });
   var names = ["getstatus", "startdaemon", "installbridge", "startsetupplan", "getsetupplan", "runsetup", "restarteditor",
     "enableplugin", "openprojectfolder", "geteditortheme", "opennodedownload", "drawattention", "opendocs",
-    "getwindowmode", "setwindowmode"];
+    "getwindowmode", "setwindowmode", "raiseeditor"];
   var studio = {};
   names.forEach(function (name) {
     studio[name] = function (arg) {
@@ -989,6 +993,7 @@ std::string dispatch(const std::string& method, const std::string& arg) {
     setMode(m, true);
     return b(true);
   }
+  if (method == "raiseeditor") return b(raiseEditor());  // after an asset opens from the chat
   return "null";
 }
 
