@@ -2,7 +2,7 @@
  * Keeping Studio current from the panel: the extension (this agent and its
  * UI) and the editor plugin, read against the release channel's latest.json.
  *
- * The extension updates through `ue-mcp extension install`, run detached
+ * The extension updates through `ue-mcp extension install`, run in the background
  * because it restarts the daemon this agent lives in. The editor plugin
  * cannot replace itself while the editor has it loaded, but the daemon
  * outlives the editor: the zip for this engine is downloaded and checked
@@ -147,7 +147,7 @@ export class Updater {
   }
 
   /**
-   * Run the newest ue-mcp on the channel, detached: npx resolves the channel
+   * Run the newest ue-mcp on the channel in the background: npx resolves the channel
    * (ue-mcp@beta) each time, so a daemon it starts runs the version just
    * installed rather than the one this daemon runs.
    */
@@ -155,8 +155,7 @@ export class Updater {
     const npx = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
     if (!fs.existsSync(npx)) return { started: false, error: "npx was not found beside Node" };
     const pkg = await this.manifest().then((m) => (m as ReleaseManifest & { ueMcp?: { package?: string } }).ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
-    const child = spawn(process.execPath, [npx, "-y", pkg, ...args], { detached: true, stdio: "ignore", windowsHide: true, cwd: this.host.projectDir });
-    child.unref();
+    runHidden([npx, "-y", pkg, ...args], this.host.projectDir);
     return { started: true };
   }
 
@@ -171,14 +170,13 @@ export class Updater {
   async restartDaemon(): Promise<{ started: boolean; error?: string }> {
     const uproject = this.uproject();
     if (!uproject) return { started: false, error: "could not find the project" };
-    // Stop, then start: two ue-mcp runs in one detached chain, so the stop does not take the start down with it.
+    // Stop, then start: two ue-mcp runs in one background chain, so the stop does not take the start down with it.
     const npx = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
     const pkg = await this.manifest().then((m) => (m as ReleaseManifest & { ueMcp?: { package?: string } }).ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
     const script = `const {execFileSync}=require("child_process");const a=[${JSON.stringify(npx)},"-y",${JSON.stringify(pkg)}];` +
       `try{execFileSync(process.execPath,[...a,"daemon","stop",${JSON.stringify(uproject)}],{stdio:"ignore"})}catch{}` +
       `execFileSync(process.execPath,[...a,"daemon","start",${JSON.stringify(uproject)}],{stdio:"ignore"});`;
-    const child = spawn(process.execPath, ["-e", script], { detached: true, stdio: "ignore", windowsHide: true, cwd: this.host.projectDir });
-    child.unref();
+    runHidden(["-e", script], this.host.projectDir);
     return { started: true };
   }
 
@@ -252,6 +250,15 @@ async function startFailure(host: UpdaterHost): Promise<string | null> {
   } catch (e) {
     return e instanceof Error ? e.message : String(e);
   }
+}
+
+/**
+ * Run node in a console of its own with no window. npx runs ue-mcp under
+ * cmd.exe; a detached parent has no console to share, so that cmd opened a
+ * blank window of its own. The chain outlives this daemon either way.
+ */
+function runHidden(args: string[], cwd: string): void {
+  spawn(process.execPath, args, { stdio: "ignore", windowsHide: true, cwd }).unref();
 }
 
 /** A file the editor just let go of can stay locked for a moment on Windows. */
