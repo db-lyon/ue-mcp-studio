@@ -677,18 +677,21 @@ bool attachedForeground() {
  * menu, popup or modal is over the tab, or another app is in front, it sits
  * directly above the host instead, under the editor's own popups.
  */
+bool gRestacking = false;
+
 void restack() {
   if (gShown != Shown::Docked || !gHost || !IsWindow(gHost)) return;
   const UINT flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
   bool topmost = zTopmost(reinterpret_cast<uintptr_t>(gMain));
+  gRestacking = true;
   if (dock::wantTopmost(attachedForeground(), gReport.flags)) {
     if (!topmost) SetWindowPos(gMain, HWND_TOPMOST, 0, 0, 0, 0, flags);
-    return;
+  } else {
+    if (topmost) SetWindowPos(gMain, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+    uintptr_t slot = dockSlot();
+    if (!dock::inSlot(slot, reinterpret_cast<uintptr_t>(gMain), zPrev, zTopmost)) SetWindowPos(gMain, insertAfter(slot), 0, 0, 0, 0, flags);
   }
-  if (topmost) SetWindowPos(gMain, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
-  uintptr_t slot = dockSlot();
-  if (dock::inSlot(slot, reinterpret_cast<uintptr_t>(gMain), zPrev, zTopmost)) return;
-  SetWindowPos(gMain, insertAfter(slot), 0, 0, 0, 0, flags);
+  gRestacking = false;
 }
 
 /** A borderless tool window over the tab, or the window's own chrome. */
@@ -1204,8 +1207,9 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       // Docked and not topmost, every z-order change lands directly above the host,
       // activation included: the editor's menus and dialogs stay above Studio.
       auto* pos = reinterpret_cast<WINDOWPOS*>(lp);
-      bool band = pos->hwndInsertAfter == HWND_TOPMOST || pos->hwndInsertAfter == HWND_NOTOPMOST;
-      if (gShown == Shown::Docked && !band && !(pos->flags & SWP_NOZORDER) && !zTopmost(reinterpret_cast<uintptr_t>(w)) && gHost && IsWindow(gHost)) {
+      // Studio's own restacking and the topmost state it chose are left alone.
+      if (gShown == Shown::Docked && !gRestacking && !(pos->flags & SWP_NOZORDER) && !zTopmost(reinterpret_cast<uintptr_t>(w)) &&
+          !dock::wantTopmost(attachedForeground(), gReport.flags) && gHost && IsWindow(gHost)) {
         pos->hwndInsertAfter = insertAfter(dockSlot());
       }
       break;
