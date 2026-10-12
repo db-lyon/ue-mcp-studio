@@ -87,6 +87,18 @@ describe("Studio updates", () => {
     expect(steps[0]).toMatch(/Downloading/);
   });
 
+  it("says so when the plugin is in place but the editor does not start", async () => {
+    const dir = project("0.1.0-beta.4");
+    const zip = pluginZip("0.1.0-beta.9");
+    const host = { ...fakeHost(dir), editorOperation: async (op: string) => (op === "start" ? { steps: [{ step: "wait for the editor", ok: false, result: "did not become ready in 300s" }] } : {}) };
+    const u = new Updater(host, "0.1.0-beta.9", () => {}, manifestFetch({
+      version: "0.1.0-beta.9", url: "s", sha256: "x",
+      plugin: { version: "0.1.0-beta.9", files: { "5.8": { url: "https://x/p.zip", sha256: zip.sha256 } } },
+    }, fs.readFileSync(zip.file)));
+    expect(await u.updatePlugin()).toEqual({ ok: false, version: "0.1.0-beta.9", error: "The plugin is updated to 0.1.0-beta.9, but the editor did not start: wait for the editor: did not become ready in 300s" });
+    expect(u.pluginVersion()).toBe("0.1.0-beta.9");
+  });
+
   it("refuses a download whose SHA-256 does not match, and leaves the plugin and the editor alone", async () => {
     const dir = project("0.1.0-beta.4");
     const zip = pluginZip("0.1.0-beta.9");

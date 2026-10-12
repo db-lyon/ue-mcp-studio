@@ -223,7 +223,8 @@ export class Updater {
       fs.rmSync(staged, { recursive: true, force: true });
       fs.rmSync(previous, { recursive: true, force: true });
       this.step("Starting the editor");
-      await this.host.editorOperation("start").catch(() => ({}));
+      const notStarted = await startFailure(this.host);
+      if (notStarted) return { ok: false, version: m.plugin.version, error: `The plugin is updated to ${m.plugin.version}, but the editor did not start: ${notStarted}` };
       return { ok: true, version: m.plugin.version };
     } catch (e) {
       // Put the old plugin back if it was moved aside and the new one is not in place.
@@ -237,6 +238,19 @@ export class Updater {
       fs.rmSync(tmp, { recursive: true, force: true });
       this.busy = null;
     }
+  }
+}
+
+/** Why starting the editor failed, or null when it started. */
+async function startFailure(host: UpdaterHost): Promise<string | null> {
+  try {
+    const result = await host.editorOperation("start");
+    const steps = (result.steps as Array<{ step: string; ok: boolean; result?: string }> | undefined) ?? [];
+    const failed = steps.find((s) => !s.ok);
+    if (failed) return `${failed.step}: ${failed.result ?? "failed"}`;
+    return result.ok === false ? String(result.error ?? "failed") : null;
+  } catch (e) {
+    return e instanceof Error ? e.message : String(e);
   }
 }
 
