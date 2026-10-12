@@ -219,6 +219,12 @@ if (pluginEntry) {
 
 if (has("--publish")) {
   const tag = `v${version}`;
+  // Every release carries the editor plugin for every engine, so its page alone installs Studio.
+  for (const engine of arg("--engines", "5.7,5.8").split(",")) {
+    const zip = pluginZips.find((n) => n.endsWith(`-UE${engine}-Win64.zip`));
+    if (!zip || !fs.existsSync(path.join(OUT, zip))) throw new Error(`refusing to publish ${tag}: no editor plugin zip for UE ${engine}`);
+    if (!latest.plugin?.files[engine]?.url.includes(`/download/${tag}/`)) throw new Error(`refusing to publish ${tag}: latest.json's UE ${engine} plugin is not on this release`);
+  }
   const notes = arg("--notes-file", null);
   const notesArgs = notes ? ["--notes-file", notes] : ["--notes", `UE-MCP Studio ${version}.`];
   const files = [zipName, "latest.json", ...pluginZips].map((f) => path.join(OUT, f));
