@@ -16,6 +16,8 @@
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *
+ * Studio's window and the editor's busy state are in window-routes.ts.
+ *
  * Progress arrives on the daemon's event stream as studio.session.changed,
  * studio.transcript.added, studio.turn.delta, studio.tool.finished,
  * studio.approval.requested and studio.approval.resolved.
@@ -36,8 +38,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
+import { BusyTracker } from "./busy.js";
+import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 
-export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): AgentRunner {
+export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
   const store = new SessionStore(api.dataDir);
   const attachments = new AttachmentStore(api.dataDir);
@@ -112,8 +116,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   };
   const signinOf = (id: string) => (id === "studio" || id === "claude" || id === "chatgpt" ? signins[id] : null);
 
+  const busy = new BusyTracker((type, data) => api.events.publish(type, data));
+  const unobserve = api.events.subscribe((e) => busy.observe(e));
   const runner = new AgentRunner({
     host: api,
+    busy,
     store,
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
     model: () => settings.model(),
@@ -338,6 +345,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     return { status: 204 };
   });
 
+  if (packageDir) registerWindowRoutes(api, { busy, stopSession: (id) => runner.stop(id), window: () => daemonWindowHost(api, packageDir, agentVersion) });
+
   runner.recover();
-  return runner;
+  return {
+    runner,
+    dispose: () => {
+      unobserve();
+      runner.dispose();
+    },
+  };
 }

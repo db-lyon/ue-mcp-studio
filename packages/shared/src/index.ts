@@ -371,3 +371,39 @@ export function lineDiff(before: string, after: string, context = DIFF_CONTEXT):
   if (skipped && out.length) out.push({ op: "gap", count: skipped });
   return out;
 }
+
+/** One ue-mcp call the editor is working on, as GET /v1/ext/studio/busy reports it. */
+export interface BusyCall {
+  id: number;
+  category: string;
+  action: string;
+  /** Daemon clock, epoch ms. */
+  startedAt: number;
+  /** studio: Studio's agent made it; client: another MCP client did. */
+  source: "studio" | "client";
+  sessionId?: string;
+  client?: string;
+  /** The turn waiting on it was stopped; the editor finishes the call regardless. */
+  stopped: boolean;
+}
+
+/** GET /v1/ext/studio/busy, and the data of studio.busy.changed. `now` is the daemon's clock. */
+export interface BusyState {
+  now: number;
+  calls: BusyCall[];
+}
+
+/** POST /v1/ext/studio/window: open Studio's own window for this project. */
+export interface WindowRequest {
+  /** The editor process the window follows. The connected editor's when not given. */
+  editorPid?: number;
+  /** Opened from the editor: the window closes when that editor exits. */
+  fromEditor?: boolean;
+}
+
+/** What POST /v1/ext/studio/window did: Studio's window, the system browser where there is none, or nothing. */
+export interface WindowLaunch {
+  opened: "window" | "browser" | "none";
+  pid?: number;
+  reason?: string;
+}

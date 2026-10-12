@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import { AgentRunner } from "../src/runner.js";
+import { BusyTracker } from "../src/busy.js";
 import { SessionStore } from "../src/sessions.js";
 import { SettingsStore } from "../src/settings.js";
 import { GatewayProvider, type ModelProvider, type ModelRequest, type ModelTurn } from "../src/providers.js";
@@ -421,6 +422,30 @@ describe("persistence", () => {
     expect(fin.status).toBe("stopped");
     expect(fin.pending).toBeNull();
     expect((fin.messages.at(-1)!.content as Array<{ type: string; is_error?: boolean }>)[0]).toMatchObject({ type: "tool_result", is_error: true });
+  });
+});
+
+describe("stopping while the editor is busy", () => {
+  it("ends the turn at once, keeps it stopped when the call returns, and the busy state follows the call", async () => {
+    let finish: () => void = () => {};
+    host.handler = () => new Promise((resolve) => (finish = () => resolve({ isError: false, content: [{ type: "text", text: "{\"success\":true}" }] })));
+    const busy = new BusyTracker();
+    const model = new ScriptedModel([() => call("t1", "editor", "execute_python", { code: "import time; time.sleep(20)" }), () => text("never")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", busy });
+    const s = store.create();
+    const turn = runner.send(s.id, "block the editor");
+    await until(() => busy.state().calls.length === 1);
+    expect(busy.state().calls[0]).toMatchObject({ category: "editor", action: "execute_python", sessionId: s.id });
+
+    expect(busy.stop((id) => runner.stop(id))).toEqual([s.id]);
+    expect(store.get(s.id)!.status).toBe("stopped");
+
+    finish();
+    await turn;
+    await until(() => busy.state().calls.length === 0);
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("stopped");
+    expect(model.requests).toHaveLength(1);
   });
 });
 

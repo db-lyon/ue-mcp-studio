@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import type { ApprovalDecision, ApprovalRequest, Effort, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
+import type { BusyTracker } from "./busy.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost } from "./tools.js";
 import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
 import { runSubscriptionTurn } from "./subscription.js";
@@ -76,6 +77,8 @@ export interface RunnerOptions {
   subscription?: () => boolean;
   /** Ask the user before a command runs or a file changes; on when not given. */
   askBeforeChanges?: () => boolean;
+  /** Tracks each turn's editor calls, for the window's busy state. */
+  busy?: BusyTracker;
 }
 
 const now = (): string => new Date().toISOString();
@@ -112,6 +115,11 @@ export class AgentRunner {
         this.resumeAll();
       }
     });
+  }
+
+  /** The host a session's tool calls run on: its editor calls are tracked when there is a busy tracker. */
+  private hostFor(sessionId: string): AgentHost {
+    return this.o.busy ? this.o.busy.wrap(this.o.host, sessionId) : this.o.host;
   }
 
   dispose(): void {
@@ -250,8 +258,10 @@ export class AgentRunner {
             this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
             return { text, isError: true, outcome: "error", touched: [], saved: [] };
           }
-          const exec = await executeTool(this.o.host, name, input, controller.signal);
+          const exec = await executeTool(this.hostFor(s.id), name, input, controller.signal);
           this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+          // Stopped while the editor worked: the stop already answered this call.
+          if (controller.signal.aborted) return exec;
           this.markSaved(s, exec.saved);
           const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError };
           this.recordOutcome(s, p, exec.outcome);
@@ -525,7 +535,13 @@ export class AgentRunner {
 
       p.state = "running";
       this.o.store.save(s);
-      const exec = await executeTool(this.o.host, p.name, p.input, signal);
+      const exec = await executeTool(this.hostFor(s.id), p.name, p.input, signal);
+      if (signal.aborted) {
+        // Stopped while the editor worked: the stop already answered this call.
+        this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+        this.o.store.save(s);
+        return true;
+      }
       if (exec.outcome === "unknown") {
         p.state = "unknown";
         this.mergeTouched(s, exec.touched, false);
@@ -600,8 +616,9 @@ export class AgentRunner {
             results.push({ type: "tool_result", tool_use_id: u.id, content: gate.declined, is_error: true });
             continue;
           }
-          const exec = await executeTool(this.o.host, u.name, input, signal);
+          const exec = await executeTool(this.hostFor(s.id), u.name, input, signal);
           this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+          if (signal.aborted) return stopped();
           this.markSaved(s, exec.saved);
           this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError }, exec.outcome);
           results.push({ type: "tool_result", tool_use_id: u.id, content: exec.text, is_error: exec.isError || undefined });
