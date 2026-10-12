@@ -727,7 +727,14 @@ void raiseEditor() {
 
 /** A borderless tool window over the tab, or the window's own chrome. */
 void setChrome(bool dockedChrome) {
+  if (dockedChrome && (IsIconic(gMain) || IsZoomed(gMain))) {
+    // A window minimized with the editor (or maximized) leaves that state before it docks;
+    // else the docked window shows as a minimized caption.
+    ShowWindow(gMain, SW_SHOWNOACTIVATE);
+    if (IsZoomed(gMain)) ShowWindow(gMain, SW_RESTORE);
+  }
   ShowWindow(gMain, SW_HIDE);
+  gMinimizedByEditor = false;
   SetWindowLongW(gMain, GWL_STYLE, dockedChrome ? (WS_POPUP | WS_CLIPCHILDREN) : (WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN));
   SetWindowLongW(gMain, GWL_EXSTYLE, dockedChrome ? WS_EX_TOOLWINDOW : 0);
   SetWindowPos(gMain, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
