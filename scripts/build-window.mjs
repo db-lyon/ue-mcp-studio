@@ -82,3 +82,12 @@ const r = spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${lin
 if (r.status !== 0) throw new Error(`building studio-window.exe failed (${r.status})`);
 fs.copyFileSync(path.join(sdk, "LICENSE.txt"), path.join(OUT, "WebView2-LICENSE.txt"));
 console.log(`built ${path.relative(ROOT, exe)} ${version}`);
+
+// The docked-mode protocol's unit tests, run by apps/window/test/dock.test.ts. Not shipped.
+const testExe = path.join(APP, "build", "dock-test.exe");
+const testCl = [
+  "cl", "/nologo", "/O2", "/MT", "/EHsc", "/std:c++17", "/W4", "/WX", "/permissive-", "/utf-8",
+  `/Fo"${obj}\\\\"`, `/Fe"${testExe}"`, `"${path.join(APP, "test", "dock-test.cpp")}"`,
+].join(" ");
+const t = spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `""${vcvars()}" >nul 2>&1 && ${testCl}"`], { stdio: "inherit", windowsVerbatimArguments: true });
+if (t.status !== 0) throw new Error(`building dock-test.exe failed (${t.status})`);
