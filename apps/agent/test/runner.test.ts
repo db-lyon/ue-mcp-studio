@@ -200,6 +200,10 @@ describe("subagents", () => {
     // A subagent gets the work tools only, so it cannot start subagents of its own.
     const subTools = requests.find((r) => r.system.some((b) => b.text.includes("You are a subagent")))!.tools.map((t) => (t as { name: string }).name);
     expect(subTools).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch"]);
+    // Both prompts ask for assets as markdown links to their full object path.
+    const link = "markdown link to its full object path";
+    expect(requests.find((r) => r.system.some((b) => b.text.includes("You are a subagent")))!.system[0].text).toContain(link);
+    expect(requests.find((r) => !r.system.some((b) => b.text.includes("You are a subagent")))!.system[0].text).toContain(link);
     const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string }>;
     expect(results.map((r) => [r.tool_use_id, r.content])).toEqual([["a1", "Report: make red done."], ["a2", "Report: make blue done."]]);
     // Their steps are in the transcript under the call that started them.
