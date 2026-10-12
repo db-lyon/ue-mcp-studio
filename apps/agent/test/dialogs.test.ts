@@ -246,7 +246,8 @@ describe("the agent's answer in auto mode", () => {
     void broker.prompt(s.id, "editor", "stop_editor", request());
     vi.advanceTimersByTime(1000);
     await broker.answer(broker.state().dialogs[0].id, { answer: "delegate" });
-    expect(broker.state().dialogs).toEqual([]);
+    // Still on the card: the agent is deciding now.
+    expect(broker.state().dialogs[0]).toMatchObject({ outcome: { kind: "delegated", by: "you" }, asking: null });
     const press = broker.wrap(host, s.id).callAction("editor", "respond_to_dialog", { buttonLabel: "Don't Save" });
     expect(broker.state().dialogs[0]).toMatchObject({ held: { button: "Don't Save" }, outcome: null });
     await vi.advanceTimersByTimeAsync(10_000);
@@ -317,5 +318,76 @@ describe("answers and buttons", () => {
     expect(dialogAnswerOf({ answer: "delegate" })).toEqual({ answer: "delegate" });
     expect(dialogAnswerOf({ answer: "press" })).toBeNull();
     expect(dialogAnswerOf({ answer: "press", button: "x", items: [{ index: "0" }] })).toBeNull();
+  });
+});
+
+describe("every transition is recorded, in order", () => {
+  const texts = (broker: DialogBroker) => broker.state().dialogs[0]?.steps.map((x) => x.text);
+
+  it("asked, then handed to the agent when nobody answered, then the agent's choice and the press", async () => {
+    const { host, broker, s, emit, store } = setup();
+    emit("dialog.opened", { editor: "Scratch", title: "Save Content", message: "Save these?", buttons: BUTTONS, mode: "interactive" });
+    void broker.prompt(s.id, "editor", "stop_editor", request());
+    expect(texts(broker)).toEqual(["Opened in the editor.", "Asked you. The agent decides if nobody answers in 2 min."]);
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    // The handoff is shown, not skipped: the dialog stays open with the agent deciding.
+    expect(broker.state().dialogs[0].outcome).toMatchObject({ kind: "delegated", by: "policy" });
+    expect(texts(broker)?.at(-1)).toBe("Nobody answered in 2 min, so it was handed to the agent. The agent is deciding.");
+    const press = broker.wrap(host, s.id).callAction("editor", "respond_to_dialog", { buttonLabel: "Don't Save" });
+    expect(texts(broker)?.at(-1)).toBe("The agent chose Don't Save, which discards work. It waits 10 s so you can override it.");
+    await vi.advanceTimersByTimeAsync(10_000);
+    await press;
+    emit("dialog.answered", { editor: "Scratch", title: "Save Content", buttons: BUTTONS, button: "Don't Save", via: "action" });
+    const line = store.get(s.id)!.transcript.find((t) => t.kind === "dialog");
+    expect(line?.kind === "dialog" && line.dialog.steps.map((x) => x.text)).toEqual([
+      "Opened in the editor.",
+      "Asked you. The agent decides if nobody answers in 2 min.",
+      "Nobody answered in 2 min, so it was handed to the agent. The agent is deciding.",
+      "The agent chose Don't Save, which discards work. It waits 10 s so you can override it.",
+      "The agent pressed Don't Save.",
+    ]);
+    expect(broker.state().dialogs).toEqual([]);
+  });
+
+  it("says the safe default was pressed, and why", async () => {
+    policy = { kind: "safe", minutes: 2 };
+    const { broker, s, store } = setup();
+    void broker.prompt(s.id, "editor", "stop_editor", request());
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    const line = store.get(s.id)!.transcript.find((t) => t.kind === "dialog");
+    expect(line?.kind === "dialog" && line.dialog.steps.map((x) => x.text)).toEqual([
+      "Asked you. Cancel is pressed if nobody answers in 2 min.",
+      "Nobody answered in 2 min, so Cancel was pressed.",
+    ]);
+  });
+
+  it("says the agent is deciding from the moment an auto dialog opens, then what it chose", async () => {
+    const { host, broker, s, emit } = setup();
+    const call = broker.wrap(host, s.id).callAction("editor", "stop_editor", {});
+    emit("dialog.opened", { editor: "Scratch", title: "Save Content", message: "Save these?", buttons: BUTTONS, mode: "auto" });
+    expect(texts(broker)).toEqual(["Opened. The agent answers dialogs in this project, so the agent is deciding."]);
+    await call;
+    await broker.wrap(host, s.id).callAction("editor", "respond_to_dialog", { buttonLabel: "Cancel" });
+    expect(texts(broker)?.at(-1)).toBe("The agent chose Cancel.");
+  });
+
+  it("records the user's override of a held press", async () => {
+    const { host, broker, s, emit } = setup();
+    emit("dialog.opened", { editor: "Scratch", title: "Save Content", message: "Save these?", buttons: BUTTONS, mode: "auto" });
+    const press = broker.wrap(host, s.id).callAction("editor", "respond_to_dialog", { buttonLabel: "Don't Save" });
+    await broker.answer(broker.state().dialogs[0].id, { answer: "press", button: "Cancel" });
+    await press;
+    expect(texts(broker)?.slice(-2)).toEqual([
+      "The agent chose Don't Save, which discards work. It waits 10 s so you can override it.",
+      "You overrode the agent: Cancel instead of Don't Save.",
+    ]);
+  });
+
+  it("lets the user answer a dialog the agent is deciding", async () => {
+    const { broker, s, calls } = setup();
+    void broker.prompt(s.id, "editor", "stop_editor", request());
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    expect(await broker.answer(broker.state().dialogs[0].id, { answer: "press", button: "Cancel" })).toBeNull();
+    expect(calls.at(-1)).toMatchObject({ action: "respond_to_dialog", args: { buttonLabel: "Cancel" } });
   });
 });

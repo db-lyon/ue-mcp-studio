@@ -497,7 +497,9 @@ export interface EditorDialog {
   };
   /** auto: the agent picked an answer that discards work, held until `until` unless overridden. */
   held: null | { button: string; until: number };
-  /** How it ended. */
+  /** Every transition, oldest first: asked, handed to the agent and why, the agent's choice, the press. */
+  steps: Array<{ at: number; text: string }>;
+  /** How it ended; delegated means the agent is deciding now. */
   outcome: null | {
     kind: "pressed" | "delegated" | "closed";
     button?: string;

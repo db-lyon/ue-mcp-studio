@@ -97,6 +97,20 @@ interface InflightCall {
   startedAt: number;
 }
 
+/**
+ * Still on the card: nobody has answered, the agent is deciding (handed over),
+ * or the agent's answer is held for its countdown.
+ */
+function isOpen(v: EditorDialog): boolean {
+  return v.outcome === null || v.outcome.kind === "delegated" || v.held !== null;
+}
+
+/** "2 min", "6 s": how long the policy waited. */
+export function span(minutes: number): string {
+  const secs = Math.round(minutes * 60);
+  return secs < 60 ? `${secs} s` : secs % 60 === 0 ? `${secs / 60} min` : `${Math.floor(secs / 60)} min ${secs % 60} s`;
+}
+
 /** Which on-screen dialog a record is: the same rule ue-mcp's events follow. */
 function keyOf(editor: string, title: string, buttons: string[]): string {
   return `${editor} :: ${title} :: ${buttons.join(" | ")}`;
@@ -145,7 +159,7 @@ export class DialogBroker {
   state(): DialogsState {
     return {
       now: this.now(),
-      dialogs: [...this.live.values()].filter((l) => l.view.outcome === null || l.view.held !== null).map((l) => ({ ...l.view })),
+      dialogs: [...this.live.values()].filter((l) => isOpen(l.view)).map((l) => ({ ...l.view, steps: [...l.view.steps] })),
       supported: this.supported(),
     };
   }
@@ -201,6 +215,9 @@ export class DialogBroker {
     const acts = policy.kind === "agent" || (policy.kind === "safe" && safe !== null);
     l.view.outcome = null;
     l.view.mode = "interactive";
+    this.step(l, policy.kind === "wait" ? "Asked you." : acts
+      ? `Asked you. ${policy.kind === "agent" ? "The agent decides" : `${safe} is pressed`} if nobody answers in ${span(policy.minutes)}.`
+      : "Asked you. It has no Cancel or Keep, so nothing is pressed for you.");
     l.view.asking = {
       since,
       minHumanMs: d.minHumanMs,
@@ -231,10 +248,12 @@ export class DialogBroker {
     if (a.policy.kind === "agent") {
       l.view.outcome = { kind: "delegated", by: "policy", at: this.now() };
       l.view.asking = null;
+      this.step(l, `Nobody answered in ${span(a.policy.minutes)}, so it was handed to the agent. The agent is deciding.`);
       l.resolve({ action: "delegate" });
     } else if (a.policy.kind === "safe" && a.safeButton) {
       l.view.outcome = { kind: "pressed", button: a.safeButton, by: "policy", at: this.now() };
       l.view.asking = null;
+      this.step(l, `Nobody answered in ${span(a.policy.minutes)}, so ${a.safeButton} was pressed.`);
       l.resolve({ action: "accept", content: { button: a.safeButton } });
     } else {
       return;
@@ -245,7 +264,7 @@ export class DialogBroker {
   /** The user's answer from the card. Returns an error to show, or null. */
   async answer(id: string, a: DialogAnswer, host: DialogHost = this.o.host): Promise<string | null> {
     const l = [...this.live.values()].find((x) => x.view.id === id);
-    if (!l || l.view.outcome !== null) return "That dialog is no longer waiting.";
+    if (!l || !isOpen(l.view)) return "That dialog is no longer waiting.";
 
     if (a.answer === "release") {
       if (!l.hold || !l.view.held) return "Nothing is waiting to be pressed.";
@@ -258,6 +277,7 @@ export class DialogBroker {
       if (this.tooSoon(l)) return "Read the dialog first.";
       l.view.outcome = { kind: "delegated", by: "you", at: this.now() };
       l.view.asking = null;
+      this.step(l, "You handed it to the agent. The agent is deciding.");
       l.resolve({ action: "delegate" });
       this.changed(l);
       return null;
@@ -275,21 +295,23 @@ export class DialogBroker {
       if (this.tooSoon(l)) return "Read the dialog first.";
       l.view.outcome = { kind: "pressed", button: a.button, by: "you", at: this.now() };
       l.view.asking = null;
+      this.step(l, `You pressed ${a.button}.`);
       l.resolve({ action: "accept", content: this.content(l, a.button, a.items) });
       this.changed(l);
       return null;
     }
 
-    // Not asked about: in auto the press calls are open to anyone, so press it for the user.
-    if (l.view.mode === "auto") {
+    // Not asked about: in auto, or once handed to the agent, the press calls are open, so press it for the user.
+    if (l.view.mode === "auto" || l.view.outcome?.kind === "delegated") {
       l.pressedForUser = a.button;
       const r = await host.callAction("editor", "respond_to_dialog", { buttonLabel: a.button, ...(a.items ? { items: a.items } : {}) });
       if (r.isError) {
         l.pressedForUser = undefined;
         return text(r) || "The editor did not take the press.";
       }
-      if (l.view.outcome === null) {
+      if (l.view.outcome?.kind !== "pressed") {
         l.view.outcome = { kind: "pressed", button: a.button, by: "you", at: this.now() };
+        this.step(l, `You pressed ${a.button}.`);
         this.changed(l);
       }
       return null;
@@ -319,13 +341,20 @@ export class DialogBroker {
     const l = this.current();
     const label = typeof args.buttonLabel === "string" ? args.buttonLabel
       : typeof args.buttonIndex === "number" && l ? l.view.buttons[args.buttonIndex] ?? "" : "";
-    if (!label || !isDestructiveAnswer(label)) return host.callAction("editor", "respond_to_dialog", args);
+    if (!label || !isDestructiveAnswer(label)) {
+      if (l && label) {
+        this.step(l, `The agent chose ${label}.`);
+        this.changed(l);
+      }
+      return host.callAction("editor", "respond_to_dialog", args);
+    }
 
     const held = l ?? this.recordFor("", "Editor dialog", [], { message: "", mode: "auto" });
     this.attribute(held, sessionId, "editor", "respond_to_dialog");
     // Handed to the agent earlier: it is open again until the press lands.
     if (held.view.outcome?.kind === "delegated") held.view.outcome = null;
     held.view.held = { button: label, until: this.now() + this.holdMs };
+    this.step(held, `The agent chose ${label}, which discards work. It waits ${Math.round(this.holdMs / 1000)} s so you can override it.`);
     const decided = await new Promise<{ button: string; by: "agent" | "you" } | null>((resolve) => {
       const timer = setTimeout(() => held.hold?.release({ button: label, by: "agent" }), this.holdMs);
       timer.unref?.();
@@ -340,6 +369,7 @@ export class DialogBroker {
       };
       this.changed(held);
     });
+    if (decided?.by === "you") this.step(held, `You overrode the agent: ${decided.button} instead of ${label}.`);
     this.changed(held);
     if (!decided) {
       return { isError: true, content: [{ type: "text", text: `The dialog closed before "${label}" was pressed, so nothing was pressed.` }] };
@@ -364,6 +394,11 @@ export class DialogBroker {
       const mode = d.mode === "auto" || d.mode === "interactive" || d.mode === "defer" ? d.mode : null;
       const items = Array.isArray(d.items) ? (d.items as EditorDialog["items"]) : undefined;
       const l = this.recordFor(editor, title, buttons, { message: typeof d.message === "string" ? d.message : "", items, mode });
+      if (l.view.steps.length === 0) {
+        this.step(l, mode === "auto" ? "Opened. The agent answers dialogs in this project, so the agent is deciding."
+          : mode === "defer" ? "Opened. Dialogs in this project are answered in the editor."
+          : "Opened in the editor.");
+      }
       // A Studio call in flight is what met it; the oldest is the one the editor was running.
       if (!l.view.sessionId) {
         const call = [...this.inflight.values()].sort((a, b) => a.startedAt - b.startedAt)[0];
@@ -376,22 +411,27 @@ export class DialogBroker {
     if (!l) return;
     if (e.type === "dialog.answered") {
       const button = typeof d.button === "string" ? d.button : "";
-      if (l.view.outcome?.kind !== "pressed") {
-        const by = l.pressedForUser === button ? "you" : d.via === "prompt" ? "you" : "agent";
+      if (l.view.outcome?.kind !== "pressed" || l.view.outcome.button !== button) {
+        const by = l.pressedForUser === button || d.via === "prompt" ? "you" : "agent";
         l.view.outcome = { kind: "pressed", button, by, at: this.now() };
+        this.step(l, by === "you" ? `You pressed ${button}.` : `The agent pressed ${button}.`);
       }
       l.pressedForUser = undefined;
       l.view.asking = null;
       this.changed(l);
     } else if (e.type === "dialog.delegated") {
-      if (l.view.outcome === null) l.view.outcome = { kind: "delegated", by: "you", at: this.now() };
+      if (l.view.outcome === null) {
+        l.view.outcome = { kind: "delegated", by: "you", at: this.now() };
+        this.step(l, "Handed to the agent. The agent is deciding.");
+      }
       this.changed(l);
     } else if (e.type === "dialog.closed") {
       // Gone from the screen: whoever was asked has nothing left to answer.
       l.resolve?.({ action: "cancel" });
       l.hold?.release(null);
-      if (l.view.outcome === null || l.view.outcome.kind === "delegated") {
-        l.view.outcome = l.view.outcome ?? { kind: "closed", at: this.now() };
+      if (l.view.outcome?.kind !== "pressed") {
+        l.view.outcome = { kind: "closed", at: this.now() };
+        this.step(l, "Closed in the editor, with no answer from here.");
       }
       l.view.asking = null;
       l.view.held = null;
@@ -404,7 +444,12 @@ export class DialogBroker {
 
   /** The one open dialog, when there is exactly one to aim a press at; the newest otherwise. */
   private current(): Live | undefined {
-    return [...this.live.values()].filter((l) => l.view.outcome === null || l.view.outcome.kind === "delegated").pop();
+    return [...this.live.values()].filter((l) => isOpen(l.view)).pop();
+  }
+
+  /** One transition, in order, for the card and the transcript. */
+  private step(l: Live, text: string): void {
+    l.view.steps.push({ at: this.now(), text });
   }
 
   private recordFor(
@@ -440,6 +485,7 @@ export class DialogBroker {
         asking: null,
         held: null,
         outcome: null,
+        steps: [],
       },
     };
     this.live.set(key, l);
@@ -469,7 +515,7 @@ export class DialogBroker {
     const sid = l.view.sessionId;
     const s = sid ? this.o.store.get(sid) : undefined;
     if (s) {
-      const view = { ...l.view };
+      const view = { ...l.view, steps: [...l.view.steps] };
       const entry = s.transcript.find((t) => t.kind === "dialog" && t.dialog.id === l.view.id);
       if (entry?.kind === "dialog") {
         entry.dialog = view;
