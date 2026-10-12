@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useFollow } from "./hooks";
 
@@ -22,6 +22,28 @@ function metrics(el: HTMLElement, m: { scrollHeight: number; clientHeight: numbe
 }
 
 describe("following the newest line", () => {
+  it("stays at the bottom when the list gets shorter, and not once scrolled up", () => {
+    let resized = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: () => void) { resized = cb; }
+      observe() {}
+      disconnect() {}
+    });
+    try {
+      render(<List n={1} />);
+      const el = screen.getByTestId("list");
+      metrics(el, { scrollHeight: 1000, clientHeight: 200 });
+      resized();
+      expect(el.scrollTop).toBe(1000);
+      el.scrollTop = 100;
+      fireEvent.scroll(el);
+      resized();
+      expect(el.scrollTop).toBe(100);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("scrolls to the bottom while the reader is there", () => {
     const { rerender } = render(<List n={1} />);
     const el = screen.getByTestId("list");

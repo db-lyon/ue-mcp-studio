@@ -38,6 +38,17 @@ export function useFollow<T extends HTMLElement>(content: unknown) {
     else setBehind(true);
   }, [content]);
 
+  // The list getting shorter (the composer growing under it) keeps a reader at the bottom there.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      if (atBottom.current) el.scrollTop = el.scrollHeight;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   const jump = useCallback(() => {
     const el = ref.current;
     if (!el) return;
