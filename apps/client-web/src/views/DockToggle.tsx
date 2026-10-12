@@ -49,10 +49,30 @@ export function DockToggle() {
       .then((ok) => ok && setState({ ...state, mode: next }), () => {})
       .finally(() => setBusy(false));
   };
+  const label = next === "docked" ? "Dock in editor" : "Open as window";
   return (
-    <button className="ghost docs-link" disabled={busy} onClick={toggle}
-      title={next === "docked" ? "Show Studio in a tab of the editor" : "Show Studio in a window of its own"}>
-      {next === "docked" ? "Dock in editor" : "Open as window"}
+    <button className="ghost docs-link icon-button" disabled={busy} onClick={toggle} aria-label={label} title={label}>
+      {next === "docked" ? <DockGlyph /> : <NewWindowGlyph />}
     </button>
+  );
+}
+
+/** A window with an arrow leaving it: open in a window of its own. */
+function NewWindowGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M7 2.75H3.75a1 1 0 0 0-1 1v8.5a1 1 0 0 0 1 1h8.5a1 1 0 0 0 1-1V9" />
+      <path d="M9.5 2.75h3.75V6.5M13 3 8 8" />
+    </svg>
+  );
+}
+
+/** A window with a panel at its side: dock in the editor. */
+function DockGlyph() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <rect x="2.75" y="2.75" width="10.5" height="10.5" rx="1" />
+      <path d="M9.5 2.75v10.5" />
+    </svg>
   );
 }

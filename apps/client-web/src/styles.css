@@ -693,6 +693,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 
 /* Top bar: the docs link, and a problem chip only when something is wrong */
 .bar .docs-link { height: auto; padding: 4px 10px; }
+.bar .icon-button { display: inline-flex; align-items: center; padding: 4px 8px; }
 .chip.problem { cursor: pointer; }
 
 /* Plugins */

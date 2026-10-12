@@ -26,15 +26,15 @@ describe("the dock toggle", () => {
   it("offers docking in a window whose editor plugin has the dock tab, and docks", async () => {
     const set = bind("window", true);
     render(<DockToggle />);
-    fireEvent.click(await screen.findByText("Dock in editor"));
+    fireEvent.click(await screen.findByLabelText("Dock in editor"));
     await waitFor(() => expect(set).toHaveBeenCalledWith("docked"));
-    await screen.findByText("Open as window");
+    await screen.findByLabelText("Open as window");
   });
 
   it("offers a window when docked", async () => {
     const set = bind("docked", true);
     render(<DockToggle />);
-    fireEvent.click(await screen.findByText("Open as window"));
+    fireEvent.click(await screen.findByLabelText("Open as window"));
     await waitFor(() => expect(set).toHaveBeenCalledWith("window"));
   });
 
