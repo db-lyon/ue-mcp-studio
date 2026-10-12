@@ -19,7 +19,7 @@ import type { ApprovalDecision, ApprovalRequest, Effort, TranscriptEntry } from 
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import type { BusyTracker } from "./busy.js";
-import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost } from "./tools.js";
+import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
 import { runSubscriptionTurn } from "./subscription.js";
 import { contentFor } from "./attachments.js";
@@ -67,6 +67,9 @@ type GateResult = null | { declined: string } | { stopped: true };
 
 /** How many model calls one subagent may make before it is stopped. */
 const SUBAGENT_STEPS = 200;
+
+/** How long editor_restart waits for the editor to connect again after the daemon reports it started. */
+export const EDITOR_BACK_MS = 10 * 60_000;
 
 /** Why the daemon went down, written by whatever restarts it on purpose and read by the next daemon. */
 export const RESTART_CAUSE_FILE = "restart-cause.json";
@@ -290,9 +293,11 @@ export class AgentRunner {
             this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
             return { text, isError: true, outcome: "error", touched: [], saved: [] };
           }
-          const exec = await executeTool(this.hostFor(s.id), name, input, controller.signal);
+          let exec = await executeTool(this.hostFor(s.id), name, input, controller.signal);
           this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
           // Stopped while the editor worked: the stop already answered this call.
+          if (controller.signal.aborted) return exec;
+          if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
           if (controller.signal.aborted) return exec;
           this.markSaved(s, exec.saved);
           const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError };
@@ -317,12 +322,30 @@ export class AgentRunner {
     return r && (r.by === "user" || r.by === "studio") ? r : USER_STOP;
   }
 
-  /** Hold a tool call until the editor is back, showing the session as waiting meanwhile. */
-  private async waitForEditor(s: StoredSession, signal: AbortSignal): Promise<void> {
-    if (editorConnected(this.o.host)) return;
+  /**
+   * After editor_restart reports the editor started: the turn goes on once the
+   * editor has connected again, so the model's next call finds it. The result
+   * says which happened.
+   */
+  private async editorBack(s: StoredSession, exec: ToolExecution, signal: AbortSignal): Promise<ToolExecution> {
+    const back = await this.waitForEditor(s, signal, EDITOR_BACK_MS);
+    if (signal.aborted) return exec;
+    return {
+      ...exec,
+      text: back
+        ? `${exec.text}\nThe editor is running and connected.`
+        : `${exec.text}\nThe editor has not connected within ${EDITOR_BACK_MS / 60_000} minutes of starting. Check it with ue_mcp project.get_status before going on.`,
+    };
+  }
+
+  /** Hold a tool call until the editor is back, showing the session as waiting meanwhile. False when it gave up first. */
+  private async waitForEditor(s: StoredSession, signal: AbortSignal, limitMs = Infinity): Promise<boolean> {
+    if (editorConnected(this.o.host)) return true;
+    const end = Date.now() + limitMs;
     this.setStatus(s, "waiting", this.lastCause);
-    while (!editorConnected(this.o.host) && !signal.aborted) await new Promise((r) => setTimeout(r, 1000));
+    while (!editorConnected(this.o.host) && !signal.aborted && Date.now() < end) await new Promise((r) => setTimeout(r, 1000));
     if (!signal.aborted) this.setStatus(s, "running", null);
+    return editorConnected(this.o.host);
   }
 
   /** The user's Stop. Unanswered tool calls are answered as stopped so the conversation stays valid. */
