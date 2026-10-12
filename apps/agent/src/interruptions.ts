@@ -63,7 +63,7 @@ export function interruptionNote(running: Call[], cause: Interruption): string {
       "The user pressed Stop during your last turn, which ended it.",
       list ? `${list} ${calls.length === 1 ? "was" : "were"} running.` : "",
       restart ? `The ${opOf(restart)} goes on in the daemon after a Stop, so the editor may be stopping, building or starting now.` : "",
-      "Any tool result that says it was interrupted was cut off by that Stop: no connection dropped and nothing restarted. Check the current state before going on.",
+      "A tool result that says the call was interrupted or rejected means that Stop: nothing refused the call, no connection dropped and nothing restarted. Check the current state before going on.",
     ].filter(Boolean).join(" ");
   }
   return [
