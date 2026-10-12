@@ -8,6 +8,7 @@ import type { SettingsStore } from "./settings.js";
 import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER, type ModelRoute } from "@ue-mcp-studio/shared";
 import { OpenAICompatibleProvider, OPENAI_BASE_URLS, PROVIDER_EXTRA } from "./openai-compat.js";
 import { ResponsesProvider } from "./responses.js";
+import type { Effort } from "@ue-mcp-studio/shared";
 
 export type MessageParam = Anthropic.Beta.BetaMessageParam;
 export type ContentBlock = Anthropic.Beta.BetaContentBlock;
@@ -18,6 +19,8 @@ export interface ModelRequest {
   system: Anthropic.Beta.BetaTextBlockParam[];
   tools: Anthropic.Beta.BetaToolUnion[];
   messages: MessageParam[];
+  /** How long the model reasons; high when not given. */
+  effort?: Effort;
 }
 
 export interface ModelTurn {
@@ -38,8 +41,8 @@ const MAX_TOKENS = 64000;
 const FALLBACK_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5"]);
 
 /**
- * The request body both providers send. Agentic work at high effort, the
- * conversation prefix cached, and the refusal fallback on where the model has one.
+ * The request body both providers send. The chosen effort, the conversation
+ * prefix cached, and the refusal fallback on where the model has one.
  */
 export function requestBody(req: ModelRequest): Anthropic.Beta.MessageCreateParamsNonStreaming {
   const body: Anthropic.Beta.MessageCreateParamsNonStreaming = {
@@ -48,7 +51,7 @@ export function requestBody(req: ModelRequest): Anthropic.Beta.MessageCreatePara
     system: req.system,
     tools: req.tools,
     messages: withoutProviderExtra(req.messages),
-    output_config: { effort: "high" },
+    output_config: { effort: req.effort ?? "high" },
     cache_control: { type: "ephemeral" },
   };
   if (FALLBACK_MODELS.has(req.model)) {
@@ -76,19 +79,33 @@ function refusalOf(stopReason: string | null, details: unknown): string | undefi
   return d?.explanation ?? d?.category ?? "declined";
 }
 
+const isEffortRefusal = (e: unknown): boolean =>
+  (e as { status?: number })?.status === 400 && /effort/i.test(e instanceof Error ? e.message : String(e));
+
 /** The user's own Anthropic key. */
 export class AnthropicProvider implements ModelProvider {
   constructor(private readonly apiKey: string, private readonly client = new Anthropic({ apiKey })) {}
 
   async run(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<ModelTurn> {
-    const stream = this.client.beta.messages.stream(requestBody(req), { signal });
-    stream.on("text", (delta) => onText(delta));
-    const message = await stream.finalMessage();
+    let message: Anthropic.Beta.BetaMessage;
+    try {
+      message = await this.stream(req, onText, signal);
+    } catch (e) {
+      // A model without the chosen level refuses it before writing anything: run at high.
+      if (!isEffortRefusal(e) || (req.effort ?? "high") === "high") throw e;
+      message = await this.stream({ ...req, effort: "high" }, onText, signal);
+    }
     return {
       content: message.content,
       stopReason: message.stop_reason,
       refusal: refusalOf(message.stop_reason, (message as { stop_details?: unknown }).stop_details),
     };
+  }
+
+  private stream(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<Anthropic.Beta.BetaMessage> {
+    const stream = this.client.beta.messages.stream(requestBody(req), { signal });
+    stream.on("text", (delta) => onText(delta));
+    return stream.finalMessage();
   }
 }
 

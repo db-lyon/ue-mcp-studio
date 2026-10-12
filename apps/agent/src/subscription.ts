@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { createSdkMcpServer, query, tool, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { StudioSignIn } from "@ue-mcp-studio/shared";
+import type { Effort, StudioSignIn } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import type { ToolExecution } from "./tools.js";
@@ -152,6 +152,8 @@ export class ClaudeSignInFlow {
 export interface SubscriptionTurn {
   projectDir: string;
   model: string;
+  /** The SDK lowers a level the model does not have to its nearest one. */
+  effort: Effort;
   system: string;
   /** What each subagent the model starts is told. */
   subagentSystem: string;
@@ -241,6 +243,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       prompt: promptOf(t.prompt, t.resume),
       options: {
         model: t.model,
+        effort: t.effort,
         systemPrompt: t.system,
         // The SDK's subagent tool is the only built-in one; every editor action goes through Studio's tools.
         tools: [AGENT],
@@ -248,6 +251,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
           [WORKER]: {
             description: "Works on one self-contained Unreal Editor task through ue-mcp and reports what it changed.",
             prompt: t.subagentSystem,
+            effort: t.effort,
             tools: STUDIO_TOOLS,
           },
         },

@@ -10,7 +10,7 @@
  * and never saved is listed as lost before the model continues.
  */
 import * as fs from "node:fs";
-import type { TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { Effort, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam } from "./providers.js";
 import { SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import { EDITOR_TOOLS, TOOLS, editorConnected, executeTool, packageFile, verifyUnknown, type AgentHost } from "./tools.js";
@@ -47,6 +47,8 @@ export interface RunnerOptions {
   store: SessionStore;
   provider: () => ModelProvider;
   model: () => string;
+  /** How long the model reasons; high when not given. */
+  effort?: () => Effort;
   /** Experimental: the turn runs on the Claude subscription through the Agent SDK. */
   subscription?: () => boolean;
 }
@@ -147,6 +149,7 @@ export class AgentRunner {
       const error = await runSubscriptionTurn({
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
+        effort: this.o.effort?.() ?? "high",
         system: SYSTEM,
         subagentSystem: SUBAGENT_SYSTEM,
         prompt,
@@ -316,7 +319,7 @@ export class AgentRunner {
 
         if (s.status !== "running") this.setStatus(s, "running", null);
         const turn = await this.o.provider().run(
-          { sessionId: s.id, model: this.o.model(), system: [{ type: "text", text: SYSTEM }], tools: TOOLS, messages: s.messages },
+          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: SYSTEM }], tools: TOOLS, messages: s.messages },
           (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
           controller.signal,
         );
@@ -444,7 +447,7 @@ export class AgentRunner {
       for (let step = 0; step < SUBAGENT_STEPS; step++) {
         if (signal.aborted) return stopped();
         const turn = await this.o.provider().run(
-          { sessionId: s.id, model: this.o.model(), system: [{ type: "text", text: SUBAGENT_SYSTEM }], tools: EDITOR_TOOLS, messages },
+          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: SUBAGENT_SYSTEM }], tools: EDITOR_TOOLS, messages },
           () => {},
           signal,
         );

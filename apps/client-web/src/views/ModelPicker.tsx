@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  EFFORTS,
+  EFFORT_NAMES,
   PROVIDERS,
+  type Effort,
   type KeyProviderId,
   type ModelCatalog,
   type ModelOption,
@@ -270,5 +273,19 @@ export function SignInForm({ id, primary = true, onDone }: { id: SignInId; prima
       <button className={primary ? "primary" : ""} onClick={() => void start()}>Sign in to {name}</button>
       <p className="dim small">{SIGN_IN_ABOUT[id]}</p>
     </div>
+  );
+}
+
+/** How long the model reasons. Every vendor gets the nearest level it has. */
+export function EffortPicker({ settings, onSettings }: { settings: StudioSettings; onSettings: (s: StudioSettings) => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const pick = (effort: Effort) => api.saveSettings({ effort }).then(onSettings, (e: Error) => setError(e.message));
+  return (
+    <label className="effort" title={error ?? "How long the model reasons before it answers"}>
+      <span className="effort-label">Effort</span>
+      <select value={settings.effort} onChange={(e) => void pick(e.target.value as Effort)} aria-label="Effort">
+        {EFFORTS.map((x) => <option key={x} value={x}>{EFFORT_NAMES[x]}</option>)}
+      </select>
+    </label>
   );
 }

@@ -65,6 +65,11 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
 export type StudioTheme = "ue-mcp" | "light" | "editor";
 export const STUDIO_THEMES: readonly StudioTheme[] = ["ue-mcp", "light", "editor"];
 
+/** How long the model reasons before it answers. A vendor without a level takes its nearest one. */
+export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
+export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
+export const EFFORT_NAMES: Record<Effort, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
+
 /** GET /v1/ext/studio/settings. Secrets are reported by presence only, never returned. */
 export interface StudioSettings {
   /** The selected model and its vendor. */
@@ -72,6 +77,7 @@ export interface StudioSettings {
   model: string;
   /** How the selected model runs now, or null when nothing that can run it is connected. */
   route: ModelRoute;
+  effort: Effort;
   gatewayUrl: string;
   theme: StudioTheme;
   /** Which sign-ins are done and which vendor keys are saved. */
@@ -84,6 +90,7 @@ export interface StudioSettings {
 export interface StudioSettingsUpdate {
   provider?: KeyProviderId;
   model?: string;
+  effort?: Effort;
   gatewayUrl?: string;
   theme?: StudioTheme;
   keys?: Partial<Record<KeyProviderId, string>>;

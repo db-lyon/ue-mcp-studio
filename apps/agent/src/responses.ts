@@ -7,6 +7,7 @@
  */
 import type { ContentBlock, ModelProvider, ModelRequest, ModelTurn } from "./providers.js";
 import { sseLines } from "./openai-compat.js";
+import { openaiEffort, withEffort } from "./effort.js";
 
 export const RESPONSES_URL = "https://api.openai.com/v1/responses";
 
@@ -50,6 +51,7 @@ export function toResponsesRequest(req: ModelRequest): Record<string, unknown> {
     instructions: req.system.map((b) => b.text).join("\n\n"),
     input,
     tools,
+    ...withEffort("reasoning", openaiEffort(req.model, req.effort)),
     store: false,
     stream: true,
   };

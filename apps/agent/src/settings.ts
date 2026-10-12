@@ -8,19 +8,23 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  EFFORTS,
   KEY_PROVIDER_IDS,
   STUDIO_THEMES,
+  type Effort,
   type KeyProviderId,
   type StudioSettingsUpdate,
   type StudioTheme,
 } from "@ue-mcp-studio/shared";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
+export const DEFAULT_EFFORT: Effort = "high";
 export const DEFAULT_GATEWAY_URL = "https://gateway.ue-mcp.com";
 
 interface StoredSettings {
   provider: KeyProviderId;
   model: string;
+  effort: Effort;
   gatewayUrl: string;
   theme: StudioTheme;
 }
@@ -50,11 +54,12 @@ export class SettingsStore {
       return {
         provider: vendorOf(raw.provider),
         model: typeof raw.model === "string" && raw.model ? raw.model : DEFAULT_MODEL,
+        effort: EFFORTS.includes(raw.effort as Effort) ? (raw.effort as Effort) : DEFAULT_EFFORT,
         gatewayUrl: typeof raw.gatewayUrl === "string" && raw.gatewayUrl ? raw.gatewayUrl : DEFAULT_GATEWAY_URL,
         theme: STUDIO_THEMES.includes(raw.theme as StudioTheme) ? (raw.theme as StudioTheme) : "ue-mcp",
       };
     } catch {
-      return { provider: "anthropic", model: DEFAULT_MODEL, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp" };
+      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp" };
     }
   }
 
@@ -95,6 +100,10 @@ export class SettingsStore {
     if (u.model !== undefined) {
       if (typeof u.model !== "string" || !u.model.trim()) throw new Error("model must be a non-empty string");
       s.model = u.model.trim();
+    }
+    if (u.effort !== undefined) {
+      if (!EFFORTS.includes(u.effort)) throw new Error(`effort must be one of ${EFFORTS.join(", ")}`);
+      s.effort = u.effort;
     }
     if (u.gatewayUrl !== undefined) {
       if (!/^https?:\/\//.test(u.gatewayUrl)) throw new Error("gatewayUrl must be an http(s) URL");
@@ -148,6 +157,10 @@ export class SettingsStore {
 
   provider(): KeyProviderId {
     return this.stored().provider;
+  }
+
+  effort(): Effort {
+    return this.stored().effort;
   }
 
   gatewayUrl(): string {

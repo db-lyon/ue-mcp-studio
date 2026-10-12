@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
-import { ConnectModel, ModelPicker, useCatalog } from "./ModelPicker";
+import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useSeen } from "../chat/hooks";
@@ -266,7 +266,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
               files={attach.files}
               onAddFiles={attach.add}
               onRemoveFile={attach.remove}
-              picker={settings && <ModelPicker settings={settings} onSettings={setSettings} up />}
+              picker={settings && <><ModelPicker settings={settings} onSettings={setSettings} up /><EffortPicker settings={settings} onSettings={setSettings} /></>}
             >
               <Threads
                 transcript={detail.transcript}

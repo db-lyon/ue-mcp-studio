@@ -113,6 +113,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
     store,
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
     model: () => settings.model(),
+    effort: () => settings.effort(),
     subscription: () => route() === "claude",
   });
 

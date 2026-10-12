@@ -461,6 +461,13 @@ button.subtab.active { color: var(--text); border-bottom-color: var(--accent); }
 .graph-node.skipped { opacity: 0.55; }
 .step-detail .output { max-height: 30vh; }
 
+/* Effort: beside the model picker. */
+.effort { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 4px 0 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.effort-label { color: var(--dim); font: 500 12px/1 var(--sans); }
+.effort select { height: 26px; padding: 0 4px; border: 0; background: transparent; color: var(--text); font: 500 12px/1 var(--sans); cursor: pointer; }
+.effort select:focus { outline: none; }
+.effort option { background: var(--panel); color: var(--text); }
+
 /* Model picker: one list of every provider's models, opened from the composer. */
 .picker { position: relative; display: inline-block; }
 button.picker-button { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; font: 500 12px/1 var(--sans); letter-spacing: 0; text-transform: none; }
