@@ -1,6 +1,6 @@
 {
   "name": "@ue-mcp-studio/window",
-  "version": "0.1.0-beta.34",
+  "version": "0.1.0-beta.35",
   "private": true,
   "description": "studio-window.exe: Studio in its own window on Windows, apart from the editor's game thread.",
   "scripts": {
