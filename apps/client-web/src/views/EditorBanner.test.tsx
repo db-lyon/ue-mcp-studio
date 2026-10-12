@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { DaemonEvent, DaemonHealth } from "ue-mcp/daemon";
 import type { BusyState } from "@ue-mcp-studio/shared";
-import { EditorBanner, formatElapsed } from "./EditorBanner";
+import { EditorBanner, formatElapsed, operationLine } from "./EditorBanner";
 import type { DaemonState } from "../state";
 
 afterEach(() => {
@@ -27,6 +27,12 @@ function stubFetch(busy: BusyState) {
 }
 
 describe("the editor banner", () => {
+  it("names each step of an editor operation", () => {
+    expect(operationLine({ op: "rebuild", step: "editor.stop_editor" })).toEqual({ title: "Rebuilding the project", step: "closing the editor (step 1 of 3)" });
+    expect(operationLine({ op: "rebuild", step: "connect" })).toEqual({ title: "Rebuilding the project", step: "waiting for the editor to connect" });
+    expect(operationLine({ op: "restart", step: "editor.restart_editor" })).toEqual({ title: "Restarting the editor", step: "restarting the editor" });
+  });
+
   it("formats the elapsed time", () => {
     expect(formatElapsed(7_400)).toBe("0:07");
     expect(formatElapsed(62_000)).toBe("1:02");
@@ -76,5 +82,16 @@ describe("the editor banner", () => {
     fireEvent.click(await screen.findByText("Start"));
     await waitFor(() => expect(posted).toEqual(["/v1/editor/start"]));
     expect(screen.getByText("Editor not running")).toBeTruthy();
+  });
+
+  it("shows a rebuild step by step with its time, and no Start while the editor is down for it", async () => {
+    const now = Date.now();
+    stubFetch({ now, calls: [], operation: { op: "rebuild", step: "project.build", startedAt: now - 75_000, stepStartedAt: now - 70_000 } });
+    render(<EditorBanner daemon={daemon(false)} />);
+    await screen.findByText("Rebuilding the project:");
+    expect(screen.getByText("building the C++ (step 2 of 3)", { exact: false })).toBeTruthy();
+    expect(screen.getByText("1:15")).toBeTruthy();
+    expect(screen.queryByText("Start")).toBeNull();
+    expect(screen.queryByText("Editor not running")).toBeNull();
   });
 });

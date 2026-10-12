@@ -1,12 +1,13 @@
 /**
- * The editor's state above every view: busy with a ue-mcp call (its game
- * thread blocked), with a timer and a Stop for the turns waiting on it, or
- * not running, with a Start. The busy state comes from the daemon, which
+ * The editor's state above every view: stopping, building or starting for
+ * a restart or rebuild, step by step with a timer; busy with a ue-mcp call
+ * (its game thread blocked), with a timer and a Stop for the turns waiting
+ * on it; or not running, with a Start. The busy state comes from the daemon, which
  * knows the calls in flight without asking the editor, so it shows while the
  * editor cannot answer.
  */
 import { useEffect, useState } from "react";
-import type { BusyCall, BusyState } from "@ue-mcp-studio/shared";
+import type { BusyCall, BusyState, EditorOperation } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
 
@@ -21,11 +22,32 @@ export function formatElapsed(ms: number): string {
 
 export const callLabel = (c: Pick<BusyCall, "category" | "action">): string => `${c.category}(${c.action})`;
 
+const OPERATION: Record<EditorOperation["op"], string> = {
+  rebuild: "Rebuilding the project",
+  restart: "Restarting the editor",
+  start: "Starting the editor",
+  stop: "Stopping the editor",
+};
+const STEP: Record<string, string> = {
+  "editor.stop_editor": "closing the editor",
+  "project.build": "building the C++",
+  "editor.start_editor": "starting the editor",
+  "editor.restart_editor": "restarting the editor",
+  connect: "waiting for the editor to connect",
+};
+
+/** "Rebuilding the project: building the C++ (step 2 of 3)". */
+export function operationLine(o: Pick<EditorOperation, "op" | "step">): { title: string; step: string } {
+  const steps = o.op === "rebuild" ? ["editor.stop_editor", "project.build", "editor.start_editor"] : [];
+  const n = steps.indexOf(o.step);
+  return { title: OPERATION[o.op], step: `${STEP[o.step] ?? o.step}${n >= 0 ? ` (step ${n + 1} of ${steps.length})` : ""}` };
+}
+
 /** The daemon's busy state, kept current from its events, with the clock offset to its own. */
-function useBusy(daemon: DaemonState): { calls: BusyCall[]; now: () => number } {
-  const [state, setState] = useState<{ calls: BusyCall[]; offset: number }>({ calls: [], offset: 0 });
+function useBusy(daemon: DaemonState): { calls: BusyCall[]; operation: EditorOperation | null; now: () => number } {
+  const [state, setState] = useState<{ calls: BusyCall[]; operation: EditorOperation | null; offset: number }>({ calls: [], operation: null, offset: 0 });
   const [, tick] = useState(0);
-  const take = (s: BusyState) => setState({ calls: s.calls, offset: s.now - Date.now() });
+  const take = (s: BusyState) => setState({ calls: s.calls, operation: s.operation ?? null, offset: s.now - Date.now() });
 
   useEffect(() => {
     if (!daemon.streaming) return;
@@ -37,21 +59,35 @@ function useBusy(daemon: DaemonState): { calls: BusyCall[]; now: () => number } 
     if (last) take(last.data as unknown as BusyState);
   }, [last?.id]);
 
-  const running = state.calls.length > 0;
+  const running = state.calls.length > 0 || !!state.operation;
   useEffect(() => {
     if (!running) return;
     const t = setInterval(() => tick((n) => n + 1), 500);
     return () => clearInterval(t);
   }, [running]);
 
-  return { calls: state.calls, now: () => Date.now() + state.offset };
+  return { calls: state.calls, operation: state.operation, now: () => Date.now() + state.offset };
 }
 
 export function EditorBanner({ daemon }: { daemon: DaemonState }) {
-  const { calls, now } = useBusy(daemon);
+  const { calls, operation, now } = useBusy(daemon);
   const [stopping, setStopping] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // A restart or rebuild the daemon runs: the editor is meant to be down, so no Start.
+  if (operation) {
+    const line = operationLine(operation);
+    return (
+      <div className="banner warn editor-banner" role="status">
+        <span className="spinner small" aria-hidden />
+        <span className="editor-banner-text">
+          <strong>{line.title}:</strong> {line.step}
+          <span className="mono elapsed">{formatElapsed(now() - operation.startedAt)}</span>
+        </span>
+      </div>
+    );
+  }
 
   const oldest = calls[0];
   if (oldest && now() - oldest.startedAt >= BUSY_AFTER_MS) {

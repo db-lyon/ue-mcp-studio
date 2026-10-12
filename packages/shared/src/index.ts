@@ -390,10 +390,25 @@ export interface BusyCall {
   stopped: boolean;
 }
 
+/**
+ * An editor restart, rebuild, start or stop the daemon is running, step by
+ * step: editor.stop_editor, project.build, editor.start_editor,
+ * editor.restart_editor, then "connect" while the started editor attaches.
+ */
+export interface EditorOperation {
+  op: "start" | "stop" | "restart" | "rebuild";
+  step: string;
+  /** Daemon clock, epoch ms. */
+  startedAt: number;
+  stepStartedAt: number;
+}
+
 /** GET /v1/ext/studio/busy, and the data of studio.busy.changed. `now` is the daemon's clock. */
 export interface BusyState {
   now: number;
   calls: BusyCall[];
+  /** The editor operation in progress, when there is one. */
+  operation?: EditorOperation;
 }
 
 /** POST /v1/ext/studio/window: open Studio's own window for this project. */

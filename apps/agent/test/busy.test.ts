@@ -86,3 +86,38 @@ describe("the editor's busy state", () => {
     expect(busy.state().calls.map((c) => c.source)).toEqual(["client"]);
   });
 });
+
+describe("an editor operation", () => {
+  const op = (o: string, step: string, phase: string) => ({ type: "editor.operation", data: { op: o, step, phase } });
+
+  it("shows a rebuild step by step, then waits for the editor to attach", () => {
+    let clock = 0;
+    let connected = false;
+    const busy = new BusyTracker(() => {}, () => clock, () => connected);
+    busy.observe(op("rebuild", "editor.stop_editor", "started"));
+    expect(busy.state().operation).toEqual({ op: "rebuild", step: "editor.stop_editor", startedAt: 0, stepStartedAt: 0 });
+    clock = 4000;
+    busy.observe(op("rebuild", "editor.stop_editor", "done"));
+    busy.observe(op("rebuild", "project.build", "started"));
+    expect(busy.state().operation).toEqual({ op: "rebuild", step: "project.build", startedAt: 0, stepStartedAt: 4000 });
+    clock = 60_000;
+    busy.observe(op("rebuild", "project.build", "done"));
+    busy.observe(op("rebuild", "editor.start_editor", "started"));
+    clock = 90_000;
+    busy.observe(op("rebuild", "editor.start_editor", "done"));
+    expect(busy.state().operation).toMatchObject({ step: "connect", startedAt: 0, stepStartedAt: 90_000 });
+    connected = true;
+    busy.observe({ type: "editor.connected", data: {} });
+    expect(busy.state().operation).toBeUndefined();
+  });
+
+  it("ends on a failed step, and a stop ends when the editor is down", () => {
+    const busy = new BusyTracker();
+    busy.observe(op("rebuild", "project.build", "started"));
+    busy.observe(op("rebuild", "project.build", "failed"));
+    expect(busy.state().operation).toBeUndefined();
+    busy.observe(op("stop", "editor.stop_editor", "started"));
+    busy.observe(op("stop", "editor.stop_editor", "done"));
+    expect(busy.state().operation).toBeUndefined();
+  });
+});

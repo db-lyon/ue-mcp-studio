@@ -119,7 +119,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   };
   const signinOf = (id: string) => (id === "studio" || id === "claude" || id === "chatgpt" ? signins[id] : null);
 
-  const busy = new BusyTracker((type, data) => api.events.publish(type, data));
+  const busy = new BusyTracker((type, data) => api.events.publish(type, data), Date.now, () => api.editors().some((e) => e.connected));
   const unobserve = api.events.subscribe((e) => busy.observe(e));
   const runner = new AgentRunner({
     host: api,
