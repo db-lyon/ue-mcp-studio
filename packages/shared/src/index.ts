@@ -84,6 +84,8 @@ export interface StudioSettings {
   askBeforeChanges: boolean;
   /** The height dragged on the chat composer's divider, in pixels, or null for the default. */
   composerHeight: number | null;
+  /** When an editor dialog needs an answer. */
+  dialogPolicy: DialogPolicy;
   /** Which sign-ins are done and which vendor keys are saved. */
   connected: Record<ProviderId, boolean>;
   /** The Studio account's login, when signed in. */
@@ -99,6 +101,7 @@ export interface StudioSettingsUpdate {
   theme?: StudioTheme;
   askBeforeChanges?: boolean;
   composerHeight?: number | null;
+  dialogPolicy?: DialogPolicy;
   keys?: Partial<Record<KeyProviderId, string>>;
   signOut?: SignInId;
 }
@@ -187,6 +190,7 @@ export type TranscriptEntry = (
   | { kind: "assistant"; text: string; at: string }
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }
+  | { kind: "dialog"; dialog: EditorDialog }
 ) & { parent?: string };
 
 export interface SessionSummary {
@@ -428,3 +432,91 @@ export interface WindowLaunch {
   reason?: string;
 }
 export * from "./assets.js";
+
+/**
+ * When an editor dialog needs an answer, per project:
+ *   wait   ask me and wait
+ *   agent  ask me, then let the agent decide after `minutes`
+ *   safe   ask me, then press the safe default (Cancel or Keep) after `minutes`
+ */
+export type DialogPolicy = { kind: "wait" } | { kind: "agent" | "safe"; minutes: number };
+export const DEFAULT_DIALOG_POLICY: DialogPolicy = { kind: "agent", minutes: 2 };
+/** The longest a policy waits before acting, in minutes. */
+export const MAX_DIALOG_MINUTES = 120;
+
+/** Seconds a destructive answer the agent chose waits, so the user can override it. */
+export const DESTRUCTIVE_HOLD_SECONDS = 10;
+
+/** Answers that discard work. In auto mode the agent's pick of one is held for a countdown. */
+export function isDestructiveAnswer(button: string): boolean {
+  return /^don['’]?t save\b|\bdelete\b|\bdiscard\b|\brevert\b/i.test(button.trim());
+}
+
+/** The button the safe-default policy presses: Cancel, or one that keeps things as they are. Null when there is none. */
+export function safeButton(buttons: string[]): string | null {
+  const t = buttons.map((b) => b.trim());
+  return t.find((b) => /^cancel$/i.test(b))
+    ?? t.find((b) => /^keep\b/i.test(b))
+    ?? (t.length === 1 && /^(ok|close)$/i.test(t[0]) ? t[0] : null);
+}
+
+/**
+ * A modal dialog in the editor, as Studio shows it: a card in the chat while
+ * it is open, and a line in the transcript of the session whose call met it.
+ * Times are the daemon's clock, epoch ms.
+ */
+export interface EditorDialog {
+  id: string;
+  editor: string;
+  title: string;
+  message: string;
+  /** In the order the dialog lays them out. */
+  buttons: string[];
+  /** Rows the dialog asks about one by one, such as each unsaved asset. */
+  items?: Array<{ index: number; label: string; cells: string[]; checked: boolean }>;
+  /** Who answers: auto the agent, interactive the user here, defer the user in the editor. Null when unknown. */
+  mode: "auto" | "interactive" | "defer" | null;
+  openedAt: number;
+  /** The session, call and subagent that met it, when it was a Studio call. */
+  sessionId: string | null;
+  toolUseId: string | null;
+  parent: string | null;
+  subagent?: string;
+  /** The action that met it, e.g. editor.stop_editor. */
+  call: string | null;
+  /** Studio is asking the user: the card's buttons answer it. */
+  asking: null | {
+    since: number;
+    /** The buttons stay disabled until since + minHumanMs. */
+    minHumanMs: number;
+    policy: DialogPolicy;
+    /** When the policy acts; null for wait. */
+    deadline: number | null;
+    /** What the safe policy presses, when it can. */
+    safeButton: string | null;
+  };
+  /** auto: the agent picked an answer that discards work, held until `until` unless overridden. */
+  held: null | { button: string; until: number };
+  /** How it ended. */
+  outcome: null | {
+    kind: "pressed" | "delegated" | "closed";
+    button?: string;
+    by?: "you" | "agent" | "policy";
+    at: number;
+  };
+}
+
+/** GET /v1/ext/studio/dialogs, and the data of studio.dialog.changed. */
+export interface DialogsState {
+  now: number;
+  /** The dialogs open now. */
+  dialogs: EditorDialog[];
+  /** The daemon lets Studio answer its own calls' dialogs (ue-mcp 1.4.1 and later). */
+  supported: boolean;
+}
+
+/** POST /v1/ext/studio/dialogs/:id */
+export type DialogAnswer =
+  | { answer: "press"; button: string; items?: Array<{ index: number; checked: boolean }> }
+  | { answer: "delegate" }
+  | { answer: "release" };

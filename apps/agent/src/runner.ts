@@ -19,6 +19,7 @@ import type { ApprovalDecision, ApprovalRequest, Effort, TranscriptEntry } from 
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import type { BusyTracker } from "./busy.js";
+import type { DialogBroker } from "./dialogs.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
 import { runSubscriptionTurn } from "./subscription.js";
@@ -88,6 +89,8 @@ export interface RunnerOptions {
   askBeforeChanges?: () => boolean;
   /** Tracks each turn's editor calls, for the window's busy state. */
   busy?: BusyTracker;
+  /** Puts the editor dialogs a session's calls meet in the chat. */
+  dialogs?: DialogBroker;
 }
 
 const now = (): string => new Date().toISOString();
@@ -128,7 +131,8 @@ export class AgentRunner {
 
   /** The host a session's tool calls run on: its editor calls are tracked when there is a busy tracker. */
   private hostFor(sessionId: string): AgentHost {
-    return this.o.busy ? this.o.busy.wrap(this.o.host, sessionId) : this.o.host;
+    const host = this.o.dialogs ? this.o.dialogs.wrap(this.o.host, sessionId) : this.o.host;
+    return this.o.busy ? this.o.busy.wrap(host, sessionId) : host;
   }
 
   /** The daemon is going down: every turn on the SDK route ends here, saying so. An API turn resumes in the next daemon. */

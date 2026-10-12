@@ -8,7 +8,10 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  DEFAULT_DIALOG_POLICY,
   EFFORTS,
+  MAX_DIALOG_MINUTES,
+  type DialogPolicy,
   KEY_PROVIDER_IDS,
   STUDIO_THEMES,
   type Effort,
@@ -29,6 +32,19 @@ interface StoredSettings {
   theme: StudioTheme;
   askBeforeChanges: boolean;
   composerHeight: number | null;
+  dialogPolicy: DialogPolicy;
+}
+
+/** A stored or requested dialog policy, or null when it is not one. */
+export function dialogPolicyOf(v: unknown): DialogPolicy | null {
+  if (!v || typeof v !== "object") return null;
+  const p = v as { kind?: unknown; minutes?: unknown };
+  if (p.kind === "wait") return { kind: "wait" };
+  if ((p.kind === "agent" || p.kind === "safe") && typeof p.minutes === "number" && Number.isFinite(p.minutes)
+    && p.minutes > 0 && p.minutes <= MAX_DIALOG_MINUTES) {
+    return { kind: p.kind, minutes: p.minutes };
+  }
+  return null;
 }
 
 /** The tallest composer height kept; anything larger is a mistake, not a layout. */
@@ -66,9 +82,10 @@ export class SettingsStore {
         theme: STUDIO_THEMES.includes(raw.theme as StudioTheme) ? (raw.theme as StudioTheme) : "ue-mcp",
         askBeforeChanges: raw.askBeforeChanges !== false,
         composerHeight: composerHeightOf(raw.composerHeight),
+        dialogPolicy: dialogPolicyOf(raw.dialogPolicy) ?? DEFAULT_DIALOG_POLICY,
       };
     } catch {
-      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, composerHeight: null };
+      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY };
     }
   }
 
@@ -130,6 +147,11 @@ export class SettingsStore {
       if (u.composerHeight !== null && composerHeightOf(u.composerHeight) === null) throw new Error(`composerHeight must be null or a number from 1 to ${MAX_COMPOSER_HEIGHT}`);
       s.composerHeight = u.composerHeight === null ? null : composerHeightOf(u.composerHeight);
     }
+    if (u.dialogPolicy !== undefined) {
+      const policy = dialogPolicyOf(u.dialogPolicy);
+      if (!policy) throw new Error(`dialogPolicy must be { kind: "wait" } or { kind: "agent" | "safe", minutes: 1 to ${MAX_DIALOG_MINUTES} }`);
+      s.dialogPolicy = policy;
+    }
     for (const [p, v] of Object.entries(u.keys ?? {})) {
       if (!KEY_PROVIDER_IDS.includes(p as KeyProviderId)) throw new Error(`no key provider ${p}`);
       if (typeof v !== "string") throw new Error(`the ${p} key must be a string`);
@@ -182,6 +204,11 @@ export class SettingsStore {
 
   gatewayUrl(): string {
     return this.stored().gatewayUrl;
+  }
+
+  /** When an editor dialog needs an answer. */
+  dialogPolicy(): DialogPolicy {
+    return this.stored().dialogPolicy;
   }
 
   /** Ask the user before a command runs or a file changes. On unless turned off. */

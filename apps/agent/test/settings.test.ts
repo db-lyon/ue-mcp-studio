@@ -79,3 +79,22 @@ describe("Claude subscription login", () => {
     }
   });
 });
+
+describe("the dialog policy", () => {
+  it("defaults to asking, then letting the agent decide after 2 minutes", () => {
+    expect(store().dialogPolicy()).toEqual({ kind: "agent", minutes: 2 });
+  });
+
+  it("keeps each policy for the project", () => {
+    const s = store();
+    s.update({ dialogPolicy: { kind: "safe", minutes: 5 } });
+    expect(s.view().dialogPolicy).toEqual({ kind: "safe", minutes: 5 });
+    s.update({ dialogPolicy: { kind: "wait" } });
+    expect(s.dialogPolicy()).toEqual({ kind: "wait" });
+  });
+
+  it("refuses a policy it cannot run", () => {
+    expect(() => store().update({ dialogPolicy: { kind: "agent", minutes: 0 } })).toThrow(/dialogPolicy/);
+    expect(() => store().update({ dialogPolicy: { kind: "soon" } as never })).toThrow(/dialogPolicy/);
+  });
+});

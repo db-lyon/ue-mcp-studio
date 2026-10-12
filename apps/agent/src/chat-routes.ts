@@ -18,7 +18,7 @@
  *   POST /updates/{plugin,studio,restart}       run an update step, or keep it until no turn is in progress
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
- * Studio's window and the editor's busy state are in window-routes.ts; resolving
+ * Editor dialogs (/dialogs) are in dialog-routes.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts.
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,
@@ -43,6 +43,7 @@ import * as path from "node:path";
 import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
+import { registerDialogs } from "./dialog-routes.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js";
 import type { AssetRef } from "@ue-mcp-studio/shared";
@@ -124,9 +125,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   const busy = new BusyTracker((type, data) => api.events.publish(type, data), Date.now, () => api.editors().some((e) => e.connected));
   const unobserve = api.events.subscribe((e) => busy.observe(e));
+  const dialogs = registerDialogs(api, store, settings);
   const runner = new AgentRunner({
     host: api,
     busy,
+    dialogs,
     store,
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
     model: () => settings.model(),
@@ -428,6 +431,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       unobserve();
       unwatchAssets();
       updates.stop();
+      dialogs.dispose();
       runner.dispose();
     },
   };
