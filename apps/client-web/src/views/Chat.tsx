@@ -10,6 +10,7 @@ import { MainTranscript, SubagentThread } from "../chat/Transcript";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
+import { Approvals } from "../chat/Approvals";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
@@ -218,7 +219,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
         {!detail && (
           <div className="empty">
             <h1 className="display"><em>Start</em> a session.</h1>
-            <p className="muted">The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more.</p>
+            <p className="muted">The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project's files, and read the web, asking you first before a command or an edit.</p>
             {settings && disconnected && <ConnectCard settings={settings} onSettings={setSettings} />}
             {settings && !disconnected && <ModelPicker settings={settings} onSettings={setSettings} />}
             <button className="primary large" onClick={() => void create()}>New session</button>
@@ -253,6 +254,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 </div>
               )}
             </div>
+            <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
             <Composer
               draft={draft}

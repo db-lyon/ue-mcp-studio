@@ -32,6 +32,7 @@ export const OUTCOME_LABEL: Record<ToolCallRecord["outcome"], string> = {
   error: "failed",
   unknown: "outcome unknown",
   stopped: "stopped",
+  declined: "declined",
 };
 
 export const describe = (c: Call): string => (c.input as { description?: string }).description ?? "Subagent";
@@ -44,13 +45,43 @@ export function agentCalls(transcript: TranscriptEntry[]): Call[] {
   return transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call] : []));
 }
 
-/** A tool call as one short line: the action it ran, the search it made, or what it described. */
+/** The short name a call shows under: ue-mcp for the editor, the tool for the machine. */
+export const TOOL_TAG: Record<string, string> = {
+  ue_mcp: "ue-mcp",
+  editor_restart: "ue-mcp",
+  shell: "shell",
+  read_file: "read",
+  write_file: "write",
+  edit_file: "edit",
+  glob: "glob",
+  grep: "grep",
+  web_fetch: "fetch",
+  web_search: "search",
+};
+
+/** A tool call as one short line: the action it ran, the command, the file, or the search it made. */
 export function toolLabel(call: Call): string {
-  const i = call.input as { action?: string; category?: string; method?: string; query?: string; operation?: string };
+  const i = call.input as {
+    action?: string; category?: string; method?: string; query?: string; operation?: string;
+    command?: string; path?: string; pattern?: string; url?: string; offset?: number; limit?: number; glob?: string;
+  };
   if (call.name === "editor_restart") return `editor ${i.operation ?? ""}`;
+  if (call.name === "shell") return firstLine(i.command ?? "");
+  if (call.name === "read_file") return i.offset || i.limit ? `${i.path ?? ""} (from line ${i.offset ?? 1})` : i.path ?? "";
+  if (call.name === "write_file" || call.name === "edit_file") return i.path ?? "";
+  if (call.name === "glob") return `${i.pattern ?? ""}${i.path ? ` in ${i.path}` : ""}`;
+  if (call.name === "grep") return `/${i.pattern ?? ""}/${i.glob ? ` ${i.glob}` : ""}${i.path ? ` in ${i.path}` : ""}`;
+  if (call.name === "web_fetch") return i.url ?? "";
+  if (call.name === "web_search") return `"${i.query ?? ""}"`;
   if (i.action === "call") return `${i.category}.${i.method}`;
   if (i.action === "search") return `search "${i.query ?? ""}"`;
   return `describe ${i.category ?? ""}${i.method ? `.${i.method}` : ""}`;
+}
+
+/** A command's first line, with a mark when it has more. */
+function firstLine(text: string): string {
+  const lines = text.trim().split("\n");
+  return lines.length > 1 ? `${lines[0]} (+${lines.length - 1} lines)` : lines[0];
 }
 
 /** 45s, 1m 5s, 1h 2m. */

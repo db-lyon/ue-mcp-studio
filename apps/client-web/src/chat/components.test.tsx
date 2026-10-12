@@ -87,7 +87,7 @@ describe("the thread list", () => {
 describe("a session row", () => {
   const s: SessionSummary = {
     id: "s1", title: "Light the level", status: "running", createdAt: at(0), updatedAt: at(0), waitingCause: null, archived: false,
-    agents: { total: 5, running: 2 },
+    agents: { total: 5, running: 2 }, awaiting: 0,
   };
 
   it("says what the session is doing and how many subagents run", () => {

@@ -2,11 +2,13 @@ import { useContext, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import type { Attachment, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import { lineDiff, type Attachment, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
+import { DiffView } from "./Diff";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import {
   OUTCOME_LABEL,
   RESULT_PREVIEW_LINES,
+  TOOL_TAG,
   STATE_LABEL,
   agentStatus,
   callsIn,
@@ -190,12 +192,37 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack, onSto
   );
 }
 
+/** How a call's input reads when opened: the command, the change as a diff, or the input itself. */
+function CallInput({ call }: { call: Call }) {
+  const i = call.input as { command?: string; path?: string; content?: string; old_string?: string; new_string?: string; replace_all?: boolean };
+  if (call.name === "shell") return <pre className="output command">{`$ ${i.command ?? ""}`}</pre>;
+  if (call.name === "edit_file") {
+    return (
+      <>
+        {i.replace_all && <div className="dim small call-note">every occurrence</div>}
+        <DiffView lines={lineDiff(i.old_string ?? "", i.new_string ?? "")} label={`Edit to ${i.path ?? ""}`} />
+      </>
+    );
+  }
+  if (call.name === "write_file") {
+    const lines = (i.content ?? "").split("\n");
+    const shown = lines.slice(0, WRITE_PREVIEW_LINES).map((text) => ({ op: "+" as const, text }));
+    return <DiffView lines={lines.length > WRITE_PREVIEW_LINES ? [...shown, { op: "gap", count: lines.length - WRITE_PREVIEW_LINES }] : shown} label={`Content of ${i.path ?? ""}`} />;
+  }
+  if (call.name === "web_search" || call.name === "read_file" || call.name === "glob" || call.name === "grep" || call.name === "web_fetch") return null;
+  return <pre className="output">{JSON.stringify(call.input, null, 2)}</pre>;
+}
+
+/** How many lines of a written file the transcript shows. */
+const WRITE_PREVIEW_LINES = 40;
+
 /** A tool call: its label and outcome; open, its input and its result, long results shortened. */
 export function ToolCall({ call }: { call: Call }) {
   const label = useMemo(() => toolLabel(call), [call]);
   const [all, setAll] = useState(false);
   const [copied, setCopied] = useState(false);
-  const result = useMemo(() => (call.result ? formatResult(call.result) : null), [call.result]);
+  // A machine tool's result is text as it came; ue-mcp's is JSON, indented.
+  const result = useMemo(() => (call.result ? (call.name === "ue_mcp" ? formatResult(call.result) : { text: call.result, lines: call.result.split("\n").length }) : null), [call.name, call.result]);
   const shown = result && !all && result.lines > RESULT_PREVIEW_LINES
     ? result.text.split("\n").slice(0, RESULT_PREVIEW_LINES).join("\n")
     : result?.text;
@@ -209,15 +236,15 @@ export function ToolCall({ call }: { call: Call }) {
   return (
     <details className={`tool ${call.outcome}`}>
       <summary>
-        <span className="tool-name">ue-mcp</span>
+        <span className="tool-name">{TOOL_TAG[call.name] ?? call.name}</span>
         <span className="tool-call">{label}</span>
         <span className="dim">{OUTCOME_LABEL[call.outcome]}</span>
       </summary>
-      <pre className="output">{JSON.stringify(call.input, null, 2)}</pre>
+      <CallInput call={call} />
       {result && (
         <div className="result">
           <div className="result-bar">
-            <span className="dim small">Result, {result.lines} {result.lines === 1 ? "line" : "lines"}</span>
+            <span className="dim small">{call.name === "shell" ? "Output" : "Result"}, {result.lines} {result.lines === 1 ? "line" : "lines"}</span>
             <button className="ghost small-button" onClick={copy}>{copied ? "Copied" : "Copy"}</button>
           </div>
           <pre className="output">{shown}</pre>

@@ -388,6 +388,26 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 .tool.done summary::before { background: var(--ok); }
 .tool.error summary::before { background: var(--bad); }
 .tool.unknown summary::before { background: var(--warn); }
+.tool.declined summary::before, .tool.stopped summary::before { background: var(--dim); }
+.tool .call-note { margin: 6px 0 0 14px; }
+.output.command { color: var(--text); }
+
+/* Diffs: an edit's removed and added lines. */
+.output.diff { padding: 8px 0; }
+.output.diff span { display: block; padding: 0 12px; }
+.diff-add { background: rgba(108, 192, 139, 0.12); color: var(--ok); }
+.diff-del { background: rgba(229, 96, 79, 0.12); color: var(--bad-text); }
+.diff-ctx { color: var(--muted); }
+.diff-gap { color: var(--dim); font-style: italic; }
+
+/* A command or a file change waiting for the user. */
+.approvals { display: flex; flex-direction: column; gap: 10px; padding: 10px 16px 0; max-height: 50vh; overflow: auto; }
+.approval.card { border-color: var(--accent-line); background: var(--accent-wash); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.approval-head { display: flex; align-items: baseline; gap: 10px; }
+.approval-path { font: 12px/1.5 var(--mono); color: var(--text); overflow-wrap: anywhere; }
+.approval .output { max-height: 30vh; margin: 0; }
+.approval-actions { gap: 8px; }
+label.toggle { gap: 10px; cursor: pointer; }
 .tool summary .tool-name { color: var(--accent-hi); }
 .tool summary .tool-call { color: var(--text); }
 .tool .output { margin: 6px 0 0 14px; }
