@@ -207,6 +207,9 @@ function promptOf(blocks: unknown[], resume: string | null): string | AsyncItera
   })();
 }
 
+/** How long a stopped turn's binary gets to end the turn itself before it is closed. */
+const STOP_GRACE_MS = 1500;
+
 /** Run one turn to the end. Resolves with an error message when the turn failed. */
 export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string | null> {
   if (!claudeLogin()) return "Sign in to your Claude subscription: open the model picker.";
@@ -255,8 +258,6 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   });
 
   const abort = new AbortController();
-  const onAbort = () => abort.abort();
-  t.signal.addEventListener("abort", onAbort);
   // A command or a file change can wait on the user for as long as they take: no MCP call timeout cuts it off.
   const env = claudeEnv({ MCP_TOOL_TIMEOUT: String(24 * 60 * 60 * 1000) });
 
@@ -289,8 +290,23 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         env,
       },
     });
+    // Stop ends the turn here and now. Aborting alone closes the binary's input but leaves it
+    // running for seconds on Windows, still calling tools it can no longer reach and still
+    // talking: interrupt it first so it ends the turn, and relay nothing it says after.
+    const stopped = new Promise<null>((resolve) => {
+      const onStop = () => {
+        resolve(null);
+        void Promise.race([q.interrupt().catch(() => undefined), new Promise((r) => setTimeout(r, STOP_GRACE_MS))]).finally(() => abort.abort());
+      };
+      if (t.signal.aborted) onStop();
+      else t.signal.addEventListener("abort", onStop, { once: true });
+    });
+    const messages = (q as AsyncIterable<SDKMessage>)[Symbol.asyncIterator]();
     let error: string | null = null;
-    for await (const m of q as AsyncIterable<SDKMessage>) {
+    for (;;) {
+      const next = await Promise.race([messages.next(), stopped]);
+      if (!next || next.done || t.signal.aborted) break;
+      const m = next.value;
       if (m.type === "system" && "subtype" in m && m.subtype === "init") t.onSession(m.session_id);
       else if (m.type === "system" && "subtype" in m && m.subtype === "task_started") {
         if (m.tool_use_id) {
@@ -323,7 +339,5 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     return t.signal.aborted ? null : error;
   } catch (e) {
     return t.signal.aborted ? null : e instanceof Error ? e.message : String(e);
-  } finally {
-    t.signal.removeEventListener("abort", onAbort);
   }
 }
