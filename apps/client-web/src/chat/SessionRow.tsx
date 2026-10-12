@@ -12,9 +12,10 @@ const STATUS_LABEL: Record<string, string> = {
 
 /** The line under a session's title: what it is doing, its subagents, or when it last changed. */
 export function sessionLine(s: SessionSummary): string {
-  const status = s.awaiting ? "Needs your approval" : STATUS_LABEL[s.status] ?? "";
+  const status = s.activeElsewhere ? "Open in Claude Code" : s.awaiting ? "Needs your approval" : STATUS_LABEL[s.status] ?? "";
   const agents = s.agents?.running ? `${s.agents.running} of ${s.agents.total} subagents running` : "";
-  return [status, agents].filter(Boolean).join(", ") || new Date(s.updatedAt).toLocaleString();
+  const line = [status, agents].filter(Boolean).join(", ") || new Date(s.updatedAt).toLocaleString();
+  return s.origin === "claude-code" ? `Claude Code, ${line}` : line;
 }
 
 /**
