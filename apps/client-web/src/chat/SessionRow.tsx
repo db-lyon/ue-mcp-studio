@@ -16,7 +16,8 @@ export function sessionLine(s: SessionSummary): string {
   const agents = s.agents?.running ? `${s.agents.running} of ${s.agents.total} subagents running` : "";
   const line = [status, agents].filter(Boolean).join(", ") || new Date(s.updatedAt).toLocaleString();
   // Where it runs: a Claude Code session, or the model of its last turn and how it was reached.
-  const where = s.origin === "claude-code" ? "Claude Code" : s.model ? `${s.model}${s.route ? ` via ${s.route}` : ""}${s.inClaudeCode ? ", also in Claude Code" : ""}` : "";
+  const model = s.model ? `${s.model}${s.route ? ` via ${s.route}` : ""}` : "";
+  const where = s.origin === "claude-code" ? "Claude Code" : [model, s.inClaudeCode ? (model ? "also in Claude Code" : "Also in Claude Code") : ""].filter(Boolean).join(", ");
   return [where, line].filter(Boolean).join(". ");
 }
 

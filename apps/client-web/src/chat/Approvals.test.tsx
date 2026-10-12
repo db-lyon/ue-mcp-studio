@@ -115,5 +115,6 @@ describe("where a session runs", () => {
     expect(sessionLine({ ...base, model: "Claude Opus 5.5", route: "Claude sign-in", inClaudeCode: true, status: "running" })).toBe("Claude Opus 5.5 via Claude sign-in, also in Claude Code. Working");
     expect(sessionLine({ ...base, model: "Gemini 3.8 Flash", route: "API key", status: "running" })).toBe("Gemini 3.8 Flash via API key. Working");
     expect(sessionLine({ ...base, origin: "claude-code", activeElsewhere: true })).toBe("Claude Code. Open in Claude Code");
+    expect(sessionLine({ ...base, inClaudeCode: true, status: "stopped" })).toBe("Also in Claude Code. Stopped");
   });
 });
