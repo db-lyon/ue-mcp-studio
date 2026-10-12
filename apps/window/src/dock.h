@@ -221,6 +221,13 @@ uintptr_t slotAbove(uintptr_t host, uintptr_t self, Prev prev, Topmost topmost) 
   return above && !topmost(above) ? above : 0;
 }
 
+/**
+ * Topmost while the editor or Studio is in front, so the editor rising on a
+ * click cannot cover the docked window for a frame; not while an editor menu,
+ * popup or modal is over the tab, which must draw above Studio.
+ */
+inline bool wantTopmost(bool editorOrStudioInFront, uint32_t flags) { return editorOrStudioInFront && !(flags & kOverlay); }
+
 /** Whether Studio already sits in that slot: directly under it, or at the top of the non-topmost band. */
 template <class Prev, class Topmost>
 bool inSlot(uintptr_t slot, uintptr_t self, Prev prev, Topmost topmost) {

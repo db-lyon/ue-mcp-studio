@@ -255,6 +255,12 @@ int main() {
     CHECK(z.inSlot(80, 10));
   });
 
+  test("topmost while the editor or Studio is in front, not under an editor popup or behind another app", [] {
+    CHECK(dock::wantTopmost(true, dock::kOpen | dock::kVisible));
+    CHECK(!dock::wantTopmost(true, dock::kOpen | dock::kVisible | dock::kOverlay));
+    CHECK(!dock::wantTopmost(false, dock::kOpen | dock::kVisible));
+  });
+
   std::printf(failures ? "%d failed\n" : "all passed\n", failures);
   return failures ? 1 : 0;
 }

@@ -665,12 +665,30 @@ uintptr_t dockSlot() { return dock::slotAbove(reinterpret_cast<uintptr_t>(gHost)
 
 HWND insertAfter(uintptr_t slot) { return slot ? reinterpret_cast<HWND>(slot) : HWND_TOP; }
 
-/** Back directly above the host, when something came between or the host rose over it. */
+/** Whether the editor or Studio is the app in front. */
+bool attachedForeground() {
+  HWND fg = GetForegroundWindow();
+  return fg && (fg == gMain || (gHaveReport && pidOf(fg) == gReport.pid));
+}
+
+/**
+ * Docked z-order. While the editor or Studio is in front, Studio is topmost,
+ * so the editor rising on a click cannot cover it for a frame. While an editor
+ * menu, popup or modal is over the tab, or another app is in front, it sits
+ * directly above the host instead, under the editor's own popups.
+ */
 void restack() {
   if (gShown != Shown::Docked || !gHost || !IsWindow(gHost)) return;
+  const UINT flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER;
+  bool topmost = zTopmost(reinterpret_cast<uintptr_t>(gMain));
+  if (dock::wantTopmost(attachedForeground(), gReport.flags)) {
+    if (!topmost) SetWindowPos(gMain, HWND_TOPMOST, 0, 0, 0, 0, flags);
+    return;
+  }
+  if (topmost) SetWindowPos(gMain, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
   uintptr_t slot = dockSlot();
   if (dock::inSlot(slot, reinterpret_cast<uintptr_t>(gMain), zPrev, zTopmost)) return;
-  SetWindowPos(gMain, insertAfter(slot), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+  SetWindowPos(gMain, insertAfter(slot), 0, 0, 0, 0, flags);
 }
 
 /** A borderless tool window over the tab, or the window's own chrome. */
@@ -719,7 +737,8 @@ void present(const dock::Placement& p) {
     return;
   }
   gDockedAt = want;
-  SetWindowPos(gMain, insertAfter(dockSlot()), p.x, p.y, p.w, p.h, SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+  SetWindowPos(gMain, nullptr, p.x, p.y, p.w, p.h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
+  restack();
 }
 
 void CALLBACK onEditorEvent(HWINEVENTHOOK, DWORD event, HWND w, LONG idObject, LONG idChild, DWORD, DWORD) {
@@ -1182,10 +1201,13 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       if (gView) SetFocus(gView);
       return 0;
     case WM_WINDOWPOSCHANGING: {
-      // Docked, every z-order change lands directly above the host, activation included:
-      // the editor's menus and dialogs stay above Studio.
+      // Docked and not topmost, every z-order change lands directly above the host,
+      // activation included: the editor's menus and dialogs stay above Studio.
       auto* pos = reinterpret_cast<WINDOWPOS*>(lp);
-      if (gShown == Shown::Docked && !(pos->flags & SWP_NOZORDER) && gHost && IsWindow(gHost)) pos->hwndInsertAfter = insertAfter(dockSlot());
+      bool band = pos->hwndInsertAfter == HWND_TOPMOST || pos->hwndInsertAfter == HWND_NOTOPMOST;
+      if (gShown == Shown::Docked && !band && !(pos->flags & SWP_NOZORDER) && !zTopmost(reinterpret_cast<uintptr_t>(w)) && gHost && IsWindow(gHost)) {
+        pos->hwndInsertAfter = insertAfter(dockSlot());
+      }
       break;
     }
     case WM_DPICHANGED: {
