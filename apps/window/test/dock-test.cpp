@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../src/dock.h"
+#include "../src/location.h"
 
 namespace {
 
@@ -259,6 +260,22 @@ int main() {
     CHECK(dock::wantTopmost(true, dock::kOpen | dock::kVisible));
     CHECK(!dock::wantTopmost(true, dock::kOpen | dock::kVisible | dock::kOverlay));
     CHECK(!dock::wantTopmost(false, dock::kOpen | dock::kVisible));
+  });
+
+  test("the panel's location carries to a new address", [] {
+    CHECK(location::fragmentOf(L"http://127.0.0.1:5/ui/?token=ab#/chat/s-1") == L"#/chat/s-1");
+    CHECK(location::fragmentOf(L"http://127.0.0.1:5/ui/") == L"");
+    CHECK(location::withFragment(L"http://127.0.0.1:9/ui/?token=cd", L"#/chat/s-1") == L"http://127.0.0.1:9/ui/?token=cd#/chat/s-1");
+    CHECK(location::withFragment(L"http://127.0.0.1:9/ui/#/flows", L"#/settings/project") == L"http://127.0.0.1:9/ui/#/settings/project");
+    CHECK(location::withFragment(L"http://127.0.0.1:9/ui/", L"") == L"http://127.0.0.1:9/ui/");
+  });
+
+  test("a fragment that is not the panel's is not carried", [] {
+    CHECK(location::safeFragment(L"#/chat/614e0ba1-1942"));
+    CHECK(!location::safeFragment(L"#/chat/<script>"));
+    CHECK(!location::safeFragment(L"/chat/x"));
+    CHECK(!location::safeFragment(L"#/chat/a b"));
+    CHECK(location::withFragment(L"http://h/ui/", L"#\"evil") == L"http://h/ui/");
   });
 
   std::printf(failures ? "%d failed\n" : "all passed\n", failures);

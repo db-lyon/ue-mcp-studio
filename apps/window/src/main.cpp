@@ -40,6 +40,7 @@
 #include "WebView2.h"
 #include "dock.h"
 #include "json.h"
+#include "location.h"
 
 #ifndef STUDIO_WINDOW_VERSION
 #define STUDIO_WINDOW_VERSION "0.0.0"
@@ -998,6 +999,42 @@ void showLocalPage() {
 }
 
 /** Load the UI from the project's daemon, follow it to a new port, and explain when it is gone. */
+// The panel's location (location.h): the last hash its page had, kept on disk
+// so a new window process also opens there.
+std::wstring gLastHash;
+
+std::wstring locationPath() { return join(studioDir(), L"window-location.txt"); }
+
+/** A line in the Studio log: what the window loads, and where the panel is. */
+void logLine(const std::string& text) {
+  SYSTEMTIME t;
+  GetLocalTime(&t);
+  char stamp[64];
+  snprintf(stamp, sizeof stamp, "%04d-%02d-%02d %02d:%02d:%02d ", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+  makeDirs(dirOf(logPath()));
+  appendFile(logPath(), std::string(stamp) + "studio-window: " + text + "\n");
+}
+
+void loadLocation() {
+  std::string text;
+  if (!readFile(locationPath(), text)) return;
+  while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) text.pop_back();
+  std::wstring hash = widen(text);
+  if (location::safeFragment(hash)) gLastHash = hash;
+}
+
+/** The page's URL changed, a hash change included: keep where the panel is. */
+void noteLocation(const std::wstring& url) {
+  if (!fromDaemon(url)) return;
+  std::wstring hash = location::fragmentOf(url);
+  // The panel always has a hash once it runs; an empty one is a page on its way in.
+  if (hash.empty() || !location::safeFragment(hash) || hash == gLastHash) return;
+  gLastHash = hash;
+  makeDirs(studioDir());
+  writeFile(locationPath(), narrow(hash) + "\n");
+  logLine("location " + narrow(hash));
+}
+
 void pollDaemon() {
   if (!gWeb) return;
   Daemon d;
@@ -1006,7 +1043,9 @@ void pollDaemon() {
     if (d.port != gLoaded.port || d.token != gLoaded.token) {
       gLoaded = d;
       gLocalPage = false;
-      gWeb->Navigate(uiUrl(d).c_str());
+      // Where the panel was, on the daemon's new address too.
+      gWeb->Navigate(location::withFragment(uiUrl(d), gLastHash).c_str());
+      logLine("load port " + std::to_string(d.port) + " " + narrow(gLastHash));
     }
     return;
   }
@@ -1074,6 +1113,15 @@ void createWebView() {
               // Only the daemon's own pages load here; links leave for the system browser.
               args->put_Cancel(TRUE);
               openExternal(url);
+              return S_OK;
+            }).Get(), nullptr);
+
+          gWeb->add_SourceChanged(Callback<ICoreWebView2SourceChangedEventHandler>(
+            [](ICoreWebView2* web, ICoreWebView2SourceChangedEventArgs*) -> HRESULT {
+              LPWSTR source = nullptr;
+              web->get_Source(&source);
+              noteLocation(source ? source : L"");
+              CoTaskMemFree(source);
               return S_OK;
             }).Get(), nullptr);
 
@@ -1447,6 +1495,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   gView = createView(instance, gMain);
   if (!gView) return 1;
   openDock();
+  loadLocation();
   dock::Mode mode = dock::parseMode(narrow(gOpt.mode));
   if (mode != dock::Mode::None) {
     setMode(mode, false);
