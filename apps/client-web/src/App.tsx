@@ -8,6 +8,7 @@ import { FlowsView } from "./views/Flows";
 import { PluginsView } from "./views/Plugins";
 import { useUpdateCount } from "./views/Updates";
 import { UpdateRunner } from "./views/UpdateOverlay";
+import { FeedbackDialog } from "./views/Feedback";
 import { ChatView } from "./views/Chat";
 import { SettingsHub, type SettingsSection } from "./views/SettingsHub";
 import { VcsChip } from "./chat/VcsChip";
@@ -19,6 +20,7 @@ export function App() {
   const daemon = useDaemon();
   const [tab, setTab] = useState<Tab>("Chat");
   const [section, setSection] = useState<SettingsSection>("general");
+  const [feedback, setFeedback] = useState(false);
   const updates = useUpdateCount();
   const openSettings = (s: SettingsSection) => {
     setSection(s);
@@ -47,6 +49,7 @@ export function App() {
           ))}
         </nav>
         <span className="spacer" />
+        <button className="ghost docs-link" onClick={() => setFeedback(true)} title="Report a problem or suggest an idea">Feedback</button>
         <button className="ghost docs-link" onClick={() => void openDocs()} title="The ue-mcp documentation">Docs</button>
         <VcsChip events={daemon.events.filter((e) => e.type === "studio.session.changed")} />
         {/* Nothing to say while all is well; a problem shows here and opens Diagnostics. */}
@@ -62,6 +65,7 @@ export function App() {
         {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} />}
       </main>
       <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
+      {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
     </div>
   );
 }

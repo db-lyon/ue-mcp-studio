@@ -19,7 +19,7 @@
  * studio.transcript.added, studio.turn.delta and studio.tool.finished.
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import type { VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
@@ -29,6 +29,7 @@ import { StudioSignInFlow } from "./signin.js";
 import { AttachmentStore } from "./attachments.js";
 import { detectVcs, diffOf, listChanges } from "./vcs.js";
 import { Updater } from "./updates.js";
+import { issueBody, submitFeedback, validate, type Environment } from "./feedback.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ClaudeSignInFlow, claudeLogin } from "./subscription.js";
@@ -133,6 +134,23 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0"): A
   // Studio's own updates: the extension and the editor plugin, against the release channel.
   const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data));
   api.route("GET", "/updates", async () => ({ body: await updater.check() }));
+  // Reports for Studio's tracker, with what is installed when the user includes it.
+  const environment = (): Environment => ({
+    studio: agentVersion,
+    plugin: updater.pluginVersion(),
+    ueMcp: api.version,
+    engine: updater.engine(),
+    model: settings.model(),
+    route: route(),
+  });
+  api.route("GET", "/feedback/environment", () => ({ body: { environment: environment(), body: issueBody({ kind: "problem", title: "", description: "", includeEnvironment: true }, environment()).trim() } }));
+  api.route("POST", "/feedback", async (req) => {
+    const r = (req.body ?? {}) as FeedbackReport;
+    const invalid = validate(r);
+    if (invalid) return { status: 400, body: { error: invalid } };
+    return { body: await submitFeedback(r, environment()) };
+  });
+
   // The panel's update run, kept here because the page that resumes it is served on the next daemon's port.
   const runFile = path.join(api.dataDir, "update-run.json");
   api.route("GET", "/updates/run", () => {

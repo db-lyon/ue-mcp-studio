@@ -731,3 +731,11 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .update-step.done .update-mark { color: var(--ok, #3fb950); }
 .update-step.failed { color: var(--bad, #f85149); }
 .update-note { grid-column: 2; }
+
+/* Feedback: a report for Studio's tracker. */
+.overlay-card.feedback { width: min(580px, 100%); }
+.overlay-card.feedback input:not([type="checkbox"]), .overlay-card.feedback textarea { width: 100%; box-sizing: border-box; }
+.overlay-card.feedback textarea { resize: vertical; min-height: 120px; font: inherit; }
+.feedback-kind { gap: 6px; }
+.feedback-kind button.current { background: var(--accent-wash); border-color: var(--accent-line); color: var(--text); }
+.feedback-env { margin: 6px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--bg, rgba(0, 0, 0, 0.25)); white-space: pre-wrap; font: 12px/1.5 var(--mono, monospace); }

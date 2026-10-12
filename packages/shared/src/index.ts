@@ -247,3 +247,17 @@ export interface VcsChange {
   status: "modified" | "added" | "deleted" | "renamed" | "untracked" | "conflicted";
   changelist?: string;
 }
+
+/** POST /v1/ext/studio/feedback: a report for Studio's GitHub tracker. */
+export interface FeedbackReport {
+  kind: "problem" | "idea";
+  title: string;
+  description: string;
+  /** Add the installed versions, the engine, the OS and the model in use. Never keys or paths. */
+  includeEnvironment: boolean;
+}
+
+/** Filed as an issue, or a prefilled new-issue link for the user to finish when it could not be. */
+export type FeedbackResult =
+  | { filed: true; url: string; number: number }
+  | { filed: false; reason: string; link: string };
