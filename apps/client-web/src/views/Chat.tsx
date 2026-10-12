@@ -51,6 +51,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const lastList = useRef<SessionSummary[] | null>(null);
+  /** The transcript area, which gives up height when the composer's divider is dragged up. */
+  const stage = useRef<HTMLDivElement>(null);
 
   const loadList = () => api.sessions().then((r) => {
     // A turn that finished while the panel was in the background asks the editor for attention.
@@ -236,7 +238,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
         )}
         {detail && (
           <SessionIdContext.Provider value={detail.id}>
-            <div className="thread-stage">
+            <div className="thread-stage" ref={stage}>
               <MainTranscript
                 transcript={detail.transcript}
                 status={detail.status}
@@ -272,6 +274,9 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
               files={attach.files}
               onAddFiles={attach.add}
               onRemoveFile={attach.remove}
+              stage={stage}
+              height={settings?.composerHeight ?? null}
+              onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
               picker={settings && <><ModelPicker settings={settings} onSettings={setSettings} up /><EffortPicker settings={settings} onSettings={setSettings} /></>}
             >
               <Threads

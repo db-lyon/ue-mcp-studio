@@ -6,7 +6,8 @@ vi.mock("../api", () => ({
   api: { uploadAttachment: vi.fn(async (_id: string, u: { name: string; type: string; data: string }) => ({ id: `id-${u.name}`, name: u.name, type: u.type, size: 3 })) },
 }));
 import { api } from "../api";
-import { Composer } from "./Composer";
+import { useRef } from "react";
+import { Composer, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, clampHeight, fitHeight } from "./Composer";
 import { useAttachments, type PendingFile } from "./attachments";
 
 afterEach(() => {
@@ -81,5 +82,162 @@ describe("adding files", () => {
     act(() => result.current.add([huge]));
     expect(result.current.files[0].state).toBe("error");
     expect(api.uploadAttachment).not.toHaveBeenCalled();
+  });
+});
+
+// jsdom lays nothing out: the box's content height is its line count times LINE, plus its padding.
+const LINE = 20;
+const PAD = 20;
+const CHROME = PAD + 2;
+const CAP = MAX_LINES * LINE + CHROME;
+const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join("\n");
+
+describe("the composer's height", () => {
+  const sheet = document.createElement("style");
+  sheet.textContent = `textarea { font-size: 14px; line-height: ${LINE}px; padding: ${PAD / 2}px 12px; border: 1px solid black; }`;
+  document.head.appendChild(sheet);
+  Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
+    configurable: true,
+    get(this: HTMLTextAreaElement) {
+      return this.value.split("\n").length * LINE + PAD;
+    },
+  });
+
+  /** The composer under a transcript of `stageHeight` pixels that gives up what the box takes. */
+  function Laid({ stageHeight = 600, ...props }: Partial<React.ComponentProps<typeof Composer>> & { stageHeight?: number }) {
+    const stage = useRef<HTMLDivElement | null>(null);
+    const setStage = (el: HTMLDivElement | null) => {
+      stage.current = el;
+      const total = stageHeight + MIN_HEIGHT;
+      if (el) Object.defineProperty(el, "clientHeight", { configurable: true, get: () => total - (parseFloat(textbox().style.height) || MIN_HEIGHT) });
+    };
+    return (
+      <div>
+        <div ref={setStage} />
+        <Composer {...base} stage={stage} {...props} />
+      </div>
+    );
+  }
+  const textbox = () => screen.getByPlaceholderText("Ask") as HTMLTextAreaElement;
+  const boxHeight = () => parseFloat(textbox().style.height);
+  const overflow = () => textbox().style.overflowY;
+  const divider = () => screen.getByRole("separator", { name: "Resize the message box" });
+  const drag = (from: number, to: number) => {
+    fireEvent.mouseDown(divider(), { clientY: from, button: 0 });
+    fireEvent.mouseMove(window, { clientY: to });
+    fireEvent.mouseUp(window, { clientY: to });
+  };
+
+  it("grows with its content up to 15 lines, then scrolls", () => {
+    const { rerender } = render(<Laid draft="hi" />);
+    expect(boxHeight()).toBe(MIN_HEIGHT);
+    expect(overflow()).toBe("hidden");
+    rerender(<Laid draft={lines(8)} />);
+    expect(boxHeight()).toBe(8 * LINE + CHROME);
+    expect(overflow()).toBe("hidden");
+    rerender(<Laid draft={lines(20)} />);
+    expect(boxHeight()).toBe(CAP);
+    expect(overflow()).toBe("auto");
+  });
+
+  it("shrinks back when the text is removed or sent", () => {
+    const { rerender } = render(<Laid draft={lines(20)} />);
+    expect(boxHeight()).toBe(CAP);
+    rerender(<Laid draft={lines(4)} />);
+    expect(boxHeight()).toBe(4 * LINE + CHROME);
+    rerender(<Laid draft="" />);
+    expect(boxHeight()).toBe(MIN_HEIGHT);
+  });
+
+  it("never takes the transcript's last usable height", () => {
+    render(<Laid draft={lines(20)} stageHeight={200} />);
+    // The box's own height, plus what the transcript can give up.
+    expect(boxHeight()).toBe(MIN_HEIGHT + 200 - MIN_TRANSCRIPT);
+    expect(overflow()).toBe("auto");
+  });
+
+  it("drags taller and shorter from the divider, and saves where it was let go", () => {
+    const onHeight = vi.fn();
+    render(<Laid draft="" onHeight={onHeight} />);
+    drag(500, 300);
+    expect(boxHeight()).toBe(MIN_HEIGHT + 200);
+    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT + 200);
+    drag(300, 400);
+    expect(boxHeight()).toBe(MIN_HEIGHT + 100);
+    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT + 100);
+    expect(divider().getAttribute("aria-valuenow")).toBe(String(MIN_HEIGHT + 100));
+  });
+
+  it("clamps a drag so the transcript and the box both stay usable", () => {
+    const onHeight = vi.fn();
+    render(<Laid draft="" stageHeight={400} onHeight={onHeight} />);
+    drag(500, -5000);
+    expect(boxHeight()).toBe(MIN_HEIGHT + 400 - MIN_TRANSCRIPT);
+    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT + 400 - MIN_TRANSCRIPT);
+    drag(0, 5000);
+    expect(boxHeight()).toBe(MIN_HEIGHT);
+    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT);
+  });
+
+  it("treats a dragged height as a minimum the content can grow past, up to 15 lines", () => {
+    const { rerender } = render(<Laid draft="" height={150} />);
+    expect(boxHeight()).toBe(150);
+    rerender(<Laid draft={lines(10)} height={150} />);
+    expect(boxHeight()).toBe(10 * LINE + CHROME);
+    rerender(<Laid draft={lines(30)} height={150} />);
+    expect(boxHeight()).toBe(CAP);
+    // A dragged height above 15 lines is the cap instead.
+    rerender(<Laid draft={lines(30)} height={CAP + 80} />);
+    expect(boxHeight()).toBe(CAP + 80);
+    expect(overflow()).toBe("auto");
+  });
+
+  it("resets on a double click and forgets the saved height", () => {
+    const onHeight = vi.fn();
+    render(<Laid draft={lines(1)} height={250} onHeight={onHeight} />);
+    expect(boxHeight()).toBe(250);
+    fireEvent.doubleClick(divider());
+    expect(onHeight).toHaveBeenCalledWith(null);
+    expect(boxHeight()).toBe(MIN_HEIGHT);
+    expect(divider().getAttribute("aria-valuenow")).toBeNull();
+  });
+
+  it("picks up a saved height when it arrives", () => {
+    const { rerender } = render(<Laid draft="" height={null} />);
+    expect(boxHeight()).toBe(MIN_HEIGHT);
+    rerender(<Laid draft="" height={180} />);
+    expect(boxHeight()).toBe(180);
+  });
+
+  it("moves with the arrow keys, clamped", () => {
+    const onHeight = vi.fn();
+    render(<Laid draft="" stageHeight={140} onHeight={onHeight} />);
+    fireEvent.keyDown(divider(), { key: "ArrowUp" });
+    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT + NUDGE);
+    fireEvent.keyDown(divider(), { key: "ArrowUp" });
+    // The room is the box plus the transcript less its minimum: 60 + 140 - 120.
+    expect(onHeight).toHaveBeenLastCalledWith(80);
+    fireEvent.keyDown(divider(), { key: "ArrowDown" });
+    fireEvent.keyDown(divider(), { key: "ArrowDown" });
+    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT);
+  });
+});
+
+describe("the height rules", () => {
+  it("clamps a dragged height between the minimum and the room", () => {
+    expect(clampHeight(10, 500)).toBe(MIN_HEIGHT);
+    expect(clampHeight(900, 500)).toBe(500);
+    expect(clampHeight(240.4, 500)).toBe(240);
+    expect(clampHeight(100, 20)).toBe(MIN_HEIGHT);
+  });
+
+  it("fits the content between the floor and the larger of 15 lines and the floor", () => {
+    const fit = (content: number, floor: number | null, room = Infinity) => fitHeight({ content, line: 20, chrome: 22, floor, room });
+    expect(fit(42, null)).toEqual({ height: MIN_HEIGHT, scroll: false });
+    expect(fit(200, null)).toEqual({ height: 200, scroll: false });
+    expect(fit(900, null)).toEqual({ height: 322, scroll: true });
+    expect(fit(100, 250)).toEqual({ height: 250, scroll: false });
+    expect(fit(900, 500)).toEqual({ height: 500, scroll: true });
+    expect(fit(900, 500, 300)).toEqual({ height: 300, scroll: true });
   });
 });
