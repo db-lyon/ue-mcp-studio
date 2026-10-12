@@ -197,17 +197,17 @@ const pluginEntry = (() => {
   for (const { tagName } of releases) {
     const assets = JSON.parse(execFileSync("gh", ["release", "view", tagName, "--repo", REPO, "--json", "assets"], { encoding: "utf-8" })).assets.map((a) => a.name).filter((n) => parse(n));
     if (!assets.length) continue;
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-plugin-carry-"));
-    execFileSync("gh", ["release", "download", tagName, "--repo", REPO, "--dir", dir, ...assets.flatMap((n) => ["--pattern", n])], { stdio: "inherit" });
+    // Attached to this release too, so its page has every download a new user needs.
+    execFileSync("gh", ["release", "download", tagName, "--repo", REPO, "--dir", OUT, "--clobber", ...assets.flatMap((n) => ["--pattern", n])], { stdio: "inherit" });
     const files = {};
     let pluginVer = null;
     for (const name of assets) {
       const m = parse(name);
       pluginVer = m[1];
-      files[m[2]] = { url: `https://github.com/${REPO}/releases/download/${tagName}/${name}`, sha256: sha256(path.join(dir, name)) };
+      pluginZips.push(name);
+      files[m[2]] = { url: `https://github.com/${REPO}/releases/download/v${version}/${name}`, sha256: sha256(path.join(OUT, name)) };
     }
-    fs.rmSync(dir, { recursive: true, force: true });
-    console.log(`latest.json carries the editor plugin ${pluginVer} from ${tagName}`);
+    console.log(`this release carries the editor plugin ${pluginVer} from ${tagName}`);
     return { version: pluginVer, files };
   }
   return null;
