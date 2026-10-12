@@ -91,6 +91,11 @@ export function renderNotices() {
     ...dependencyClosure(path.join(ROOT, "apps", "client-web")),
   ]);
   const packages = [...dirs].map(entry).sort((a, b) => a.name.localeCompare(b.name));
+  // studio-window.exe links the WebView2 SDK's static loader.
+  const webview2 = path.join(ROOT, "apps", "window", "dist", "WebView2-LICENSE.txt");
+  if (fs.existsSync(webview2)) {
+    packages.push({ name: "Microsoft.Web.WebView2", version: "SDK (studio-window.exe)", license: "BSD-3-Clause", text: fs.readFileSync(webview2, "utf-8").trim() });
+  }
   const bar = "=".repeat(78);
   const text = [
     "UE-MCP Studio includes the following third-party software.\n",

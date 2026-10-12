@@ -4,7 +4,8 @@
  *
  *   node scripts/release.mjs [--publish] [--notes-file notes.md]
  *
- * Builds the UI and the bundled agent (trusting the release key only), signs
+ * Builds the UI, the bundled agent (trusting the release key only) and
+ * studio-window.exe (scripts/build-window.mjs), signs
  * the UI with the release key from ~/.ue-mcp-studio/keys, adds the third-party
  * notices (scripts/notices.mjs), and writes release/studio-<version>.zip plus
  * release/latest.json, the manifest `ue-mcp extension install` follows and the
@@ -51,7 +52,7 @@ const PLUGIN_CHANNEL = "https://github.com/db-lyon/ue-mcp-studio-plugin/releases
 const pluginMin = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8")).studioPlugin?.min;
 if (!/^\d+\.\d+\.\d+/.test(pluginMin ?? "")) throw new Error("package.json names no studioPlugin.min");
 const agentPkg = JSON.parse(fs.readFileSync(path.join(ROOT, "apps", "agent", "package.json"), "utf-8"));
-for (const p of ["apps/agent/package.json", "apps/client-web/package.json"]) {
+for (const p of ["apps/agent/package.json", "apps/client-web/package.json", "apps/window/package.json"]) {
   const v = JSON.parse(fs.readFileSync(path.join(ROOT, p), "utf-8")).version;
   if (v !== version) throw new Error(`${p} is ${v}, the root package.json is ${version}; keep them in step`);
 }
@@ -85,6 +86,11 @@ fs.writeFileSync(path.join(ext, "package.json"), JSON.stringify({
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "index.js"), path.join(ext, "dist", "index.js"));
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "keys.json"), path.join(ext, "dist", "keys.json"));
 fs.cpSync(path.join(ROOT, "apps", "client-web", "dist"), path.join(ext, "ui"), { recursive: true });
+// Studio's own window on Windows; the extension opens the system browser without it, but a release always has it.
+const windowExe = path.join(ROOT, "apps", "window", "dist", "studio-window.exe");
+if (!fs.existsSync(windowExe)) throw new Error("no apps/window/dist/studio-window.exe: a release is built on Windows, with the C++ tools");
+fs.mkdirSync(path.join(ext, "bin"), { recursive: true });
+fs.copyFileSync(windowExe, path.join(ext, "bin", "studio-window.exe"));
 fs.writeFileSync(path.join(ext, "THIRD_PARTY_NOTICES.txt"), renderNotices().text);
 const manifest = signBundle(path.join(ext, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(RELEASE_KEY, "utf-8"));
 

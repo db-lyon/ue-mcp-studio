@@ -35,6 +35,11 @@ fs.copyFileSync(path.join(agentDir, "package.json"), path.join(staging, "package
 // Runtime dependencies resolve from the workspace's node_modules.
 fs.symlinkSync(path.join(root, "node_modules"), path.join(staging, "node_modules"), "junction");
 fs.cpSync(webDist, path.join(staging, "ui"), { recursive: true });
+const windowExe = path.join(root, "apps", "window", "dist", "studio-window.exe");
+if (fs.existsSync(windowExe)) {
+  fs.mkdirSync(path.join(staging, "bin"), { recursive: true });
+  fs.copyFileSync(windowExe, path.join(staging, "bin", "studio-window.exe"));
+}
 // A dev build sorts after the release it builds on and after every earlier dev build.
 const version = `${webPkg.version}-dev.${Date.now()}`;
 const manifest = signBundle(path.join(staging, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(keyFile, "utf-8"));

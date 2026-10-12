@@ -1,6 +1,8 @@
 # UE-MCP Studio
 
-The in-editor client for [ue-mcp](https://github.com/db-lyon/ue-mcp): an agent that works inside Unreal Editor through ue-mcp's actions, with sessions, subagents, attachments, flows and setup in a dock tab. Free and open source under the MIT license.
+The in-editor client for [ue-mcp](https://github.com/db-lyon/ue-mcp): an agent that works inside Unreal Editor through ue-mcp's actions, with sessions, subagents, attachments, flows and setup in a window of its own. Free and open source under the MIT license.
+
+Studio runs in its own window beside the editor, in a separate process, so the chat keeps working while the editor is busy: a long generation or a blocking call shows as "Editor busy" with a timer and a Stop, instead of freezing the panel. The window stays above the editor while either is in front, minimizes and restores with it, and remembers its place for each project. On Windows it uses the WebView2 Runtime that ships with Windows 11; elsewhere Studio opens in your browser.
 
 ## Install
 
