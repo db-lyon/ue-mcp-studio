@@ -54,6 +54,7 @@ constexpr UINT_PTR kDaemonTimer = 1;
 constexpr UINT_PTR kEditorTimer = 2;
 constexpr UINT_PTR kTestTimer = 3;
 constexpr UINT_PTR kDockTimer = 4;
+constexpr UINT_PTR kRaiseTimer = 5;
 constexpr ULONG_PTR kCopyArgs = 0x53545544;  // "STUD"
 constexpr LRESULT kHandedOff = 1;
 constexpr LRESULT kReplaceMe = 2;
@@ -687,11 +688,41 @@ void restack() {
   if (dock::wantTopmost(attachedForeground(), gReport.flags)) {
     if (!topmost) SetWindowPos(gMain, HWND_TOPMOST, 0, 0, 0, 0, flags);
   } else {
-    if (topmost) SetWindowPos(gMain, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+    // Windows ignores a background process raising its window over another app's, but
+    // not a trip through the topmost band: below the host, go up that way, then down.
+    bool belowHost = false;
+    for (HWND w = GetWindow(gMain, GW_HWNDPREV); w; w = GetWindow(w, GW_HWNDPREV)) {
+      if (w == gHost) {
+        belowHost = true;
+        break;
+      }
+    }
+    if (belowHost && !topmost) SetWindowPos(gMain, HWND_TOPMOST, 0, 0, 0, 0, flags);
+    if (topmost || belowHost) SetWindowPos(gMain, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
     uintptr_t slot = dockSlot();
     if (!dock::inSlot(slot, reinterpret_cast<uintptr_t>(gMain), zPrev, zTopmost)) SetWindowPos(gMain, insertAfter(slot), 0, 0, 0, 0, flags);
   }
   gRestacking = false;
+}
+
+/**
+ * Bring the editor's windows forward, just under Studio. Windows ignores a plain raise
+ * over another app's windows from anything but the foreground thread, but not a trip
+ * through the topmost band. Each request is posted to the editor's thread
+ * (SWP_ASYNCWINDOWPOS), so a busy editor cannot stall this; lowest window first, so
+ * their order is kept.
+ */
+void raiseEditor() {
+  std::vector<HWND> windows;  // the editor's visible normal-band windows, top first
+  for (HWND w = GetTopWindow(nullptr); w; w = GetWindow(w, GW_HWNDNEXT)) {
+    if (pidOf(w) == gReport.pid && IsWindowVisible(w) && !zTopmost(reinterpret_cast<uintptr_t>(w))) windows.push_back(w);
+  }
+  const UINT flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_ASYNCWINDOWPOS;
+  for (auto it = windows.rbegin(); it != windows.rend(); ++it) {
+    SetWindowPos(*it, HWND_TOPMOST, 0, 0, 0, 0, flags);
+    SetWindowPos(*it, HWND_NOTOPMOST, 0, 0, 0, 0, flags);
+  }
+  SetTimer(gMain, kRaiseTimer, 50, nullptr);
 }
 
 /** A borderless tool window over the tab, or the window's own chrome. */
@@ -1204,14 +1235,10 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       if (gView) SetFocus(gView);
       return 0;
     case WM_ACTIVATE: {
-      // Docked Studio activated from another app: the editor around it comes forward too,
-      // just under Studio. Posted to the editor's thread (SWP_ASYNCWINDOWPOS), so a busy
-      // editor cannot stall this; it rises when it next pumps messages.
+      // Docked Studio activated from another app: the editor around it comes forward too.
       HWND from = reinterpret_cast<HWND>(lp);
       if (LOWORD(wp) != WA_INACTIVE && gShown == Shown::Docked && gHost && IsWindow(gHost) && (!from || pidOf(from) != gReport.pid)) {
-        HWND top = GetAncestor(gHost, GA_ROOTOWNER);
-        SetWindowPos(top ? top : gHost, HWND_TOP, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_ASYNCWINDOWPOS);
-        restack();
+        raiseEditor();
       }
       break;
     }
@@ -1255,6 +1282,11 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       if (wp == kDaemonTimer) pollDaemon();
       else if (wp == kEditorTimer) trackEditor();
       else if (wp == kDockTimer && gMode == dock::Mode::Docked) updateDock();
+      else if (wp == kRaiseTimer) {
+        // The editor's windows rose: keep Studio over them.
+        KillTimer(w, kRaiseTimer);
+        restack();
+      }
       return 0;
     case WM_EXITSIZEMOVE:
       saveState();
