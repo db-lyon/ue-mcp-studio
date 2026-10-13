@@ -72,34 +72,25 @@ export function useFollow<T extends HTMLElement>(content: unknown, snap?: unknow
   return { ref, onScroll, behind, jump };
 }
 
-const seenKey = (sessionId: string) => `studio.seen.${sessionId}`;
-
 /**
- * The subagent threads this viewer has opened, per session, so the list can
- * mark finished ones that are new to them. Kept in this browser only; a
- * storage failure just means nothing is remembered.
+ * The subagent threads the user has opened, per session, so the list marks a
+ * finished one new only until it is opened. Kept with the session in Studio,
+ * since the page's own storage is lost whenever the daemon's port changes.
+ * `stored` is what the session says; `save` records one more.
  */
-export function useSeen(sessionId: string | null): { seen: ReadonlySet<string>; markSeen: (id: string) => void } {
+export function useSeen(sessionId: string | null, stored: readonly string[] | undefined, save: (sessionId: string, id: string) => Promise<unknown>): { seen: ReadonlySet<string>; markSeen: (id: string) => void } {
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
+  useEffect(() => setSeen(new Set()), [sessionId]);
   useEffect(() => {
-    if (!sessionId) return setSeen(new Set());
-    try {
-      setSeen(new Set(JSON.parse(localStorage.getItem(seenKey(sessionId)) ?? "[]") as string[]));
-    } catch {
-      setSeen(new Set());
-    }
-  }, [sessionId]);
+    if (!stored?.length) return;
+    setSeen((cur) => (stored.every((id) => cur.has(id)) ? cur : new Set([...cur, ...stored])));
+  }, [stored]);
   const markSeen = useCallback((id: string) => {
     setSeen((cur) => {
       if (cur.has(id)) return cur;
-      const next = new Set(cur).add(id);
-      try {
-        if (sessionId) localStorage.setItem(seenKey(sessionId), JSON.stringify([...next]));
-      } catch {
-        // Not remembered past this view.
-      }
-      return next;
+      if (sessionId) void save(sessionId, id).catch(() => {});
+      return new Set(cur).add(id);
     });
-  }, [sessionId]);
+  }, [sessionId, save]);
   return { seen, markSeen };
 }

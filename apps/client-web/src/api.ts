@@ -136,6 +136,7 @@ export const api = {
   session: (id: string) => call<SessionDetail>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
   updateSession: (id: string, u: SessionUpdate) => call<SessionSummary>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`, u),
   deleteSession: (id: string) => call<void>("DELETE", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
+  markSeen: (id: string, threadId: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/seen`, { id: threadId }),
   saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
   send: (id: string, text: string, attachments: string[] = []) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, { text, attachments }),

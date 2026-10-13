@@ -223,6 +223,8 @@ export interface SessionDetail extends SessionSummary {
   transcript: TranscriptEntry[];
   touched: TouchedItem[];
   draft: string;
+  /** The subagent threads the user has opened. */
+  seen: string[];
   error: string | null;
   /** Tool calls waiting for the user, oldest first. */
   approvals: ApprovalRequest[];

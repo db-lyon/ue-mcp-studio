@@ -31,6 +31,8 @@ export interface StoredSession {
   waitingCause: string | null;
   error: string | null;
   draft: string;
+  /** The subagent threads the user has opened, so a finished one is marked new only until then. */
+  seen?: string[];
   /** The conversation as the model sees it. */
   messages: MessageParam[];
   /** The conversation as the UI shows it. */
@@ -147,6 +149,6 @@ export class SessionStore {
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, error: s.error, approvals: s.approvals ?? [] };
+    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], error: s.error, approvals: s.approvals ?? [] };
   }
 }

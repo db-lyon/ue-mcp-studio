@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { useFollow } from "./hooks";
+import { useFollow, useSeen } from "./hooks";
 
 afterEach(cleanup);
 
@@ -80,5 +80,23 @@ describe("following the newest line", () => {
     rerender(<List n={2} sent={1} />);
     expect(el.scrollTop).toBe(1300);
     expect(screen.queryByText("New messages")).toBeNull();
+  });
+});
+
+describe("subagent threads opened", () => {
+  function Seen({ session, stored, save }: { session: string; stored?: string[]; save: (s: string, id: string) => Promise<unknown> }) {
+    const { seen, markSeen } = useSeen(session, stored, save);
+    return <button onClick={() => markSeen("t2")}>{[...seen].sort().join(",") || "none"}</button>;
+  }
+
+  it("starts from what the session kept, so a restart does not mark them new again, and saves each one opened", async () => {
+    const saved: string[] = [];
+    const save = async (s: string, id: string) => saved.push(`${s}:${id}`);
+    render(<Seen session="s1" stored={["t1"]} save={save} />);
+    expect(screen.getByRole("button").textContent).toBe("t1");
+    act(() => fireEvent.click(screen.getByRole("button")));
+    expect(screen.getByRole("button").textContent).toBe("t1,t2");
+    act(() => fireEvent.click(screen.getByRole("button")));
+    expect(saved).toEqual(["s1:t2"]);
   });
 });

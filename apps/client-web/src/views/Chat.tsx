@@ -50,7 +50,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const { seen, markSeen } = useSeen(selected);
+  const { seen, markSeen } = useSeen(selected, detail?.seen, api.markSeen);
   const attach = useAttachments(selected);
   /** Files are being dragged over the conversation. */
   const [dragging, setDragging] = useState(false);
