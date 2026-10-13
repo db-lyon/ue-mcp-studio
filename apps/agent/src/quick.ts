@@ -14,6 +14,7 @@ import type { QuickContextItem, QuickRequest } from "@ue-mcp-studio/shared";
 
 export const NO_MODEL = "No model is connected. Open Studio and sign in or add an API key in the model picker, then ask again.";
 const MAX_CONTEXT = 100;
+const KINDS: ReadonlyArray<QuickContextItem["kind"]> = ["actor", "asset", "location", "graph", "node"];
 
 /** One line of a label or path: no newlines, trimmed, capped. */
 const line = (s: string, max = 400): string => s.replace(/\s+/g, " ").trim().slice(0, max);
@@ -27,12 +28,13 @@ export function parseQuickRequest(body: unknown): QuickRequest | string {
   const context: QuickContextItem[] = [];
   for (const raw of b.context) {
     const c = (raw ?? {}) as Record<string, unknown>;
-    if (c.kind !== "actor" && c.kind !== "asset" && c.kind !== "location") return 'context kind must be "actor", "asset" or "location"';
+    if (!KINDS.includes(c.kind as QuickContextItem["kind"])) return `context kind must be one of ${KINDS.join(", ")}`;
     if (typeof c.path !== "string" || !line(c.path)) return "every context item needs a path";
     const named = typeof c.label === "string" && line(c.label) ? line(c.label) : "";
     const label = named || (c.kind === "location" ? "" : line(c.path).split(/[.:]/).pop()!);
     const cls = typeof c.class === "string" && line(c.class) ? line(c.class, 120) : undefined;
-    context.push({ kind: c.kind, label, path: line(c.path), ...(cls ? { class: cls } : {}) });
+    const at = typeof c.at === "string" && line(c.at) ? line(c.at, 120) : undefined;
+    context.push({ kind: c.kind as QuickContextItem["kind"], label, path: line(c.path), ...(cls ? { class: cls } : {}), ...(at ? { at } : {}) });
   }
   return { text: b.text, context };
 }
@@ -58,6 +60,11 @@ export function formatQuickMessage(req: QuickRequest): string {
     byMap.set(m, [...(byMap.get(m) ?? []), c]);
   }
   for (const [m, actors] of byMap) lines.push(`Context: ${actors.length === 1 ? "actor" : "actors"} in ${m}: ${actors.map(describe).join("; ")}`);
+  for (const g of context.filter((x) => x.kind === "graph")) {
+    lines.push(`Context: the graph ${g.label}${g.class ? ` in ${g.class}` : ""} (${g.path})${g.at ? `, cursor at graph position ${g.at}; "here" in the graph means that position` : ""}.`);
+  }
+  const nodes = context.filter((x) => x.kind === "node");
+  if (nodes.length) lines.push(`Context: ${nodes.length === 1 ? "node" : "nodes, the first under the cursor"}: ${nodes.map(describe).join("; ")}`);
   const assets = context.filter((x) => x.kind === "asset");
   if (assets.length) lines.push(`Context: ${assets.length === 1 ? "asset" : "assets"}: ${assets.map(describe).join("; ")}`);
   return `${lines.join("\n")}\n\n${req.text.trim()}`;

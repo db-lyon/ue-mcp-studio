@@ -564,7 +564,7 @@ export interface AgentSettings {
 
 /** An actor or asset the editor's "Chat about this" hands to a quick ask. */
 export interface QuickContextItem {
-  kind: "actor" | "asset" | "location";
+  kind: "actor" | "asset" | "location" | "graph" | "node";
   /** For a location, the actor the cursor was over; may be empty. */
   label: string;
   /**
@@ -572,8 +572,10 @@ export interface QuickContextItem {
    * For a location, the world point and surface normal under the cursor.
    */
   path: string;
-  /** The actor's class; for a location, the map it is in. */
+  /** The actor's or node's class; for a location, the map it is in; for a graph, the asset that owns it. */
   class?: string;
+  /** For a graph, the cursor's position in it. */
+  at?: string;
 }
 
 /** POST /v1/ext/studio/quick: a new session whose first message is `text`, with the context ahead of it. */

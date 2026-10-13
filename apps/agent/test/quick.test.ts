@@ -59,7 +59,20 @@ describe("formatQuickMessage", () => {
         "Context: actor in /Game/Maps/L_Meadow: Sun (DirectionalLight) at /Game/Maps/L_Meadow.L_Meadow:PersistentLevel.Sun\n\nput a BP_Chest here",
     );
     expect(formatQuickMessage({ text: "here", context: [{ kind: "location", label: "Terrain", class: "/Game/Maps/L", path: at }] })).toContain(", on Terrain: ");
-    expect(parseQuickRequest({ text: "x", context: [{ kind: "elsewhere", path: "p" }] })).toMatch(/actor", "asset" or "location"/);
+    expect(parseQuickRequest({ text: "x", context: [{ kind: "elsewhere", path: "p" }] })).toMatch(/one of actor, asset, location, graph, node/);
+  });
+
+  it("names the graph with the cursor's position in it, and the node under the cursor first", () => {
+    const parsed = parseQuickRequest({ text: "add a delay after this", context: [
+      { kind: "graph", label: "EventGraph", class: "/Game/BP_Chest", path: "/Game/BP_Chest.BP_Chest:EventGraph", at: "X=420 Y=-96" },
+      { kind: "node", label: "Print String", class: "K2Node_CallFunction", path: "/Game/BP_Chest.BP_Chest:EventGraph.K2Node_CallFunction_3" },
+      { kind: "node", label: "Event BeginPlay", class: "K2Node_Event", path: "/Game/BP_Chest.BP_Chest:EventGraph.K2Node_Event_0" },
+    ] });
+    expect(formatQuickMessage(parsed as never)).toBe(
+      'Context: the graph EventGraph in /Game/BP_Chest (/Game/BP_Chest.BP_Chest:EventGraph), cursor at graph position X=420 Y=-96; "here" in the graph means that position.\n' +
+        "Context: nodes, the first under the cursor: Print String (K2Node_CallFunction) at /Game/BP_Chest.BP_Chest:EventGraph.K2Node_CallFunction_3; " +
+        "Event BeginPlay (K2Node_Event) at /Game/BP_Chest.BP_Chest:EventGraph.K2Node_Event_0\n\nadd a delay after this",
+    );
   });
 
   it("is the text alone without context", () => {
