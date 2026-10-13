@@ -190,12 +190,17 @@ inline bool canDock(bool haveReport, bool writerAlive) { return haveReport && wr
  * to follow (an older plugin, no editor), it is an ordinary window. With a
  * live dock it is over the tab's content while the tab shows, and hidden
  * otherwise. A busy editor writes nothing, so its last report holds.
+ *
+ * `tabSeen` is whether this editor has shown the tab yet. An editor coming
+ * back from a restart or a crash reports before its tab appears, and Studio
+ * stays a window through that, so it never vanishes between the two.
  */
-inline Placement place(Mode mode, bool haveReport, const Report& r, bool writerAlive, const Host& host) {
+inline Placement place(Mode mode, bool haveReport, const Report& r, bool writerAlive, const Host& host, bool tabSeen = true) {
   Placement p;
   if (mode != Mode::Docked || !canDock(haveReport, writerAlive)) return p;
-  p.show = Show::Hidden;
   bool shown = (r.flags & kOpen) && (r.flags & kVisible) && r.w > 0 && r.h > 0 && host.exists && host.visible && !host.iconic;
+  if (!shown && !tabSeen) return p;
+  p.show = Show::Hidden;
   if (!shown) return p;
   p.show = Show::Docked;
   p.x = host.originX + r.x;

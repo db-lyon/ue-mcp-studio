@@ -215,6 +215,15 @@ int main() {
     CHECK(dock::place(dock::Mode::Docked, true, sample(), true, dock::Host()).show == dock::Show::Hidden);
   });
 
+  test("an editor coming back stays a window until it shows the tab, then follows it", [] {
+    dock::Report r = sample();
+    r.flags = dock::kOpen;
+    CHECK(dock::place(dock::Mode::Docked, true, r, true, dock::Host(), false).show == dock::Show::Window);
+    CHECK(dock::place(dock::Mode::Docked, true, r, true, host(), false).show == dock::Show::Window);
+    CHECK(dock::place(dock::Mode::Docked, true, sample(), true, host(), false).show == dock::Show::Docked);
+    CHECK(dock::place(dock::Mode::Docked, true, r, true, host(), true).show == dock::Show::Hidden);
+  });
+
   test("an overlay does not hide the window: the editor's popups stack above it", [] {
     dock::Report r = sample();
     r.flags |= dock::kOverlay;

@@ -248,6 +248,8 @@ volatile uint8_t* gDockMem = nullptr;
 dock::Report gReport;
 bool gHaveReport = false;
 bool gDockAlive = false;
+DWORD gTabSeenPid = 0;  // the editor that has shown the dock tab; until then Studio stays a window
+bool gEverShown = false;  // a first launch waits hidden for its tab instead of flashing a window
 HWND gHost = nullptr;
 RECT gDockedAt = {};
 uint32_t gRequestSeq = 0;
@@ -758,6 +760,7 @@ void browserVisible(bool visible) {
 
 void present(const dock::Placement& p) {
   browserVisible(p.show != dock::Show::Hidden);
+  if (p.show != dock::Show::Hidden) gEverShown = true;
   if (p.show == dock::Show::Window) {
     if (gShown == Shown::Window) return;
     if (gShown != Shown::None) setChrome(false);
@@ -824,7 +827,9 @@ void updateDock() {
     host.originX = origin.x;
     host.originY = origin.y;
   }
-  present(dock::place(gMode, gHaveReport, gReport, gDockAlive, host));
+  dock::Placement p = dock::place(gMode, gHaveReport, gReport, gDockAlive, host, gTabSeenPid == gReport.pid || !gEverShown);
+  if (p.show == dock::Show::Docked) gTabSeenPid = gReport.pid;
+  present(p);
 }
 
 bool canDockNow() {

@@ -18,7 +18,7 @@ describe.skipIf(!built)("docked mode: the rect protocol and where the window goe
     const r = spawnSync(testExe, [], { encoding: "utf-8", timeout: 20_000 });
     const lines = r.stdout.trim().split(/\r?\n/);
     expect(lines.filter((l) => l.startsWith("FAIL"))).toEqual([]);
-    expect(lines.filter((l) => l.startsWith("ok ")).length).toBeGreaterThanOrEqual(21);
+    expect(lines.filter((l) => l.startsWith("ok ")).length).toBeGreaterThanOrEqual(22);
     expect(r.status).toBe(0);
   });
 });
