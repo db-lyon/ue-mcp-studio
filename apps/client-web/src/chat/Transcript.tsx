@@ -1,4 +1,4 @@
-import { useContext, useMemo, useState } from "react";
+import { memo, useContext, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -27,8 +27,20 @@ import { AssetAnchorContext, AssetTranscriptContext, remarkAssets } from "./asse
 import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";
 import type { Components } from "react-markdown";
 
-/** One line of a conversation that is not a subagent: a message, a note or a tool call. */
-export function Entry({ entry }: { entry: TranscriptEntry }) {
+/** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
+const positions = new WeakMap<readonly unknown[], Map<unknown, number>>();
+function positionIn(transcript: readonly unknown[] | null | undefined, entry: TranscriptEntry): number {
+  if (!transcript) return -1;
+  let map = positions.get(transcript);
+  if (!map) {
+    map = new Map(transcript.map((e, i) => [e, i] as const));
+    positions.set(transcript, map);
+  }
+  return map.get(entry) ?? -1;
+}
+
+/** One line of a conversation that is not a subagent: a message, a note or a tool call. Renders again only when the entry changes. */
+export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) {
   const transcript = useContext(AssetTranscriptContext);
   if (entry.kind === "user") {
     return (
@@ -39,13 +51,13 @@ export function Entry({ entry }: { entry: TranscriptEntry }) {
     );
   }
   if (entry.kind === "assistant") {
-    const at = transcript?.indexOf(entry) ?? -1;
+    const at = positionIn(transcript, entry);
     return <Reply text={entry.text} at={at < 0 ? undefined : at} />;
   }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
   return <ToolCall call={entry.call} />;
-}
+});
 
 /** The files a message carried: images as thumbnails, the rest by name. Each opens the file. */
 function SentFiles({ files }: { files: Attachment[] }) {
@@ -86,19 +98,20 @@ const REPLY_PLUGINS = [remarkGfm, remarkBreaks, remarkAssets];
  * A model reply, rendered as markdown without raw HTML; a single line break
  * stays a line break. at: its transcript index, for tracing the names in it.
  */
-export function Reply({ text, at }: { text: string; at?: number }) {
+export const Reply = memo(function Reply({ text, at }: { text: string; at?: number }) {
   return (
     <AssetAnchorContext.Provider value={at}>
       <div className="msg assistant md"><Markdown remarkPlugins={REPLY_PLUGINS} components={REPLY_COMPONENTS}>{text}</Markdown></div>
     </AssetAnchorContext.Provider>
   );
-}
+});
 
 /**
  * The main thread, following its newest line while the reader is at the
  * bottom, with a way back down when they have scrolled up.
  */
-export function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden }: {
+/** The conversation. Memoized: typing in the composer does not render it again. */
+export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden }: {
   transcript: TranscriptEntry[];
   status: TurnStatus;
   streaming: string;
@@ -125,7 +138,7 @@ export function MainTranscript({ transcript, status, streaming, waitingCause, er
       {follow.behind && <button className="jump-latest" onClick={follow.jump}>New messages {"↓"}</button>}
     </>
   );
-}
+});
 
 /** The main agent's progress messages from a finished turn, folded behind its final answer. */
 export function ProgressFold({ entries }: { entries: TranscriptEntry[] }) {

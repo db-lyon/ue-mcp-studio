@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
@@ -168,10 +168,11 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     },
   };
 
-  const openThreadId = (id: string | null) => {
+  // Stable, so the memoized transcript does not render again on every keystroke.
+  const openThreadId = useCallback((id: string | null) => {
     setThread(id);
     if (id) markSeen(id);
-  };
+  }, [markSeen]);
   const stopSubagent = (id: string) => {
     if (selected) void api.stopSubagent(selected, id).catch((e: Error) => setError(e.message));
   };
