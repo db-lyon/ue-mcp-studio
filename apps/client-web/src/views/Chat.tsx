@@ -135,6 +135,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     setSelected(d.id);
   }).catch((e: Error) => setError(e.message));
 
+  const [sent, setSent] = useState(0);
   const canSend = !!selected && !disconnected && !attach.uploading && (draft.trim().length > 0 || attach.ready.length > 0);
   const send = () => {
     if (!selected || !canSend) return;
@@ -143,6 +144,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     setDraft("");
     attach.clear();
     setThread(null);
+    setSent((n) => n + 1);
     api.send(selected, text, files).then(() => loadDetail(selected), (e: Error) => {
       setDraft(text);
       setError(e.message);
@@ -263,6 +265,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 error={detail.error}
                 onOpen={openThreadId}
                 hidden={drawerOpen}
+                sent={sent}
               />
               {drawerCall && (
                 <div className={`thread-drawer ${drawerOpen ? "open" : ""}`}>

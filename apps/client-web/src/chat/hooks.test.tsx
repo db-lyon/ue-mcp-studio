@@ -6,8 +6,8 @@ import { useFollow } from "./hooks";
 afterEach(cleanup);
 
 /** A list whose scroll metrics the test sets, since jsdom lays nothing out. */
-function List({ n }: { n: number }) {
-  const f = useFollow<HTMLDivElement>(n);
+function List({ n, sent }: { n: number; sent?: number }) {
+  const f = useFollow<HTMLDivElement>(n, sent);
   return (
     <>
       <div data-testid="list" ref={f.ref} onScroll={f.onScroll}>{n}</div>
@@ -64,6 +64,21 @@ describe("following the newest line", () => {
     expect(el.scrollTop).toBe(100);
     act(() => fireEvent.click(screen.getByText("New messages")));
     expect(el.scrollTop).toBe(1400);
+    expect(screen.queryByText("New messages")).toBeNull();
+  });
+
+  it("snaps back to the bottom when the reader sends, and keeps following the reply", () => {
+    const { rerender } = render(<List n={1} sent={0} />);
+    const el = screen.getByTestId("list");
+    metrics(el, { scrollHeight: 1000, clientHeight: 400 });
+    el.scrollTop = 100;
+    fireEvent.scroll(el);
+    rerender(<List n={1} sent={1} />);
+    expect(el.scrollTop).toBe(1000);
+    // The sent message and the reply land after the send; the list follows them.
+    metrics(el, { scrollHeight: 1300, clientHeight: 400 });
+    rerender(<List n={2} sent={1} />);
+    expect(el.scrollTop).toBe(1300);
     expect(screen.queryByText("New messages")).toBeNull();
   });
 });

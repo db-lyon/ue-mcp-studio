@@ -18,8 +18,10 @@ export const BOTTOM_SLACK = 48;
 /**
  * Keep a scrolling list at its newest line while the reader is there. Once
  * they scroll up it stays put, and `behind` says new lines arrived below.
+ * A change of `snap` (the reader sending a message) takes them back down
+ * and following again, wherever they had scrolled.
  */
-export function useFollow<T extends HTMLElement>(content: unknown) {
+export function useFollow<T extends HTMLElement>(content: unknown, snap?: unknown) {
   const ref = useRef<T>(null);
   const atBottom = useRef(true);
   const [behind, setBehind] = useState(false);
@@ -37,6 +39,16 @@ export function useFollow<T extends HTMLElement>(content: unknown) {
     if (atBottom.current) el.scrollTop = el.scrollHeight;
     else setBehind(true);
   }, [content]);
+
+  const snapped = useRef(snap);
+  useLayoutEffect(() => {
+    if (snapped.current === snap) return;
+    snapped.current = snap;
+    const el = ref.current;
+    atBottom.current = true;
+    setBehind(false);
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [snap]);
 
   // The list getting shorter (the composer growing under it) keeps a reader at the bottom there.
   useEffect(() => {

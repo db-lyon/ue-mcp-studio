@@ -111,7 +111,7 @@ export const Reply = memo(function Reply({ text, at }: { text: string; at?: numb
  * bottom, with a way back down when they have scrolled up.
  */
 /** The conversation. Memoized: typing in the composer does not render it again. */
-export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden }: {
+export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden, sent }: {
   transcript: TranscriptEntry[];
   status: TurnStatus;
   streaming: string;
@@ -119,9 +119,11 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   error: string | null;
   onOpen: (id: string) => void;
   hidden: boolean;
+  /** Counts the reader's sends; each one snaps the thread to its newest line. */
+  sent?: number;
 }) {
   const items = useMemo(() => mainTimeline(transcript, status), [transcript, status]);
-  const follow = useFollow<HTMLDivElement>(`${transcript.length}:${streaming.length}:${status}`);
+  const follow = useFollow<HTMLDivElement>(`${transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
   return (
     <>
