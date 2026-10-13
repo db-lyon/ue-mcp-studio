@@ -594,6 +594,8 @@ export interface QuickThread {
   earlier: number;
   /** The reply so far: the text streaming now, else the agent's last message. */
   reply: string;
+  /** The reply as Unreal rich text markup: <b> bold, <c> code, lists and headings laid out. */
+  replyMarkup: string;
   /** What the turn waits on the user for, which only the Studio panel can answer. */
   needsYou: string | null;
   error: string | null;

@@ -12,6 +12,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
+import { richText } from "./rich-text.js";
 import type { QuickContextItem, QuickRequest, QuickStep, QuickThread, SessionDetail, ToolCallRecord } from "@ue-mcp-studio/shared";
 
 export const NO_MODEL = "No model is connected. Open Studio and sign in or add an API key in the model picker, then ask again.";
@@ -117,12 +118,14 @@ export function quickThread(d: SessionDetail, streaming = ""): QuickThread {
   const needsYou = d.approvals.length
     ? d.approvals.length === 1 ? "An action is waiting for your approval." : `${d.approvals.length} actions are waiting for your approval.`
     : asking ? "An editor dialog is waiting for you." : d.status === "waiting" && d.waitingCause ? d.waitingCause : null;
+  const reply = streaming || (said.length ? said[said.length - 1].text : "");
   return {
     sessionId: d.id,
     status: d.status,
     steps: steps.slice(-QUICK_STEPS),
     earlier: Math.max(0, steps.length - QUICK_STEPS),
-    reply: streaming || (said.length ? said[said.length - 1].text : ""),
+    reply,
+    replyMarkup: richText(reply),
     needsYou,
     error: d.status === "error" ? d.error : null,
   };
