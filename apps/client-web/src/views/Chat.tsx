@@ -11,6 +11,7 @@ import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
 import { Approvals } from "../chat/Approvals";
+import { SessionForms } from "../chat/Forms";
 import { DialogCards } from "../chat/Dialogs";
 import { useDialogs } from "../chat/dialog-model";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
@@ -269,6 +270,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
             </div>
             <DialogCards dialogs={(dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === detail.id)} now={dialogs.now()} />
             <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
+            <SessionForms daemon={daemon} sessionId={detail.id} />
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
             <Composer
               draft={draft}

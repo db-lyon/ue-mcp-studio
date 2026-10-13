@@ -526,3 +526,36 @@ export type DialogAnswer =
   | { answer: "press"; button: string; items?: Array<{ index: number; checked: boolean }> }
   | { answer: "delegate" }
   | { answer: "release" };
+
+/** One field of a form ue-mcp asks the user to fill in. */
+export type FormField =
+  | { type: "string"; title?: string; description?: string; enum?: string[]; enumNames?: string[]; default?: string }
+  | { type: "number" | "integer"; title?: string; description?: string; default?: number }
+  | { type: "boolean"; title?: string; description?: string; default?: boolean };
+
+/** A form ue-mcp raised during a turn, such as approving a feedback report, waiting for the user. */
+export interface PendingForm {
+  id: string;
+  sessionId: string;
+  /** The call that raised it, as category(action). */
+  call: string;
+  at: string;
+  message: string;
+  fields: Record<string, FormField>;
+  required: string[];
+}
+
+/** How ue-mcp files feedback: ask first, file without asking, or keep it to review later. */
+export type FeedbackMode = "interactive" | "auto-approve" | "defer";
+/** Who answers an editor dialog: the user, the agent, or nobody until the user does it in the editor. */
+export type DialogMode = "interactive" | "auto" | "defer";
+
+/** The agent settings ue-mcp owns. A mode is null when this ue-mcp cannot set it from Studio. */
+export interface AgentSettings {
+  feedbackTool: boolean;
+  /** project: this project sets it, else it is the per-user one. */
+  feedbackMode: { mode: FeedbackMode; project: boolean } | null;
+  /** mode null: left to each client. */
+  dialogMode: { mode: DialogMode | null; project: boolean } | null;
+  restarting?: boolean;
+}

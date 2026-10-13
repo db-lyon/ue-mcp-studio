@@ -23,6 +23,7 @@
  */
 import * as crypto from "node:crypto";
 import type { ActionResult } from "ue-mcp/daemon";
+import { ELICIT_FEATURE, type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import {
   DESTRUCTIVE_HOLD_SECONDS,
   isDestructiveAnswer,
@@ -55,6 +56,7 @@ export type DialogPromptResult =
 export interface CallOptions {
   dialogPrompt?: (request: DialogPromptRequest) => Promise<DialogPromptResult>;
   dialogWaitMs?: number;
+  elicit?: (params: ElicitParams) => Promise<ElicitResult>;
 }
 
 /** The daemon features this needs, as ue-mcp names them. */
@@ -127,6 +129,8 @@ export interface DialogBrokerOptions {
   now?: () => number;
   /** How long a destructive answer the agent chose is held, in ms. */
   holdMs?: number;
+  /** Where the other forms a call raises go, such as feedback approval. */
+  forms?: FormBroker;
 }
 
 export class DialogBroker {
@@ -171,10 +175,14 @@ export class DialogBroker {
       this.inflight.set(id, { sessionId, category, action, startedAt: this.now() });
       try {
         if (category === "editor" && action === "respond_to_dialog") return await this.agentPress(host, sessionId, args);
-        if (!this.supported()) return await host.callAction(category, action, args);
+        const forms = this.o.forms && this.o.host.features?.includes(ELICIT_FEATURE)
+          ? { elicit: (p: ElicitParams) => this.o.forms!.ask(sessionId, `${category}(${action})`, p) }
+          : {};
+        if (!this.supported()) return await ("elicit" in forms ? host.callAction(category, action, args, forms) : host.callAction(category, action, args));
         return await host.callAction(category, action, args, {
           dialogPrompt: (req) => this.prompt(sessionId, category, action, req),
           dialogWaitMs: this.waitMs(),
+          ...forms,
         });
       } finally {
         this.inflight.delete(id);

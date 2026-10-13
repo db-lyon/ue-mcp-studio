@@ -28,6 +28,10 @@ import type {
   StudioSettings,
   StudioSettingsUpdate,
   StudioSignIn,
+  AgentSettings,
+  DialogMode,
+  FeedbackMode,
+  PendingForm,
 } from "@ue-mcp-studio/shared";
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
@@ -143,6 +147,11 @@ export const api = {
   approve: (id: string, approvalId: string, decision: ApprovalDecision) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
+  agentSettings: () => call<AgentSettings>("GET", "/v1/ext/studio/agent-settings"),
+  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode }>) => call<AgentSettings>("PUT", "/v1/ext/studio/agent-settings", u),
+  forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
+  answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
+    call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
   dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),
   answerDialog: (id: string, answer: DialogAnswer) => call<void>("POST", `/v1/ext/studio/dialogs/${encodeURIComponent(id)}`, answer),
   resolveAssets: (refs: AssetRef[], sessionId: string | null) =>

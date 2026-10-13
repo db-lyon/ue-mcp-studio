@@ -45,6 +45,8 @@ import { deleteTranscripts, restoreTranscripts } from "./claude-sessions.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
+import { registerForms } from "./forms.js";
+import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js";
 import type { AssetRef } from "@ue-mcp-studio/shared";
@@ -126,7 +128,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   const busy = new BusyTracker((type, data) => api.events.publish(type, data), Date.now, () => api.editors().some((e) => e.connected));
   const unobserve = api.events.subscribe((e) => busy.observe(e));
-  const dialogs = registerDialogs(api, store, settings);
+  const forms = registerForms(api);
+  const dialogs = registerDialogs(api, store, settings, forms);
   const runner = new AgentRunner({
     host: api,
     busy,
@@ -178,6 +181,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const b = (body ?? {}) as { now?: unknown; then?: unknown };
     return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [] };
   };
+  registerAgentSettings(api, () => updates.request("restart", {}));
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));
     if (r.deferred) return { status: 202, body: { ok: true, deferred: r.deferred } };
@@ -321,6 +325,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("DELETE", "/sessions/:id", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
+    forms.cancelSession(s.id);
     runner.stop(s.id);
     deleteTranscripts([s.sdkSession ?? "", ...(s.sdkPast ?? [])], claudeHome(), api.projectDir);
     store.delete(s.id);
@@ -394,6 +399,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
   api.route("POST", "/sessions/:id/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
+    forms.cancelSession(req.params.id);
     runner.stop(req.params.id);
     return { status: 204 };
   });
