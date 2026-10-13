@@ -2,6 +2,7 @@ import { STUDIO_PLAN_AVAILABLE } from "@ue-mcp-studio/shared";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import type { DaemonState } from "../state";
 import { SettingsView } from "./Settings";
+import { AgentView } from "./AgentView";
 import { AccountView } from "./Account";
 import { SetupView } from "./Setup";
 import { StatusView } from "./Status";
@@ -9,14 +10,16 @@ import { LogsView } from "./Logs";
 
 const SECTIONS = [
   { id: "general", name: "General" },
+  { id: "agent", name: "Agent" },
   ...(STUDIO_PLAN_AVAILABLE ? [{ id: "account" as const, name: "Account" }] : []),
   { id: "project", name: "Project" },
   { id: "diagnostics", name: "Diagnostics" },
 ] as const;
-export type SettingsSection = "general" | "account" | "project" | "diagnostics";
+export type SettingsSection = "general" | "agent" | "account" | "project" | "diagnostics";
 
 /**
  * Everything that configures or explains Studio, as one tab: theme and model,
+ * how the agent works,
  * the project (its install, init choices and ue-mcp.yml), and Diagnostics:
  * the editor and daemon status and the logs.
  */
@@ -36,6 +39,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme }: {
         ))}
       </nav>
       {section === "general" && <SettingsView onTheme={onTheme} />}
+      {section === "agent" && <AgentView />}
       {section === "account" && <AccountView />}
       {section === "project" && <SetupView />}
       {section === "diagnostics" && (

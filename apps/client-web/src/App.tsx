@@ -19,7 +19,7 @@ import { readLocation, writeLocation } from "./location";
 
 const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
-const SECTIONS: SettingsSection[] = ["general", "account", "project", "diagnostics"];
+const SECTIONS: SettingsSection[] = ["general", "agent", "account", "project", "diagnostics"];
 
 export function App() {
   const daemon = useDaemon();

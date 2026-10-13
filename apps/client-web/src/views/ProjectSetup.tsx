@@ -141,11 +141,7 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
         </label>
       ))}
 
-      <h3 className="subhead">Agent behavior</h3>
-      <label className="check">
-        <input type="checkbox" checked={feedback} onChange={(e) => setFeedback(e.target.checked)} />
-        Feedback tool <span className="dim small">Lets an agent file tool-gap issues, after you approve each one</span>
-      </label>
+      {claudeCode && <h3 className="subhead">Claude Code</h3>}
       {claudeCode && (
         <label className="check">
           <input type="checkbox" checked={skills} onChange={(e) => setSkills(e.target.checked)} />

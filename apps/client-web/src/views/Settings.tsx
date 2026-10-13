@@ -64,22 +64,6 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
         </div>
       </section>
       <section className="card">
-        <h2>Agent</h2>
-        <label className="row toggle">
-          <input
-            type="checkbox"
-            checked={settings.askBeforeChanges}
-            onChange={(e) => api.saveSettings({ askBeforeChanges: e.target.checked }).then(apply, (err: ApiError) => setMessage({ ok: false, text: err.message }))}
-          />
-          <span>Ask before running commands and editing files</span>
-        </label>
-        <p className="muted small">On: each shell command and each file write or edit waits in the chat for Allow or Deny. Reading files and the web never asks. Saved for this project.</p>
-        <DialogPolicyField
-          policy={settings.dialogPolicy}
-          onSave={(dialogPolicy) => api.saveSettings({ dialogPolicy }).then(apply, (err: ApiError) => setMessage({ ok: false, text: err.message }))}
-        />
-      </section>
-      <section className="card">
         <h2>Sign-ins</h2>
         <p className="muted">Sign in to run models without an API key.</p>
         {message && <div className={`banner ${message.ok ? "ok" : "bad"}`}>{message.text}</div>}
