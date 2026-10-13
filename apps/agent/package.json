@@ -1,6 +1,6 @@
 {
   "name": "@ue-mcp-studio/agent",
-  "version": "0.1.2-beta.13",
+  "version": "0.1.2-beta.14",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
