@@ -58,6 +58,27 @@ describe("updates", () => {
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
   });
 
+  it("switches to the beta channel and reads the updates on it again", async () => {
+    let channel = "stable";
+    const puts: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/v1/ext/studio/updates/channel") {
+        puts.push(JSON.parse(String(init!.body)));
+        channel = "beta";
+        return new Response(JSON.stringify({ channel }));
+      }
+      if (!url.includes("/ext/studio/")) return new Response(JSON.stringify(ueMcp(false)));
+      return new Response(JSON.stringify({ ...studio(channel === "beta", false), channel }));
+    }));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText("Everything is up to date.")).toBeTruthy());
+    expect((screen.getByRole("radio", { name: "Stable" }) as HTMLInputElement).checked).toBe(true);
+    await act(async () => fireEvent.click(screen.getByRole("radio", { name: /Beta/ })));
+    await waitFor(() => expect(screen.getByText("Update available")).toBeTruthy());
+    expect(puts).toEqual([{ channel: "beta" }]);
+    expect((screen.getByRole("radio", { name: /Beta/ }) as HTMLInputElement).checked).toBe(true);
+  });
+
   it("picks the update up again in the page that loads after the editor restarted for the plugin", async () => {
     let kept: unknown = { target: null, at: Date.now(), steps: [{ key: "plugin", state: "active" }, { key: "studio", state: "pending" }] };
     const posted: string[] = [];

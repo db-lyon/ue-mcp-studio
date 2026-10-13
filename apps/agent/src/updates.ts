@@ -21,6 +21,50 @@ export const MANIFEST_URL = process.env.UE_MCP_STUDIO_CHANNEL || "https://github
 /** The editor plugin's own channel, when a Studio manifest does not name one. */
 export const PLUGIN_MANIFEST_URL = process.env.UE_MCP_STUDIO_PLUGIN_CHANNEL || "https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest/download/plugin.json";
 const PLUGIN = "UE_MCP_Studio";
+const STUDIO_REPO = "db-lyon/ue-mcp-studio";
+const PLUGIN_REPO = "db-lyon/ue-mcp-studio-plugin";
+
+/** stable follows each repo's latest release; beta also takes prereleases. */
+export type UpdateChannel = "stable" | "beta";
+
+/** The user's choice, kept for every project. */
+export function channelFile(): string {
+  return process.env.STUDIO_CHANNEL_FILE || path.join(os.homedir(), ".ue-mcp", "studio", "update-channel.json");
+}
+
+export function readChannel(file = channelFile()): UpdateChannel {
+  try {
+    return (JSON.parse(fs.readFileSync(file, "utf-8")) as { channel?: string }).channel === "beta" ? "beta" : "stable";
+  } catch {
+    return "stable";
+  }
+}
+
+export function writeChannel(channel: UpdateChannel, file = channelFile()): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ channel }, null, 2) + "\n");
+}
+
+/**
+ * The newest release of `repo` carrying `asset`, prereleases included, as a
+ * download URL. GitHub has no "latest prerelease" address, so the list is read.
+ */
+export async function newestAsset(repo: string, asset: string, fetchImpl: typeof fetch): Promise<string> {
+  const res = await fetchImpl(`https://api.github.com/repos/${repo}/releases?per_page=30`, {
+    headers: { accept: "application/vnd.github+json" },
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!res.ok) throw new Error(`GitHub answered ${res.status} for ${repo}'s releases`);
+  const releases = (await res.json()) as Array<{ tag_name: string; draft: boolean; assets: Array<{ name: string }> }>;
+  let best: string | null = null;
+  for (const r of releases) {
+    if (r.draft || !r.assets.some((a) => a.name === asset)) continue;
+    const v = r.tag_name.replace(/^v/, "");
+    if (!best || isNewer(v, best)) best = v;
+  }
+  if (!best) throw new Error(`no release of ${repo} carries ${asset}`);
+  return `https://github.com/${repo}/releases/download/v${best}/${asset}`;
+}
 
 export interface ReleaseManifest {
   version: string;
@@ -39,6 +83,7 @@ export interface PluginManifest {
 }
 
 export interface UpdateStatus {
+  channel: UpdateChannel;
   studio: { installed: string; latest: string | null; available: boolean };
   plugin: {
     installed: string | null;
@@ -100,7 +145,14 @@ export class Updater {
     private readonly installedVersion: string,
     private readonly publish: (type: string, data: Record<string, unknown>) => void = () => {},
     private readonly fetchImpl: typeof fetch = fetch,
+    private readonly channel: () => UpdateChannel = () => readChannel(),
   ) {}
+
+  /** Studio's latest.json on the chosen channel; UE_MCP_STUDIO_CHANNEL, when set, outranks the choice. */
+  async manifestUrl(): Promise<string> {
+    if (process.env.UE_MCP_STUDIO_CHANNEL || this.channel() !== "beta") return MANIFEST_URL;
+    return newestAsset(STUDIO_REPO, "latest.json", this.fetchImpl);
+  }
 
   private uproject(): string | null {
     const f = fs.readdirSync(this.host.projectDir).find((n) => n.endsWith(".uproject"));
@@ -134,14 +186,17 @@ export class Updater {
   }
 
   async manifest(): Promise<ReleaseManifest> {
-    const res = await this.fetchImpl(MANIFEST_URL, { signal: AbortSignal.timeout(10_000) });
+    const res = await this.fetchImpl(await this.manifestUrl(), { signal: AbortSignal.timeout(10_000) });
     if (!res.ok) throw new Error(`the release channel answered ${res.status}`);
     return (await res.json()) as ReleaseManifest;
   }
 
   /** The editor plugin's manifest, or null when its channel has none yet. */
   async pluginManifest(m?: ReleaseManifest): Promise<PluginManifest | null> {
-    const res = await this.fetchImpl(m?.pluginChannel ?? PLUGIN_MANIFEST_URL, { signal: AbortSignal.timeout(10_000) });
+    const url = this.channel() === "beta" && !process.env.UE_MCP_STUDIO_PLUGIN_CHANNEL
+      ? await newestAsset(PLUGIN_REPO, "plugin.json", this.fetchImpl)
+      : m?.pluginChannel ?? PLUGIN_MANIFEST_URL;
+    const res = await this.fetchImpl(url, { signal: AbortSignal.timeout(10_000) });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`the editor plugin's channel answered ${res.status}`);
     return (await res.json()) as PluginManifest;
@@ -151,6 +206,7 @@ export class Updater {
     const engine = this.engine();
     const installedPlugin = this.pluginVersion();
     const status: UpdateStatus = {
+      channel: this.channel(),
       studio: { installed: this.installedVersion, latest: null, available: false },
       plugin: { installed: installedPlugin, latest: null, available: false, location: installedPlugin ? "project" : "engine", engine, required: false },
     };
@@ -187,7 +243,7 @@ export class Updater {
   async updateStudio(): Promise<{ started: boolean; error?: string }> {
     const uproject = this.uproject();
     if (!uproject) return { started: false, error: "could not find the project" };
-    return this.ueMcp(["extension", "install", MANIFEST_URL, uproject]);
+    return this.ueMcp(["extension", "install", await this.manifestUrl(), uproject]);
   }
 
   /**

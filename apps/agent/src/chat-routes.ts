@@ -12,10 +12,12 @@
  *   GET  /sessions/:id              one session's transcript and state
  *   DELETE /sessions/:id            remove one (stops its turn first)
  *   PUT  /sessions/:id/draft        the unsent message, kept across reloads
+ *   POST /sessions/:id/seen         a subagent thread the user opened, so it is no longer new
  *   POST /sessions/:id/messages     send a message; the turn runs in the background
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *   POST /quick                     the editor's quick ask: a new session with its first message (quick.ts)
+ *   PUT  /updates/channel           stable or beta, for every project
  *   POST /updates/{plugin,studio,restart}       run an update step, or keep it until no turn is in progress
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
@@ -36,7 +38,7 @@ import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverag
 import { StudioSignInFlow } from "./signin.js";
 import { AttachmentStore } from "./attachments.js";
 import { detectVcs, diffOf, listChanges } from "./vcs.js";
-import { Updater } from "./updates.js";
+import { Updater, writeChannel } from "./updates.js";
 import { DEFERRED_STEPS, UpdateQueue, type DeferredStep } from "./update-queue.js";
 import { issueBody, submitFeedback, validate, type Environment } from "./feedback.js";
 import * as fs from "node:fs";
@@ -191,6 +193,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return { status: r.started ? 202 : 200, body: r };
   };
   api.route("GET", "/updates", async () => ({ body: { ...(await updater.check()), deferred: updates.steps() } }));
+  // Stable or beta, for every project: Update follows it for Studio and the editor plugin.
+  api.route("PUT", "/updates/channel", (req) => {
+    const channel = (req.body as { channel?: unknown } | undefined)?.channel;
+    if (channel !== "stable" && channel !== "beta") return { status: 400, body: { error: "channel is stable or beta" } };
+    writeChannel(channel);
+    return { body: { channel } };
+  });
   // Reports for Studio's tracker, with what is installed when the user includes it.
   const environment = (): Environment => ({
     studio: agentVersion,
@@ -369,6 +378,17 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (typeof draft !== "string") return bad("body must be { draft: string }");
     s.draft = draft;
     store.save(s);
+    return { status: 204 };
+  });
+  api.route("POST", "/sessions/:id/seen", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const id = (req.body as { id?: unknown } | undefined)?.id;
+    if (typeof id !== "string" || !id) return bad("body must be { id: string }");
+    if (!(s.seen ?? []).includes(id)) {
+      s.seen = [...(s.seen ?? []), id];
+      store.save(s);
+    }
     return { status: 204 };
   });
   api.route("POST", "/sessions/:id/messages", (req) => {

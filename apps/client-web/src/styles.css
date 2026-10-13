@@ -729,6 +729,7 @@ button.danger-button { color: var(--bad); border-color: var(--bad); }
 
 /* Updates */
 .update-status { gap: 10px; }
+.update-channel { gap: 14px; margin-top: 8px; }
 .update-details { margin-top: 8px; }
 .tab-dot { display: inline-block; width: 6px; height: 6px; margin: 0 0 6px 4px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
 

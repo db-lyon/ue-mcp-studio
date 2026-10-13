@@ -4,6 +4,8 @@ import { waitingSteps } from "./update-run";
 
 /** GET /v1/ext/studio/updates. */
 export interface StudioUpdates {
+  /** stable follows each latest release; beta also takes prereleases. */
+  channel?: "stable" | "beta";
   studio: { installed: string; latest: string | null; available: boolean };
   plugin: { installed: string | null; latest: string | null; available: boolean; location: "project" | "engine" | "none"; engine: string | null; required?: boolean };
   error?: string;
@@ -16,6 +18,17 @@ export interface UeMcpUpdate {
   target: string | null;
   binaries: { available: boolean; file: string } | null;
   error?: string;
+}
+
+/** Keep the channel for every project; Update follows it for Studio and the editor plugin. */
+export async function setChannel(channel: "stable" | "beta"): Promise<void> {
+  const res = await fetch("/v1/ext/studio/updates/channel", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ channel }),
+    credentials: "same-origin",
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
 }
 
 async function get<T>(url: string): Promise<T | null> {
@@ -107,6 +120,23 @@ export function UpdatesCard() {
           <span className="muted">{waiting ? "Update ready, restarts when the current turn finishes." : working ? "Updating" : steps.length ? ready : "Everything is up to date."}</span>
           <span className="spacer" />
           {steps.length > 0 && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
+        </div>
+      )}
+      {u?.studio && (
+        <div className="row update-channel" role="radiogroup" aria-label="Release channel">
+          <span className="dim small">Channel</span>
+          {(["stable", "beta"] as const).map((c) => (
+            <label key={c} className="small">
+              <input
+                type="radio"
+                name="update-channel"
+                checked={(u.studio?.channel ?? "stable") === c}
+                disabled={working}
+                onChange={() => void setChannel(c).then(load, () => load())}
+              />{" "}
+              {c === "stable" ? "Stable" : "Beta: prereleases too, for testing"}
+            </label>
+          ))}
         </div>
       )}
       {u?.studio?.plugin.required && <div className="banner warn small">This version of Studio needs a newer editor plugin. Update installs it and restarts the editor.</div>}

@@ -4,7 +4,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { Updater, isNewer } from "../src/updates.js";
+import { Updater, isNewer, newestAsset, readChannel, writeChannel } from "../src/updates.js";
+
+// The user's own channel choice never reaches these tests.
+process.env.STUDIO_CHANNEL_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "studio-chan-")), "update-channel.json");
 
 const tar = process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar";
 
@@ -128,5 +131,44 @@ describe("Studio updates", () => {
     expect(await u.updatePlugin()).toMatchObject({ ok: false, error: expect.stringMatching(/SHA-256/) });
     expect(host.ops).toEqual([]);
     expect(u.pluginVersion()).toBe("0.1.0-beta.4");
+  });
+});
+
+describe("the update channel", () => {
+  const releases = (repo: string) => [
+    { tag_name: "v0.1.1", draft: false, assets: [{ name: repo.endsWith("plugin") ? "plugin.json" : "latest.json" }] },
+    { tag_name: "v0.1.2-beta.17", draft: false, assets: [{ name: repo.endsWith("plugin") ? "plugin.json" : "latest.json" }] },
+    { tag_name: "v0.1.2-beta.18", draft: true, assets: [{ name: "latest.json" }, { name: "plugin.json" }] },
+    { tag_name: "v0.1.2-beta.9", draft: false, assets: [{ name: "latest.json" }, { name: "plugin.json" }] },
+  ];
+  const seen: string[] = [];
+  const github = (async (url: string) => {
+    seen.push(url);
+    const m = /repos\/([^/]+\/[^/]+)\/releases/.exec(url);
+    if (m) return new Response(JSON.stringify(releases(m[1])));
+    if (url.endsWith("latest.json")) return new Response(JSON.stringify({ version: /v([^/]+)\/latest\.json$/.exec(url)?.[1] ?? "0.1.1", url: "s", sha256: "x" }));
+    if (url.endsWith("plugin.json")) return new Response(JSON.stringify({ version: /v([^/]+)\/plugin\.json$/.exec(url)?.[1] ?? "0.1.0", files: { "5.8": { url: "z", sha256: "x" } } }));
+    return new Response("Not Found", { status: 404 });
+  }) as unknown as typeof fetch;
+
+  it("is stable until the user picks beta, and keeps the choice", () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "studio-chan-")), "c.json");
+    expect(readChannel(file)).toBe("stable");
+    writeChannel("beta", file);
+    expect(readChannel(file)).toBe("beta");
+  });
+
+  it("finds the newest published release, prereleases included, drafts not", async () => {
+    expect(await newestAsset("db-lyon/ue-mcp-studio", "latest.json", github)).toBe("https://github.com/db-lyon/ue-mcp-studio/releases/download/v0.1.2-beta.17/latest.json");
+  });
+
+  it("offers the betas of Studio and the plugin on beta, and only stable releases on stable", async () => {
+    const beta = await new Updater(fakeHost(project("0.1.0")), "0.1.1", () => {}, github, () => "beta").check();
+    expect(beta).toMatchObject({ channel: "beta", studio: { latest: "0.1.2-beta.17", available: true }, plugin: { latest: "0.1.2-beta.17", available: true } });
+    seen.length = 0;
+    const stable = await new Updater(fakeHost(project("0.1.0")), "0.1.2-beta.17", () => {}, github, () => "stable").check();
+    expect(seen.some((u) => u.includes("api.github.com"))).toBe(false);
+    // Going back to stable never offers an older version over a beta.
+    expect(stable.studio.available).toBe(false);
   });
 });
