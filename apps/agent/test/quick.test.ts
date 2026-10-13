@@ -47,6 +47,21 @@ describe("formatQuickMessage", () => {
     );
   });
 
+  it("gives the point under the cursor first, as what \"here\" means", async () => {
+    const at = "X=1200.0 Y=-340.5 Z=88.0, surface normal X=0.00 Y=0.00 Z=1.00";
+    const parsed = parseQuickRequest({ text: "put a BP_Chest here", context: [
+      { kind: "location", label: "", class: "/Game/Maps/L_Meadow", path: at },
+      { kind: "actor", label: "Sun", class: "DirectionalLight", path: "/Game/Maps/L_Meadow.L_Meadow:PersistentLevel.Sun" },
+    ] });
+    expect(typeof parsed).not.toBe("string");
+    expect(formatQuickMessage(parsed as never)).toBe(
+      `Context: the point under the cursor in /Game/Maps/L_Meadow: ${at}. "Here" means this point.\n` +
+        "Context: actor in /Game/Maps/L_Meadow: Sun (DirectionalLight) at /Game/Maps/L_Meadow.L_Meadow:PersistentLevel.Sun\n\nput a BP_Chest here",
+    );
+    expect(formatQuickMessage({ text: "here", context: [{ kind: "location", label: "Terrain", class: "/Game/Maps/L", path: at }] })).toContain(", on Terrain: ");
+    expect(parseQuickRequest({ text: "x", context: [{ kind: "elsewhere", path: "p" }] })).toMatch(/actor", "asset" or "location"/);
+  });
+
   it("is the text alone without context", () => {
     expect(formatQuickMessage({ text: "hello\n" })).toBe("hello");
   });

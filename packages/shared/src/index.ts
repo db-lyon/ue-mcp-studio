@@ -564,10 +564,15 @@ export interface AgentSettings {
 
 /** An actor or asset the editor's "Chat about this" hands to a quick ask. */
 export interface QuickContextItem {
-  kind: "actor" | "asset";
+  kind: "actor" | "asset" | "location";
+  /** For a location, the actor the cursor was over; may be empty. */
   label: string;
-  /** The object path: /Game/Maps/L.L:PersistentLevel.Actor, or /Game/Dir/Asset.Asset. */
+  /**
+   * The object path: /Game/Maps/L.L:PersistentLevel.Actor, or /Game/Dir/Asset.Asset.
+   * For a location, the world point and surface normal under the cursor.
+   */
   path: string;
+  /** The actor's class; for a location, the map it is in. */
   class?: string;
 }
 

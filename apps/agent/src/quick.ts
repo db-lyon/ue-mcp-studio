@@ -27,9 +27,10 @@ export function parseQuickRequest(body: unknown): QuickRequest | string {
   const context: QuickContextItem[] = [];
   for (const raw of b.context) {
     const c = (raw ?? {}) as Record<string, unknown>;
-    if (c.kind !== "actor" && c.kind !== "asset") return 'context kind must be "actor" or "asset"';
+    if (c.kind !== "actor" && c.kind !== "asset" && c.kind !== "location") return 'context kind must be "actor", "asset" or "location"';
     if (typeof c.path !== "string" || !line(c.path)) return "every context item needs a path";
-    const label = typeof c.label === "string" && line(c.label) ? line(c.label) : line(c.path).split(/[.:]/).pop()!;
+    const named = typeof c.label === "string" && line(c.label) ? line(c.label) : "";
+    const label = named || (c.kind === "location" ? "" : line(c.path).split(/[.:]/).pop()!);
     const cls = typeof c.class === "string" && line(c.class) ? line(c.class, 120) : undefined;
     context.push({ kind: c.kind, label, path: line(c.path), ...(cls ? { class: cls } : {}) });
   }
@@ -49,6 +50,9 @@ export function formatQuickMessage(req: QuickRequest): string {
   if (context.length === 0) return req.text.trim();
   const lines: string[] = [];
   const byMap = new Map<string, QuickContextItem[]>();
+  for (const c of context.filter((x) => x.kind === "location")) {
+    lines.push(`Context: the point under the cursor${c.class ? ` in ${c.class}` : ""}${c.label ? `, on ${c.label}` : ""}: ${c.path}. "Here" means this point.`);
+  }
   for (const c of context.filter((x) => x.kind === "actor")) {
     const m = mapOf(c.path);
     byMap.set(m, [...(byMap.get(m) ?? []), c]);
