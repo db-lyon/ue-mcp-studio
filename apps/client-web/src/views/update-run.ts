@@ -93,7 +93,17 @@ export function settle(run: UpdateRun, u: Updates): UpdateRun {
   // A Studio that reads the plugin's own channel can find a plugin update the run did not plan.
   if (!steps.some((s) => s.key === "plugin") && u.studio?.plugin.available) steps.push({ key: "plugin", state: "pending" });
   const failed = steps.find((s) => s.state === "failed");
-  return { ...run, steps, detail: undefined, error: failed ? `${STEP_NAME[failed.key]} did not finish. Open Details in Updates to see what is installed.` : run.error };
+  return { ...run, steps, detail: undefined, error: failed ? unfinished(failed.key, u) : run.error };
+}
+
+/** Why a step that was running did not land, with the versions that say so. */
+function unfinished(key: StepKey, u: Updates): string {
+  const still = (name: string, installed: string | null | undefined, latest: string | null | undefined) =>
+    installed && latest ? `${name} is still ${installed}; ${latest} did not install. Update tries again.` : `${name} did not finish. Update tries again.`;
+  if (key === "plugin") return still("The editor plugin", u.studio?.plugin.installed, u.studio?.plugin.latest);
+  if (key === "studio") return still("Studio", u.studio?.studio.installed, u.studio?.studio.latest);
+  if (key === "restart") return still("ue-mcp", u.ueMcp?.server, u.ueMcp?.target);
+  return `${STEP_NAME[key]} did not finish. Update tries again.`;
 }
 
 /** Restart now: the agent ends the turns in progress and runs the waiting steps. */

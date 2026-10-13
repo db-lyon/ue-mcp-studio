@@ -44,7 +44,7 @@ describe("an update run", () => {
     const run: UpdateRun = { target: "1.4.0-beta.4", at: Date.now(), steps: [{ key: "ueMcp", state: "done" }, { key: "restart", state: "active" }] };
     const next = settle(run, { studio: studio(false, false), ueMcp: ueMcp("1.4.0-beta.3", "1.4.0-beta.4") });
     expect(next.steps[1].state).toBe("failed");
-    expect(next.error).toMatch(/Restart ue-mcp did not finish/);
+    expect(next.error).toBe("ue-mcp is still 1.4.0-beta.3; 1.4.0-beta.4 did not install. Update tries again.");
     expect(settle(run, { studio: studio(false, false), ueMcp: ueMcp("1.4.0-beta.4", null) }).steps[1].state).toBe("done");
   });
 
