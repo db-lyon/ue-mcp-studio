@@ -15,6 +15,7 @@
  *   POST /sessions/:id/messages     send a message; the turn runs in the background
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
+ *   POST /quick                     the editor's quick ask: a new session with its first message (quick.ts)
  *   POST /updates/{plugin,studio,restart}       run an update step, or keep it until no turn is in progress
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
@@ -48,6 +49,7 @@ import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
+import { registerQuickRoute } from "./quick.js";
 import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js";
 import type { AssetRef } from "@ue-mcp-studio/shared";
 
@@ -443,6 +445,12 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       resolver: assets,
     }, (req.body as { path?: unknown } | undefined)?.path);
     return r;
+  });
+
+  registerQuickRoute(api, {
+    connected: () => route() !== null,
+    create: (title) => store.create(title),
+    send: (id, text) => runner.send(id, text),
   });
 
   if (packageDir) registerWindowRoutes(api, { busy, stopSession: (id) => runner.stop(id), window: () => daemonWindowHost(api, packageDir, agentVersion) });

@@ -559,3 +559,23 @@ export interface AgentSettings {
   dialogMode: { mode: DialogMode | null; project: boolean } | null;
   restarting?: boolean;
 }
+
+/** An actor or asset the editor's "Chat about this" hands to a quick ask. */
+export interface QuickContextItem {
+  kind: "actor" | "asset";
+  label: string;
+  /** The object path: /Game/Maps/L.L:PersistentLevel.Actor, or /Game/Dir/Asset.Asset. */
+  path: string;
+  class?: string;
+}
+
+/** POST /v1/ext/studio/quick: a new session whose first message is `text`, with the context ahead of it. */
+export interface QuickRequest {
+  text: string;
+  context?: QuickContextItem[];
+}
+
+/** The quick ask's session. Studio's UI is sent to it with studio.session.focus. */
+export interface QuickResponse {
+  sessionId: string;
+}

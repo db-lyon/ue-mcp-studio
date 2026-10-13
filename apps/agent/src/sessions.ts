@@ -69,6 +69,9 @@ function agentCounts(s: StoredSession): { total: number; running: number } {
   return { total, running };
 }
 
+/** A session's title until its first message names it. */
+export const DEFAULT_SESSION_TITLE = "New session";
+
 export class SessionStore {
   private readonly dir: string;
   private readonly cache = new Map<string, StoredSession>();
@@ -87,7 +90,7 @@ export class SessionStore {
     }
   }
 
-  create(title = "New session"): StoredSession {
+  create(title = DEFAULT_SESSION_TITLE): StoredSession {
     const now = new Date().toISOString();
     const s: StoredSession = {
       id: crypto.randomUUID(),

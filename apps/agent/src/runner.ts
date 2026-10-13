@@ -17,7 +17,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import type { ApprovalDecision, ApprovalRequest, Effort, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
-import { SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
+import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
@@ -212,7 +212,7 @@ export class AgentRunner {
       throw new Error("a turn is already in progress; stop it or wait for it to finish");
     }
     s.archived = false;
-    if (s.messages.length === 0) s.title = text.trim().split("\n")[0].slice(0, 60) || attachments[0]?.name || s.title;
+    if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = text.trim().split("\n")[0].slice(0, 60) || attachments[0]?.name || s.title;
     if (s.crashed) this.reconcileCrash(s);
     const content: unknown[] = [];
     for (const note of s.notes.splice(0)) content.push({ type: "text", text: `[Studio] ${note}` });
