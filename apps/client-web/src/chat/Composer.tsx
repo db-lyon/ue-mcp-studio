@@ -74,22 +74,50 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     const el = box.current;
     return (el && (parseFloat(el.style.height) || el.offsetHeight)) || MIN_HEIGHT;
   };
+  /** The conversation's height, kept by a ResizeObserver so typing never reads layout for it. */
+  const stageHeight = useRef<number | null>(null);
+  useEffect(() => {
+    const el = stage?.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    stageHeight.current = el.clientHeight;
+    const o = new ResizeObserver(([e]) => {
+      stageHeight.current = e.contentRect.height;
+    });
+    o.observe(el);
+    return () => o.disconnect();
+  }, [stage]);
   /** How tall the text box may get: its height plus what the transcript can give up. */
-  const room = () => (stage?.current ? current() + stage.current.clientHeight - MIN_TRANSCRIPT : Infinity);
+  const room = () => {
+    const h = stageHeight.current ?? stage?.current?.clientHeight;
+    return h === undefined || h === null ? Infinity : current() + h - MIN_TRANSCRIPT;
+  };
+
+  /** The box's line height, border and padding, read again only on a resize. */
+  const metrics = useRef<{ line: number; border: number; chrome: number; width: number } | null>(null);
+  useLayoutEffect(() => {
+    metrics.current = null;
+  }, [viewport, placeholder]);
 
   useLayoutEffect(() => {
     const el = box.current;
     if (!el) return;
     const r = room();
-    const cs = getComputedStyle(el);
-    const px = (v: string) => parseFloat(v) || 0;
-    const line = parseFloat(cs.lineHeight) || (px(cs.fontSize) || 14) * 1.5;
-    const border = px(cs.borderTopWidth) + px(cs.borderBottomWidth);
-    const chrome = px(cs.paddingTop) + px(cs.paddingBottom) + border;
+    if (!metrics.current) {
+      const cs = getComputedStyle(el);
+      const px = (v: string) => parseFloat(v) || 0;
+      const border = px(cs.borderTopWidth) + px(cs.borderBottomWidth);
+      metrics.current = {
+        line: parseFloat(cs.lineHeight) || (px(cs.fontSize) || 14) * 1.5,
+        border,
+        chrome: px(cs.paddingTop) + px(cs.paddingBottom) + border,
+        width: el.offsetWidth,
+      };
+    }
+    const { line, border, chrome, width } = metrics.current;
     const m = mirror.current;
     let content: number;
     if (m) {
-      m.style.width = `${el.offsetWidth}px`;
+      if (m.style.width !== `${width}px`) m.style.width = `${width}px`;
       m.value = el.value || el.placeholder;
       content = m.scrollHeight + border;
     } else {
