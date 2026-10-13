@@ -58,6 +58,8 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
 }) {
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  /** A hidden copy of the box, out of the page flow, measured instead of the box so typing never lays out the conversation. */
+  const mirror = useRef<HTMLTextAreaElement>(null);
   const [floor, setFloor] = useState<number | null>(height ?? null);
   const [dragging, setDragging] = useState(false);
   const [viewport, setViewport] = useState(0);
@@ -84,10 +86,21 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     const line = parseFloat(cs.lineHeight) || (px(cs.fontSize) || 14) * 1.5;
     const border = px(cs.borderTopWidth) + px(cs.borderBottomWidth);
     const chrome = px(cs.paddingTop) + px(cs.paddingBottom) + border;
-    el.style.height = "auto";
-    const fit = fitHeight({ content: el.scrollHeight + border, line, chrome, floor, room: r });
-    el.style.height = `${fit.height}px`;
-    el.style.overflowY = fit.scroll ? "auto" : "hidden";
+    const m = mirror.current;
+    let content: number;
+    if (m) {
+      m.style.width = `${el.offsetWidth}px`;
+      m.value = el.value || el.placeholder;
+      content = m.scrollHeight + border;
+    } else {
+      el.style.height = "auto";
+      content = el.scrollHeight + border;
+    }
+    const fit = fitHeight({ content, line, chrome, floor, room: r });
+    // Only a real change touches the box: an unchanged height costs no layout.
+    if (el.style.height !== `${fit.height}px`) el.style.height = `${fit.height}px`;
+    const overflow = fit.scroll ? "auto" : "hidden";
+    if (el.style.overflowY !== overflow) el.style.overflowY = overflow;
   }, [draft, floor, viewport, placeholder]);
 
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -161,6 +174,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           ))}
         </div>
       )}
+      <textarea ref={mirror} className="composer-mirror" rows={1} tabIndex={-1} aria-hidden readOnly defaultValue="" />
       <textarea
         ref={box}
         rows={1}
