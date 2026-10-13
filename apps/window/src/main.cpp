@@ -1087,6 +1087,22 @@ void noteLocation(const std::wstring& url) {
   logLine("location " + narrow(hash));
 }
 
+/**
+ * Whether an update from the panel is under way: the page keeps its run in the
+ * project's Studio data while it lasts. An update restarts the daemon, and the
+ * page says it reloads when the daemon is back, so the window waits for it.
+ */
+bool updateRunning() {
+  std::wstring file = join(join(join(join(join(env(L"USERPROFILE"), L".ue-mcp"), L"data"), gOpt.key), L"studio"), L"update-run.json");
+  WIN32_FILE_ATTRIBUTE_DATA a;
+  if (!GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &a)) return false;
+  FILETIME now;
+  GetSystemTimeAsFileTime(&now);
+  ULARGE_INTEGER n = {{now.dwLowDateTime, now.dwHighDateTime}}, w = {{a.ftLastWriteTime.dwLowDateTime, a.ftLastWriteTime.dwHighDateTime}};
+  // A run left over from an update nobody closed does not hold the window forever.
+  return n.QuadPart - w.QuadPart < 15ull * 60 * 10000000;
+}
+
 void pollDaemon() {
   if (!gWeb) return;
   Daemon d;
@@ -1101,8 +1117,9 @@ void pollDaemon() {
     }
     return;
   }
-  // The page reconnects by itself to a daemon that comes back on its port; a few seconds' grace.
-  if (gLoaded.port && ++gDaemonMisses >= 5) showLocalPage();
+  // The page reconnects by itself to a daemon that comes back on its port; a few seconds' grace,
+  // and up to three minutes while an update restarts it.
+  if (gLoaded.port && ++gDaemonMisses >= (updateRunning() ? 180 : 5)) showLocalPage();
   else if (!gLoaded.port && !gLocalPage) showLocalPage();
 }
 
