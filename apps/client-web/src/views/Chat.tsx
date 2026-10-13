@@ -17,6 +17,7 @@ import { useDialogs } from "../chat/dialog-model";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
 import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../chat/asset-links";
 import { readLocation, writeLocation } from "../location";
+import { useSessionFocus } from "../focus";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -80,6 +81,12 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     void loadList();
     void loadSettings();
   }, []);
+
+  // The editor's quick ask started a session while the chat is open.
+  useSessionFocus(daemon.events, (id) => {
+    void loadList();
+    setSelected(id);
+  });
 
   // Nothing connected runs the selected model yet.
   const disconnected = settings !== null && settings.route === null;

@@ -16,6 +16,7 @@ import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
 import { DockToggle } from "./views/DockToggle";
 import { readLocation, writeLocation } from "./location";
+import { useSessionFocus } from "./focus";
 
 const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
@@ -30,6 +31,11 @@ export function App() {
     return s && (SECTIONS as string[]).includes(s) ? (s as SettingsSection) : "general";
   });
   useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
+  // The editor's quick ask started a session: show it, from any tab.
+  useSessionFocus(daemon.events, (session) => {
+    writeLocation({ tab: "Chat", session });
+    setTab("Chat");
+  });
   const [feedback, setFeedback] = useState(false);
   const updates = useUpdateCount();
 
