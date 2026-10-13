@@ -205,14 +205,16 @@ int main() {
     CHECK(dock::place(dock::Mode::Docked, true, r, true, host()).show == dock::Show::Hidden);
   });
 
-  test("hidden while the host is minimized, hidden or gone", [] {
+  test("hidden while the host is minimized; a window while it is hidden or gone, as an editor shuts down", [] {
     dock::Host h = host();
     h.iconic = true;
     CHECK(dock::place(dock::Mode::Docked, true, sample(), true, h).show == dock::Show::Hidden);
     h = host();
     h.visible = false;
-    CHECK(dock::place(dock::Mode::Docked, true, sample(), true, h).show == dock::Show::Hidden);
-    CHECK(dock::place(dock::Mode::Docked, true, sample(), true, dock::Host()).show == dock::Show::Hidden);
+    CHECK(dock::place(dock::Mode::Docked, true, sample(), true, h).show == dock::Show::Window);
+    CHECK(dock::place(dock::Mode::Docked, true, sample(), true, dock::Host()).show == dock::Show::Window);
+    // The plugin's last report on exit: no tab, no host.
+    CHECK(dock::place(dock::Mode::Docked, true, dock::Report(), true, dock::Host()).show == dock::Show::Window);
   });
 
   test("an editor coming back stays a window until it shows the tab, then follows it", [] {

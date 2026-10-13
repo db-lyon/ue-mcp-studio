@@ -193,13 +193,16 @@ inline bool canDock(bool haveReport, bool writerAlive) { return haveReport && wr
  *
  * `tabSeen` is whether this editor has shown the tab yet. An editor coming
  * back from a restart or a crash reports before its tab appears, and Studio
- * stays a window through that, so it never vanishes between the two.
+ * stays a window through that, so it never vanishes between the two. With no
+ * visible host (an editor shutting down or not yet up) it is a window too;
+ * only a host that is there, minimized or showing another tab, hides it.
  */
 inline Placement place(Mode mode, bool haveReport, const Report& r, bool writerAlive, const Host& host, bool tabSeen = true) {
   Placement p;
   if (mode != Mode::Docked || !canDock(haveReport, writerAlive)) return p;
   bool shown = (r.flags & kOpen) && (r.flags & kVisible) && r.w > 0 && r.h > 0 && host.exists && host.visible && !host.iconic;
-  if (!shown && !tabSeen) return p;
+  bool hostThere = host.exists && (host.visible || host.iconic);
+  if (!shown && (!tabSeen || !hostThere)) return p;
   p.show = Show::Hidden;
   if (!shown) return p;
   p.show = Show::Docked;
