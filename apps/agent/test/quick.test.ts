@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ExtensionHandler, ExtensionRequest } from "ue-mcp/daemon";
-import { formatQuickMessage, mapOf, NO_MODEL, parseQuickRequest, quickTitle, registerQuickRoute, windowLocationFile } from "../src/quick.js";
+import type { QuickThread, SessionDetail, ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
+import { formatQuickMessage, mapOf, NO_MODEL, parseQuickRequest, QUICK_STEPS, quickThread, quickTitle, registerQuickRoute, stepLabel, windowLocationFile } from "../src/quick.js";
 
 function setup(connected = true) {
   const projectDir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-quick-"));
@@ -11,25 +12,89 @@ function setup(connected = true) {
   const created: string[] = [];
   const sent: Array<{ id: string; text: string }> = [];
   const events: Array<{ type: string; data: unknown }> = [];
+  const listeners: Array<(e: { type: string; data: unknown }) => void> = [];
+  const sessions = new Map<string, SessionDetail>();
   registerQuickRoute(
     {
       projectDir,
       route: (method, p, handler) => void table.set(`${method} ${p}`, handler),
-      events: { publish: (type: string, data: unknown) => void events.push({ type, data }), subscribe: () => () => {} } as never,
+      events: {
+        publish: (type: string, data: unknown) => void events.push({ type, data }),
+        subscribe: (l: (e: { type: string; data: unknown }) => void) => (listeners.push(l), () => {}),
+      } as never,
       log: { info: () => {}, warn: () => {}, error: () => {} } as never,
     },
     {
       connected: () => connected,
       create: (title) => (created.push(title), { id: `s${created.length}` }),
       send: async (id, text) => void sent.push({ id, text }),
+      detail: (id) => sessions.get(id),
     },
   );
-  const post = async (body: unknown) => {
-    const req: ExtensionRequest = { method: "POST", path: "/quick", params: {}, query: {}, headers: {}, body };
-    return (await table.get("POST /quick")!(req))!;
+  const call = async (method: string, route: string, params: Record<string, string>, body?: unknown) => {
+    const req: ExtensionRequest = { method, path: route, params, query: {}, headers: {}, body } as ExtensionRequest;
+    return (await table.get(`${method} ${route}`)!(req))!;
   };
-  return { projectDir, created, sent, events, post };
+  const post = (body: unknown) => call("POST", "/quick", {}, body);
+  const emit = (type: string, data: unknown) => listeners.forEach((l) => l({ type, data }));
+  return { projectDir, created, sent, events, post, call, emit, sessions };
 }
+
+function session(over: Partial<SessionDetail> = {}): SessionDetail {
+  return {
+    id: "s1", title: "t", status: "running", createdAt: "", updatedAt: "", waitingCause: null, archived: false,
+    agents: { total: 0, running: 0 }, awaiting: 0, transcript: [], touched: [], draft: "", seen: [], error: null, approvals: [], ...over,
+  };
+}
+
+const tool = (id: string, category: string, method: string, outcome: ToolCallRecord["outcome"], parent?: string): TranscriptEntry => ({
+  kind: "tool", call: { id, name: "ue_mcp", input: { action: "call", category, method }, outcome, startedAt: "" }, ...(parent ? { parent } : {}),
+});
+
+describe("the pill's thread", () => {
+  it("lists the main thread's steps by action with their state, newest last, and counts the ones left out", () => {
+    const steps = Array.from({ length: QUICK_STEPS + 2 }, (_, i) => tool(`t${i}`, "level", `step_${i}`, "done"));
+    const t = quickThread(session({ transcript: [{ kind: "user", text: "go", at: "" }, ...steps, tool("x", "level", "place_actor", "pending"), tool("sub", "asset", "list", "done", "agent1")] }));
+    expect(t.steps).toHaveLength(QUICK_STEPS);
+    expect(t.steps[t.steps.length - 1]).toEqual({ label: "level.place_actor", state: "running" });
+    expect(t.earlier).toBe(3);
+    expect(t.steps.some((s) => s.label === "asset.list")).toBe(false);
+  });
+
+  it("shows the reply as it streams, then the finished message", () => {
+    const s = setup();
+    s.sessions.set("s1", session({ transcript: [{ kind: "assistant", text: "Earlier answer.", at: "" }] }));
+    s.emit("studio.turn.delta", { sessionId: "s1", text: "Placing " });
+    s.emit("studio.turn.delta", { sessionId: "s1", text: "the chest" });
+    return s.call("GET", "/quick/:id", { id: "s1" }).then(async (r) => {
+      expect((r.body as QuickThread).reply).toBe("Placing the chest");
+      s.emit("studio.transcript.added", { sessionId: "s1" });
+      expect(((await s.call("GET", "/quick/:id", { id: "s1" })).body as QuickThread).reply).toBe("Earlier answer.");
+    });
+  });
+
+  it("says what waits on the user, which only the panel can answer", () => {
+    const approval = { id: "a", tool: "shell", summary: "", input: {} } as unknown as SessionDetail["approvals"][number];
+    expect(quickThread(session({ approvals: [approval] })).needsYou).toMatch(/approval/);
+    expect(quickThread(session({ status: "waiting", waitingCause: "the editor was closed" })).needsYou).toBe("the editor was closed");
+    expect(quickThread(session({ status: "idle" })).needsYou).toBeNull();
+    expect(quickThread(session({ status: "error", error: "boom" })).error).toBe("boom");
+  });
+
+  it("continues in the panel: the window's location and the focus event name the session", async () => {
+    const s = setup();
+    s.sessions.set("s1", session());
+    expect((await s.call("POST", "/quick/:id/continue", { id: "s1" })).status).toBe(204);
+    expect(fs.readFileSync(windowLocationFile(s.projectDir), "utf-8").trim()).toBe("#/chat/s1");
+    expect(s.events).toContainEqual({ type: "session.focus", data: { sessionId: "s1" } });
+    expect((await s.call("POST", "/quick/:id/continue", { id: "nope" })).status).toBe(404);
+    expect((await s.call("GET", "/quick/:id", { id: "nope" })).status).toBe(404);
+  });
+
+  it("labels a shell step as shell", () => {
+    expect(stepLabel({ name: "Bash", input: { command: "ls" } })).toBe("shell");
+  });
+});
 
 describe("formatQuickMessage", () => {
   it("puts each map's actors and the assets ahead of the text, with their object paths", () => {

@@ -578,6 +578,27 @@ export interface QuickContextItem {
   at?: string;
 }
 
+/** One step of a quick ask's thread, as the editor's pill lists it. */
+export interface QuickStep {
+  label: string;
+  state: "running" | "done" | "failed" | "stopped";
+}
+
+/** GET /v1/ext/studio/quick/:id: a session as the editor's pill shows it. */
+export interface QuickThread {
+  sessionId: string;
+  status: TurnStatus;
+  /** The steps of the turn, newest last, at most QUICK_STEPS of them. */
+  steps: QuickStep[];
+  /** Steps left out ahead of those. */
+  earlier: number;
+  /** The reply so far: the text streaming now, else the agent's last message. */
+  reply: string;
+  /** What the turn waits on the user for, which only the Studio panel can answer. */
+  needsYou: string | null;
+  error: string | null;
+}
+
 /** POST /v1/ext/studio/quick: a new session whose first message is `text`, with the context ahead of it. */
 export interface QuickRequest {
   text: string;

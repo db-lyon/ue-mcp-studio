@@ -471,6 +471,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     connected: () => route() !== null,
     create: (title) => store.create(title),
     send: (id, text) => runner.send(id, text),
+    detail: (id) => {
+      const s = store.get(id);
+      return s ? SessionStore.detail(s) : undefined;
+    },
   });
 
   if (packageDir) registerWindowRoutes(api, { busy, stopSession: (id) => runner.stop(id), window: () => daemonWindowHost(api, packageDir, agentVersion) });
