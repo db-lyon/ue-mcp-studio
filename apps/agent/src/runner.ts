@@ -99,6 +99,21 @@ export interface RunnerOptions {
 const now = (): string => new Date().toISOString();
 
 /** The conversation so far as text, for a Claude session that starts in the middle of it. Keeps the most recent part when long. */
+/**
+ * A call ue-mcp answered without doing it: a result whose JSON says success is
+ * false, or that the call was blocked or refused. ue-mcp returns these as
+ * ordinary results, so the call would otherwise read as done.
+ */
+export function refused(result: unknown): boolean {
+  if (typeof result !== "string" || !result.trimStart().startsWith("{")) return false;
+  try {
+    const r = JSON.parse(result) as Record<string, unknown>;
+    return r.success === false || r.blocked === true || r.dialogBlocking === true || typeof r.refusedMethod === "string";
+  } catch {
+    return false;
+  }
+}
+
 export function carryOver(messages: MessageParam[], max = 60_000): string {
   const lines: string[] = [];
   for (const m of messages) {
@@ -784,12 +799,12 @@ export class AgentRunner {
   private recordOutcome(s: StoredSession, p: PendingTool, outcome: "done" | "error" | "unknown" | "stopped" | "declined"): void {
     const entry = [...s.transcript].reverse().find((t) => t.kind === "tool" && t.call.id === p.id);
     if (entry && entry.kind === "tool") {
-      entry.call.outcome = outcome === "done" && p.isError ? "error" : outcome;
+      entry.call.outcome = outcome === "done" && (p.isError || refused(p.result)) ? "error" : outcome;
       entry.call.result = p.result;
       entry.call.endedAt = now();
     }
     this.o.store.save(s);
-    this.o.host.events.publish("tool.finished", { sessionId: s.id, toolUseId: p.id, outcome });
+    this.o.host.events.publish("tool.finished", { sessionId: s.id, toolUseId: p.id, outcome: entry && entry.kind === "tool" ? entry.call.outcome : outcome });
   }
 
   /** Give the model every answered call in one message, with any notes the reattach produced. */
