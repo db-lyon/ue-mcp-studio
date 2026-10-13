@@ -62,17 +62,19 @@ describe("formatQuickMessage", () => {
     expect(parseQuickRequest({ text: "x", context: [{ kind: "elsewhere", path: "p" }] })).toMatch(/one of actor, asset, location, graph, node/);
   });
 
-  it("names the graph with the cursor's position in it, and the node under the cursor first", () => {
+  it("names the graph with the cursor's position in it, the node under the cursor, and the selected ones apart", () => {
     const parsed = parseQuickRequest({ text: "add a delay after this", context: [
       { kind: "graph", label: "EventGraph", class: "/Game/BP_Chest", path: "/Game/BP_Chest.BP_Chest:EventGraph", at: "X=420 Y=-96" },
-      { kind: "node", label: "Print String", class: "K2Node_CallFunction", path: "/Game/BP_Chest.BP_Chest:EventGraph.K2Node_CallFunction_3" },
-      { kind: "node", label: "Event BeginPlay", class: "K2Node_Event", path: "/Game/BP_Chest.BP_Chest:EventGraph.K2Node_Event_0" },
+      { kind: "node", label: "Print String", class: "K2Node_CallFunction", path: "/Game/BP_Chest.BP_Chest:EventGraph.K2Node_CallFunction_3", at: "under the cursor" },
+      { kind: "node", label: "Event BeginPlay", class: "K2Node_Event", path: "/Game/BP_Chest.BP_Chest:EventGraph.K2Node_Event_0", at: "selected" },
     ] });
     expect(formatQuickMessage(parsed as never)).toBe(
       'Context: the graph EventGraph in /Game/BP_Chest (/Game/BP_Chest.BP_Chest:EventGraph), cursor at graph position X=420 Y=-96; "here" in the graph means that position.\n' +
-        "Context: nodes, the first under the cursor: Print String (K2Node_CallFunction) at /Game/BP_Chest.BP_Chest:EventGraph.K2Node_CallFunction_3; " +
-        "Event BeginPlay (K2Node_Event) at /Game/BP_Chest.BP_Chest:EventGraph.K2Node_Event_0\n\nadd a delay after this",
+        "Context: node under the cursor: Print String (K2Node_CallFunction) at /Game/BP_Chest.BP_Chest:EventGraph.K2Node_CallFunction_3\n" +
+        "Context: selected node: Event BeginPlay (K2Node_Event) at /Game/BP_Chest.BP_Chest:EventGraph.K2Node_Event_0\n\nadd a delay after this",
     );
+    // Nothing under the cursor: a selected node is not called the one under it.
+    expect(formatQuickMessage({ text: "x", context: [{ kind: "node", label: "Root", class: "MaterialGraphNode_Root", path: "p", at: "selected" }] })).not.toContain("under the cursor");
   });
 
   it("is the text alone without context", () => {

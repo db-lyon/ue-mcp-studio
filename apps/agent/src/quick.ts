@@ -63,8 +63,10 @@ export function formatQuickMessage(req: QuickRequest): string {
   for (const g of context.filter((x) => x.kind === "graph")) {
     lines.push(`Context: the graph ${g.label}${g.class ? ` in ${g.class}` : ""} (${g.path})${g.at ? `, cursor at graph position ${g.at}; "here" in the graph means that position` : ""}.`);
   }
-  const nodes = context.filter((x) => x.kind === "node");
-  if (nodes.length) lines.push(`Context: ${nodes.length === 1 ? "node" : "nodes, the first under the cursor"}: ${nodes.map(describe).join("; ")}`);
+  const hovered = context.filter((x) => x.kind === "node" && x.at === "under the cursor");
+  if (hovered.length) lines.push(`Context: node under the cursor: ${hovered.map(describe).join("; ")}`);
+  const selected = context.filter((x) => x.kind === "node" && x.at !== "under the cursor");
+  if (selected.length) lines.push(`Context: selected ${selected.length === 1 ? "node" : "nodes"}: ${selected.map(describe).join("; ")}`);
   const assets = context.filter((x) => x.kind === "asset");
   if (assets.length) lines.push(`Context: ${assets.length === 1 ? "asset" : "assets"}: ${assets.map(describe).join("; ")}`);
   return `${lines.join("\n")}\n\n${req.text.trim()}`;
