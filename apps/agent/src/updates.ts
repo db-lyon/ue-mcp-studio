@@ -223,8 +223,8 @@ export class Updater {
     const npx = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
     const pkg = await this.manifest().then((m) => (m as ReleaseManifest & { ueMcp?: { package?: string } }).ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
     const script = `const {execFileSync}=require("child_process");const a=[${JSON.stringify(npx)},"-y",${JSON.stringify(pkg)}];` +
-      `try{execFileSync(process.execPath,[...a,"daemon","stop",${JSON.stringify(uproject)}],{stdio:"ignore"})}catch{}` +
-      `execFileSync(process.execPath,[...a,"daemon","start",${JSON.stringify(uproject)}],{stdio:"ignore"});`;
+      `try{execFileSync(process.execPath,[...a,"daemon","stop",${JSON.stringify(uproject)}],{stdio:"ignore",windowsHide:true})}catch{}` +
+      `execFileSync(process.execPath,[...a,"daemon","start",${JSON.stringify(uproject)}],{stdio:"ignore",windowsHide:true});`;
     runHidden(["-e", script], this.host.projectDir);
     return { started: true };
   }
