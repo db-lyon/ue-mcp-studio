@@ -251,7 +251,6 @@ bool gDockAlive = false;
 DWORD gTabSeenPid = 0;  // the editor that has shown the dock tab; until then Studio stays a window
 bool gEverShown = false;  // a first launch waits hidden for its tab instead of flashing a window
 HWND gHost = nullptr;
-RECT gDockedAt = {};
 uint32_t gRequestSeq = 0;
 dock::Request gRequest = dock::Request::None;
 HWINEVENTHOOK gEditorHook = nullptr;
@@ -784,13 +783,16 @@ void present(const dock::Placement& p) {
     return;
   }
   RECT want = {p.x, p.y, p.x + p.w, p.y + p.h};
-  bool moved = gShown != Shown::Docked || !EqualRect(&want, &gDockedAt);
+  // Where the window is, not where it was last put: something else can move it
+  // (Windows on an Alt+Tab, a window manager), and the 100 ms dock tick puts it back.
+  RECT actual = {};
+  GetWindowRect(gMain, &actual);
+  bool moved = gShown != Shown::Docked || !EqualRect(&want, &actual);
   gShown = Shown::Docked;
   if (!moved) {
     restack();
     return;
   }
-  gDockedAt = want;
   SetWindowPos(gMain, nullptr, p.x, p.y, p.w, p.h, SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW | SWP_NOOWNERZORDER);
   restack();
 }
