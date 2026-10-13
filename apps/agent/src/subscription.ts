@@ -47,10 +47,10 @@ function localSdkTools(handler: (name: string) => (args: Record<string, unknown>
   ];
 }
 
-/** The Claude home Studio shares with Claude Code: one sign-in and one session list, whichever was installed first. */
-export const claudeHome = (): string => process.env.STUDIO_CLAUDE_HOME || process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
-/** Where Studio kept its own Claude home before it shared Claude Code's. */
-export const oldClaudeHome = (): string => path.join(os.homedir(), ".ue-mcp", "studio", "claude");
+/** Studio's own Claude home: its sign-in and its sessions' conversations, shared by every project and apart from Claude Code. */
+export const claudeHome = (): string => process.env.STUDIO_CLAUDE_HOME || path.join(os.homedir(), ".ue-mcp", "studio", "claude");
+/** Claude Code's home, where the 0.1.2 betas kept Studio's conversations. */
+export const sharedClaudeHome = (): string => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
 
 /** Studio's Claude login, when there is one: present means signed in. Tokens are never read here. */
 export function claudeLogin(): { subscription: string } | null {
@@ -65,7 +65,7 @@ export function claudeLogin(): { subscription: string } | null {
 
 /** The environment the binary runs in: Studio's Claude folder, and no API key to prefer over the login. */
 function claudeEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env, ...(process.env.STUDIO_CLAUDE_HOME ? { CLAUDE_CONFIG_DIR: claudeHome() } : {}), CLAUDE_AGENT_SDK_CLIENT_APP: "ue-mcp-studio-experimental", ...extra };
+  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: claudeHome(), CLAUDE_AGENT_SDK_CLIENT_APP: "ue-mcp-studio-experimental", ...extra };
   delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN;
   delete env.CLAUDE_CODE_OAUTH_TOKEN;

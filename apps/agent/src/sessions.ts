@@ -45,7 +45,7 @@ export interface StoredSession {
   archived?: boolean;
   /** Experimental: the Agent SDK session a Claude subscription turn continues. */
   sdkSession?: string | null;
-  /** Earlier Agent SDK sessions of this conversation, so their transcripts are not listed as Claude Code sessions. */
+  /** Earlier Agent SDK sessions of this conversation, removed with it. */
   sdkPast?: string[];
   /** Turns ran on another model since the SDK session last saw the conversation. */
   offClaude?: boolean;
@@ -140,7 +140,6 @@ export class SessionStore {
       id: s.id, title: s.title, status: s.status, createdAt: s.createdAt, updatedAt: s.updatedAt, waitingCause: s.waitingCause, archived: !!s.archived,
       agents: agentCounts(s), awaiting: s.approvals?.length ?? 0,
       ...(s.model ? { model: modelName(s.model) } : {}), ...(s.route ? { route: s.route } : {}),
-      ...(s.sdkSession && !s.offClaude ? { inClaudeCode: true } : {}),
     };
   }
 

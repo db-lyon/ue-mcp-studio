@@ -238,15 +238,13 @@ export class AgentRunner {
         if (s.sdkSession) s.sdkPast = [...(s.sdkPast ?? []), s.sdkSession];
         s.sdkSession = null;
         s.offClaude = false;
-        this.addEntry(s, { kind: "note", text: "On your Claude sign-in from here. A new Claude Code conversation starts with this whole session in it.", at: now() });
+        this.addEntry(s, { kind: "note", text: `On ${modelName(s.model)} via your Claude sign-in from here, with the whole conversation so far.`, at: now() });
         return this.runSubscription(s.id, [{ type: "text", text: carryOver(earlier) }, ...content]);
       }
       return this.runSubscription(s.id, content);
     }
-    if (s.sdkSession && !s.offClaude) {
-      s.offClaude = true;
-      this.addEntry(s, { kind: "note", text: `On ${modelName(s.model)} from here. Claude Code has this conversation up to this point; the rest stays in Studio.`, at: now() });
-    }
+    // The Claude conversation misses this turn: a later turn on the Claude sign-in carries the whole session again.
+    if (s.sdkSession) s.offClaude = true;
     await this.runTurn(s.id);
   }
 
