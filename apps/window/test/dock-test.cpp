@@ -217,6 +217,13 @@ int main() {
     CHECK(dock::place(dock::Mode::Docked, true, dock::Report(), true, dock::Host()).show == dock::Show::Window);
   });
 
+  test("hidden while the host is on another virtual desktop", [] {
+    dock::Host h = host();
+    h.elsewhere = true;
+    CHECK(dock::place(dock::Mode::Docked, true, sample(), true, h).show == dock::Show::Hidden);
+    CHECK(dock::place(dock::Mode::Window, true, sample(), true, h).show == dock::Show::Window);
+  });
+
   test("an editor coming back stays a window until it shows the tab, then follows it", [] {
     dock::Report r = sample();
     r.flags = dock::kOpen;

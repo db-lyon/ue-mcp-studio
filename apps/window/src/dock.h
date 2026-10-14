@@ -172,6 +172,7 @@ struct Host {
   bool exists = false;   // a window of the reporting editor
   bool visible = false;
   bool iconic = false;
+  bool elsewhere = false;  // cloaked: on another virtual desktop
   long originX = 0, originY = 0;  // its client origin on screen
 };
 
@@ -195,12 +196,14 @@ inline bool canDock(bool haveReport, bool writerAlive) { return haveReport && wr
  * back from a restart or a crash reports before its tab appears, and Studio
  * stays a window through that, so it never vanishes between the two. With no
  * visible host (an editor shutting down or not yet up) it is a window too;
- * only a host that is there, minimized or showing another tab, hides it.
+ * only a host that is there, minimized, on another virtual desktop or showing
+ * another tab, hides it. The docked window is a tool window, which Windows
+ * shows on every desktop, so it hides itself where the editor is not.
  */
 inline Placement place(Mode mode, bool haveReport, const Report& r, bool writerAlive, const Host& host, bool tabSeen = true) {
   Placement p;
   if (mode != Mode::Docked || !canDock(haveReport, writerAlive)) return p;
-  bool shown = (r.flags & kOpen) && (r.flags & kVisible) && r.w > 0 && r.h > 0 && host.exists && host.visible && !host.iconic;
+  bool shown = (r.flags & kOpen) && (r.flags & kVisible) && r.w > 0 && r.h > 0 && host.exists && host.visible && !host.iconic && !host.elsewhere;
   bool hostThere = host.exists && (host.visible || host.iconic);
   if (!shown && (!tabSeen || !hostThere)) return p;
   p.show = Show::Hidden;

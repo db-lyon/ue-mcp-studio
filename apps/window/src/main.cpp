@@ -824,6 +824,8 @@ void updateDock() {
     host.exists = true;
     host.visible = IsWindowVisible(gHost) != FALSE;
     host.iconic = IsIconic(gHost) != FALSE;
+    DWORD cloaked = 0;
+    host.elsewhere = SUCCEEDED(DwmGetWindowAttribute(gHost, DWMWA_CLOAKED, &cloaked, sizeof cloaked)) && cloaked;
     POINT origin = {0, 0};
     ClientToScreen(gHost, &origin);
     host.originX = origin.x;
