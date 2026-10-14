@@ -6,7 +6,7 @@ import { EffortPicker, KeyForm, ModelPicker, SignInForm } from "./ModelPicker";
 
 const THEMES: { id: StudioTheme; name: string; about: string }[] = [
   { id: "ue-mcp", name: "ue-mcp", about: "Dark, with the ue-mcp.com orange." },
-  { id: "light", name: "Light", about: "The same look on a light background." },
+  { id: "editor-orange", name: "Editor orange", about: "Unreal's colors and type, with the ue-mcp orange." },
   { id: "editor", name: "Editor", about: "Unreal's own colors and type, so the panel blends in." },
 ];
 

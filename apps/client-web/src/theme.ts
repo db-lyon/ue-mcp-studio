@@ -1,8 +1,9 @@
 /**
- * The page's theme. `ue-mcp` and `light` are fixed palettes in styles.css; `editor`
+ * The page's theme. `ue-mcp` is a fixed palette in styles.css; `editor`
  * takes its colors from the editor's active Slate theme, so the panel matches
  * whatever theme the user runs, with Unreal's default dark palette when the
- * host cannot say (a browser, or an older host plugin).
+ * host cannot say (a browser, or an older host plugin). `editor-orange` is
+ * `editor` with the ue-mcp orange as its accent.
  */
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { native } from "./native";
@@ -51,8 +52,8 @@ export async function applyTheme(theme: StudioTheme): Promise<void> {
   const root = document.documentElement;
   root.dataset.theme = theme;
   for (const name of Object.keys(EDITOR_DEFAULT)) root.style.removeProperty(`--ue-${name}`);
-  if (theme !== "editor") return;
+  if (theme !== "editor" && theme !== "editor-orange") return;
   const colors = await loadEditorColors();
-  if (root.dataset.theme !== "editor") return;
+  if (root.dataset.theme !== theme) return;
   for (const [name, value] of Object.entries(colors)) root.style.setProperty(`--ue-${name}`, value);
 }

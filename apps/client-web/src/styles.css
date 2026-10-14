@@ -49,44 +49,9 @@
   color-scheme: dark;
 }
 
-/* Light: the same look on a light background. */
-:root[data-theme="light"] {
-  --bg: #f7f5f1;
-  --panel: #ffffff;
-  --panel-2: #f1eee8;
-  --panel-3: #e8e4dc;
-  --line: rgba(20, 18, 14, 0.09);
-  --line-strong: rgba(20, 18, 14, 0.16);
-  --text: #1b1a17;
-  --muted: #5c5952;
-  --dim: #8e8a81;
-  --accent: #c95f06;
-  --accent-hi: #e8720c;
-  --accent-wash: rgba(232, 114, 12, 0.08);
-  --accent-line: rgba(201, 95, 6, 0.4);
-  --on-accent: #ffffff;
-  --ok: #2f8f55;
-  --warn: #a86c06;
-  --bad: #c43d2c;
-  --bad-text: #9a2b1d;
-  --warn-text: #7a4e04;
-  --glow: rgba(232, 114, 12, 0.08);
-  --selection: rgba(232, 114, 12, 0.22);
-  --scroll: rgba(0, 0, 0, 0.12);
-  --scroll-hover: rgba(0, 0, 0, 0.22);
-  --bar-bg: rgba(247, 245, 241, 0.85);
-  --tint: rgba(0, 0, 0, 0.012);
-  --shadow: 0 16px 32px -24px rgba(40, 30, 10, 0.25);
-  --code-bg: #f4f1eb;
-  --code-text: #2c2a25;
-  --composer-bg: rgba(0, 0, 0, 0.02);
-  --mark-glow: 0 0 8px rgba(232, 114, 12, 0.35);
-  --ok-glow: none;
-  color-scheme: light;
-}
-
 /* Editor: the active Slate theme's colors (set by theme.ts as --ue-*) and Unreal's type. */
-:root[data-theme="editor"] {
+:root[data-theme="editor"],
+:root[data-theme="editor-orange"] {
   --bg: var(--ue-background, #151515);
   --panel: var(--ue-panel, #242424);
   --panel-2: var(--ue-dropdown, #383838);
@@ -132,18 +97,28 @@
   --base-font: 12.5px/1.5 var(--sans);
 }
 
-/* Editor theme: flat Slate controls, no brand flourishes. */
-:root[data-theme="editor"] .display { font-size: 24px; letter-spacing: 0; }
-:root[data-theme="editor"] .brand .mark { display: none; }
-:root[data-theme="editor"] .brand .name { font: 700 13px/1 var(--sans); }
-:root[data-theme="editor"] button { font: 400 12px/1.2 var(--sans); letter-spacing: 0; }
-:root[data-theme="editor"] button.primary { font-weight: 400; }
-:root[data-theme="editor"] .tab { font-size: 12.5px; }
-:root[data-theme="editor"] .chip { font: 400 11px/1.4 var(--sans); text-transform: none; letter-spacing: 0; border-radius: 4px; }
-:root[data-theme="editor"] .grid dt { font: 400 12px/1.6 var(--sans); text-transform: none; letter-spacing: 0; }
-:root[data-theme="editor"] .card { border-color: transparent; }
-:root[data-theme="editor"] button.example::before { content: none; }
-:root[data-theme="editor"] .keyform { background: var(--panel-2); border-color: var(--line-strong); }
+/* Editor orange: the editor theme with the ue-mcp accent in place of Unreal's blue. */
+:root[data-theme="editor-orange"] {
+  --accent: #e8720c;
+  --accent-hi: #f28a2e;
+  --accent-wash: rgba(232, 114, 12, 0.18);
+  --accent-line: #e8720c;
+  --on-accent: #140a02;
+  --selection: rgba(232, 114, 12, 0.45);
+}
+
+/* Editor themes: flat Slate controls, no brand flourishes. */
+:root[data-theme="editor"] .display, :root[data-theme="editor-orange"] .display { font-size: 24px; letter-spacing: 0; }
+:root[data-theme="editor"] .brand .mark, :root[data-theme="editor-orange"] .brand .mark { display: none; }
+:root[data-theme="editor"] .brand .name, :root[data-theme="editor-orange"] .brand .name { font: 700 13px/1 var(--sans); }
+:root[data-theme="editor"] button, :root[data-theme="editor-orange"] button { font: 400 12px/1.2 var(--sans); letter-spacing: 0; }
+:root[data-theme="editor"] button.primary, :root[data-theme="editor-orange"] button.primary { font-weight: 400; }
+:root[data-theme="editor"] .tab, :root[data-theme="editor-orange"] .tab { font-size: 12.5px; }
+:root[data-theme="editor"] .chip, :root[data-theme="editor-orange"] .chip { font: 400 11px/1.4 var(--sans); text-transform: none; letter-spacing: 0; border-radius: 4px; }
+:root[data-theme="editor"] .grid dt, :root[data-theme="editor-orange"] .grid dt { font: 400 12px/1.6 var(--sans); text-transform: none; letter-spacing: 0; }
+:root[data-theme="editor"] .card, :root[data-theme="editor-orange"] .card { border-color: transparent; }
+:root[data-theme="editor"] button.example::before, :root[data-theme="editor-orange"] button.example::before { content: none; }
+:root[data-theme="editor"] .keyform, :root[data-theme="editor-orange"] .keyform { background: var(--panel-2); border-color: var(--line-strong); }
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; margin: 0; }
@@ -448,9 +423,9 @@ button.theme-option.selected { border-color: var(--accent); background: var(--ac
 .swatch-ue-mcp i:nth-child(1) { background: #0c0c0b; flex: 3; }
 .swatch-ue-mcp i:nth-child(2) { background: #1a1a18; flex: 2; }
 .swatch-ue-mcp i:nth-child(3) { background: #e8720c; }
-.swatch-light i:nth-child(1) { background: #f7f5f1; flex: 3; }
-.swatch-light i:nth-child(2) { background: #ffffff; flex: 2; }
-.swatch-light i:nth-child(3) { background: #c95f06; }
+.swatch-editor-orange i:nth-child(1) { background: var(--ue-background, #151515); flex: 3; }
+.swatch-editor-orange i:nth-child(2) { background: var(--ue-panel, #242424); flex: 2; }
+.swatch-editor-orange i:nth-child(3) { background: #e8720c; }
 .swatch-editor i:nth-child(1) { background: var(--ue-background, #151515); flex: 3; }
 .swatch-editor i:nth-child(2) { background: var(--ue-panel, #242424); flex: 2; }
 .swatch-editor i:nth-child(3) { background: var(--ue-primary, #0070e0); }

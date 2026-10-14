@@ -62,8 +62,8 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
 };
 
 /** How the UI looks: the ue-mcp.com look, a light variant, or the editor's own colors. */
-export type StudioTheme = "ue-mcp" | "light" | "editor";
-export const STUDIO_THEMES: readonly StudioTheme[] = ["ue-mcp", "light", "editor"];
+export type StudioTheme = "ue-mcp" | "editor-orange" | "editor";
+export const STUDIO_THEMES: readonly StudioTheme[] = ["ue-mcp", "editor-orange", "editor"];
 
 /** How long the model reasons before it answers. A vendor without a level takes its nearest one. */
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
