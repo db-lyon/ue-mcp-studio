@@ -28,11 +28,13 @@ interface StudioBinding {
   setwindowmode?(mode: "docked" | "window"): Promise<boolean>;
   /** Studio's own window only: bring the editor's windows forward, under Studio, without taking focus. */
   raiseeditor?(): Promise<boolean>;
+  /** Studio's own window only: JSON of its status, including windowVersion, the exe's build. */
+  getstatus?(): Promise<string>;
 }
 
 declare global {
   interface Window {
-    ue?: { studio?: StudioBinding };
+    ue?: { studio?: StudioBinding; studioWindow?: boolean };
   }
 }
 

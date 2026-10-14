@@ -17,6 +17,7 @@ import { DialogBanner } from "./views/DialogBanner";
 import { DockToggle } from "./views/DockToggle";
 import { readLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
+import { replaceStaleWindow } from "./window-version";
 
 const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
@@ -41,6 +42,7 @@ export function App() {
 
   useEffect(() => {
     api.settings().then((s) => void applyTheme(s.theme), () => void applyTheme("ue-mcp"));
+    replaceStaleWindow().catch(() => undefined);
   }, []);
 
   return (
