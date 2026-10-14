@@ -51,6 +51,28 @@ describe("updates", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("sends a Fab install to the Fab Library instead of offering an Update", async () => {
+    const fab = (fabUrl?: string) => ({ ...studio(false, false), plugin: { ...studio(false, false).plugin, location: "engine" as const, newer: true, required: true, source: "fab" as const, ...(fabUrl ? { fabUrl } : {}) } });
+    expect(updateSteps({ studio: { ...fab(), plugin: { ...fab().plugin, available: true } }, ueMcp: ueMcp(false) })).toEqual([]);
+    const opened: string[] = [];
+    vi.stubGlobal("open", vi.fn((url: string) => opened.push(url)));
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? fab("https://www.fab.com/listings/abc") : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText(/Update the editor plugin from your Fab Library\./)).toBeTruthy());
+    expect(screen.getByText(/Editor plugin 0\.1\.0-beta\.9 is available/)).toBeTruthy();
+    expect(screen.getByText(/needs a newer editor plugin\. Update it from your Fab Library/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Open Fab Library" }));
+    expect(opened).toEqual(["https://www.fab.com/listings/abc"]);
+    cleanup();
+    opened.length = 0;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? fab() : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Open Fab Library" })).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Open Fab Library" }));
+    expect(opened).toEqual(["https://www.fab.com/library"]);
+  });
+
   it("says up to date with nothing to do", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(false, false) : ueMcp(false)))));
     render(<UpdatesCard />);

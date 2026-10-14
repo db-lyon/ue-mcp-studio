@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FAB_LIBRARY_URL, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 
@@ -7,9 +8,21 @@ export interface StudioUpdates {
   /** stable follows each latest release; beta also takes prereleases. */
   channel?: "stable" | "beta";
   studio: { installed: string; latest: string | null; available: boolean };
-  plugin: { installed: string | null; latest: string | null; available: boolean; location: "project" | "engine" | "none"; engine: string | null; required?: boolean };
+  plugin: StudioPluginUpdate;
   error?: string;
 }
+
+/** Update installs the plugin itself: never for a Fab install, which the Fab Library updates. */
+export const pluginStep = (s: StudioUpdates | null | undefined): boolean => !!s?.plugin.available && s.plugin.source !== "fab";
+
+/** A Fab install with a newer plugin out: where to send the user. */
+export function fabUpdate(s: StudioUpdates | null | undefined): { version: string | null; url: string } | null {
+  if (s?.plugin.source !== "fab" || !(s.plugin.newer || s.plugin.required)) return null;
+  return { version: s.plugin.newer ? s.plugin.latest : null, url: s.plugin.fabUrl || FAB_LIBRARY_URL };
+}
+
+/** Opens in the system browser from the editor panel; a plain browser opens a tab. */
+const openLink = (url: string) => void window.open(url, "_blank", "noopener");
 
 /** GET /v1/update on the daemon: ue-mcp and its bridge. */
 export interface UeMcpUpdate {
@@ -43,7 +56,7 @@ export async function readUpdates(): Promise<{ studio: StudioUpdates | null; ueM
 
 /** How many parts have an update waiting. */
 export function waiting(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): number {
-  return (u.studio?.studio.available ? 1 : 0) + (u.studio?.plugin.available ? 1 : 0) + (u.ueMcp?.target ? 1 : 0);
+  return (u.studio?.studio.available ? 1 : 0) + (pluginStep(u.studio) ? 1 : 0) + (u.ueMcp?.target ? 1 : 0);
 }
 
 /** Updates waiting, read when the panel opens and every six hours, for the dot on Settings. */
@@ -62,7 +75,7 @@ export function useUpdateCount(): number {
 export function updateSteps(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): Array<"ueMcp" | "plugin" | "studio"> {
   const steps: Array<"ueMcp" | "plugin" | "studio"> = [];
   if (u.ueMcp?.target) steps.push("ueMcp");
-  if (u.studio?.plugin.available) steps.push("plugin");
+  if (pluginStep(u.studio)) steps.push("plugin");
   if (u.studio?.studio.available) steps.push("studio");
   return steps;
 }
@@ -71,7 +84,7 @@ export function updateSteps(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdat
 export function readyLine(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): string {
   const parts: string[] = [];
   if (u.ueMcp?.target) parts.push(`ue-mcp ${u.ueMcp.target}`);
-  if (u.studio?.plugin.available) parts.push(`the editor plugin ${u.studio.plugin.latest}`);
+  if (pluginStep(u.studio)) parts.push(`the editor plugin ${u.studio?.plugin.latest}`);
   if (u.studio?.studio.available) parts.push(`Studio ${u.studio.studio.latest}`);
   if (!parts.length) return "";
   const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
@@ -96,12 +109,13 @@ export function UpdatesCard() {
 
   const steps = u ? updateSteps(u) : [];
   const ready = u ? readyLine(u) : "";
-  const engineOnly = u?.studio?.plugin.location === "engine" && !!u?.studio?.plugin.latest;
+  const fab = fabUpdate(u?.studio);
+  const engineOnly = u?.studio?.plugin.location === "engine" && u.studio?.plugin.source !== "fab" && !!u.studio?.plugin.latest;
 
   const rows: Array<[string, string | null, string | null, boolean]> = u
     ? [
         ["Studio", u.studio?.studio.installed ?? null, u.studio?.studio.latest ?? null, !!u.studio?.studio.available],
-        ["Editor plugin", u.studio?.plugin.installed ?? null, u.studio?.plugin.latest ?? null, !!u.studio?.plugin.available],
+        ["Editor plugin", u.studio?.plugin.installed ?? null, u.studio?.plugin.latest ?? null, !!(u.studio?.plugin.available || u.studio?.plugin.newer)],
         ["ue-mcp", u.ueMcp?.server ?? null, u.ueMcp?.latest ?? null, !!u.ueMcp?.target],
       ]
     : [];
@@ -139,7 +153,24 @@ export function UpdatesCard() {
           ))}
         </div>
       )}
-      {u?.studio?.plugin.required && <div className="banner warn small">This version of Studio needs a newer editor plugin. Update installs it and restarts the editor.</div>}
+      {u?.studio?.plugin.required && (
+        <div className="banner warn small">
+          {u.studio.plugin.source === "fab"
+            ? "This version of Studio needs a newer editor plugin. Update it from your Fab Library."
+            : u.studio.plugin.location === "project"
+              ? "This version of Studio needs a newer editor plugin. Update installs it and restarts the editor."
+              : "This version of Studio needs a newer editor plugin. Update it where it was installed."}
+        </div>
+      )}
+      {fab && (
+        <div className="row update-fab">
+          <span className="muted small">
+            {fab.version ? `Editor plugin ${fab.version} is available. ` : ""}Update the editor plugin from your Fab Library.
+          </span>
+          <span className="spacer" />
+          <button onClick={() => openLink(fab.url)}>Open Fab Library</button>
+        </div>
+      )}
       {engineOnly && <p className="dim small">The editor plugin was installed with the engine; the Epic launcher updates it.</p>}
       {u && (
         <details className="update-details">

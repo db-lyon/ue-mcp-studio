@@ -30,6 +30,13 @@ describe("an update run", () => {
     expect(planRun({ studio: studio(false, false), ueMcp: ueMcp("1.4.0-beta.4", null) })).toBeNull();
   });
 
+  it("never plans the plugin step for a Fab install, which the Fab Library updates", () => {
+    const fab = { ...studio(true, true), plugin: { ...studio(true, true).plugin, source: "fab" as const } };
+    expect(planRun({ studio: fab, ueMcp: ueMcp("1.4.0-beta.4", null) })!.steps.map((s) => s.key)).toEqual(["studio"]);
+    const run: UpdateRun = { target: null, at: Date.now(), steps: [{ key: "studio", state: "active" }] };
+    expect(settle(run, { studio: { ...fab, studio: { ...fab.studio, available: false } }, ueMcp: ueMcp("1.4.0-beta.4", null) }).steps).toEqual([{ key: "studio", state: "done" }]);
+  });
+
   it("keeps going after the editor restarts for the plugin: the plugin is done, Studio still to do", () => {
     const run: UpdateRun = { target: null, at: Date.now(), steps: [{ key: "plugin", state: "active" }, { key: "studio", state: "pending" }] };
     expect(settle(run, { studio: studio(true, false), ueMcp: ueMcp("1.4.0-beta.4", null) }).steps.map((s) => s.state)).toEqual(["done", "pending"]);

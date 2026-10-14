@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { Updater, isNewer, newestAsset, readChannel, writeChannel } from "../src/updates.js";
+import { Updater, isNewer, readPluginRecord, newestAsset, readChannel, writeChannel } from "../src/updates.js";
 
 // The user's own channel choice never reaches these tests.
 process.env.STUDIO_CHANNEL_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "studio-chan-")), "update-channel.json");
@@ -20,6 +20,13 @@ function project(pluginVersion: string | null) {
     fs.writeFileSync(path.join(p, "UE_MCP_Studio.uplugin"), JSON.stringify({ VersionName: pluginVersion }));
   }
   return dir;
+}
+
+/** The record the editor plugin writes at startup. */
+function record(dir: string, r: unknown) {
+  const file = path.join(dir, "Saved", "UE_MCP_Studio", "plugin.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, typeof r === "string" ? r : JSON.stringify(r));
 }
 
 /** A release zip of the plugin, as release.mjs packages it. */
@@ -131,6 +138,48 @@ describe("Studio updates", () => {
     expect(await u.updatePlugin()).toMatchObject({ ok: false, error: expect.stringMatching(/SHA-256/) });
     expect(host.ops).toEqual([]);
     expect(u.pluginVersion()).toBe("0.1.0-beta.4");
+  });
+});
+
+describe("the plugin's own record", () => {
+  const m = { version: "0.1.9", url: "s", sha256: "x", pluginMin: "0.1.9", plugin: { version: "0.1.9", files: { "5.8": { url: "https://x/p.zip", sha256: "y" } } } };
+
+  it("marks a Fab install, wherever it is, and shows the newer version without offering it to Update", async () => {
+    const url = "com.epicgames.launcher://ue/Fab/product/abc";
+    const dir = project(null);
+    record(dir, { version: "0.1.8", dir: path.join(os.tmpdir(), "anywhere", "UE_MCP_Studio"), fab: true, fabUrl: url });
+    const status = await new Updater(fakeHost(dir), "0.1.9", () => {}, manifestFetch(m)).check();
+    expect(status.plugin).toMatchObject({ installed: "0.1.8", latest: "0.1.9", available: false, newer: true, required: true, location: "engine", source: "fab", fabUrl: url });
+  });
+
+  it("never swaps a Fab install in the project's Plugins folder", async () => {
+    const dir = project("0.1.8");
+    record(dir, { version: "0.1.8", dir: path.join(dir, "Plugins", "UE_MCP_Studio"), fab: true, fabUrl: "" });
+    const host = fakeHost(dir);
+    const u = new Updater(host, "0.1.9", () => {}, manifestFetch(m));
+    const status = await u.check();
+    expect(status.plugin).toMatchObject({ available: false, newer: true, location: "project", source: "fab" });
+    expect(status.plugin.fabUrl).toBeUndefined();
+    expect(await u.updatePlugin()).toMatchObject({ ok: false, error: expect.stringMatching(/Fab Library/) });
+    expect(host.ops).toEqual([]);
+    expect(u.pluginVersion()).toBe("0.1.8");
+  });
+
+  it("takes fab false as a GitHub install, which Update keeps current", async () => {
+    const dir = project("0.1.8");
+    record(dir, { version: "0.1.8", dir: path.join(dir, "Plugins", "UE_MCP_Studio"), fab: false, fabUrl: "" });
+    expect((await new Updater(fakeHost(dir), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", available: true, location: "project", source: "github" });
+  });
+
+  it("falls back to the project's .uplugin as a GitHub install when the record is missing or malformed", async () => {
+    expect(readPluginRecord(project("0.1.8"))).toBeNull();
+    expect((await new Updater(fakeHost(project("0.1.8")), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", available: true, source: "github" });
+    for (const bad of ["{not json", JSON.stringify({ version: "0.1.8", dir: "x" }), JSON.stringify({ version: 8, dir: "x", fab: true })]) {
+      const dir = project("0.1.8");
+      record(dir, bad);
+      expect(readPluginRecord(dir)).toBeNull();
+      expect((await new Updater(fakeHost(dir), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", available: true, location: "project", source: "github" });
+    }
   });
 });
 

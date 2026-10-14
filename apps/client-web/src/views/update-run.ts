@@ -6,7 +6,7 @@
  * shared): the page that loads next settles the step that was running against
  * what the updates now say, then runs the rest.
  */
-import { readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
+import { pluginStep, readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 
 export type StepKey = "ueMcp" | "plugin" | "studio" | "restart";
 /** deferred: the agent keeps the step until no turn is in progress, then runs it. */
@@ -66,7 +66,7 @@ const WAITS: StepKey[] = ["plugin", "studio", "restart"];
 export function planRun(u: Updates, now = Date.now()): UpdateRun | null {
   const keys: StepKey[] = [];
   if (u.ueMcp?.target) keys.push("ueMcp");
-  if (u.studio?.plugin.available) keys.push("plugin");
+  if (pluginStep(u.studio)) keys.push("plugin");
   if (u.studio?.studio.available) keys.push("studio");
   else if (keys.includes("ueMcp")) keys.push("restart");
   return keys.length ? { steps: keys.map((key) => ({ key, state: "pending" })), target: u.ueMcp?.target ?? null, at: now } : null;
@@ -83,7 +83,7 @@ export function settle(run: UpdateRun, u: Updates): UpdateRun {
       case "ueMcp":
         return { ...s, state: "pending" };
       case "plugin":
-        return { ...s, state: u.studio && !u.studio.plugin.available ? "done" : "failed" };
+        return { ...s, state: u.studio && !pluginStep(u.studio) ? "done" : "failed" };
       case "studio":
         return { ...s, state: u.studio && !u.studio.studio.available ? "done" : "failed" };
       case "restart":
@@ -91,7 +91,7 @@ export function settle(run: UpdateRun, u: Updates): UpdateRun {
     }
   });
   // A Studio that reads the plugin's own channel can find a plugin update the run did not plan.
-  if (!steps.some((s) => s.key === "plugin") && u.studio?.plugin.available) steps.push({ key: "plugin", state: "pending" });
+  if (!steps.some((s) => s.key === "plugin") && pluginStep(u.studio)) steps.push({ key: "plugin", state: "pending" });
   const failed = steps.find((s) => s.state === "failed");
   return { ...run, steps, detail: undefined, error: failed ? unfinished(failed.key, u) : run.error };
 }
