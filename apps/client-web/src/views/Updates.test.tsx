@@ -8,7 +8,7 @@ const studio = (s: boolean, p: boolean) => ({
   studio: { installed: "0.1.0-beta.9", latest: s ? "0.1.0-beta.10" : "0.1.0-beta.9", available: s },
   plugin: { installed: "0.1.0-beta.4", latest: "0.1.0-beta.9", available: p, location: "project" as const, engine: "5.8" },
 });
-const ueMcp = (t: boolean) => ({ server: "1.4.0-beta.1", latest: "1.4.0-beta.2", target: t ? "1.4.0-beta.2" : null, binaries: { available: true, file: "b.zip" } });
+const ueMcp = (t: boolean) => ({ installed: { version: "1.4.0-beta.1" }, server: "1.4.0-beta.1", latest: "1.4.0-beta.2", target: t ? "1.4.0-beta.2" : null, binaries: { available: true, file: "b.zip" } });
 
 afterEach(() => {
   cleanup();
@@ -16,15 +16,24 @@ afterEach(() => {
 });
 
 describe("updates", () => {
-  it("runs ue-mcp first, then the editor plugin, then Studio, and counts what waits", () => {
+  it("runs the bridge plugin first, then the editor plugin, then Studio, and counts what waits", () => {
     expect(updateSteps({ studio: studio(true, true), ueMcp: ueMcp(true) })).toEqual(["ueMcp", "plugin", "studio"]);
     expect(updateSteps({ studio: studio(false, false), ueMcp: ueMcp(false) })).toEqual([]);
     expect(waiting({ studio: studio(true, false), ueMcp: ueMcp(true) })).toBe(2);
   });
 
   it("names each part that has something newer", () => {
-    expect(readyLine({ studio: studio(false, false), ueMcp: ueMcp(true) })).toBe("Ready to install: ue-mcp 1.4.0-beta.2.");
-    expect(readyLine({ studio: studio(true, true), ueMcp: ueMcp(true) })).toBe("Ready to install: ue-mcp 1.4.0-beta.2, the editor plugin 0.1.0-beta.9 and Studio 0.1.0-beta.10.");
+    expect(readyLine({ studio: studio(false, false), ueMcp: ueMcp(true) })).toBe("Ready to install: the bridge plugin 1.4.0-beta.2.");
+    expect(readyLine({ studio: studio(true, true), ueMcp: ueMcp(true) })).toBe("Ready to install: the bridge plugin 1.4.0-beta.2, the editor plugin 0.1.0-beta.9 and Studio 0.1.0-beta.10.");
+  });
+
+  it("names the bridge plugin, not ue-mcp, when only the bridge is behind the daemon", async () => {
+    const behind = { installed: { version: "1.4.0-beta.1" }, server: "1.4.3", latest: "1.4.3", target: "1.4.3", binaries: { available: true, file: "b.zip" } };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(false, false) : behind))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText("Ready to install: the bridge plugin 1.4.3.")).toBeTruthy());
+    expect(screen.getByText("Bridge plugin: 1.4.0-beta.1 → 1.4.3")).toBeTruthy();
+    expect(screen.getByText("ue-mcp: 1.4.3")).toBeTruthy();
   });
 
   it("shows one Update button that runs every step in order, and stops at the first failure", async () => {

@@ -24,8 +24,13 @@ export function fabUpdate(s: StudioUpdates | null | undefined): { version: strin
 /** Opens in the system browser from the editor panel; a plain browser opens a tab. */
 const openLink = (url: string) => void window.open(url, "_blank", "noopener");
 
-/** GET /v1/update on the daemon: ue-mcp and its bridge. */
+/**
+ * GET /v1/update on the daemon. target is the release the project's bridge
+ * plugin moves to, compared against installed.version, not against server.
+ */
 export interface UeMcpUpdate {
+  installed: { version: string | null };
+  /** The ue-mcp package the daemon runs. */
   server: string;
   latest: string | null;
   target: string | null;
@@ -71,7 +76,10 @@ export function useUpdateCount(): number {
   return count;
 }
 
-/** The steps one Update runs, in order: ue-mcp, then the editor plugin (the editor closes and reopens), then Studio, which restarts ue-mcp. */
+/** The bridge update restarts the daemon onto the target only when it runs another version. */
+export const daemonMoves = (u: UeMcpUpdate | null | undefined): boolean => !!u?.target && u.server !== u.target;
+
+/** The steps one Update runs, in order: the bridge plugin, then the editor plugin (the editor closes and reopens), then Studio, which restarts ue-mcp. */
 export function updateSteps(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): Array<"ueMcp" | "plugin" | "studio"> {
   const steps: Array<"ueMcp" | "plugin" | "studio"> = [];
   if (u.ueMcp?.target) steps.push("ueMcp");
@@ -80,10 +88,10 @@ export function updateSteps(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdat
   return steps;
 }
 
-/** "Ready to install: ue-mcp 1.4.0-beta.3 and the editor plugin 0.1.0-beta.9." Names each part that has something newer. */
+/** "Ready to install: the bridge plugin 1.4.3 and the editor plugin 0.1.0-beta.9." Names each part that has something newer. */
 export function readyLine(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): string {
   const parts: string[] = [];
-  if (u.ueMcp?.target) parts.push(`ue-mcp ${u.ueMcp.target}`);
+  if (u.ueMcp?.target) parts.push(`the bridge plugin ${u.ueMcp.target}`);
   if (pluginStep(u.studio)) parts.push(`the editor plugin ${u.studio?.plugin.latest}`);
   if (u.studio?.studio.available) parts.push(`Studio ${u.studio.studio.latest}`);
   if (!parts.length) return "";
@@ -116,7 +124,8 @@ export function UpdatesCard() {
     ? [
         ["Studio", u.studio?.studio.installed ?? null, u.studio?.studio.latest ?? null, !!u.studio?.studio.available],
         ["Editor plugin", u.studio?.plugin.installed ?? null, u.studio?.plugin.latest ?? null, !!(u.studio?.plugin.available || u.studio?.plugin.newer)],
-        ["ue-mcp", u.ueMcp?.server ?? null, u.ueMcp?.latest ?? null, !!u.ueMcp?.target],
+        ["Bridge plugin", u.ueMcp?.installed.version ?? null, u.ueMcp?.target ?? null, !!u.ueMcp?.target],
+        ["ue-mcp", u.ueMcp?.server ?? null, u.ueMcp?.target ?? null, daemonMoves(u.ueMcp)],
       ]
     : [];
 

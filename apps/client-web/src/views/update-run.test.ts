@@ -6,7 +6,7 @@ const studio = (s: boolean, p: boolean) => ({
   studio: { installed: s ? "0.1.0-beta.9" : "0.1.0-beta.10", latest: "0.1.0-beta.10", available: s },
   plugin: { installed: p ? "0.1.0-beta.4" : "0.1.0-beta.9", latest: "0.1.0-beta.9", available: p, location: "project" as const, engine: "5.8" },
 });
-const ueMcp = (server: string, target: string | null) => ({ server, latest: "1.4.0-beta.4", target, binaries: null });
+const ueMcp = (server: string, target: string | null) => ({ installed: { version: server }, server, latest: "1.4.0-beta.4", target, binaries: null });
 
 /** The agent's run store, and the update reads, behind fetch. */
 function agent(updates: () => unknown) {
@@ -28,6 +28,13 @@ describe("an update run", () => {
     expect(planRun({ studio: studio(true, true), ueMcp: ueMcp("1.4.0-beta.3", "1.4.0-beta.4") })!.steps.map((s) => s.key)).toEqual(["ueMcp", "plugin", "studio"]);
     expect(planRun({ studio: studio(false, false), ueMcp: ueMcp("1.4.0-beta.3", "1.4.0-beta.4") })!.steps.map((s) => s.key)).toEqual(["ueMcp", "restart"]);
     expect(planRun({ studio: studio(false, false), ueMcp: ueMcp("1.4.0-beta.4", null) })).toBeNull();
+  });
+
+  it("updates only the bridge when the daemon already runs its target", () => {
+    const behind = { installed: { version: "1.4.0-beta.1" }, server: "1.4.3", latest: "1.4.3", target: "1.4.3", binaries: null };
+    const run = planRun({ studio: studio(false, false), ueMcp: behind })!;
+    expect(run.steps.map((s) => s.key)).toEqual(["ueMcp"]);
+    expect(run.target).toBe("1.4.3");
   });
 
   it("never plans the plugin step for a Fab install, which the Fab Library updates", () => {
@@ -100,7 +107,7 @@ describe("an update run", () => {
       url === "/v1/ext/studio/updates/run" ? inner(url, init) : new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(false, false) : ueMcp("1.4.0-beta.4", null))));
     let last: UpdateRun | null = null;
     await execute({ target: null, at: Date.now(), steps: [{ key: "plugin", state: "pending" }] }, (r) => (last = r), async () => ({ ok: true }));
-    expect(last!.summary).toBe("Studio 0.1.0-beta.10, editor plugin 0.1.0-beta.9, ue-mcp 1.4.0-beta.4.");
+    expect(last!.summary).toBe("Studio 0.1.0-beta.10, editor plugin 0.1.0-beta.9, bridge plugin 1.4.0-beta.4, ue-mcp 1.4.0-beta.4.");
     expect(await loadRun()).toBeNull();
   });
 

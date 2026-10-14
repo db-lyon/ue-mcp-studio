@@ -6,7 +6,7 @@
  * shared): the page that loads next settles the step that was running against
  * what the updates now say, then runs the rest.
  */
-import { pluginStep, readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
+import { daemonMoves, pluginStep, readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 
 export type StepKey = "ueMcp" | "plugin" | "studio" | "restart";
 /** deferred: the agent keeps the step until no turn is in progress, then runs it. */
@@ -17,7 +17,7 @@ export interface RunStep {
 }
 export interface UpdateRun {
   steps: RunStep[];
-  /** The ue-mcp version the run installs, when it installs one. */
+  /** The bridge plugin version the run installs, when it installs one. */
   target: string | null;
   at: number;
   /** The latest progress line from the step running. */
@@ -32,7 +32,7 @@ type Updates = { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null };
 /** A run older than this is from an update that never came back; it is dropped rather than resumed. */
 const STALE_MS = 30 * 60_000;
 
-export const STEP_NAME: Record<StepKey, string> = { ueMcp: "ue-mcp", plugin: "Editor plugin", studio: "Studio", restart: "Restart ue-mcp" };
+export const STEP_NAME: Record<StepKey, string> = { ueMcp: "Bridge plugin", plugin: "Editor plugin", studio: "Studio", restart: "Restart ue-mcp" };
 export const STEP_NOTE: Partial<Record<StepKey, string>> = {
   plugin: "The editor closes and reopens. Studio comes back with it.",
   studio: "ue-mcp restarts. This panel reloads when it is back.",
@@ -62,13 +62,13 @@ export const waitingSteps = (run: UpdateRun): StepKey[] => run.steps.filter((s) 
 /** The steps that restart the daemon or close the editor: they wait for the turns. */
 const WAITS: StepKey[] = ["plugin", "studio", "restart"];
 
-/** The steps one Update runs: ue-mcp, the editor plugin, then Studio, which restarts ue-mcp; else a restart onto the new ue-mcp. */
+/** The steps one Update runs: the bridge plugin, the editor plugin, then Studio, which restarts ue-mcp; else a restart onto the new ue-mcp when the daemon runs another version. */
 export function planRun(u: Updates, now = Date.now()): UpdateRun | null {
   const keys: StepKey[] = [];
   if (u.ueMcp?.target) keys.push("ueMcp");
   if (pluginStep(u.studio)) keys.push("plugin");
   if (u.studio?.studio.available) keys.push("studio");
-  else if (keys.includes("ueMcp")) keys.push("restart");
+  else if (keys.includes("ueMcp") && daemonMoves(u.ueMcp)) keys.push("restart");
   return keys.length ? { steps: keys.map((key) => ({ key, state: "pending" })), target: u.ueMcp?.target ?? null, at: now } : null;
 }
 
@@ -120,11 +120,12 @@ export async function restartNow(run: UpdateRun, onChange: (run: UpdateRun) => v
   }
 }
 
-/** "Studio 0.1.0-beta.24, editor plugin 0.1.0-beta.11, ue-mcp 1.4.0-beta.4." */
+/** "Studio 0.1.0-beta.24, editor plugin 0.1.0-beta.11, bridge plugin 1.4.0-beta.4, ue-mcp 1.4.0-beta.4." */
 export function summaryOf(u: Updates): string {
   const parts = [
     u.studio ? `Studio ${u.studio.studio.installed}` : "",
     u.studio?.plugin.installed ? `editor plugin ${u.studio.plugin.installed}` : "",
+    u.ueMcp?.installed.version ? `bridge plugin ${u.ueMcp.installed.version}` : "",
     u.ueMcp ? `ue-mcp ${u.ueMcp.server}` : "",
   ].filter(Boolean);
   return parts.length ? `${parts.join(", ")}.` : "";
