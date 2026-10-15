@@ -222,16 +222,18 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
   const category = input.category as string;
   const method = input.method as string;
   const args = (input.args as Record<string, unknown> | undefined) ?? {};
+  // Unknown only when the editor went away during the call. One already gone never ran it, so its error is the answer.
+  const wasConnected = editorConnected(host);
   let r: ActionResult;
   try {
     r = await host.callAction(category, method, args);
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
-    if (!editorConnected(host)) return { text: message, isError: true, outcome: "unknown", touched: namedTargets(args), saved: [] };
+    if (wasConnected && !editorConnected(host)) return { text: message, isError: true, outcome: "unknown", touched: namedTargets(args), saved: [] };
     return { text: message, isError: true, outcome: "error", touched: [], saved: [] };
   }
   const text = resultText(r);
-  if (r.isError && !editorConnected(host)) {
+  if (r.isError && wasConnected && !editorConnected(host)) {
     return { text, isError: true, outcome: "unknown", touched: namedTargets(args), saved: [] };
   }
   const json = parseJson(text);

@@ -384,6 +384,65 @@ describe("the editor going away", () => {
   });
 });
 
+describe("the editor gone with nothing bringing it back (#1384)", () => {
+  const busyOn = () => new BusyTracker((type, data) => host.emit(`studio.${type}`, data), Date.now, () => host.connected);
+  const restart = (op: string): ModelTurn => ({ content: [{ type: "tool_use", id: "r", name: "editor_restart", input: { operation: op, reason: "C++ changed" } } as never], stopReason: "tool_use" });
+
+  it("a rebuild whose build failed is an error, not a wait, also from an older daemon that marked the step ok", async () => {
+    const busy = busyOn();
+    host.editorOperation = async (op: string) => {
+      host.connected = false;
+      return { op, steps: [
+        { step: "editor.stop_editor", ok: true, result: JSON.stringify({ success: true }) },
+        { step: "project.build", ok: true, result: JSON.stringify({ success: false, exitCode: 6, message: "Build failed with exit code 6" }) },
+        { step: "editor.start_editor", ok: true, result: JSON.stringify({ success: false, message: "Editor launched but did not become ready: still not ready after 300s." }) },
+      ] };
+    };
+    const model = new ScriptedModel([() => restart("rebuild"), () => text("The build failed.")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", busy });
+    const s = store.create();
+    await runner.send(s.id, "rebuild");
+    expect(store.get(s.id)!.status).toBe("idle");
+    const result = model.requests[1].messages.at(-1)!.content as Array<{ type: string; content: string; is_error?: boolean }>;
+    expect(result[0]).toMatchObject({ is_error: true });
+    expect(result[0].content).toMatch(/^rebuild failed at project.build/);
+    expect(busy.state().failure).toMatchObject({ op: "rebuild", step: "project.build", reason: "Build failed with exit code 6" });
+  });
+
+  it("an editor call goes ahead with no restart running instead of waiting, and the cause says what is true", async () => {
+    const busy = busyOn();
+    host.connected = false;
+    host.emit("editor.disconnected", { cause: "rebuild" });
+    host.handler = async () => ({ isError: true, content: [{ type: "text", text: "Error [NOT_CONNECTED]: the editor is not running" }] });
+    const model = new ScriptedModel([() => call("t1", "feedback", "submit", { title: "x" }), () => text("Noted.")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", busy });
+    const s = store.create();
+    await runner.send(s.id, "file it");
+    expect(store.get(s.id)!.status).toBe("idle");
+    expect(host.calls.map((c) => `${c.category}.${c.action}`)).toEqual(["feedback.submit"]);
+  });
+
+  it("a paused turn resumes when the wait for the editor to attach runs out", async () => {
+    const busy = new BusyTracker((type, data) => host.emit(`studio.${type}`, data), Date.now, () => host.connected, 50);
+    host.editorOperation = async (op: string) => {
+      host.connected = false;
+      host.emit("editor.operation", { op, step: "editor.restart_editor", phase: "started" });
+      host.emit("editor.operation", { op, step: "editor.restart_editor", phase: "done" });
+      return { op, steps: [{ step: "editor.restart_editor", ok: true, result: JSON.stringify({ success: true }) }] };
+    };
+    const unobserve = host.events.subscribe((e) => busy.observe(e));
+    const model = new ScriptedModel([() => restart("restart"), () => text("It did not come back.")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", busy });
+    const s = store.create();
+    await runner.send(s.id, "restart");
+    expect(store.get(s.id)!.status).toBe("waiting");
+    expect(store.get(s.id)!.waitingCause).toBe("the editor is restarting");
+    await until(() => store.get(s.id)!.status === "idle");
+    expect(store.get(s.id)!.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "It did not come back." });
+    unobserve();
+  });
+});
+
 describe("persistence", () => {
   it("survives a daemon restart mid-turn: a call that was running becomes unknown, then the turn finishes", async () => {
     const model1 = new ScriptedModel([() => call("t1", "level", "spawn_actor", { actorLabel: "Lamp" })]);

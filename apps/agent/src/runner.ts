@@ -73,6 +73,13 @@ const SUBAGENT_STEPS = 200;
 /** How long editor_restart waits for the editor to connect again after the daemon reports it started. */
 export const EDITOR_BACK_MS = 10 * 60_000;
 
+/**
+ * How long an editor call waits for a disconnected editor when no restart or
+ * rebuild is running to bring it back. Past this the call goes ahead and gets
+ * the daemon's own answer, instead of the turn waiting on nothing (#1384).
+ */
+export const IDLE_EDITOR_WAIT_MS = 60_000;
+
 /** Why the daemon went down, written by whatever restarts it on purpose and read by the next daemon. */
 export const RESTART_CAUSE_FILE = "restart-cause.json";
 const RESTART_CAUSE_TTL_MS = 10 * 60_000;
@@ -157,6 +164,9 @@ export class AgentRunner {
           }
         }
       } else if (e.type === "editor.connected") {
+        this.resumeAll();
+      } else if (e.type === "studio.busy.changed" && e.data.failure && !e.data.operation) {
+        // The restart or rebuild ended without the editor: nothing will bring it back, so stop waiting for it.
         this.resumeAll();
       }
     });
@@ -391,12 +401,42 @@ export class AgentRunner {
     };
   }
 
-  /** Hold a tool call until the editor is back, showing the session as waiting meanwhile. False when it gave up first. */
+  /**
+   * Why the editor is not here right now. A restart or rebuild that has ended
+   * no longer is the reason, whatever the last disconnect said.
+   */
+  private causeNow(): string {
+    const busy = this.o.busy?.state();
+    if (busy?.operation) {
+      const op = busy.operation.op;
+      return op === "rebuild" ? "the project is rebuilding" : op === "stop" ? "the editor is stopping" : op === "start" ? "the editor is starting" : "the editor is restarting";
+    }
+    if (busy?.failure) return `the ${busy.failure.op} did not bring the editor back: ${busy.failure.reason}`;
+    if (this.o.busy && (this.lastCause === "the project is rebuilding" || this.lastCause === "the editor is restarting")) return "the editor is not running";
+    return this.lastCause;
+  }
+
+  /** Whether a restart or rebuild is under way that will bring the editor back. */
+  private operating(): boolean {
+    return this.o.busy ? !!this.o.busy.state().operation : true;
+  }
+
+  /**
+   * Hold a tool call until the editor is back, showing the session as waiting
+   * meanwhile. While a restart or rebuild runs it waits up to `limitMs`; with
+   * none running, only IDLE_EDITOR_WAIT_MS. False when it gave up first.
+   */
   private async waitForEditor(s: StoredSession, signal: AbortSignal, limitMs = Infinity): Promise<boolean> {
     if (editorConnected(this.o.host)) return true;
-    const end = Date.now() + limitMs;
-    this.setStatus(s, "waiting", this.lastCause);
-    while (!editorConnected(this.o.host) && !signal.aborted && Date.now() < end) await new Promise((r) => setTimeout(r, 1000));
+    const start = Date.now();
+    const end = start + limitMs;
+    let cause = this.causeNow();
+    this.setStatus(s, "waiting", cause);
+    while (!editorConnected(this.o.host) && !signal.aborted && Date.now() < end && (this.operating() || Date.now() - start < IDLE_EDITOR_WAIT_MS)) {
+      await new Promise((r) => setTimeout(r, 1000));
+      const now = this.causeNow();
+      if (now !== cause && !signal.aborted && !editorConnected(this.o.host)) this.setStatus(s, "waiting", (cause = now));
+    }
     if (!signal.aborted) this.setStatus(s, "running", null);
     return editorConnected(this.o.host);
   }
@@ -676,7 +716,8 @@ export class AgentRunner {
       }
 
       const needsEditor = p.name === "ue_mcp" && p.input.action === "call";
-      if (needsEditor && !editorConnected(this.o.host)) return this.pause(s);
+      // Paused only while a restart or rebuild will bring the editor back; otherwise the call gets the daemon's own answer.
+      if (needsEditor && !editorConnected(this.o.host) && this.operating()) return this.pause(s);
 
       // Waiting for the user leaves the call queued, so a daemon restart asks again rather than guessing.
       const gate = await this.gate(s, p.id, p.name, p.input, signal);
@@ -710,8 +751,9 @@ export class AgentRunner {
       this.mergeTouched(s, exec.touched, true);
       this.markSaved(s, exec.saved);
       this.recordOutcome(s, p, exec.outcome);
-      if (p.name === "editor_restart" && !exec.isError && !editorConnected(this.o.host)) {
+      if (p.name === "editor_restart" && !exec.isError && !editorConnected(this.o.host) && this.operating()) {
         // The restart returned; wait for the editor to reattach before the model continues.
+        // Bounded: the busy tracker ends the wait for it to attach, and that resumes this turn.
         this.flushPending(s);
         return this.pause(s);
       }
@@ -792,7 +834,7 @@ export class AgentRunner {
   }
 
   private pause(s: StoredSession): boolean {
-    this.setStatus(s, "waiting", this.lastCause);
+    this.setStatus(s, "waiting", this.causeNow());
     return true;
   }
 
