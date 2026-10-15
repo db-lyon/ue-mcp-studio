@@ -22,14 +22,20 @@ interface StudioBinding {
   opendocs?(path: string): Promise<boolean>;
   /** Start the project's daemon (or install Studio first when it is missing). */
   startdaemon?(): Promise<boolean>;
+  /** Open the Node.js download page in the system browser. */
+  opennodedownload?(): Promise<boolean>;
   /** Studio's own window only: JSON of { mode: "docked" | "window", canDock }. canDock is false with a plugin that has no dock tab. */
   getwindowmode?(): Promise<string>;
   /** Studio's own window only: dock it in the editor's tab, or open it as a window, and keep that for the project. */
   setwindowmode?(mode: "docked" | "window"): Promise<boolean>;
   /** Studio's own window only: bring the editor's windows forward, under Studio, without taking focus. */
   raiseeditor?(): Promise<boolean>;
-  /** Studio's own window only: JSON of its status, including windowVersion, the exe's build. */
+  /** JSON of the host's status: node (found or not), log (its path), daemon (null when none is live); the window adds windowVersion. */
   getstatus?(): Promise<string>;
+  /** Studio's own window only: open the Studio log, where starting ue-mcp writes its output. */
+  openlog?(): Promise<boolean>;
+  /** Studio's own window only: the page's connection state, as JSON. A page that reports it keeps the window while ue-mcp is away. */
+  setconnectionstate?(state: string): Promise<boolean>;
 }
 
 declare global {
