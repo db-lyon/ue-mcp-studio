@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-/** A clock that ticks every second while anything is running, for live elapsed times and stuck detection. */
+/** A clock that ticks every second while anything is running, for live elapsed times and how long a subagent has been quiet. */
 export function useNow(active: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

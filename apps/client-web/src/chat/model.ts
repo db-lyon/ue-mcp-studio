@@ -7,12 +7,11 @@ import type { ToolCallRecord, TranscriptEntry, TurnStatus } from "@ue-mcp-studio
 export type Call = ToolCallRecord;
 
 /** What a subagent is doing now. */
-export type AgentState = "working" | "waiting" | "stuck" | "done" | "failed" | "unknown" | "stopped";
+export type AgentState = "working" | "waiting" | "done" | "failed" | "unknown" | "stopped";
 
 export const STATE_LABEL: Record<AgentState, string> = {
   working: "working",
   waiting: "waiting for editor",
-  stuck: "stuck",
   done: "done",
   failed: "failed",
   unknown: "outcome unknown",
@@ -20,11 +19,15 @@ export const STATE_LABEL: Record<AgentState, string> = {
 };
 
 /** The states that are still running; the rest are finished. */
-export const ACTIVE: readonly AgentState[] = ["working", "waiting", "stuck"];
+export const ACTIVE: readonly AgentState[] = ["working", "waiting"];
 export const isActive = (state: AgentState): boolean => ACTIVE.includes(state);
 
-/** A running subagent with nothing new for this long is shown as stuck. */
-export const STUCK_MS = 90_000;
+/**
+ * A running subagent quiet for this long says how long. Quiet is not stuck: a
+ * model thinking through a long answer writes nothing until it is done, so the
+ * time is shown and no verdict is drawn from it.
+ */
+export const QUIET_MS = 90_000;
 
 export const OUTCOME_LABEL: Record<ToolCallRecord["outcome"], string> = {
   pending: "running",
@@ -115,18 +118,17 @@ export function agentStatus(call: Call, transcript: TranscriptEntry[], sessionWa
   const running = [...steps].reverse().find((t) => t.kind === "tool" && t.call.outcome === "pending");
   if (running?.kind === "tool") return { state: "working", activity: toolLabel(running.call), secs };
   const last = Math.max(Date.parse(call.startedAt), ...steps.map(timeOf));
-  if (now - last > STUCK_MS) return { state: "stuck", activity: `nothing new for ${formatDuration((now - last) / 1000)}`, secs };
+  if (now - last > QUIET_MS) return { state: "working", activity: `thinking, ${formatDuration((now - last) / 1000)} since its last step`, secs };
   return { state: "working", activity: "thinking", secs };
 }
 
-/** "3 working, 1 stuck, 12 done, 1 failed": the states present, in a fixed order. */
+/** "3 working, 12 done, 1 failed": the states present, in a fixed order. */
 export function summarize(states: AgentState[]): string {
   const n = (st: AgentState) => states.filter((s) => s === st).length;
   const failed = n("failed") + n("unknown");
   return [
     n("working") && `${n("working")} working`,
     n("waiting") && `${n("waiting")} waiting`,
-    n("stuck") && `${n("stuck")} stuck`,
     n("done") && `${n("done")} done`,
     n("stopped") && `${n("stopped")} stopped`,
     failed && `${failed} failed`,

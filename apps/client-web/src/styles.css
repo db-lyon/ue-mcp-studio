@@ -595,12 +595,11 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agents-row .agents-meta { margin-left: auto; white-space: nowrap; }
 .state-working .agents-dot, .agent-link.state-working::before { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .state-waiting .agents-dot, .agent-link.state-waiting::before { background: var(--warn); animation: pulse 2s ease-in-out infinite; }
-.state-stuck .agents-dot, .agent-link.state-stuck::before { background: var(--warn); }
 .state-done .agents-dot, .agent-link.state-done::before { background: var(--ok); }
 .state-failed .agents-dot, .agent-link.state-failed::before { background: var(--bad); }
 .state-unknown .agents-dot, .agent-link.state-unknown::before { background: var(--warn); }
 .state-working .agents-state { color: var(--accent-hi); }
-.state-waiting .agents-state, .state-stuck .agents-state, .state-unknown .agents-state { color: var(--warn); }
+.state-waiting .agents-state, .state-unknown .agents-state { color: var(--warn); }
 .state-failed .agents-state { color: var(--bad); }
 .state-done .agents-state { color: var(--ok); }
 .agent-link .agents-state { font-size: 11px; }

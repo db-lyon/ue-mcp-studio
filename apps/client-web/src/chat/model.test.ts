@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { STUCK_MS, agentStatus, finishedTurns, formatDuration, formatResult, mainTimeline, summarize, toolLabel } from "./model";
+import { QUIET_MS, agentStatus, finishedTurns, formatDuration, formatResult, mainTimeline, summarize, toolLabel } from "./model";
 
 const T0 = Date.parse("2026-10-11T12:00:00Z");
 const at = (secs: number) => new Date(T0 + secs * 1000).toISOString();
@@ -30,17 +30,17 @@ describe("a subagent's state", () => {
     expect(agentStatus(callOf(a), [a, step("a", "s1", "done", 2, 3)], false, T0 + 10_000).activity).toBe("thinking");
   });
 
-  it("is stuck once nothing new has happened for a while, even with no steps at all", () => {
+  it("stays working when quiet, and says how long since its last step instead of calling it stuck", () => {
     const a = agent("a");
-    const st = agentStatus(callOf(a), [a, step("a", "s1", "done", 2, 3)], false, T0 + 3000 + STUCK_MS + 1000);
-    expect(st.state).toBe("stuck");
-    expect(st.activity).toBe("nothing new for 1m 31s");
-    expect(agentStatus(callOf(a), [a], false, T0 + STUCK_MS + 1).state).toBe("stuck");
+    const st = agentStatus(callOf(a), [a, step("a", "s1", "done", 2, 3)], false, T0 + 3000 + QUIET_MS + 1000);
+    expect(st.state).toBe("working");
+    expect(st.activity).toBe("thinking, 1m 31s since its last step");
+    expect(agentStatus(callOf(a), [a], false, T0 + QUIET_MS + 1).state).toBe("working");
   });
 
-  it("is not stuck while a call is running, however long it takes", () => {
+  it("names the running call however long it takes", () => {
     const a = agent("a");
-    expect(agentStatus(callOf(a), [a, step("a", "s1", "pending", 2)], false, T0 + 10 * STUCK_MS).state).toBe("working");
+    expect(agentStatus(callOf(a), [a, step("a", "s1", "pending", 2)], false, T0 + 10 * QUIET_MS).state).toBe("working");
   });
 
   it("is waiting while the session waits for the editor", () => {
@@ -58,7 +58,7 @@ describe("a subagent's state", () => {
 
 describe("summaries and formats", () => {
   it("counts states in a fixed order, failures together", () => {
-    expect(summarize(["done", "working", "failed", "unknown", "stuck", "done", "stopped"])).toBe("1 working, 1 stuck, 2 done, 1 stopped, 2 failed");
+    expect(summarize(["done", "working", "failed", "unknown", "done", "stopped"])).toBe("1 working, 2 done, 1 stopped, 2 failed");
   });
 
   it("formats durations", () => {

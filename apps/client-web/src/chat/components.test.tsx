@@ -101,13 +101,14 @@ describe("the thread list", () => {
     expect(screen.getByText("Task b")).toBeTruthy();
   });
 
-  it("marks a quiet subagent stuck as time passes", () => {
+  it("keeps a quiet subagent working and says how long it has been quiet, never stuck", () => {
     renderThreads({ transcript: [agent("q")] });
     expect(screen.getByText("working")).toBeTruthy();
     act(() => {
       vi.advanceTimersByTime(100_000);
     });
-    expect(screen.getByText("stuck")).toBeTruthy();
+    expect(screen.queryByText("stuck")).toBeNull();
+    expect(screen.getByText(/since its last step/)).toBeTruthy();
   });
 });
 
