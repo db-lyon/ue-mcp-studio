@@ -12,6 +12,7 @@ import * as path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { lineDiff, type ApprovalRequest, type DiffLine } from "@ue-mcp-studio/shared";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, describeImage, prepareImage, sniffImage, type ToolImage } from "./images.js";
+import { guardShellCommand } from "./kill-guard.js";
 
 export const LOCAL_TOOL_NAMES = ["shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch"] as const;
 export type LocalToolName = (typeof LOCAL_TOOL_NAMES)[number];
@@ -686,8 +687,11 @@ export function validateLocal(name: LocalToolName, i: Record<string, unknown>): 
 export async function runLocal(projectDir: string, name: LocalToolName, input: Record<string, unknown>, signal?: AbortSignal): Promise<LocalResult> {
   try {
     switch (name) {
-      case "shell":
+      case "shell": {
+        const refused = await guardShellCommand(String(input.command), projectDir);
+        if (refused) return fail(refused);
         return await runShell(String(input.command), projectDir, typeof input.timeout === "number" ? input.timeout : SHELL_TIMEOUT_DEFAULT_S, signal);
+      }
       case "read_file":
         return await readFile(projectDir, input as { path: string; offset?: number; limit?: number });
       case "write_file":
