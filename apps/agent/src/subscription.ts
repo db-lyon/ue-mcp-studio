@@ -209,6 +209,53 @@ function promptOf(blocks: unknown[], resume: string | null): string | AsyncItera
   })();
 }
 
+/** JSON with object keys sorted, so the same input matches whatever order its keys came in. */
+const canonical = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x));
+
+/**
+ * Which tool_use block a call into Studio's tools answers. The binary sends
+ * the block before it makes the call, but the call can reach the in-process
+ * server before this side has read the message, more so with subagents
+ * running at once, so a call waits briefly for its block. It matches by name
+ * and input; by name alone only after that wait, and never another tool's
+ * block, so a result cannot land on the wrong call.
+ */
+export class CallMatcher {
+  private readonly waiting: Array<{ id: string; name: string; key: string }> = [];
+  private readonly listeners = new Set<() => void>();
+
+  constructor(private readonly waitMs = 3000) {}
+
+  add(id: string, name: string, input: unknown): void {
+    this.waiting.push({ id, name, key: canonical(input ?? {}) });
+    for (const l of [...this.listeners]) l();
+  }
+
+  async take(name: string, args: unknown): Promise<string> {
+    const key = canonical(args ?? {});
+    const exact = () => this.waiting.findIndex((w) => w.name === name && w.key === key);
+    let i = exact();
+    if (i < 0) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(done, this.waitMs);
+        const check = () => {
+          if (exact() >= 0) done();
+        };
+        function done() {
+          clearTimeout(timer);
+          listeners.delete(check);
+          resolve();
+        }
+        const listeners = this.listeners;
+        listeners.add(check);
+      });
+      i = exact();
+      if (i < 0) i = this.waiting.findIndex((w) => w.name === name);
+    }
+    return i >= 0 ? this.waiting.splice(i, 1)[0].id : `call_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+}
+
 /** How long a stopped turn's binary gets to end the turn itself before it is closed. */
 const STOP_GRACE_MS = 1500;
 
@@ -220,16 +267,10 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   const exe = rt.exe;
   fs.mkdirSync(claudeHome(), { recursive: true });
 
-  // The SDK does not hand the tool_use id to a handler: match the call to the block the model just sent.
-  const waiting: Array<{ id: string; name: string; input: unknown }> = [];
-  const take = (name: string, args: unknown) => {
-    const key = JSON.stringify(args);
-    const i = waiting.findIndex((w) => w.name === name && JSON.stringify(w.input) === key);
-    const hit = waiting.splice(i >= 0 ? i : waiting.findIndex((w) => w.name === name), 1)[0];
-    return hit?.id ?? `call_${Date.now()}`;
-  };
+  // The SDK does not hand the tool_use id to a handler: match the call to the block the model sent.
+  const calls = new CallMatcher();
   const handler = (name: string) => async (args: Record<string, unknown>) => {
-    const exec = await t.runTool(take(name, args), name, args);
+    const exec = await t.runTool(await calls.take(name, args), name, args);
     // Images go as MCP image content, which the SDK hands the model as images.
     const images = (exec.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mediaType }));
     return { content: [{ type: "text" as const, text: exec.text }, ...images], isError: exec.isError };
@@ -335,7 +376,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       } else if (m.type === "assistant") {
         if (m.error) error = `Claude: ${m.error}`;
         const content = (m.message.content as ContentBlock[]).map((b) => (b.type === "tool_use" ? ({ ...b, name: studioName(b.name) } as ContentBlock) : b));
-        for (const b of content) if (b.type === "tool_use") waiting.push({ id: b.id, name: b.name, input: b.input });
+        for (const b of content) if (b.type === "tool_use") calls.add(b.id, b.name, b.input);
         t.onAssistant(m.message.id, content, m.parent_tool_use_id);
       } else if (m.type === "user" && Array.isArray(m.message.content)) {
         t.onToolResults(m.message.content as unknown[], m.parent_tool_use_id);
