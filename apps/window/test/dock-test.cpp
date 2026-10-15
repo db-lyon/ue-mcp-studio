@@ -1,4 +1,5 @@
-// Unit tests for dock.h: the shared-memory protocol and where the window goes.
+// Unit tests for dock.h (the shared-memory protocol and where the window goes),
+// location.h and connection.h.
 // Built beside studio-window.exe; apps/window/test/dock.test.ts runs it.
 // Prints "ok <name>" or "FAIL <name>: <what>" per case and exits non-zero on a failure.
 
@@ -6,6 +7,7 @@
 #include <map>
 #include <vector>
 
+#include "../src/connection.h"
 #include "../src/dock.h"
 #include "../src/location.h"
 
@@ -294,6 +296,116 @@ int main() {
     CHECK(!location::safeFragment(L"/chat/x"));
     CHECK(!location::safeFragment(L"#/chat/a b"));
     CHECK(location::withFragment(L"http://h/ui/", L"#\"evil") == L"http://h/ui/");
+  });
+
+  // connection.h: the local page's states while no page from ue-mcp is loaded.
+  auto none = [] { return conn::Facts(); };
+  auto live = [](const char* token) {
+    conn::Facts f;
+    f.live = true;
+    f.token = token;
+    return f;
+  };
+
+  test("no daemon waits for one the editor may be starting, then starts it", [&] {
+    conn::State s = conn::begin(none(), 1000);
+    CHECK(s.phase == conn::Phase::Waiting && s.why == "ue-mcp is not running");
+    CHECK(conn::headline(s, 1000) == "Connecting to ue-mcp");
+    CHECK(conn::tick(s, none(), 1000 + conn::kWaitMs - 1) == conn::Effect::None);
+    CHECK(conn::tick(s, none(), 1000 + conn::kWaitMs) == conn::Effect::Start);
+    CHECK(s.phase == conn::Phase::Starting && s.attempt == 1 && s.launched);
+    CHECK(conn::headline(s, 1000 + conn::kWaitMs) == "Starting ue-mcp (attempt 1 of 3)");
+  });
+
+  test("a crashed daemon is said so and started again at once", [&] {
+    conn::Facts f;
+    f.stale = true;
+    conn::State s = conn::begin(f, 0);
+    CHECK(s.why == "ue-mcp stopped unexpectedly");
+    CHECK(conn::tick(s, f, conn::kCrashWaitMs) == conn::Effect::Start);
+  });
+
+  test("an update's restart waits for the successor and starts nothing", [&] {
+    conn::Facts f;
+    f.updating = true;
+    conn::State s = conn::begin(f, 0);
+    CHECK(s.phase == conn::Phase::Restarting);
+    CHECK(conn::headline(s, 0) == "ue-mcp is restarting for an update");
+    CHECK(conn::tick(s, f, conn::kUpdateWaitMs - 1) == conn::Effect::None);
+    CHECK(conn::tick(s, live("ab"), conn::kUpdateWaitMs - 1) == conn::Effect::Load);
+    CHECK(s.phase == conn::Phase::Loading);
+  });
+
+  test("an update that starts while waiting turns the wait into a restart", [&] {
+    conn::State s = conn::begin(none(), 0);
+    conn::Facts f;
+    f.updating = true;
+    CHECK(conn::tick(s, f, conn::kWaitMs) == conn::Effect::None);
+    CHECK(s.phase == conn::Phase::Restarting && s.deadline == conn::kWaitMs + conn::kUpdateWaitMs);
+  });
+
+  test("starting retries with backoff, then needs you", [&] {
+    conn::State s = conn::begin(none(), 0);
+    conn::Ms t = conn::kWaitMs;
+    CHECK(conn::tick(s, none(), t) == conn::Effect::Start);
+    conn::started(s, true, false, "", t);
+    t += conn::kAttemptMs;
+    CHECK(conn::tick(s, none(), t) == conn::Effect::None);
+    CHECK(s.attempt == 2 && !s.launched && s.failure.find("did not answer within 45 seconds") != std::string::npos);
+    CHECK(conn::headline(s, t) == "Starting ue-mcp again in 5s (attempt 2 of 3)");
+    CHECK(conn::tick(s, none(), t + conn::kBackoffMs[0] - 1) == conn::Effect::None);
+    t += conn::kBackoffMs[0];
+    CHECK(conn::tick(s, none(), t) == conn::Effect::Start);
+    conn::started(s, false, false, "npx could not be started", t);
+    CHECK(s.attempt == 3 && !s.launched && s.failure == "The start command did not run: npx could not be started.");
+    t += conn::kBackoffMs[1];
+    CHECK(conn::tick(s, none(), t) == conn::Effect::Start);
+    t += conn::kAttemptMs;
+    CHECK(conn::tick(s, none(), t) == conn::Effect::None);
+    CHECK(s.phase == conn::Phase::NeedsYou);
+    CHECK(s.failure.rfind("ue-mcp did not start after 3 attempts.", 0) == 0);
+    CHECK(conn::headline(s, t) == "ue-mcp is not running");
+    CHECK(conn::tick(s, none(), t + 600000) == conn::Effect::None);
+    CHECK(conn::retry(s, none(), t + 1) == conn::Effect::Start);
+    CHECK(s.phase == conn::Phase::Starting && s.attempt == 1 && s.launched);
+  });
+
+  test("missing Node.js needs you at once", [&] {
+    conn::State s = conn::begin(none(), 0);
+    conn::tick(s, none(), conn::kWaitMs);
+    conn::started(s, false, true, "Node.js was not found", conn::kWaitMs);
+    CHECK(s.phase == conn::Phase::NeedsYou && s.noNode);
+  });
+
+  test("a live daemon loads, and a page that does not load is retried, then needs you", [&] {
+    conn::State s = conn::begin(none(), 0);
+    CHECK(conn::tick(s, live("ab"), 10) == conn::Effect::Load);
+    conn::loadFailed(s, "ue-mcp answered HTTP 503, it has no Studio page installed", 20);
+    CHECK(s.phase == conn::Phase::Loading && s.loads == 1);
+    CHECK(conn::tick(s, live("ab"), 20 + conn::kLoadBackoffMs[0] - 1) == conn::Effect::None);
+    CHECK(conn::tick(s, live("ab"), 20 + conn::kLoadBackoffMs[0]) == conn::Effect::Load);
+    conn::loadFailed(s, "x", 3000);
+    CHECK(conn::tick(s, live("ab"), 3000 + conn::kLoadBackoffMs[1]) == conn::Effect::Load);
+    // The third load never answers.
+    CHECK(conn::tick(s, live("ab"), 8000 + conn::kLoadWaitMs) == conn::Effect::None);
+    CHECK(s.phase == conn::Phase::NeedsYou && s.loads == 3);
+    CHECK(conn::headline(s, 0) == "Studio did not load");
+    CHECK(conn::tick(s, live("ab"), 60000) == conn::Effect::None);
+    // A new daemon gets fresh loads.
+    CHECK(conn::tick(s, live("cd"), 60001) == conn::Effect::Load);
+    CHECK(s.loads == 0);
+  });
+
+  test("a daemon that goes away while its page loads is waited for again", [&] {
+    conn::State s = conn::begin(none(), 0);
+    conn::tick(s, live("ab"), 10);
+    CHECK(conn::tick(s, none(), 20) == conn::Effect::None);
+    CHECK(s.phase == conn::Phase::Waiting);
+  });
+
+  test("elapsed time reads as seconds, then minutes", [] {
+    CHECK(conn::elapsed(8400) == "8s");
+    CHECK(conn::elapsed(65000) == "1m 05s");
   });
 
   std::printf(failures ? "%d failed\n" : "all passed\n", failures);

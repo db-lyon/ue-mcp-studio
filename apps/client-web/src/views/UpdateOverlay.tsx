@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 import { STEP_NAME, STEP_NOTE, execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
+import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
 
 let current: UpdateRun | null = null;
 const listeners = new Set<() => void>();
@@ -24,19 +25,17 @@ export function startUpdate(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdat
   if (run) void execute(run, setRun);
 }
 
-/** How long the stream may be down before the panel says it is reconnecting. */
-const QUIET_MS = 1500;
 /** How long a restart may take before the panel says what to do if it never reloads. */
 const SLOW_MS = 90_000;
 
 /**
  * The whole-panel states: an update in progress, picked up again after the
- * panel reloads or the editor restarts, and ue-mcp being away.
+ * panel reloads or the editor restarts, and the connection to ue-mcp. The
+ * update screen covers a restart it caused; past that the connection shows.
  */
 export function UpdateRunner({ streaming, events }: { streaming: boolean; events: DaemonEvent[] }) {
   const run = useRun();
   const resumed = useRef(false);
-  const [away, setAway] = useState(false);
   const [slow, setSlow] = useState(false);
 
   // A run the page before this one started: settle the step it was on, then go on.
@@ -61,14 +60,9 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
     if (last?.type === "studio.update.run") setRun((last.data.run as UpdateRun | null) ?? null);
   }, [last?.id]);
 
-  useEffect(() => {
-    if (streaming) {
-      setAway(false);
-      return;
-    }
-    const t = setTimeout(() => setAway(true), QUIET_MS);
-    return () => clearTimeout(t);
-  }, [streaming]);
+  const connection = useConnection(streaming, events, !!run);
+  const escalated = ["lost", "starting", "needsYou"].includes(connection.conn.phase);
+  const overlay = <ConnectionOverlay c={connection} />;
 
   const waitingOnRestart = !!run?.steps.some((s) => s.state === "active" && (s.key === "studio" || s.key === "restart"));
   useEffect(() => {
@@ -85,20 +79,9 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
     return () => clearTimeout(t);
   }, [run?.summary]);
 
-  if (run && waitingSteps(run).length > 0) return <UpdateWaiting run={run} />;
-  if (run) return createPortal(<UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} />, document.body);
-  if (away) {
-    return createPortal(
-      <div className="overlay" role="status">
-        <div className="overlay-card">
-          <div className="overlay-head"><span className="spinner" aria-hidden />Reconnecting to ue-mcp</div>
-          <p className="muted small">Studio comes back on its own when ue-mcp answers again.</p>
-        </div>
-      </div>,
-      document.body,
-    );
-  }
-  return null;
+  if (run && waitingSteps(run).length > 0) return <><UpdateWaiting run={run} />{overlay}</>;
+  if (run && !escalated) return createPortal(<UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} />, document.body);
+  return overlay;
 }
 
 /** An update kept until the turn in progress finishes, with a way to install it now. */
