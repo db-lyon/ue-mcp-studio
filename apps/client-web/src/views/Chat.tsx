@@ -35,8 +35,19 @@ function sessionOf(data: Record<string, unknown>): string | null {
   return typeof data.sessionId === "string" ? data.sessionId : null;
 }
 
+/** How long the session list may take before the panel says Studio is not answering. */
+export const LIST_SLOW_MS = 8000;
+
 export function ChatView({ daemon }: { daemon: DaemonState }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
+  /** Whether the list has come back once: until then an empty list is not "no sessions". */
+  const [listed, setListed] = useState(false);
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (listed) return;
+    const t = setTimeout(() => setSlow(true), LIST_SLOW_MS);
+    return () => clearTimeout(t);
+  }, [listed]);
   const [selected, setSelected] = useState<string | null>(() => readLocation().session);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [draft, setDraft] = useState("");
@@ -69,6 +80,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     }
     lastList.current = r.sessions;
     setSessions(r.sessions);
+    setListed(true);
+    setSlow(false);
     // A session the location names but that is gone (deleted elsewhere) is not opened.
     setSelected((cur) => (cur && !r.sessions.some((x) => x.id === cur) ? null : cur));
   }, (e: Error) => setError(e.message));
@@ -241,7 +254,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
           <span className="spacer" />
           <button className="primary" onClick={() => void create()}>New</button>
         </div>
-        {sessions.length === 0 && <p className="dim small">No sessions yet.</p>}
+        {!listed && <p className="dim small">{slow ? "Studio is not answering yet. Your sessions are kept and show here when it does." : "Loading sessions"}</p>}
+        {listed && sessions.length === 0 && <p className="dim small">No sessions yet.</p>}
         {live.map((s) => <SessionRow key={s.id} s={s} selected={s.id === selected} onOpen={() => setSelected(s.id)} onChanged={changed} />)}
         {archived.length > 0 && (
           <>
