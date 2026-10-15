@@ -39,8 +39,12 @@ function positionIn(transcript: readonly unknown[] | null | undefined, entry: Tr
   return map.get(entry) ?? -1;
 }
 
-/** Replaces one of the user's messages, by its transcript index; null where messages cannot be edited. */
-export const EditMessageContext = createContext<((index: number, text: string) => void) | null>(null);
+/**
+ * Sends an edit of one of the user's messages, by its transcript index: "rewind" cuts this
+ * session back to it, "fork" continues from it in a copy. Null where messages cannot be edited.
+ */
+export type EditMode = "rewind" | "fork";
+export const EditMessageContext = createContext<((index: number, text: string, mode: EditMode) => void) | null>(null);
 
 /** One line of a conversation that is not a subagent: a message, a note or a tool call. Renders again only when the entry changes. */
 export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) {
@@ -59,9 +63,9 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
 });
 
 /**
- * A message the user sent. Edit opens it in place; saving asks first, because
- * it cuts the conversation back to this message (for the model too) before
- * the new text goes as a new turn.
+ * A message the user sent. Edit opens it in place. With anything after it,
+ * saving asks where the edit goes: rewind this session to it (everything after
+ * is removed, for the model too) or fork a new session from it and keep this one.
  */
 function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "user" }>; at?: number }) {
   const onEdit = useContext(EditMessageContext);
@@ -78,7 +82,7 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
       if (!text.trim()) return;
       // Nothing after it to lose: no need to ask.
       if (last) {
-        onEdit(at, text);
+        onEdit(at, text, "rewind");
         close();
       } else setConfirming(true);
     };
@@ -98,23 +102,28 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
             if (e.key === "Escape") close();
             else if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
-              if (confirming) {
-                onEdit(at, text);
-                close();
-              } else save();
+              if (!confirming) save();
             }
           }}
         />
         {confirming ? (
           <div className="edit-confirm" role="alert">
-            <span>Everything after this message is removed from the session, for the agent as well, including tool calls and subagents. Changes the agent already made to the project are not undone.</span>
+            <span>
+              <strong>Rewind here</strong> removes everything after this message from this session, for the agent too.{" "}
+              <strong>Fork</strong> keeps this session as it is and continues from your edit in a new one.
+              Either way, changes the agent already made to the project are not undone.
+            </span>
             <div className="row">
-              <span className="spacer" />
               <button className="ghost small-button" onClick={() => setConfirming(false)}>Keep editing</button>
+              <span className="spacer" />
               <button className="danger-button small-button" onClick={() => {
-                onEdit(at, text);
+                onEdit(at, text, "rewind");
                 close();
-              }}>Discard and send</button>
+              }}>Rewind here</button>
+              <button className="primary small-button" onClick={() => {
+                onEdit(at, text, "fork");
+                close();
+              }}>Fork a new session</button>
             </div>
           </div>
         ) : (

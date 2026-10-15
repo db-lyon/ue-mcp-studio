@@ -42,6 +42,11 @@ export class AttachmentStore {
     return path.join(this.dataDir, "attachments", sessionId.replace(/[^\w-]/g, "_"));
   }
 
+  /** Give another session its own copy of a session's files, ids unchanged, as a fork needs. */
+  copy(from: string, to: string): void {
+    if (fs.existsSync(this.dir(from))) fs.cpSync(this.dir(from), this.dir(to), { recursive: true });
+  }
+
   save(sessionId: string, upload: AttachmentUpload): Attachment & { path: string } {
     if (typeof upload?.name !== "string" || typeof upload.data !== "string") throw new Error("body must be { name, type, data (base64) }");
     const bytes = Buffer.from(upload.data, "base64");

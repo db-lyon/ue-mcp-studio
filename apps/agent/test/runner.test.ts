@@ -876,6 +876,38 @@ describe("editing a sent message", () => {
     expect(fin.transcript.map((t) => t.kind === "user" ? `u:${t.text}` : t.kind)).toEqual(["u:first", "assistant", "u:second, edited", "assistant"]);
   });
 
+  it("forks: a copy up to that message continues from the new text, and the original is left as it was", async () => {
+    const model = new ScriptedModel([() => text("A."), () => call("t1", "level", "get_outliner"), () => text("B."), () => text("C.")]);
+    const runner = runnerWith(model);
+    const s = store.create("Light the level");
+    await runner.send(s.id, "first");
+    await runner.send(s.id, "second");
+    const before = JSON.stringify(store.get(s.id)!.transcript);
+    const index = store.get(s.id)!.transcript.findIndex((t) => t.kind === "user" && t.text === "second");
+    const forked = await runner.forkAt(s.id, index, "second, edited");
+    expect(forked).toBeTruthy();
+    expect(forked).not.toBe(s.id);
+    await until(() => store.get(forked!)!.transcript.some((t) => t.kind === "assistant" && t.text === "C."));
+    const sent = model.requests[3].messages;
+    expect(sent.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(JSON.stringify(sent)).not.toContain("get_outliner");
+    expect(userTexts(sent).at(-1)).toContain("second, edited");
+    const fork = store.get(forked!)!;
+    expect(fork.title).toBe("Light the level (fork)");
+    expect(fork.transcript.map((t) => t.kind === "user" ? `u:${t.text}` : t.kind)).toEqual(["u:first", "assistant", "u:second, edited", "assistant"]);
+    expect(fork.sdkPast ?? []).toEqual([]);
+    // The original is untouched.
+    expect(JSON.stringify(store.get(s.id)!.transcript)).toBe(before);
+  });
+
+  it("refuses to fork from an index that is not one of the user's messages", async () => {
+    const model = new ScriptedModel([() => text("A.")]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    await runner.send(s.id, "first");
+    expect(await runner.forkAt(s.id, 1, "x")).toBeNull();
+  });
+
   it("refuses an index that is not one of the user's messages", async () => {
     const model = new ScriptedModel([() => text("A.")]);
     const runner = runnerWith(model);

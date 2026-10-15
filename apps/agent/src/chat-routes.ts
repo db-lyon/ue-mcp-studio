@@ -461,15 +461,22 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     void runner.sendQueued(s.id);
     return { status: 202, body: { sessionId: s.id } };
   });
-  // Edit one of the user's messages: the conversation is cut back to it, and the new text sent as a new turn.
-  api.route("POST", "/sessions/:id/transcript/:index/edit", (req) => {
+  // Edit one of the user's messages. "rewind" (the default) cuts this conversation back to it and sends the
+  // new text as a new turn; "fork" leaves this session as it is and continues from the new text in a copy.
+  api.route("POST", "/sessions/:id/transcript/:index/edit", async (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
     const index = Number(req.params.index);
-    const text = (req.body as { text?: unknown } | undefined)?.text;
-    if (typeof text !== "string" || !text.trim()) return bad("body must be { text: string } with text");
+    const body = (req.body ?? {}) as { text?: unknown; mode?: unknown };
+    const text = body.text;
+    if (typeof text !== "string" || !text.trim()) return bad("body must be { text: string, mode?: \"rewind\" | \"fork\" } with text");
+    if (body.mode !== undefined && body.mode !== "rewind" && body.mode !== "fork") return bad('mode is "rewind" or "fork"');
     const entry = Number.isInteger(index) ? s.transcript[index] : undefined;
     if (!entry || entry.kind !== "user" || entry.parent) return bad(`entry ${req.params.index} is not one of your messages`);
+    if (body.mode === "fork") {
+      const forked = await runner.forkAt(s.id, index, text);
+      return forked ? { status: 201, body: { sessionId: forked } } : bad(`entry ${req.params.index} is not one of your messages`);
+    }
     if (s.status === "running" || s.status === "waiting") stopSide(s.id);
     runner.editMessage(s.id, index, text).catch((e) => api.log.warn(`edit in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };

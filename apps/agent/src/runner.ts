@@ -742,6 +742,35 @@ export class AgentRunner {
     return true;
   }
 
+  /**
+   * Edit one of the user's messages into a new session: a copy of this one up
+   * to just before the message, which then continues from the new text. The
+   * original is left as it was, running or not. Returns the new session's id.
+   */
+  async forkAt(sessionId: string, index: number, text: string): Promise<string | null> {
+    const s = this.require(sessionId);
+    const entry = s.transcript[index];
+    if (!entry || entry.kind !== "user" || entry.parent) return null;
+    const fork = this.o.store.create(`${s.title} (fork)`);
+    const copy = structuredClone(s);
+    Object.assign(copy, { id: fork.id, title: fork.title, createdAt: fork.createdAt, updatedAt: fork.updatedAt, status: "idle", waitingCause: null, notes: [], draft: "", crashed: false });
+    SessionStore.truncateAt(copy, index);
+    // The original's Claude conversations stay the original's: deleting the fork must not take them with it.
+    copy.sdkPast = [];
+    copy.archived = false;
+    if (index < s.transcript.length - 1) copy.notes.push(REWOUND_NOTE);
+    this.files.copy(s.id, copy.id);
+    this.o.store.save(copy);
+    this.o.host.events.publish("session.changed", { sessionId: copy.id, status: copy.status, waitingCause: null });
+    const files = (entry.attachments ?? []).flatMap((a) => {
+      const f = this.files.get(copy.id, a.id);
+      return f ? [f] : [];
+    });
+    // The fork answers with its id at once; its first turn runs on.
+    this.send(copy.id, text, files).catch((e) => this.o.host.log.warn(`the fork of session ${s.id} failed`, e));
+    return copy.id;
+  }
+
   private busy(s: StoredSession): boolean {
     return this.active.has(s.id) || s.status === "running" || s.status === "waiting";
   }

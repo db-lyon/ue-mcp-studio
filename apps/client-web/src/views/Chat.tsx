@@ -6,7 +6,7 @@ import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPick
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
-import { EditMessageContext, MainTranscript, SubagentThread } from "../chat/Transcript";
+import { EditMessageContext, MainTranscript, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
@@ -172,11 +172,17 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   const send = () => dispatch((id, text, files) => api.send(id, text, files), true);
   const sendNow = () => dispatch((id, text, files) => api.send(id, text, files, true), true);
   const queue = () => dispatch((id, text, files) => api.queue(id, text, files), false);
-  const editMessage = useCallback((index: number, text: string) => {
+  const editMessage = useCallback((index: number, text: string, mode: EditMode) => {
     if (!selected) return;
     setThread(null);
     setSent((n) => n + 1);
-    api.editMessage(selected, index, text).then(() => loadDetail(selected), (e: Error) => setError(e.message));
+    api.editMessage(selected, index, text, mode).then((r) => {
+      // A fork is a new session: the panel moves to it, and the list shows it.
+      if (mode === "fork" && r?.sessionId) {
+        void loadList();
+        setSelected(r.sessionId);
+      } else void loadDetail(selected);
+    }, (e: Error) => setError(e.message));
   }, [selected]);
   const queueCall = (p: Promise<unknown>) => void p.then(() => {
     if (selected) void loadDetail(selected);

@@ -228,15 +228,24 @@ describe("editing a sent message", () => {
     return onEdit;
   };
 
-  it("asks before discarding what came after, saying the project keeps its changes", () => {
+  it("asks whether to rewind this session or fork a new one, saying the project keeps its changes", () => {
     const onEdit = renderEntry(0);
     fireEvent.click(screen.getByRole("button", { name: "Edit this message" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Edit your message" }), { target: { value: "make a sphere" } });
     fireEvent.click(screen.getByRole("button", { name: "Save and send" }));
     expect(onEdit).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert").textContent).toContain("Changes the agent already made to the project are not undone");
-    fireEvent.click(screen.getByRole("button", { name: "Discard and send" }));
-    expect(onEdit).toHaveBeenCalledWith(0, "make a sphere");
+    expect(screen.getByRole("alert").textContent).toContain("changes the agent already made to the project are not undone");
+    fireEvent.click(screen.getByRole("button", { name: "Rewind here" }));
+    expect(onEdit).toHaveBeenCalledWith(0, "make a sphere", "rewind");
+  });
+
+  it("forks a new session when asked to", () => {
+    const onEdit = renderEntry(0);
+    fireEvent.click(screen.getByRole("button", { name: "Edit this message" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Edit your message" }), { target: { value: "make a cone" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save and send" }));
+    fireEvent.click(screen.getByRole("button", { name: "Fork a new session" }));
+    expect(onEdit).toHaveBeenCalledWith(0, "make a cone", "fork");
   });
 
   it("cancels without sending", () => {
