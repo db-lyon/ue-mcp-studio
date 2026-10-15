@@ -171,3 +171,17 @@ describe("every provider's request", () => {
     expect(input[out + 1].content![1].image_url).toBe(`data:image/png;base64,${img.data}`);
   });
 });
+
+describe("an image path Unreal reports relative to its binaries", () => {
+  it("is found under the project from its folder name or its Saved folder", async () => {
+    const project = path.join(dir, "MyGame");
+    fs.mkdirSync(path.join(project, "Saved", "Screenshots"), { recursive: true });
+    fs.writeFileSync(path.join(project, "Saved", "Screenshots", "shot.png"), pngBytes(4, 4));
+    const { imageOnDisk } = await import("../src/tools.js");
+    const want = path.join(project, "Saved", "Screenshots", "shot.png");
+    expect(imageOnDisk(project, "../../../../../../Users/x/Projects/MyGame/Saved/Screenshots/shot.png")).toBe(want);
+    expect(imageOnDisk(project, "..\\..\\Elsewhere\\Saved\\Screenshots\\shot.png")).toBe(want);
+    expect(imageOnDisk(project, "Saved/Screenshots/shot.png")).toBe(want);
+    expect(imageOnDisk(project, "../../Nope/missing.png")).toBeNull();
+  });
+});

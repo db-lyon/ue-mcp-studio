@@ -253,6 +253,32 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
   return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched, saved, ...(images.length ? { images } : {}) };
 }
 
+/**
+ * The file an image path in an editor result names. Unreal reports some
+ * paths relative to its own binaries folder (../../../../Users/.../Saved/x.png),
+ * so a relative path is tried against the project, then from the project's
+ * own folder name or its Saved folder on.
+ */
+export function imageOnDisk(projectDir: string, p: string): string | null {
+  const v = p.replace(/\\/g, "/");
+  const candidates = [path.resolve(projectDir, p)];
+  if (!path.isAbsolute(p)) {
+    const name = path.basename(projectDir).toLowerCase();
+    const parts = v.split("/");
+    const at = parts.map((x) => x.toLowerCase()).lastIndexOf(name);
+    if (at >= 0) candidates.push(path.join(projectDir, ...parts.slice(at + 1)));
+    const saved = parts.map((x) => x.toLowerCase()).lastIndexOf("saved");
+    if (saved >= 0) candidates.push(path.join(projectDir, ...parts.slice(saved)));
+  }
+  return candidates.find((c) => {
+    try {
+      return fs.statSync(c).isFile();
+    } catch {
+      return false;
+    }
+  }) ?? null;
+}
+
 /** The most images one editor call hands the model. */
 export const RESULT_IMAGES_MAX = 4;
 
@@ -281,8 +307,8 @@ export async function resultImages(projectDir: string, r: ActionResult, since: n
     if (out.length >= RESULT_IMAGES_MAX || depth > 5) return;
     if (typeof v === "string") {
       if (!IMAGE_EXTENSIONS[path.extname(v).toLowerCase()] || v.length > 1024) return;
-      const file = path.resolve(projectDir, v);
-      if (seen.has(file.toLowerCase())) return;
+      const file = imageOnDisk(projectDir, v);
+      if (!file || seen.has(file.toLowerCase())) return;
       seen.add(file.toLowerCase());
       let st: fs.Stats;
       try {
