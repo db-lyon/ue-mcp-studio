@@ -108,18 +108,18 @@ describe("paths", () => {
 });
 
 describe("files", () => {
-  it("reads with line numbers, from an offset, and says where to go on", () => {
+  it("reads with line numbers, from an offset, and says where to go on", async () => {
     fs.writeFileSync(path.join(dir, "a.txt"), "one\r\ntwo\r\nthree\r\nfour\r\n");
-    expect(readFile(dir, { path: "a.txt" }).text).toBe("1\tone\n2\ttwo\n3\tthree\n4\tfour");
-    const part = readFile(dir, { path: "a.txt", offset: 2, limit: 2 }).text;
+    expect((await readFile(dir, { path: "a.txt" })).text).toBe("1\tone\n2\ttwo\n3\tthree\n4\tfour");
+    const part = (await readFile(dir, { path: "a.txt", offset: 2, limit: 2 })).text;
     expect(part).toContain("2\ttwo\n3\tthree");
     expect(part).toContain("read on with offset=4");
-    expect(readFile(dir, { path: "missing.txt" }).isError).toBe(true);
+    expect((await readFile(dir, { path: "missing.txt" })).isError).toBe(true);
   });
 
-  it("refuses to read a binary file as text", () => {
+  it("refuses to read a binary file as text", async () => {
     fs.writeFileSync(path.join(dir, "b.uasset"), Buffer.from([0xc1, 0x83, 0x2a, 0x9e, 0, 0, 1]));
-    const r = readFile(dir, { path: "b.uasset" });
+    const r = await readFile(dir, { path: "b.uasset" });
     expect(r.isError).toBe(true);
     expect(r.text).toContain("binary");
   });

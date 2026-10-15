@@ -10,10 +10,10 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 
-type Handler = (args: Record<string, unknown>) => Promise<{ content: Array<{ text: string }>; isError: boolean }>;
+type Handler = (args: Record<string, unknown>) => Promise<{ content: Array<{ type?: string; text?: string; data?: string; mimeType?: string }>; isError: boolean }>;
 interface FakeBinary {
   /** Call one of Studio's tools the way the binary does, by its SDK name. */
-  call(name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean }>;
+  call(name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean; content?: Array<{ type?: string; mimeType?: string }> }>;
   emit(m: unknown): void;
   end(): void;
   signal: AbortSignal;
@@ -46,7 +46,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
         // The binary cannot reach the in-process server once its input is closed.
         if (options.abortController.signal.aborted) return { text: "The tool call was interrupted before a result was received.", isError: true };
         const r = await t.handler(args);
-        return { text: r.content.map((c) => c.text).join(""), isError: r.isError };
+        return { text: r.content.map((c) => c.text ?? "").join(""), isError: r.isError, content: r.content };
       },
       emit: push,
       end() {
@@ -194,6 +194,30 @@ describe("editor_restart on the subscription route", () => {
     expect(fin.status).toBe("idle");
     expect(fin.transcript.filter((t) => t.kind === "tool").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["done", "done", "done"]);
     expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "Rebuilt and checked." });
+  });
+});
+
+describe("images on the subscription route", () => {
+  it("go back to the binary as MCP image content, and into the transcript", async () => {
+    const { pngBytes } = await import("./image-fixtures.js");
+    fs.writeFileSync(path.join(host.projectDir, "shot.png"), pngBytes(10, 5));
+    let got: Awaited<ReturnType<FakeBinary["call"]>> | null = null;
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-img" });
+      // The real binary's message naming the call reaches the runner before the call itself.
+      b.emit(assistant("m_r", [toolUse("r", "read_file", { path: "shot.png" })]));
+      await sleep(30);
+      got = await b.call("read_file", { path: "shot.png" });
+      b.emit(results("r", got));
+      b.emit(assistant("m_end", [{ type: "text", text: "Orange." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-img" });
+    };
+    const s = store.create();
+    await runnerOn().send(s.id, "look at shot.png");
+    expect(got!.content!.map((c) => c.type)).toEqual(["text", "image"]);
+    expect(got!.content![1].mimeType).toBe("image/png");
+    const call = store.get(s.id)!.transcript.find((t) => t.kind === "tool");
+    expect(call?.kind === "tool" && call.call.images?.map((i) => i.name)).toEqual(["shot.png"]);
   });
 });
 

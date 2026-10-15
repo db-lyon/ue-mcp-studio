@@ -4,6 +4,7 @@ import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { AttachmentStore, contentFor, safeName } from "../src/attachments.js";
 import { toChatRequest } from "../src/openai-compat.js";
+import { pngBytes } from "./image-fixtures.js";
 
 const store = () => new AttachmentStore(fs.mkdtempSync(path.join(os.tmpdir(), "studio-att-")));
 const b64 = (s: string | Buffer) => Buffer.from(s).toString("base64");
@@ -29,17 +30,17 @@ describe("attachments", () => {
     expect(safeName('a:b*c?.png')).toBe("a_b_c_.png");
   });
 
-  it("gives the model an image, a PDF or a text file as itself, and anything else by its path", () => {
+  it("gives the model an image, a PDF or a text file as itself, and anything else by its path", async () => {
     const s = store();
-    const png = s.save("x", { name: "ref.png", type: "image/png", data: b64(Buffer.from([1, 2, 3])) });
+    const png = s.save("x", { name: "ref.png", type: "image/png", data: b64(pngBytes(4, 4)) });
     const pdf = s.save("x", { name: "spec.pdf", type: "application/pdf", data: b64("%PDF") });
     const txt = s.save("x", { name: "config.ini", type: "", data: b64("[a]\nb=1") });
     const fbx = s.save("x", { name: "rock.fbx", type: "application/octet-stream", data: b64("FBX") });
-    const kinds = (a: Parameters<typeof contentFor>[0]) => contentFor(a).map((b) => (b as { type: string }).type);
-    expect(kinds(png)).toEqual(["text", "image"]);
-    expect(kinds(pdf)).toEqual(["text", "document"]);
-    expect(contentFor(txt)[1]).toEqual({ type: "text", text: "[a]\nb=1" });
-    const only = contentFor(fbx);
+    const kinds = async (a: Parameters<typeof contentFor>[0]) => (await contentFor(a)).map((b) => (b as { type: string }).type);
+    expect(await kinds(png)).toEqual(["text", "image"]);
+    expect(await kinds(pdf)).toEqual(["text", "document"]);
+    expect((await contentFor(txt))[1]).toEqual({ type: "text", text: "[a]\nb=1" });
+    const only = await contentFor(fbx);
     expect(only).toHaveLength(1);
     expect((only[0] as { text: string }).text).toContain(fbx.path);
     expect((only[0] as { text: string }).text).toMatch(/import it into the project with ue-mcp/);

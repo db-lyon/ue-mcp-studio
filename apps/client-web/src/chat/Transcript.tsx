@@ -262,6 +262,21 @@ function CallInput({ call, links }: { call: Call; links: boolean }) {
   return <pre className="output">{links ? <LinkedText text={JSON.stringify(call.input, null, 2)} /> : JSON.stringify(call.input, null, 2)}</pre>;
 }
 
+/** The images a call showed the model, as thumbnails that open the image. Shown with the call closed or open. */
+function ShownImages({ files }: { files: Attachment[] }) {
+  const sessionId = useContext(SessionIdContext);
+  if (!sessionId) return null;
+  return (
+    <div className="tool-images" aria-label="Images the model saw">
+      {files.map((f) => (
+        <a key={f.id} className="tool-image" href={attachmentUrl(sessionId, f.id)} target="_blank" rel="noreferrer" title={`${f.name}, ${formatBytes(f.size)}, as the model saw it`}>
+          <img src={attachmentUrl(sessionId, f.id)} alt={f.name} loading="lazy" />
+        </a>
+      ))}
+    </div>
+  );
+}
+
 /** How many lines of a written file the transcript shows. */
 const WRITE_PREVIEW_LINES = 40;
 
@@ -284,7 +299,7 @@ export function ToolCall({ call }: { call: Call }) {
       setTimeout(() => setCopied(false), 1200);
     });
   };
-  return (
+  const details = (
     <details className={`tool ${call.outcome}`} onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary>
         <span className="tool-name">{TOOL_TAG[call.name] ?? call.name}</span>
@@ -305,5 +320,13 @@ export function ToolCall({ call }: { call: Call }) {
         </div>
       )}
     </details>
+  );
+  // A closed call hides what is inside it; the images it showed stay in view under it.
+  if (!call.images?.length) return details;
+  return (
+    <div className="tool-with-images">
+      {details}
+      <ShownImages files={call.images} />
+    </div>
   );
 }

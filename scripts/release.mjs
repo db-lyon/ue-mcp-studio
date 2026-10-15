@@ -86,6 +86,7 @@ fs.writeFileSync(path.join(ext, "package.json"), JSON.stringify({
 }, null, 2) + "\n");
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "index.js"), path.join(ext, "dist", "index.js"));
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "keys.json"), path.join(ext, "dist", "keys.json"));
+fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "webp_dec.wasm"), path.join(ext, "dist", "webp_dec.wasm"));
 fs.cpSync(path.join(ROOT, "apps", "client-web", "dist"), path.join(ext, "ui"), { recursive: true });
 // Studio's own window on Windows; the extension opens the system browser without it, but a release always has it.
 const windowExe = path.join(ROOT, "apps", "window", "dist", "studio-window.exe");

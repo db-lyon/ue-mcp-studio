@@ -153,6 +153,8 @@ export interface ToolCallRecord {
    */
   outcome: "pending" | "done" | "error" | "unknown" | "stopped" | "declined";
   result?: string;
+  /** The images the model was shown with the result, kept as the session's files. */
+  images?: Attachment[];
   startedAt: string;
   endedAt?: string;
 }

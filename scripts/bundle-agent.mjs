@@ -25,6 +25,8 @@ const result = await build({
   // Metafile paths are relative to this, and scripts/notices.mjs resolves them from the root.
   absWorkingDir: root,
 });
+// The WebP decoder's code, which the agent loads from beside the bundle.
+fs.copyFileSync(path.join(root, "node_modules", "@jsquash", "webp", "codec", "dec", "webp_dec.wasm"), path.join(root, "apps", "agent", "dist", "webp_dec.wasm"));
 // Which packages went into the bundle, for the third-party notices.
 fs.writeFileSync(path.join(root, "apps", "agent", "dist", "meta.json"), JSON.stringify(result.metafile));
 console.log("bundled the agent into apps/agent/dist/index.js");

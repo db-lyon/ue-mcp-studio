@@ -10,6 +10,7 @@ import * as path from "node:path";
 import type { ApprovalRequest, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
 import { modelName } from "./models.js";
+import type { ToolImage } from "./images.js";
 
 /** A tool call the model asked for that has not been answered yet. */
 export interface PendingTool {
@@ -20,6 +21,8 @@ export interface PendingTool {
   state: "queued" | "running" | "unknown" | "done";
   result?: string;
   isError?: boolean;
+  /** Images that go to the model with the result. */
+  images?: ToolImage[];
 }
 
 export interface StoredSession {

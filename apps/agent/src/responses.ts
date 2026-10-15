@@ -30,10 +30,17 @@ export function toResponsesRequest(req: ModelRequest, search = false): Record<st
       continue;
     }
     // A tool result goes first, as the function call's output; then anything the user said with it.
-    for (const b of blocks) {
-      if (b.type === "tool_result") input.push({ type: "function_call_output", call_id: b.tool_use_id, output: b.is_error ? `Error: ${textOf(b.content)}` : textOf(b.content) });
-    }
+    // Images a tool returned follow in the user message after the outputs, as input images.
     const parts: unknown[] = [];
+    for (const b of blocks) {
+      if (b.type !== "tool_result") continue;
+      input.push({ type: "function_call_output", call_id: b.tool_use_id, output: b.is_error ? `Error: ${textOf(b.content)}` : textOf(b.content) });
+      const shown = (Array.isArray(b.content) ? (b.content as Block[]) : []).flatMap((c) => {
+        const src = c.source as { type?: string; media_type?: string; data?: string } | undefined;
+        return c.type === "image" && src?.type === "base64" ? [{ type: "input_image", image_url: `data:${src.media_type};base64,${src.data}` }] : [];
+      });
+      if (shown.length) parts.push({ type: "input_text", text: `[Studio] The image${shown.length === 1 ? "" : "s"} the ${String(b.tool_use_id)} call returned:` }, ...shown);
+    }
     for (const b of blocks) {
       const src = b.source as { type?: string; media_type?: string; data?: string } | undefined;
       if (b.type === "text") parts.push({ type: "input_text", text: String(b.text) });

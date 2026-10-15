@@ -24,7 +24,8 @@ import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateI
 import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
 import { runSubscriptionTurn } from "./subscription.js";
 import { modelName } from "./models.js";
-import { contentFor } from "./attachments.js";
+import { AttachmentStore, contentFor } from "./attachments.js";
+import { keptName, toolResultContent } from "./images.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
 import type { Attachment } from "@ue-mcp-studio/shared";
 
@@ -144,8 +145,11 @@ export class AgentRunner {
   /** Why the editor last went away, for waiting turns and unknown outcomes. */
   private lastCause = "the editor is not connected";
   private readonly unsubscribe: () => void;
+  /** Where the images a tool showed the model are kept for the panel. */
+  private readonly files: AttachmentStore;
 
   constructor(private readonly o: RunnerOptions) {
+    this.files = new AttachmentStore(o.host.dataDir);
     o.host.setBusy(() => o.store.all().some((s) => s.status === "running" || s.status === "waiting"));
     this.unsubscribe = o.host.events.subscribe((e) => {
       if (e.type === "editor.disconnected") {
@@ -241,7 +245,7 @@ export class AgentRunner {
     if (s.crashed) this.reconcileCrash(s);
     const content: unknown[] = [];
     for (const note of s.notes.splice(0)) content.push({ type: "text", text: `[Studio] ${note}` });
-    for (const a of attachments) content.push(...contentFor(a));
+    for (const a of attachments) content.push(...(await contentFor(a)));
     if (text.trim()) content.push({ type: "text", text });
     s.messages.push({ role: "user", content } as MessageParam);
     s.transcript.push({
@@ -363,7 +367,7 @@ export class AgentRunner {
           if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
           if (controller.signal.aborted) return exec;
           this.markSaved(s, exec.saved);
-          const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError };
+          const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) };
           this.recordOutcome(s, p, exec.outcome);
           if (s.status !== "running") this.setStatus(s, "running", null);
           return exec;
@@ -748,6 +752,7 @@ export class AgentRunner {
       p.state = "done";
       p.result = exec.text;
       p.isError = exec.isError;
+      if (exec.images) p.images = exec.images;
       this.mergeTouched(s, exec.touched, true);
       this.markSaved(s, exec.saved);
       this.recordOutcome(s, p, exec.outcome);
@@ -801,7 +806,7 @@ export class AgentRunner {
         if (turn.stopReason === "pause_turn") continue;
         const uses = turn.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
         if (turn.stopReason !== "tool_use" || uses.length === 0) return { text: report || "The subagent finished without a report.", isError: false };
-        const results: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
+        const results: Array<{ type: "tool_result"; tool_use_id: string; content: ReturnType<typeof toolResultContent>; is_error?: boolean }> = [];
         for (const u of uses) {
           const input = (u.input ?? {}) as Record<string, unknown>;
           this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() }, parent });
@@ -818,8 +823,8 @@ export class AgentRunner {
           this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
           if (signal.aborted) return stopped();
           this.markSaved(s, exec.saved);
-          this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError }, exec.outcome);
-          results.push({ type: "tool_result", tool_use_id: u.id, content: exec.text, is_error: exec.isError || undefined });
+          this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
+          results.push({ type: "tool_result", tool_use_id: u.id, content: toolResultContent(exec.text, exec.images), is_error: exec.isError || undefined });
         }
         messages.push({ role: "user", content: results } as MessageParam);
       }
@@ -844,9 +849,24 @@ export class AgentRunner {
       entry.call.outcome = outcome === "done" && (p.isError || refused(p.result)) ? "error" : outcome;
       entry.call.result = p.result;
       entry.call.endedAt = now();
+      if (p.images?.length) entry.call.images = this.keepImages(s.id, p.images);
     }
     this.o.store.save(s);
     this.o.host.events.publish("tool.finished", { sessionId: s.id, toolUseId: p.id, outcome: entry && entry.kind === "tool" ? entry.call.outcome : outcome });
+  }
+
+  /** The images a call showed the model, kept as the session's files so the panel can show them. */
+  private keepImages(sessionId: string, images: NonNullable<PendingTool["images"]>): Attachment[] {
+    const kept: Attachment[] = [];
+    for (const img of images) {
+      try {
+        const { path: _path, ...a } = this.files.keep(sessionId, keptName(img), img.mediaType, Buffer.from(img.data, "base64"));
+        kept.push(a);
+      } catch (e) {
+        this.o.host.log.warn("could not keep a tool's image for the panel", e);
+      }
+    }
+    return kept;
   }
 
   /** Give the model every answered call in one message, with any notes the reattach produced. */
@@ -854,9 +874,9 @@ export class AgentRunner {
     if (!s.pending || s.pending.some((p) => p.state !== "done")) return;
     if (s.crashed) this.reconcileCrash(s);
     const content: Array<
-      | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }
+      | { type: "tool_result"; tool_use_id: string; content: ReturnType<typeof toolResultContent>; is_error?: boolean }
       | { type: "text"; text: string }
-    > = s.pending.map((p) => ({ type: "tool_result", tool_use_id: p.id, content: p.result ?? "", is_error: p.isError || undefined }));
+    > = s.pending.map((p) => ({ type: "tool_result", tool_use_id: p.id, content: toolResultContent(p.result ?? "", p.images), is_error: p.isError || undefined }));
     for (const note of s.notes.splice(0)) content.push({ type: "text", text: `[Studio] ${note}` });
     s.messages.push({ role: "user", content } as MessageParam);
     s.pending = null;

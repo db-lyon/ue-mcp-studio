@@ -13,6 +13,7 @@ import { api } from "../api";
 import { Threads } from "./Threads";
 import { SessionRow } from "./SessionRow";
 import { MainTranscript, ToolCall } from "./Transcript";
+import { SessionIdContext } from "./attachments";
 
 const T0 = Date.parse("2026-10-11T12:00:00Z");
 const at = (secs: number) => new Date(T0 + secs * 1000).toISOString();
@@ -170,5 +171,16 @@ describe("a tool call", () => {
     const show = screen.getByRole("button", { name: "Show all 52 lines" });
     fireEvent.click(show);
     expect(screen.getByRole("button", { name: "Show less" })).toBeTruthy();
+  });
+
+  it("shows the images the model saw as thumbnails, with the call closed", () => {
+    const call: ToolCallRecord = {
+      id: "r", name: "read_file", input: { path: "C:/P/Saved/shot.png" }, outcome: "done", startedAt: at(0), result: "shot.png: PNG image",
+      images: [{ id: "img1", name: "shot.jpg", type: "image/jpeg", size: 2048 }],
+    };
+    render(<SessionIdContext.Provider value="s1"><ToolCall call={call} /></SessionIdContext.Provider>);
+    const img = screen.getByRole("img", { name: "shot.jpg" }) as HTMLImageElement;
+    expect(img.getAttribute("src")).toBe("/v1/ext/studio/sessions/s1/attachments/img1");
+    expect(img.closest("details")).toBeNull();
   });
 });

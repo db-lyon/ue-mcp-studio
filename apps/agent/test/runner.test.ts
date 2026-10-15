@@ -12,6 +12,7 @@ import { SessionStore } from "../src/sessions.js";
 import { SettingsStore } from "../src/settings.js";
 import { GatewayProvider, type ModelProvider, type ModelRequest, type ModelTurn } from "../src/providers.js";
 import { validateInput, type AgentHost } from "../src/tools.js";
+import { pngBytes } from "./image-fixtures.js";
 
 class FakeHost implements AgentHost {
   connected = true;
@@ -138,12 +139,45 @@ describe("attachments in a message", () => {
     const model = new ScriptedModel([() => text("Seen.")]);
     const s = store.create();
     const file = path.join(root, "ref.png");
-    fs.writeFileSync(file, Buffer.from([1, 2, 3]));
+    fs.writeFileSync(file, pngBytes(4, 4));
     await runnerWith(model).send(s.id, "use this", [{ id: "a1", name: "ref.png", type: "image/png", size: 3, path: file }]);
     const sent = model.requests[0].messages[0].content as Array<{ type: string }>;
     expect(sent.map((b) => b.type)).toEqual(["text", "image", "text"]);
     const entry = store.get(s.id)!.transcript[0];
     expect(entry.kind === "user" && entry.attachments).toEqual([{ id: "a1", name: "ref.png", type: "image/png", size: 3 }]);
+  });
+});
+
+describe("images a tool shows the model", () => {
+  it("go to the model in the tool result, and into the transcript as the session's files", async () => {
+    fs.writeFileSync(path.join(host.projectDir, "shot.png"), pngBytes(12, 6));
+    const read: ModelTurn = { content: [{ type: "tool_use", id: "r1", name: "read_file", input: { path: "shot.png" } } as never], stopReason: "tool_use" };
+    const model = new ScriptedModel([() => read, () => text("A flat orange picture.")]);
+    const s = store.create();
+    await runnerWith(model).send(s.id, "what is in shot.png");
+    const sent = model.requests[1].messages[2].content as Array<{ type: string; content: Array<{ type: string }> }>;
+    expect(sent[0].type).toBe("tool_result");
+    expect(sent[0].content.map((b) => b.type)).toEqual(["text", "image"]);
+    const entry = store.get(s.id)!.transcript.find((t) => t.kind === "tool");
+    const images = entry?.kind === "tool" ? entry.call.images : undefined;
+    expect(images).toEqual([expect.objectContaining({ name: "shot.png", type: "image/png" })]);
+    // The panel fetches it by id from the session's files.
+    const kept = fs.readdirSync(path.join(host.dataDir, "attachments", s.id));
+    expect(kept).toContain(`${images![0].id}-shot.png`);
+  });
+
+  it("reach a subagent's model too", async () => {
+    fs.writeFileSync(path.join(host.projectDir, "a.png"), pngBytes(4, 4));
+    const model = new ScriptedModel([
+      () => ({ content: [{ type: "tool_use", id: "ag", name: "agent", input: { description: "look", prompt: "look at a.png" } } as never], stopReason: "tool_use" }),
+      () => ({ content: [{ type: "tool_use", id: "r2", name: "read_file", input: { path: "a.png" } } as never], stopReason: "tool_use" }),
+      () => text("It is orange."),
+      () => text("Done."),
+    ]);
+    const s = store.create();
+    await runnerWith(model).send(s.id, "check a.png");
+    const sub = model.requests[2].messages[2].content as Array<{ content: Array<{ type: string }> }>;
+    expect(sub[0].content.map((b) => b.type)).toEqual(["text", "image"]);
   });
 });
 

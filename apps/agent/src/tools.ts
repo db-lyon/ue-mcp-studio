@@ -15,6 +15,7 @@ import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import type { TouchedItem } from "@ue-mcp-studio/shared";
 import { isLocalTool, localToolDefinitions, runLocal, validateLocal } from "./local-tools.js";
 import { firstFailedStep, type OperationStep } from "./operation-result.js";
+import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type ToolImage } from "./images.js";
 
 /** The part of the daemon's extension API the agent uses, so tests can stand in for it. */
 export interface AgentHost {
@@ -102,6 +103,8 @@ export interface ToolExecution {
   touched: TouchedItem[];
   /** Paths a save action reports saved; "*" for everything. */
   saved: string[];
+  /** Images the model sees with the result: an image file read, a screenshot an editor call wrote. */
+  images?: ToolImage[];
 }
 
 /** Check a streamed tool input before running it: eager streaming hands over input unvalidated. */
@@ -188,7 +191,7 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
 
   if (isLocalTool(name)) {
     const r = await runLocal(host.projectDir, name, input, signal);
-    return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
+    return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [], ...(r.images?.length ? { images: r.images } : {}) };
   }
 
   if (name === "editor_restart") {
@@ -224,6 +227,7 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
   const args = (input.args as Record<string, unknown> | undefined) ?? {};
   // Unknown only when the editor went away during the call. One already gone never ran it, so its error is the answer.
   const wasConnected = editorConnected(host);
+  const startedAt = Date.now();
   let r: ActionResult;
   try {
     r = await host.callAction(category, method, args);
@@ -245,7 +249,64 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     const named = namedTargets(args).map((t) => t.path);
     saved = named.length > 0 ? named : ["*"];
   }
-  return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched, saved };
+  const images = r.isError ? [] : await resultImages(host.projectDir, r, startedAt);
+  return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched, saved, ...(images.length ? { images } : {}) };
+}
+
+/** The most images one editor call hands the model. */
+export const RESULT_IMAGES_MAX = 4;
+
+/**
+ * The images an editor call produced, for the model to see: image content in
+ * the result, and image files the result names that the call wrote (changed
+ * since it started), such as a screenshot or a render. An image the result
+ * only mentions, written earlier, is left for read_file.
+ */
+export async function resultImages(projectDir: string, r: ActionResult, since: number): Promise<ToolImage[]> {
+  const out: ToolImage[] = [];
+  for (const c of r.content as Array<{ type: string; data?: unknown; mimeType?: unknown }>) {
+    if (out.length >= RESULT_IMAGES_MAX) break;
+    if (c.type !== "image" || typeof c.data !== "string") continue;
+    const buf = Buffer.from(c.data, "base64");
+    const type = sniffImage(buf);
+    if (!type) continue;
+    try {
+      out.push(await prepareImage(buf, type));
+    } catch {
+      // Not an image this can decode: the text still says what the call did.
+    }
+  }
+  const seen = new Set<string>();
+  const visit = async (v: unknown, depth: number): Promise<void> => {
+    if (out.length >= RESULT_IMAGES_MAX || depth > 5) return;
+    if (typeof v === "string") {
+      if (!IMAGE_EXTENSIONS[path.extname(v).toLowerCase()] || v.length > 1024) return;
+      const file = path.resolve(projectDir, v);
+      if (seen.has(file.toLowerCase())) return;
+      seen.add(file.toLowerCase());
+      let st: fs.Stats;
+      try {
+        st = fs.statSync(file);
+      } catch {
+        return;
+      }
+      // Written by this call: file times can trail the clock by a moment.
+      if (!st.isFile() || st.size > MAX_IMAGE_FILE_BYTES || st.mtimeMs < since - 2000) return;
+      const buf = fs.readFileSync(file);
+      const type = sniffImage(buf);
+      if (!type) return;
+      try {
+        out.push(await prepareImage(buf, type, file));
+      } catch {
+        // As above.
+      }
+      return;
+    }
+    if (Array.isArray(v)) for (const x of v.slice(0, 50)) await visit(x, depth + 1);
+    else if (v && typeof v === "object") for (const x of Object.values(v).slice(0, 100)) await visit(x, depth + 1);
+  };
+  for (const c of r.content) if (c.type === "text" && c.text) await visit(parseJson(c.text), 0);
+  return out;
 }
 
 /** What a reattach can establish about a call whose outcome is unknown, without running it again. */

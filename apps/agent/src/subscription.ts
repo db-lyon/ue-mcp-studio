@@ -34,7 +34,7 @@ export const studioName = (name: string): string =>
     : name;
 
 /** Studio's machine tools in the SDK's form: the same names and descriptions as the API path, checked by zod. */
-function localSdkTools(handler: (name: string) => (args: Record<string, unknown>) => Promise<{ content: Array<{ type: "text"; text: string }>; isError: boolean }>) {
+function localSdkTools(handler: (name: string) => (args: Record<string, unknown>) => Promise<{ content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>; isError: boolean }>) {
   const desc = Object.fromEntries(localToolDefinitions().map((t) => [(t as { name: string }).name, (t as { description?: string }).description ?? ""]));
   return [
     tool("shell", desc.shell, { command: z.string(), timeout: z.number().optional(), description: z.string().optional() }, handler("shell")),
@@ -230,7 +230,9 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   };
   const handler = (name: string) => async (args: Record<string, unknown>) => {
     const exec = await t.runTool(take(name, args), name, args);
-    return { content: [{ type: "text" as const, text: exec.text }], isError: exec.isError };
+    // Images go as MCP image content, which the SDK hands the model as images.
+    const images = (exec.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mediaType }));
+    return { content: [{ type: "text" as const, text: exec.text }, ...images], isError: exec.isError };
   };
 
   const server = createSdkMcpServer({

@@ -9,11 +9,10 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Attachment, AttachmentUpload } from "@ue-mcp-studio/shared";
+import { imageBlock, prepareImage, sniffImage } from "./images.js";
 
 /** The largest file the panel accepts. */
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
-/** The model API's limit for one image. */
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 /** The model API's limit for one PDF. */
 const MAX_PDF_BYTES = 32 * 1024 * 1024;
 /** Text files larger than this go in by path, not inline. */
@@ -48,8 +47,13 @@ export class AttachmentStore {
     const bytes = Buffer.from(upload.data, "base64");
     if (bytes.length === 0) throw new Error(`${upload.name} is empty`);
     if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${upload.name} is larger than ${MAX_ATTACHMENT_BYTES / 1024 / 1024} MB`);
+    return this.keep(sessionId, upload.name, typeof upload.type === "string" && upload.type ? upload.type : "application/octet-stream", bytes);
+  }
+
+  /** Keep bytes as one of the session's files: an upload, or an image a tool showed the model. */
+  keep(sessionId: string, name: string, type: string, bytes: Buffer): Attachment & { path: string } {
     const id = crypto.randomUUID();
-    const a: Attachment = { id, name: safeName(upload.name), type: typeof upload.type === "string" && upload.type ? upload.type : "application/octet-stream", size: bytes.length };
+    const a: Attachment = { id, name: safeName(name), type, size: bytes.length };
     const dir = this.dir(sessionId);
     fs.mkdirSync(dir, { recursive: true });
     const file = path.join(dir, `${id}-${a.name}`);
@@ -78,17 +82,24 @@ export class AttachmentStore {
 
 const kb = (n: number) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
-/** What the model gets for one attachment: a line naming the file and its path, and the file itself when it can read it. */
-export function contentFor(a: Attachment & { path: string }): unknown[] {
+/** What the model gets for one attachment: a line naming the file and its path, and the file itself when it can read it. A large image is scaled to fit. */
+export async function contentFor(a: Attachment & { path: string }): Promise<unknown[]> {
   const note = (how: string) => ({
     type: "text",
     text: `[Attached file] ${a.name} (${a.type}, ${kb(a.size)}), saved at ${a.path}. ${how}`,
   });
-  if (IMAGE_TYPES.has(a.type) && a.size <= MAX_IMAGE_BYTES) {
-    return [note("The image follows; import it with ue-mcp if the task needs it in the project."), {
-      type: "image",
-      source: { type: "base64", media_type: a.type, data: fs.readFileSync(a.path).toString("base64") },
-    }];
+  if (IMAGE_TYPES.has(a.type)) {
+    const bytes = fs.readFileSync(a.path);
+    const type = sniffImage(bytes);
+    if (type) {
+      try {
+        const img = await prepareImage(bytes, type);
+        const how = img.original ? `It follows as a ${img.width}x${img.height} copy, scaled to fit the model's image limits` : "The image follows";
+        return [note(`${how}; import the file with ue-mcp if the task needs it in the project.`), imageBlock(img)];
+      } catch {
+        // Not decodable: offered by path below.
+      }
+    }
   }
   if (a.type === "application/pdf" && a.size <= MAX_PDF_BYTES) {
     return [note("The document follows."), {

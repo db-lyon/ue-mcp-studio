@@ -11,6 +11,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import { lineDiff, type ApprovalRequest, type DiffLine } from "@ue-mcp-studio/shared";
+import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, describeImage, prepareImage, sniffImage, type ToolImage } from "./images.js";
 
 export const LOCAL_TOOL_NAMES = ["shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch"] as const;
 export type LocalToolName = (typeof LOCAL_TOOL_NAMES)[number];
@@ -40,6 +41,8 @@ const SKIP_DIRS = [".git", ".svn", ".vs", "node_modules", "Intermediate", "Deriv
 export interface LocalResult {
   text: string;
   isError: boolean;
+  /** Images the model sees with the text: read_file on an image file. */
+  images?: ToolImage[];
 }
 
 const fail = (text: string): LocalResult => ({ text, isError: true });
@@ -207,12 +210,42 @@ function readText(file: string): { text: string } | { error: string } {
   if (st.isDirectory()) return { error: `${file} is a folder; list it with glob` };
   if (st.size > READ_FILE_MAX) return { error: `${file} is ${st.size} bytes, too large to read whole; search it with grep` };
   const buf = fs.readFileSync(file);
-  if (isBinary(buf)) return { error: `${file} is a binary file (${st.size} bytes)` };
+  if (isBinary(buf)) return { error: `${file} is a binary file (${st.size} bytes); read_file opens text, and PNG, JPEG, GIF and WebP images` };
   return { text: buf.toString("utf-8") };
 }
 
-export function readFile(projectDir: string, input: { path: string; offset?: number; limit?: number }): LocalResult {
+/** An image file as the model sees it: a line on what it is, and the image, scaled to fit when large. */
+async function readImage(file: string, buf: Buffer, mediaType: string): Promise<LocalResult> {
+  try {
+    const img = await prepareImage(buf, mediaType, file);
+    return { text: describeImage(img, file, buf.length), isError: false, images: [img] };
+  } catch (e) {
+    return fail(`${file} looks like a ${mediaType.replace("image/", "").toUpperCase()} image but could not be decoded: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
+/** A text file with line numbers, or an image file as an image. */
+export async function readFile(projectDir: string, input: { path: string; offset?: number; limit?: number }): Promise<LocalResult> {
   const file = resolvePath(projectDir, input.path);
+  let st: fs.Stats | null = null;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    // readText says so.
+  }
+  if (st?.isFile() && st.size <= MAX_IMAGE_FILE_BYTES) {
+    const head = Buffer.alloc(16);
+    const fd = fs.openSync(file, "r");
+    try {
+      fs.readSync(fd, head, 0, head.length, 0);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const mediaType = sniffImage(head);
+    if (mediaType) return readImage(file, fs.readFileSync(file), mediaType);
+  } else if (st?.isFile() && IMAGE_EXTENSIONS[path.extname(file).toLowerCase()]) {
+    return fail(`${file} is ${st.size} bytes, too large an image to open (at most ${MAX_IMAGE_FILE_BYTES / 1024 / 1024} MB)`);
+  }
   const r = readText(file);
   if ("error" in r) return fail(r.error);
   if (r.text === "") return { text: `${file} is empty.`, isError: false };
@@ -557,7 +590,7 @@ export function localToolDefinitions(sh: ShellInfo = shell()): Anthropic.Beta.Be
     },
     {
       name: "read_file",
-      description: "Read a text file, with line numbers. A relative path is under the project folder; an absolute one is fine. For a large file, read a range with offset (first line, from 1) and limit (lines).",
+      description: "Read a text file, with line numbers, or look at an image file (PNG, JPEG, GIF or WebP): you see the image itself, scaled down when it is large. A relative path is under the project folder; an absolute one is fine. For a large text file, read a range with offset (first line, from 1) and limit (lines).",
       input_schema: {
         type: "object",
         properties: { path: S("The file"), offset: N("First line to read, from 1"), limit: N(`How many lines, ${READ_LINES_DEFAULT} by default`) },
@@ -656,7 +689,7 @@ export async function runLocal(projectDir: string, name: LocalToolName, input: R
       case "shell":
         return await runShell(String(input.command), projectDir, typeof input.timeout === "number" ? input.timeout : SHELL_TIMEOUT_DEFAULT_S, signal);
       case "read_file":
-        return readFile(projectDir, input as { path: string; offset?: number; limit?: number });
+        return await readFile(projectDir, input as { path: string; offset?: number; limit?: number });
       case "write_file":
         return writeFile(projectDir, input as { path: string; content: string });
       case "edit_file":

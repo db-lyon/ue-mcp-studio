@@ -43,6 +43,13 @@ const textOf = (content: unknown): string => {
   return "";
 };
 
+/** The base64 images among Messages content blocks, as data URL parts. */
+const imagesOf = (content: unknown): Array<{ type: "image_url"; image_url: { url: string } }> =>
+  (Array.isArray(content) ? (content as Block[]) : []).flatMap((b) => {
+    const src = b.source as { type?: string; media_type?: string; data?: string } | undefined;
+    return b.type === "image" && src?.type === "base64" ? [{ type: "image_url" as const, image_url: { url: `data:${src.media_type};base64,${src.data}` } }] : [];
+  });
+
 /** The request in Chat Completions form. Tool results become tool messages, ahead of any text sent with them. */
 export function toChatRequest(req: ModelRequest): Record<string, unknown> {
   const messages: ChatMessage[] = [{ role: "system", content: req.system.map((b) => b.text).join("\n\n") }];
@@ -61,18 +68,19 @@ export function toChatRequest(req: ModelRequest): Record<string, unknown> {
       messages.push({ role: "assistant", content: text || null, ...(calls.length ? { tool_calls: calls } : {}) });
       continue;
     }
+    // A tool message carries text only: images a tool returned follow in a user message, after every tool message.
+    const toolImages: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }> = [];
     for (const b of blocks) {
       if (b.type !== "tool_result") continue;
       const body = textOf(b.content);
       messages.push({ role: "tool", tool_call_id: String(b.tool_use_id), content: b.is_error ? `Error: ${body}` : body });
+      const shown = imagesOf(b.content);
+      if (shown.length) toolImages.push({ type: "text", text: `[Studio] The image${shown.length === 1 ? "" : "s"} the ${String(b.tool_use_id)} call returned:` }, ...shown);
     }
     const text = blocks.filter((b) => b.type === "text").map((b) => String(b.text)).join("\n");
     // Images go along as data URLs; a PDF is known to the model by the path in its note.
-    const images = blocks.flatMap((b) => {
-      const src = b.source as { type?: string; media_type?: string; data?: string } | undefined;
-      return b.type === "image" && src?.type === "base64" ? [{ type: "image_url" as const, image_url: { url: `data:${src.media_type};base64,${src.data}` } }] : [];
-    });
-    if (images.length) messages.push({ role: "user", content: [...(text ? [{ type: "text" as const, text }] : []), ...images] });
+    const images = imagesOf(blocks);
+    if (images.length || toolImages.length) messages.push({ role: "user", content: [...toolImages, ...(text ? [{ type: "text" as const, text }] : []), ...images] });
     else if (text) messages.push({ role: "user", content: text });
   }
   const tools = req.tools.map((t) => {
