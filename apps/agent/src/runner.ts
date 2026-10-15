@@ -279,6 +279,8 @@ export class AgentRunner {
     s.error = null;
     this.setStatus(s, "running", null);
     const onClaude = !!this.o.subscription?.();
+    const rewound = !!s.rewound;
+    s.rewound = false;
     s.model = this.o.model();
     s.route = this.o.route?.() ?? null;
     if (onClaude) {
@@ -288,7 +290,8 @@ export class AgentRunner {
         if (s.sdkSession) s.sdkPast = [...(s.sdkPast ?? []), s.sdkSession];
         s.sdkSession = null;
         s.offClaude = false;
-        this.addEntry(s, { kind: "note", text: `On ${modelName(s.model)} via your Claude sign-in from here, with the whole conversation so far.`, at: now() });
+        // After an edit the model only changed sessions, not the user: nothing to tell them.
+        if (!rewound) this.addEntry(s, { kind: "note", text: `On ${modelName(s.model)} via your Claude sign-in from here, with the whole conversation so far.`, at: now() });
         return this.runSubscription(s.id, [{ type: "text", text: carryOver(earlier) }, ...content]);
       }
       return this.runSubscription(s.id, content);

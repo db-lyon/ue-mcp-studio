@@ -225,6 +225,8 @@ describe("editing a message on the subscription route", () => {
     expect(prompt).not.toContain("reply 2");
     expect(prompt).toContain("second, edited");
     expect(store.get(s.id)!.sdkPast).toEqual(["sdk-2"]);
+    // Nothing in the panel says the model moved: to the user it is the same conversation.
+    expect(store.get(s.id)!.transcript.some((t) => t.kind === "note")).toBe(false);
   });
 });
 

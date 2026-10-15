@@ -58,6 +58,8 @@ export interface StoredSession {
   sdkPast?: string[];
   /** Turns ran on another model since the SDK session last saw the conversation. */
   offClaude?: boolean;
+  /** The user edited a message and the conversation was cut back to it; the next Claude session starts quietly. */
+  rewound?: boolean;
   /** The model and the way it was reached for the last turn. */
   model?: string;
   route?: string | null;
@@ -189,6 +191,7 @@ export class SessionStore {
     if (s.sdkSession) s.sdkPast = [...(s.sdkPast ?? []), s.sdkSession];
     s.sdkSession = null;
     s.offClaude = false;
+    s.rewound = true;
     return entry;
   }
 
