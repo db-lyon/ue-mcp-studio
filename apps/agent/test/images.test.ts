@@ -130,6 +130,38 @@ describe("images an editor call wrote", () => {
     expect(await resultImages(dir, result({ path: file }), Date.now())).toEqual([]);
   });
 
+  it("wait for a capture the renderer writes after the call returns", async () => {
+    const file = path.join(dir, "late.png");
+    const since = Date.now();
+    setTimeout(() => fs.writeFileSync(file, pngBytes(6, 3)), 300);
+    const images = await resultImages(dir, result({ success: true, filename: file, note: "Screenshot queued." }), since);
+    expect(images.map((i) => [i.width, i.height])).toEqual([[6, 3]]);
+  });
+
+  it("wait for an overwritten capture to get its new content", async () => {
+    const file = path.join(dir, "again.png");
+    fs.writeFileSync(file, pngBytes(2, 2));
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(file, past, past);
+    const since = Date.now();
+    setTimeout(() => fs.writeFileSync(file, pngBytes(9, 4)), 300);
+    const images = await resultImages(dir, result({ success: true, filename: file, overwrote: true }), since);
+    expect(images.map((i) => [i.width, i.height])).toEqual([[9, 4]]);
+  });
+
+  it("do not hold the call for an old file the result only mentions, or one that never comes", async () => {
+    const old = path.join(dir, "source.png");
+    fs.writeFileSync(old, pngBytes(2, 2));
+    const past = new Date(Date.now() - 60_000);
+    fs.utimesSync(old, past, past);
+    let t = Date.now();
+    expect(await resultImages(dir, result({ imported: old }), Date.now())).toEqual([]);
+    expect(Date.now() - t).toBeLessThan(1000);
+    t = Date.now();
+    expect(await resultImages(dir, result({ filename: path.join(dir, "never.png") }), Date.now(), 400)).toEqual([]);
+    expect(Date.now() - t).toBeLessThan(1500);
+  });
+
   it("take image content the result carries itself", async () => {
     const r: ActionResult = { isError: false, content: [{ type: "text", text: "ok" }, { type: "image", data: pngBytes(3, 3).toString("base64"), mimeType: "image/png" } as never] };
     expect(await resultImages(dir, r, Date.now())).toHaveLength(1);

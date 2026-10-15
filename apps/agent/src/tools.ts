@@ -260,35 +260,46 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
  * own folder name or its Saved folder on.
  */
 export function imageOnDisk(projectDir: string, p: string): string | null {
-  const v = p.replace(/\\/g, "/");
+  return imagePaths(projectDir, p).find(isFile) ?? null;
+}
+
+/** Where an image path from an editor result may be, most likely first. */
+function imagePaths(projectDir: string, p: string): string[] {
   const candidates = [path.resolve(projectDir, p)];
   if (!path.isAbsolute(p)) {
-    const name = path.basename(projectDir).toLowerCase();
-    const parts = v.split("/");
-    const at = parts.map((x) => x.toLowerCase()).lastIndexOf(name);
+    const parts = p.split(/[\\/]/);
+    const lower = parts.map((x) => x.toLowerCase());
+    const at = lower.lastIndexOf(path.basename(projectDir).toLowerCase());
     if (at >= 0) candidates.push(path.join(projectDir, ...parts.slice(at + 1)));
-    const saved = parts.map((x) => x.toLowerCase()).lastIndexOf("saved");
+    const saved = lower.lastIndexOf("saved");
     if (saved >= 0) candidates.push(path.join(projectDir, ...parts.slice(saved)));
   }
-  return candidates.find((c) => {
-    try {
-      return fs.statSync(c).isFile();
-    } catch {
-      return false;
-    }
-  }) ?? null;
+  return candidates;
 }
+
+const isFile = (f: string): boolean => {
+  try {
+    return fs.statSync(f).isFile();
+  } catch {
+    return false;
+  }
+};
 
 /** The most images one editor call hands the model. */
 export const RESULT_IMAGES_MAX = 4;
+/** How long a result's image may take to land on disk: the editor's renderer writes a viewport capture after the call returns. */
+export const RESULT_IMAGE_WAIT_MS = 5000;
 
 /**
  * The images an editor call produced, for the model to see: image content in
  * the result, and image files the result names that the call wrote (changed
- * since it started), such as a screenshot or a render. An image the result
- * only mentions, written earlier, is left for read_file.
+ * since it started), such as a screenshot or a render. A file the call says
+ * it wrote that is not there yet, or that it overwrote and that still has its
+ * old time, is waited for briefly, since the renderer writes some captures
+ * after the call returns. An image the result only mentions, written earlier,
+ * is left for read_file.
  */
-export async function resultImages(projectDir: string, r: ActionResult, since: number): Promise<ToolImage[]> {
+export async function resultImages(projectDir: string, r: ActionResult, since: number, waitMs = RESULT_IMAGE_WAIT_MS): Promise<ToolImage[]> {
   const out: ToolImage[] = [];
   for (const c of r.content as Array<{ type: string; data?: unknown; mimeType?: unknown }>) {
     if (out.length >= RESULT_IMAGES_MAX) break;
@@ -302,36 +313,72 @@ export async function resultImages(projectDir: string, r: ActionResult, since: n
       // Not an image this can decode: the text still says what the call did.
     }
   }
+  // Each image path the result names, with where it may be, and whether to wait for it.
+  const named: Array<{ paths: string[]; wait: boolean }> = [];
   const seen = new Set<string>();
-  const visit = async (v: unknown, depth: number): Promise<void> => {
-    if (out.length >= RESULT_IMAGES_MAX || depth > 5) return;
+  const visit = (v: unknown, depth: number, overwrote: boolean): void => {
+    if (named.length >= RESULT_IMAGES_MAX * 4 || depth > 5) return;
     if (typeof v === "string") {
       if (!IMAGE_EXTENSIONS[path.extname(v).toLowerCase()] || v.length > 1024) return;
-      const file = imageOnDisk(projectDir, v);
-      if (!file || seen.has(file.toLowerCase())) return;
-      seen.add(file.toLowerCase());
+      const paths = imagePaths(projectDir, v);
+      const key = (paths.find(isFile) ?? paths[0]).toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      named.push({ paths, wait: overwrote || !paths.some(isFile) });
+      return;
+    }
+    if (Array.isArray(v)) for (const x of v.slice(0, 50)) visit(x, depth + 1, overwrote);
+    else if (v && typeof v === "object") {
+      const o = v as Record<string, unknown>;
+      for (const x of Object.values(o).slice(0, 100)) visit(x, depth + 1, overwrote || o.overwrote === true);
+    }
+  };
+  for (const c of r.content) if (c.type === "text" && c.text) visit(parseJson(c.text), 0, false);
+
+  /** The file, once the call has written it and it has stopped growing. */
+  const sizes = new Map<string, number>();
+  const ready = (paths: string[]): string | null => {
+    for (const f of paths) {
       let st: fs.Stats;
       try {
-        st = fs.statSync(file);
+        st = fs.statSync(f);
       } catch {
-        return;
+        continue;
       }
       // Written by this call: file times can trail the clock by a moment.
-      if (!st.isFile() || st.size > MAX_IMAGE_FILE_BYTES || st.mtimeMs < since - 2000) return;
+      if (!st.isFile() || st.size === 0 || st.size > MAX_IMAGE_FILE_BYTES || st.mtimeMs < since - 2000) continue;
+      const before = sizes.get(f);
+      sizes.set(f, st.size);
+      if (before === st.size) return f;
+    }
+    return null;
+  };
+  const deadline = Date.now() + waitMs;
+  let pending = named;
+  // The first look only notes sizes; a file is taken once its size holds between two looks.
+  for (let round = 0; pending.length > 0 && out.length < RESULT_IMAGES_MAX; round++) {
+    const next: typeof named = [];
+    for (const n of pending) {
+      const file = round === 0 ? (ready(n.paths), null) : ready(n.paths);
+      if (!file) {
+        next.push(n);
+        continue;
+      }
       const buf = fs.readFileSync(file);
       const type = sniffImage(buf);
-      if (!type) return;
+      if (!type) continue;
       try {
         out.push(await prepareImage(buf, type, file));
       } catch {
         // As above.
       }
-      return;
+      if (out.length >= RESULT_IMAGES_MAX) break;
     }
-    if (Array.isArray(v)) for (const x of v.slice(0, 50)) await visit(x, depth + 1);
-    else if (v && typeof v === "object") for (const x of Object.values(v).slice(0, 100)) await visit(x, depth + 1);
-  };
-  for (const c of r.content) if (c.type === "text" && c.text) await visit(parseJson(c.text), 0);
+    // Past the first look, only what the call is still writing is worth waiting for.
+    pending = round === 0 ? next : next.filter((n) => n.wait);
+    if (pending.length === 0 || Date.now() >= deadline) break;
+    await new Promise((res) => setTimeout(res, round === 0 ? 50 : 200));
+  }
   return out;
 }
 
