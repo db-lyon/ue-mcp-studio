@@ -14,6 +14,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import type { TouchedItem } from "@ue-mcp-studio/shared";
 import { isLocalTool, localToolDefinitions, runLocal, validateLocal } from "./local-tools.js";
+import { firstFailedStep, type OperationStep } from "./operation-result.js";
 
 /** The part of the daemon's extension API the agent uses, so tests can stand in for it. */
 export interface AgentHost {
@@ -193,8 +194,9 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
   if (name === "editor_restart") {
     const op = input.operation as "restart" | "rebuild";
     const result = await host.editorOperation(op);
-    const steps = (result.steps as Array<{ step: string; ok: boolean; result?: string }> | undefined) ?? [];
-    const failed = steps.find((s) => !s.ok);
+    const steps = (result.steps as OperationStep[] | undefined) ?? [];
+    // Read off the payload too: a daemon up to ue-mcp 1.4.3 marks a step ok whose handler returned success: false.
+    const failed = firstFailedStep(steps);
     return {
       text: failed ? `${op} failed at ${failed.step}: ${failed.result ?? ""}`.trim() : `${op} finished: ${steps.map((s) => s.step).join(", ")}`,
       isError: !!failed,

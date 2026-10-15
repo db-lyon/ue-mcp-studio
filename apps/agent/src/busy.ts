@@ -6,11 +6,13 @@
  * is blocked. The window shows the oldest call as "Editor busy" with a timer,
  * and Stop ends the turns waiting on them. An editor restart, rebuild, start
  * or stop the daemon runs (its editor.operation events) shows step by step
- * until the editor is back.
+ * until the editor is back, and an operation that did not bring it back says
+ * why until the next one starts or the editor connects.
  */
 import type { ActionResult } from "ue-mcp/daemon";
-import type { BusyCall, BusyState, EditorOperation } from "@ue-mcp-studio/shared";
+import type { BusyCall, BusyState, EditorOperation, EditorOperationFailure } from "@ue-mcp-studio/shared";
 import type { AgentHost } from "./tools.js";
+import { firstFailedStep, stepReason, type OperationStep } from "./operation-result.js";
 
 /** Lookups that the daemon answers itself; they never wait on the editor. */
 const LOCAL = new Set(["project.search_tools", "project.describe_action"]);
@@ -24,15 +26,25 @@ const LAST_STEP: Record<EditorOperation["op"], string> = {
 };
 const OPS = new Set(Object.keys(LAST_STEP));
 
+/**
+ * How long a started editor may take to attach once its start step is done.
+ * The daemon's start step already waits for the bridge, so the editor attaches
+ * within seconds; past this the wait is over and the banner says so (#1384).
+ */
+export const CONNECT_MS = 90_000;
+
 export class BusyTracker {
   private next = 1;
   private readonly calls = new Map<number, BusyCall>();
   private operation: EditorOperation | null = null;
+  private failure: EditorOperationFailure | null = null;
+  private connectTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly publish: (type: string, data: Record<string, unknown>) => void = () => {},
     private readonly now: () => number = Date.now,
     private readonly editorConnected: () => boolean = () => false,
+    private readonly connectMs: number = CONNECT_MS,
   ) {}
 
   state(): BusyState {
@@ -40,7 +52,29 @@ export class BusyTracker {
       now: this.now(),
       calls: [...this.calls.values()].sort((a, b) => a.startedAt - b.startedAt),
       ...(this.operation ? { operation: { ...this.operation } } : {}),
+      ...(this.failure ? { failure: { ...this.failure } } : {}),
     };
+  }
+
+  /** Set the operation, arming the bound on the wait for the editor to attach. */
+  private setOperation(next: EditorOperation | null): void {
+    this.operation = next;
+    if (this.connectTimer) clearTimeout(this.connectTimer);
+    this.connectTimer = null;
+    if (next?.step !== "connect") return;
+    const waiting = next;
+    this.connectTimer = setTimeout(() => {
+      if (this.operation !== waiting) return;
+      this.fail(waiting.op, "connect", `The editor started but did not connect within ${Math.round(this.connectMs / 1000)} seconds. It may be stopped at a prompt in its own window; check it, or start it again.`);
+    }, this.connectMs);
+    this.connectTimer.unref?.();
+  }
+
+  /** End the operation as failed, keeping why for the banner. */
+  private fail(op: EditorOperation["op"], step: string, reason: string): void {
+    this.setOperation(null);
+    this.failure = { op, step, reason, at: this.now() };
+    this.changed();
   }
 
   /** One editor.operation event: a step started, finished or failed. */
@@ -51,13 +85,16 @@ export class BusyTracker {
     const at = this.now();
     if (data.phase === "started") {
       // A new operation, or the next step of the one running.
-      this.operation = this.operation?.op === op && this.operation.step !== "connect"
+      this.failure = null;
+      this.setOperation(this.operation?.op === op && this.operation.step !== "connect"
         ? { ...this.operation, step, stepStartedAt: at }
-        : { op, step, startedAt: at, stepStartedAt: at };
+        : { op, step, startedAt: at, stepStartedAt: at });
     } else if (data.phase === "failed") {
-      this.operation = null;
+      const reason = typeof data.reason === "string" && data.reason ? data.reason : `${step} failed.`;
+      this.fail(op, step, reason);
+      return;
     } else if (data.phase === "done" && this.operation?.op === op && step === LAST_STEP[op]) {
-      this.operation = op === "stop" || this.editorConnected() ? null : { ...this.operation, step: "connect", stepStartedAt: at };
+      this.setOperation(op === "stop" || this.editorConnected() ? null : { ...this.operation, step: "connect", stepStartedAt: at });
     } else {
       return;
     }
@@ -95,11 +132,36 @@ export class BusyTracker {
       get dataDir() { return host.dataDir; },
       callAction,
       editors: () => host.editors(),
-      editorOperation: (op) => host.editorOperation(op),
+      editorOperation: async (op) => {
+        const result = await host.editorOperation(op);
+        this.settle(op, result);
+        return result;
+      },
       events: host.events,
       setBusy: (busy) => host.setBusy(busy),
       log: host.log,
     };
+  }
+
+  /**
+   * An operation Studio ran has returned. A failed step ends it with its reason,
+   * also when the daemon reported that step done: a daemon up to ue-mcp 1.4.3
+   * does so for a handler that returned success: false.
+   */
+  private settle(op: EditorOperation["op"], result: Record<string, unknown>): void {
+    const steps = (result.steps as OperationStep[] | undefined) ?? [];
+    const failed = firstFailedStep(steps);
+    if (failed) this.fail(op, failed.step, stepReason(failed));
+  }
+
+  /**
+   * The user's Stop: nothing waits on the editor attaching any more, so the
+   * wait for it ends. A step the daemon is still running stays: it is real.
+   */
+  endWait(): void {
+    if (this.operation?.step !== "connect") return;
+    this.setOperation(null);
+    this.changed();
   }
 
   /** Calls other MCP clients make, from the daemon's activity events. */
@@ -117,13 +179,14 @@ export class BusyTracker {
     } else if (e.type === "editor.operation") {
       this.stepOf(e.data);
     } else if (e.type === "editor.connected") {
-      if (this.operation?.step === "connect") {
-        this.operation = null;
+      if (this.operation?.step === "connect" || this.failure) {
+        if (this.operation?.step === "connect") this.setOperation(null);
+        this.failure = null;
         this.changed();
       }
     } else if (e.type === "daemon.stopping") {
       this.calls.clear();
-      this.operation = null;
+      this.setOperation(null);
       this.changed();
     }
   }
@@ -148,6 +211,7 @@ export class BusyTracker {
       }
     }
     if (sessions.size) this.changed();
+    this.endWait();
     return [...sessions];
   }
 }

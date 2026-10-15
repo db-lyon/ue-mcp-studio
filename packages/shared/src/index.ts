@@ -413,12 +413,24 @@ export interface EditorOperation {
   stepStartedAt: number;
 }
 
+/** How the last editor operation ended when it did not bring the editor back. */
+export interface EditorOperationFailure {
+  op: EditorOperation["op"];
+  step: string;
+  /** What went wrong, in one or two sentences. */
+  reason: string;
+  /** Daemon clock, epoch ms. */
+  at: number;
+}
+
 /** GET /v1/ext/studio/busy, and the data of studio.busy.changed. `now` is the daemon's clock. */
 export interface BusyState {
   now: number;
   calls: BusyCall[];
   /** The editor operation in progress, when there is one. */
   operation?: EditorOperation;
+  /** The last operation's failure, until the editor connects or another operation starts. */
+  failure?: EditorOperationFailure;
 }
 
 /** POST /v1/ext/studio/window: open Studio's own window for this project. */

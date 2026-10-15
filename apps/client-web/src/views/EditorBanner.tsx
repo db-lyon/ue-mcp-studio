@@ -7,7 +7,7 @@
  * editor cannot answer.
  */
 import { useEffect, useState } from "react";
-import type { BusyCall, BusyState, EditorOperation } from "@ue-mcp-studio/shared";
+import type { BusyCall, BusyState, EditorOperation, EditorOperationFailure } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
 
@@ -43,11 +43,28 @@ export function operationLine(o: Pick<EditorOperation, "op" | "step">): { title:
   return { title: OPERATION[o.op], step: `${STEP[o.step] ?? o.step}${n >= 0 ? ` (step ${n + 1} of ${steps.length})` : ""}` };
 }
 
+const FAILED: Record<EditorOperation["op"], string> = {
+  rebuild: "The rebuild did not bring the editor back",
+  restart: "The restart did not bring the editor back",
+  start: "The editor did not start",
+  stop: "The editor did not stop",
+};
+
+/** "The rebuild did not bring the editor back (building the C++)". */
+export function failureLine(f: Pick<EditorOperationFailure, "op" | "step">): string {
+  return `${FAILED[f.op]} (${STEP[f.step] ?? f.step})`;
+}
+
+/** Whether a step of POST /v1/editor/:op failed, also when an older daemon marked it ok over a success: false payload. */
+export function stepFailed(s: { ok: boolean; result?: string }): boolean {
+  return !s.ok || /^\s*\{\s*"success":\s*false/.test(s.result ?? "");
+}
+
 /** The daemon's busy state, kept current from its events, with the clock offset to its own. */
-function useBusy(daemon: DaemonState): { calls: BusyCall[]; operation: EditorOperation | null; now: () => number } {
-  const [state, setState] = useState<{ calls: BusyCall[]; operation: EditorOperation | null; offset: number }>({ calls: [], operation: null, offset: 0 });
+function useBusy(daemon: DaemonState): { calls: BusyCall[]; operation: EditorOperation | null; failure: EditorOperationFailure | null; now: () => number } {
+  const [state, setState] = useState<{ calls: BusyCall[]; operation: EditorOperation | null; failure: EditorOperationFailure | null; offset: number }>({ calls: [], operation: null, failure: null, offset: 0 });
   const [, tick] = useState(0);
-  const take = (s: BusyState) => setState({ calls: s.calls, operation: s.operation ?? null, offset: s.now - Date.now() });
+  const take = (s: BusyState) => setState({ calls: s.calls, operation: s.operation ?? null, failure: s.failure ?? null, offset: s.now - Date.now() });
 
   useEffect(() => {
     if (!daemon.streaming) return;
@@ -66,11 +83,11 @@ function useBusy(daemon: DaemonState): { calls: BusyCall[]; operation: EditorOpe
     return () => clearInterval(t);
   }, [running]);
 
-  return { calls: state.calls, operation: state.operation, now: () => Date.now() + state.offset };
+  return { calls: state.calls, operation: state.operation, failure: state.failure, now: () => Date.now() + state.offset };
 }
 
 export function EditorBanner({ daemon }: { daemon: DaemonState }) {
-  const { calls, operation, now } = useBusy(daemon);
+  const { calls, operation, failure, now } = useBusy(daemon);
   const [stopping, setStopping] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -121,7 +138,7 @@ export function EditorBanner({ daemon }: { daemon: DaemonState }) {
       setError(null);
       api.editor("start").then(
         (r) => {
-          const failed = ((r.steps as Array<{ ok: boolean; result?: string }> | undefined) ?? []).find((s) => !s.ok);
+          const failed = ((r.steps as Array<{ ok: boolean; result?: string }> | undefined) ?? []).find(stepFailed);
           if (failed) setError(failed.result ?? "The editor did not start.");
         },
         (e: Error) => setError(e.message),
@@ -129,7 +146,11 @@ export function EditorBanner({ daemon }: { daemon: DaemonState }) {
     };
     return (
       <div className="banner warn editor-banner" role="status">
-        <span className="editor-banner-text"><strong>Editor not running</strong>{error && <span className="dim"> {error}</span>}</span>
+        <span className="editor-banner-text">
+          <strong>{failure ? `${failureLine(failure)}.` : "Editor not running"}</strong>
+          {failure && !error && <span className="dim"> {failure.reason}</span>}
+          {error && <span className="dim"> {error}</span>}
+        </span>
         <button className="primary" disabled={starting} onClick={start}>{starting ? "Starting" : "Start"}</button>
       </div>
     );

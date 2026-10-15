@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ActionResult } from "ue-mcp/daemon";
 import { BusyTracker } from "../src/busy.js";
 import type { AgentHost } from "../src/tools.js";
@@ -119,5 +119,74 @@ describe("an editor operation", () => {
     busy.observe(op("stop", "editor.stop_editor", "started"));
     busy.observe(op("stop", "editor.stop_editor", "done"));
     expect(busy.state().operation).toBeUndefined();
+  });
+
+  it("keeps why a step failed until the next operation starts", () => {
+    const busy = new BusyTracker(() => {}, () => 7);
+    busy.observe(op("rebuild", "project.build", "started"));
+    busy.observe({ type: "editor.operation", data: { op: "rebuild", step: "project.build", phase: "failed", reason: "Build failed: Foo.cpp(169): error C4458" } });
+    expect(busy.state().operation).toBeUndefined();
+    expect(busy.state().failure).toEqual({ op: "rebuild", step: "project.build", reason: "Build failed: Foo.cpp(169): error C4458", at: 7 });
+    busy.observe(op("start", "editor.start_editor", "started"));
+    expect(busy.state().failure).toBeUndefined();
+  });
+
+  it("clears a failure when the editor connects", () => {
+    const busy = new BusyTracker();
+    busy.observe(op("start", "editor.start_editor", "failed"));
+    expect(busy.state().failure).toMatchObject({ op: "start", reason: "editor.start_editor failed." });
+    busy.observe({ type: "editor.connected", data: {} });
+    expect(busy.state().failure).toBeUndefined();
+  });
+});
+
+describe("waiting for a started editor to attach (#1384)", () => {
+  const op = (o: string, step: string, phase: string) => ({ type: "editor.operation", data: { op: o, step, phase } });
+  afterEach(() => vi.useRealTimers());
+
+  it("is bounded: past the limit the operation ends and says the editor never connected", () => {
+    vi.useFakeTimers();
+    const published: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const busy = new BusyTracker((type, data) => published.push({ type, data }), Date.now, () => false, 90_000);
+    busy.observe(op("rebuild", "editor.start_editor", "started"));
+    busy.observe(op("rebuild", "editor.start_editor", "done"));
+    expect(busy.state().operation).toMatchObject({ step: "connect" });
+    vi.advanceTimersByTime(89_000);
+    expect(busy.state().operation).toMatchObject({ step: "connect" });
+    vi.advanceTimersByTime(2000);
+    expect(busy.state().operation).toBeUndefined();
+    expect(busy.state().failure).toMatchObject({ op: "rebuild", step: "connect", reason: expect.stringMatching(/did not connect within 90 seconds/) });
+    expect(published.at(-1)?.data.failure).toBeDefined();
+  });
+
+  it("ends on Stop, while a step the daemon is still running stays", () => {
+    const busy = new BusyTracker();
+    busy.observe(op("rebuild", "project.build", "started"));
+    busy.stop(() => {});
+    expect(busy.state().operation).toMatchObject({ step: "project.build" });
+    busy.observe(op("rebuild", "project.build", "done"));
+    busy.observe(op("rebuild", "editor.start_editor", "started"));
+    busy.observe(op("rebuild", "editor.start_editor", "done"));
+    expect(busy.state().operation).toMatchObject({ step: "connect" });
+    busy.stop(() => {});
+    expect(busy.state().operation).toBeUndefined();
+  });
+
+  it("ends with the reason when an older daemon reported a failed launch as done", async () => {
+    const busy = new BusyTracker();
+    const { host } = slowHost();
+    const launch = JSON.stringify({ success: false, message: "Editor launched but did not become ready: still not ready after 300s." }, null, 2);
+    const older: AgentHost = {
+      ...host,
+      editorOperation: async (o) => {
+        busy.observe(op(o, "editor.start_editor", "started"));
+        busy.observe(op(o, "editor.start_editor", "done"));
+        return { op: o, steps: [{ step: "editor.start_editor", ok: true, result: `${launch}
+served by editor P` }] };
+      },
+    };
+    await busy.wrap(older, "s1").editorOperation("start");
+    expect(busy.state().operation).toBeUndefined();
+    expect(busy.state().failure).toEqual({ op: "start", step: "editor.start_editor", reason: "Editor launched but did not become ready: still not ready after 300s.", at: expect.any(Number) });
   });
 });

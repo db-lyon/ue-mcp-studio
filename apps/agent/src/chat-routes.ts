@@ -423,6 +423,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (!store.get(req.params.id)) return missing(req.params.id);
     forms.cancelSession(req.params.id);
     runner.stop(req.params.id);
+    // Nothing waits on the editor attaching after a Stop, so the banner stops saying it does.
+    busy.endWait();
     return { status: 204 };
   });
 

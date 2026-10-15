@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { DaemonEvent, DaemonHealth } from "ue-mcp/daemon";
 import type { BusyState } from "@ue-mcp-studio/shared";
-import { EditorBanner, formatElapsed, operationLine } from "./EditorBanner";
+import { EditorBanner, formatElapsed, operationLine, stepFailed } from "./EditorBanner";
 import type { DaemonState } from "../state";
 
 afterEach(() => {
@@ -31,6 +31,20 @@ describe("the editor banner", () => {
     expect(operationLine({ op: "rebuild", step: "editor.stop_editor" })).toEqual({ title: "Rebuilding the project", step: "closing the editor (step 1 of 3)" });
     expect(operationLine({ op: "rebuild", step: "connect" })).toEqual({ title: "Rebuilding the project", step: "waiting for the editor to connect" });
     expect(operationLine({ op: "restart", step: "editor.restart_editor" })).toEqual({ title: "Restarting the editor", step: "restarting the editor" });
+  });
+
+  it("says why the last operation did not bring the editor back, beside the Start (#1384)", async () => {
+    stubFetch({ now: Date.now(), calls: [], failure: { op: "rebuild", step: "project.build", reason: "Build failed: ValeJourneyCaravan.cpp(169,10): error C4458", at: Date.now() } });
+    render(<EditorBanner daemon={daemon(false)} />);
+    await screen.findByText("The rebuild did not bring the editor back (building the C++).");
+    expect(screen.getByText(/error C4458/)).toBeTruthy();
+    expect(screen.getByText("Start")).toBeTruthy();
+  });
+
+  it("counts a start step an older daemon marked ok over success: false as failed", () => {
+    expect(stepFailed({ ok: true, result: JSON.stringify({ success: false, message: "not ready" }, null, 2) })).toBe(true);
+    expect(stepFailed({ ok: true, result: JSON.stringify({ success: true, results: [{ success: false }] }) })).toBe(false);
+    expect(stepFailed({ ok: false })).toBe(true);
   });
 
   it("formats the elapsed time", () => {
