@@ -770,3 +770,59 @@ describe("the provider's own web search", () => {
     expect(fin.status).toBe("idle");
   });
 });
+
+describe("stopping a subagent with a call in flight", () => {
+  it("lets that call go at once, marks it stopped, and the main turn and the other subagent go on", async () => {
+    let release: (() => void) | null = null;
+    host.handler = async (_c, action) => {
+      if (action === "slow_build") await new Promise<void>((r) => (release = r));
+      return { isError: false, content: [{ type: "text", text: "{\"success\":true}" }] };
+    };
+    let results: Array<{ tool_use_id: string; content: string }> = [];
+    let mainCalls = 0;
+    const model: ModelProvider = {
+      async run(req) {
+        const sub = req.system.some((b) => b.text.includes("You are a subagent"));
+        if (!sub) {
+          if (++mainCalls === 1) {
+            return {
+              content: [
+                { type: "tool_use", id: "busy", name: "agent", input: { description: "Busy", prompt: "busy" } },
+                { type: "tool_use", id: "calm", name: "agent", input: { description: "Calm", prompt: "calm" } },
+              ] as never,
+              stopReason: "tool_use",
+            };
+          }
+          results = req.messages[2].content as never;
+          return text("Carried on without it.");
+        }
+        const first = req.messages.length === 1;
+        if ((req.messages[0].content as string) === "calm") return text("Calm done.");
+        if (first) return call("c1", "asset", "slow_build");
+        return text("never");
+      },
+    };
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5" });
+    const s = store.create();
+    const turn = runner.send(s.id, "go");
+    await until(() => release !== null);
+    expect(runner.stopSubagent(s.id, "busy")).toBe(true);
+    // Answered now, not when the editor call returns.
+    const inFlight = store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "c1");
+    expect(inFlight?.kind === "tool" && inFlight.call.outcome).toBe("stopped");
+    expect(inFlight?.kind === "tool" && inFlight.call.result).toMatch(/Stopped by the user while this was running/);
+    await turn;
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    const busy = fin.transcript.find((t) => t.kind === "tool" && t.call.id === "busy");
+    expect(busy?.kind === "tool" && busy.call.outcome).toBe("stopped");
+    expect(results.find((r) => r.tool_use_id === "busy")!.content).toMatch(/user stopped this subagent/);
+    expect(results.find((r) => r.tool_use_id === "calm")!.content).toBe("Calm done.");
+    expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "Carried on without it." });
+    // The call's late result changes nothing that was already answered.
+    release!();
+    await new Promise((r) => setTimeout(r, 20));
+    const after = store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "c1");
+    expect(after?.kind === "tool" && after.call.outcome).toBe("stopped");
+  });
+});

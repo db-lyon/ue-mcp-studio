@@ -106,6 +106,22 @@ export interface RunnerOptions {
 
 const now = (): string => new Date().toISOString();
 
+/** A promise's value, or null as soon as the signal aborts. The work goes on; its result is dropped. */
+export function unlessAborted<T>(p: Promise<T>, signal: AbortSignal): Promise<T | null> {
+  if (signal.aborted) return Promise.resolve(null);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => resolve(null);
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then((v) => {
+      signal.removeEventListener("abort", onAbort);
+      resolve(v);
+    }, (e) => {
+      signal.removeEventListener("abort", onAbort);
+      reject(e);
+    });
+  });
+}
+
 /** The conversation so far as text, for a Claude session that starts in the middle of it. Keeps the most recent part when long. */
 /**
  * A call ue-mcp answered without doing it: a result whose JSON says success is
@@ -353,14 +369,27 @@ export class AgentRunner {
         runTool: async (toolId, name, input) => {
           // The turn ended while the binary was still asking: nothing runs after a stop.
           if (controller.signal.aborted) return { text: interruptedResult({ name, input }, this.causeOf(controller), false), isError: true, outcome: "error", touched: [], saved: [] };
-          if (name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, controller.signal);
-          const gate = await this.gate(s, toolId, name, input, controller.signal);
+          // A subagent's call also ends when the user stops that subagent.
+          const owner = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolId)?.parent;
+          const sub = owner ? this.subagentAbort(owner).signal : null;
+          const signal = sub ? AbortSignal.any([controller.signal, sub]) : controller.signal;
+          const stoppedHere = (): ToolExecution => ({ text: interruptedResult({ name, input }, USER_STOP, true), isError: true, outcome: "error", touched: [], saved: [] });
+          if (sub?.aborted) return stoppedHere();
+          if (name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal);
+          if (sub?.aborted) return stoppedHere();
+          const gate = await this.gate(s, toolId, name, input, signal);
+          if (sub?.aborted) return stoppedHere();
           if (gate) {
             const text = "stopped" in gate ? "Stopped by the user." : gate.declined;
             this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
             return { text, isError: true, outcome: "error", touched: [], saved: [] };
           }
-          let exec = await executeTool(this.hostFor(s.id), name, input, controller.signal);
+          const running = executeTool(this.hostFor(s.id), name, input, signal);
+          // What a call does after its subagent was stopped is still tracked for the crash report.
+          if (sub) void running.then((e) => sub.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
+          const done = sub ? await unlessAborted(running, sub) : await running;
+          if (!done) return stoppedHere();
+          let exec = done;
           this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
           // Stopped while the editor worked: the stop already answered this call.
           if (controller.signal.aborted) return exec;
@@ -378,6 +407,7 @@ export class AgentRunner {
       this.setStatus(s, error ? "error" : "idle", null);
     } finally {
       if (this.active.get(id) === controller) this.active.delete(id);
+      for (const t of s.transcript) if (t.kind === "tool" && t.call.name === "agent") this.subagentStops.delete(t.call.id);
       // A call the turn ended without answering never finishes now. A stop answered its own already.
       if (!controller.signal.aborted) this.endCalls(s, () => "The turn ended before this call returned a result.", "error");
     }
@@ -507,9 +537,11 @@ export class AgentRunner {
     s: StoredSession,
     result: (call: { id: string; name: string; input: Record<string, unknown>; parent?: string }) => string,
     outcome: "stopped" | "unknown" | "error",
+    parent?: string,
   ): void {
     for (const t of s.transcript) {
       if (t.kind !== "tool" || t.call.outcome !== "pending") continue;
+      if (parent !== undefined && t.parent !== parent) continue;
       const call = { id: t.call.id, name: t.call.name, input: (t.call.input ?? {}) as Record<string, unknown>, ...(t.parent ? { parent: t.parent } : {}) };
       this.recordOutcome(s, { id: call.id, name: call.name, input: call.input, state: "done", result: result(call), isError: true }, outcome);
     }
@@ -520,11 +552,27 @@ export class AgentRunner {
    * stopped it. Returns false when no subagent of that id is running.
    */
   stopSubagent(sessionId: string, callId: string): boolean {
-    this.require(sessionId);
+    const s = this.require(sessionId);
     const stop = this.subagents.get(callId);
     if (!stop) return false;
     stop();
+    // Its calls in flight are let go now, as Stop lets a turn's go: each says it was stopped, whatever it returns later.
+    this.subagentAbort(callId).abort(USER_STOP);
+    this.endSubagentCalls(s, callId);
     return true;
+  }
+
+  /** Each subagent's own stop signal, by its agent call id, for the calls it makes. */
+  private readonly subagentStops = new Map<string, AbortController>();
+  private subagentAbort(callId: string): AbortController {
+    let c = this.subagentStops.get(callId);
+    if (!c) this.subagentStops.set(callId, (c = new AbortController()));
+    return c;
+  }
+
+  /** Answer every call a stopped subagent still has running, the way Stop answers a turn's. */
+  private endSubagentCalls(s: StoredSession, callId: string): void {
+    this.endCalls(s, (call) => interruptedResult(call, USER_STOP, true), "stopped", callId);
   }
 
   /**
@@ -783,6 +831,7 @@ export class AgentRunner {
     const follow = () => own.abort();
     turnSignal.addEventListener("abort", follow);
     this.subagents.set(call.id, () => own.abort());
+    this.subagentAbort(call.id).signal.addEventListener("abort", () => own.abort(), { once: true });
     signal = own.signal;
     const stopped = () => (turnSignal.aborted
       ? { text: "Stopped by the user.", isError: true }
@@ -819,9 +868,12 @@ export class AgentRunner {
             results.push({ type: "tool_result", tool_use_id: u.id, content: gate.declined, is_error: true });
             continue;
           }
-          const exec = await executeTool(this.hostFor(s.id), u.name, input, signal);
+          const running = executeTool(this.hostFor(s.id), u.name, input, signal);
+          // A stop lets the call go at once; what it does after is still tracked for the crash report.
+          void running.then((e) => signal.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
+          const exec = await unlessAborted(running, signal);
+          if (!exec || signal.aborted) return stopped();
           this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
-          if (signal.aborted) return stopped();
           this.markSaved(s, exec.saved);
           this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
           results.push({ type: "tool_result", tool_use_id: u.id, content: toolResultContent(exec.text, exec.images), is_error: exec.isError || undefined });
@@ -835,6 +887,7 @@ export class AgentRunner {
     } finally {
       turnSignal.removeEventListener("abort", follow);
       this.subagents.delete(call.id);
+      this.subagentStops.delete(call.id);
     }
   }
 

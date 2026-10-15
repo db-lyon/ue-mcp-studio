@@ -24,6 +24,7 @@ const sdk = vi.hoisted(() => ({
   prompts: [] as unknown[],
   envs: [] as Array<Record<string, string | undefined>>,
   interrupts: 0,
+  stopTask: null as null | ((taskId: string) => void),
 }));
 
 vi.mock("../src/runtime.js", () => ({ ensureRuntime: async () => "claude.exe", installedRuntime: () => "claude.exe" }));
@@ -61,7 +62,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
       async interrupt() {
         sdk.interrupts++;
       },
-      stopTask: async () => undefined,
+      stopTask: async (taskId: string) => sdk.stopTask?.(taskId),
       [Symbol.asyncIterator]() {
         return {
           async next(): Promise<IteratorResult<unknown>> {
@@ -194,6 +195,50 @@ describe("editor_restart on the subscription route", () => {
     expect(fin.status).toBe("idle");
     expect(fin.transcript.filter((t) => t.kind === "tool").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["done", "done", "done"]);
     expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "Rebuilt and checked." });
+  });
+});
+
+describe("stopping one subagent on the subscription route", () => {
+  it("answers its call in flight as stopped at once, and the main turn carries on", async () => {
+    let release: (() => void) | null = null;
+    const slow = host.callAction.bind(host);
+    host.callAction = async (category: string, action: string) => {
+      if (action === "slow_build") await new Promise<void>((r) => (release = r));
+      return slow(category, action);
+    };
+    let inFlight: Promise<{ text: string; isError: boolean }> | null = null;
+    let stopTask: (() => void) | null = null;
+    sdk.stopTask = () => stopTask?.();
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-stop" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Busy", prompt: "busy" } }]));
+      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-1", is_backgrounded: false });
+      b.emit({ type: "assistant", parent_tool_use_id: "ag", message: { id: "m_s", content: [toolUse("c1", "ue_mcp", { action: "call", category: "asset", method: "slow_build", args: {} })] } });
+      await sleep(30);
+      inFlight = b.call("ue_mcp", { action: "call", category: "asset", method: "slow_build", args: {} });
+      await new Promise<void>((r) => (stopTask = r));
+      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-1", status: "stopped", summary: "" });
+      b.emit(results("ag", { text: "The user stopped this agent.", isError: true }));
+      b.emit(assistant("m_end", [{ type: "text", text: "Going on without it." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-stop" });
+    };
+    const runner = runnerOn();
+    const s = store.create();
+    const turn = runner.send(s.id, "start one");
+    await until(() => release !== null);
+    expect(runner.stopSubagent(s.id, "ag")).toBe(true);
+    const r = await inFlight!;
+    expect(r.isError).toBe(true);
+    expect(r.text).toMatch(/Stopped by the user while this was running/);
+    await turn;
+    const fin = store.get(s.id)!;
+    const outcome = (id: string) => fin.transcript.find((t) => t.kind === "tool" && t.call.id === id);
+    expect((outcome("c1") as { call: { outcome: string } }).call.outcome).toBe("stopped");
+    expect((outcome("ag") as { call: { outcome: string } }).call.outcome).toBe("stopped");
+    expect(fin.status).toBe("idle");
+    expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "Going on without it." });
+    release!();
+    sdk.stopTask = null;
   });
 });
 
