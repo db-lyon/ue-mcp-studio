@@ -78,6 +78,10 @@ function agentCounts(s: StoredSession): { total: number; running: number } {
   return { total, running };
 }
 
+/** A user message that answers tool calls, as opposed to one the user sent. */
+const isToolResults = (m: MessageParam): boolean =>
+  Array.isArray(m.content) && m.content.some((b) => (b as { type?: string }).type === "tool_result");
+
 /** A session's title until its first message names it. */
 export const DEFAULT_SESSION_TITLE = "New session";
 
@@ -150,6 +154,42 @@ export class SessionStore {
     const added = [...new Set(ids)].filter((id) => finished.has(id) && !had.has(id));
     if (added.length) s.dismissed = [...had, ...added];
     return added;
+  }
+
+  /**
+   * Cut the conversation back to just before one of the user's messages, by
+   * its transcript index: that message and everything after it go, in the
+   * transcript and in what the model is sent. The Claude sign-in's own
+   * session is let go, so the next turn there starts fresh from what is kept.
+   * Returns the removed message, or null when the index is not a user message.
+   */
+  static truncateAt(s: StoredSession, index: number): Extract<TranscriptEntry, { kind: "user" }> | null {
+    const entry = s.transcript[index];
+    if (!entry || entry.kind !== "user" || entry.parent) return null;
+    // The k-th message the user sent is the k-th user message that is not tool results.
+    const k = s.transcript.slice(0, index).filter((t) => t.kind === "user" && !t.parent).length;
+    let seen = 0;
+    let cut = s.messages.length;
+    for (let i = 0; i < s.messages.length; i++) {
+      const m = s.messages[i];
+      if (m.role !== "user" || isToolResults(m)) continue;
+      if (seen++ === k) {
+        cut = i;
+        break;
+      }
+    }
+    s.transcript = s.transcript.slice(0, index);
+    s.messages = s.messages.slice(0, cut);
+    s.pending = null;
+    s.approvals = [];
+    s.error = null;
+    const kept = new Set(s.transcript.flatMap((t) => (t.kind === "tool" ? [t.call.id] : [])));
+    if (s.seen) s.seen = s.seen.filter((id) => kept.has(id));
+    if (s.dismissed) s.dismissed = s.dismissed.filter((id) => kept.has(id));
+    if (s.sdkSession) s.sdkPast = [...(s.sdkPast ?? []), s.sdkSession];
+    s.sdkSession = null;
+    s.offClaude = false;
+    return entry;
   }
 
   delete(id: string): boolean {

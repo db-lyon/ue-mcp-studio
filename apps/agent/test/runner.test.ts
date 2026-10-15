@@ -856,6 +856,36 @@ describe("queued messages", () => {
   });
 });
 
+describe("editing a sent message", () => {
+  it("cuts the model's conversation back to that message and sends the new text", async () => {
+    const model = new ScriptedModel([() => text("A."), () => call("t1", "level", "get_outliner"), () => text("B."), () => text("C.")]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    await runner.send(s.id, "first");
+    await runner.send(s.id, "second");
+    expect(store.get(s.id)!.transcript.map((t) => t.kind)).toEqual(["user", "assistant", "user", "tool", "assistant"]);
+    const index = store.get(s.id)!.transcript.findIndex((t) => t.kind === "user" && t.text === "second");
+    expect(await runner.editMessage(s.id, index, "second, edited")).toBe(true);
+    const sent = model.requests[3].messages;
+    // first, its answer, and the edited message: nothing of the turn it replaced.
+    expect(sent.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(JSON.stringify(sent)).not.toContain("get_outliner");
+    expect(userTexts(sent).at(-1)).toContain("second, edited");
+    expect(userTexts(sent).at(-1)).toContain("Nothing done after it in the earlier version was undone");
+    const fin = store.get(s.id)!;
+    expect(fin.transcript.map((t) => t.kind === "user" ? `u:${t.text}` : t.kind)).toEqual(["u:first", "assistant", "u:second, edited", "assistant"]);
+  });
+
+  it("refuses an index that is not one of the user's messages", async () => {
+    const model = new ScriptedModel([() => text("A.")]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    await runner.send(s.id, "first");
+    expect(await runner.editMessage(s.id, 1, "x")).toBe(false);
+    expect(await runner.editMessage(s.id, 9, "x")).toBe(false);
+  });
+});
+
 describe("stopping a subagent with a call in flight", () => {
   it("lets that call go at once, marks it stopped, and the main turn and the other subagent go on", async () => {
     let release: (() => void) | null = null;

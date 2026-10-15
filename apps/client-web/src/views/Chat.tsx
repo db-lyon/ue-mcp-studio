@@ -6,7 +6,7 @@ import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPick
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
-import { MainTranscript, SubagentThread } from "../chat/Transcript";
+import { EditMessageContext, MainTranscript, SubagentThread } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
@@ -159,6 +159,12 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   const send = () => dispatch((id, text, files) => api.send(id, text, files), true);
   const sendNow = () => dispatch((id, text, files) => api.send(id, text, files, true), true);
   const queue = () => dispatch((id, text, files) => api.queue(id, text, files), false);
+  const editMessage = useCallback((index: number, text: string) => {
+    if (!selected) return;
+    setThread(null);
+    setSent((n) => n + 1);
+    api.editMessage(selected, index, text).then(() => loadDetail(selected), (e: Error) => setError(e.message));
+  }, [selected]);
   const queueCall = (p: Promise<unknown>) => void p.then(() => {
     if (selected) void loadDetail(selected);
   }, (e: Error) => setError(e.message));
@@ -268,6 +274,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
           <SessionIdContext.Provider value={detail.id}>
           <AssetLinksContext.Provider value={assetLinks}>
           <AssetTranscriptContext.Provider value={detail.transcript}>
+          <EditMessageContext.Provider value={disconnected ? null : editMessage}>
             <div className="thread-stage" ref={stage}>
               <MainTranscript
                 transcript={detail.transcript}
@@ -332,6 +339,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 onDismiss={dismiss}
               />
             </Composer>
+          </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>
           </AssetLinksContext.Provider>
           </SessionIdContext.Provider>

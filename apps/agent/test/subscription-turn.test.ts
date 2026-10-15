@@ -23,6 +23,7 @@ const sdk = vi.hoisted(() => ({
   script: null as null | ((b: FakeBinary) => Promise<void>),
   prompts: [] as unknown[],
   envs: [] as Array<Record<string, string | undefined>>,
+  resumes: [] as Array<string | undefined>,
   interrupts: 0,
   stopTask: null as null | ((taskId: string) => void),
 }));
@@ -31,9 +32,10 @@ vi.mock("../src/runtime.js", () => ({ ensureRuntime: async () => "claude.exe", i
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   tool: (name: string, _d: string, _s: unknown, handler: Handler) => ({ name, handler }),
   createSdkMcpServer: (o: { tools: Array<{ name: string; handler: Handler }> }) => ({ tools: o.tools }),
-  query: ({ prompt, options }: { prompt: unknown; options: { mcpServers: { studio: { tools: Array<{ name: string; handler: Handler }> } }; abortController: AbortController; env: Record<string, string | undefined> } }) => {
+  query: ({ prompt, options }: { prompt: unknown; options: { resume?: string; mcpServers: { studio: { tools: Array<{ name: string; handler: Handler }> } }; abortController: AbortController; env: Record<string, string | undefined> } }) => {
     sdk.prompts.push(prompt);
     sdk.envs.push(options.env);
+    sdk.resumes.push(options.resume);
     const queue: unknown[] = [];
     let wake: (() => void) | null = null;
     let done = false;
@@ -195,6 +197,34 @@ describe("editor_restart on the subscription route", () => {
     expect(fin.status).toBe("idle");
     expect(fin.transcript.filter((t) => t.kind === "tool").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["done", "done", "done"]);
     expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "Rebuilt and checked." });
+  });
+});
+
+describe("editing a message on the subscription route", () => {
+  it("never resumes the old Claude session past the edit: a new one starts from what is kept", async () => {
+    let n = 0;
+    sdk.script = async (b) => {
+      n++;
+      b.emit({ type: "system", subtype: "init", session_id: `sdk-${n}` });
+      b.emit(assistant(`m${n}`, [{ type: "text", text: `reply ${n}` }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: `sdk-${n}` });
+    };
+    sdk.resumes = [];
+    const runner = runnerOn();
+    const s = store.create();
+    await runner.send(s.id, "first message");
+    await runner.send(s.id, "second message");
+    expect(sdk.resumes).toEqual([undefined, "sdk-1"]);
+    const index = store.get(s.id)!.transcript.findIndex((t) => t.kind === "user" && t.text === "second message");
+    await runner.editMessage(s.id, index, "second, edited");
+    expect(sdk.resumes[2]).toBeUndefined();
+    const prompt = JSON.stringify(sdk.prompts[2]);
+    expect(prompt).toContain("first message");
+    expect(prompt).toContain("reply 1");
+    expect(prompt).not.toContain("second message");
+    expect(prompt).not.toContain("reply 2");
+    expect(prompt).toContain("second, edited");
+    expect(store.get(s.id)!.sdkPast).toEqual(["sdk-2"]);
   });
 });
 

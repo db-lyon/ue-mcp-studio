@@ -69,6 +69,10 @@ const declinedText = (name: string): string =>
 /** A gate's answer: run the call (null), or why it must not. */
 type GateResult = null | { declined: string } | { stopped: true };
 
+/** What the model is told when the user edits an earlier message and the conversation after it is gone. */
+export const REWOUND_NOTE = "The user edited an earlier message, so the conversation was cut back to it and continues from the edited message below. "
+  + "Nothing done after it in the earlier version was undone: assets, levels and files it changed stay changed. Read their current state before relying on it.";
+
 /** How many model calls one subagent may make before it is stopped. */
 const SUBAGENT_STEPS = 200;
 
@@ -704,6 +708,35 @@ export class AgentRunner {
     const s = this.require(sessionId);
     if (this.busy(s)) this.stop(sessionId);
     await this.send(sessionId, text, attachments);
+  }
+
+  /**
+   * Replace one of the user's messages: the conversation is cut back to just
+   * before it, for the model as well as the panel, and the new text is sent
+   * as a new turn with the files the message carried. A running turn is
+   * stopped first. What the agent changed in the project stays changed.
+   */
+  async editMessage(sessionId: string, index: number, text: string): Promise<boolean> {
+    const s = this.require(sessionId);
+    const entry = s.transcript[index];
+    if (!entry || entry.kind !== "user" || entry.parent) return false;
+    const notes = s.notes.length;
+    if (this.busy(s)) this.stop(sessionId);
+    // What the stop would tell the model is about turns the edit removes.
+    s.notes = s.notes.slice(0, notes);
+    const files = (entry.attachments ?? []).flatMap((a) => {
+      const f = this.files.get(s.id, a.id);
+      return f ? [f] : [];
+    });
+    const later = index < s.transcript.length - 1;
+    SessionStore.truncateAt(s, index);
+    if (later) s.notes.push(REWOUND_NOTE);
+    s.status = "idle";
+    s.waitingCause = null;
+    this.o.store.save(s);
+    this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: null });
+    await this.send(s.id, text, files);
+    return true;
   }
 
   private busy(s: StoredSession): boolean {

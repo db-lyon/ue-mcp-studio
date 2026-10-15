@@ -12,7 +12,8 @@ vi.mock("../api", () => ({
 import { api } from "../api";
 import { Threads } from "./Threads";
 import { SessionRow } from "./SessionRow";
-import { MainTranscript, ToolCall } from "./Transcript";
+import { EditMessageContext, Entry, MainTranscript, ToolCall } from "./Transcript";
+import { AssetTranscriptContext } from "./asset-links";
 import { SessionIdContext } from "./attachments";
 
 const T0 = Date.parse("2026-10-11T12:00:00Z");
@@ -207,5 +208,46 @@ describe("a tool call", () => {
     const img = screen.getByRole("img", { name: "shot.jpg" }) as HTMLImageElement;
     expect(img.getAttribute("src")).toBe("/v1/ext/studio/sessions/s1/attachments/img1");
     expect(img.closest("details")).toBeNull();
+  });
+});
+
+describe("editing a sent message", () => {
+  const transcript: TranscriptEntry[] = [
+    { kind: "user", text: "make a cube", at: at(0) },
+    { kind: "assistant", text: "Made it.", at: at(1) },
+    { kind: "user", text: "paint it red", at: at(2) },
+    { kind: "assistant", text: "Painted.", at: at(3) },
+  ];
+  const renderEntry = (i: number, onEdit = vi.fn()) => {
+    render(
+      <AssetTranscriptContext.Provider value={transcript}>
+        <EditMessageContext.Provider value={onEdit}><Entry entry={transcript[i]} /></EditMessageContext.Provider>
+      </AssetTranscriptContext.Provider>,
+    );
+    return onEdit;
+  };
+
+  it("asks before discarding what came after, saying the project keeps its changes", () => {
+    const onEdit = renderEntry(0);
+    fireEvent.click(screen.getByRole("button", { name: "Edit this message" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Edit your message" }), { target: { value: "make a sphere" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save and send" }));
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("Changes the agent already made to the project are not undone");
+    fireEvent.click(screen.getByRole("button", { name: "Discard and send" }));
+    expect(onEdit).toHaveBeenCalledWith(0, "make a sphere");
+  });
+
+  it("cancels without sending", () => {
+    const onEdit = renderEntry(2);
+    fireEvent.click(screen.getByRole("button", { name: "Edit this message" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(onEdit).not.toHaveBeenCalled();
+    expect(screen.getByText("paint it red")).toBeTruthy();
+  });
+
+  it("offers no edit where editing is not available", () => {
+    render(<AssetTranscriptContext.Provider value={transcript}><Entry entry={transcript[0]} /></AssetTranscriptContext.Provider>);
+    expect(screen.queryByRole("button", { name: "Edit this message" })).toBeNull();
   });
 });

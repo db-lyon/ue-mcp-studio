@@ -1,4 +1,4 @@
-import { memo, useContext, useMemo, useState } from "react";
+import { createContext, memo, useContext, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -39,16 +39,15 @@ function positionIn(transcript: readonly unknown[] | null | undefined, entry: Tr
   return map.get(entry) ?? -1;
 }
 
+/** Replaces one of the user's messages, by its transcript index; null where messages cannot be edited. */
+export const EditMessageContext = createContext<((index: number, text: string) => void) | null>(null);
+
 /** One line of a conversation that is not a subagent: a message, a note or a tool call. Renders again only when the entry changes. */
 export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) {
   const transcript = useContext(AssetTranscriptContext);
   if (entry.kind === "user") {
-    return (
-      <div className="msg user">
-        {entry.attachments && entry.attachments.length > 0 && <SentFiles files={entry.attachments} />}
-        {entry.text}
-      </div>
-    );
+    const at = positionIn(transcript, entry);
+    return <UserMessage entry={entry} at={at < 0 || entry.parent ? undefined : at} />;
   }
   if (entry.kind === "assistant") {
     const at = positionIn(transcript, entry);
@@ -58,6 +57,86 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
   return <ToolCall call={entry.call} />;
 });
+
+/**
+ * A message the user sent. Edit opens it in place; saving asks first, because
+ * it cuts the conversation back to this message (for the model too) before
+ * the new text goes as a new turn.
+ */
+function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "user" }>; at?: number }) {
+  const onEdit = useContext(EditMessageContext);
+  const [text, setText] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const transcript = useContext(AssetTranscriptContext);
+  const last = at !== undefined && transcript ? transcript.length - 1 === at : false;
+  const close = () => {
+    setText(null);
+    setConfirming(false);
+  };
+  if (text !== null && onEdit && at !== undefined) {
+    const save = () => {
+      if (!text.trim()) return;
+      // Nothing after it to lose: no need to ask.
+      if (last) {
+        onEdit(at, text);
+        close();
+      } else setConfirming(true);
+    };
+    return (
+      <div className="msg user editing">
+        {entry.attachments && entry.attachments.length > 0 && <SentFiles files={entry.attachments} />}
+        <textarea
+          aria-label="Edit your message"
+          value={text}
+          autoFocus
+          rows={Math.min(12, Math.max(2, text.split("\n").length))}
+          onChange={(e) => {
+            setText(e.target.value);
+            setConfirming(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") close();
+            else if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              if (confirming) {
+                onEdit(at, text);
+                close();
+              } else save();
+            }
+          }}
+        />
+        {confirming ? (
+          <div className="edit-confirm" role="alert">
+            <span>Everything after this message is removed from the session, for the agent as well, including tool calls and subagents. Changes the agent already made to the project are not undone.</span>
+            <div className="row">
+              <span className="spacer" />
+              <button className="ghost small-button" onClick={() => setConfirming(false)}>Keep editing</button>
+              <button className="danger-button small-button" onClick={() => {
+                onEdit(at, text);
+                close();
+              }}>Discard and send</button>
+            </div>
+          </div>
+        ) : (
+          <div className="row">
+            <span className="spacer" />
+            <button className="ghost small-button" onClick={close}>Cancel</button>
+            <button className="primary small-button" disabled={!text.trim()} onClick={save}>Save and send</button>
+          </div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="msg user">
+      {entry.attachments && entry.attachments.length > 0 && <SentFiles files={entry.attachments} />}
+      {entry.text}
+      {onEdit && at !== undefined && (
+        <button className="msg-edit ghost small-button" aria-label="Edit this message" title="Edit and send again from here" onClick={() => setText(entry.text)}>Edit</button>
+      )}
+    </div>
+  );
+}
 
 /** The files a message carried: images as thumbnails, the rest by name. Each opens the file. */
 function SentFiles({ files }: { files: Attachment[] }) {

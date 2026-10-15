@@ -149,6 +149,8 @@ export const api = {
   editQueued: (id: string, qid: string, text: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(qid)}`, { text }),
   removeQueued: (id: string, qid: string) => call<void>("DELETE", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(qid)}`),
   sendQueued: (id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/next`),
+  editMessage: (id: string, index: number, text: string) =>
+    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/transcript/${index}/edit`, { text }),
   uploadAttachment: (id: string, upload: AttachmentUpload) =>
     call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, upload),
   stopSubagent: (id: string, callId: string) =>

@@ -459,6 +459,19 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     void runner.sendQueued(s.id);
     return { status: 202, body: { sessionId: s.id } };
   });
+  // Edit one of the user's messages: the conversation is cut back to it, and the new text sent as a new turn.
+  api.route("POST", "/sessions/:id/transcript/:index/edit", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const index = Number(req.params.index);
+    const text = (req.body as { text?: unknown } | undefined)?.text;
+    if (typeof text !== "string" || !text.trim()) return bad("body must be { text: string } with text");
+    const entry = Number.isInteger(index) ? s.transcript[index] : undefined;
+    if (!entry || entry.kind !== "user" || entry.parent) return bad(`entry ${req.params.index} is not one of your messages`);
+    if (s.status === "running" || s.status === "waiting") stopSide(s.id);
+    runner.editMessage(s.id, index, text).catch((e) => api.log.warn(`edit in session ${s.id} failed`, e));
+    return { status: 202, body: { sessionId: s.id } };
+  });
   // Stop one subagent; the turn goes on without it.
   api.route("POST", "/sessions/:id/agents/:callId/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
