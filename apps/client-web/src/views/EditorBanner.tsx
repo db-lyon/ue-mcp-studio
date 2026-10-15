@@ -57,7 +57,7 @@ export function failureLine(f: Pick<EditorOperationFailure, "op" | "step">): str
 
 /** Whether a step of POST /v1/editor/:op failed, also when an older daemon marked it ok over a success: false payload. */
 export function stepFailed(s: { ok: boolean; result?: string }): boolean {
-  return !s.ok || /^\s*\{\s*"success":\s*false/.test(s.result ?? "");
+  return !s.ok || (/^\s*\{\s*"success":\s*false/.test(s.result ?? "") && !/"(alreadyStopped|bridgeReady)":\s*true/.test(s.result ?? ""));
 }
 
 /** The daemon's busy state, kept current from its events, with the clock offset to its own. */

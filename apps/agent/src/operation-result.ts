@@ -35,11 +35,15 @@ export function stepPayload(text: string | undefined): Record<string, unknown> |
   return null;
 }
 
-/** Whether a step failed. An editor that was already up with its bridge answering is not a failure. */
+/**
+ * Whether a step failed. Nothing to do is not a failure: a stop that found the
+ * editor already down, or a start that found it up with its bridge answering.
+ */
 export function stepFailed(s: OperationStep): boolean {
   if (!s.ok) return true;
   const p = stepPayload(s.result);
   if (!p || p.success !== false) return false;
+  if (p.alreadyStopped === true) return false;
   return !(p.alreadyRunning === true && p.bridgeReady === true);
 }
 
