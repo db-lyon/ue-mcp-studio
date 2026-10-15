@@ -215,6 +215,18 @@ export interface SessionSummary {
   route?: string;
 }
 
+/**
+ * A message waiting for the running turn to end. POST .../queue adds one,
+ * PUT and DELETE .../queue/:qid change or remove it before it is sent.
+ */
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  /** The session's files it carries, as on a sent message. */
+  attachments: Attachment[];
+  at: string;
+}
+
 /** PUT /v1/ext/studio/sessions/:id: rename, archive or restore. */
 export interface SessionUpdate {
   title?: string;
@@ -229,6 +241,8 @@ export interface SessionDetail extends SessionSummary {
   seen: string[];
   /** Finished subagents the user dismissed from the thread list, by agent call id. */
   dismissed: string[];
+  /** Messages written while a turn ran, sent one by one, in order, as each turn ends. */
+  queue: QueuedMessage[];
   error: string | null;
   /** Tool calls waiting for the user, oldest first. */
   approvals: ApprovalRequest[];

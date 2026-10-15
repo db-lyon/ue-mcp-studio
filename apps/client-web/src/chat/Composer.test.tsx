@@ -46,6 +46,34 @@ describe("the composer", () => {
     expect(onSend).toHaveBeenCalledTimes(1);
   });
 
+  it("while a turn runs, queues on Enter and stops and sends now on Ctrl+Enter, saying so", () => {
+    const onSend = vi.fn();
+    const onQueue = vi.fn();
+    const onSendNow = vi.fn();
+    render(<Composer {...base} busy onSend={onSend} onQueue={onQueue} onSendNow={onSendNow} />);
+    const box = screen.getByPlaceholderText("Ask") as HTMLTextAreaElement;
+    expect(box.disabled).toBe(false);
+    expect(screen.getByText("Enter to queue, Ctrl+Enter to stop and send now")).toBeTruthy();
+    fireEvent.keyDown(box, { key: "Enter" });
+    expect(onQueue).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
+    expect(onSendNow).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Queue" }));
+    expect(onQueue).toHaveBeenCalledTimes(2);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy();
+  });
+
+  it("sends on Ctrl+Enter too when nothing runs", () => {
+    const onSend = vi.fn();
+    const onSendNow = vi.fn();
+    render(<Composer {...base} onSend={onSend} onQueue={vi.fn()} onSendNow={onSendNow} />);
+    fireEvent.keyDown(screen.getByPlaceholderText("Ask"), { key: "Enter", ctrlKey: true });
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSendNow).not.toHaveBeenCalled();
+    expect(screen.getByText("Enter to send, Shift+Enter for a new line")).toBeTruthy();
+  });
+
   it("shows each file with its state, and removes one", () => {
     const onRemoveFile = vi.fn();
     const files: PendingFile[] = [

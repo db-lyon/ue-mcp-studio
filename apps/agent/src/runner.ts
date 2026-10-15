@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import type { ApprovalDecision, ApprovalRequest, Effort, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
+import type { QueuedMessage } from "@ue-mcp-studio/shared";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
@@ -657,6 +658,56 @@ export class AgentRunner {
     s.waitingCause = waitingCause;
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status, waitingCause });
+    // A turn that finished sends the next queued message. One that stopped or failed leaves the queue for the user.
+    if (status === "idle" && s.queue?.length) setTimeout(() => void this.sendQueued(s.id), 0);
+  }
+
+  /** Queue a message behind the running turn. With no turn running it is sent at once. */
+  enqueue(sessionId: string, text: string, attachments: Attachment[]): QueuedMessage {
+    const s = this.require(sessionId);
+    const q: QueuedMessage = { id: crypto.randomUUID(), text, attachments, at: now() };
+    s.queue = [...(s.queue ?? []), q];
+    this.o.store.save(s);
+    this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+    if (!this.busy(s)) void this.sendQueued(s.id);
+    return q;
+  }
+
+  /** Change a queued message's text, or remove it. False when it has been sent already. */
+  editQueued(sessionId: string, id: string, text: string | null): boolean {
+    const s = this.require(sessionId);
+    const q = s.queue?.find((x) => x.id === id);
+    if (!q) return false;
+    if (text === null) s.queue = s.queue!.filter((x) => x.id !== id);
+    else q.text = text;
+    this.o.store.save(s);
+    this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+    return true;
+  }
+
+  /** Send the first queued message, when no turn is running. */
+  async sendQueued(sessionId: string): Promise<void> {
+    const s = this.o.store.get(sessionId);
+    if (!s || this.busy(s) || !s.queue?.length) return;
+    const [next, ...rest] = s.queue;
+    s.queue = rest;
+    this.o.store.save(s);
+    const files = next.attachments.flatMap((a) => {
+      const f = this.files.get(s.id, a.id);
+      return f ? [f] : [];
+    });
+    await this.send(s.id, next.text, files).catch((e) => this.o.host.log.warn(`a queued message in session ${s.id} failed`, e));
+  }
+
+  /** Stop the running turn, as Stop does, and send this message now, ahead of the queue. */
+  async sendNow(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = []): Promise<void> {
+    const s = this.require(sessionId);
+    if (this.busy(s)) this.stop(sessionId);
+    await this.send(sessionId, text, attachments);
+  }
+
+  private busy(s: StoredSession): boolean {
+    return this.active.has(s.id) || s.status === "running" || s.status === "waiting";
   }
 
   private addEntry(s: StoredSession, entry: TranscriptEntry): void {

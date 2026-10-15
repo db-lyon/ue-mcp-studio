@@ -771,6 +771,91 @@ describe("the provider's own web search", () => {
   });
 });
 
+/** A model whose turns wait until the test lets each one finish. */
+class GatedModel implements ModelProvider {
+  requests: ModelRequest[] = [];
+  private gates: Array<() => void> = [];
+  async run(req: ModelRequest, _onText: (t: string) => void, signal: AbortSignal): Promise<ModelTurn> {
+    this.requests.push(JSON.parse(JSON.stringify(req)));
+    await new Promise<void>((resolve, reject) => {
+      this.gates.push(resolve);
+      signal.addEventListener("abort", () => {
+        this.gates = this.gates.filter((g) => g !== resolve);
+        reject(new Error("aborted"));
+      }, { once: true });
+    });
+    return text(`answer ${this.requests.length}`);
+  }
+  release(): void {
+    this.gates.shift()?.();
+  }
+  get waiting(): number {
+    return this.gates.length;
+  }
+}
+
+const userTexts = (m: MessageParamLike[]) => m.filter((x) => x.role === "user").map((x) => (typeof x.content === "string" ? x.content : (x.content as Array<{ type: string; text?: string }>).filter((b) => b.type === "text").map((b) => b.text).join(" ")));
+type MessageParamLike = { role: string; content: unknown };
+
+describe("queued messages", () => {
+  it("wait for the running turn, then go one by one, in order", async () => {
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const s = store.create();
+    const first = runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    runner.enqueue(s.id, "two", []);
+    runner.enqueue(s.id, "three", []);
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(["two", "three"]);
+    model.release();
+    await first;
+    await until(() => model.waiting === 1 && store.get(s.id)!.queue!.length === 1);
+    model.release();
+    await until(() => model.waiting === 1 && store.get(s.id)!.queue!.length === 0);
+    model.release();
+    await until(() => store.get(s.id)!.status === "idle" && model.requests.length === 3);
+    expect(store.get(s.id)!.transcript.filter((t) => t.kind === "user").map((t) => t.kind === "user" && t.text)).toEqual(["one", "two", "three"]);
+  });
+
+  it("can be changed or removed before they go, and wait after a Stop until asked", async () => {
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const s = store.create();
+    void runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    const a = runner.enqueue(s.id, "two", []);
+    const b = runner.enqueue(s.id, "three", []);
+    expect(runner.editQueued(s.id, a.id, "two, changed")).toBe(true);
+    expect(runner.editQueued(s.id, b.id, null)).toBe(true);
+    expect(runner.editQueued(s.id, b.id, "gone")).toBe(false);
+    runner.stop(s.id);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(["two, changed"]);
+    expect(model.requests).toHaveLength(1);
+    void runner.sendQueued(s.id);
+    await until(() => model.waiting === 1 && model.requests.length === 2);
+    expect(userTexts(model.requests[1].messages).at(-1)).toContain("two, changed");
+    model.release();
+  });
+
+  it("send now stops the running turn and sends ahead of the queue", async () => {
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const s = store.create();
+    void runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    runner.enqueue(s.id, "later", []);
+    void runner.sendNow(s.id, "urgent");
+    await until(() => model.requests.length === 2);
+    expect(userTexts(model.requests[1].messages).at(-1)).toContain("urgent");
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(["later"]);
+    model.release();
+    await until(() => model.requests.length === 3);
+    expect(userTexts(model.requests[2].messages).at(-1)).toContain("later");
+    model.release();
+  });
+});
+
 describe("stopping a subagent with a call in flight", () => {
   it("lets that call go at once, marks it stopped, and the main turn and the other subagent go on", async () => {
     let release: (() => void) | null = null;

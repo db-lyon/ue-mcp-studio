@@ -403,18 +403,60 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     }
     return { body: { dismissed: s.dismissed ?? [] } };
   });
+  /** A message's text and the session files it carries, or why the body is not one. */
+  const messageBody = (sessionId: string, body: unknown): { text: string; files: Array<NonNullable<ReturnType<typeof attachments.get>>> } | { error: string } => {
+    const b = body as { text?: unknown; attachments?: unknown } | undefined;
+    const text = typeof b?.text === "string" ? b.text : "";
+    const ids = Array.isArray(b?.attachments) ? b.attachments.filter((x): x is string => typeof x === "string") : [];
+    if (!text.trim() && ids.length === 0) return { error: "body must be { text: string, attachments?: string[] } with text or a file" };
+    const files = ids.map((a) => attachments.get(sessionId, a));
+    if (files.some((f) => !f)) return { error: "an attachment is missing; add the file again" };
+    return { text, files: files as Array<NonNullable<(typeof files)[number]>> };
+  };
+  /** A Stop's side effects beside the runner's: open forms close, and nothing waits on the editor for this session. */
+  const stopSide = (id: string) => {
+    forms.cancelSession(id);
+    busy.endWait();
+  };
+  // now: true stops a running turn, as Stop does, and sends this message in its place, ahead of the queue.
   api.route("POST", "/sessions/:id/messages", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
-    const body = req.body as { text?: unknown; attachments?: unknown } | undefined;
-    const text = typeof body?.text === "string" ? body.text : "";
-    const ids = Array.isArray(body?.attachments) ? body.attachments.filter((x): x is string => typeof x === "string") : [];
-    if (!text.trim() && ids.length === 0) return bad("body must be { text: string, attachments?: string[] } with text or a file");
-    const files = ids.map((a) => attachments.get(s.id, a));
-    if (files.some((f) => !f)) return bad("an attachment is missing; add the file again");
-    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress" } };
+    const m = messageBody(s.id, req.body);
+    if ("error" in m) return bad(m.error);
+    const now = (req.body as { now?: unknown } | undefined)?.now === true;
+    const running = s.status === "running" || s.status === "waiting";
+    if (running && !now) return { status: 409, body: { error: "a turn is already in progress; queue the message or send it with now: true" } };
+    if (running) stopSide(s.id);
     // The turn runs past this response; its progress is on the event stream.
-    runner.send(s.id, text, files as Array<NonNullable<(typeof files)[number]>>).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
+    runner.sendNow(s.id, m.text, m.files).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
+    return { status: 202, body: { sessionId: s.id } };
+  });
+  // A message written while a turn runs: it waits, and goes when the turns before it have ended.
+  api.route("POST", "/sessions/:id/queue", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const m = messageBody(s.id, req.body);
+    if ("error" in m) return bad(m.error);
+    const q = runner.enqueue(s.id, m.text, m.files.map(({ path: _p, ...a }) => a));
+    return { status: 201, body: q };
+  });
+  api.route("PUT", "/sessions/:id/queue/:qid", (req) => {
+    if (!store.get(req.params.id)) return missing(req.params.id);
+    const text = (req.body as { text?: unknown } | undefined)?.text;
+    if (typeof text !== "string" || !text.trim()) return bad("body must be { text: string } with text");
+    return runner.editQueued(req.params.id, req.params.qid, text) ? { status: 204 } : { status: 404, body: { error: "that message is not queued any more" } };
+  });
+  api.route("DELETE", "/sessions/:id/queue/:qid", (req) => {
+    if (!store.get(req.params.id)) return missing(req.params.id);
+    return runner.editQueued(req.params.id, req.params.qid, null) ? { status: 204 } : { status: 404, body: { error: "that message is not queued any more" } };
+  });
+  // Send the next queued message now, when a stopped or failed turn left the queue waiting.
+  api.route("POST", "/sessions/:id/queue/next", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress" } };
+    void runner.sendQueued(s.id);
     return { status: 202, body: { sessionId: s.id } };
   });
   // Stop one subagent; the turn goes on without it.

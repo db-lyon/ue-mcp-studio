@@ -517,6 +517,16 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .empty > .picker { margin-bottom: 14px; }
 .composer { flex-direction: column; align-items: stretch; }
 .composer-bar { display: flex; align-items: center; gap: 8px; }
+.composer-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.queue { display: flex; flex-direction: column; gap: 2px; padding: 6px 16px; border-top: 1px solid var(--line); background: var(--composer-bg); max-height: 28vh; overflow: auto; }
+.queue-head { display: flex; align-items: center; gap: 8px; padding: 2px 0 4px; }
+.queue-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border: 1px dashed var(--accent-line); border-radius: 6px; background: var(--accent-wash); font-size: 13px; }
+.queue-row.editing { flex-direction: column; align-items: stretch; border-style: solid; }
+.queue-row textarea, .msg.user.editing textarea { width: 100%; resize: vertical; padding: 6px 8px; border-radius: 6px; line-height: 1.5; }
+.queue-n { width: 14px; text-align: right; flex-shrink: 0; }
+.queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-remove { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; font-size: 13px; color: var(--muted); background: transparent; border-color: transparent; }
+.queue-remove:hover:not(:disabled) { color: var(--bad); background: var(--panel-3); border-color: transparent; }
 .composer-connect { padding: 12px 16px 0; display: flex; justify-content: center; }
 .providers { display: flex; flex-direction: column; }
 .provider-row { padding: 10px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }

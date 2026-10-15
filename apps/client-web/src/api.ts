@@ -15,6 +15,7 @@ import type {
   FeedbackReport,
   FeedbackResult,
   ModelCatalog,
+  QueuedMessage,
   SessionDetail,
   Attachment,
   AttachmentUpload,
@@ -141,8 +142,13 @@ export const api = {
   markSeen: (id: string, threadId: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/seen`, { id: threadId }),
   dismissAgents: (id: string, ids: string[]) => call<{ dismissed: string[] }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/dismissed`, { ids }),
   saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
-  send: (id: string, text: string, attachments: string[] = []) =>
-    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, { text, attachments }),
+  send: (id: string, text: string, attachments: string[] = [], now = false) =>
+    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),
+  queue: (id: string, text: string, attachments: string[] = []) =>
+    call<QueuedMessage>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue`, { text, attachments }),
+  editQueued: (id: string, qid: string, text: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(qid)}`, { text }),
+  removeQueued: (id: string, qid: string) => call<void>("DELETE", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(qid)}`),
+  sendQueued: (id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/next`),
   uploadAttachment: (id: string, upload: AttachmentUpload) =>
     call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, upload),
   stopSubagent: (id: string, callId: string) =>

@@ -31,14 +31,15 @@ export function fitHeight({ content, line, chrome, floor, room }: { content: num
 /**
  * Where the user writes: the text, the files added to it (dropped, pasted or
  * picked), and the bar with the model picker and Send or Stop. Enter sends,
- * Shift+Enter starts a new line.
+ * Shift+Enter starts a new line. While a turn runs, Enter queues the message
+ * behind it, and Ctrl+Enter stops the turn and sends the message now.
  *
  * The text box sizes itself to what is written. The divider above it drags the
  * box taller or shorter against `stage`, the transcript that gives up the room;
  * the dragged height is a minimum the content can still grow past. A double
  * click on the divider forgets it. `height` is the saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -46,6 +47,10 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   busy: boolean;
   canSend: boolean;
   onSend: () => void;
+  /** While a turn runs: Enter. Without it, the box is closed while a turn runs. */
+  onQueue?: () => void;
+  /** While a turn runs: Ctrl+Enter, stop it and send now. */
+  onSendNow?: () => void;
   onStop: () => void;
   files: PendingFile[];
   onAddFiles: (files: FileList | File[]) => void;
@@ -208,7 +213,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         rows={1}
         value={draft}
         placeholder={placeholder}
-        disabled={busy}
+        disabled={busy && !onQueue}
         onChange={(e) => onDraft(e.target.value)}
         onBlur={onBlur}
         onPaste={(e) => {
@@ -221,13 +226,16 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            if (canSend) onSend();
+            if (!canSend) return;
+            if (!busy) onSend();
+            else if (e.ctrlKey || e.metaKey) onSendNow?.();
+            else onQueue?.();
           }
         }}
       />
       <div className="composer-bar">
         {picker}
-        <button className="ghost attach-button" disabled={busy} onClick={() => input.current?.click()} title="Attach files (or drop or paste them)">Attach</button>
+        <button className="ghost attach-button" disabled={busy && !onQueue} onClick={() => input.current?.click()} title="Attach files (or drop or paste them)">Attach</button>
         <input
           ref={input}
           type="file"
@@ -240,6 +248,8 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           }}
         />
         <span className="spacer" />
+        {onQueue && <span className="composer-hint dim small">{busy ? "Enter to queue, Ctrl+Enter to stop and send now" : "Enter to send, Shift+Enter for a new line"}</span>}
+        {busy && onQueue && <button disabled={!canSend} onClick={onQueue} title="Send when the running turn ends">Queue</button>}
         {busy ? <button onClick={onStop}>Stop</button> : <button className="primary" disabled={!canSend} onClick={onSend}>Send</button>}
       </div>
       {children}

@@ -7,6 +7,7 @@ import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { MainTranscript, SubagentThread } from "../chat/Transcript";
+import { QueuedMessages } from "../chat/Queue";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
@@ -138,19 +139,29 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
 
   const [sent, setSent] = useState(0);
   const canSend = !!selected && !disconnected && !attach.uploading && (draft.trim().length > 0 || attach.ready.length > 0);
-  const send = () => {
+  /** Hand the composer's message to `how`: send, send now, or queue. The draft comes back if it fails. */
+  const dispatch = (how: (id: string, text: string, files: string[]) => Promise<unknown>, follow: boolean) => {
     if (!selected || !canSend) return;
     const text = draft;
     const files = attach.ready.map((a) => a.id);
     setDraft("");
     attach.clear();
-    setThread(null);
-    setSent((n) => n + 1);
-    api.send(selected, text, files).then(() => loadDetail(selected), (e: Error) => {
+    void api.saveDraft(selected, "").catch(() => {});
+    if (follow) {
+      setThread(null);
+      setSent((n) => n + 1);
+    }
+    how(selected, text, files).then(() => loadDetail(selected), (e: Error) => {
       setDraft(text);
       setError(e.message);
     });
   };
+  const send = () => dispatch((id, text, files) => api.send(id, text, files), true);
+  const sendNow = () => dispatch((id, text, files) => api.send(id, text, files, true), true);
+  const queue = () => dispatch((id, text, files) => api.queue(id, text, files), false);
+  const queueCall = (p: Promise<unknown>) => void p.then(() => {
+    if (selected) void loadDetail(selected);
+  }, (e: Error) => setError(e.message));
 
   // Files dropped anywhere on the conversation are added to the message being written.
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
@@ -280,6 +291,13 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 </div>
               )}
             </div>
+            <QueuedMessages
+              queue={detail.queue ?? []}
+              busy={busy}
+              onEdit={(qid, text) => queueCall(api.editQueued(detail.id, qid, text))}
+              onRemove={(qid) => queueCall(api.removeQueued(detail.id, qid))}
+              onSendNext={() => queueCall(api.sendQueued(detail.id))}
+            />
             <DialogCards dialogs={(dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === detail.id)} now={dialogs.now()} />
             <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
             <SessionForms daemon={daemon} sessionId={detail.id} />
@@ -288,10 +306,12 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
               draft={draft}
               onDraft={setDraft}
               onBlur={() => selected && void api.saveDraft(selected, draft)}
-              placeholder={busy ? "The agent is working. You can stop it." : openThread ? "Message the main agent" : "Ask for something in the editor, or drop files here"}
+              placeholder={busy ? "The agent is working. Write the next message to queue it." : openThread ? "Message the main agent" : "Ask for something in the editor, or drop files here"}
               busy={busy}
               canSend={canSend}
               onSend={send}
+              onQueue={queue}
+              onSendNow={sendNow}
               onStop={() => selected && void api.stop(selected)}
               files={attach.files}
               onAddFiles={attach.add}

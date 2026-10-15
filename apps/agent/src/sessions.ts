@@ -7,7 +7,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ApprovalRequest, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import type { ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
 import { modelName } from "./models.js";
 import type { ToolImage } from "./images.js";
@@ -38,6 +38,8 @@ export interface StoredSession {
   seen?: string[];
   /** Finished subagents the user dismissed from the thread list. */
   dismissed?: string[];
+  /** Messages written while a turn ran, sent in order as each turn ends. */
+  queue?: QueuedMessage[];
   /** The conversation as the model sees it. */
   messages: MessageParam[];
   /** The conversation as the UI shows it. */
@@ -167,6 +169,6 @@ export class SessionStore {
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], error: s.error, approvals: s.approvals ?? [] };
+    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [] };
   }
 }
