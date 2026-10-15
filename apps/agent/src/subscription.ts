@@ -260,8 +260,13 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   });
 
   const abort = new AbortController();
+  const day = String(24 * 60 * 60 * 1000);
   // A command or a file change can wait on the user for as long as they take: no MCP call timeout cuts it off.
-  const env = claudeEnv({ MCP_TOOL_TIMEOUT: String(24 * 60 * 60 * 1000) });
+  // Background subagents run past the main turn's result. The SDK closes the binary's input, and with it
+  // Studio's tools, once its background ceiling (10 minutes by default) has passed since that result, so a
+  // subagent still working then gets "interrupted before a result was received" on every call (#1384). The
+  // turn ends when the binary reports it idle or on Stop; the ceiling is only a backstop.
+  const env = claudeEnv({ MCP_TOOL_TIMEOUT: day, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: day });
 
   try {
     const q = query({

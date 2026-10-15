@@ -22,6 +22,7 @@ interface FakeBinary {
 const sdk = vi.hoisted(() => ({
   script: null as null | ((b: FakeBinary) => Promise<void>),
   prompts: [] as unknown[],
+  envs: [] as Array<Record<string, string | undefined>>,
   interrupts: 0,
 }));
 
@@ -29,8 +30,9 @@ vi.mock("../src/runtime.js", () => ({ ensureRuntime: async () => "claude.exe", i
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   tool: (name: string, _d: string, _s: unknown, handler: Handler) => ({ name, handler }),
   createSdkMcpServer: (o: { tools: Array<{ name: string; handler: Handler }> }) => ({ tools: o.tools }),
-  query: ({ prompt, options }: { prompt: unknown; options: { mcpServers: { studio: { tools: Array<{ name: string; handler: Handler }> } }; abortController: AbortController } }) => {
+  query: ({ prompt, options }: { prompt: unknown; options: { mcpServers: { studio: { tools: Array<{ name: string; handler: Handler }> } }; abortController: AbortController; env: Record<string, string | undefined> } }) => {
     sdk.prompts.push(prompt);
+    sdk.envs.push(options.env);
     const queue: unknown[] = [];
     let wake: (() => void) | null = null;
     let done = false;
@@ -192,6 +194,21 @@ describe("editor_restart on the subscription route", () => {
     expect(fin.status).toBe("idle");
     expect(fin.transcript.filter((t) => t.kind === "tool").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["done", "done", "done"]);
     expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "Rebuilt and checked." });
+  });
+});
+
+describe("background subagents on the subscription route (#1384)", () => {
+  it("keep Studio's tools past the SDK's default ten minute ceiling after the main turn's result", async () => {
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-1" });
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-1" });
+    };
+    const runner = runnerOn();
+    const s = store.create();
+    await runner.send(s.id, "go");
+    const ceiling = Number(sdk.envs.at(-1)?.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS);
+    expect(ceiling).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000);
+    expect(ceiling).toBeLessThanOrEqual(2147483647);
   });
 });
 
