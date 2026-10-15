@@ -227,6 +227,8 @@ export interface SessionDetail extends SessionSummary {
   draft: string;
   /** The subagent threads the user has opened. */
   seen: string[];
+  /** Finished subagents the user dismissed from the thread list, by agent call id. */
+  dismissed: string[];
   error: string | null;
   /** Tool calls waiting for the user, oldest first. */
   approvals: ApprovalRequest[];

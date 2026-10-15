@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 /** A clock that ticks every second while anything is running, for live elapsed times and stuck detection. */
 export function useNow(active: boolean): number {
@@ -78,6 +78,23 @@ export function useFollow<T extends HTMLElement>(content: unknown, snap?: unknow
  * since the page's own storage is lost whenever the daemon's port changes.
  * `stored` is what the session says; `save` records one more.
  */
+/**
+ * The finished subagents the user dismissed: the session's list, with the
+ * user's own dismissals applied at once while they are saved.
+ */
+export function useDismissed(sessionId: string | null, stored: readonly string[] | undefined, save: (sessionId: string, ids: string[]) => Promise<unknown>): { dismissed: ReadonlySet<string>; dismiss: (ids: string[]) => void } {
+  const [mine, setMine] = useState<Set<string>>(() => new Set());
+  useEffect(() => setMine(new Set()), [sessionId]);
+  const dismissed = useMemo(() => new Set([...(stored ?? []), ...mine]), [stored, mine]);
+  const dismiss = useCallback((ids: string[]) => {
+    if (!sessionId || ids.length === 0) return;
+    setMine((cur) => new Set([...cur, ...ids]));
+    // A failed save puts the rows back.
+    void save(sessionId, ids).catch(() => setMine((cur) => new Set([...cur].filter((id) => !ids.includes(id)))));
+  }, [sessionId, save]);
+  return { dismissed, dismiss };
+}
+
 export function useSeen(sessionId: string | null, stored: readonly string[] | undefined, save: (sessionId: string, id: string) => Promise<unknown>): { seen: ReadonlySet<string>; markSeen: (id: string) => void } {
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
   useEffect(() => setSeen(new Set()), [sessionId]);

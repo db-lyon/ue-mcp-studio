@@ -70,6 +70,31 @@ describe("the thread list", () => {
     expect(p.onThread).toHaveBeenLastCalledWith(null);
   });
 
+  it("dismisses one finished subagent, or every finished one, and leaves running ones", () => {
+    const onDismiss = vi.fn();
+    renderThreads({ onDismiss });
+    expect(screen.queryByRole("button", { name: "Dismiss Task a" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Finished \(3\)/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss Task b" }));
+    expect(onDismiss).toHaveBeenLastCalledWith(["b"]);
+    fireEvent.click(screen.getByRole("button", { name: "Clear finished" }));
+    expect(onDismiss).toHaveBeenLastCalledWith(["b", "c", "d"]);
+  });
+
+  it("leaves dismissed subagents out of the list and its counts", () => {
+    renderThreads({ dismissed: new Set(["b", "c"]), onDismiss: vi.fn() });
+    expect(screen.getByText("Subagents: 1 working, 1 stopped")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Finished \(1\)/ })).toBeTruthy();
+    cleanup();
+    renderThreads({ transcript: [agent("b", "done", 4)], dismissed: new Set(["b"]) });
+    expect(screen.queryByText("Main")).toBeNull();
+  });
+
+  it("keeps the open thread's row while it is open, even dismissed", () => {
+    renderThreads({ thread: "b", dismissed: new Set(["b"]) });
+    expect(screen.getByText("Task b")).toBeTruthy();
+  });
+
   it("opens the finished section when the open thread is in it", () => {
     renderThreads({ thread: "b" });
     expect(screen.getByText("Task b")).toBeTruthy();

@@ -3,25 +3,33 @@ import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { STATE_LABEL, agentCalls, agentStatus, callsIn, describe, formatDuration, isActive, summarize } from "./model";
 import { useNow } from "./hooks";
 
+const EMPTY: ReadonlySet<string> = new Set();
+
 /**
  * The threads of the session, under the composer: the main agent, the
  * subagents still running (each with a stop button), and the finished ones in
  * a section that starts collapsed. Finished ones this viewer has not opened
- * are marked new. A row switches the conversation to that thread.
+ * are marked new. A row switches the conversation to that thread. A finished
+ * row can be dismissed, one at a time or all at once; the session keeps the
+ * dismissals, and the subagent's line in the conversation stays.
  */
-export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, seen }: {
+export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, seen, dismissed = EMPTY, onDismiss }: {
   transcript: TranscriptEntry[];
   thread: string | null;
   onThread: (id: string | null) => void;
   onStop: (id: string) => void;
   sessionWaiting: boolean;
   seen: ReadonlySet<string>;
+  dismissed?: ReadonlySet<string>;
+  onDismiss?: (ids: string[]) => void;
 }) {
   const agents = agentCalls(transcript);
   const now = useNow(agents.some((a) => a.outcome === "pending"));
   const [showFinished, setShowFinished] = useState(false);
-  if (agents.length === 0) return null;
-  const rows = agents.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now) }));
+  // The open thread keeps its row until it is closed, so a dismissal never pulls the list out from under it.
+  const listed = agents.filter((a) => !dismissed.has(a.id) || a.outcome === "pending" || a.id === thread);
+  if (listed.length === 0) return null;
+  const rows = listed.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now) }));
   const active = rows.filter((r) => isActive(r.state));
   const finished = rows.filter((r) => !isActive(r.state));
   const failed = finished.filter((r) => r.state === "failed" || r.state === "unknown").length;
@@ -46,6 +54,11 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
             {"■"}
           </button>
         )}
+        {!isActive(r.state) && onDismiss && (
+          <button className="agents-dismiss" aria-label={`Dismiss ${describe(r.call)}`} title="Remove from this list" onClick={() => onDismiss([r.call.id])}>
+            {"×"}
+          </button>
+        )}
       </div>
     );
   };
@@ -62,14 +75,21 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
       {active.map(row)}
       {finished.length > 0 && (
         <>
-          <button className="agents-fold dim small" aria-expanded={open} onClick={() => setShowFinished(!open)}>
-            <span className="agents-caret">{open ? "▾" : "▸"}</span>
-            <span>
-              Finished ({finished.length})
-              {fresh > 0 && <span className="agents-new-count">, {fresh} new</span>}
-              {failed > 0 && <span className="agents-failed">, {failed} failed</span>}
-            </span>
-          </button>
+          <div className="agents-fold-row">
+            <button className="agents-fold dim small" aria-expanded={open} onClick={() => setShowFinished(!open)}>
+              <span className="agents-caret">{open ? "▾" : "▸"}</span>
+              <span>
+                Finished ({finished.length})
+                {fresh > 0 && <span className="agents-new-count">, {fresh} new</span>}
+                {failed > 0 && <span className="agents-failed">, {failed} failed</span>}
+              </span>
+            </button>
+            {onDismiss && (
+              <button className="ghost small-button agents-clear dim small" title="Remove every finished subagent from this list" onClick={() => onDismiss(finished.map((r) => r.call.id))}>
+                Clear finished
+              </button>
+            )}
+          </div>
           {open && finished.map(row)}
         </>
       )}

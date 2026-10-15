@@ -36,6 +36,8 @@ export interface StoredSession {
   draft: string;
   /** The subagent threads the user has opened, so a finished one is marked new only until then. */
   seen?: string[];
+  /** Finished subagents the user dismissed from the thread list. */
+  dismissed?: string[];
   /** The conversation as the model sees it. */
   messages: MessageParam[];
   /** The conversation as the UI shows it. */
@@ -135,6 +137,19 @@ export class SessionStore {
     fs.renameSync(tmp, file);
   }
 
+  /**
+   * Take finished subagents off the thread list. Only agent calls that have
+   * ended can go: a running one keeps its row and its stop button. Returns the
+   * ids it dismissed now.
+   */
+  static dismiss(s: StoredSession, ids: readonly string[]): string[] {
+    const finished = new Set(s.transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" && t.call.outcome !== "pending" ? [t.call.id] : [])));
+    const had = new Set(s.dismissed ?? []);
+    const added = [...new Set(ids)].filter((id) => finished.has(id) && !had.has(id));
+    if (added.length) s.dismissed = [...had, ...added];
+    return added;
+  }
+
   delete(id: string): boolean {
     this.cache.delete(id);
     const file = path.join(this.dir, `${id}.json`);
@@ -152,6 +167,6 @@ export class SessionStore {
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], error: s.error, approvals: s.approvals ?? [] };
+    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], error: s.error, approvals: s.approvals ?? [] };
   }
 }

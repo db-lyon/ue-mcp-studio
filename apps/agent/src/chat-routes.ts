@@ -391,6 +391,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     }
     return { status: 204 };
   });
+  // Finished subagents the user takes off the thread list; kept with the session, so a reload keeps them off.
+  api.route("POST", "/sessions/:id/dismissed", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const ids = (req.body as { ids?: unknown } | undefined)?.ids;
+    if (!Array.isArray(ids) || !ids.every((x) => typeof x === "string")) return bad("body must be { ids: string[] }");
+    if (SessionStore.dismiss(s, ids as string[]).length) {
+      store.save(s);
+      api.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+    }
+    return { body: { dismissed: s.dismissed ?? [] } };
+  });
   api.route("POST", "/sessions/:id/messages", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);

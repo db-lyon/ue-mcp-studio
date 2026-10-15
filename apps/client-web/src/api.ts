@@ -139,6 +139,7 @@ export const api = {
   updateSession: (id: string, u: SessionUpdate) => call<SessionSummary>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`, u),
   deleteSession: (id: string) => call<void>("DELETE", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
   markSeen: (id: string, threadId: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/seen`, { id: threadId }),
+  dismissAgents: (id: string, ids: string[]) => call<{ dismissed: string[] }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/dismissed`, { ids }),
   saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
   send: (id: string, text: string, attachments: string[] = []) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, { text, attachments }),

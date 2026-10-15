@@ -5,7 +5,7 @@ import { native } from "../native";
 import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
-import { useSeen } from "../chat/hooks";
+import { useDismissed, useSeen } from "../chat/hooks";
 import { MainTranscript, SubagentThread } from "../chat/Transcript";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
@@ -51,6 +51,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const { seen, markSeen } = useSeen(selected, detail?.seen, api.markSeen);
+  const { dismissed, dismiss } = useDismissed(selected, detail?.dismissed, api.dismissAgents);
   const attach = useAttachments(selected);
   /** Files are being dragged over the conversation. */
   const [dragging, setDragging] = useState(false);
@@ -307,6 +308,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
                 onStop={stopSubagent}
                 sessionWaiting={detail.status === "waiting"}
                 seen={seen}
+                dismissed={dismissed}
+                onDismiss={dismiss}
               />
             </Composer>
           </AssetTranscriptContext.Provider>
