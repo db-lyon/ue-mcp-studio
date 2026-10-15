@@ -23,6 +23,10 @@
 // tab as a borderless popup, still unowned and still placed from here; the
 // tab reports its rect through shared memory (dock.h). The choice between the
 // two is kept per project in Saved/UE_MCP_Studio/window-mode.txt.
+//
+// A page from ue-mcp that reports its connection state explains a gap in
+// ue-mcp itself and stays loaded; the window follows the daemon to its next
+// address. With no such page, the local page runs connection.h's states.
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -38,6 +42,7 @@
 #include <vector>
 
 #include "WebView2.h"
+#include "connection.h"
 #include "dock.h"
 #include "json.h"
 #include "location.h"
@@ -228,6 +233,13 @@ ComPtr<ICoreWebView2> gWeb;
 Daemon gLoaded;          // the daemon the page was loaded from; port 0 while on the local page
 bool gLocalPage = false;
 int gDaemonMisses = 0;
+// The local page's connection state (connection.h); active from the local page until a page from ue-mcp loads.
+conn::State gConn;
+bool gConnActive = false;
+// The loaded page reports its connection state; while it does, it stays through a gap and explains it.
+bool gPageManaged = false;
+std::string gPagePhase;
+UINT64 gLoadNav = 0;  // the navigation that loads Studio's page from the daemon
 HANDLE gEditorProcess = nullptr;
 DWORD gEditorPid = 0;
 HWND gEditorMain = nullptr;
@@ -258,9 +270,11 @@ DWORD gEditorHookPid = 0;
 
 bool docked() { return gShown == Shown::Docked || gShown == Shown::Hidden; }
 
-bool readDaemon(Daemon& out) {
+/** The live daemon. stale: a discovery file is there but its process is gone, so ue-mcp crashed. */
+bool readDaemon(Daemon& out, bool* stale = nullptr) {
   std::string text;
   json::Value v;
+  if (stale) *stale = false;
   if (gOpt.discovery.empty() || !readFile(gOpt.discovery, text) || !json::parse(text, v)) return false;
   const json::Value* pid = v.get("pid");
   const json::Value* port = v.get("port");
@@ -273,7 +287,10 @@ bool readDaemon(Daemon& out) {
   if (const json::Value* ver = v.get("version"); ver && ver->isString()) d.version = ver->s;
   // The token goes into a URL; anything but hex is not a token the daemon wrote.
   for (char c : d.token) if (!isxdigit((unsigned char)c)) return false;
-  if (!processAlive(d.pid)) return false;
+  if (!processAlive(d.pid)) {
+    if (stale) *stale = true;
+    return false;
+  }
   out = d;
   return true;
 }
@@ -346,9 +363,15 @@ bool spawnNpx(const std::vector<std::wstring>& commands, const std::wstring& std
 
 std::wstring package() { return gOpt.ueMcp.empty() ? L"ue-mcp@beta" : gOpt.ueMcp; }
 
-bool startDaemon() {
+/** Start the project's daemon in the background. error: why the command did not run. */
+bool startDaemon(std::string* error = nullptr) {
   std::wstring p = uproject();
-  return !p.empty() && spawnNpx({L"-y " + package() + L" daemon start \"" + p + L"\""});
+  std::string why;
+  if (p.empty()) why = "no .uproject file was found in " + narrow(gOpt.project);
+  else if (findNode().empty()) why = "Node.js was not found";
+  else if (!spawnNpx({L"-y " + package() + L" daemon start \"" + p + L"\""})) why = "npx could not be started";
+  if (error) *error = why;
+  return why.empty();
 }
 
 bool installBridge() {
@@ -874,30 +897,56 @@ bool fromDaemon(const std::wstring& url) {
 
 bool isLocalPage(const std::wstring& url) { return url == L"about:blank" || url.rfind(L"data:text/html", 0) == 0; }
 
+// The page shown while no page from ue-mcp can load. It renders the window's
+// connection state (connection.h), pushed each poll and pulled on load.
 const char* kLocalPage = R"HTML(<!doctype html>
 <html><head><meta charset="utf-8"><title>UE-MCP Studio</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0c0c0b; color: #e9e6e0; font: 14px/1.5 "Segoe UI", system-ui, sans-serif; }
   main { display: flex; flex-direction: column; align-items: flex-start; justify-content: center; height: 100%; padding: 0 32px; box-sizing: border-box; gap: 10px; }
-  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; display: flex; align-items: center; gap: 10px; }
   p { margin: 0; color: #a8a49c; max-width: 34em; }
-  button { margin-top: 6px; background: #e8720c; color: #0c0c0b; border: 0; border-radius: 6px; padding: 8px 16px; font: 600 13px "Segoe UI", sans-serif; cursor: pointer; }
-  button:disabled { opacity: 0.6; cursor: default; }
+  .failure { color: #f0a59a; }
+  .log { font: 12px Consolas, monospace; color: #8a867e; word-break: break-all; }
+  .row { display: flex; gap: 8px; margin-top: 6px; }
+  button { background: #2a2926; color: #e9e6e0; border: 0; border-radius: 6px; padding: 8px 16px; font: 600 13px "Segoe UI", sans-serif; cursor: pointer; }
+  button.primary { background: #e8720c; color: #0c0c0b; }
+  .spinner { width: 14px; height: 14px; border: 2px solid #3a3935; border-top-color: #e8720c; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  [hidden] { display: none !important; }
 </style></head>
 <body><main>
-  <h1>Studio is not running</h1>
-  <p id="text">The ue-mcp daemon that runs Studio for this project is not running. Start it here; this window loads Studio as soon as it is up.</p>
-  <button id="start">Start Studio</button>
+  <h1><span id="spin" class="spinner"></span><span id="head">Connecting to ue-mcp</span></h1>
+  <p id="body"></p>
+  <p id="failure" class="failure" hidden></p>
+  <p id="log" class="log" hidden></p>
+  <div id="actions" class="row" hidden>
+    <button id="node" hidden>Download Node.js</button>
+    <button id="openlog">Open log</button>
+    <button id="retry" class="primary">Retry</button>
+  </div>
 </main>
 <script>
-  document.getElementById("start").onclick = function () {
-    var b = this;
-    b.disabled = true;
-    b.textContent = "Starting";
-    window.ue.studio.startdaemon().then(function (ok) {
-      if (!ok) { b.disabled = false; b.textContent = "Start Studio"; document.getElementById("text").textContent = "The daemon did not start. Node.js must be installed; the project's Saved/Logs/UE_MCP_Studio.log has the details."; }
-    });
+  function $(id) { return document.getElementById(id); }
+  function call(name) { return window.ue && window.ue.studio && window.ue.studio[name] ? window.ue.studio[name]() : Promise.resolve(null); }
+  window.studioState = function (s) {
+    if (!s || !s.phase) return;
+    var needs = s.phase === "needsYou";
+    $("head").textContent = s.headline;
+    $("body").textContent = s.body;
+    $("body").hidden = !s.body;
+    $("failure").textContent = s.failure;
+    $("failure").hidden = !s.failure;
+    $("log").textContent = "Log: " + s.log;
+    $("log").hidden = !needs || !s.log;
+    $("spin").hidden = needs;
+    $("actions").hidden = !needs;
+    $("node").hidden = !s.noNode;
   };
+  $("retry").onclick = function () { call("retryconnection"); };
+  $("openlog").onclick = function () { call("openlog"); };
+  $("node").onclick = function () { call("opennodedownload"); };
+  call("getconnectionstate").then(function (t) { if (t) window.studioState(JSON.parse(t)); });
 </script></body></html>)HTML";
 
 // The editor binds a UObject as window.ue.studio, each call a Promise. The same
@@ -916,7 +965,7 @@ const wchar_t* kShim = LR"JS((function () {
   });
   var names = ["getstatus", "startdaemon", "installbridge", "startsetupplan", "getsetupplan", "runsetup", "restarteditor",
     "enableplugin", "openprojectfolder", "geteditortheme", "opennodedownload", "drawattention", "opendocs",
-    "getwindowmode", "setwindowmode", "raiseeditor"];
+    "getwindowmode", "setwindowmode", "raiseeditor", "openlog", "setconnectionstate", "getconnectionstate", "retryconnection"];
   var studio = {};
   names.forEach(function (name) {
     studio[name] = function (arg) {
@@ -957,6 +1006,10 @@ std::string status() {
   json::write(out, text, 0, false);
   return text;
 }
+
+std::string connectionJson();
+void retryConnection();
+void notePageState(const std::string& state);
 
 /** One native call from the page: the JSON of its result. */
 std::string dispatch(const std::string& method, const std::string& arg) {
@@ -1002,6 +1055,21 @@ std::string dispatch(const std::string& method, const std::string& arg) {
     return b(true);
   }
   if (method == "raiseeditor") return b(raiseEditor());  // after an asset opens from the chat
+  if (method == "openlog") {
+    std::wstring log = logPath();
+    makeDirs(dirOf(log));
+    if (!exists(log)) appendFile(log, "");
+    return b(reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", log.c_str(), nullptr, nullptr, SW_SHOWNORMAL)) > 32);
+  }
+  if (method == "setconnectionstate") {
+    notePageState(arg);
+    return b(true);
+  }
+  if (method == "getconnectionstate") return s(connectionJson());
+  if (method == "retryconnection") {
+    retryConnection();
+    return b(true);
+  }
   return "null";
 }
 
@@ -1044,12 +1112,6 @@ void removeNotification() {
   nid.hWnd = gMain;
   nid.uID = kNotifyId;
   Shell_NotifyIconW(NIM_DELETE, &nid);
-}
-
-void showLocalPage() {
-  gLoaded = Daemon();
-  gLocalPage = true;
-  if (gWeb) gWeb->NavigateToString(widen(kLocalPage).c_str());
 }
 
 /** Load the UI from the project's daemon, follow it to a new port, and explain when it is gone. */
@@ -1105,24 +1167,175 @@ bool updateRunning() {
   return n.QuadPart - w.QuadPart < 15ull * 60 * 10000000;
 }
 
+UINT64 nowMs() { return GetTickCount64(); }
+
+conn::Facts facts(const Daemon& d, bool live, bool stale) {
+  conn::Facts f;
+  f.live = live;
+  f.stale = stale;
+  f.updating = updateRunning();
+  if (live) f.token = d.token;
+  return f;
+}
+
+/** The local page's state for it to render, as JSON. */
+std::string connectionJson() {
+  if (!gConnActive) return "";
+  UINT64 now = nowMs();
+  json::Value v = json::Value::object();
+  v.set("phase", json::Value::str(conn::phaseName(gConn.phase)));
+  v.set("headline", json::Value::str(conn::headline(gConn, now)));
+  v.set("body", json::Value::str(conn::body(gConn, now)));
+  v.set("failure", json::Value::str(gConn.phase == conn::Phase::NeedsYou ? gConn.failure : ""));
+  v.set("noNode", json::Value::boolean(gConn.noNode));
+  v.set("log", json::Value::str(narrow(logPath())));
+  std::string text;
+  json::write(v, text, 0, false);
+  return text;
+}
+
+void pushConnection() {
+  if (!gWeb || !gLocalPage || !gConnActive) return;
+  std::string state = connectionJson();
+  gWeb->ExecuteScript(widen("window.studioState && window.studioState(" + state + ")").c_str(), nullptr);
+}
+
+conn::Phase gLoggedPhase = conn::Phase::Waiting;
+int gLoggedAttempt = -1;
+
+void logConnection() {
+  if (gConn.phase == gLoggedPhase && gConn.attempt == gLoggedAttempt) return;
+  gLoggedPhase = gConn.phase;
+  gLoggedAttempt = gConn.attempt;
+  logLine(std::string("connection ") + conn::phaseName(gConn.phase) + " attempt " + std::to_string(gConn.attempt) + ": " + gConn.why +
+          (gConn.failure.empty() ? "" : " | " + gConn.failure));
+}
+
+/** Studio's page from the daemon, where the panel was. */
+void loadUi(const Daemon& d) {
+  gLoaded = d;
+  gLocalPage = false;
+  gPageManaged = false;
+  gPagePhase.clear();
+  gDaemonMisses = 0;
+  gWeb->Navigate(location::withFragment(uiUrl(d), gLastHash).c_str());
+  logLine("load port " + std::to_string(d.port) + " " + narrow(gLastHash));
+}
+
+void showLocalPage() {
+  gLoaded = Daemon();
+  gPageManaged = false;
+  if (!gLocalPage && gWeb) gWeb->NavigateToString(widen(kLocalPage).c_str());
+  gLocalPage = true;
+}
+
+/** What the state machine asked for. */
+void apply(conn::Effect e, const Daemon& d) {
+  if (e == conn::Effect::Load) {
+    loadUi(d);
+  } else if (e == conn::Effect::Start) {
+    std::string error;
+    bool ok = startDaemon(&error);
+    logLine(ok ? "starting the daemon" : "the daemon did not start: " + error);
+    conn::started(gConn, ok, findNode().empty(), error, nowMs());
+  }
+  logConnection();
+  pushConnection();
+}
+
+/** ue-mcp went away, or never came: the local page, its states starting from the top. */
+void beginGap(bool live, bool stale, const Daemon& d) {
+  gConn = conn::begin(facts(d, live, stale), nowMs());
+  gConnActive = true;
+  showLocalPage();
+  logConnection();
+  pushConnection();
+}
+
+void retryConnection() {
+  if (!gLocalPage || !gConnActive) return;
+  Daemon d;
+  bool stale = false;
+  bool live = readDaemon(d, &stale);
+  apply(conn::retry(gConn, facts(d, live, stale), nowMs()), d);
+}
+
+/** The loaded page's report of its connection state; it is in charge of the gap while it reports. */
+void notePageState(const std::string& state) {
+  if (gLocalPage) return;
+  gPageManaged = true;
+  json::Value v;
+  const json::Value* phase = json::parse(state, v) ? v.get("phase") : nullptr;
+  const json::Value* attempt = phase ? v.get("attempt") : nullptr;
+  std::string p = phase && phase->isString() ? phase->s : "";
+  if (attempt && attempt->isNumber() && attempt->n > 0) p += " attempt " + std::to_string((int)attempt->n);
+  if (p == gPagePhase) return;
+  gPagePhase = p;
+  const json::Value* why = v.get("why");
+  const json::Value* failure = v.get("failure");
+  logLine("page connection " + p + (why && why->isString() && !why->s.empty() ? ": " + why->s : "") +
+          (failure && failure->isString() && !failure->s.empty() ? " | " + failure->s : ""));
+}
+
+/** Studio's page from the daemon did not load: the local page says so and tries again. */
+void loadFailed(const std::string& why) {
+  logLine("Studio's page did not load: " + why);
+  Daemon d;
+  bool stale = false;
+  bool live = readDaemon(d, &stale);
+  if (!gConnActive) {
+    gConn = conn::begin(facts(d, live, stale), nowMs());
+    gConnActive = true;
+  }
+  gConn.loadToken = gLoaded.token;
+  conn::loadFailed(gConn, why, nowMs());
+  showLocalPage();
+  logConnection();
+  pushConnection();
+}
+
+/**
+ * Load the UI from the project's daemon and follow it to a new port. While a
+ * page that reports its connection state is loaded, it explains a gap itself;
+ * otherwise the local page does, from connection.h.
+ */
 void pollDaemon() {
   if (!gWeb) return;
   Daemon d;
-  if (readDaemon(d)) {
-    gDaemonMisses = 0;
-    if (d.port != gLoaded.port || d.token != gLoaded.token) {
-      gLoaded = d;
-      gLocalPage = false;
-      // Where the panel was, on the daemon's new address too.
-      gWeb->Navigate(location::withFragment(uiUrl(d), gLastHash).c_str());
-      logLine("load port " + std::to_string(d.port) + " " + narrow(gLastHash));
+  bool stale = false;
+  bool live = readDaemon(d, &stale);
+  if (!gLocalPage) {
+    if (live) {
+      gDaemonMisses = 0;
+      if (d.port != gLoaded.port || d.token != gLoaded.token) loadUi(d);
+      return;
     }
+    if (!gLoaded.port) return beginGap(live, stale, d);
+    if (gPageManaged) return;
+    // A page that does not report its state: a few seconds' grace, and up to three minutes while an update restarts it.
+    if (++gDaemonMisses >= (updateRunning() ? 180 : 5)) beginGap(live, stale, d);
     return;
   }
-  // The page reconnects by itself to a daemon that comes back on its port; a few seconds' grace,
-  // and up to three minutes while an update restarts it.
-  if (gLoaded.port && ++gDaemonMisses >= (updateRunning() ? 180 : 5)) showLocalPage();
-  else if (!gLoaded.port && !gLocalPage) showLocalPage();
+  if (!gConnActive) return beginGap(live, stale, d);
+  apply(conn::tick(gConn, facts(d, live, stale), nowMs()), d);
+}
+
+/** Why a load of Studio's page failed, in plain words. */
+std::string loadError(int status, COREWEBVIEW2_WEB_ERROR_STATUS err) {
+  if (status == 503) return "ue-mcp answered HTTP 503, it has no Studio page installed";
+  if (status == 401 || status == 403) return "ue-mcp refused the window's token (HTTP " + std::to_string(status) + ")";
+  if (status >= 400) return "ue-mcp answered HTTP " + std::to_string(status);
+  switch (err) {
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CANNOT_CONNECT:
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_ABORTED:
+    case COREWEBVIEW2_WEB_ERROR_STATUS_CONNECTION_RESET:
+    case COREWEBVIEW2_WEB_ERROR_STATUS_DISCONNECTED:
+      return "ue-mcp did not accept the connection";
+    case COREWEBVIEW2_WEB_ERROR_STATUS_TIMEOUT:
+      return "the connection to ue-mcp timed out";
+    default:
+      return "network error " + std::to_string(static_cast<int>(err));
+  }
 }
 
 void resize() {
@@ -1180,10 +1393,32 @@ void createWebView() {
               args->get_Uri(&uri);
               std::wstring url = uri ? uri : L"";
               CoTaskMemFree(uri);
+              if (fromDaemon(url)) args->get_NavigationId(&gLoadNav);
               if (fromDaemon(url) || isLocalPage(url)) return S_OK;
               // Only the daemon's own pages load here; links leave for the system browser.
               args->put_Cancel(TRUE);
               openExternal(url);
+              return S_OK;
+            }).Get(), nullptr);
+
+          gWeb->add_NavigationCompleted(Callback<ICoreWebView2NavigationCompletedEventHandler>(
+            [](ICoreWebView2*, ICoreWebView2NavigationCompletedEventArgs* args) -> HRESULT {
+              UINT64 id = 0;
+              args->get_NavigationId(&id);
+              if (gLocalPage || id != gLoadNav) return S_OK;
+              BOOL ok = FALSE;
+              args->get_IsSuccess(&ok);
+              int status = 0;
+              ComPtr<ICoreWebView2NavigationCompletedEventArgs2> a2;
+              if (SUCCEEDED(args->QueryInterface(IID_PPV_ARGS(&a2)))) a2->get_HttpStatusCode(&status);
+              if (ok && status < 400) {
+                gConnActive = false;
+                return S_OK;
+              }
+              COREWEBVIEW2_WEB_ERROR_STATUS err = COREWEBVIEW2_WEB_ERROR_STATUS_UNKNOWN;
+              args->get_WebErrorStatus(&err);
+              if (status < 400 && err == COREWEBVIEW2_WEB_ERROR_STATUS_OPERATION_CANCELED) return S_OK;
+              loadFailed(loadError(status, err));
               return S_OK;
             }).Get(), nullptr);
 
