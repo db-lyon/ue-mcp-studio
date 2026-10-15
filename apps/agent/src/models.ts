@@ -21,19 +21,19 @@ type Listed = Omit<ModelOption, "signIns">;
 
 export const DEFAULT_MODELS: Record<KeyProviderId, Listed[]> = {
   anthropic: [
-    { id: "claude-opus-5-5", name: "Claude Opus 5.5" },
-    { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5" },
-    { id: "claude-fable-5-1", name: "Claude Fable 5.1" },
-    { id: "claude-haiku-5-5", name: "Claude Haiku 5.5" },
+    { id: "claude-opus-5-5", name: "Opus 5.5" },
+    { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+    { id: "claude-fable-5-1", name: "Fable 5.1" },
+    { id: "claude-haiku-5-5", name: "Haiku 5.5" },
   ],
   openai: [
-    { id: "gpt-6-astra", name: "GPT-6 Astra" },
-    { id: "gpt-6-sol", name: "GPT-6 Sol" },
-    { id: "gpt-6-luna", name: "GPT-6 Luna" },
+    { id: "gpt-6-astra", name: "6 Astra" },
+    { id: "gpt-6-sol", name: "6 Sol" },
+    { id: "gpt-6-luna", name: "6 Luna" },
   ],
   google: [
-    { id: "gemini-3.1-pro-preview", name: "Gemini 3.1 Pro" },
-    { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
+    { id: "gemini-3.1-pro-preview", name: "3.1 Pro" },
+    { id: "gemini-3.8-flash", name: "3.8 Flash" },
   ],
 };
 
@@ -43,13 +43,21 @@ const NOT_CHAT = /(embed|image|audio|realtime|live|tts|transcribe|whisper|dall-e
 /** OpenAI lists a dated snapshot beside each model it already names. */
 const DATED = /-\d{4}-\d{2}-\d{2}$|-\d{8}$/;
 
+/**
+ * A model's name without its vendor's word: the picker groups models under
+ * the vendor and names the sign-in beside them, so "Claude" says nothing twice.
+ */
+export function shortName(name: string): string {
+  return name.replace(/^(claude|gpt|gemini)(\s+|-(?=\d))/i, "").trim() || name;
+}
+
 export function chatModels(provider: KeyProviderId, ids: Array<{ id: string; name?: string }>): Listed[] {
   const keep = (id: string) =>
     !NOT_CHAT.test(id) && !(provider === "openai" && DATED.test(id)) && (provider === "anthropic" ? id.startsWith("claude-") : provider === "openai" ? /^(gpt-|o\d)/.test(id) : id.startsWith("gemini-"));
   return ids
     .map((m) => ({ id: m.id.replace(/^models\//, ""), name: m.name }))
     .filter((m) => keep(m.id))
-    .map((m) => ({ id: m.id, name: m.name && m.name !== m.id ? m.name : m.id }))
+    .map((m) => ({ id: m.id, name: m.name && m.name !== m.id ? shortName(m.name) : m.id }))
     .sort((a, b) => b.id.localeCompare(a.id, undefined, { numeric: true }));
 }
 
@@ -101,7 +109,7 @@ export class ModelCatalogSource {
         }
       }
       // A ChatGPT sign-in names the OpenAI models it can run; that list leads.
-      if (p === "openai" && coverage.chatgptModels?.length) models = [...coverage.chatgptModels];
+      if (p === "openai" && coverage.chatgptModels?.length) models = coverage.chatgptModels.map((m) => ({ ...m, name: shortName(m.name) }));
       const live = !!models && models.length > 0;
       const list = live ? models! : DEFAULT_MODELS[p];
       // A plan model the vendor's list does not name still belongs in the picker.

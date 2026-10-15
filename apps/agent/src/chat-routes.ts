@@ -29,6 +29,7 @@
  * studio.approval.requested and studio.approval.resolved.
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
+import { PROVIDERS } from "@ue-mcp-studio/shared";
 import type { ApprovalDecision, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
@@ -143,7 +144,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     model: () => settings.model(),
     effort: () => settings.effort(),
     subscription: () => route() === "claude",
-    route: () => ({ claude: "Claude sign-in", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: "API key" } as Record<string, string>)[route() ?? ""] ?? null,
+    // A key names its vendor, since model names no longer do.
+    route: () => ({ claude: "Claude sign-in", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
     askBeforeChanges: () => settings.askBeforeChanges(),
   });
 

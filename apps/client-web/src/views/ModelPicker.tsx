@@ -84,7 +84,7 @@ export function ModelPicker({
     <div className="picker" ref={box}>
       <button className="picker-button" onClick={() => setOpen(!open)} title="Model">
         <span>{current?.model.name ?? settings.model}</span>
-        {via && <span className="picker-via">{VIA_LABEL[via]}</span>}
+        {via && <span className="picker-via">{via === "key" ? `${PROVIDERS[settings.provider].name} key` : VIA_LABEL[via]}</span>}
         <span className="picker-caret" aria-hidden>{"▾"}</span>
       </button>
       {open && (

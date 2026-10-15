@@ -22,7 +22,7 @@ describe("a conversation moving onto the Claude sign-in", () => {
   });
 
   it("names models the way the picker does", () => {
-    expect(modelName("gemini-3.8-flash")).toBe("Gemini 3.8 Flash");
+    expect(modelName("gemini-3.8-flash")).toBe("3.8 Flash");
     expect(modelName("some-new-model")).toBe("some-new-model");
   });
 });

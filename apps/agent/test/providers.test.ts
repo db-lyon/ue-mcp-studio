@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { STUDIO_PLAN_AVAILABLE } from "@ue-mcp-studio/shared";
 import { OpenAICompatibleProvider, PROVIDER_EXTRA, readChatStream, toChatRequest } from "../src/openai-compat.js";
 import { AnthropicProvider, requestBody, searchesIn, type ModelRequest } from "../src/providers.js";
-import { chatModels, signInsFor } from "../src/models.js";
+import { chatModels, shortName, signInsFor } from "../src/models.js";
 import { StudioSignInFlow } from "../src/signin.js";
 import { TOOLS } from "../src/tools.js";
 
@@ -91,7 +91,15 @@ describe("model lists", () => {
     const ids = ["gpt-6-sol", "gpt-6-sol-2026-09-22", "gpt-image-2", "gpt-realtime-2.1", "text-embedding-3-large", "o5", "whisper-1"];
     expect(chatModels("openai", ids.map((id) => ({ id }))).map((m) => m.id)).toEqual(["o5", "gpt-6-sol"]);
     expect(chatModels("google", [{ id: "models/gemini-3.8-flash" }, { id: "models/gemini-3.8-live" }, { id: "models/gemini-embedding-2" }]).map((m) => m.id)).toEqual(["gemini-3.8-flash"]);
-    expect(chatModels("anthropic", [{ id: "claude-opus-5-5", name: "Claude Opus 5.5" }])).toEqual([{ id: "claude-opus-5-5", name: "Claude Opus 5.5" }]);
+    expect(chatModels("anthropic", [{ id: "claude-opus-5-5", name: "Claude Opus 5.5" }])).toEqual([{ id: "claude-opus-5-5", name: "Opus 5.5" }]);
+  });
+
+  it("names a model without its vendor's word, which the picker and the sign-in already say", () => {
+    expect(shortName("Claude Opus 5.5")).toBe("Opus 5.5");
+    expect(shortName("GPT-6.1 Sol")).toBe("6.1 Sol");
+    expect(shortName("Gemini 3.1 Pro")).toBe("3.1 Pro");
+    expect(shortName("o4-mini")).toBe("o4-mini");
+    expect(shortName("Claude")).toBe("Claude");
   });
 });
 
