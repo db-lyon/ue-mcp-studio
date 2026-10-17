@@ -818,7 +818,9 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
   .transcript { padding: 14px 12px 10px; }
   .approvals { padding: 8px 10px 0; }
   .conversation > .banner { margin: 10px 10px 0; }
-  .empty { padding: 28px 14px; }
+  .empty { padding: 28px 14px; justify-content: flex-start; overflow-y: auto; min-height: 0; }
+  .empty > :first-child { margin-top: auto; }
+  .empty > :last-child { margin-bottom: auto; }
   .empty > p { font-size: 13.5px; margin-bottom: 20px; }
   .display { font-size: 28px; }
 }
