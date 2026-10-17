@@ -127,6 +127,26 @@ describe("Studio updates", () => {
     expect(u.pluginVersion()).toBe("0.1.0-beta.9");
   });
 
+  it("refuses to restart the daemon while the plugin swap runs, and says it is running", async () => {
+    const dir = project("0.1.0-beta.4");
+    const zip = pluginZip("0.1.0-beta.9");
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    const host = { ...fakeHost(dir), editorOperation: async (op: "start" | "stop" | "restart" | "rebuild") => (op === "stop" ? held.then(() => ({})) : {}) };
+    const u = new Updater(host, "0.1.0-beta.9", () => {}, manifestFetch({
+      version: "0.1.0-beta.10", url: "s", sha256: "x",
+      plugin: { version: "0.1.0-beta.9", files: { "5.8": { url: "https://x/p.zip", sha256: zip.sha256 } } },
+    }, fs.readFileSync(zip.file)));
+    const swap = u.updatePlugin();
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await u.check()).running).toBe("plugin");
+    expect(await u.updateStudio()).toEqual({ started: false, error: "an update is already running (plugin)" });
+    expect(await u.restartDaemon()).toEqual({ started: false, error: "an update is already running (plugin)" });
+    release();
+    expect(await swap).toEqual({ ok: true, version: "0.1.0-beta.9" });
+    expect((await u.check()).running).toBeUndefined();
+  });
+
   it("refuses a download whose SHA-256 does not match, and leaves the plugin and the editor alone", async () => {
     const dir = project("0.1.0-beta.4");
     const zip = pluginZip("0.1.0-beta.9");
