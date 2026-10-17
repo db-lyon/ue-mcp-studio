@@ -22,7 +22,7 @@ import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
-import { MENU_BAR, useMedia } from "../layout";
+import { NARROW, useMedia } from "../layout";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -63,7 +63,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
   /** The subagent thread on screen, by its agent call id; null is the main thread. */
   const [thread, setThread] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
-  const narrow = useMedia(MENU_BAR);
+  const narrow = useMedia(NARROW);
   const [sheet, setSheet] = useState(false);
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);

@@ -1,13 +1,11 @@
 import { useEffect, useState } from "react";
 
 /**
- * Width breakpoints the components need to know about. They match the media
- * queries in styles.css: below SINGLE_PANE_CHAT the chat shows the session
- * list or a conversation, not both; below MENU_BAR the tabs and tools move
- * into a drawer that slides over the page.
+ * The one width the layout changes at, matching the max-width: 760px media
+ * queries in styles.css. Below it the panel takes its narrow form: navigation
+ * in a drawer, the chat one pane at a time, the editor's state as a chip.
  */
-export const SINGLE_PANE_CHAT = "(max-width: 760px)";
-export const MENU_BAR = "(max-width: 600px)";
+export const NARROW = "(max-width: 760px)";
 
 export function matches(query: string): boolean {
   return typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(query).matches;
@@ -25,13 +23,4 @@ export function useMedia(query: string): boolean {
     return () => m.removeEventListener("change", change);
   }, [query]);
   return on;
-}
-
-/**
- * Picking Chat while the chat is already on screen and shows one pane at a
- * time goes back to the session list. Wide, both are on screen, so a pick of
- * the current tab changes nothing.
- */
-export function backToSessions(current: string, picked: string, singlePane: boolean): boolean {
-  return singlePane && current === "Chat" && picked === "Chat";
 }

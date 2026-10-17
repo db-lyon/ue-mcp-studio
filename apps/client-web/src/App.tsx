@@ -16,7 +16,7 @@ import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
 import { DockToggle } from "./views/DockToggle";
 import { NavDrawer } from "./views/NavDrawer";
-import { backToSessions, MENU_BAR, SINGLE_PANE_CHAT, useMedia } from "./layout";
+import { NARROW, useMedia } from "./layout";
 import { readLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
 import { replaceStaleWindow } from "./window-version";
@@ -40,8 +40,7 @@ export function App() {
     setTab("Chat");
   });
   const [feedback, setFeedback] = useState(false);
-  const narrow = useMedia(MENU_BAR);
-  const singlePane = useMedia(SINGLE_PANE_CHAT);
+  const narrow = useMedia(NARROW);
   const [drawer, setDrawer] = useState(false);
   useEffect(() => {
     if (!narrow) setDrawer(false);
@@ -52,10 +51,6 @@ export function App() {
     writeLocation({ tab: "Chat", session });
     setTab("Chat");
     setChatNav((c) => ({ session, n: c.n + 1 }));
-  };
-  const pick = (t: Tab) => {
-    if (backToSessions(tab, t, singlePane)) openChat(null);
-    else setTab(t);
   };
   const newSession = () => void api.newSession().then((d) => openChat(d.id), () => openChat(null));
   const updates = useUpdateCount();
@@ -97,7 +92,7 @@ export function App() {
             </span>
             <nav>
               {TABS.map((t) => (
-                <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => pick(t)}>
+                <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
                   {t}
                   {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
                 </button>

@@ -816,7 +816,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
   padding-top: env(safe-area-inset-top);
   height: calc(46px + env(safe-area-inset-top));
 }
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .bar { gap: 6px; padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
   .bar .brand { margin: 0; }
   .bar .brand .name { font-size: 12px; color: var(--muted); }
@@ -893,7 +893,7 @@ button.drawer-session.active { color: var(--text); }
   .empty > p { font-size: 13.5px; margin-bottom: 20px; }
   .display { font-size: 28px; }
 }
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   main { padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); }
   .app > .banner { margin: 6px 6px 0; }
   .app > .banner.update-waiting { margin: 0 6px 6px; }
@@ -908,7 +908,7 @@ button.drawer-session.active { color: var(--text); }
 @supports (height: 100dvh) {
   .app { height: 100dvh; }
 }
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .composer { padding: 10px 10px 10px; gap: 8px; }
   .composer-bar { flex-wrap: wrap; gap: 6px; }
   .composer .attach-button { padding: 6px 8px; }
@@ -931,7 +931,7 @@ label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"
 .plugin-search { max-width: 100%; }
 .overlay-card { max-height: 100%; overflow-y: auto; }
 .overlay { padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
-@media (max-width: 600px) {
+@media (max-width: 760px) {
   .overlay { padding: 8px; }
   .overlay-card { padding: 16px; }
   button.subtab { padding: 8px 9px; }
@@ -982,8 +982,8 @@ label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"
   .tool summary::before { flex-shrink: 0; }
 }
 
-/* Phone width: the chat fills the screen edge to edge, with padding only inside its content. */
-@media (max-width: 600px) {
+/* Narrow: the chat fills the panel edge to edge, with padding only inside its content. */
+@media (max-width: 760px) {
   main.view-chat { padding: 0; }
   .view-chat .chat { gap: 0; }
   .view-chat .chat > .card { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
@@ -1002,7 +1002,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .chip.editor-chip.busy::before { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .chip.editor-chip.busy::before { animation: none; } }
 /* Positioned above the page, so the banner it opens is not painted under main. */
-@media (max-width: 600px) { .bar { position: relative; z-index: 30; } }
+@media (max-width: 760px) { .bar { position: relative; z-index: 30; } }
 @media (pointer: coarse) { button.chip.editor-chip { min-height: 34px; } }
 .editor-pop { position: absolute; z-index: 45; left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); top: calc(100% + 4px); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
 .editor-pop .banner { margin: 0; }
