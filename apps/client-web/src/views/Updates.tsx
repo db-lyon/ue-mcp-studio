@@ -9,6 +9,8 @@ export interface StudioUpdates {
   channel?: "stable" | "beta";
   studio: { installed: string; latest: string | null; available: boolean };
   plugin: StudioPluginUpdate;
+  /** The step the agent is running now (the plugin swap). */
+  running?: string;
   error?: string;
 }
 

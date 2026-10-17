@@ -88,6 +88,8 @@ export interface UpdateStatus {
   channel: UpdateChannel;
   studio: { installed: string; latest: string | null; available: boolean };
   plugin: StudioPluginUpdate & { newer: boolean; required: boolean; source: StudioPluginSource };
+  /** The step this daemon is running now, so a page that loads meanwhile waits for it. */
+  running?: string;
   error?: string;
 }
 
@@ -244,6 +246,7 @@ export class Updater {
     const installedPlugin = found?.version ?? null;
     const status: UpdateStatus = {
       channel: this.channel(),
+      ...(this.busy ? { running: this.busy } : {}),
       studio: { installed: this.installedVersion, latest: null, available: false },
       plugin: {
         installed: installedPlugin, latest: null, available: false, newer: false, location: found?.location ?? "engine", engine, required: false,
@@ -284,6 +287,8 @@ export class Updater {
 
   /** Reinstall the extension from the channel through the newest ue-mcp; the install restarts the daemon on it. */
   async updateStudio(): Promise<{ started: boolean; error?: string }> {
+    // Restarting the daemon now would end the plugin swap halfway.
+    if (this.busy) return { started: false, error: `an update is already running (${this.busy})` };
     const uproject = this.uproject();
     if (!uproject) return { started: false, error: "could not find the project" };
     return this.ueMcp(["extension", "install", await this.manifestUrl(), uproject]);
@@ -316,6 +321,7 @@ export class Updater {
 
   /** Restart the daemon on the newest ue-mcp, after an update installed it. */
   async restartDaemon(): Promise<{ started: boolean; error?: string }> {
+    if (this.busy) return { started: false, error: `an update is already running (${this.busy})` };
     const uproject = this.uproject();
     if (!uproject) return { started: false, error: "could not find the project" };
     // Stop, then start: two ue-mcp runs in one background chain, so the stop does not take the start down with it.

@@ -77,23 +77,38 @@ export function planRun(u: Updates, now = Date.now()): UpdateRun | null {
  * updates no longer offer it. An interrupted ue-mcp install runs again.
  */
 export function settle(run: UpdateRun, u: Updates): UpdateRun {
+  // A check that failed offers nothing, which says nothing about whether the step landed.
+  const read = u.studio && !u.studio.error ? u.studio : null;
   const steps = run.steps.map((s): RunStep => {
     if (s.state !== "active") return s;
     switch (s.key) {
       case "ueMcp":
         return { ...s, state: "pending" };
       case "plugin":
-        return { ...s, state: u.studio && !pluginStep(u.studio) ? "done" : "failed" };
+        return { ...s, state: read && !pluginStep(read) ? "done" : "failed" };
       case "studio":
-        return { ...s, state: u.studio && !u.studio.studio.available ? "done" : "failed" };
+        return { ...s, state: read && !read.studio.available ? "done" : "failed" };
       case "restart":
         return { ...s, state: !run.target || u.ueMcp?.server === run.target ? "done" : "failed" };
     }
   });
   // A Studio that reads the plugin's own channel can find a plugin update the run did not plan.
-  if (!steps.some((s) => s.key === "plugin") && pluginStep(u.studio)) steps.push({ key: "plugin", state: "pending" });
+  if (!steps.some((s) => s.key === "plugin") && pluginStep(read)) steps.push({ key: "plugin", state: "pending" });
   const failed = steps.find((s) => s.state === "failed");
   return { ...run, steps, detail: undefined, error: failed ? unfinished(failed.key, u) : run.error };
+}
+
+/**
+ * The updates once the agent is running no step: a page that loads while the
+ * plugin swaps (the editor closed under it, or a second window) waits for it.
+ */
+export async function afterRunning(read: () => Promise<Updates> = readUpdates, pollMs = 3000, limitMs = 15 * 60_000): Promise<Updates> {
+  const until = Date.now() + limitMs;
+  for (;;) {
+    const u = await read();
+    if (!u.studio?.running || Date.now() > until) return u;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
 }
 
 /** Why a step that was running did not land, with the versions that say so. */

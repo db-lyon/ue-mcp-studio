@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { DaemonEvent } from "ue-mcp/daemon";
-import { readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
-import { STEP_NAME, STEP_NOTE, execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
+import type { StudioUpdates, UeMcpUpdate } from "./Updates";
+import { STEP_NAME, STEP_NOTE, afterRunning, execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
 
 let current: UpdateRun | null = null;
@@ -45,7 +45,7 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
     void loadRun().then(async (saved) => {
       if (!saved) return;
       setRun(saved);
-      const next = settle(saved, await readUpdates());
+      const next = settle(saved, await afterRunning());
       setRun(next);
       if (next.error) void saveRun(null);
       else void execute(next, setRun);
