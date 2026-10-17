@@ -877,3 +877,35 @@ label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"
   .grid dd { margin-bottom: 8px; }
   .themes { grid-template-columns: 1fr; }
 }
+
+/* Touch: controls shown only on hover are always shown where there is no hover. */
+@media (hover: none) {
+  .session-more, .msg.user .msg-edit, .agents-stop, .agents-dismiss { opacity: 1; }
+}
+
+/* Coarse pointers: 44px touch targets, 16px fields (smaller ones make a phone zoom on focus),
+   and no drag divider, which only follows a mouse. */
+@media (pointer: coarse) {
+  button:not(.asset-link), select, summary,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { min-height: 44px; }
+  input, select, textarea, .effort select { font-size: 16px; }
+  input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
+  button.small-button { padding: 0 10px; }
+  p > button.small-button { min-height: 0; padding: 0 4px; }
+  .composer-divider { display: none; }
+  .bar { height: calc(50px + env(safe-area-inset-top)); }
+  .bar-more { width: 44px; height: 44px; }
+  .effort { height: auto; min-height: 44px; }
+  .effort select { min-height: 42px; }
+  .session-more { top: 4px; right: 2px; width: 44px; height: 44px; }
+  .sessions .item { padding-right: 48px; }
+  .session-menu { top: 48px; }
+  .session-menu button { padding: 10px 12px; }
+  .queue-remove, .attach-remove, .agents-stop, .agents-dismiss { min-width: 44px; min-height: 44px; }
+  .composer .attach-remove { height: 44px; }
+  .msg.user .msg-edit { min-width: 44px; min-height: 44px; left: -50px; top: 0; }
+  label.toggle, label.check { min-height: 44px; padding: 10px 0; }
+  label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"] { margin-top: 1px; }
+  .tool summary { align-items: center; }
+  .tool summary::before { flex-shrink: 0; }
+}
