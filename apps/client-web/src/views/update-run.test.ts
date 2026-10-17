@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
+import { afterRunning, execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
 
 const studio = (s: boolean, p: boolean) => ({
   studio: { installed: s ? "0.1.0-beta.9" : "0.1.0-beta.10", latest: "0.1.0-beta.10", available: s },
@@ -47,6 +47,21 @@ describe("an update run", () => {
   it("keeps going after the editor restarts for the plugin: the plugin is done, Studio still to do", () => {
     const run: UpdateRun = { target: null, at: Date.now(), steps: [{ key: "plugin", state: "active" }, { key: "studio", state: "pending" }] };
     expect(settle(run, { studio: studio(true, false), ueMcp: ueMcp("1.4.0-beta.4", null) }).steps.map((s) => s.state)).toEqual(["done", "pending"]);
+  });
+
+  it("does not take a failed check for a finished step", () => {
+    const run: UpdateRun = { target: null, at: Date.now(), steps: [{ key: "plugin", state: "active" }, { key: "studio", state: "pending" }] };
+    const failedCheck = { ...studio(true, false), error: "GitHub answered 403 for db-lyon/ue-mcp-studio-plugin's releases" };
+    const next = settle(run, { studio: failedCheck, ueMcp: ueMcp("1.4.0-beta.4", null) });
+    expect(next.steps.map((s) => s.state)).toEqual(["failed", "pending"]);
+    expect(next.error).toBeTruthy();
+  });
+
+  it("waits while the agent is still swapping the plugin", async () => {
+    let reads = 0;
+    const u = await afterRunning(async () => ({ studio: { ...studio(true, false), ...(++reads < 3 ? { running: "plugin" } : {}) }, ueMcp: null }), 1);
+    expect(reads).toBe(3);
+    expect(u.studio?.running).toBeUndefined();
   });
 
   it("goes on to a plugin update the new Studio found after it reloaded", () => {
