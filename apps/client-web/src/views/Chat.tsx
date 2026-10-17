@@ -39,7 +39,7 @@ function sessionOf(data: Record<string, unknown>): string | null {
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
 
-export function ChatView({ daemon }: { daemon: DaemonState }) {
+export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session: string | null; n: number } }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   /** Whether the list has come back once: until then an empty list is not "no sessions". */
   const [listed, setListed] = useState(false);
@@ -90,6 +90,20 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     setDetail(d);
     setDraft((cur) => (cur ? cur : d.draft));
   }, (e: Error) => setError(e.message));
+
+  // The panel's navigation asked for a session, or for the list (null).
+  const navSeen = useRef(nav?.n ?? 0);
+  useEffect(() => {
+    if (!nav || nav.n === navSeen.current) return;
+    navSeen.current = nav.n;
+    if (nav.session) {
+      void loadList();
+      setSelected(nav.session);
+    } else {
+      setSelected(null);
+      setDetail(null);
+    }
+  }, [nav?.n]);
 
   const loadSettings = () => api.settings().then(setSettings, () => setSettings(null));
   useEffect(() => writeLocation({ tab: "Chat", session: selected }), [selected]);
