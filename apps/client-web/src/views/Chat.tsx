@@ -20,6 +20,9 @@ import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../cha
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
+import { ChatHeader } from "../chat/ChatHeader";
+import { Sheet } from "../chat/Sheet";
+import { MENU_BAR, useMedia } from "../layout";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -60,6 +63,8 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
   /** The subagent thread on screen, by its agent call id; null is the main thread. */
   const [thread, setThread] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const narrow = useMedia(MENU_BAR);
+  const [sheet, setSheet] = useState(false);
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -267,6 +272,24 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
     return () => clearTimeout(t);
   }, [thread]);
 
+  // The session's threads: under the composer when wide; in a sheet from the header when narrow,
+  // so the composer stays at the bottom of the screen.
+  const threads = detail && (
+    <Threads
+      transcript={detail.transcript}
+      thread={openThread ? thread : null}
+      onThread={(id) => {
+        setSheet(false);
+        openThreadId(id);
+      }}
+      onStop={stopSubagent}
+      sessionWaiting={detail.status === "waiting"}
+      seen={seen}
+      dismissed={dismissed}
+      onDismiss={dismiss}
+    />
+  );
+
   return (
     <div className="chat" data-pane={chatPane(selected, listed, sessions.length)}>
       <aside className="card sessions">
@@ -291,12 +314,17 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
       <section className={`card conversation ${dragging ? "dragging" : ""}`} {...drop}>
         {dragging && <div className="drop-overlay">Drop files to attach them to your message</div>}
         {detail && (
-          <div className="chat-back">
-            <button className="ghost chat-back-button" onClick={() => { setSelected(null); setDetail(null); }} aria-label="Back to sessions">
-              {"‹"} Sessions
-            </button>
-            <span className="chat-back-title">{detail.title}</span>
-          </div>
+          <ChatHeader
+            title={detail.title}
+            thread={openThread}
+            transcript={detail.transcript}
+            sessionWaiting={detail.status === "waiting"}
+            agents={agentCalls(detail.transcript).length}
+            onSessions={() => { setSelected(null); setDetail(null); }}
+            onMain={() => setThread(null)}
+            onStop={stopSubagent}
+            onAgents={narrow ? () => setSheet(true) : undefined}
+          />
         )}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
         {!detail && (
@@ -371,17 +399,9 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
               onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
               picker={settings && <><ModelPicker settings={settings} onSettings={setSettings} up /><EffortPicker settings={settings} onSettings={setSettings} /></>}
             >
-              <Threads
-                transcript={detail.transcript}
-                thread={openThread ? thread : null}
-                onThread={openThreadId}
-                onStop={stopSubagent}
-                sessionWaiting={detail.status === "waiting"}
-                seen={seen}
-                dismissed={dismissed}
-                onDismiss={dismiss}
-              />
+              {!narrow && threads}
             </Composer>
+            {narrow && <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{threads}</Sheet>}
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>
           </AssetLinksContext.Provider>
