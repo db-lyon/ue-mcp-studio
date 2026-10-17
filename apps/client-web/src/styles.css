@@ -340,10 +340,10 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 
 /* Chat */
 .chat { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 14px; height: 100%; min-height: 0; }
-/* Narrow: the session list on top, at most a third of the height, and the conversation in the rest. */
+/* Narrow: the session list and the conversation take turns at the full width (chat/pane.ts picks). */
 @media (max-width: 760px) {
-  .chat { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .chat > .sessions { max-height: 33vh; }
+  .chat { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); }
+  .chat[data-pane="list"] > .conversation, .chat[data-pane="conversation"] > .sessions { display: none; }
 }
 .sessions { overflow: auto; display: flex; flex-direction: column; }
 .sessions .item {
@@ -805,3 +805,29 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .dialog-steps { margin: 2px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
 .dialog-status { font-weight: 600; }
 .dialog-status.agent { color: var(--accent); }
+
+/* Narrow chat: a back bar over the conversation, and tighter page margins. */
+.chat-back { display: none; }
+@media (max-width: 760px) {
+  main { padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+  .app > .banner { margin: 8px 10px 0; }
+  .app > .banner.update-waiting { margin: 0 10px 8px; }
+  .chat-back { display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+  .chat-back-button { flex-shrink: 0; padding: 6px 8px; }
+  .chat-back-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .transcript { padding: 14px 12px 10px; }
+  .approvals { padding: 8px 10px 0; }
+  .conversation > .banner { margin: 10px 10px 0; }
+  .empty { padding: 28px 14px; }
+  .empty > p { font-size: 13.5px; margin-bottom: 20px; }
+  .display { font-size: 28px; }
+}
+@media (max-width: 600px) {
+  main { padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); }
+  .app > .banner { margin: 6px 6px 0; }
+  .app > .banner.update-waiting { margin: 0 6px 6px; }
+  .card { padding: 12px; }
+  .conversation { padding: 0; }
+  .msg { max-width: 92%; }
+  .msg.assistant { max-width: 100%; }
+}

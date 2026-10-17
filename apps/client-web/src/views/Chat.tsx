@@ -19,6 +19,7 @@ import { SessionIdContext, useAttachments } from "../chat/attachments";
 import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../chat/asset-links";
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
+import { chatPane } from "../chat/pane";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -253,7 +254,7 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   }, [thread]);
 
   return (
-    <div className="chat">
+    <div className="chat" data-pane={chatPane(selected, listed, sessions.length)}>
       <aside className="card sessions">
         <div className="row">
           <h2>Sessions</h2>
@@ -275,6 +276,14 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
       </aside>
       <section className={`card conversation ${dragging ? "dragging" : ""}`} {...drop}>
         {dragging && <div className="drop-overlay">Drop files to attach them to your message</div>}
+        {detail && (
+          <div className="chat-back">
+            <button className="ghost chat-back-button" onClick={() => { setSelected(null); setDetail(null); }} aria-label="Back to sessions">
+              {"‹"} Sessions
+            </button>
+            <span className="chat-back-title">{detail.title}</span>
+          </div>
+        )}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
         {!detail && (
           <div className="empty">
