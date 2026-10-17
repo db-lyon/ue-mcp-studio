@@ -86,10 +86,7 @@ export function App() {
             </button>
             <span className="bar-title">{tab}</span>
             <span className="spacer" />
-            <span className="brand">
-              <span className="name">ue-mcp</span>
-              <span className="product">Studio</span>
-            </span>
+            <EditorBanner daemon={daemon} compact />
           </>
         ) : (
           <>
@@ -127,7 +124,7 @@ export function App() {
       )}
       {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
       <DialogBanner daemon={daemon} />
-      <EditorBanner daemon={daemon} />
+      {!narrow && <EditorBanner daemon={daemon} />}
       <main>
         {tab === "Flows" && <FlowsView daemon={daemon} />}
         {tab === "Plugins" && <PluginsView daemon={daemon} />}

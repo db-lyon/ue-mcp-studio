@@ -973,3 +973,16 @@ label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"
   .tool summary { align-items: center; }
   .tool summary::before { flex-shrink: 0; }
 }
+
+/* The editor's state as a chip in the narrow top bar; a press opens the full banner under the bar. */
+.editor-chip-wrap { display: inline-flex; flex-shrink: 0; }
+button.chip.editor-chip { height: auto; cursor: pointer; background: transparent; }
+.chip.editor-chip.warn { color: var(--warn-text); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.chip.editor-chip.busy::before { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .chip.editor-chip.busy::before { animation: none; } }
+/* Positioned above the page, so the banner it opens is not painted under main. */
+@media (max-width: 600px) { .bar { position: relative; z-index: 30; } }
+@media (pointer: coarse) { button.chip.editor-chip { min-height: 34px; } }
+.editor-pop { position: absolute; z-index: 45; left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); top: calc(100% + 4px); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+.editor-pop .banner { margin: 0; }
+
