@@ -70,7 +70,7 @@ export function FeedbackDialog({ onClose }: { onClose: () => void }) {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
             />
-            <label className="row small">
+            <label className="row toggle small">
               <input type="checkbox" checked={includeEnvironment} onChange={(e) => setIncludeEnvironment(e.target.checked)} />
               <span>Include the installed versions, engine, OS and model</span>
             </label>

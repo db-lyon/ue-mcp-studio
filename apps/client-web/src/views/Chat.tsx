@@ -19,6 +19,10 @@ import { SessionIdContext, useAttachments } from "../chat/attachments";
 import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../chat/asset-links";
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
+import { chatPane } from "../chat/pane";
+import { ChatHeader } from "../chat/ChatHeader";
+import { Sheet } from "../chat/Sheet";
+import { MENU_BAR, useMedia } from "../layout";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -38,7 +42,7 @@ function sessionOf(data: Record<string, unknown>): string | null {
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
 
-export function ChatView({ daemon }: { daemon: DaemonState }) {
+export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session: string | null; n: number } }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   /** Whether the list has come back once: until then an empty list is not "no sessions". */
   const [listed, setListed] = useState(false);
@@ -59,6 +63,8 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
   /** The subagent thread on screen, by its agent call id; null is the main thread. */
   const [thread, setThread] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const narrow = useMedia(MENU_BAR);
+  const [sheet, setSheet] = useState(false);
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -89,6 +95,20 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     setDetail(d);
     setDraft((cur) => (cur ? cur : d.draft));
   }, (e: Error) => setError(e.message));
+
+  // The panel's navigation asked for a session, or for the list (null).
+  const navSeen = useRef(nav?.n ?? 0);
+  useEffect(() => {
+    if (!nav || nav.n === navSeen.current) return;
+    navSeen.current = nav.n;
+    if (nav.session) {
+      void loadList();
+      setSelected(nav.session);
+    } else {
+      setSelected(null);
+      setDetail(null);
+    }
+  }, [nav?.n]);
 
   const loadSettings = () => api.settings().then(setSettings, () => setSettings(null));
   useEffect(() => writeLocation({ tab: "Chat", session: selected }), [selected]);
@@ -252,8 +272,26 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
     return () => clearTimeout(t);
   }, [thread]);
 
+  // The session's threads: under the composer when wide; in a sheet from the header when narrow,
+  // so the composer stays at the bottom of the screen.
+  const threads = detail && (
+    <Threads
+      transcript={detail.transcript}
+      thread={openThread ? thread : null}
+      onThread={(id) => {
+        setSheet(false);
+        openThreadId(id);
+      }}
+      onStop={stopSubagent}
+      sessionWaiting={detail.status === "waiting"}
+      seen={seen}
+      dismissed={dismissed}
+      onDismiss={dismiss}
+    />
+  );
+
   return (
-    <div className="chat">
+    <div className="chat" data-pane={chatPane(selected, listed, sessions.length)}>
       <aside className="card sessions">
         <div className="row">
           <h2>Sessions</h2>
@@ -275,6 +313,19 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
       </aside>
       <section className={`card conversation ${dragging ? "dragging" : ""}`} {...drop}>
         {dragging && <div className="drop-overlay">Drop files to attach them to your message</div>}
+        {detail && (
+          <ChatHeader
+            title={detail.title}
+            thread={openThread}
+            transcript={detail.transcript}
+            sessionWaiting={detail.status === "waiting"}
+            agents={agentCalls(detail.transcript).length}
+            onSessions={() => { setSelected(null); setDetail(null); }}
+            onMain={() => setThread(null)}
+            onStop={stopSubagent}
+            onAgents={narrow ? () => setSheet(true) : undefined}
+          />
+        )}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
         {!detail && (
           <div className="empty">
@@ -348,17 +399,9 @@ export function ChatView({ daemon }: { daemon: DaemonState }) {
               onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
               picker={settings && <><ModelPicker settings={settings} onSettings={setSettings} up /><EffortPicker settings={settings} onSettings={setSettings} /></>}
             >
-              <Threads
-                transcript={detail.transcript}
-                thread={openThread ? thread : null}
-                onThread={openThreadId}
-                onStop={stopSubagent}
-                sessionWaiting={detail.status === "waiting"}
-                seen={seen}
-                dismissed={dismissed}
-                onDismiss={dismiss}
-              />
+              {!narrow && threads}
             </Composer>
+            {narrow && <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{threads}</Sheet>}
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>
           </AssetLinksContext.Provider>

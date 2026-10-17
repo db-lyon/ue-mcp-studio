@@ -53,6 +53,7 @@ export function DockToggle() {
   return (
     <button className="ghost docs-link icon-button" disabled={busy} onClick={toggle} aria-label={label} title={label}>
       {next === "docked" ? <DockGlyph /> : <NewWindowGlyph />}
+      <span className="bar-tool-label">{label}</span>
     </button>
   );
 }

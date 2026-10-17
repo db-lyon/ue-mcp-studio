@@ -340,10 +340,10 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 
 /* Chat */
 .chat { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 14px; height: 100%; min-height: 0; }
-/* Narrow: the session list on top, at most a third of the height, and the conversation in the rest. */
+/* Narrow: the session list and the conversation take turns at the full width (chat/pane.ts picks). */
 @media (max-width: 760px) {
-  .chat { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
-  .chat > .sessions { max-height: 33vh; }
+  .chat { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); }
+  .chat[data-pane="list"] > .conversation, .chat[data-pane="conversation"] > .sessions { display: none; }
 }
 .sessions { overflow: auto; display: flex; flex-direction: column; }
 .sessions .item {
@@ -491,7 +491,7 @@ button.subtab.active { color: var(--text); border-bottom-color: var(--accent); }
 button.picker-button { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; font: 500 12px/1 var(--sans); letter-spacing: 0; text-transform: none; white-space: nowrap; }
 .picker-caret { color: var(--dim); font-size: 10px; }
 .picker-menu {
-  position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: 320px; max-height: 60vh; overflow-y: auto;
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: min(320px, calc(100vw - 24px)); max-height: 60vh; overflow-y: auto;
   padding: 6px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow); text-align: left;
 }
 .picker-menu.up { top: auto; bottom: calc(100% + 6px); }
@@ -805,3 +805,222 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .dialog-steps { margin: 2px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
 .dialog-status { font-weight: 600; }
 .dialog-status.agent { color: var(--accent); }
+
+/* Top bar: its tools in a row when wide. Narrow, a menu button and the current tab's name,
+   with navigation in a drawer that slides over the page (App.tsx picks which by width). */
+.bar-tools { display: flex; align-items: center; gap: 4px; }
+.bar-tool-label { display: none; }
+.bar {
+  padding-left: max(14px, env(safe-area-inset-left));
+  padding-right: max(14px, env(safe-area-inset-right));
+  padding-top: env(safe-area-inset-top);
+  height: calc(46px + env(safe-area-inset-top));
+}
+@media (max-width: 600px) {
+  .bar { gap: 6px; padding-left: max(6px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .bar .brand { margin: 0; }
+  .bar .brand .name { font-size: 12px; color: var(--muted); }
+}
+.bar-menu-button { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 38px; padding: 0; color: var(--text); }
+.bar-menu-button .tab-dot { position: absolute; top: 8px; right: 8px; margin: 0; }
+.bar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15px/1 var(--sans); }
+
+.drawer-root { position: fixed; inset: 0; z-index: 70; visibility: hidden; transition: visibility 0s linear 240ms; }
+.drawer-root.open { visibility: visible; transition: none; }
+.drawer-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); opacity: 0; transition: opacity 240ms ease; }
+.drawer-root.open .drawer-scrim { opacity: 1; }
+.drawer {
+  position: absolute; top: 0; bottom: 0; left: 0; width: min(304px, 86vw);
+  display: flex; flex-direction: column; gap: 2px;
+  padding: max(10px, env(safe-area-inset-top)) 10px max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background: var(--panel); border-right: 1px solid var(--line-strong); box-shadow: 16px 0 40px rgba(0, 0, 0, 0.45);
+  transform: translateX(-100%); transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.drawer-root.open .drawer { transform: none; }
+@media (prefers-reduced-motion: reduce) { .drawer, .drawer-scrim { transition: none; } }
+.drawer-head { display: flex; align-items: center; min-height: 40px; padding: 0 8px 6px; }
+.drawer .brand { margin: 0; }
+button.drawer-new, button.drawer-item, button.drawer-session, .drawer-foot .bar-tools > button {
+  display: flex; align-items: center; gap: 12px; width: 100%; min-height: 44px; padding: 0 10px;
+  background: transparent; border: 0; border-radius: var(--radius-lg); text-align: left;
+  font: 500 14.5px/1.2 var(--sans); letter-spacing: 0; color: var(--text);
+}
+button.drawer-new { margin-bottom: 6px; color: var(--accent-hi); font-weight: 600; }
+button.drawer-new svg { padding: 3px; width: 24px; height: 24px; border-radius: 50%; background: var(--accent); color: var(--on-accent); }
+button.drawer-item svg { color: var(--muted); flex-shrink: 0; }
+button.drawer-item:hover:not(:disabled), button.drawer-session:hover:not(:disabled), button.drawer-new:hover:not(:disabled),
+.drawer-foot .bar-tools > button:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; }
+button.drawer-item.active, button.drawer-session.active { background: var(--accent-wash); }
+button.drawer-item.active svg { color: var(--accent-hi); }
+.drawer-item .tab-dot { margin: 0 0 0 -4px; }
+.drawer-nav { display: flex; flex-direction: column; gap: 2px; height: auto; overflow: visible; }
+.drawer-recents { flex: 1; min-height: 0; overflow-y: auto; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 1px; }
+.drawer-label { padding: 0 10px 6px; font: 600 12px/1.3 var(--sans); color: var(--dim); }
+.drawer-note { padding: 0 10px; margin: 0; }
+button.drawer-session { min-height: 40px; gap: 0; font-size: 14px; font-weight: 400; color: var(--muted); }
+button.drawer-session.active { color: var(--text); }
+.drawer-session-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drawer-foot { padding-top: 6px; border-top: 1px solid var(--line); }
+.drawer-foot .bar-tools { flex-direction: column; align-items: stretch; gap: 1px; }
+.drawer-foot .bar-tools > button { min-height: 40px; font-size: 14px; color: var(--muted); }
+.drawer-foot .bar-tool-label { display: inline; }
+.drawer-foot .chip.vcs { max-width: none; white-space: normal; overflow-wrap: anywhere; border-radius: var(--radius-lg); padding: 8px 10px; margin: 4px 0 0; justify-content: flex-start; }
+.drawer-foot .chip + .chip { margin-left: 0; }
+
+/* Narrow chat: a back bar over the conversation, and tighter page margins. */
+.chat-back { display: none; }
+@media (max-width: 760px) {
+  main { padding: 10px max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left)); }
+  .app > .banner { margin: 8px 10px 0; }
+  .app > .banner.update-waiting { margin: 0 10px 8px; }
+  .chat-back { display: flex; align-items: center; gap: 6px; min-height: 48px; padding: 4px 8px; border-bottom: 1px solid var(--line); flex-shrink: 0; }
+  .chat-back-button { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 6px 8px; font-size: 16px; }
+  .chat-back-label { font: 500 12px/1 var(--mono); }
+  .chat-back-titles { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .chat-back-parent { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--dim); }
+  .chat-back-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+  .chat-back-state { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; }
+  .chat-back .thread-stop { flex-shrink: 0; }
+  .chat-agents-button { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 8px; }
+  /* The conversation's header carries the subagent thread's back, name and state. */
+  .thread-head { display: none; }
+  .transcript { padding: 14px 12px 10px; }
+  .approvals { padding: 8px 10px 0; }
+  .conversation > .banner { margin: 10px 10px 0; }
+  .empty { padding: 28px 14px; justify-content: flex-start; overflow-y: auto; min-height: 0; }
+  .empty > :first-child { margin-top: auto; }
+  .empty > :last-child { margin-bottom: auto; }
+  .empty > p { font-size: 13.5px; margin-bottom: 20px; }
+  .display { font-size: 28px; }
+}
+@media (max-width: 600px) {
+  main { padding: 6px max(6px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(6px, env(safe-area-inset-left)); }
+  .app > .banner { margin: 6px 6px 0; }
+  .app > .banner.update-waiting { margin: 0 6px 6px; }
+  .card { padding: 12px; }
+  .conversation { padding: 0; }
+  .msg { max-width: 92%; }
+  .msg.assistant { max-width: 100%; }
+}
+
+/* Composer at narrow widths: the bar wraps instead of pushing Send off screen, and the app
+   takes the dynamic viewport height so the composer stays above a mobile browser's toolbar. */
+@supports (height: 100dvh) {
+  .app { height: 100dvh; }
+}
+@media (max-width: 600px) {
+  .composer { padding: 10px 10px 10px; gap: 8px; }
+  .composer-bar { flex-wrap: wrap; gap: 6px; }
+  .composer .attach-button { padding: 6px 8px; }
+  .composer-hint, .composer-bar > .spacer { display: none; }
+  .composer-bar > button:last-child { margin-left: auto; }
+  .composer textarea { padding: 8px 10px; }
+  .queue { padding: 6px 10px; }
+  .thread-head { padding: 8px 10px; }
+}
+
+/* Content that must not widen a narrow page: long paths wrap, tables and code scroll inside themselves. */
+.approval .dim { overflow-wrap: anywhere; }
+.approval, .approvals > * { min-width: 0; }
+label.row.toggle { flex-wrap: nowrap; align-items: flex-start; }
+label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"] { flex-shrink: 0; margin-top: 4px; }
+.md table { display: block; max-width: 100%; overflow-x: auto; }
+.md pre { max-width: 100%; }
+.md img { max-width: 100%; }
+.plugin-grid { grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
+.plugin-search { max-width: 100%; }
+.overlay-card { max-height: 100%; overflow-y: auto; }
+.overlay { padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+@media (max-width: 600px) {
+  .overlay { padding: 8px; }
+  .overlay-card { padding: 16px; }
+  button.subtab { padding: 8px 9px; }
+  .subtabs { flex-wrap: wrap; }
+  .keyform { padding: 14px 12px; }
+  .changes-backdrop { padding: 8px; }
+  .changes-panel { height: calc(100% - 0px); }
+  .changes-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 35%) minmax(0, 1fr); }
+  .changes-list { border-right: 0; border-bottom: 1px solid var(--line); }
+  .update-steps, .update-step { min-width: 0; }
+}
+@media (max-width: 480px) {
+  .grid { grid-template-columns: 1fr; gap: 0; }
+  .grid dd { margin-bottom: 8px; }
+  .themes { grid-template-columns: 1fr; }
+}
+
+/* Touch: controls shown only on hover are always shown where there is no hover. */
+@media (hover: none) {
+  .session-more, .msg.user .msg-edit, .agents-stop, .agents-dismiss { opacity: 1; }
+}
+
+/* Coarse pointers: 44px touch targets, 16px fields (smaller ones make a phone zoom on focus),
+   and no drag divider, which only follows a mouse. */
+@media (pointer: coarse) {
+  button:not(.asset-link), select, summary,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { min-height: 44px; }
+  input, select, textarea, .effort select { font-size: 16px; }
+  input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
+  button.small-button { padding: 0 10px; }
+  p > button.small-button { min-height: 0; padding: 0 4px; }
+  .composer-divider { display: none; }
+  .bar { height: calc(50px + env(safe-area-inset-top)); }
+  .bar-menu-button { width: 44px; height: 44px; }
+  button.drawer-session, .drawer-foot .bar-tools > button { min-height: 44px; }
+  .effort { height: auto; min-height: 44px; }
+  .effort select { min-height: 42px; }
+  .session-more { top: 4px; right: 2px; width: 44px; height: 44px; }
+  .sessions .item { padding-right: 48px; }
+  .session-menu { top: 48px; }
+  .session-menu button { padding: 10px 12px; }
+  .queue-remove, .attach-remove, .agents-stop, .agents-dismiss { min-width: 44px; min-height: 44px; }
+  .composer .attach-remove { height: 44px; }
+  .msg.user .msg-edit { min-width: 44px; min-height: 44px; left: -50px; top: 0; }
+  label.toggle, label.check { min-height: 44px; padding: 10px 0; }
+  label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"] { margin-top: 1px; }
+  .tool summary { align-items: center; }
+  .tool summary::before { flex-shrink: 0; }
+}
+
+/* Phone width: the chat fills the screen edge to edge, with padding only inside its content. */
+@media (max-width: 600px) {
+  main.view-chat { padding: 0; }
+  .view-chat .chat { gap: 0; }
+  .view-chat .chat > .card { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+  .view-chat .sessions { padding: 10px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .view-chat .sessions .item { margin: 0 -4px 2px; }
+  .view-chat .chat-back { padding-left: max(4px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+  .view-chat .transcript { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .view-chat .composer { padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+  .view-chat .composer textarea { width: 100%; }
+}
+
+/* The editor's state as a chip in the narrow top bar; a press opens the full banner under the bar. */
+.editor-chip-wrap { display: inline-flex; flex-shrink: 0; }
+button.chip.editor-chip { height: auto; cursor: pointer; background: transparent; }
+.chip.editor-chip.warn { color: var(--warn-text); border-color: color-mix(in srgb, var(--warn) 40%, transparent); }
+.chip.editor-chip.busy::before { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .chip.editor-chip.busy::before { animation: none; } }
+/* Positioned above the page, so the banner it opens is not painted under main. */
+@media (max-width: 600px) { .bar { position: relative; z-index: 30; } }
+@media (pointer: coarse) { button.chip.editor-chip { min-height: 34px; } }
+.editor-pop { position: absolute; z-index: 45; left: max(6px, env(safe-area-inset-left)); right: max(6px, env(safe-area-inset-right)); top: calc(100% + 4px); border-radius: 8px; background: var(--panel); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+.editor-pop .banner { margin: 0; }
+
+/* A sheet from the bottom of the page: the subagents of a narrow conversation. */
+.sheet-root { position: fixed; inset: 0; z-index: 70; visibility: hidden; transition: visibility 0s linear 240ms; }
+.sheet-root.open { visibility: visible; transition: none; }
+.sheet-scrim { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); opacity: 0; transition: opacity 240ms ease; }
+.sheet-root.open .sheet-scrim { opacity: 1; }
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; max-height: 70%; display: flex; flex-direction: column;
+  padding: 6px max(10px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+  background: var(--panel); border-top: 1px solid var(--line-strong); border-radius: 14px 14px 0 0; box-shadow: 0 -16px 40px rgba(0, 0, 0, 0.45);
+  transform: translateY(100%); transition: transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.sheet-root.open .sheet { transform: none; }
+@media (prefers-reduced-motion: reduce) { .sheet, .sheet-scrim { transition: none; } }
+.sheet-head { position: relative; display: flex; align-items: center; gap: 8px; padding: 12px 4px 8px; }
+.sheet-grip { position: absolute; top: 0; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line-strong); }
+.sheet-body { overflow-y: auto; min-height: 0; }
+.sheet-body .agents-bar { max-height: none; border-top: 0; padding-top: 0; }

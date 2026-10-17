@@ -5,8 +5,11 @@
  * on it; or not running, with a Start. The busy state comes from the daemon, which
  * knows the calls in flight without asking the editor, so it shows while the
  * editor cannot answer.
+ *
+ * `compact` (the top bar at narrow widths) shows the same state as a chip,
+ * a dot and a word or two, whose press opens the full banner under it.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { BusyCall, BusyState, EditorOperation, EditorOperationFailure } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
@@ -86,23 +89,44 @@ function useBusy(daemon: DaemonState): { calls: BusyCall[]; operation: EditorOpe
   return { calls: state.calls, operation: state.operation, failure: state.failure, now: () => Date.now() + state.offset };
 }
 
-export function EditorBanner({ daemon }: { daemon: DaemonState }) {
+export function EditorBanner({ daemon, compact = false }: { daemon: DaemonState; compact?: boolean }) {
   const { calls, operation, failure, now } = useBusy(daemon);
   const [stopping, setStopping] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
+  }, [open]);
+
+  /** The banner, or in compact form a chip that opens it. */
+  const frame = (chip: string, tone: "warn" | "busy", banner: ReactNode) => {
+    if (!compact) return banner;
+    return (
+      <span ref={box} className="editor-chip-wrap">
+        <button className={`chip editor-chip ${tone}`} aria-expanded={open} onClick={() => setOpen(!open)}>{chip}</button>
+        {open && <div className="editor-pop">{banner}</div>}
+      </span>
+    );
+  };
 
   // A restart or rebuild the daemon runs: the editor is meant to be down, so no Start.
   if (operation) {
     const line = operationLine(operation);
-    return (
+    return frame(`${OPERATION[operation.op].split(" ")[0]} ${formatElapsed(now() - operation.startedAt)}`, "busy", 
       <div className="banner warn editor-banner" role="status">
         <span className="spinner small" aria-hidden />
         <span className="editor-banner-text">
           <strong>{line.title}:</strong> {line.step}
           <span className="mono elapsed">{formatElapsed(now() - operation.startedAt)}</span>
         </span>
-      </div>
+      </div>,
     );
   }
 
@@ -116,7 +140,7 @@ export function EditorBanner({ daemon }: { daemon: DaemonState }) {
       setStopping(true);
       api.stopBusy().then(() => setError(null), (e: Error) => setError(e.message)).finally(() => setStopping(false));
     };
-    return (
+    return frame(`${stopped ? "Stopping" : "Editor busy"} ${formatElapsed(now() - oldest.startedAt)}`, "busy", 
       <div className="banner warn editor-banner" role="status">
         <span className="editor-banner-text">
           <strong>{stopped ? "Stopped." : "Editor busy:"}</strong>{" "}
@@ -127,7 +151,7 @@ export function EditorBanner({ daemon }: { daemon: DaemonState }) {
         </span>
         {stoppable && <button disabled={stopping} onClick={stop}>{stopping ? "Stopping" : "Stop"}</button>}
         {error && <span className="dim">{error}</span>}
-      </div>
+      </div>,
     );
   }
 
@@ -144,7 +168,7 @@ export function EditorBanner({ daemon }: { daemon: DaemonState }) {
         (e: Error) => setError(e.message),
       ).finally(() => setStarting(false));
     };
-    return (
+    return frame(starting ? "Starting" : "Editor off", "warn", 
       <div className="banner warn editor-banner" role="status">
         <span className="editor-banner-text">
           <strong>{failure ? `${failureLine(failure)}.` : "Editor not running"}</strong>
@@ -152,7 +176,7 @@ export function EditorBanner({ daemon }: { daemon: DaemonState }) {
           {error && <span className="dim"> {error}</span>}
         </span>
         <button className="primary" disabled={starting} onClick={start}>{starting ? "Starting" : "Start"}</button>
-      </div>
+      </div>,
     );
   }
   return null;

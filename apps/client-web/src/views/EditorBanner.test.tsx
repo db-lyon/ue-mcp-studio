@@ -108,4 +108,21 @@ describe("the editor banner", () => {
     expect(screen.queryByText("Start")).toBeNull();
     expect(screen.queryByText("Editor not running")).toBeNull();
   });
+
+  it("folds into a chip that opens the banner and its Start, at phone width", async () => {
+    const posted = stubFetch({ now: Date.now(), calls: [] });
+    render(<EditorBanner daemon={daemon(false)} compact />);
+    const chip = await screen.findByText("Editor off");
+    expect(screen.queryByText("Start")).toBeNull();
+    fireEvent.click(chip);
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByText("Start"));
+    await waitFor(() => expect(posted.some((u) => u.includes("/editor/start"))).toBe(true));
+  });
+
+  it("shows no chip while the editor is connected and idle", async () => {
+    stubFetch({ now: Date.now(), calls: [] });
+    const { container } = render(<EditorBanner daemon={daemon(true)} compact />);
+    await waitFor(() => expect(container.querySelector(".editor-chip")).toBeNull());
+  });
 });
