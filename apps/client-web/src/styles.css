@@ -491,7 +491,7 @@ button.subtab.active { color: var(--text); border-bottom-color: var(--accent); }
 button.picker-button { display: inline-flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; font: 500 12px/1 var(--sans); letter-spacing: 0; text-transform: none; white-space: nowrap; }
 .picker-caret { color: var(--dim); font-size: 10px; }
 .picker-menu {
-  position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: 320px; max-height: 60vh; overflow-y: auto;
+  position: absolute; left: 0; top: calc(100% + 6px); z-index: 20; width: min(320px, calc(100vw - 24px)); max-height: 60vh; overflow-y: auto;
   padding: 6px; background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow); text-align: left;
 }
 .picker-menu.up { top: auto; bottom: calc(100% + 6px); }
@@ -830,4 +830,20 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
   .conversation { padding: 0; }
   .msg { max-width: 92%; }
   .msg.assistant { max-width: 100%; }
+}
+
+/* Composer at narrow widths: the bar wraps instead of pushing Send off screen, and the app
+   takes the dynamic viewport height so the composer stays above a mobile browser's toolbar. */
+@supports (height: 100dvh) {
+  .app { height: 100dvh; }
+}
+@media (max-width: 600px) {
+  .composer { padding: 10px 10px 10px; gap: 8px; }
+  .composer-bar { flex-wrap: wrap; gap: 6px; }
+  .composer .attach-button { padding: 6px 8px; }
+  .composer-hint, .composer-bar > .spacer { display: none; }
+  .composer-bar > button:last-child { margin-left: auto; }
+  .composer textarea { padding: 8px 10px; }
+  .queue { padding: 6px 10px; }
+  .thread-head { padding: 8px 10px; }
 }
