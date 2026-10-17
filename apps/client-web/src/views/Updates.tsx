@@ -56,9 +56,16 @@ async function get<T>(url: string): Promise<T | null> {
   return res?.ok ? ((await res.json()) as T) : null;
 }
 
+/** Every read's count goes to the dot on Settings, so it never disagrees with the card. */
+const countListeners = new Set<(n: number) => void>();
+
+/** The bridge check follows Studio's channel: beta takes ue-mcp prereleases, stable takes latest. */
 export async function readUpdates(): Promise<{ studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }> {
-  const [studio, ueMcp] = await Promise.all([get<StudioUpdates>("/v1/ext/studio/updates"), get<UeMcpUpdate>("/v1/update")]);
-  return { studio, ueMcp };
+  const studio = await get<StudioUpdates>("/v1/ext/studio/updates");
+  const ueMcp = await get<UeMcpUpdate>(`/v1/update?channel=${studio?.channel === "beta" ? "beta" : "latest"}`);
+  const u = { studio, ueMcp };
+  for (const l of countListeners) l(waiting(u));
+  return u;
 }
 
 /** How many parts have an update waiting. */
@@ -66,14 +73,18 @@ export function waiting(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | 
   return (u.studio?.studio.available ? 1 : 0) + (pluginStep(u.studio) ? 1 : 0) + (u.ueMcp?.target ? 1 : 0);
 }
 
-/** Updates waiting, read when the panel opens and every six hours, for the dot on Settings. */
+/** Updates waiting for the dot on Settings: read when the panel opens, every six hours, and whenever anything else reads them. */
 export function useUpdateCount(): number {
   const [count, setCount] = useState(0);
   useEffect(() => {
-    const read = () => void readUpdates().then((u) => setCount(waiting(u)), () => {});
+    countListeners.add(setCount);
+    const read = () => void readUpdates().catch(() => {});
     read();
     const t = setInterval(read, 6 * 3600_000);
-    return () => clearInterval(t);
+    return () => {
+      clearInterval(t);
+      countListeners.delete(setCount);
+    };
   }, []);
   return count;
 }

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { UpdatesCard, readyLine, updateSteps, waiting } from "./Updates";
+import { UpdatesCard, readUpdates, readyLine, updateSteps, useUpdateCount, waiting } from "./Updates";
 import { UpdateRunner } from "./UpdateOverlay";
 
 const studio = (s: boolean, p: boolean) => ({
@@ -25,6 +25,32 @@ describe("updates", () => {
   it("names each part that has something newer", () => {
     expect(readyLine({ studio: studio(false, false), ueMcp: ueMcp(true) })).toBe("Ready to install: the bridge plugin 1.4.0-beta.2.");
     expect(readyLine({ studio: studio(true, true), ueMcp: ueMcp(true) })).toBe("Ready to install: the bridge plugin 1.4.0-beta.2, the editor plugin 0.1.0-beta.9 and Studio 0.1.0-beta.10.");
+  });
+
+  it("asks the bridge check for Studio's channel", async () => {
+    const asked: string[] = [];
+    let channel = "beta";
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      asked.push(url);
+      return new Response(JSON.stringify(url.includes("/ext/studio/") ? { ...studio(false, false), channel } : ueMcp(false)));
+    }));
+    await readUpdates();
+    channel = "stable";
+    await readUpdates();
+    expect(asked.filter((u) => u.startsWith("/v1/update"))).toEqual(["/v1/update?channel=beta", "/v1/update?channel=latest"]);
+  });
+
+  it("clears the dot on Settings when a later read finds nothing waiting", async () => {
+    let pending = true;
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(false, false) : ueMcp(pending)))));
+    function Dot() {
+      return <span>count {useUpdateCount()}</span>;
+    }
+    render(<Dot />);
+    await waitFor(() => expect(screen.getByText("count 1")).toBeTruthy());
+    pending = false;
+    await act(async () => void (await readUpdates()));
+    expect(screen.getByText("count 0")).toBeTruthy();
   });
 
   it("names the bridge plugin, not ue-mcp, when only the bridge is behind the daemon", async () => {
