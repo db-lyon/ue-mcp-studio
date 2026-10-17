@@ -48,12 +48,22 @@ function loadEditorColors(): Promise<EditorColors> {
   return editorColors;
 }
 
+/** The top bar's color for a theme, which a mobile browser paints its own toolbar with. */
+export function themeColor(theme: StudioTheme, colors: EditorColors = EDITOR_DEFAULT): string {
+  return theme === "editor" || theme === "editor-orange" ? colors.recessed ?? EDITOR_DEFAULT.recessed : "#0c0c0b";
+}
+
+function setThemeColor(color: string): void {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", color);
+}
+
 export async function applyTheme(theme: StudioTheme): Promise<void> {
   const root = document.documentElement;
   root.dataset.theme = theme;
   for (const name of Object.keys(EDITOR_DEFAULT)) root.style.removeProperty(`--ue-${name}`);
-  if (theme !== "editor" && theme !== "editor-orange") return;
+  if (theme !== "editor" && theme !== "editor-orange") return setThemeColor(themeColor(theme));
   const colors = await loadEditorColors();
   if (root.dataset.theme !== theme) return;
   for (const [name, value] of Object.entries(colors)) root.style.setProperty(`--ue-${name}`, value);
+  setThemeColor(themeColor(theme, colors));
 }
