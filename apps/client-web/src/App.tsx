@@ -125,7 +125,7 @@ export function App() {
       {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
       <DialogBanner daemon={daemon} />
       {!narrow && <EditorBanner daemon={daemon} />}
-      <main>
+      <main className={`view-${tab.toLowerCase()}`}>
         {tab === "Flows" && <FlowsView daemon={daemon} />}
         {tab === "Plugins" && <PluginsView daemon={daemon} />}
         {tab === "Chat" && <ChatView daemon={daemon} nav={chatNav} />}

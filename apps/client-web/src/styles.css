@@ -974,6 +974,19 @@ label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"
   .tool summary::before { flex-shrink: 0; }
 }
 
+/* Phone width: the chat fills the screen edge to edge, with padding only inside its content. */
+@media (max-width: 600px) {
+  main.view-chat { padding: 0; }
+  .view-chat .chat { gap: 0; }
+  .view-chat .chat > .card { border: 0; border-radius: 0; box-shadow: none; background: transparent; }
+  .view-chat .sessions { padding: 10px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .view-chat .sessions .item { margin: 0 -4px 2px; }
+  .view-chat .chat-back { padding-left: max(4px, env(safe-area-inset-left)); padding-right: max(8px, env(safe-area-inset-right)); }
+  .view-chat .transcript { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .view-chat .composer { padding-bottom: max(10px, env(safe-area-inset-bottom)); padding-left: max(10px, env(safe-area-inset-left)); padding-right: max(10px, env(safe-area-inset-right)); }
+  .view-chat .composer textarea { width: 100%; }
+}
+
 /* The editor's state as a chip in the narrow top bar; a press opens the full banner under the bar. */
 .editor-chip-wrap { display: inline-flex; flex-shrink: 0; }
 button.chip.editor-chip { height: auto; cursor: pointer; background: transparent; }
