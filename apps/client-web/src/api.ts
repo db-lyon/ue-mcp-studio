@@ -124,7 +124,6 @@ export const api = {
   signIn: (id: SignInId) => call<StudioSignIn>("GET", `/v1/ext/studio/signin/${id}`),
   startSignIn: (id: SignInId) => call<StudioSignIn>("POST", `/v1/ext/studio/signin/${id}`),
   cancelSignIn: (id: SignInId) => call<void>("DELETE", `/v1/ext/studio/signin/${id}`),
-  submitSignInCode: (id: SignInId, code: string) => call<StudioSignIn>("POST", `/v1/ext/studio/signin/${id}/code`, { code }),
   plugins: () => call<{ plugins: InstalledPlugin[] }>("GET", "/v1/plugins"),
   pluginCatalog: () => call<{ plugins: CatalogPlugin[] }>("GET", "/v1/plugins/catalog"),
   installPlugin: (name: string) => pluginCommand("install", { name }),

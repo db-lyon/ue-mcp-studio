@@ -29,6 +29,11 @@ const sdk = vi.hoisted(() => ({
 }));
 
 vi.mock("../src/runtime.js", () => ({ ensureRuntime: async () => "claude.exe", installedRuntime: () => "claude.exe" }));
+// Signed in, as the runtime's `auth status` would say (claude-auth.test.ts covers asking it).
+vi.mock("../src/claude-auth.js", async (actual) => {
+  const login = { method: "claude.ai", subscription: "max", keySource: null };
+  return { ...(await actual<typeof import("../src/claude-auth.js")>()), claudeLogin: () => login, refreshClaudeLogin: async () => login };
+});
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   tool: (name: string, _d: string, _s: unknown, handler: Handler) => ({ name, handler }),
   createSdkMcpServer: (o: { tools: Array<{ name: string; handler: Handler }> }) => ({ tools: o.tools }),
@@ -146,7 +151,6 @@ beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "studio-sdk-"));
   process.env.STUDIO_CLAUDE_HOME = path.join(root, "claude");
   fs.mkdirSync(process.env.STUDIO_CLAUDE_HOME, { recursive: true });
-  fs.writeFileSync(path.join(process.env.STUDIO_CLAUDE_HOME, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "x", subscriptionType: "max" } }));
   fs.mkdirSync(path.join(root, "project", "Content"), { recursive: true });
   host = new Host(path.join(root, "project"), path.join(root, "data"));
   store = new SessionStore(host.dataDir);

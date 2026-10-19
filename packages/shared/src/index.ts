@@ -27,9 +27,9 @@ export type KeyProviderId = "anthropic" | "openai" | "google";
 export const KEY_PROVIDER_IDS: readonly KeyProviderId[] = ["anthropic", "openai", "google"];
 
 /**
- * Accounts the user signs in to instead of pasting a key. Claude (experimental)
- * runs Claude models on the user's Claude plan through their Claude Code login;
- * Studio runs the models its plan includes. A sign-in is the default way to run
+ * Accounts the user signs in to instead of pasting a key. Claude runs Claude
+ * models on the user's Claude plan through the Agent SDK's runtime and its own
+ * sign-in; Studio runs the models its plan includes. A sign-in is the default way to run
  * a model; a vendor key is the fallback.
  */
 export type SignInId = "chatgpt" | "claude" | "studio";
@@ -134,10 +134,13 @@ export interface ModelCatalog {
 /** GET and POST /v1/ext/studio/signin/:id: signing in to Studio from the panel. */
 export type StudioSignIn =
   | { state: "idle" }
-  /** Open `url` to sign in; a device-code sign-in also shows `userCode` to enter there. */
-  | { state: "pending"; url: string; userCode?: string; needsCode?: boolean; expiresAt: string }
+  /**
+   * Open `url` to sign in; a device-code sign-in also shows `userCode` to enter there.
+   * No `url`: the sign-in opened the browser itself, and `terminal` is the command that does it from a terminal instead.
+   */
+  | { state: "pending"; url?: string; userCode?: string; terminal?: string; expiresAt: string }
   | { state: "done"; login: string }
-  | { state: "error"; error: string };
+  | { state: "error"; error: string; terminal?: string };
 
 export type TurnStatus = "idle" | "running" | "waiting" | "stopped" | "error";
 

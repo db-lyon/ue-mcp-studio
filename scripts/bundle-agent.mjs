@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-// The Claude runtime the experimental subscription path fetches must match the bundled SDK.
+// The Claude runtime the subscription route fetches must match the bundled SDK.
 const sdkVersion = JSON.parse(fs.readFileSync(path.join(root, "apps", "agent", "node_modules", "@anthropic-ai", "claude-agent-sdk", "package.json"), "utf-8")).version;
 fs.rmSync(path.join(root, "apps", "agent", "dist"), { recursive: true, force: true });
 const result = await build({

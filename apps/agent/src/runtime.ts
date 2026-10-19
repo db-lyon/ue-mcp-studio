@@ -1,8 +1,8 @@
 /**
- * Experimental: the Claude runtime the Agent SDK drives, fetched on first use.
+ * The Claude runtime the Agent SDK drives, fetched on first use.
  * It is the SDK's own platform package from npm, checked against the
  * registry's integrity hash and kept under Studio's folder per version, so a
- * Studio install needs neither Claude Code nor the package shipped beside it.
+ * Studio install needs no separate Claude install and no package shipped beside it.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
