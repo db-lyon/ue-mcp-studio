@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { STUDIO_PLAN_AVAILABLE } from "@ue-mcp-studio/shared";
+import { CLAUDE_SIGN_IN_AVAILABLE, STUDIO_PLAN_AVAILABLE } from "@ue-mcp-studio/shared";
 import { OpenAICompatibleProvider, PROVIDER_EXTRA, readChatStream, toChatRequest } from "../src/openai-compat.js";
 import { AnthropicProvider, requestBody, searchesIn, type ModelRequest } from "../src/providers.js";
 import { chatModels, shortName, signInsFor } from "../src/models.js";
@@ -137,8 +137,9 @@ describe("Studio sign-in", () => {
 describe("sign-ins come before keys", () => {
   it("runs OpenAI models on a ChatGPT sign-in, Claude models on the Claude plan, and the Studio plan's models on Studio next", () => {
     const coverage = { planModels: ["claude-opus-5-5"] };
-    expect(signInsFor("anthropic", "claude-opus-5-5", coverage)).toEqual(STUDIO_PLAN_AVAILABLE ? ["claude", "studio"] : ["claude"]);
-    expect(signInsFor("anthropic", "claude-haiku-5-5", coverage)).toEqual(["claude"]);
+    const claude = CLAUDE_SIGN_IN_AVAILABLE ? ["claude"] : [];
+    expect(signInsFor("anthropic", "claude-opus-5-5", coverage)).toEqual(STUDIO_PLAN_AVAILABLE ? [...claude, "studio"] : claude);
+    expect(signInsFor("anthropic", "claude-haiku-5-5", coverage)).toEqual(claude);
     expect(signInsFor("openai", "gpt-6-sol", coverage)).toEqual(["chatgpt"]);
   });
 });
