@@ -194,11 +194,11 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 
 const SIGN_IN_ABOUT: Record<SignInId, string> = {
   chatgpt: "With your ChatGPT account. OpenAI models run on your ChatGPT plan's limits.",
-  claude: "Experimental. Runs Claude models on your Claude plan's limits.",
+  claude: "Runs Claude models on your Claude plan's limits through the Claude Agent SDK. Claude's own sign-in page opens in your browser.",
   studio: "With your GitHub account. Runs the models in your Studio plan.",
 };
 
-/** One sign-in: a button, then the page to approve on (and Studio's code), until it finishes. */
+/** One sign-in: a button, then the page to approve on, until it finishes. */
 export function SignInForm({ id, primary = true, onDone }: { id: SignInId; primary?: boolean; onDone: () => void }) {
   const [state, setState] = useState<StudioSignIn | null>(null);
   const done = useRef(false);
@@ -224,13 +224,7 @@ export function SignInForm({ id, primary = true, onDone }: { id: SignInId; prima
 
   const start = () => api.startSignIn(id).then((s) => {
     setState(s);
-    if (s.state === "pending") window.open(s.url, "_blank");
-  }, (e: Error) => setState({ state: "error", error: e.message }));
-
-  const [code, setCode] = useState("");
-  const submit = () => api.submitSignInCode(id, code).then((s) => {
-    setCode("");
-    setState(s);
+    if (s.state === "pending" && s.url) window.open(s.url, "_blank");
   }, (e: Error) => setState({ state: "error", error: e.message }));
 
   const name = PROVIDERS[id].name;
@@ -247,14 +241,10 @@ export function SignInForm({ id, primary = true, onDone }: { id: SignInId; prima
               <a href={state.url} target="_blank" rel="noreferrer"><button className="primary">Open GitHub</button></a>
             </div>
           </>
-        ) : state.needsCode ? (
+        ) : !state.url ? (
           <>
-            <p className="small muted">Approve the sign-in in your browser, then paste the code the page shows.</p>
-            <div className="row">
-              <input placeholder="Code" value={code} onChange={(e) => setCode(e.target.value)} onKeyDown={(e) => e.key === "Enter" && code.trim() && void submit()} />
-              <button className="primary" disabled={!code.trim()} onClick={() => void submit()}>Sign in</button>
-              <a href={state.url} target="_blank" rel="noreferrer"><button>Open again</button></a>
-            </div>
+            <p className="small muted">{name}'s sign-in page opened in your browser. Approve it there.</p>
+            {state.terminal && <TerminalSignIn command={state.terminal} />}
           </>
         ) : (
           <div className="row">
@@ -270,8 +260,22 @@ export function SignInForm({ id, primary = true, onDone }: { id: SignInId; prima
   return (
     <div className="connect signin">
       {state.state === "error" && <div className="banner bad small">{state.error}</div>}
+      {state.state === "error" && state.terminal && <TerminalSignIn command={state.terminal} />}
       <button className={primary ? "primary" : ""} onClick={() => void start()}>Sign in to {name}</button>
       <p className="dim small">{SIGN_IN_ABOUT[id]}</p>
+    </div>
+  );
+}
+
+/** The sign-in command for a terminal, for a machine where it cannot open a browser itself. */
+function TerminalSignIn({ command }: { command: string }) {
+  return (
+    <div className="signin-terminal">
+      <p className="dim small">No browser opened? Run this in {command.startsWith("$env:") ? "PowerShell" : "a terminal"} and follow its prompts:</p>
+      <div className="row">
+        <code className="mono small">{command}</code>
+        <button onClick={() => void navigator.clipboard?.writeText(command)}>Copy</button>
+      </div>
     </div>
   );
 }

@@ -4,8 +4,8 @@
  *   GET  /settings                  the selected model, theme, which providers are connected
  *   PUT  /settings                  change them; keys are written, never returned
  *   GET  /models                    every provider and its models, for the picker
- *   GET  /signin/:id                a sign-in's progress (studio)
- *   POST /signin/:id                start it: the page to approve on, and a code for Studio
+ *   GET  /signin/:id                a sign-in's progress
+ *   POST /signin/:id                start it
  *   DELETE /signin/:id              cancel it
  *   GET  /sessions                  every session, newest first
  *   POST /sessions                  a new session
@@ -44,7 +44,7 @@ import { DEFERRED_STEPS, UpdateQueue, type DeferredStep } from "./update-queue.j
 import { issueBody, submitFeedback, validate, type Environment } from "./feedback.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ClaudeSignInFlow, claudeHome, claudeLogin, sharedClaudeHome } from "./subscription.js";
+import { ClaudeSignInFlow, claudeHome, claudeLogin, refreshClaudeLogin, sharedClaudeHome } from "./claude-auth.js";
 import { deleteTranscripts, restoreTranscripts } from "./claude-sessions.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
@@ -99,8 +99,17 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (via) return via;
     return settings.key(vendor) ? "key" : null;
   };
+  // Who is signed in to Claude comes from the runtime's own `auth status`.
+  const refreshClaude = async (): Promise<void> => {
+    const before = claudeLogin()?.method ?? null;
+    if (((await refreshClaudeLogin())?.method ?? null) !== before) api.events.publish("settings.changed", {});
+  };
   void refreshAccount();
-  const accountTimer = setInterval(() => void refreshAccount(), 60_000);
+  void refreshClaude();
+  const accountTimer = setInterval(() => {
+    void refreshAccount();
+    void refreshClaude();
+  }, 60_000);
   accountTimer.unref();
 
 
@@ -257,7 +266,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
 
   api.route("GET", "/models", async () => {
-    await refreshChatgptModels();
+    await Promise.all([refreshChatgptModels(), refreshClaude()]);
     return { body: await catalog.catalog(signedIn(), coverage()) };
   });
 
@@ -269,13 +278,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/signin/:id", async (req) => {
     const f = signinOf(req.params.id);
     return f ? { body: await f.start() } : noSignIn(req.params.id);
-  });
-  // The code Claude's approval page shows, for a sign-in that asks for one.
-  api.route("POST", "/signin/:id/code", (req) => {
-    if (req.params.id !== "claude") return noSignIn(req.params.id);
-    const code = (req.body as { code?: unknown } | undefined)?.code;
-    if (typeof code !== "string" || !code.trim()) return bad("code must be a non-empty string");
-    return { body: claudeSignIn.submit(code) };
   });
   api.route("DELETE", "/signin/:id", (req) => {
     const f = signinOf(req.params.id);

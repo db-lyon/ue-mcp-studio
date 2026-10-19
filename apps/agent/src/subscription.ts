@@ -1,20 +1,17 @@
 /**
- * Experimental: run a turn on the user's Claude subscription through the
- * Claude Agent SDK. The SDK's own Claude Code binary runs it, with a login and
- * session store kept in Studio's folder, apart from any Claude Code the user
- * has installed. The SDK owns the model loop; Studio's tools are an in-process
- * MCP server whose handlers run the same executor as the API path.
+ * Run a turn on the user's Claude subscription through the Claude Agent SDK.
+ * The SDK's own runtime binary runs it, with its sign-in and sessions kept in
+ * Studio's folder (claude-auth.ts). The SDK owns the model loop; Studio's tools
+ * are an in-process MCP server whose handlers run the same executor as the API path.
  */
-import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { createSdkMcpServer, query, tool, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { Effort, StudioSignIn } from "@ue-mcp-studio/shared";
+import type { Effort } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import type { ToolExecution } from "./tools.js";
-import { ensureRuntime, installedRuntime } from "./runtime.js";
+import { ensureRuntime } from "./runtime.js";
+import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
 
 const SERVER = "studio";
@@ -47,129 +44,9 @@ function localSdkTools(handler: (name: string) => (args: Record<string, unknown>
   ];
 }
 
-/** Studio's own Claude home: its sign-in and its sessions' conversations, shared by every project and apart from Claude Code. */
-export const claudeHome = (): string => process.env.STUDIO_CLAUDE_HOME || path.join(os.homedir(), ".ue-mcp", "studio", "claude");
-/** Claude Code's home, where the 0.1.2 betas kept Studio's conversations. */
-export const sharedClaudeHome = (): string => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
-
-/** Studio's Claude login, when there is one: present means signed in. Tokens are never read here. */
-export function claudeLogin(): { subscription: string } | null {
-  try {
-    const raw = JSON.parse(fs.readFileSync(path.join(claudeHome(), ".credentials.json"), "utf-8"));
-    const o = raw?.claudeAiOauth;
-    return o?.accessToken ? { subscription: String(o.subscriptionType ?? "claude") } : null;
-  } catch {
-    return null;
-  }
-}
-
-/** The environment the binary runs in: Studio's Claude folder, and no API key to prefer over the login. */
-function claudeEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env, CLAUDE_CONFIG_DIR: claudeHome(), CLAUDE_AGENT_SDK_CLIENT_APP: "ue-mcp-studio-experimental", ...extra };
-  delete env.ANTHROPIC_API_KEY;
-  delete env.ANTHROPIC_AUTH_TOKEN;
-  delete env.CLAUDE_CODE_OAUTH_TOKEN;
-  return env;
-}
-
 /** The runtime, fetched on first use; an error message when it cannot be had. */
 const runtime = (): Promise<{ exe: string } | { error: string }> =>
   ensureRuntime().then((exe) => ({ exe }), (e: Error) => ({ error: e.message }));
-
-/**
- * Sign in to Claude with the SDK's binary: it prints the page to approve on,
- * the page shows a code, and the code goes back on the binary's input.
- */
-export class ClaudeSignInFlow {
-  private state: StudioSignIn = { state: "idle" };
-  private child: ChildProcess | null = null;
-  private output = "";
-
-  constructor(private readonly onDone: () => void) {}
-
-  view(): StudioSignIn {
-    if (this.state.state !== "pending") {
-      const login = claudeLogin();
-      if (login) return { state: "done", login: `Claude ${login.subscription}` };
-    }
-    return this.state;
-  }
-
-  async start(): Promise<StudioSignIn> {
-    this.cancel();
-    const rt = await runtime();
-    if ("error" in rt) return (this.state = { state: "error", error: rt.error });
-    const exe = rt.exe;
-    fs.mkdirSync(claudeHome(), { recursive: true });
-    const child = spawn(exe, ["auth", "login", "--claudeai"], { env: claudeEnv({ BROWSER: "none" }), cwd: claudeHome(), windowsHide: true });
-    this.child = child;
-    this.output = "";
-    const url = await new Promise<string | null>((resolve) => {
-      const timer = setTimeout(() => resolve(null), 20_000);
-      const read = (b: Buffer) => {
-        this.output += b.toString();
-        const m = this.output.match(/https:\/\/\S+oauth\/authorize\S+/);
-        if (m) {
-          clearTimeout(timer);
-          resolve(m[0]);
-        }
-      };
-      child.stdout?.on("data", read);
-      child.stderr?.on("data", read);
-      child.once("exit", () => {
-        clearTimeout(timer);
-        resolve(null);
-      });
-    });
-    if (!url || child !== this.child) {
-      this.stop();
-      return (this.state = { state: "error", error: `Claude did not start the sign-in. ${this.tail()}` });
-    }
-    child.once("exit", (code) => {
-      if (child !== this.child) return;
-      this.child = null;
-      const login = claudeLogin();
-      if (code === 0 && login) {
-        this.state = { state: "done", login: `Claude ${login.subscription}` };
-        this.onDone();
-      } else {
-        this.state = { state: "error", error: `The sign-in did not complete. ${this.tail()}` };
-      }
-    });
-    this.state = { state: "pending", url, needsCode: true, expiresAt: new Date(Date.now() + 10 * 60_000).toISOString() };
-    return this.state;
-  }
-
-  /** The code the approval page showed. */
-  submit(code: string): StudioSignIn {
-    if (!this.child?.stdin || this.state.state !== "pending") return (this.state = { state: "error", error: "No sign-in is waiting for a code. Start again." });
-    this.child.stdin.write(`${code.trim()}\n`);
-    return this.state;
-  }
-
-  cancel(): void {
-    this.stop();
-    this.state = { state: "idle" };
-  }
-
-  /** Forget Studio's Claude login. */
-  async signOut(): Promise<void> {
-    this.cancel();
-    const exe = installedRuntime();
-    if (exe) await new Promise((r) => spawn(exe, ["auth", "logout"], { env: claudeEnv(), cwd: claudeHome(), windowsHide: true }).once("exit", r).once("error", r));
-    fs.rmSync(path.join(claudeHome(), ".credentials.json"), { force: true });
-  }
-
-  private stop(): void {
-    const c = this.child;
-    this.child = null;
-    c?.kill();
-  }
-
-  private tail(): string {
-    return this.output.replace(/https:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(-200);
-  }
-}
 
 export interface SubscriptionTurn {
   projectDir: string;
@@ -261,7 +138,7 @@ const STOP_GRACE_MS = 1500;
 
 /** Run one turn to the end. Resolves with an error message when the turn failed. */
 export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string | null> {
-  if (!claudeLogin()) return "Sign in to your Claude subscription: open the model picker.";
+  if (!(claudeLogin() ?? (await refreshClaudeLogin()))) return "Sign in to your Claude subscription: open the model picker.";
   const rt = await runtime();
   if ("error" in rt) return rt.error;
   const exe = rt.exe;

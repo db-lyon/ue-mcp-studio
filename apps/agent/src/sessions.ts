@@ -52,7 +52,7 @@ export interface StoredSession {
   crashed: boolean;
   /** Hidden from the session list until restored. */
   archived?: boolean;
-  /** Experimental: the Agent SDK session a Claude subscription turn continues. */
+  /** The Agent SDK session a Claude subscription turn continues. */
   sdkSession?: string | null;
   /** Earlier Agent SDK sessions of this conversation, removed with it. */
   sdkPast?: string[];

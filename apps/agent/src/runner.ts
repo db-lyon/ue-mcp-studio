@@ -98,7 +98,7 @@ export interface RunnerOptions {
   model: () => string;
   /** How long the model reasons; high when not given. */
   effort?: () => Effort;
-  /** Experimental: the turn runs on the Claude subscription through the Agent SDK. */
+  /** The turn runs on the Claude subscription through the Agent SDK. */
   subscription?: () => boolean;
   /** How the model is reached for this turn: a sign-in or a key, by name. */
   route?: () => string | null;
@@ -302,7 +302,7 @@ export class AgentRunner {
     await this.runTurn(s.id);
   }
 
-  /** Experimental: the Agent SDK runs the loop; tool calls still go through executeTool and the transcript. */
+  /** The Agent SDK runs the loop; tool calls still go through executeTool and the transcript. */
   private async runSubscription(id: string, prompt: unknown[]): Promise<void> {
     const controller = new AbortController();
     this.active.set(id, controller);
