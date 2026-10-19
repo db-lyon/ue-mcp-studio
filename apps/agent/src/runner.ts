@@ -23,7 +23,9 @@ import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
-import { runSubscriptionTurn } from "./subscription.js";
+
+/** Set by the release bundle: false leaves the Agent SDK out of it. Unset in development and tests. */
+declare const __CLAUDE_SIGN_IN__: boolean | undefined;
 import { modelName } from "./models.js";
 import { AttachmentStore, contentFor } from "./attachments.js";
 import { keptName, toolResultContent } from "./images.js";
@@ -311,7 +313,10 @@ export class AgentRunner {
     // Agent calls the SDK runs in the background: their tool result only says they started.
     const background = new Set<string>();
     try {
-      const error = await runSubscriptionTurn({
+      // A dynamic import the bundler drops when the sign-in is off, and the Agent SDK with it.
+      const sdk = typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
+      if (!sdk) throw new Error("This Studio build does not include the Claude sign-in.");
+      const error = await sdk.runSubscriptionTurn({
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",

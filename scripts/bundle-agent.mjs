@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { CLAUDE_SIGN_IN_AVAILABLE } from "@ue-mcp-studio/shared";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // The Claude runtime the subscription route fetches must match the bundled SDK.
@@ -19,7 +20,8 @@ const result = await build({
   legalComments: "none",
   // Some dependencies still call require(); give the ESM bundle one.
   banner: { js: "import { createRequire as __cr } from 'node:module'; const require = __cr(import.meta.url);" },
-  define: { __CLAUDE_SDK_VERSION__: JSON.stringify(sdkVersion) },
+  // With the Claude sign-in off, the Agent SDK is left out of the bundle.
+  define: { __CLAUDE_SDK_VERSION__: JSON.stringify(sdkVersion), __CLAUDE_SIGN_IN__: JSON.stringify(CLAUDE_SIGN_IN_AVAILABLE) },
   logLevel: "warning",
   metafile: true,
   // Metafile paths are relative to this, and scripts/notices.mjs resolves them from the root.

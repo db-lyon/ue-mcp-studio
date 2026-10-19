@@ -38,8 +38,15 @@ export const SIGN_IN_IDS: readonly SignInId[] = ["chatgpt", "claude", "studio"];
 /** Whether the panel offers the Studio plan sign-in. Off: it is hidden everywhere. */
 export const STUDIO_PLAN_AVAILABLE = false;
 
+/**
+ * Whether Studio offers the Claude sign-in. Off until Anthropic confirms it in
+ * writing: it is hidden everywhere, Claude models run on a key only, and the
+ * release bundle leaves out the Agent SDK.
+ */
+export const CLAUDE_SIGN_IN_AVAILABLE = false;
+
 /** The sign-ins the panel offers now. */
-export const OFFERED_SIGN_INS: readonly SignInId[] = SIGN_IN_IDS.filter((s) => s !== "studio" || STUDIO_PLAN_AVAILABLE);
+export const OFFERED_SIGN_INS: readonly SignInId[] = SIGN_IN_IDS.filter((s) => (s !== "studio" || STUDIO_PLAN_AVAILABLE) && (s !== "claude" || CLAUDE_SIGN_IN_AVAILABLE));
 
 export type ProviderId = SignInId | KeyProviderId;
 export const PROVIDER_IDS: readonly ProviderId[] = [...SIGN_IN_IDS, ...KEY_PROVIDER_IDS];

@@ -29,7 +29,7 @@
  * studio.approval.requested and studio.approval.resolved.
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { PROVIDERS } from "@ue-mcp-studio/shared";
+import { CLAUDE_SIGN_IN_AVAILABLE, PROVIDERS } from "@ue-mcp-studio/shared";
 import type { ApprovalDecision, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
@@ -89,7 +89,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const models = await chatgpt.accessToken().then((t) => chatgptModels(t)).catch(() => null);
     chatgptList = models ? { email: who.email, models } : null;
   };
-  const signedIn = (): Record<SignInId, boolean> => ({ chatgpt: chatgpt.signedIn() !== null, claude: claudeLogin() !== null, studio: accountToken() !== null });
+  const signedIn = (): Record<SignInId, boolean> => ({ chatgpt: chatgpt.signedIn() !== null, claude: CLAUDE_SIGN_IN_AVAILABLE && claudeLogin() !== null, studio: accountToken() !== null });
 
   /** A sign-in that runs the model comes first; the vendor key is the fallback. */
   const route = (): ModelRoute => {
@@ -101,6 +101,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   };
   // Who is signed in to Claude comes from the runtime's own `auth status`.
   const refreshClaude = async (): Promise<void> => {
+    if (!CLAUDE_SIGN_IN_AVAILABLE) return;
     const before = claudeLogin()?.method ?? null;
     if (((await refreshClaudeLogin())?.method ?? null) !== before) api.events.publish("settings.changed", {});
   };
@@ -138,7 +139,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       void refreshAccount().then(() => api.events.publish("settings.changed", {}));
     }),
   };
-  const signinOf = (id: string) => (id === "studio" || id === "claude" || id === "chatgpt" ? signins[id] : null);
+  const signinOf = (id: string) => (id === "studio" || (id === "claude" && CLAUDE_SIGN_IN_AVAILABLE) || id === "chatgpt" ? signins[id] : null);
 
   const busy = new BusyTracker((type, data) => api.events.publish(type, data), Date.now, () => api.editors().some((e) => e.connected));
   const unobserve = api.events.subscribe((e) => busy.observe(e));
