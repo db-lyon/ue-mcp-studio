@@ -141,11 +141,11 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
         </label>
       ))}
 
-      {claudeCode && <h3 className="subhead">Claude Code</h3>}
+      {claudeCode && <h3 className="subhead">For Claude Code</h3>}
       {claudeCode && (
         <label className="check">
           <input type="checkbox" checked={skills} onChange={(e) => setSkills(e.target.checked)} />
-          Claude Code skills <span className="dim small">Workflow guides copied into .claude/skills</span>
+          Skills for Claude Code <span className="dim small">Workflow guides copied into .claude/skills</span>
         </label>
       )}
 
