@@ -15,7 +15,9 @@ apps, and through its API key where it does not.
   flow in the unmodified runtime binary, and the app may not collect, store or
   intermediate the credentials. Studio offers it as an opt-in sign-in beside the
   API key: the runtime's `auth login`, `auth status` and `auth logout` do all
-  of it, with no input or output connected to Studio.
+  of it, with no input or output connected to Studio. It is off
+  (`CLAUDE_SIGN_IN_AVAILABLE`) until Anthropic confirms it in writing, and the
+  release bundle leaves the Agent SDK out while it is.
   Docs: https://code.claude.com/docs/en/legal-and-compliance
 - **Google.** The Gemini API takes OAuth user credentials only through a Google
   Cloud OAuth client whose project is billed, which is not a sign-in to the
