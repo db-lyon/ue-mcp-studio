@@ -2,7 +2,7 @@ import { UpdatesCard } from "./Updates";
 import { useEffect, useState } from "react";
 import { KEY_PROVIDER_IDS, MAX_DIALOG_MINUTES, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, type DialogPolicy, type ProviderId, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
-import { EffortPicker, KeyForm, ModelPicker, SignInForm } from "./ModelPicker";
+import { ClaudeLoginWhy, EffortPicker, KeyForm, ModelPicker, SignInForm } from "./ModelPicker";
 
 const THEMES: { id: StudioTheme; name: string; about: string }[] = [
   { id: "ue-mcp", name: "ue-mcp", about: "Dark, with the ue-mcp.com orange." },
@@ -96,7 +96,7 @@ export function SettingsView({ onTheme }: { onTheme: (t: StudioTheme) => void })
   );
 }
 
-function ProviderRow({ provider, settings, onChange, onError }: {
+export function ProviderRow({ provider, settings, onChange, onError }: {
   provider: ProviderId;
   settings: StudioSettings;
   onChange: () => void;
@@ -122,7 +122,7 @@ function ProviderRow({ provider, settings, onChange, onError }: {
         {connected && provider === "studio" && settings.account?.via === "ue-mcp-login" ? (
           <span className="dim small">from ue-mcp login</span>
         ) : connected && provider === "claude" ? (
-          <span className="dim small">from Claude Code</span>
+          <span className="dim small">from Claude Code <ClaudeLoginWhy /></span>
         ) : connected ? (
           <button onClick={() => void disconnect()}>{signIn ? "Sign out" : "Remove key"}</button>
         ) : signIn ? null : (
