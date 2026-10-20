@@ -202,6 +202,10 @@ export function SignInForm(props: { id: SignInId; primary?: boolean; onDone: () 
   return props.id === "claude" ? <ClaudeCodeLogin onDone={props.onDone} /> : <AppSignIn {...props} />;
 }
 
+/** Why the Claude row has no sign-in button. */
+export const CLAUDE_LOGIN_WHY =
+  "Anthropic does not allow apps it has not approved to offer Claude sign-in themselves. You sign in with Claude Code, and Studio runs Claude on that login. Studio never sees your Claude credentials.";
+
 /**
  * Claude has no sign-in in Studio: the user signs in with Claude Code in a
  * terminal, and this follows until Studio sees the login.
@@ -228,7 +232,10 @@ function ClaudeCodeLogin({ onDone }: { onDone: () => void }) {
   if (state.state === "done") return <p className="small">Signed in to Claude.</p>;
   return (
     <div className="connect signin">
-      <p className="small">Sign in with Claude Code: run <code className="mono">claude /login</code> in a terminal. Studio picks up the login on its own.</p>
+      <p className="small">
+        Sign in with Claude Code: run <code className="mono">claude /login</code> in a terminal. Studio picks up the login on its own.{" "}
+        <span className="info-tip" tabIndex={0} role="note" title={CLAUDE_LOGIN_WHY} aria-label={CLAUDE_LOGIN_WHY}>Why?</span>
+      </p>
       {state.state === "idle" && state.terminal && <TerminalSignIn command={state.terminal} lead="No Claude Code? Run Claude's login from Studio's copy in" />}
       <p className="dim small">{SIGN_IN_ABOUT.claude}</p>
     </div>

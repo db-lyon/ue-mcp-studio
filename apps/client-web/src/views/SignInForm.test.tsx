@@ -4,7 +4,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 
 const m = vi.hoisted(() => ({ signIn: vi.fn(), startSignIn: vi.fn(), cancelSignIn: vi.fn() }));
 vi.mock("../api", () => ({ api: m }));
-import { SignInForm } from "./ModelPicker";
+import { CLAUDE_LOGIN_WHY, SignInForm } from "./ModelPicker";
 
 afterEach(() => {
   cleanup();
@@ -21,6 +21,11 @@ describe("the Claude row", () => {
     expect(screen.getByText("claude /login")).toBeTruthy();
     expect(screen.getByText(TERMINAL)).toBeTruthy();
     expect(m.startSignIn).not.toHaveBeenCalled();
+    // The reason there is no button, on hover and to a screen reader.
+    const why = screen.getByText("Why?");
+    expect(why.getAttribute("title")).toBe(CLAUDE_LOGIN_WHY);
+    expect(why.getAttribute("aria-label")).toBe(CLAUDE_LOGIN_WHY);
+    expect(why.getAttribute("tabindex")).toBe("0");
     expect(document.querySelector("input")).toBeNull();
   });
 
