@@ -121,6 +121,8 @@ function ProviderRow({ provider, settings, onChange, onError }: {
         <span className="spacer" />
         {connected && provider === "studio" && settings.account?.via === "ue-mcp-login" ? (
           <span className="dim small">from ue-mcp login</span>
+        ) : connected && provider === "claude" ? (
+          <span className="dim small">from Claude Code</span>
         ) : connected ? (
           <button onClick={() => void disconnect()}>{signIn ? "Sign out" : "Remove key"}</button>
         ) : signIn ? null : (

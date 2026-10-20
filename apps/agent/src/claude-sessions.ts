@@ -1,6 +1,6 @@
 /**
- * The Claude conversations behind Studio's sessions on a Claude sign-in. They
- * live in Studio's own Claude home, beside its sign-in, apart from Claude Code.
+ * The Claude conversations behind Studio's sessions on a Claude login. They
+ * live in the user's Claude Code home, beside the login.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -19,35 +19,35 @@ const filesOf = (dir: string, id: string) => [path.join(dir, `${id}.jsonl`), pat
 const valid = (id: string) => /^[0-9a-f-]{36}$/i.test(id);
 
 /**
- * Copy back the conversations Studio's 0.1.2 betas kept in Claude Code's home,
- * so those sessions continue. Copies only what Studio's home is missing, and
- * leaves Claude Code's home as it is.
+ * Copy the conversations an older Studio kept in another Claude home, so those
+ * sessions continue. Copies only what `toHome` is missing, and leaves
+ * `fromHome` as it is.
  */
 export function restoreTranscripts(ids: string[], fromHome: string, toHome: string, projectDir: string): number {
   if (path.resolve(fromHome) === path.resolve(toHome)) return 0;
   const from = transcriptsDir(fromHome, projectDir);
   const to = transcriptsDir(toHome, projectDir);
-  // Once per project: after this, Claude Code's copies are Claude Code's own.
-  const marker = path.join(to, ".restored-from-claude-code");
+  // Once per project, marked in the old home so nothing is added to the new one.
+  const marker = path.join(from, ".copied-to-claude-code");
   if (fs.existsSync(marker)) return 0;
   let copied = 0;
   for (const id of ids.filter(valid)) {
     const [src, srcDir] = filesOf(from, id);
     const [dst, dstDir] = filesOf(to, id);
     if (!fs.existsSync(src)) continue;
-    // A turn taken during the betas went to Claude Code's home, so its copy is the newer one.
+    // A copy already there that is as new stays.
     if (fs.existsSync(dst) && fs.statSync(dst).mtimeMs >= fs.statSync(src).mtimeMs) continue;
     fs.mkdirSync(to, { recursive: true });
     fs.copyFileSync(src, dst);
     if (fs.existsSync(srcDir)) fs.cpSync(srcDir, dstDir, { recursive: true, force: true });
     copied++;
   }
-  fs.mkdirSync(to, { recursive: true });
+  if (!fs.existsSync(from)) return copied;
   fs.writeFileSync(marker, `${new Date().toISOString()}\n`);
   return copied;
 }
 
-/** Remove a deleted session's conversations from Studio's home. */
+/** Remove a deleted session's conversations from the Claude home. */
 export function deleteTranscripts(ids: string[], home: string, projectDir: string): void {
   const dir = transcriptsDir(home, projectDir);
   for (const id of ids.filter(valid)) for (const f of filesOf(dir, id)) fs.rmSync(f, { recursive: true, force: true });

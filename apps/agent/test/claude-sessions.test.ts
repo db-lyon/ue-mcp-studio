@@ -28,21 +28,30 @@ describe("the Claude conversations behind Studio's sessions", () => {
     expect(projectKey("C:\\Users\\david\\Projects\\UE\\Vale")).toBe("C--Users-david-Projects-UE-Vale");
   });
 
-  it("copies back, once, the conversations the betas left in Claude Code's home, newest copy winning", () => {
-    const shared = tmp();
-    const own = tmp();
+  it("copies, once, the conversations Studio's own home kept into Claude Code's, newest copy winning", () => {
+    const studio = tmp();
+    const claude = tmp();
     const proj = path.join(tmp(), "Vale");
-    write(shared, proj, ID, "newer, from a beta turn", Date.parse("2026-10-12T20:00:00Z"));
-    write(own, proj, ID, "older", Date.parse("2026-10-12T10:00:00Z"));
-    write(shared, proj, OTHER, "only there", Date.parse("2026-10-12T19:00:00Z"));
-    write(shared, proj, "11111111-1111-1111-1111-111111111111", "not Studio's", Date.parse("2026-10-12T19:00:00Z"));
-    expect(restoreTranscripts([ID, OTHER, ""], shared, own, proj)).toBe(2);
-    expect(fs.readFileSync(path.join(transcriptsDir(own, proj), `${ID}.jsonl`), "utf-8")).toBe("newer, from a beta turn");
-    expect(fs.existsSync(path.join(transcriptsDir(own, proj), `${OTHER}.jsonl`))).toBe(true);
-    expect(fs.existsSync(path.join(transcriptsDir(own, proj), "11111111-1111-1111-1111-111111111111.jsonl"))).toBe(false);
-    expect(fs.existsSync(path.join(transcriptsDir(shared, proj), `${ID}.jsonl`))).toBe(true);
-    write(shared, proj, ID, "Claude Code's own later turn", Date.parse("2026-10-13T09:00:00Z"));
-    expect(restoreTranscripts([ID], shared, own, proj)).toBe(0);
+    write(studio, proj, ID, "newer, from a Studio turn", Date.parse("2026-10-12T20:00:00Z"));
+    write(claude, proj, ID, "older", Date.parse("2026-10-12T10:00:00Z"));
+    write(studio, proj, OTHER, "only there", Date.parse("2026-10-12T19:00:00Z"));
+    write(studio, proj, "11111111-1111-1111-1111-111111111111", "not a session's", Date.parse("2026-10-12T19:00:00Z"));
+    expect(restoreTranscripts([ID, OTHER, ""], studio, claude, proj)).toBe(2);
+    expect(fs.readFileSync(path.join(transcriptsDir(claude, proj), `${ID}.jsonl`), "utf-8")).toBe("newer, from a Studio turn");
+    expect(fs.existsSync(path.join(transcriptsDir(claude, proj), `${OTHER}.jsonl`))).toBe(true);
+    expect(fs.existsSync(path.join(transcriptsDir(claude, proj), "11111111-1111-1111-1111-111111111111.jsonl"))).toBe(false);
+    expect(fs.existsSync(path.join(transcriptsDir(studio, proj), `${ID}.jsonl`))).toBe(true);
+    // The once-only mark goes in the old home; Claude Code's gets only the conversations.
+    expect(fs.readdirSync(transcriptsDir(claude, proj)).filter((f) => f.startsWith("."))).toEqual([]);
+    write(studio, proj, ID, "a later copy", Date.parse("2026-10-13T09:00:00Z"));
+    expect(restoreTranscripts([ID], studio, claude, proj)).toBe(0);
+  });
+
+  it("does nothing when the two homes are the same", () => {
+    const home = tmp();
+    const proj = path.join(tmp(), "Vale");
+    write(home, proj, ID, "x", Date.now());
+    expect(restoreTranscripts([ID], home, home, proj)).toBe(0);
   });
 
   it("removes a deleted session's conversations, and only those", () => {

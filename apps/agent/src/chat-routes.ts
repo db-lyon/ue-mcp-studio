@@ -44,7 +44,7 @@ import { DEFERRED_STEPS, UpdateQueue, type DeferredStep } from "./update-queue.j
 import { issueBody, submitFeedback, validate, type Environment } from "./feedback.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { ClaudeSignInFlow, claudeHome, claudeLogin, refreshClaudeLogin, sharedClaudeHome } from "./claude-auth.js";
+import { ClaudeLoginCheck, claudeHome, claudeLogin, refreshClaudeLogin, studioClaudeHome } from "./claude-auth.js";
 import { deleteTranscripts, restoreTranscripts } from "./claude-sessions.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
@@ -127,9 +127,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   const catalog = new ModelCatalogSource((p) => settings.key(p));
 
-  const claudeSignIn = new ClaudeSignInFlow(() => api.events.publish("settings.changed", {}));
   const signins: Record<SignInId, { view(): unknown; start(): Promise<unknown>; cancel(): void }> = {
-    claude: claudeSignIn,
+    claude: new ClaudeLoginCheck(() => api.events.publish("settings.changed", {})),
     chatgpt: new ChatGptSignInFlow(chatgpt, () => {
       chatgptList = null;
       void refreshChatgptModels().then(() => api.events.publish("settings.changed", {}));
@@ -155,7 +154,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     effort: () => settings.effort(),
     subscription: () => route() === "claude",
     // A key names its vendor, since model names no longer do.
-    route: () => ({ claude: "Claude sign-in", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
+    route: () => ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
     askBeforeChanges: () => settings.askBeforeChanges(),
   });
 
@@ -309,10 +308,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("PUT", "/settings", async (req) => {
     try {
       const u = (req.body ?? {}) as StudioSettingsUpdate;
-      if (u.signOut === "claude") {
-        await claudeSignIn.signOut();
-        delete u.signOut;
-      } else if (u.signOut === "chatgpt") {
+      if (u.signOut === "chatgpt") {
         await chatgpt.signOut();
         chatgptList = null;
         delete u.signOut;
@@ -324,13 +320,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     }
   });
 
-  // Sessions from the 0.1.2 betas, which kept their Claude conversations in Claude Code's home, continue from Studio's.
+  // Sessions from 0.1.3 to 0.1.22, which kept their Claude conversations in Studio's own home, continue from Claude Code's.
   try {
     const ids = store.all().flatMap((x) => [x.sdkSession ?? "", ...(x.sdkPast ?? [])]);
-    const copied = restoreTranscripts(ids, sharedClaudeHome(), claudeHome(), api.projectDir);
-    if (copied) api.log.info(`copied ${copied} Claude conversation(s) back into Studio's home`);
+    const copied = restoreTranscripts(ids, studioClaudeHome(), claudeHome(), api.projectDir);
+    if (copied) api.log.info(`copied ${copied} Claude conversation(s) into Claude Code's home`);
   } catch (e) {
-    api.log.warn("could not copy Claude conversations back into Studio's home", e);
+    api.log.warn("could not copy Claude conversations into Claude Code's home", e);
   }
   api.route("GET", "/sessions", () => ({ body: { sessions: store.all().map(SessionStore.summary) } }));
   api.route("POST", "/sessions", () => ({ status: 201, body: SessionStore.detail(store.create()) }));
