@@ -1,7 +1,7 @@
 /**
- * Studio's Claude sign-in goes through the runtime's own auth commands only:
- * no output read from the login, nothing written to its input, no credential
- * file read or removed, and the user's environment passed through untouched.
+ * Studio has no Claude sign-in of its own. It reads the user's Claude Code login
+ * through the runtime's `auth status` only: no login run, no credential file
+ * read, and the user's environment passed through untouched.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventEmitter } from "node:events";
@@ -11,50 +11,39 @@ import * as path from "node:path";
 
 interface Spawned {
   args: string[];
-  options: { env: Record<string, string | undefined>; stdio: unknown; cwd: string };
-  child: FakeChild;
+  options: { env: Record<string, string | undefined>; stdio: unknown };
 }
 class FakeChild extends EventEmitter {
   stdout = new EventEmitter();
-  killed = false;
-  kill() {
-    this.killed = true;
-    return true;
-  }
 }
 
 const bin = vi.hoisted(() => ({
   spawned: [] as Spawned[],
   /** What `auth status --json` prints. */
   status: { loggedIn: false, authMethod: "none" } as Record<string, unknown>,
-  /** Whether a login child exits by itself, and how. */
-  loginExit: null as number | null,
-  logoutWorks: true,
+  installed: true,
 }));
 
 vi.mock("node:child_process", () => ({
   spawn: (_exe: string, args: string[], options: Spawned["options"]) => {
     const child = new FakeChild();
-    bin.spawned.push({ args, options, child });
-    const sub = args.slice(0, 2).join(" ");
+    bin.spawned.push({ args, options });
     setTimeout(() => {
-      if (sub === "auth status") {
-        child.stdout.emit("data", Buffer.from(JSON.stringify(bin.status)));
-        child.emit("exit", bin.status.loggedIn ? 0 : 1);
-      } else if (sub === "auth logout") {
-        if (bin.logoutWorks) bin.status = { loggedIn: false, authMethod: "none" };
-        child.emit("exit", 0);
-      } else if (sub === "auth login" && bin.loginExit !== null) {
-        if (bin.loginExit === 0) bin.status = { loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" };
-        child.emit("exit", bin.loginExit);
-      }
+      child.stdout.emit("data", Buffer.from(JSON.stringify(bin.status)));
+      child.emit("exit", bin.status.loggedIn ? 0 : 1);
     }, 5);
     return child;
   },
 }));
-vi.mock("../src/runtime.js", () => ({ ensureRuntime: async () => "C:\\rt\\claude.exe", installedRuntime: () => "C:\\rt\\claude.exe" }));
+vi.mock("../src/runtime.js", () => ({
+  ensureRuntime: async () => {
+    bin.installed = true;
+    return "C:\\rt\\claude.exe";
+  },
+  installedRuntime: () => (bin.installed ? "C:\\rt\\claude.exe" : null),
+}));
 
-const { ClaudeSignInFlow, claudeEnv, claudeLogin, refreshClaudeLogin, terminalCommand, CLIENT_APP } = await import("../src/claude-auth.js");
+const { ClaudeLoginCheck, claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin, terminalCommand, CLIENT_APP } = await import("../src/claude-auth.js");
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const waitFor = async (check: () => boolean) => {
@@ -68,11 +57,10 @@ const env = { ...process.env };
 
 beforeEach(async () => {
   home = fs.mkdtempSync(path.join(os.tmpdir(), "studio-claude-auth-"));
-  process.env.STUDIO_CLAUDE_HOME = home;
+  process.env.CLAUDE_CONFIG_DIR = home;
   bin.spawned = [];
   bin.status = { loggedIn: false, authMethod: "none" };
-  bin.loginExit = null;
-  bin.logoutWorks = true;
+  bin.installed = true;
   await refreshClaudeLogin();
   bin.spawned = [];
 });
@@ -82,7 +70,7 @@ afterEach(() => {
   fs.rmSync(home, { recursive: true, force: true });
 });
 
-describe("Claude sign-in status", () => {
+describe("Claude login status", () => {
   it("comes from the runtime's auth status, never a credential file", async () => {
     // A credentials file says signed in; the runtime says not. Studio believes the runtime.
     fs.writeFileSync(path.join(home, ".credentials.json"), JSON.stringify({ claudeAiOauth: { accessToken: "x", subscriptionType: "max" } }));
@@ -97,92 +85,61 @@ describe("Claude sign-in status", () => {
   it("reports the method the runtime chose, such as an API key in the user's environment", async () => {
     bin.status = { loggedIn: true, authMethod: "api_key", apiKeySource: "ANTHROPIC_API_KEY" };
     expect(await refreshClaudeLogin()).toEqual({ method: "api_key", subscription: null, keySource: "ANTHROPIC_API_KEY" });
-    expect(new ClaudeSignInFlow(() => {}).view()).toEqual({ state: "done", login: "Claude, API key from ANTHROPIC_API_KEY" });
+    expect(new ClaudeLoginCheck(() => {}).view()).toEqual({ state: "done", login: "Claude, API key from ANTHROPIC_API_KEY" });
   });
 });
 
 describe("the binary's environment", () => {
-  it("is the user's own plus Studio's config folder and client name, with no sign-in method removed", () => {
+  it("is the user's own plus Studio's client name, with no Claude home chosen by Studio", () => {
+    delete process.env.CLAUDE_CONFIG_DIR;
     process.env.ANTHROPIC_API_KEY = "sk-user";
-    process.env.ANTHROPIC_AUTH_TOKEN = "tok-user";
     process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-user";
-    process.env.BROWSER = "firefox";
     const e = claudeEnv();
-    expect(e).toMatchObject({ ANTHROPIC_API_KEY: "sk-user", ANTHROPIC_AUTH_TOKEN: "tok-user", CLAUDE_CODE_OAUTH_TOKEN: "oauth-user", BROWSER: "firefox", CLAUDE_CONFIG_DIR: home, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP });
+    expect(e).toMatchObject({ ANTHROPIC_API_KEY: "sk-user", CLAUDE_CODE_OAUTH_TOKEN: "oauth-user", CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP });
+    expect(e).not.toHaveProperty("CLAUDE_CONFIG_DIR");
+    expect(claudeHome()).toBe(path.join(os.homedir(), ".claude"));
     expect(CLIENT_APP).toBe("ue-mcp-studio");
   });
+
+  it("keeps a Claude home the user chose", () => {
+    expect(claudeEnv().CLAUDE_CONFIG_DIR).toBe(home);
+    expect(claudeHome()).toBe(home);
+  });
 });
 
-describe("Claude sign-in", () => {
-  it("runs the runtime's login with no input or output connected and no browser override", async () => {
-    delete process.env.BROWSER;
-    const flow = new ClaudeSignInFlow(() => {});
-    const s = await flow.start();
-    expect(s).toMatchObject({ state: "pending", terminal: terminalCommand("C:\\rt\\claude.exe") });
-    expect(s).not.toHaveProperty("url");
-    const login = bin.spawned.find((x) => x.args[1] === "login")!;
-    expect(login.args).toEqual(["auth", "login", "--claudeai"]);
-    expect(login.options.stdio).toBe("ignore");
-    expect(login.options.env.BROWSER).toBeUndefined();
-    expect(login.options.env.CLAUDE_CONFIG_DIR).toBe(home);
-    flow.cancel();
-    expect(login.child.killed).toBe(true);
+describe("the Claude row", () => {
+  it("starts nothing: it names the terminal command and only asks auth status", async () => {
+    const check = new ClaudeLoginCheck(() => {});
+    expect(await check.start()).toEqual({ state: "idle", terminal: terminalCommand("C:\\rt\\claude.exe") });
+    check.cancel();
+    await sleep(20);
+    expect(authCalls().every((c) => c === "auth status --json")).toBe(true);
   });
 
-  it("finishes when the runtime's login exits signed in, by asking auth status", async () => {
+  it("notices a login made in a terminal", async () => {
     let done = 0;
-    const flow = new ClaudeSignInFlow(() => done++);
-    bin.loginExit = 0;
-    await flow.start();
-    await waitFor(() => flow.view().state === "done");
-    expect(flow.view()).toEqual({ state: "done", login: "Claude max" });
-    expect(done).toBe(1);
-    expect(authCalls()).toEqual(["auth login --claudeai", "auth status --json"]);
-  });
-
-  it("finishes when the sign-in completed elsewhere, such as the terminal command", async () => {
-    let done = 0;
-    const flow = new ClaudeSignInFlow(() => done++);
-    await flow.start();
-    const login = bin.spawned.find((x) => x.args[1] === "login")!;
+    const check = new ClaudeLoginCheck(() => done++);
+    check.view();
+    await sleep(20);
     bin.status = { loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" };
-    flow.view();
+    (check as unknown as { lastPoll: number }).lastPoll = 0;
+    check.view();
     await waitFor(() => done === 1);
-    expect(flow.view()).toEqual({ state: "done", login: "Claude max" });
-    expect(login.child.killed).toBe(true);
+    expect(check.view()).toEqual({ state: "done", login: "Claude max" });
   });
 
-  it("offers the terminal command when the login fails", async () => {
-    const flow = new ClaudeSignInFlow(() => {});
-    bin.loginExit = 1;
-    await flow.start();
-    await waitFor(() => flow.view().state === "error");
-    expect(flow.view()).toMatchObject({ state: "error", terminal: terminalCommand("C:\\rt\\claude.exe") });
+  it("fetches the runtime first when it is not here, then reads the login", async () => {
+    bin.installed = false;
+    bin.status = { loggedIn: true, authMethod: "claude.ai", subscriptionType: "pro" };
+    let done = 0;
+    const check = new ClaudeLoginCheck(() => done++);
+    expect(check.view()).toEqual({ state: "idle" });
+    await waitFor(() => done === 1);
+    expect(check.view()).toEqual({ state: "done", login: "Claude pro" });
   });
 
-  it("gives a terminal command for the platform's shell", () => {
-    expect(terminalCommand("C:\\rt\\claude.exe", "win32")).toBe(`$env:CLAUDE_CONFIG_DIR = "${home}"; & "C:\\rt\\claude.exe" auth login --claudeai`);
-    expect(terminalCommand("/rt/claude", "darwin")).toBe(`CLAUDE_CONFIG_DIR="${home}" "/rt/claude" auth login --claudeai`);
-  });
-});
-
-describe("Claude sign-out", () => {
-  it("runs the runtime's logout and touches no credential file", async () => {
-    bin.status = { loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" };
-    await refreshClaudeLogin();
-    const file = path.join(home, ".credentials.json");
-    fs.writeFileSync(file, "{}");
-    bin.spawned = [];
-    await new ClaudeSignInFlow(() => {}).signOut();
-    expect(authCalls()).toEqual(["auth logout", "auth status --json"]);
-    expect(claudeLogin()).toBeNull();
-    expect(fs.existsSync(file)).toBe(true);
-  });
-
-  it("says so when the runtime is still signed in afterwards", async () => {
-    bin.status = { loggedIn: true, authMethod: "claude.ai", subscriptionType: "max" };
-    bin.logoutWorks = false;
-    await expect(new ClaudeSignInFlow(() => {}).signOut()).rejects.toThrow("did not sign out");
-    expect(authCalls()).toEqual(["auth logout", "auth status --json"]);
+  it("gives the runtime's login for the platform's shell, with no config folder", () => {
+    expect(terminalCommand("C:\\rt\\claude.exe", "win32")).toBe(`& "C:\\rt\\claude.exe" auth login --claudeai`);
+    expect(terminalCommand("/rt/claude", "darwin")).toBe(`"/rt/claude" auth login --claudeai`);
   });
 });

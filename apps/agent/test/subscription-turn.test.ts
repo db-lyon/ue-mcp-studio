@@ -149,8 +149,8 @@ const env = { ...process.env };
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), "studio-sdk-"));
-  process.env.STUDIO_CLAUDE_HOME = path.join(root, "claude");
-  fs.mkdirSync(process.env.STUDIO_CLAUDE_HOME, { recursive: true });
+  process.env.CLAUDE_CONFIG_DIR = path.join(root, "claude");
+  fs.mkdirSync(process.env.CLAUDE_CONFIG_DIR, { recursive: true });
   fs.mkdirSync(path.join(root, "project", "Content"), { recursive: true });
   host = new Host(path.join(root, "project"), path.join(root, "data"));
   store = new SessionStore(host.dataDir);

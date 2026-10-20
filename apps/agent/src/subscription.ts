@@ -1,7 +1,7 @@
 /**
  * Run a turn on the user's Claude subscription through the Claude Agent SDK.
- * The SDK's own runtime binary runs it, with its sign-in and sessions kept in
- * Studio's folder (claude-auth.ts). The SDK owns the model loop; Studio's tools
+ * The SDK's own runtime binary runs it on the user's Claude Code login and
+ * home (claude-auth.ts). The SDK owns the model loop; Studio's tools
  * are an in-process MCP server whose handlers run the same executor as the API path.
  */
 import * as fs from "node:fs";
@@ -138,7 +138,7 @@ const STOP_GRACE_MS = 1500;
 
 /** Run one turn to the end. Resolves with an error message when the turn failed. */
 export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string | null> {
-  if (!(claudeLogin() ?? (await refreshClaudeLogin()))) return "Sign in to your Claude subscription: open the model picker.";
+  if (!(claudeLogin() ?? (await refreshClaudeLogin()))) return "Sign in to Claude Code first: run `claude /login` in a terminal.";
   const rt = await runtime();
   if ("error" in rt) return rt.error;
   const exe = rt.exe;

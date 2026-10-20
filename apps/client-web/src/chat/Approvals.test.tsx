@@ -112,7 +112,7 @@ describe("machine tool calls in the transcript", () => {
 describe("where a session runs", () => {
   const base = { id: "s", title: "t", status: "idle" as const, createdAt: "", updatedAt: "2026-10-12T10:00:00Z", waitingCause: null, archived: false, agents: { total: 0, running: 0 }, awaiting: 0 };
   it("names the model and how it was reached", () => {
-    expect(sessionLine({ ...base, model: "Claude Opus 5.5", route: "Claude sign-in", status: "running" })).toBe("Claude Opus 5.5 via Claude sign-in. Working");
+    expect(sessionLine({ ...base, model: "Claude Opus 5.5", route: "Claude Code login", status: "running" })).toBe("Claude Opus 5.5 via Claude Code login. Working");
     expect(sessionLine({ ...base, model: "Gemini 3.8 Flash", route: "API key", status: "running" })).toBe("Gemini 3.8 Flash via API key. Working");
     expect(sessionLine({ ...base, status: "stopped" })).toBe("Stopped");
   });

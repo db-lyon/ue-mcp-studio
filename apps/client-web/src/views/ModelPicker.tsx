@@ -194,12 +194,49 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 
 const SIGN_IN_ABOUT: Record<SignInId, string> = {
   chatgpt: "With your ChatGPT account. OpenAI models run on your ChatGPT plan's limits.",
-  claude: "Runs Claude models on your Claude plan's limits through the Claude Agent SDK. Claude's own sign-in page opens in your browser.",
+  claude: "Runs Claude models on your Claude plan's limits through the Claude Agent SDK, with the login you made in Claude Code.",
   studio: "With your GitHub account. Runs the models in your Studio plan.",
 };
 
+export function SignInForm(props: { id: SignInId; primary?: boolean; onDone: () => void }) {
+  return props.id === "claude" ? <ClaudeCodeLogin onDone={props.onDone} /> : <AppSignIn {...props} />;
+}
+
+/**
+ * Claude has no sign-in in Studio: the user signs in with Claude Code in a
+ * terminal, and this follows until Studio sees the login.
+ */
+function ClaudeCodeLogin({ onDone }: { onDone: () => void }) {
+  const [state, setState] = useState<StudioSignIn | null>(null);
+  const done = useRef(false);
+
+  useEffect(() => {
+    const check = () => api.signIn("claude").then(setState, () => {});
+    void check();
+    const t = setInterval(check, 2000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    if (state?.state === "done" && !done.current) {
+      done.current = true;
+      onDone();
+    }
+  }, [state]);
+
+  if (!state) return null;
+  if (state.state === "done") return <p className="small">Signed in to Claude.</p>;
+  return (
+    <div className="connect signin">
+      <p className="small">Sign in with Claude Code: run <code className="mono">claude /login</code> in a terminal. Studio picks up the login on its own.</p>
+      {state.state === "idle" && state.terminal && <TerminalSignIn command={state.terminal} lead="No Claude Code? Run Claude's login from Studio's copy in" />}
+      <p className="dim small">{SIGN_IN_ABOUT.claude}</p>
+    </div>
+  );
+}
+
 /** One sign-in: a button, then the page to approve on, until it finishes. */
-export function SignInForm({ id, primary = true, onDone }: { id: SignInId; primary?: boolean; onDone: () => void }) {
+function AppSignIn({ id, primary = true, onDone }: { id: SignInId; primary?: boolean; onDone: () => void }) {
   const [state, setState] = useState<StudioSignIn | null>(null);
   const done = useRef(false);
 
@@ -267,11 +304,11 @@ export function SignInForm({ id, primary = true, onDone }: { id: SignInId; prima
   );
 }
 
-/** The sign-in command for a terminal, for a machine where it cannot open a browser itself. */
-function TerminalSignIn({ command }: { command: string }) {
+/** The sign-in command for a terminal. */
+function TerminalSignIn({ command, lead = "No browser opened? Run this in" }: { command: string; lead?: string }) {
   return (
     <div className="signin-terminal">
-      <p className="dim small">No browser opened? Run this in {command.startsWith("$env:") ? "PowerShell" : "a terminal"} and follow its prompts:</p>
+      <p className="dim small">{lead} {command.startsWith("& ") || command.startsWith("$env:") ? "PowerShell" : "a terminal"} and follow its prompts:</p>
       <div className="row">
         <code className="mono small">{command}</code>
         <button onClick={() => void navigator.clipboard?.writeText(command)}>Copy</button>

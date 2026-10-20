@@ -11,13 +11,12 @@ apps, and through its API key where it does not.
   through a self-serve path, which is the one Studio takes.
   Docs: https://developers.openai.com/siwc
 - **Anthropic.** Apps built on the Claude Agent SDK may run on the user's
-  Claude subscription limits. The sign-in must complete through Anthropic's own
-  flow in the unmodified runtime binary, and the app may not collect, store or
-  intermediate the credentials. Studio offers it as an opt-in sign-in beside the
-  API key: the runtime's `auth login`, `auth status` and `auth logout` do all
-  of it, with no input or output connected to Studio. It is off
-  (`CLAUDE_SIGN_IN_AVAILABLE`) until Anthropic confirms it in writing, and the
-  release bundle leaves the Agent SDK out while it is.
+  Claude subscription limits when the user signs in to the unmodified runtime
+  themselves, and the app may not collect, store or intermediate the
+  credentials. Studio has no Claude sign-in of its own: the user runs
+  `claude /login` in Claude Code (or the runtime's `auth login` from Studio's
+  copy), and Studio reads the login through `auth status`. It sets no
+  `CLAUDE_CONFIG_DIR`, so the runtime uses the user's own Claude home.
   Docs: https://code.claude.com/docs/en/legal-and-compliance
 - **Google.** The Gemini API takes OAuth user credentials only through a Google
   Cloud OAuth client whose project is billed, which is not a sign-in to the

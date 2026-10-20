@@ -39,11 +39,11 @@ export const SIGN_IN_IDS: readonly SignInId[] = ["chatgpt", "claude", "studio"];
 export const STUDIO_PLAN_AVAILABLE = false;
 
 /**
- * Whether Studio offers the Claude sign-in. Off until Anthropic confirms it in
- * writing: it is hidden everywhere, Claude models run on a key only, and the
- * release bundle leaves out the Agent SDK.
+ * Whether Claude models may run on the user's Claude Code login. Studio has no
+ * Claude sign-in of its own: the user runs `claude /login`. Off: Claude models
+ * run on a key only, and the release bundle leaves out the Agent SDK.
  */
-export const CLAUDE_SIGN_IN_AVAILABLE = false;
+export const CLAUDE_SIGN_IN_AVAILABLE = true;
 
 /** The sign-ins the panel offers now. */
 export const OFFERED_SIGN_INS: readonly SignInId[] = SIGN_IN_IDS.filter((s) => (s !== "studio" || STUDIO_PLAN_AVAILABLE) && (s !== "claude" || CLAUDE_SIGN_IN_AVAILABLE));
@@ -140,7 +140,8 @@ export interface ModelCatalog {
 
 /** GET and POST /v1/ext/studio/signin/:id: signing in to Studio from the panel. */
 export type StudioSignIn =
-  | { state: "idle" }
+  /** `terminal`: a sign-in Studio does not run, only names the command for. */
+  | { state: "idle"; terminal?: string }
   /**
    * Open `url` to sign in; a device-code sign-in also shows `userCode` to enter there.
    * No `url`: the sign-in opened the browser itself, and `terminal` is the command that does it from a terminal instead.

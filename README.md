@@ -17,7 +17,7 @@ Unreal Engine 5.7 and 5.8 on Windows, with Node.js installed. Requires ue-mcp 1.
 
 Pick a model in the chat box. Each vendor connects through its own sign-in where it offers one, and through your API key where it does not:
 
-- **Anthropic:** your API key. A sign-in with your Claude subscription is built but turned off until Anthropic confirms it in writing.
+- **Anthropic:** your Claude subscription through the login you made in Claude Code (`claude /login`), or your API key.
 - **OpenAI:** sign in with ChatGPT, so your ChatGPT plan pays for the calls, or your API key.
 - **Google:** your API key.
 
