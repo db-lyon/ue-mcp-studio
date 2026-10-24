@@ -21,7 +21,7 @@
  *   POST /updates/{plugin,studio,restart}       run an update step, or keep it until no turn is in progress
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
- * Editor dialogs (/dialogs) are in dialog-routes.ts, PIE test script runs (/qa) in qa.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
+ * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts.
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,

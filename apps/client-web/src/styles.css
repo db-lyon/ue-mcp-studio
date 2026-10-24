@@ -808,7 +808,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .dialog-status { font-weight: 600; }
 .dialog-status.agent { color: var(--accent); }
 
-/* Test script runs: a checklist card in the transcript, live while the run goes. */
+/* Playtests: a PIE test script run as a card in the transcript, live while the run goes. */
 .qa-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; min-width: 0; }
 .qa-card.state-awaiting_verdict { border-color: var(--accent-line); background: var(--accent-wash); }
 .qa-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }

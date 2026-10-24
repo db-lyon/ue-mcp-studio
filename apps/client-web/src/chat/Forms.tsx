@@ -18,7 +18,7 @@ export function useForms(daemon: Pick<DaemonState, "events" | "streaming">, sess
 
 /**
  * Forms ue-mcp raised during this session's calls, such as approving a feedback
- * report. A test script's verdict form is answered on its run's checklist card:
+ * report. A playtest's verdict form is answered on its run's Playtest card:
  * here only when that run has no card on screen (`runs`), as a card of its own.
  */
 export function FormCards({ forms, runs }: { forms: PendingForm[]; runs?: ReadonlySet<string> }) {

@@ -53,7 +53,7 @@ describe("a test script's verdict form", () => {
   it("is a checklist card of its own when its run has no card on screen", () => {
     render(<FormCards forms={[verdictForm]} runs={new Set()} />);
     expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
-    expect(screen.getByRole("group", { name: "Test script DoorOpens" })).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Playtest DoorOpens" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Pass step 3" }));
     expect(m.answerForm).toHaveBeenCalledWith("f2", { action: "accept", content: { step_2: "pass" } });
   });
