@@ -834,7 +834,9 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-evidence { color: var(--bad-text); white-space: pre-wrap; }
 .qa-note { color: var(--muted); font-style: italic; }
 .qa-verdict { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.qa-note-input { flex: 1 1 180px; min-width: 0; }
+.qa-fail-note { display: flex; flex-direction: column; gap: 4px; margin-left: calc(1.6em + 8px); }
+.qa-fail-note textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.qa-note-edit { margin-left: 6px; font-style: normal; }
 .qa-verdict button.picked { border-color: var(--accent); color: var(--text); }
 .qa-verdict button.verdict-pass:hover:not(:disabled) { border-color: var(--ok); }
 .qa-verdict button.verdict-fail:hover:not(:disabled) { border-color: var(--bad); }

@@ -301,6 +301,7 @@ export class QaBroker {
     const b = (body ?? {}) as { step?: unknown; verdict?: unknown; note?: unknown };
     if (!Number.isInteger(b.step) || !QA_VERDICTS.includes(b.verdict as QaVerdict)) return { error: "body must be { step, verdict: pass | fail | skip, note? }", status: 400 };
     const note = typeof b.note === "string" ? b.note.trim() : "";
+    if (b.verdict === "fail" && !note) return { error: "a fail needs a note: what went wrong", status: 400 };
     const had = this.runs.get(runId);
     const r = await this.o.host.callAction("pie", "verdict", { run_id: runId, step: b.step, verdict: b.verdict, ...(note ? { note } : {}) });
     const answer = json(r);

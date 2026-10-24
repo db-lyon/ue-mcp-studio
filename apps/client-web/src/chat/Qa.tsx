@@ -198,8 +198,14 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
     });
   };
 
-  const decide = (step: QaStep, verdict: QaVerdict) => {
+  /** A step's open "What went wrong?" box: Fail, an override to Fail, or editing a failed step's note. */
+  const [failing, setFailing] = useState<{ index: number; via: "verdict" | "override" | "edit" } | null>(null);
+  const closeFail = () => setFailing(null);
+
+  const decide = (step: QaStep, verdict: QaVerdict, note?: string) => {
+    if (note !== undefined) setNotes((cur) => ({ ...cur, [step.index]: note }));
     if (form && asked.has(step.index)) {
+      if (note !== undefined) notes[step.index] = note;
       const choices = { ...picked, [step.index]: verdict };
       if ([...asked].every((i) => choices[i] || run.steps.find((s) => s.index === i)?.status !== "awaiting_verdict")) answerForm(choices);
       else setPicked(choices);
@@ -207,8 +213,7 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
     }
     setSending((cur) => ({ ...cur, [step.index]: verdict }));
     setError(null);
-    const note = notes[step.index]?.trim();
-    api.qaVerdict(run.runId, step.index, verdict, note || undefined).then((r) => setRun((c) => newerRun(r.run, c)), (e: Error) => {
+    api.qaVerdict(run.runId, step.index, verdict, note?.trim() || undefined).then((r) => setRun((c) => newerRun(r.run, c)), (e: Error) => {
       setSending((cur) => {
         const { [step.index]: _gone, ...rest } = cur;
         return rest;
@@ -218,14 +223,14 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
   };
 
   /** One click replaces the agent's verdict with the user's. */
-  const override = (step: QaStep, verdict: QaVerdict) => {
+  const override = (step: QaStep, verdict: QaVerdict, note?: string) => {
     setOverriding((cur) => ({ ...cur, [step.index]: verdict }));
     setError(null);
     const clear = () => setOverriding((cur) => {
       const { [step.index]: _gone, ...rest } = cur;
       return rest;
     });
-    api.qaVerdict(run.runId, step.index, verdict).then((r) => {
+    api.qaVerdict(run.runId, step.index, verdict, note?.trim() || undefined).then((r) => {
       clear();
       setRun((c) => newerRun(r.run, c));
     }, (e: Error) => {
@@ -311,6 +316,7 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
         {run.steps.map((s) => {
           const evidence = s.judge === "auto" ? evidenceText(s) : "";
           const verdictable = s.judge === "manual" && s.status === "awaiting_verdict";
+          const failBox = failing?.index === s.index ? failing : null;
           const busy = sending[s.index];
           const byAgent = qaAgentVerdict(s);
           const why = byAgent ? agentEvidenceText(s) : "";
@@ -329,7 +335,14 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
               </div>
               {s.expect && <div className="qa-expect mono dim small">{s.expect.value} {s.expect.op}{s.expect.target !== undefined ? ` ${s.expect.target}` : ""}{s.withinMs ? `, within ${s.withinMs} ms` : ""}</div>}
               {s.status === "failed" && s.judge === "auto" && evidence && <div className="qa-evidence small" role="note">{evidence.split("\n").slice(1).join(" ") || evidence}</div>}
-              {s.note && !verdictable && !byAgent && <div className="qa-note small">{s.note}</div>}
+              {s.note && !verdictable && !byAgent && !failBox && (
+                <div className="qa-note small">
+                  {s.note}
+                  {s.status === "failed" && s.judge === "manual" && (
+                    <button className="ghost small-button qa-note-edit" aria-label={`Edit the note on step ${s.index + 1}`} onClick={() => setFailing({ index: s.index, via: "edit" })}>Edit</button>
+                  )}
+                </div>
+              )}
               {byAgent && (
                 <details className="qa-agent-evidence small">
                   <summary>What the agent saw</summary>
@@ -348,23 +361,15 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
                       className={`small-button verdict-${v.verdict} ${overriding[s.index] === v.verdict ? "picked" : ""}`}
                       aria-label={`Override step ${s.index + 1} with ${v.label}`}
                       disabled={!!overriding[s.index]}
-                      onClick={() => override(s, v.verdict)}
+                      onClick={() => (v.verdict === "fail" ? setFailing({ index: s.index, via: "override" }) : override(s, v.verdict))}
                     >
                       {v.label}
                     </button>
                   ))}
                 </div>
               )}
-              {verdictable && (
+              {verdictable && !failBox && (
                 <div className="qa-verdict">
-                  <input
-                    className="qa-note-input"
-                    aria-label={`Note for step ${s.index + 1}`}
-                    placeholder="Note (optional): what you saw"
-                    value={notes[s.index] ?? ""}
-                    disabled={!!busy}
-                    onChange={(e) => setNotes({ ...notes, [s.index]: e.target.value })}
-                  />
                   {VERDICTS.map((v) => (
                     <button
                       key={v.verdict}
@@ -372,12 +377,24 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
                       aria-pressed={picked[s.index] === v.verdict}
                       aria-label={`${v.label} step ${s.index + 1}`}
                       disabled={!!busy}
-                      onClick={() => decide(s, v.verdict)}
+                      onClick={() => (v.verdict === "fail" ? setFailing({ index: s.index, via: "verdict" }) : decide(s, v.verdict))}
                     >
                       {v.label}
                     </button>
                   ))}
                 </div>
+              )}
+              {failBox && (
+                <FailNote
+                  step={s.index}
+                  initial={failBox.via === "edit" ? s.note ?? "" : notes[s.index] ?? ""}
+                  onCancel={closeFail}
+                  onSubmit={(note) => {
+                    closeFail();
+                    if (failBox.via === "override") override(s, "fail", note);
+                    else decide(s, "fail", note);
+                  }}
+                />
               )}
             </li>
           );
@@ -405,6 +422,38 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Fail's note, under the step: focused, required, Escape cancels without
+ * recording anything, Submit sends the fail with the note.
+ */
+export function FailNote({ step, initial, onSubmit, onCancel }: { step: number; initial: string; onSubmit: (note: string) => void; onCancel: () => void }) {
+  const [text, setText] = useState(initial);
+  const ready = text.trim().length > 0;
+  return (
+    <form
+      className="qa-fail-note"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ready) onSubmit(text.trim());
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+    >
+      <label className="small" htmlFor={`qa-fail-${step}`}>What went wrong?</label>
+      <textarea id={`qa-fail-${step}`} autoFocus rows={2} value={text} onChange={(e) => setText(e.target.value)} />
+      <div className="row">
+        <button type="submit" className="small-button verdict-fail" disabled={!ready}>Submit</button>
+        <button type="button" className="ghost small-button" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
   );
 }
 

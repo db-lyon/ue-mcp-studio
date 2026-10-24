@@ -189,7 +189,8 @@ describe("the user's verdict", () => {
   it("reports ue-mcp's refusal and a body that is not a verdict", async () => {
     const t = setup();
     t.setAnswer(async () => ok({ success: false, error: "Run x is not the current run (y)" }));
-    expect(await t.broker.verdict(RUN, { step: 2, verdict: "fail" })).toEqual({ error: "Run x is not the current run (y)", status: 409 });
+    expect(await t.broker.verdict(RUN, { step: 2, verdict: "fail", note: "the door stayed shut" })).toEqual({ error: "Run x is not the current run (y)", status: 409 });
+    expect(await t.broker.verdict(RUN, { step: 2, verdict: "fail" })).toMatchObject({ status: 400 });
     expect(await t.broker.verdict(RUN, { step: 2, verdict: "maybe" })).toMatchObject({ status: 400 });
   });
 });
