@@ -42,7 +42,8 @@ export const QA = [
     + "Run them as a playtest, which is a ue-mcp test script: pie.script_create saves a script asset to run again later, or pass the steps inline to pie.script_run. Studio shows the run as a live Playtest card the user answers in the chat.",
   "Make a step auto with an expect when a value the observer reads can decide it (a property, a distance, visibility), and manual when only a person can judge it (how it looks or feels). Describe pie.script_create first for the step format.",
   "Run it with pie.script_run and wait: true (start_pie: true when PIE is not running), then report the summary and the results_path from its answer. "
-    + "The user answers manual steps with the Pass, Fail and Skip buttons on the Playtest card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message. "
+    + "The user answers manual steps with the Pass, Fail and Skip buttons on the Playtest card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message, "
+    + "or the user assigned you the playtest from its card: then follow that brief, which says how to drive PIE and which steps you judge. "
     + "If the answer says steps are awaiting a verdict, tell the user to answer them on the Playtest card and end your turn.",
 ];
 
@@ -181,6 +182,8 @@ export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
   /** Each running subagent, by its agent call id, so one can be stopped without the turn. */
   private readonly subagents = new Map<string, () => void>();
+  /** Subagents the user started from the chat rather than the agent, by their agent call id. */
+  private readonly assigned = new Set<string>();
   /** Calls waiting for the user, by approval id, with how to answer each. */
   private readonly waitingApprovals = new Map<string, { sessionId: string; parent: string | null; answer: (d: ApprovalDecision | "stopped") => void }>();
   /** Why the editor last went away, for waiting turns and unknown outcomes. */
@@ -191,7 +194,7 @@ export class AgentRunner {
 
   constructor(private readonly o: RunnerOptions) {
     this.files = new AttachmentStore(o.host.dataDir);
-    o.host.setBusy(() => o.store.all().some((s) => s.status === "running" || s.status === "waiting"));
+    o.host.setBusy(() => this.assigned.size > 0 || o.store.all().some((s) => s.status === "running" || s.status === "waiting"));
     this.unsubscribe = o.host.events.subscribe((e) => {
       if (e.type === "editor.disconnected") {
         const cause = String(e.data.cause ?? "unknown");
@@ -250,6 +253,13 @@ export class AgentRunner {
   recover(): void {
     const why = this.restartCause(true) ?? "Studio's daemon restarted";
     for (const s of this.o.store.all()) {
+      // A subagent the user assigned ran in the previous daemon only: it ends here, with every call it left.
+      for (const t of s.transcript) {
+        if (t.kind !== "tool" || t.call.name !== "agent" || t.parent || t.call.outcome !== "pending" || !t.call.id.startsWith("studio_")) continue;
+        const cut = `The subagent was cut off (${why}) before it reported.`;
+        this.endCalls(s, () => cut, "unknown", t.call.id);
+        this.recordOutcome(s, { id: t.call.id, name: "agent", input: {}, state: "done", result: cut, isError: true }, "unknown");
+      }
       const asked = new Set((s.approvals ?? []).map((a) => a.toolUseId));
       // An approval only the previous daemon could answer; its call asks again when the turn resumes.
       if (s.approvals?.length) {
@@ -398,41 +408,7 @@ export class AgentRunner {
           if (stop) this.subagents.set(callId, () => void stop());
           else this.subagents.delete(callId);
         },
-        runTool: async (toolId, name, input) => {
-          // The turn ended while the binary was still asking: nothing runs after a stop.
-          if (controller.signal.aborted) return { text: interruptedResult({ name, input }, this.causeOf(controller), false), isError: true, outcome: "error", touched: [], saved: [] };
-          // A subagent's call also ends when the user stops that subagent.
-          const owner = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolId)?.parent;
-          const sub = owner ? this.subagentAbort(owner).signal : null;
-          const signal = sub ? AbortSignal.any([controller.signal, sub]) : controller.signal;
-          const stoppedHere = (): ToolExecution => ({ text: interruptedResult({ name, input }, USER_STOP, true), isError: true, outcome: "error", touched: [], saved: [] });
-          if (sub?.aborted) return stoppedHere();
-          if (name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal);
-          if (sub?.aborted) return stoppedHere();
-          const gate = await this.gate(s, toolId, name, input, signal);
-          if (sub?.aborted) return stoppedHere();
-          if (gate) {
-            const text = "stopped" in gate ? "Stopped by the user." : gate.declined;
-            this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
-            return { text, isError: true, outcome: "error", touched: [], saved: [] };
-          }
-          const running = executeTool(this.hostFor(s.id), name, input, signal);
-          // What a call does after its subagent was stopped is still tracked for the crash report.
-          if (sub) void running.then((e) => sub.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
-          const done = sub ? await unlessAborted(running, sub) : await running;
-          if (!done) return stoppedHere();
-          let exec = done;
-          this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
-          // Stopped while the editor worked: the stop already answered this call.
-          if (controller.signal.aborted) return exec;
-          if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
-          if (controller.signal.aborted) return exec;
-          this.markSaved(s, exec.saved);
-          const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) };
-          this.recordOutcome(s, p, exec.outcome);
-          if (s.status !== "running") this.setStatus(s, "running", null);
-          return exec;
-        },
+        runTool: (toolId, name, input) => this.subscriptionTool(s, controller, toolId, name, input),
       });
       if (controller.signal.aborted) return;
       s.error = error;
@@ -443,6 +419,44 @@ export class AgentRunner {
       // A call the turn ended without answering never finishes now. A stop answered its own already.
       if (!controller.signal.aborted) this.endCalls(s, () => "The turn ended before this call returned a result.", "error");
     }
+  }
+
+  /** One call into Studio's tools from a turn or subagent the Agent SDK runs. */
+  private async subscriptionTool(s: StoredSession, controller: AbortController, toolId: string, name: string, input: Record<string, unknown>, detached = false): Promise<ToolExecution> {
+    // The turn ended while the binary was still asking: nothing runs after a stop.
+    if (controller.signal.aborted) return { text: interruptedResult({ name, input }, this.causeOf(controller), false), isError: true, outcome: "error", touched: [], saved: [] };
+    // A subagent's call also ends when the user stops that subagent.
+    const owner = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolId)?.parent;
+    const sub = owner ? this.subagentAbort(owner).signal : null;
+    const signal = sub ? AbortSignal.any([controller.signal, sub]) : controller.signal;
+    const stoppedHere = (): ToolExecution => ({ text: interruptedResult({ name, input }, USER_STOP, true), isError: true, outcome: "error", touched: [], saved: [] });
+    if (sub?.aborted) return stoppedHere();
+    if (name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal, Infinity, detached);
+    if (sub?.aborted) return stoppedHere();
+    const gate = await this.gate(s, toolId, name, input, signal);
+    if (sub?.aborted) return stoppedHere();
+    if (gate) {
+      const text = "stopped" in gate ? "Stopped by the user." : gate.declined;
+      this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
+      return { text, isError: true, outcome: "error", touched: [], saved: [] };
+    }
+    const running = executeTool(this.hostFor(s.id), name, input, signal);
+    // What a call does after its subagent was stopped is still tracked for the crash report.
+    if (sub) void running.then((e) => sub.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
+    const done = sub ? await unlessAborted(running, sub) : await running;
+    if (!done) return stoppedHere();
+    let exec = done;
+    this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+    // Stopped while the editor worked: the stop already answered this call.
+    if (controller.signal.aborted) return exec;
+    if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
+    if (controller.signal.aborted) return exec;
+    this.markSaved(s, exec.saved);
+    const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) };
+    this.recordOutcome(s, p, exec.outcome);
+    // A subagent the user assigned runs beside the session's turns, not as one.
+    if (!detached && s.status !== "running") this.setStatus(s, "running", null);
+    return exec;
   }
 
   /** What a turn's controller was aborted for. */
@@ -492,18 +506,19 @@ export class AgentRunner {
    * meanwhile. While a restart or rebuild runs it waits up to `limitMs`; with
    * none running, only IDLE_EDITOR_WAIT_MS. False when it gave up first.
    */
-  private async waitForEditor(s: StoredSession, signal: AbortSignal, limitMs = Infinity): Promise<boolean> {
+  private async waitForEditor(s: StoredSession, signal: AbortSignal, limitMs = Infinity, quiet = false): Promise<boolean> {
     if (editorConnected(this.o.host)) return true;
     const start = Date.now();
     const end = start + limitMs;
     let cause = this.causeNow();
-    this.setStatus(s, "waiting", cause);
+    // quiet: a subagent the user assigned waits without making the session's own state waiting.
+    if (!quiet) this.setStatus(s, "waiting", cause);
     while (!editorConnected(this.o.host) && !signal.aborted && Date.now() < end && (this.operating() || Date.now() - start < IDLE_EDITOR_WAIT_MS)) {
       await new Promise((r) => setTimeout(r, 1000));
       const now = this.causeNow();
-      if (now !== cause && !signal.aborted && !editorConnected(this.o.host)) this.setStatus(s, "waiting", (cause = now));
+      if (!quiet && now !== cause && !signal.aborted && !editorConnected(this.o.host)) this.setStatus(s, "waiting", (cause = now));
     }
-    if (!signal.aborted) this.setStatus(s, "running", null);
+    if (!signal.aborted && !quiet) this.setStatus(s, "running", null);
     return editorConnected(this.o.host);
   }
 
@@ -577,6 +592,86 @@ export class AgentRunner {
       const call = { id: t.call.id, name: t.call.name, input: (t.call.input ?? {}) as Record<string, unknown>, ...(t.parent ? { parent: t.parent } : {}) };
       this.recordOutcome(s, { id: call.id, name: call.name, input: call.input, state: "done", result: result(call), isError: true }, outcome);
     }
+  }
+
+  /**
+   * Start a subagent the user asked for from the chat, such as a playtest
+   * assigned from its card. It is the same subagent the agent tool starts, on
+   * the same route, with its thread under an agent call in the transcript, but
+   * it runs beside the session's turns rather than inside one: the session can
+   * be idle or busy. stopSubagent stops it. Its report is kept for the agent's
+   * next turn as a note. Resolves with the call id; `done` with its result.
+   */
+  assignSubagent(sessionId: string, description: string, prompt: string): { callId: string; done: Promise<{ text: string; isError: boolean; stopped?: boolean }> } {
+    const s = this.require(sessionId);
+    const callId = `studio_${crypto.randomUUID().replace(/-/g, "")}`;
+    const input = { description, prompt };
+    this.addEntry(s, { kind: "tool", call: { id: callId, name: "agent", input, outcome: "pending", startedAt: now() } });
+    this.assigned.add(callId);
+    const own = new AbortController();
+    const run = this.o.subscription?.()
+      ? this.runAssignedOnClaude(s, callId, prompt, own)
+      : this.runSubagent(s, { id: callId, name: "agent", input, state: "running" }, own.signal, true);
+    const done = run.catch((e: unknown) => ({ text: `The subagent failed: ${e instanceof Error ? e.message : String(e)}`, isError: true })).then((r: { text: string; isError: boolean; stopped?: boolean }) => {
+      this.assigned.delete(callId);
+      this.subagents.delete(callId);
+      this.subagentStops.delete(callId);
+      this.dropApprovals(s.id, callId);
+      // Calls the subagent left running are answered, as a stop answers a turn's.
+      this.endCalls(s, () => "The subagent ended before this call returned a result.", "error", callId);
+      this.recordOutcome(s, { id: callId, name: "agent", input, state: "done", result: r.text, isError: r.isError }, r.stopped ? "stopped" : r.isError ? "error" : "done");
+      s.notes.push(`The user had a subagent run "${description}" outside your turns. ${r.stopped ? "The user stopped it." : r.isError ? "It failed." : "It finished."} Its report:\n${r.text}`);
+      this.o.store.save(s);
+      return r;
+    });
+    return { callId, done };
+  }
+
+  /** An assigned subagent on the Claude sign-in: its own Agent SDK conversation, with its steps under the agent call. */
+  private async runAssignedOnClaude(s: StoredSession, callId: string, prompt: string, own: AbortController): Promise<{ text: string; isError: boolean; stopped?: boolean }> {
+    this.subagents.set(callId, () => own.abort());
+    this.subagentAbort(callId).signal.addEventListener("abort", () => own.abort(), { once: true });
+    const sdk = typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
+    if (!sdk) return { text: "This Studio build does not include the Claude sign-in.", isError: true };
+    let report = "";
+    const error = await sdk.runSubscriptionTurn({
+      projectDir: this.o.host.projectDir,
+      model: this.o.model(),
+      effort: this.o.effort?.() ?? "high",
+      system: subagentSystem(this.o.host.projectDir),
+      subagentSystem: subagentSystem(this.o.host.projectDir),
+      prompt: [{ type: "text", text: prompt }],
+      resume: null,
+      signal: own.signal,
+      onSession: () => {},
+      onDelta: () => {},
+      onAssistant: (_mid, blocks, parent) => {
+        const tag = { parent: parent ?? callId };
+        for (const b of blocks) {
+          if (b.type === "text" && b.text) {
+            if (!parent) report = b.text;
+            this.addEntry(s, { kind: "assistant", text: b.text, at: now(), ...tag });
+          }
+          if (b.type === "tool_use") this.addEntry(s, { kind: "tool", call: { id: b.id, name: b.name, input: b.input, outcome: "pending", startedAt: now() }, ...tag });
+        }
+      },
+      onToolResults: (content) => {
+        // Studio's own tools record their outcome as they run; a nested agent call's result arrives only here.
+        for (const b of content as Array<{ type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
+          if (b.type !== "tool_result" || !b.tool_use_id) continue;
+          const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === b.tool_use_id);
+          if (entry?.kind !== "tool" || entry.call.outcome !== "pending" || entry.call.name !== "agent") continue;
+          const text = typeof b.content === "string" ? b.content : Array.isArray(b.content) ? b.content.map((c: { text?: string }) => c.text ?? "").join("") : "";
+          this.recordOutcome(s, { id: b.tool_use_id, name: "agent", input: {}, state: "done", result: text, isError: !!b.is_error }, b.is_error ? "error" : "done");
+        }
+      },
+      onTask: () => {},
+      onStopper: () => {},
+      runTool: (toolId, name, input) => this.subscriptionTool(s, own, toolId, name, input, true),
+    });
+    if (own.signal.aborted) return { text: "The user stopped this subagent before it finished.", isError: true, stopped: true };
+    if (error) return { text: `The subagent failed: ${error}`, isError: true };
+    return { text: report || "The subagent finished without a report.", isError: false };
   }
 
   /**
@@ -960,7 +1055,7 @@ export class AgentRunner {
    * only. Its steps go into the session's transcript under the agent call; the
    * main agent gets its final report as the call's result.
    */
-  private async runSubagent(s: StoredSession, call: PendingTool, signal: AbortSignal): Promise<{ text: string; isError: boolean; stopped?: boolean }> {
+  private async runSubagent(s: StoredSession, call: PendingTool, signal: AbortSignal, detached = false): Promise<{ text: string; isError: boolean; stopped?: boolean }> {
     const prompt = call.input.prompt;
     if (typeof prompt !== "string" || !prompt.trim()) return { text: "Invalid input: agent needs prompt", isError: true };
     const parent = call.id;
@@ -999,7 +1094,7 @@ export class AgentRunner {
         for (const u of uses) {
           const input = (u.input ?? {}) as Record<string, unknown>;
           this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() }, parent });
-          if (u.name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal);
+          if (u.name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal, Infinity, detached);
           if (signal.aborted) return stopped();
           const gate = await this.gate(s, u.id, u.name, input, signal);
           if (gate && "stopped" in gate) return stopped();

@@ -170,6 +170,9 @@ export const api = {
     call<{ answer: Record<string, unknown>; run: QaRun | null }>("GET", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/status${sinceSeq === undefined ? "" : `?since_seq=${sinceSeq}`}`),
   qaVerdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/verdict`, note ? { step, verdict, note } : { step, verdict }),
+  qaAssign: (runId: string, sessionId?: string | null) =>
+    call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`, sessionId ? { sessionId } : {}),
+  qaCancelAssign: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`),
   qaDismiss: (runId: string) => call<void>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}`),
   qaResultsUrl: (runId: string) => `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,
   dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),
