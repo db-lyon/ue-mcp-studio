@@ -15,7 +15,7 @@
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
-import type { ApprovalDecision, ApprovalRequest, Effort, TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { ApprovalDecision, ApprovalRequest, Effort, PlaytestRunsMode, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import type { QueuedMessage } from "@ue-mcp-studio/shared";
@@ -34,20 +34,29 @@ import { USER_STOP, interruptedResult, interruptionNote, type Interruption } fro
 import type { Attachment } from "@ue-mcp-studio/shared";
 
 /**
- * Testing gameplay with the user: a playtest, which is a test script run shown
- * as a Playtest card in the chat, never a list of steps written out in a reply.
+ * Testing gameplay with the user: a playtest, which is a test script the agent
+ * creates and Studio shows as a Playtest card in the chat, never a list or a
+ * table of steps written out in a reply. Who starts its run follows the
+ * project's Playtest runs setting.
  */
 export const QA = [
-  "When the user wants gameplay tested or checked in Play In Editor (a playtest, a QA pass, a test plan, a checklist, steps to try), do not write the steps out as a list in your reply. "
-    + "Run them as a playtest, which is a ue-mcp test script: pie.script_create saves a script asset to run again later, or pass the steps inline to pie.script_run. Studio shows the run as a live Playtest card the user answers in the chat.",
-  "Every playtest goes through pie.script_create or pie.script_run; there is no other way to do one. A reply that lists steps marked PASS or FAIL, or steps for the user to try, without a script run in that turn is a failed playtest, and Studio flags it to the user as one. "
+  "When the user wants gameplay tested or checked in Play In Editor (a playtest, a QA pass, a test plan, a checklist, steps to try), do not write the steps out as a list in your reply, and not as a table either. "
+    + "Deliver it as a playtest: create a ue-mcp test script with pie.script_create (pie.script_update changes one), and Studio shows it as a Playtest card in the chat. Even when the user asks only for a draft or a plan, the draft is the created script.",
+  "Every playtest is a created script and its card; there is no other way to deliver one. A reply that lists steps marked PASS or FAIL, or steps for the user to try, as prose or a table, is a failed playtest, and Studio flags it to the user as one. "
     + "Never mark a step passed or failed from your own reading of the editor: the script run's observer, the user on the card, or a subagent the user assigned decides it.",
-  "Make a step auto with an expect when a value the observer reads can decide it (a property, a distance, visibility), and manual when only a person can judge it (how it looks or feels). Describe pie.script_create first for the step format.",
-  "Run it with pie.script_run and wait: true (start_pie: true when PIE is not running), then report the summary and the results_path from its answer. "
-    + "The user answers manual steps with the Pass, Fail and Skip buttons on the Playtest card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message, "
+  "Make a step auto with an expect when a value the observer reads can decide it (a property, a distance, visibility), and manual when only a person can judge it (how it looks or feels). Describe pie.script_create first for the step format. "
+    + "In a multiplayer playtest give each step a player, \"host\" or \"client 1\", \"client 2\" and so on: Studio keeps it, shows it on the card and takes it out before ue-mcp sees the step.",
+  "The user answers manual steps with the Pass, Fail and Skip buttons on the Playtest card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message, "
     + "or the user assigned you the playtest from its card: then follow that brief, which says how to drive PIE and which steps you judge. "
-    + "If the answer says steps are awaiting a verdict, tell the user to answer them on the Playtest card and end your turn.",
+    + "If a run's answer says steps are awaiting a verdict, tell the user to answer them on the Playtest card and end your turn.",
 ];
+
+/** What the agent is told about starting runs, by the Playtest runs setting. */
+export function playtestRunsLine(mode: PlaytestRunsMode): string {
+  return mode === "automatic"
+    ? "Playtest runs is set to Automatic in Settings > Agent: you may start a playtest yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
+    : "Playtest runs is set to Manual in Settings > Agent: only the user starts a playtest, with Run or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Playtest runs to Automatic.";
+}
 
 const WORK = [
   "Anything in the running editor (assets, levels, actors, Blueprints, materials, Niagara) goes through ue_mcp: find the action with ue_mcp search, check its parameters with ue_mcp describe, then call it.",
@@ -65,9 +74,10 @@ const WORK = [
 const where = (projectDir: string): string =>
   `The project folder is ${projectDir}: commands run there and relative paths start there. The shell is ${shell().name}.`;
 
-const system = (projectDir: string): string => [
+const system = (projectDir: string, runs: PlaytestRunsMode): string => [
   "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
+  playtestRunsLine(runs),
   where(projectDir),
   "For work that splits into independent parts, start a subagent per part with the agent tool, several in one message so they run at the same time. Give each one different assets and files, then check what they report.",
   "When the editor restarts or crashes during your work, a note tells you why and what was lost. Do not repeat a call whose outcome is unknown without reading the state first.",
@@ -81,7 +91,7 @@ export const SUBAGENT_SYSTEM = [
   "Finish with a short report: what you created or changed (asset paths and files), what you saved, and anything that failed.",
 ].join("\n");
 
-const subagentSystem = (projectDir: string): string => `${SUBAGENT_SYSTEM}\n${where(projectDir)}`;
+const subagentSystem = (projectDir: string, runs: PlaytestRunsMode): string => `${SUBAGENT_SYSTEM}\n${playtestRunsLine(runs)}\n${where(projectDir)}`;
 
 /** What the model is told when the user declines a call. */
 const declinedText = (name: string): string =>
@@ -130,6 +140,8 @@ export interface RunnerOptions {
   dialogs?: DialogBroker;
   /** Puts the PIE test script runs a session's calls start in the chat, as Playtest cards. */
   qa?: QaBroker;
+  /** The project's Playtest runs setting, for the prompts; manual when not given. */
+  playtestRuns?: () => PlaytestRunsMode;
 }
 
 const now = (): string => new Date().toISOString();
@@ -223,10 +235,16 @@ export class AgentRunner {
   }
 
   /** The host a session's tool calls run on: its editor calls are tracked when there is a busy tracker. */
-  private hostFor(sessionId: string): AgentHost {
+  /** assigned: a subagent the user started from a card, whose runs are the user's. */
+  private hostFor(sessionId: string, assigned = false): AgentHost {
     const host = this.o.dialogs ? this.o.dialogs.wrap(this.o.host, sessionId) : this.o.host;
     const tracked = this.o.busy ? this.o.busy.wrap(host, sessionId) : host;
-    return this.o.qa ? this.o.qa.wrap(tracked, sessionId) : tracked;
+    return this.o.qa ? this.o.qa.wrap(tracked, sessionId, { assigned }) : tracked;
+  }
+
+  /** The Playtest runs setting the prompts state. */
+  private runsMode(): PlaytestRunsMode {
+    return this.o.playtestRuns?.() ?? "manual";
   }
 
   /** The daemon is going down: every turn on the SDK route ends here, saying so. An API turn resumes in the next daemon. */
@@ -350,8 +368,8 @@ export class AgentRunner {
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",
-        system: system(this.o.host.projectDir),
-        subagentSystem: subagentSystem(this.o.host.projectDir),
+        system: system(this.o.host.projectDir, this.runsMode()),
+        subagentSystem: subagentSystem(this.o.host.projectDir, this.runsMode()),
         prompt,
         resume: s.sdkSession ?? null,
         signal: controller.signal,
@@ -442,7 +460,7 @@ export class AgentRunner {
       this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
       return { text, isError: true, outcome: "error", touched: [], saved: [] };
     }
-    const running = executeTool(this.hostFor(s.id), name, input, signal);
+    const running = executeTool(this.hostFor(s.id, detached), name, input, signal);
     // What a call does after its subagent was stopped is still tracked for the crash report.
     if (sub) void running.then((e) => sub.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
     const done = sub ? await unlessAborted(running, sub) : await running;
@@ -640,8 +658,9 @@ export class AgentRunner {
       projectDir: this.o.host.projectDir,
       model: this.o.model(),
       effort: this.o.effort?.() ?? "high",
-      system: subagentSystem(this.o.host.projectDir),
-      subagentSystem: subagentSystem(this.o.host.projectDir),
+      // Its runs are the user's, from the card: the brief says to start one.
+      system: subagentSystem(this.o.host.projectDir, "automatic"),
+      subagentSystem: subagentSystem(this.o.host.projectDir, "automatic"),
       prompt: [{ type: "text", text: prompt }],
       resume: null,
       signal: own.signal,
@@ -925,7 +944,7 @@ export class AgentRunner {
 
         if (s.status !== "running") this.setStatus(s, "running", null);
         const turn = await this.o.provider().run(
-          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: system(this.o.host.projectDir) }], tools: TOOLS, messages: s.messages },
+          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: system(this.o.host.projectDir, this.runsMode()) }], tools: TOOLS, messages: s.messages },
           (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
           controller.signal,
         );
@@ -1077,7 +1096,7 @@ export class AgentRunner {
       for (let step = 0; step < SUBAGENT_STEPS; step++) {
         if (signal.aborted) return stopped();
         const turn = await this.o.provider().run(
-          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: subagentSystem(this.o.host.projectDir) }], tools: WORK_TOOLS, messages },
+          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode()) }], tools: WORK_TOOLS, messages },
           () => {},
           signal,
         );
@@ -1105,7 +1124,7 @@ export class AgentRunner {
             results.push({ type: "tool_result", tool_use_id: u.id, content: gate.declined, is_error: true });
             continue;
           }
-          const running = executeTool(this.hostFor(s.id), u.name, input, signal);
+          const running = executeTool(this.hostFor(s.id, detached), u.name, input, signal);
           // A stop lets the call go at once; what it does after is still tracked for the crash report.
           void running.then((e) => signal.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
           const exec = await unlessAborted(running, signal);

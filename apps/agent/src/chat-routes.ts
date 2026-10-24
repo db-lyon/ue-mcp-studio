@@ -51,6 +51,7 @@ import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
+import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 import { registerQuickRoute } from "./quick.js";
@@ -60,6 +61,7 @@ import type { AssetRef } from "@ue-mcp-studio/shared";
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
   const store = new SessionStore(api.dataDir);
+  const playtests = new PlaytestStore(api.dataDir);
   const attachments = new AttachmentStore(api.dataDir);
 
   // The `ue-mcp login` account, kept fresh so a sign-in is picked up without a restart.
@@ -145,7 +147,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const unobserve = api.events.subscribe((e) => busy.observe(e));
   const forms = registerForms(api);
   const dialogs = registerDialogs(api, store, settings, forms);
-  const qa = registerQa(api, store, forms);
+  const qa = registerQa(api, store, forms, playtests);
   const runner = new AgentRunner({
     host: api,
     busy,
@@ -159,6 +161,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     // A key names its vendor, since model names no longer do.
     route: () => ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
     askBeforeChanges: () => settings.askBeforeChanges(),
+    playtestRuns: () => playtests.runs(),
   });
   // A playtest's card hands it to a subagent the runner starts beside the session's turns.
   qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId) });
@@ -201,7 +204,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const b = (body ?? {}) as { now?: unknown; then?: unknown };
     return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [] };
   };
-  registerAgentSettings(api, () => updates.request("restart", {}));
+  registerAgentSettings(api, () => updates.request("restart", {}), playtests);
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));
     if (r.deferred) return { status: 202, body: { ok: true, deferred: r.deferred } };

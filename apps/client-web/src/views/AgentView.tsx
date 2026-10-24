@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AgentSettings, DialogMode, FeedbackMode, StudioSettings } from "@ue-mcp-studio/shared";
+import { PLAYTEST_RUNS, type AgentSettings, type DialogMode, type FeedbackMode, type PlaytestRunsMode, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
 import { DialogPolicyField } from "./Settings";
 
@@ -17,7 +17,7 @@ const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[] = [
 
 /**
  * Everything about how the agent works, in one place: what it may do without
- * asking, who answers editor dialogs, and how it files feedback.
+ * asking, who answers editor dialogs, who starts playtests, and how it files feedback.
  */
 export function AgentView() {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
@@ -30,7 +30,7 @@ export function AgentView() {
     api.agentSettings().then(setAgent, fail);
   }, []);
 
-  const saveAgent = (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode }>) =>
+  const saveAgent = (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>) =>
     api.saveAgentSettings(u).then((a) => {
       setAgent(a);
       setMessage(a.restarting ? { ok: true, text: "Saved. ue-mcp restarts to load it, after the turn in progress." } : null);
@@ -68,6 +68,23 @@ export function AgentView() {
         )}
         {(dialogMode === "interactive" || dialogMode === null) && (
           <DialogPolicyField policy={settings.dialogPolicy} onSave={(dialogPolicy) => api.saveSettings({ dialogPolicy }).then(setSettings, fail)} />
+        )}
+      </section>
+
+      <section className="card">
+        <h2>Playtests</h2>
+        {agent.playtestRuns ? (
+          <fieldset>
+            <legend>Playtest runs</legend>
+            {PLAYTEST_RUNS.map((m) => (
+              <label key={m.mode} className="row toggle">
+                <input type="radio" name="playtest-runs" checked={agent.playtestRuns === m.mode} onChange={() => void saveAgent({ playtestRuns: m.mode })} />
+                <span>{m.label} <span className="dim small">{m.help}</span></span>
+              </label>
+            ))}
+          </fieldset>
+        ) : (
+          <p className="muted small">Update Studio to choose this.</p>
         )}
       </section>
 

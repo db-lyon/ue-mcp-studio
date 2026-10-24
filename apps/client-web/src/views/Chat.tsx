@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
+import type { QaScriptStep, SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
 import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
@@ -253,6 +253,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
           setSent((n) => n + 1);
           (busy ? api.queue(detail.id, text) : api.send(detail.id, text)).then(() => loadDetail(detail.id), (e: Error) => setError(e.message));
         },
+        create: (name: string, steps: QaScriptStep[]) => api.qaCreateScript(detail.id, name, steps).then(() => loadDetail(detail.id)),
       }
     : null), [detail?.id, detail?.status, disconnected, busy]);
   const dialogs = useDialogs(daemon);
