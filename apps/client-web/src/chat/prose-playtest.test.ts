@@ -63,20 +63,22 @@ const pie = (method: string, parent?: string): TranscriptEntry => ({
 const PROSE = HITS["dash markers"].text;
 
 describe("offering to turn it into a Playtest", () => {
-  it("offers it once the turn has ended without a script run", () => {
+  it("offers it once the turn has ended without a script saved or run", () => {
     const t = [user("test the door"), pie("script_list"), reply(PROSE)];
-    expect(offerConversion(t, 2, "idle")?.length).toBe(3);
+    expect(offerConversion(t, 2, "idle")?.count).toBe(3);
     expect(offerConversion(t, 2, "running")).toBeNull();
-    expect(offerConversion([...t, user("thanks")], 2, "running")?.length).toBe(3);
+    expect(offerConversion([...t, user("thanks")], 2, "running")?.count).toBe(3);
   });
 
   it("does not offer it when the turn ran a script, a subagent's included, or showed a Playtest card", () => {
     expect(offerConversion([user("test"), pie("script_run"), reply(PROSE)], 2, "idle")).toBeNull();
+    expect(offerConversion([user("test"), pie("script_create"), reply(PROSE)], 2, "idle")).toBeNull();
+    expect(offerConversion([user("test"), pie("script_update", "ag1"), reply(PROSE)], 2, "idle")).toBeNull();
     expect(offerConversion([user("test"), reply(PROSE), pie("script_replay", "ag1")], 1, "idle")).toBeNull();
     const qa = { kind: "qa", run: { runId: "r" } } as unknown as TranscriptEntry;
     expect(offerConversion([user("test"), qa, reply(PROSE)], 2, "idle")).toBeNull();
     // A script run in another turn does not count.
-    expect(offerConversion([user("a"), pie("script_run"), reply("ran"), user("b"), reply(PROSE)], 4, "idle")?.length).toBe(3);
+    expect(offerConversion([user("a"), pie("script_run"), reply("ran"), user("b"), reply(PROSE)], 4, "idle")?.count).toBe(3);
   });
 
   it("does not offer it on a subagent's reply, or after the user converted it", () => {
@@ -84,7 +86,7 @@ describe("offering to turn it into a Playtest", () => {
     expect(offerConversion([user("test"), reply(PROSE), user(`${CONVERT_PREFIX} and run it.`)], 1, "running")).toBeNull();
   });
 
-  it("asks the agent for a script with each step's expect from an observation profile", () => {
+  it("asks the agent for a draft script with each step's expect from an observation profile", () => {
     const text = conversionMessage(proseSteps(PROSE)!);
     expect(text.startsWith(CONVERT_PREFIX)).toBe(true);
     expect(text).toContain("pie.script_create");
@@ -92,6 +94,7 @@ describe("offering to turn it into a Playtest", () => {
     expect(text).toMatch(/observation profile/);
     expect(text).toMatch(/make the step auto with an expect on that value/);
     expect(text).toMatch(/make it manual/);
-    expect(text).toContain("pie.script_run");
+    expect(text).toMatch(/Save the script and stop there: the card shows it as a draft, and the user starts it/);
+    expect(text).not.toMatch(/pie.script_run/);
   });
 });
