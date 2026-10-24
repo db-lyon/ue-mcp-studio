@@ -38,7 +38,7 @@ describe("the Playtest runs line", () => {
     expect(line).toMatch(/Playtest runs is set to Manual in Settings > Agent/);
     expect(line).toMatch(/Never call pie\.script_run or pie\.script_replay; Studio refuses them/);
     expect(line).toMatch(/set Playtest runs to Automatic/);
-    expect(PLAYTEST_RUNS_REFUSAL).toBe("Playtest runs is set to Manual in Settings > Agent. Click Run on the card to start it.");
+    expect(PLAYTEST_RUNS_REFUSAL).toBe("Playtest runs is set to Manual in Settings > Agent. Click Start Playtest on the card to start it.");
   });
 
   it("under Automatic, may run it with pie.script_run", () => {

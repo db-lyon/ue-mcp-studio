@@ -218,7 +218,10 @@ nav { display: flex; align-items: stretch; height: 100%; gap: 2px; overflow-x: a
 }
 .tab:hover:not(:disabled) { background: transparent; color: var(--text); border-color: transparent; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+/* The page under the bar. The chat, kept while another tab is up, is parked over it unseen in the same box. */
+.stage { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 main { flex: 1; overflow: auto; padding: 18px; min-height: 0; }
+main.parked { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .spacer { flex: 1; }
 
 .chip {
@@ -849,7 +852,6 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-override { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .qa-assignment { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .qa-assignment-live { color: var(--accent); }
-.prose-playtest { gap: 8px; margin: -2px 0 8px; align-items: center; flex-wrap: wrap; }
 .qa-player { flex-shrink: 0; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
 .qa-card.state-draft { border-style: dashed; }
 .qa-script-path { overflow-wrap: anywhere; margin-top: -4px; }

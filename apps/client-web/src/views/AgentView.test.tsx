@@ -24,7 +24,7 @@ describe("Settings > Agent: Playtest runs", () => {
     await act(async () => void render(<AgentView />));
     const manual = screen.getByRole("radio", { name: /^Manual/ }) as HTMLInputElement;
     expect(manual.checked).toBe(true);
-    expect(screen.getByText("Playtests run only when you click Run or Assign to subagent.")).toBeTruthy();
+    expect(screen.getByText("Playtests run only when you click Start Playtest or Assign to subagent.")).toBeTruthy();
     expect(screen.getByText("The agent can start playtests itself.")).toBeTruthy();
   });
 
