@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
@@ -12,7 +12,8 @@ import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
 import { Approvals } from "../chat/Approvals";
-import { SessionForms } from "../chat/Forms";
+import { FormCards, useForms } from "../chat/Forms";
+import { OutsideRuns, QaContext, useOutsideRuns } from "../chat/Qa";
 import { DialogCards } from "../chat/Dialogs";
 import { useDialogs } from "../chat/dialog-model";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
@@ -245,6 +246,14 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
   const dialogs = useDialogs(daemon);
+  const forms = useForms(daemon, detail?.id ?? null);
+  const outside = useOutsideRuns(daemon.events, daemon.streaming);
+  const qaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms }), [daemon.events, daemon.streaming, forms]);
+  /** The runs with a card on screen, so their verdict forms are answered there. */
+  const qaRuns = useMemo(() => new Set([
+    ...(detail?.transcript ?? []).flatMap((t) => (t.kind === "qa" ? [t.run.runId] : [])),
+    ...outside.runs.map((r) => r.runId),
+  ]), [detail?.transcript, outside.runs]);
   const assetLinks = useAssetLinks(detail?.id ?? null);
   const live = sessions.filter((s) => !s.archived);
   const archived = sessions.filter((s) => s.archived);
@@ -342,6 +351,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
           </div>
         )}
         {detail && (
+          <QaContext.Provider value={qaLive}>
           <SessionIdContext.Provider value={detail.id}>
           <AssetLinksContext.Provider value={assetLinks}>
           <AssetTranscriptContext.Provider value={detail.transcript}>
@@ -378,7 +388,8 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
             />
             <DialogCards dialogs={(dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === detail.id)} now={dialogs.now()} />
             <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
-            <SessionForms daemon={daemon} sessionId={detail.id} />
+            <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
+            <FormCards forms={forms} runs={qaRuns} />
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
             <Composer
               draft={draft}
@@ -406,6 +417,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
           </AssetTranscriptContext.Provider>
           </AssetLinksContext.Provider>
           </SessionIdContext.Provider>
+          </QaContext.Provider>
         )}
       </section>
     </div>

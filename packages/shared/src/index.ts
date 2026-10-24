@@ -6,6 +6,8 @@
 /** Name the agent registers its routes under: /v1/ext/studio/... */
 export const EXTENSION_NAME = "studio";
 
+import type { QaRun } from "./qa.js";
+
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
   agentVersion: string;
@@ -204,6 +206,8 @@ export type TranscriptEntry = (
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }
   | { kind: "dialog"; dialog: EditorDialog }
+  /** A PIE test script run, drawn as its checklist. Always on the main thread, whoever started it. */
+  | { kind: "qa"; run: QaRun }
 ) & { parent?: string };
 
 export interface SessionSummary {

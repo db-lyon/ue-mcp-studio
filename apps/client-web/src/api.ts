@@ -34,6 +34,8 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
+  QaRun,
+  QaVerdict,
 } from "@ue-mcp-studio/shared";
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
@@ -163,6 +165,13 @@ export const api = {
   forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
+  qaRuns: () => call<{ runs: QaRun[] }>("GET", "/v1/ext/studio/qa/runs"),
+  qaStatus: (runId: string, sinceSeq?: number) =>
+    call<{ answer: Record<string, unknown>; run: QaRun | null }>("GET", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/status${sinceSeq === undefined ? "" : `?since_seq=${sinceSeq}`}`),
+  qaVerdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
+    call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/verdict`, note ? { step, verdict, note } : { step, verdict }),
+  qaDismiss: (runId: string) => call<void>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}`),
+  qaResultsUrl: (runId: string) => `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,
   dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),
   answerDialog: (id: string, answer: DialogAnswer) => call<void>("POST", `/v1/ext/studio/dialogs/${encodeURIComponent(id)}`, answer),
   resolveAssets: (refs: AssetRef[], sessionId: string | null) =>

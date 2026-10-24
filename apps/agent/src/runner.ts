@@ -21,6 +21,7 @@ import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSessi
 import type { QueuedMessage } from "@ue-mcp-studio/shared";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
+import type { QaBroker } from "./qa.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
 
@@ -110,6 +111,8 @@ export interface RunnerOptions {
   busy?: BusyTracker;
   /** Puts the editor dialogs a session's calls meet in the chat. */
   dialogs?: DialogBroker;
+  /** Puts the PIE test script runs a session's calls start in the chat, as checklists. */
+  qa?: QaBroker;
 }
 
 const now = (): string => new Date().toISOString();
@@ -203,7 +206,8 @@ export class AgentRunner {
   /** The host a session's tool calls run on: its editor calls are tracked when there is a busy tracker. */
   private hostFor(sessionId: string): AgentHost {
     const host = this.o.dialogs ? this.o.dialogs.wrap(this.o.host, sessionId) : this.o.host;
-    return this.o.busy ? this.o.busy.wrap(host, sessionId) : host;
+    const tracked = this.o.busy ? this.o.busy.wrap(host, sessionId) : host;
+    return this.o.qa ? this.o.qa.wrap(tracked, sessionId) : tracked;
   }
 
   /** The daemon is going down: every turn on the SDK route ends here, saying so. An API turn resumes in the next daemon. */

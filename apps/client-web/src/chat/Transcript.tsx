@@ -5,6 +5,7 @@ import remarkBreaks from "remark-breaks";
 import { lineDiff, type Attachment, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
 import { DialogLine } from "./Dialogs";
+import { QaCard } from "./Qa";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import {
   OUTCOME_LABEL,
@@ -59,6 +60,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
+  if (entry.kind === "qa") return <QaCard run={entry.run} />;
   return <ToolCall call={entry.call} />;
 });
 

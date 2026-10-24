@@ -808,6 +808,38 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .dialog-status { font-weight: 600; }
 .dialog-status.agent { color: var(--accent); }
 
+/* Test script runs: a checklist card in the transcript, live while the run goes. */
+.qa-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; min-width: 0; }
+.qa-card.state-awaiting_verdict { border-color: var(--accent-line); background: var(--accent-wash); }
+.qa-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.qa-title { font-size: 14px; overflow-wrap: anywhere; }
+.qa-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.qa-step { border-left: 2px solid var(--line-strong); padding: 5px 0 5px 10px; display: flex; flex-direction: column; gap: 4px; }
+.qa-step.ok { border-left-color: var(--ok); }
+.qa-step.bad { border-left-color: var(--bad); }
+.qa-step.warn { border-left-color: var(--warn); }
+.qa-step.run { border-left-color: var(--accent); }
+.qa-step-row { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.qa-num { width: 1.6em; flex-shrink: 0; text-align: right; }
+.qa-instruction { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.qa-judge { flex-shrink: 0; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; font-size: 10px; }
+.qa-judge.manual { color: var(--accent); }
+.qa-status { flex-shrink: 0; color: var(--muted); white-space: nowrap; }
+.qa-status.ok { color: var(--ok); }
+.qa-status.bad { color: var(--bad); }
+.qa-status.warn { color: var(--warn); font-weight: 600; }
+.qa-status.run { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.qa-status[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+.qa-expect, .qa-evidence, .qa-note, .qa-verdict { margin-left: calc(1.6em + 8px); }
+.qa-evidence { color: var(--bad-text); white-space: pre-wrap; }
+.qa-note { color: var(--muted); font-style: italic; }
+.qa-verdict { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.qa-note-input { flex: 1 1 180px; min-width: 0; }
+.qa-verdict button.picked { border-color: var(--accent); color: var(--text); }
+.qa-verdict button.verdict-pass:hover:not(:disabled) { border-color: var(--ok); }
+.qa-verdict button.verdict-fail:hover:not(:disabled) { border-color: var(--bad); }
+.qa-summary { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; border-top: 1px solid var(--line); padding-top: 8px; }
+
 /* Top bar: its tools in a row when wide. Narrow, a menu button and the current tab's name,
    with navigation in a drawer that slides over the page (App.tsx picks which by width). */
 .bar-tools { display: flex; align-items: center; gap: 4px; }
