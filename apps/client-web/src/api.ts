@@ -15,6 +15,7 @@ import type {
   FeedbackReport,
   FeedbackResult,
   ModelCatalog,
+  FlowRunRequest,
   PlaytestRequest,
   QueuedMessage,
   SessionDetail,
@@ -146,6 +147,8 @@ export const api = {
   saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
   send: (id: string, text: string, attachments: string[] = [], now = false) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),
+  flow: (id: string, request: FlowRunRequest) =>
+    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/flow`, request),
   playtest: (id: string, request: PlaytestRequest) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/playtest`, request),
   queue: (id: string, text: string, attachments: string[] = []) =>

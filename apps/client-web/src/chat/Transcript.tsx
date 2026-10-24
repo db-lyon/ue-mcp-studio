@@ -7,6 +7,7 @@ import { DiffView } from "./Diff";
 import { breakable } from "./breakable";
 import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
+import { FlowCard } from "./FlowCommand";
 import { offerConversion } from "./prose-playtest";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import {
@@ -81,6 +82,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
       : <PlaytestProgress entry={entry} />;
   }
   if (entry.kind === "playtest-failed") return <PlaytestFailed errors={[entry.reason]} request={entry.request} />;
+  if (entry.kind === "flow") return <FlowCard entry={entry} />;
   return <ToolCall call={entry.call} />;
 });
 
