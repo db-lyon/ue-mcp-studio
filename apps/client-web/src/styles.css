@@ -1141,3 +1141,5 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .timeline-mark.attempt .timeline-dot { background: var(--ok); }
 .timeline-mark.undone { opacity: 0.6; }
 .timeline-label { min-width: 0; overflow-wrap: anywhere; }
+.playtest-budget input.tokens { width: 9em; }
+.playtest-budget input.minutes { width: 5em; }

@@ -35,7 +35,7 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
-  QaRun, QaScriptStep, PlaytestRunsMode,
+  QaRun, QaScriptStep, PlaytestRunsMode, PlaytestBudget,
   QaVerdict,
   CheckpointChange,
   RestoreOutcome,
@@ -172,7 +172,7 @@ export const api = {
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
   agentSettings: () => call<AgentSettings>("GET", "/v1/ext/studio/agent-settings"),
-  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>) => call<AgentSettings>("PUT", "/v1/ext/studio/agent-settings", u),
+  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; playtestBudget: PlaytestBudget }>) => call<AgentSettings>("PUT", "/v1/ext/studio/agent-settings", u),
   forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),

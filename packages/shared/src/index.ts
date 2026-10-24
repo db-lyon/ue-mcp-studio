@@ -6,7 +6,7 @@
 /** Name the agent registers its routes under: /v1/ext/studio/... */
 export const EXTENSION_NAME = "studio";
 
-import type { QaRun } from "./qa.js";
+import type { PlaytestBudget, QaRun } from "./qa.js";
 import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 
@@ -643,6 +643,8 @@ export interface AgentSettings {
   dialogMode: { mode: DialogMode | null; project: boolean } | null;
   /** Playtest runs: who starts a playtest's run. Absent from an older agent. */
   playtestRuns?: PlaytestRunsMode;
+  /** What one Assign to subagent loop may spend before it stops. Absent from an older agent. */
+  playtestBudget?: PlaytestBudget;
   restarting?: boolean;
 }
 

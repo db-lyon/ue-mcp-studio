@@ -47,6 +47,30 @@ describe("Settings > Agent: Playtest runs", () => {
   });
 });
 
+describe("Settings > Agent: the Assign to subagent budget", () => {
+  it("shows the budget beside Playtest runs and saves a change on Enter", async () => {
+    m.agentSettings.mockResolvedValue({ ...agent("manual"), playtestBudget: { minutes: 60, tokens: 2_000_000 } });
+    m.saveAgentSettings.mockImplementation(async (u: Record<string, unknown>) => ({ ...agent("manual"), playtestBudget: u.playtestBudget }));
+    await act(async () => void render(<AgentView />));
+    const minutes = screen.getByLabelText("Minutes per loop") as HTMLInputElement;
+    const tokens = screen.getByLabelText("Tokens per loop") as HTMLInputElement;
+    expect([minutes.value, tokens.value]).toEqual(["60", "2000000"]);
+    fireEvent.change(minutes, { target: { value: "20" } });
+    await act(async () => void fireEvent.keyDown(minutes, { key: "Enter" }));
+    expect(m.saveAgentSettings).toHaveBeenCalledWith({ playtestBudget: { minutes: 20, tokens: 2_000_000 } });
+  });
+
+  it("does not save a budget out of range, and says why", async () => {
+    m.agentSettings.mockResolvedValue({ ...agent("manual"), playtestBudget: { minutes: 60, tokens: 2_000_000 } });
+    await act(async () => void render(<AgentView />));
+    const tokens = screen.getByLabelText("Tokens per loop") as HTMLInputElement;
+    fireEvent.change(tokens, { target: { value: "0" } });
+    fireEvent.blur(tokens);
+    expect(m.saveAgentSettings).not.toHaveBeenCalled();
+    expect(screen.getByText(/Minutes from 1 to 1440/)).toBeTruthy();
+  });
+});
+
 describe("Settings > Agent: Review each turn", () => {
   it("is on by default and saves off", async () => {
     m.agentSettings.mockResolvedValue(agent("manual"));
