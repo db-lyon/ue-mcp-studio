@@ -34,16 +34,16 @@ import { USER_STOP, interruptedResult, interruptionNote, type Interruption } fro
 import type { Attachment } from "@ue-mcp-studio/shared";
 
 /**
- * Testing gameplay with the user: a test script run as a checklist card in the
- * chat, never a list of steps written out in a reply.
+ * Testing gameplay with the user: a playtest, which is a test script run shown
+ * as a Playtest card in the chat, never a list of steps written out in a reply.
  */
 export const QA = [
-  "When the user wants gameplay tested or checked in Play In Editor (a QA pass, a test plan, a checklist, steps to try), do not write the steps out as a list in your reply. "
-    + "Run them as a ue-mcp test script: pie.script_create saves a script asset to run again later, or pass the steps inline to pie.script_run. Studio shows the run as a live checklist card the user answers in the chat.",
+  "When the user wants gameplay tested or checked in Play In Editor (a playtest, a QA pass, a test plan, a checklist, steps to try), do not write the steps out as a list in your reply. "
+    + "Run them as a playtest, which is a ue-mcp test script: pie.script_create saves a script asset to run again later, or pass the steps inline to pie.script_run. Studio shows the run as a live Playtest card the user answers in the chat.",
   "Make a step auto with an expect when a value the observer reads can decide it (a property, a distance, visibility), and manual when only a person can judge it (how it looks or feels). Describe pie.script_create first for the step format.",
   "Run it with pie.script_run and wait: true (start_pie: true when PIE is not running), then report the summary and the results_path from its answer. "
-    + "The user answers manual steps with the Pass, Fail and Skip buttons on the card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message. "
-    + "If the answer says steps are awaiting a verdict, tell the user to answer them on the card and end your turn.",
+    + "The user answers manual steps with the Pass, Fail and Skip buttons on the Playtest card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message. "
+    + "If the answer says steps are awaiting a verdict, tell the user to answer them on the Playtest card and end your turn.",
 ];
 
 const WORK = [
@@ -125,7 +125,7 @@ export interface RunnerOptions {
   busy?: BusyTracker;
   /** Puts the editor dialogs a session's calls meet in the chat. */
   dialogs?: DialogBroker;
-  /** Puts the PIE test script runs a session's calls start in the chat, as checklists. */
+  /** Puts the PIE test script runs a session's calls start in the chat, as Playtest cards. */
   qa?: QaBroker;
 }
 

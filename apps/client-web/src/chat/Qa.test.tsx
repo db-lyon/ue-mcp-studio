@@ -51,9 +51,11 @@ function mount(run: QaRun, live: Partial<QaLive> = {}) {
 const step = (n: number) => screen.getAllByRole("listitem")[n];
 
 describe("the checklist card", () => {
-  it("lists each step's instruction, judge and status", () => {
+  it("is titled Playtest and lists each step's instruction, judge and status", () => {
     mount(runOf());
     expect(screen.getByText("DoorOpens")).toBeTruthy();
+    expect(screen.getByText("Playtest")).toBeTruthy();
+    expect(screen.getByRole("group", { name: "Playtest DoorOpens" })).toBeTruthy();
     expect(step(0).textContent).toContain("Walk up to the door");
     expect(within(step(0)).getByText("auto")).toBeTruthy();
     expect(within(step(2)).getByText("manual")).toBeTruthy();

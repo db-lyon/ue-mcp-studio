@@ -1,5 +1,5 @@
 /**
- * A PIE test script run as a checklist card: each step's instruction, whether
+ * A playtest: a PIE test script run as a card of named steps, each with whether
  * the observer or a person judges it, its live status, and Pass, Fail and Skip
  * on the manual steps. The card starts from the run Studio saved and applies
  * the script.* events on the daemon's stream itself; after the stream drops it
@@ -141,7 +141,7 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
   // Asked while the user is elsewhere: flash the window, as an editor dialog does.
   const wants = waiting.length > 0;
   useEffect(() => {
-    if (wants && !document.hasFocus()) void native().drawattention?.(`A test step is waiting for your verdict: ${run.scriptName}`).catch(() => false);
+    if (wants && !document.hasFocus()) void native().drawattention?.(`A playtest step is waiting for your verdict: ${run.scriptName}`).catch(() => false);
   }, [wants, run.runId]);
   // A step that settled is no longer being sent.
   useEffect(() => {
@@ -190,9 +190,9 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
   const partial = Object.keys(picked).length > 0;
 
   return (
-    <div className={`qa-card card state-${run.state}`} role="group" aria-label={`Test script ${run.scriptName}`}>
+    <div className={`qa-card card state-${run.state}`} role="group" aria-label={`Playtest ${run.scriptName}`}>
       <div className="qa-head">
-        <span className="eyebrow">{run.replayOf ? "Test script replay" : "Test script"}</span>
+        <span className="eyebrow">{run.replayOf ? "Playtest replay" : "Playtest"}</span>
         <strong className="qa-title">{run.scriptName}</strong>
         {run.subagent && <span className="dim small">run by {run.subagent}</span>}
         <span className="spacer" />
@@ -315,7 +315,7 @@ export function useOutsideRuns(events: DaemonEvent[], streaming: boolean): { run
 export function OutsideRuns({ runs, onDismiss }: { runs: QaRun[]; onDismiss: (runId: string) => void }) {
   if (runs.length === 0) return null;
   return (
-    <div className="approvals qa-outside" role="region" aria-label="Test script runs">
+    <div className="approvals qa-outside" role="region" aria-label="Playtests">
       {runs.map((r) => <QaCard key={r.runId} run={r} onDismiss={() => onDismiss(r.runId)} />)}
     </div>
   );

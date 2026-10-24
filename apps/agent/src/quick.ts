@@ -119,7 +119,7 @@ export function quickThread(d: SessionDetail, streaming = ""): QuickThread {
   const needsYou = d.approvals.length
     ? d.approvals.length === 1 ? "An action is waiting for your approval." : `${d.approvals.length} actions are waiting for your approval.`
     : asking ? "An editor dialog is waiting for you."
-    : verdicts ? (verdicts === 1 ? "A test step is waiting for your verdict." : `${verdicts} test steps are waiting for your verdict.`)
+    : verdicts ? (verdicts === 1 ? "A playtest step is waiting for your verdict." : `${verdicts} playtest steps are waiting for your verdict.`)
     : d.status === "waiting" && d.waitingCause ? d.waitingCause : null;
   const reply = streaming || (said.length ? said[said.length - 1].text : "");
   return {
