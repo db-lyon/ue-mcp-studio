@@ -43,7 +43,7 @@ export interface FailingStep {
   index: number;
   /** What makes two failures "the same way". */
   signature: string;
-  /** "Step 2 (Open the door): ..." */
+  /** Such as "Step 2 (Open the door) failed." with its evidence. */
   line: string;
 }
 
