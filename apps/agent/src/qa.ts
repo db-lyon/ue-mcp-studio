@@ -5,8 +5,9 @@
  *   GET    /qa/runs/:id/status          the run read again: pie(script_status), with since_seq when given
  *   POST   /qa/runs/:id/verdict         a manual step's verdict: { step, verdict: pass | fail | skip, note? }
  *   GET    /qa/runs/:id/results         the run's results.json
- *   POST   /qa/runs/:id/assign          hand the playtest to a subagent: { sessionId? } for a run started elsewhere
- *   DELETE /qa/runs/:id/assign          cancel that subagent
+ *   POST   /qa/runs/:id/assign          hand the playtest to a subagent loop: { sessionId? } for a run started elsewhere
+ *   DELETE /qa/runs/:id/assign          cancel the loop
+ *   POST   /qa/runs/:id/loop/revert     revert the loop's changes: { attempt? }, every attempt's when none is named
  *   POST   /qa/runs/:id/run             Start Playtest on a draft's card: { startPie?, players?, listen?, record? }
  *   PUT    /qa/runs/:id/script          Edit on a draft's card: { steps }, saved with pie(script_update)
  *   DELETE /qa/runs/:id/script          Delete on a draft's card: pie(script_delete)
@@ -31,6 +32,7 @@
  * call that started the run did. A run started elsewhere is only read with
  * script_results, which leaves its follower alone.
  */
+import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
@@ -47,12 +49,15 @@ import {
   qaScriptKey,
   PLAYTEST_RUNS_REFUSAL,
   QA_VERDICTS,
+  type PlaytestBudget,
+  type QaLoop,
   type QaRun,
   type QaVerdict,
+  type RestoreOutcome,
 } from "@ue-mcp-studio/shared";
+import { PlaytestLoop, attentionText, type LoopCheckpoints } from "./playtest-loop.js";
 import { ELICIT_FEATURE, type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import type { SessionStore } from "./sessions.js";
-import { playtestBrief, playtestDescription } from "./playtest-brief.js";
 import type { AgentHost } from "./tools.js";
 import type { PlaytestStore } from "./playtest-store.js";
 
@@ -73,8 +78,24 @@ export interface QaHost {
 
 /** Starts and stops the subagent a playtest is assigned to: the runner's assignSubagent and stopSubagent. */
 export interface QaAssigner {
-  assign(sessionId: string, description: string, prompt: string): { callId: string; done: Promise<{ isError: boolean; stopped?: boolean }> };
+  assign(sessionId: string, description: string, prompt: string): { callId: string; done: Promise<{ isError: boolean; stopped?: boolean; text?: string }> };
   stop(sessionId: string, callId: string): boolean;
+  /** Tokens an agent call has spent. */
+  tokens?(callId: string): number;
+}
+
+/** What the playtest loop needs beside the assigner: checkpoints, the budget, and who to tell when it needs the user. */
+export interface QaLoopSupport {
+  checkpoints: LoopCheckpoints & { unavailable(): string | null };
+  budget: () => PlaytestBudget;
+  /** Why a session cannot take checkpoints, such as its review switch being off; null when it can. */
+  blocked?: (sessionId: string) => string | null;
+  /** A loop needs the user: the Windows notification and anything else beside the card. */
+  notify?: (sessionId: string, loop: QaLoop, run: QaRun) => void;
+  /** How often a running attempt's budget is checked, in ms. */
+  tickMs?: number;
+  /** The clock the time budget is measured on. */
+  now?: () => number;
 }
 
 export interface QaBrokerOptions {
@@ -84,6 +105,8 @@ export interface QaBrokerOptions {
   assigner?: QaAssigner;
   /** The Playtest runs setting and each script's players; without it agent runs are allowed and steps have no players. */
   playtests?: PlaytestStore;
+  /** The playtest loop's checkpoints and budget; without it Assign to subagent says why it cannot start. */
+  loop?: QaLoopSupport;
   now?: () => string;
 }
 
@@ -147,6 +170,8 @@ export class QaBroker {
   private readonly reading = new Map<string, Array<{ type: string; data: Record<string, unknown> }>>();
   /** Runs started elsewhere that the user took off the chat. */
   private readonly dismissed = new Set<string>();
+  /** Playtest loops running in this daemon, by loop id. */
+  private readonly loops = new Map<string, PlaytestLoop>();
   private readonly now: () => string;
   private readonly unsubscribe: () => void;
 
@@ -157,7 +182,8 @@ export class QaBroker {
         if (t.kind !== "qa") continue;
         // A subagent runs in one daemon only: one this process did not start is over.
         if (t.run.assignment?.state === "running") {
-          t.run = { ...t.run, assignment: { ...t.run.assignment, state: "stopped" } };
+          const loop = t.run.assignment.loop;
+          t.run = { ...t.run, assignment: { ...t.run.assignment, state: "stopped", ...(loop ? { loop: { ...loop, state: loop.state === "running" ? "stopped" : loop.state } } : {}) } };
           o.store.save(s);
         }
         this.runs.set(t.run.runId, t.run);
@@ -452,32 +478,128 @@ export class QaBroker {
     this.o.assigner = assigner;
   }
 
+  setLoopSupport(loop: QaLoopSupport): void {
+    this.o.loop = loop;
+  }
+
   /**
-   * Hand a playtest to a subagent that drives PIE for the user: it runs the
-   * auto steps and judges the manual steps it may judge, with evidence. The
-   * thread is in the run's session, or the session the user has open for a
-   * run started elsewhere.
+   * Hand a playtest to a subagent loop that makes it pass: attempts that run
+   * it, read why steps failed, change the project and run it again, each
+   * between checkpoints, until every step passes or a hard blocker stops it
+   * (playtest-loop.ts). The threads are in the run's session, or the session
+   * the user has open for a run started elsewhere. Without checkpoints the
+   * loop does not start, and the answer says why.
    */
-  assign(runId: string, body: unknown): { run: QaRun } | { error: string; status: number } {
+  async assign(runId: string, body: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     if (!run) return { error: `Studio has no run ${runId}`, status: 404 };
     const asked = (body as { sessionId?: unknown } | undefined)?.sessionId;
     const sessionId = run.sessionId ?? (typeof asked === "string" ? asked : null);
     if (!sessionId || !this.o.store.get(sessionId)) return { error: "open a session to run the subagent in", status: 400 };
-    if (!this.o.assigner) return { error: "subagents are not available", status: 409 };
+    const assigner = this.o.assigner;
+    if (!assigner) return { error: "subagents are not available", status: 409 };
     if (run.assignment?.state === "running") return { error: "a subagent is already running this playtest", status: 409 };
-    const { callId, done } = this.o.assigner.assign(sessionId, playtestDescription(run), playtestBrief(run));
-    const next: QaRun = { ...run, assignment: { callId, sessionId, state: "running", at: this.now() } };
-    this.save(next);
-    void done.then((r) => this.assignmentEnded(runId, callId, r.stopped ? "stopped" : r.isError ? "failed" : "done"));
-    return { run: next };
+    const support = this.o.loop;
+    const why = !support ? "Assign to subagent needs checkpoints, and this Studio has none to give it." : support.checkpoints.unavailable() ?? support.blocked?.(sessionId) ?? null;
+    if (why) return { error: `The loop did not start. ${why}`, status: 409 };
+    let baseline: string;
+    try {
+      baseline = (await support!.checkpoints.checkpoint(`Playtest ${run.scriptName}: before the loop`)).id;
+    } catch (e) {
+      return { error: `The loop did not start: its first checkpoint failed. ${e instanceof Error ? e.message : String(e)}`, status: 409 };
+    }
+    const current = this.runs.get(runId) ?? run;
+    const loop = new PlaytestLoop({
+      card: {
+        holder: (id) => this.loopHolder(id),
+        refresh: async (id) => {
+          const r = await this.status(id);
+          return "run" in r ? r.run : null;
+        },
+        save: (id, l, state, callId) => this.saveLoop(id, l, state, callId),
+        transcript: (sid) => this.o.store.get(sid)?.transcript ?? [],
+      },
+      checkpoints: support!.checkpoints,
+      agents: { assign: (sid, d, p) => assigner.assign(sid, d, p), stop: (sid, c) => assigner.stop(sid, c), tokens: (c) => assigner.tokens?.(c) ?? 0 },
+      events: this.o.host.events,
+      projectDir: this.o.host.projectDir,
+      notify: (sid, l, r) => this.needsYou(sid, l, r),
+      ...(support!.tickMs ? { tickMs: support!.tickMs } : {}),
+      ...(support!.now ? { now: support!.now } : {}),
+      log: this.o.host.log,
+    }, sessionId, baseline, support!.budget(), crypto.randomUUID());
+    this.loops.set(loop.loop.id, loop);
+    this.save({ ...current, assignment: { callId: "", sessionId, state: "running", at: this.now(), loop: { ...loop.loop } } });
+    void loop.start().finally(() => this.loops.delete(loop.loop.id));
+    return { run: this.loopHolder(loop.loop.id) ?? current };
   }
 
-  /** Stop the subagent a playtest is assigned to. */
+  /** The run that holds a loop: the card, which each attempt's run takes over. */
+  private loopHolder(loopId: string): QaRun | undefined {
+    // The newest run that carries it: an attempt's run that got a card of its own holds it from then on.
+    return [...this.runs.values()].filter((r) => r.assignment?.loop?.id === loopId && !r.deleted).pop();
+  }
+
+  private saveLoop(loopId: string, loop: QaLoop, state: "running" | "done" | "failed" | "stopped", callId?: string): void {
+    const run = this.loopHolder(loopId);
+    if (!run?.assignment) return;
+    this.save({ ...run, assignment: { ...run.assignment, callId: callId ?? run.assignment.callId, state, loop: JSON.parse(JSON.stringify(loop)) as QaLoop } });
+  }
+
+  /** A loop stopped for the user: a note for the agent's next turn, and the attention event Studio's window notifies with. */
+  private needsYou(sessionId: string, loop: QaLoop, run: QaRun): void {
+    const s = this.o.store.get(sessionId);
+    if (s) {
+      s.notes.push(`The playtest loop on "${run.scriptName}" stopped after ${loop.attempts.length} attempt${loop.attempts.length === 1 ? "" : "s"} and needs the user: ${loop.blocker?.reason ?? ""}`);
+      this.o.store.save(s);
+    }
+    this.o.host.events.publish("qa.attention", { sessionId, runId: run.runId, loopId: loop.id, title: "Playtest needs you", text: attentionText(run, loop) });
+    this.o.loop?.notify?.(sessionId, loop, run);
+  }
+
+  /**
+   * Revert a finished loop's changes: one attempt's paths back to the
+   * checkpoint before it, or every attempt's back to the checkpoint before the
+   * loop. Each revert is a restore the timeline can undo.
+   */
+  async revertLoop(runId: string, body: unknown): Promise<{ run: QaRun; outcome: RestoreOutcome } | { error: string; status: number }> {
+    const run = this.runs.get(runId);
+    const loop = run?.assignment?.loop;
+    if (!run || !loop) return { error: "this playtest has no loop", status: 404 };
+    if (loop.state === "running") return { error: "the loop is still running: cancel it first", status: 409 };
+    const support = this.o.loop;
+    if (!support) return { error: "this Studio has no checkpoints", status: 409 };
+    const n = (body as { attempt?: unknown } | undefined)?.attempt;
+    const attempt = n === undefined ? null : loop.attempts.find((a) => a.n === n);
+    if (n !== undefined && !attempt) return { error: `the loop has no attempt ${String(n)}`, status: 404 };
+    const targets = attempt ? [attempt] : loop.attempts.filter((a) => !a.reverted);
+    const paths = [...new Set(targets.flatMap((a) => a.changes.map((c) => c.path)))];
+    if (paths.length === 0) return { error: "nothing to revert", status: 409 };
+    let outcome: RestoreOutcome & { before: string; after: string };
+    try {
+      outcome = await support.checkpoints.restore(attempt ? attempt.before : loop.baseline, paths);
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e), status: 409 };
+    }
+    const next: QaLoop = JSON.parse(JSON.stringify(loop)) as QaLoop;
+    for (const a of next.attempts) if (targets.some((t) => t.n === a.n)) a.reverted = true;
+    if (!attempt) next.reverted = true;
+    if (run.sessionId) support.checkpoints.mark(run.sessionId, { checkpoint: outcome.after, label: attempt ? `Reverted ${run.scriptName}, attempt ${attempt.n}` : `Reverted every change the ${run.scriptName} loop made`, at: this.now(), kind: "restore", undo: outcome.before });
+    const saved: QaRun = { ...run, assignment: { ...run.assignment!, loop: next } };
+    this.save(saved);
+    return { run: this.runs.get(saved.runId) ?? saved, outcome };
+  }
+
+  /** Stop the loop, or the subagent, a playtest is assigned to. */
   cancel(runId: string): { run: QaRun } | { error: string; status: number } {
     const run = this.runs.get(runId);
     const a = run?.assignment;
     if (!run || !a || a.state !== "running") return { error: "no subagent is running this playtest", status: 404 };
+    const loop = a.loop ? this.loops.get(a.loop.id) : undefined;
+    if (loop) {
+      loop.cancel();
+      return { run: this.runs.get(runId) ?? run };
+    }
     if (!this.o.assigner?.stop(a.sessionId, a.callId)) {
       this.assignmentEnded(runId, a.callId, "stopped");
       return { run: this.runs.get(runId)! };
@@ -566,6 +688,12 @@ export class QaBroker {
   /** Keep the run, its line in its session's transcript, and tell the UI. */
   private save(run: QaRun): void {
     run = this.withPlayers(run);
+    // Stopped only for a person's verdict: once every step has passed, the loop passed.
+    const l = run.assignment?.loop;
+    if (l?.state === "needs_you" && l.blocker?.kind === "verdict" && run.steps.length > 0 && run.steps.every((x) => x.status === "passed")) {
+      const { blocker: _done, ...rest } = l;
+      run = { ...run, assignment: { ...run.assignment!, loop: { ...rest, state: "passed" } } };
+    }
     this.runs.set(run.runId, run);
     const s = run.sessionId ? this.o.store.get(run.sessionId) : undefined;
     let replaces: string | undefined;
@@ -573,9 +701,10 @@ export class QaBroker {
       const entry = s.transcript.find((t) => t.kind === "qa" && t.run.runId === run.runId);
       // A run of a script the session has a draft of takes the draft's card, which goes live; a full run
       // takes the card of the manual run a verdict on that draft started.
+      // A run a loop's attempt starts takes the loop's card.
       const draft = entry || qaIsDraft(run) || run.script === "inline" ? undefined
         : s.transcript.find((t) => t.kind === "qa" && t.run.runId !== run.runId && qaScriptKey(t.run.script) === qaScriptKey(run.script) && !t.run.deleted
-          && ((t.run.runId === qaDraftId(run.script) && qaIsDraft(t.run)) || (t.run.manual && !run.manual)));
+          && ((t.run.runId === qaDraftId(run.script) && qaIsDraft(t.run)) || (t.run.manual && !run.manual) || (t.run.assignment?.loop?.state === "running" && !run.manual)));
       if (draft?.kind === "qa") {
         replaces = draft.run.runId;
         if (!run.assignment && draft.run.assignment?.state === "running") run = { ...run, assignment: draft.run.assignment };
@@ -623,8 +752,12 @@ export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?:
     const r = await broker.results(id(req));
     return "error" in r && typeof r.error === "string" && Object.keys(r).length === 1 ? { status: 404, body: r } : { body: r };
   });
-  api.route("POST", "/qa/runs/:id/assign", (req) => {
-    const r = broker.assign(id(req), req.body);
+  api.route("POST", "/qa/runs/:id/assign", async (req) => {
+    const r = await broker.assign(id(req), req.body);
+    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("POST", "/qa/runs/:id/loop/revert", async (req) => {
+    const r = await broker.revertLoop(id(req), req.body);
     return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
   });
   api.route("DELETE", "/qa/runs/:id/assign", (req) => {

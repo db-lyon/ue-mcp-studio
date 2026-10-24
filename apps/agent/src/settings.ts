@@ -32,6 +32,7 @@ interface StoredSettings {
   gatewayUrl: string;
   theme: StudioTheme;
   askBeforeChanges: boolean;
+  reviewTurns: boolean;
   composerHeight: number | null;
   dialogPolicy: DialogPolicy;
 }
@@ -97,11 +98,12 @@ export class SettingsStore {
         gatewayUrl: typeof raw.gatewayUrl === "string" && raw.gatewayUrl ? raw.gatewayUrl : DEFAULT_GATEWAY_URL,
         theme: STUDIO_THEMES.includes(raw.theme as StudioTheme) ? (raw.theme as StudioTheme) : "ue-mcp",
         askBeforeChanges: raw.askBeforeChanges !== false,
+        reviewTurns: raw.reviewTurns !== false,
         composerHeight: composerHeightOf(raw.composerHeight),
         dialogPolicy: dialogPolicyOf(raw.dialogPolicy) ?? DEFAULT_DIALOG_POLICY,
       };
     } catch {
-      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY };
+      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY };
     }
   }
 
@@ -165,6 +167,10 @@ export class SettingsStore {
     if (u.askBeforeChanges !== undefined) {
       if (typeof u.askBeforeChanges !== "boolean") throw new Error("askBeforeChanges must be a boolean");
       s.askBeforeChanges = u.askBeforeChanges;
+    }
+    if (u.reviewTurns !== undefined) {
+      if (typeof u.reviewTurns !== "boolean") throw new Error("reviewTurns must be a boolean");
+      s.reviewTurns = u.reviewTurns;
     }
     if (u.composerHeight !== undefined) {
       if (u.composerHeight !== null && composerHeightOf(u.composerHeight) === null) throw new Error(`composerHeight must be null or a number from 1 to ${MAX_COMPOSER_HEIGHT}`);
@@ -237,5 +243,10 @@ export class SettingsStore {
   /** Ask the user before a command runs or a file changes. On unless turned off. */
   askBeforeChanges(): boolean {
     return this.stored().askBeforeChanges;
+  }
+
+  /** Review each turn's changes, for sessions that have not set their own. On unless turned off. */
+  reviewTurns(): boolean {
+    return this.stored().reviewTurns;
   }
 }

@@ -6,6 +6,7 @@
  */
 import type { ContentBlock, ModelProvider, ModelRequest, ModelTurn, MessageParam } from "./providers.js";
 import { geminiEffort, openaiEffort } from "./effort.js";
+import { openaiUsage, type TokenUsage } from "./usage.js";
 
 export const OPENAI_BASE_URLS = {
   openai: "https://api.openai.com/v1",
@@ -88,7 +89,7 @@ export function toChatRequest(req: ModelRequest): Record<string, unknown> {
     return { type: "function", function: { name: tool.name, description: tool.description ?? "", parameters: tool.input_schema ?? { type: "object" } } };
   });
   const effort = openaiEffort(req.model, req.effort) ?? geminiEffort(req.model, req.effort);
-  return { model: req.model, messages, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}), stream: true };
+  return { model: req.model, messages, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}), stream: true, stream_options: { include_usage: true } };
 }
 
 const STOP: Record<string, string> = { tool_calls: "tool_use", stop: "end_turn", length: "max_tokens", content_filter: "refusal" };
@@ -108,12 +109,15 @@ interface Delta {
 export async function readChatStream(lines: AsyncIterable<string>, onText: (text: string) => void): Promise<ModelTurn> {
   let text = "";
   let finish: string | null = null;
+  let usage: TokenUsage | undefined;
   const calls: Array<{ id?: string; name: string; args: string; extra?: unknown }> = [];
   for await (const line of lines) {
     if (!line.startsWith("data:")) continue;
     const data = line.slice(5).trim();
     if (data === "[DONE]") break;
-    const chunk = JSON.parse(data) as { choices?: Array<{ delta?: Delta; finish_reason?: string | null }> };
+    const chunk = JSON.parse(data) as { choices?: Array<{ delta?: Delta; finish_reason?: string | null }>; usage?: unknown };
+    // With include_usage the last chunk carries the usage and no choices.
+    if (chunk.usage) usage = openaiUsage(chunk.usage);
     const choice = chunk.choices?.[0];
     if (!choice) continue;
     const d = choice.delta ?? {};
@@ -147,6 +151,7 @@ export async function readChatStream(lines: AsyncIterable<string>, onText: (text
     content: content as unknown as ContentBlock[],
     stopReason,
     refusal: stopReason === "refusal" ? "the provider's content filter" : undefined,
+    ...(usage ? { usage } : {}),
   };
 }
 

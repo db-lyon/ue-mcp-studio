@@ -54,6 +54,12 @@ export interface QaStep {
   /** Replay runs: the step's status in the source run, and whether it passed there and failed here. */
   sourceStatus?: QaStepStatus;
   regression?: boolean;
+  /**
+   * The step's arrange and act, as a script step carries them (db-lyon/ue-mcp#1507): the
+   * engine sets the step up and drives it, so nobody injects input for it. Kept as given.
+   */
+  arrange?: unknown;
+  act?: unknown;
 }
 
 export interface QaSummary {
@@ -105,11 +111,88 @@ export interface QaRun {
 
 /** A playtest handed to a subagent: its agent call, which is its thread, and how it is going. */
 export interface QaAssignment {
+  /** The agent call running now: the loop's current attempt. */
   callId: string;
   sessionId: string;
   state: "running" | "done" | "failed" | "stopped";
   at: string;
+  /** Assign to subagent loops until the playtest passes or a hard blocker stops it. */
+  loop?: QaLoop;
 }
+
+/** Why a playtest loop stopped for the user. */
+export type QaBlockerKind =
+  | "verdict"
+  | "no_progress"
+  | "contradiction"
+  | "refused"
+  | "outside_project"
+  | "needs_person"
+  | "crashes"
+  | "builds"
+  | "budget";
+
+export interface QaBlocker {
+  kind: QaBlockerKind;
+  reason: string;
+  /** What shows it: the steps' evidence, the refused call, the agent's words. */
+  evidence: string[];
+  /** The step it is about, when there is one. */
+  step?: number;
+}
+
+/** A change one attempt made, as the card lists it. */
+export interface QaLoopChange {
+  path: string;
+  status: "added" | "modified" | "deleted";
+}
+
+/** One pass of the loop: a subagent that fixes what failed (from the second on) and runs the playtest. */
+export interface QaLoopAttempt {
+  n: number;
+  callId: string;
+  /** The run this attempt started. */
+  runId?: string;
+  /** The checkpoints around it: per-attempt revert restores its changes to `before`. */
+  before: string;
+  after?: string;
+  changes: QaLoopChange[];
+  /** The steps not passing at its end, as "Step n: why". */
+  failing: string[];
+  startedAt: string;
+  endedAt?: string;
+  tokens: number;
+  reverted?: boolean;
+}
+
+/** Time and tokens a loop may spend, from Settings > Agent. */
+export interface PlaytestBudget {
+  minutes: number;
+  tokens: number;
+}
+export const DEFAULT_PLAYTEST_BUDGET: PlaytestBudget = { minutes: 60, tokens: 2_000_000 };
+
+export interface QaLoop {
+  id: string;
+  /** running; passed: every step passed; needs_you: a hard blocker; stopped: Cancel; failed: the loop itself broke. */
+  state: "running" | "passed" | "needs_you" | "stopped" | "failed";
+  attempts: QaLoopAttempt[];
+  /** The checkpoint before the first attempt: Revert all restores to it. */
+  baseline: string;
+  blocker?: QaBlocker;
+  /** Why the loop broke, when it failed. */
+  error?: string;
+  budget: PlaytestBudget;
+  /** Tokens every attempt spent so far. */
+  tokens: number;
+  startedAt: string;
+  endedAt?: string;
+  /** Revert all ran. */
+  reverted?: boolean;
+}
+
+/** Whether a step's run carries an act, so the engine drives it. */
+export const qaActs = (s: QaStep): boolean => s.act !== undefined && s.act !== null && !(Array.isArray(s.act) && s.act.length === 0);
 
 /** The answer actions a manual step takes. */
 export const QA_VERDICTS: readonly QaVerdict[] = ["pass", "fail", "skip"];
@@ -152,6 +235,8 @@ function stepPatchSnake(s: Obj): Partial<QaStep> {
     agentJudgeable: typeof s.agent_judgeable === "boolean" ? s.agent_judgeable : undefined,
     sourceStatus: stepStatus(s.source_status),
     regression: typeof s.regression === "boolean" ? s.regression : undefined,
+    arrange: s.arrange ?? undefined,
+    act: s.act ?? undefined,
   });
 }
 
@@ -429,7 +514,8 @@ export const qaAgentMayJudge = (s: QaStep): boolean => s.judge === "manual" && s
  * auto step that failed and might pass with the pawn driven.
  */
 export function qaAssignable(run: QaRun): boolean {
-  return run.steps.some((s) => (!qaSettled(s.status) && (s.judge === "auto" || qaAgentMayJudge(s))) || (s.judge === "auto" && s.status === "failed"));
+  // A failed step of either kind is one a subagent can work on: it fixes the project and runs again.
+  return run.steps.some((s) => (!qaSettled(s.status) && (s.judge === "auto" || qaAgentMayJudge(s))) || s.status === "failed");
 }
 
 /** A draft's run id: the script it is a draft of. */
@@ -449,6 +535,8 @@ export interface QaScriptStep {
   expect?: QaExpect;
   agent_judgeable?: boolean;
   player?: string;
+  arrange?: unknown;
+  act?: unknown;
 }
 
 /** A draft card from a pie(script_create), script_update or script_read answer: { path, name, steps, default_within_ms }. Null when it names no script. */
@@ -471,6 +559,8 @@ export function qaDraftFromScript(answer: unknown, where: { sessionId?: string |
       withinMs: (expect?.within_ms ?? 0) > 0 ? expect!.within_ms : within,
       ...(judge === "manual" && typeof s.agent_judgeable === "boolean" ? { agentJudgeable: s.agent_judgeable } : {}),
       ...(player ? { player } : {}),
+      ...(s.arrange !== undefined && s.arrange !== null ? { arrange: s.arrange } : {}),
+      ...(s.act !== undefined && s.act !== null ? { act: s.act } : {}),
     };
   });
   return {
@@ -497,6 +587,8 @@ export function qaScriptSteps(run: QaRun): QaScriptStep[] {
     ...(s.judge === "auto" && s.expect ? { expect: s.expect } : {}),
     ...(s.judge === "manual" && s.agentJudgeable === false ? { agent_judgeable: false } : {}),
     ...(s.player ? { player: s.player } : {}),
+    ...(s.arrange !== undefined ? { arrange: s.arrange } : {}),
+    ...(s.act !== undefined ? { act: s.act } : {}),
   }));
 }
 

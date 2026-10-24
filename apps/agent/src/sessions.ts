@@ -7,7 +7,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { TurnFacts, ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import type { TurnFacts, ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TimelineMark, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
 import { modelName } from "./models.js";
 import type { ToolImage } from "./images.js";
@@ -69,6 +69,12 @@ export interface StoredSession {
   allowed?: string[];
   /** What the latest turn did, from its tool calls. */
   turn?: TurnFacts;
+  /** Per-turn review: this session's switch, null or absent for the Settings default. */
+  review?: boolean | null;
+  /** The checkpoint taken before the turn in progress, while review is on. */
+  reviewing?: { before: string; turn: number } | null;
+  /** The session's checkpoints, oldest first. */
+  timeline?: TimelineMark[];
 }
 
 /** Whether a call saved a playtest: pie(script_create), or a run of the playtest flow. */
@@ -228,6 +234,6 @@ export class SessionStore {
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}) };
+    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [] };
   }
 }

@@ -19,6 +19,7 @@ import { NavDrawer } from "./views/NavDrawer";
 import { NARROW, useMedia } from "./layout";
 import { readLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
+import { focusRun, useAttention } from "./attention";
 import { replaceStaleWindow } from "./window-version";
 
 const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
@@ -53,6 +54,11 @@ export function App() {
     setChatNav((c) => ({ session, n: c.n + 1 }));
   };
   const newSession = () => void api.newSession().then((d) => openChat(d.id), () => openChat(null));
+  // A playtest loop needs the user: a Windows notification, whose click opens the playtest's card.
+  useAttention(daemon.events, (t) => {
+    openChat(t.sessionId);
+    focusRun(t.runId);
+  });
   const updates = useUpdateCount();
   // The chat stays mounted once shown, parked while another tab is up, so coming back to it
   // finds the same session, scroll position and composer draft (#40).

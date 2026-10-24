@@ -17,6 +17,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import type { ApprovalDecision, ApprovalRequest, Effort, PlaytestRunsMode, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
+import { usageTokens } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import type { QueuedMessage } from "@ue-mcp-studio/shared";
 import type { BusyTracker } from "./busy.js";
@@ -146,6 +147,8 @@ export interface RunnerOptions {
   playtestRuns?: () => PlaytestRunsMode;
   /** Runs ue-mcp's playtest flow for /playtest, Make playtest and Retry. */
   playtestFlow?: PlaytestFlow;
+  /** Per-turn review: a checkpoint before each turn and after it. */
+  review?: { turnStarted(s: StoredSession): Promise<void>; turnEnded(s: StoredSession): Promise<void> };
   /** Runs any of the project's flows for /flow. */
   flows?: FlowCaller;
 }
@@ -204,6 +207,8 @@ export class AgentRunner {
   private readonly subagents = new Map<string, () => void>();
   /** Subagents the user started from the chat rather than the agent, by their agent call id. */
   private readonly assigned = new Set<string>();
+  /** Tokens each subagent has spent, by its agent call id, while this daemon runs it. */
+  private readonly spent = new Map<string, number>();
   /** Calls waiting for the user, by approval id, with how to answer each. */
   private readonly waitingApprovals = new Map<string, { sessionId: string; parent: string | null; answer: (d: ApprovalDecision | "stopped") => void }>();
   /** Why the editor last went away, for waiting turns and unknown outcomes. */
@@ -364,6 +369,8 @@ export class AgentRunner {
     s.draft = "";
     s.error = null;
     this.setStatus(s, "running", null);
+    // The checkpoint before the turn lands before the model can change anything.
+    await this.o.review?.turnStarted(s).catch((e) => this.o.host.log.warn("the review checkpoint before the turn failed", e));
     const onClaude = !!this.o.subscription?.();
     const rewound = !!s.rewound;
     s.rewound = false;
@@ -829,6 +836,7 @@ export class AgentRunner {
       prompt: [{ type: "text", text: prompt }],
       resume: null,
       signal: own.signal,
+      onTokens: (n) => this.spend(callId, n),
       onSession: () => {},
       onDelta: () => {},
       onAssistant: (_mid, blocks, parent) => {
@@ -864,6 +872,15 @@ export class AgentRunner {
    * Stop one subagent and let the turn go on: the main agent is told the user
    * stopped it. Returns false when no subagent of that id is running.
    */
+  /** Tokens a subagent has spent so far, as its provider reported them. */
+  tokensOf(callId: string): number {
+    return this.spent.get(callId) ?? 0;
+  }
+
+  private spend(callId: string, tokens: number): void {
+    if (tokens > 0) this.spent.set(callId, (this.spent.get(callId) ?? 0) + tokens);
+  }
+
   stopSubagent(sessionId: string, callId: string): boolean {
     const s = this.require(sessionId);
     const stop = this.subagents.get(callId);
@@ -966,12 +983,16 @@ export class AgentRunner {
   }
 
   private setStatus(s: StoredSession, status: StoredSession["status"], waitingCause: string | null): void {
+    const was = s.status;
     s.status = status;
     s.waitingCause = waitingCause;
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status, waitingCause });
     // A turn that finished sends the next queued message. One that stopped or failed leaves the queue for the user.
     if (status === "idle" && s.queue?.length) setTimeout(() => void this.sendQueued(s.id), 0);
+    // A turn that ended, however it ended, gets its checkpoint after and its review.
+    const ended = status !== "running" && status !== "waiting" && (was === "running" || was === "waiting");
+    if (ended && s.reviewing) void this.o.review?.turnEnded(s).catch((e) => this.o.host.log.warn("the review checkpoint after the turn failed", e));
   }
 
   /** Queue a message behind the running turn. With no turn running it is sent at once. */
@@ -1266,6 +1287,7 @@ export class AgentRunner {
           signal,
         );
         messages.push({ role: "assistant", content: turn.content } as MessageParam);
+        this.spend(parent, usageTokens(turn.usage));
         this.recordSearches(s, turn.searches, parent);
         const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
         if (text) {

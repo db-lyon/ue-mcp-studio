@@ -26,6 +26,7 @@ import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
+import { ReviewPanel } from "../chat/TurnReview";
 import { NARROW, useMedia } from "../layout";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
@@ -77,6 +78,7 @@ export function ChatView({ daemon, nav, active = true }: {
   const [showArchived, setShowArchived] = useState(false);
   const narrow = useMedia(NARROW);
   const [sheet, setSheet] = useState(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -382,8 +384,10 @@ export function ChatView({ daemon, nav, active = true }: {
             onMain={() => setThread(null)}
             onStop={stopSubagent}
             onAgents={narrow ? () => setSheet(true) : undefined}
+            onReview={() => setReviewOpen(true)}
           />
         )}
+        {detail && !narrow && !openThread && <button className="ghost small-button review-open" onClick={() => setReviewOpen(true)} title="Review and checkpoints">Checkpoints</button>}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
         {!detail && (
           <div className="empty">
@@ -466,6 +470,9 @@ export function ChatView({ daemon, nav, active = true }: {
               {!narrow && threads}
             </Composer>
             {narrow && <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{threads}</Sheet>}
+            <Sheet open={reviewOpen} title="Checkpoints" onClose={() => setReviewOpen(false)}>
+              {reviewOpen && <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />}
+            </Sheet>
           </PlaytestCommandContext.Provider>
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>

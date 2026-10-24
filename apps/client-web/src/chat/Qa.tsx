@@ -27,6 +27,7 @@ import {
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { DraftEditor, RunPanel, type RunOptions } from "./PlaytestDraft";
+import { LoopPanel, loopPill } from "./PlaytestLoop";
 import { native } from "../native";
 
 /** What a card needs from the page: the daemon's stream, and the session's waiting forms. */
@@ -272,7 +273,7 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
   const byAgentCount = run.steps.filter(qaAgentVerdict).length;
 
   return (
-    <div className={`qa-card card state-${run.state}`} role="group" aria-label={`Playtest ${run.scriptName}`}>
+    <div className={`qa-card card state-${run.state} ${assignment?.loop?.state === "needs_you" ? "needs-you" : ""}`} role="group" aria-label={`Playtest ${run.scriptName}`} data-run-id={run.runId}>
       <div className="qa-head">
         <span className="eyebrow">{draft ? "Playtest draft" : run.replayOf ? "Playtest replay" : "Playtest"}</span>
         <strong className="qa-title">{run.scriptName}</strong>
@@ -281,13 +282,17 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
         <span className={`pill ${draft ? "" : ended ? (sum.failed ? "bad" : "ok") : waiting.length ? "warn" : ""}`} role="status">
           {draft ? (run.deleted ? "Deleted" : "Draft") : ended ? (run.state === "stopped" ? "Stopped" : "Finished") : waiting.length ? "Waiting for you" : run.state === "armed" ? "Starting" : `Running, ${settled} of ${sum.total}`}
         </span>
+        {assignment?.loop && (() => {
+          const p = loopPill(assignment.loop);
+          return <span className={`pill ${p.tone}`} role="status" aria-label={`Loop: ${p.text}`}>{p.text}</span>;
+        })()}
         {runnable && (
           <button className="primary small-button" disabled={working} aria-expanded={panel === "run"} onClick={() => setPanel(panel === "run" ? null : "run")}>Start Playtest</button>
         )}
         {assigned ? (
-          <button className="small-button" disabled={assigning} onClick={toggleAssign} aria-label="Cancel the subagent">Cancel</button>
-        ) : assignSession && qaAssignable(run) && !run.deleted && (
-          <button className="small-button" disabled={assigning} onClick={toggleAssign} title="A subagent drives PIE, runs the auto steps and judges the manual steps it may judge">Assign to subagent</button>
+          <button className="small-button" disabled={assigning} onClick={toggleAssign} aria-label={assignment?.loop ? "Cancel the loop" : "Cancel the subagent"}>Cancel</button>
+        ) : assignSession && qaAssignable(run) && !run.deleted && assignment?.loop?.state !== "passed" && (
+          <button className="small-button" disabled={assigning} onClick={toggleAssign} title="A subagent runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you">Assign to subagent</button>
         )}
         {draft && !run.deleted && !assigned && (
           <>
@@ -304,7 +309,15 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
       {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
       {panel === "run" && runnable && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
       {panel === "delete" && <div className="small dim">Deleting removes the script asset. <button className="ghost small-button" onClick={() => setPanel(null)}>Keep it</button></div>}
-      {assignment && (
+      {assignment?.loop && (
+        <LoopPanel
+          loop={assignment.loop}
+          busy={working}
+          onRevert={(n) => act(() => api.qaRevertLoop(run.runId, n))}
+          onThread={live?.onThread}
+        />
+      )}
+      {assignment && !assignment.loop && (
         <div className="qa-assignment small" role="status">
           <span className={assigned ? "qa-assignment-live" : "dim"}>
             {assigned ? "A subagent is running this playtest." : assignment.state === "done" ? "A subagent ran this playtest." : assignment.state === "stopped" ? "The subagent was stopped." : "The subagent failed."}
