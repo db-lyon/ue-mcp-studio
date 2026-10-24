@@ -174,8 +174,10 @@ function npxCli(): string | null {
 /**
  * The node arguments that run `pkg` through npx. npx applies the user's
  * min-release-age even to a package min-release-age-exclude names, which
- * npm install does not (ue-mcp#1510), so a release is refused on its first
- * days. These are ue-mcp's and Studio's own packages: the gate is lifted for them.
+ * npm install does not (npm/cli#9765, ue-mcp#1510), so a release is refused on
+ * its first days. These are ue-mcp's and Studio's own packages: the gate is
+ * lifted for them, in the form ue-mcp writes. Keep the `=`: an npm before 11.10
+ * ignores the unknown key, but would take a separate `0` for the package.
  */
 export function npxArgs(npx: string, pkg: string): string[] {
   return [npx, "-y", "--min-release-age=0", pkg];
