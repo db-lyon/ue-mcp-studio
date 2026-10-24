@@ -958,7 +958,12 @@ button.drawer-session.active { color: var(--text); }
 .approval, .approvals > * { min-width: 0; }
 label.row.toggle { flex-wrap: nowrap; align-items: flex-start; }
 label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"] { flex-shrink: 0; margin-top: 4px; }
-.md table { display: block; max-width: 100%; overflow-x: auto; }
+/* A wide table scrolls in its wrapper rather than crushing its columns; a cell is never narrower than its longest word. */
+.md-table { max-width: 100%; overflow-x: auto; margin: 0 0 8px; }
+.md-table > table { margin: 0; }
+.md th, .md td { word-break: normal; overflow-wrap: break-word; min-width: min-content; }
+/* Code in a cell breaks only where Studio put a break: after a dot or an underscore. */
+.md th code, .md td code { overflow-wrap: normal; word-break: normal; }
 .md pre { max-width: 100%; }
 .md img { max-width: 100%; }
 .plugin-grid { grid-template-columns: repeat(auto-fill, minmax(min(280px, 100%), 1fr)); }
