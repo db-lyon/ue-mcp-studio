@@ -15,6 +15,7 @@ import type {
   FeedbackReport,
   FeedbackResult,
   ModelCatalog,
+  FlowRunRequest,
   PlaytestRequest,
   QueuedMessage,
   SessionDetail,
@@ -154,6 +155,8 @@ export const api = {
   saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
   send: (id: string, text: string, attachments: string[] = [], now = false) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),
+  flow: (id: string, request: FlowRunRequest) =>
+    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/flow`, request),
   playtest: (id: string, request: PlaytestRequest) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/playtest`, request),
   queue: (id: string, text: string, attachments: string[] = []) =>
@@ -190,7 +193,6 @@ export const api = {
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
   qaSaveScript: (runId: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps }),
   qaDeleteScript: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`),
-  qaCreateScript: (sessionId: string, name: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/scripts", { sessionId, name, steps }),
   qaDismiss: (runId: string) => call<void>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}`),
   qaResultsUrl: (runId: string) => `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,
   reviewStatus: () => call<ReviewStatus>("GET", "/v1/ext/studio/review/status"),

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PlaytestRequest, QaScriptStep, SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
+import { parseSlashCommand, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
 import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
-import { EditMessageContext, MainTranscript, PlaytestCommandContext, PlaytestConvertContext, SubagentThread, type EditMode } from "../chat/Transcript";
+import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { pillsFor } from "../chat/pill-providers";
 import { PillRow } from "../chat/Pills";
@@ -15,6 +15,7 @@ import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
 import { Approvals } from "../chat/Approvals";
 import { FormCards, useForms } from "../chat/Forms";
+import { FlowLauncher } from "../chat/FlowCommand";
 import { OutsideRuns, QaContext, useOutsideRuns } from "../chat/Qa";
 import { DialogCards } from "../chat/Dialogs";
 import { useDialogs } from "../chat/dialog-model";
@@ -43,10 +44,18 @@ function sessionOf(data: Record<string, unknown>): string | null {
   return typeof data.sessionId === "string" ? data.sessionId : null;
 }
 
+/** The project's flows, for the names /flow completes. One function, so the menu fetches once per opening. */
+const loadFlowNames = () => api.flows().then((r) => r.flows);
+
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
 
-export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session: string | null; n: number } }) {
+export function ChatView({ daemon, nav, active = true }: {
+  daemon: DaemonState;
+  nav?: { session: string | null; n: number };
+  /** False while another tab is up: the chat stays mounted but leaves the location alone. */
+  active?: boolean;
+}) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   /** Whether the list has come back once: until then an empty list is not "no sessions". */
   const [listed, setListed] = useState(false);
@@ -116,7 +125,9 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
   }, [nav?.n]);
 
   const loadSettings = () => api.settings().then(setSettings, () => setSettings(null));
-  useEffect(() => writeLocation({ tab: "Chat", session: selected }), [selected]);
+  useEffect(() => {
+    if (active) writeLocation({ tab: "Chat", session: selected });
+  }, [selected, active]);
   useEffect(() => {
     void loadList();
     void loadSettings();
@@ -195,7 +206,27 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
       setError(e.message);
     });
   };
-  const send = () => dispatch((id, text, files) => api.send(id, text, files), true);
+  /** A /flow message being run: its form, above the composer. */
+  const [flowAsk, setFlowAsk] = useState<string | null>(null);
+  useEffect(() => setFlowAsk(null), [selected]);
+  const send = () => {
+    // A /flow opens its form rather than going out as a message.
+    if (selected && canSend && attach.ready.length === 0 && parseSlashCommand(draft)?.name === "flow") {
+      setFlowAsk(draft.trim());
+      clearPills();
+      setDraft("");
+      void api.saveDraft(selected, "").catch(() => {});
+      return;
+    }
+    dispatch((id, text, files) => api.send(id, text, files), true);
+  };
+  const runFlow = (request: FlowRunRequest) => {
+    if (!selected) return Promise.reject(new Error("Open a session first."));
+    const id = selected;
+    setThread(null);
+    setSent((n) => n + 1);
+    return api.flow(id, request).then(() => loadDetail(id));
+  };
   const sendNow = () => dispatch((id, text, files) => api.send(id, text, files, true), true);
   const queue = () => dispatch((id, text, files) => api.queue(id, text, files), false);
   const editMessage = useCallback((index: number, text: string, mode: EditMode) => {
@@ -250,17 +281,6 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
-  // A prose playtest's "Turn into Playtest": sent now, or queued behind a running turn.
-  const convert = useMemo(() => (detail && !disconnected
-    ? {
-        status: detail.status,
-        send: (text: string) => {
-          setSent((n) => n + 1);
-          (busy ? api.queue(detail.id, text) : api.send(detail.id, text)).then(() => loadDetail(detail.id), (e: Error) => setError(e.message));
-        },
-        create: (name: string, steps: QaScriptStep[]) => api.qaCreateScript(detail.id, name, steps).then(() => loadDetail(detail.id)),
-      }
-    : null), [detail?.id, detail?.status, disconnected, busy]);
   // The Make playtest pill and Retry: the playtest flow, started when no turn runs.
   const playtest = useMemo(() => (detail && !disconnected
     ? {
@@ -389,7 +409,6 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
           <AssetLinksContext.Provider value={assetLinks}>
           <AssetTranscriptContext.Provider value={detail.transcript}>
           <EditMessageContext.Provider value={disconnected ? null : editMessage}>
-          <PlaytestConvertContext.Provider value={convert}>
           <PlaytestCommandContext.Provider value={playtest}>
             <div className="thread-stage" ref={stage}>
               <MainTranscript
@@ -425,6 +444,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
             <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
             <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
             <FormCards forms={forms} runs={qaRuns} />
+            {flowAsk && !busy && <FlowLauncher key={flowAsk} text={flowAsk} run={runFlow} onClose={() => setFlowAsk(null)} />}
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
             {playtest && <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} />}
             <Composer
@@ -435,6 +455,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
               busy={busy}
               canSend={canSend}
               onSend={send}
+              flows={loadFlowNames}
               onQueue={queue}
               onSendNow={sendNow}
               onStop={() => selected && void api.stop(selected)}
@@ -453,7 +474,6 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
               {reviewOpen && <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />}
             </Sheet>
           </PlaytestCommandContext.Provider>
-          </PlaytestConvertContext.Provider>
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>
           </AssetLinksContext.Provider>

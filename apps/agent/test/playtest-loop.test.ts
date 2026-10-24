@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult } from "ue-mcp/daemon";
-import { qaRunFromAnswer, type QaLoop, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
+import { PLAYTEST_RUNS_REFUSAL, qaRunFromAnswer, type QaLoop, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { SessionStore } from "../src/sessions.js";
 import { QaBroker, type QaAssigner, type QaHost } from "../src/qa.js";
 import { decide, failingSteps, firstBrief, fixBrief, reportedBlocker } from "../src/playtest-loop.js";
@@ -259,7 +259,7 @@ describe("the hard blockers", () => {
   });
 
   it("a run Playtest runs refused", async () => {
-    const h = setup([{ run: null, calls: [{ name: "ue_mcp", input: { action: "call", category: "pie", method: "script_run" }, result: "Playtest runs is set to Manual in Settings > Agent. Click Run on the card to start it.", outcome: "error" }] }]);
+    const h = setup([{ run: null, calls: [{ name: "ue_mcp", input: { action: "call", category: "pie", method: "script_run" }, result: PLAYTEST_RUNS_REFUSAL, outcome: "error" }] }]);
     await assign(h);
     await ended(h);
     expect(h.loop().blocker?.kind).toBe("refused");

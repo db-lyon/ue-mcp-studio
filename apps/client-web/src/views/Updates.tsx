@@ -121,6 +121,12 @@ export function UpdatesCard() {
   const run = useRun();
   const working = !!run && run.summary === undefined && !run.error;
   const waiting = !!run && waitingSteps(run).length > 0;
+  // Why the last Update stopped, as the step said it (npm's error for an install), kept after its screen closes.
+  const [stopped, setStopped] = useState<string | null>(null);
+  useEffect(() => {
+    if (run?.error) setStopped(run.error);
+    else if (working) setStopped(null);
+  }, [run?.error, working]);
   const load = () => void readUpdates().then(setU, () => setU({ studio: null, ueMcp: null }));
   useEffect(load, []);
   // Read again once an update finishes or stops.
@@ -158,6 +164,7 @@ export function UpdatesCard() {
           {steps.length > 0 && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>
       )}
+      {stopped && !working && <div className="banner bad small update-error" role="alert">The last update stopped: {stopped}</div>}
       {u?.studio && (
         <div className="row update-channel" role="radiogroup" aria-label="Release channel">
           <span className="dim small">Channel</span>
