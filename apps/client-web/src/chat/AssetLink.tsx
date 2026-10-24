@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { breakable } from "./breakable";
 import { ApiError, api } from "../api";
 import { native } from "../native";
 import { splitText, useAssetLink } from "./asset-links";
@@ -33,7 +34,7 @@ export function ExactAssetLink({ path, label }: { path: string; label: string })
  */
 export function AssetToken({ token, code }: { token: string; code: boolean }) {
   const state = useAssetLink(token);
-  const plain: ReactNode = code ? <code>{token}</code> : token;
+  const plain: ReactNode = code ? <code>{breakable(token)}</code> : token;
   if (state.status !== "resolved") return <>{plain}</>;
   return <AssetButton token={token} code={code} paths={state.paths} />;
 }

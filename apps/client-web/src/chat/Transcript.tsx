@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { lineDiff, type Attachment, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
+import { breakable } from "./breakable";
 import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
@@ -173,8 +174,10 @@ function SentFiles({ files }: { files: Attachment[] }) {
 const REPLY_COMPONENTS: Components = {
   code: ({ node: _node, children, ...props }) => {
     const token = (props as { "data-asset"?: string })["data-asset"];
-    return token ? <AssetToken token={token} code /> : <code {...props}>{children}</code>;
+    return token ? <AssetToken token={token} code /> : <code {...props}>{breakable(children)}</code>;
   },
+  // Wide tables scroll in a wrapper of their own instead of squeezing their columns.
+  table: ({ node: _node, children, ...props }) => <div className="md-table"><table {...props}>{children}</table></div>,
   span: ({ node: _node, children, ...props }) => {
     const exact = props as { "data-asset-path"?: string; "data-asset-label"?: string };
     if (exact["data-asset-path"]) return <ExactAssetLink path={exact["data-asset-path"]} label={exact["data-asset-label"] ?? ""} />;
