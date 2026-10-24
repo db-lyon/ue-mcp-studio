@@ -676,3 +676,4 @@ export interface StudioPluginUpdate {
   /** The plugin's Fab listing, from the record the plugin writes at startup. */
   fabUrl?: string;
 }
+export * from "./qa.js";
