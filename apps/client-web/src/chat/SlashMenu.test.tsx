@@ -1,16 +1,16 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
-import { SLASH_COMMANDS, matchCommands, parseSlashCommand, slashQuery, type SlashCommand } from "@ue-mcp-studio/shared";
+import { SLASH_COMMANDS, matchCommands, parseSlashCommand, slashQuery, type FlowListing, type SlashCommand } from "@ue-mcp-studio/shared";
 import { Composer } from "./Composer";
 import type { PendingFile } from "./attachments";
 
 afterEach(cleanup);
 
 describe("the command registry", () => {
-  it("has /playtest, and only it, for now", () => {
-    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["playtest"]);
+  it("has /playtest and /flow", () => {
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["playtest", "flow"]);
   });
 
   it("reads a command and its text from a message, and leaves any other message alone", () => {
@@ -21,6 +21,7 @@ describe("the command registry", () => {
     expect(parseSlashCommand("/unknown thing")).toBeNull();
     expect(parseSlashCommand("please /playtest it")).toBeNull();
     expect(parseSlashCommand("/Game/Maps/Main is broken")).toBeNull();
+    expect(parseSlashCommand("/flow rebuild clean=true")).toEqual({ name: "flow", args: "rebuild clean=true" });
   });
 
   it("knows a name is being typed only while the message is the slash and the start of a name", () => {
@@ -33,7 +34,7 @@ describe("the command registry", () => {
   });
 
   it("matches by the start of the name", () => {
-    expect(matchCommands("").map((c) => c.name)).toEqual(["playtest"]);
+    expect(matchCommands("").map((c) => c.name)).toEqual(["playtest", "flow"]);
     expect(matchCommands("PLAY").map((c) => c.name)).toEqual(["playtest"]);
     expect(matchCommands("x")).toEqual([]);
   });
@@ -46,7 +47,7 @@ const COMMANDS: SlashCommand[] = [
 ];
 
 /** The composer with its draft kept, as the chat keeps it. */
-function Harness({ onSend, commands }: { onSend: (text: string) => void; commands?: SlashCommand[] }) {
+function Harness({ onSend, commands, flows }: { onSend: (text: string) => void; commands?: SlashCommand[]; flows?: () => Promise<FlowListing[]> }) {
   const [draft, setDraft] = useState("");
   return (
     <Composer
@@ -63,6 +64,7 @@ function Harness({ onSend, commands }: { onSend: (text: string) => void; command
       onRemoveFile={() => {}}
       picker={null}
       commands={commands}
+      flows={flows}
     />
   );
 }
@@ -124,14 +126,60 @@ describe("the slash menu", () => {
     expect(screen.queryByRole("listbox")).not.toBeNull();
   });
 
-  it("offers /playtest from the registry by default", () => {
+  it("offers the registry's commands by default", () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
     fireEvent.change(box(), { target: { value: "/" } });
-    expect(options()).toEqual([{ text: "/playtest", selected: true }]);
+    expect(options()).toEqual([{ text: "/playtest", selected: true }, { text: "/flow", selected: false }]);
     fireEvent.keyDown(box(), { key: "Enter" });
     fireEvent.change(box(), { target: { value: "/playtest the door opens" } });
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("/playtest the door opens");
+  });
+});
+
+describe("/flow's name", () => {
+  const FLOWS: FlowListing[] = [
+    { name: "rebuild", description: "Close, build and reopen the editor" },
+    { name: "playtest", description: "Draft a playtest" },
+    { name: "rebuild_lighting" },
+  ];
+
+  it("completes from the daemon's flows, fetched when the menu opens, names that start with it first", async () => {
+    const flows = vi.fn(async () => FLOWS);
+    render(<Harness onSend={() => {}} flows={flows} />);
+    fireEvent.change(box(), { target: { value: "/flow" } });
+    expect(flows).not.toHaveBeenCalled();
+    await act(async () => fireEvent.change(box(), { target: { value: "/flow " } }));
+    expect(flows).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("listbox", { name: "Flows" })).toBeTruthy();
+    expect(options().map((o) => o.text)).toEqual(["rebuild", "playtest", "rebuild_lighting"]);
+    expect(screen.getByText("Close, build and reopen the editor")).toBeTruthy();
+    fireEvent.change(box(), { target: { value: "/flow light" } });
+    expect(options().map((o) => o.text)).toEqual(["rebuild_lighting"]);
+    fireEvent.change(box(), { target: { value: "/flow re" } });
+    expect(flows).toHaveBeenCalledTimes(1);
+    expect(options().map((o) => o.text)).toEqual(["rebuild", "rebuild_lighting"]);
+  });
+
+  it("puts the picked name in the message, ready for its pairs, and the next Enter sends", async () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} flows={async () => FLOWS} />);
+    await act(async () => fireEvent.change(box(), { target: { value: "/flow reb" } }));
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(box().value).toBe("/flow rebuild_lighting ");
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("/flow rebuild_lighting ");
+  });
+
+  it("stays shut once the name is typed out, so Enter sends", async () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} flows={async () => FLOWS} />);
+    await act(async () => fireEvent.change(box(), { target: { value: "/flow playtest" } }));
+    expect(screen.queryByRole("listbox")).toBeNull();
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("/flow playtest");
   });
 });
