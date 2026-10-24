@@ -1,0 +1,347 @@
+/**
+ * PIE test script runs, shown in the chat as a checklist card. Under /v1/ext/studio:
+ *
+ *   GET    /qa/runs                     runs started outside Studio's sessions, which every open chat shows
+ *   GET    /qa/runs/:id/status          the run read again: pie(script_status), with since_seq when given
+ *   POST   /qa/runs/:id/verdict         a manual step's verdict: { step, verdict: pass | fail | skip, note? }
+ *   GET    /qa/runs/:id/results         the run's results.json
+ *   DELETE /qa/runs/:id                 take a finished run started elsewhere off the chat
+ *
+ * A run a session's pie(script_run) or pie(script_replay) started is a qa entry
+ * in that session's transcript, kept current from the script.* events and
+ * saved with every change, so a reload or a daemon restart finds it as it was.
+ * After a restart an unfinished run is read again from its last seq, which
+ * also has ue-mcp follow it again. Changes are announced as studio.qa.changed
+ * with the run; the card also applies the script.* events itself.
+ *
+ * ue-mcp keeps one follower per run and puts the verdict form to whoever
+ * called last, so every status read here carries the session's form, as the
+ * call that started the run did. A run started elsewhere is only read with
+ * script_results, which leaves its follower alone.
+ */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
+import {
+  qaApplyStreamEvent,
+  qaApplyVerdictAnswer,
+  qaEnded,
+  qaMergeAnswer,
+  qaRunFromAnswer,
+  QA_VERDICTS,
+  type QaRun,
+  type QaVerdict,
+} from "@ue-mcp-studio/shared";
+import { ELICIT_FEATURE, type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
+import type { SessionStore } from "./sessions.js";
+import type { AgentHost } from "./tools.js";
+
+/** The pie actions that start a run. */
+const STARTS = new Set(["script_run", "script_replay"]);
+
+export interface QaHost {
+  callAction(category: string, action: string, args?: Record<string, unknown>, opts?: { elicit?: (p: ElicitParams) => Promise<ElicitResult> }): Promise<ActionResult>;
+  editors(): Array<{ connected: boolean }>;
+  events: {
+    publish(type: string, data?: Record<string, unknown>): unknown;
+    subscribe(listener: (e: { type: string; data: Record<string, unknown> }) => void): () => void;
+  };
+  features?: readonly string[];
+  projectDir: string;
+  log: { warn(message: string, detail?: unknown): void };
+}
+
+export interface QaBrokerOptions {
+  host: QaHost;
+  store: SessionStore;
+  forms?: FormBroker;
+  now?: () => string;
+}
+
+interface Inflight {
+  sessionId: string;
+  action: string;
+}
+
+function text(r: ActionResult): string {
+  return r.content.map((c) => c.text ?? "").join("\n");
+}
+
+function json(r: ActionResult): Record<string, unknown> | null {
+  try {
+    const v = JSON.parse(text(r)) as unknown;
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The error an answer carries: a failed call, or success: false. Null when it worked. */
+function failure(r: ActionResult, body: Record<string, unknown> | null): string | null {
+  if (r.isError) return text(r) || "the call failed";
+  if (body?.success === false) return typeof body.error === "string" ? body.error : "the call failed";
+  return null;
+}
+
+export class QaBroker {
+  /** Every run this process knows, owned or not. */
+  private readonly runs = new Map<string, QaRun>();
+  /** Studio calls starting a run right now, oldest first: an unknown run's first events belong to one of them. */
+  private readonly inflight: Inflight[] = [];
+  /** Runs being read for the first time, with the events that arrive meanwhile. */
+  private readonly reading = new Map<string, Array<{ type: string; data: Record<string, unknown> }>>();
+  /** Runs started elsewhere that the user took off the chat. */
+  private readonly dismissed = new Set<string>();
+  private readonly now: () => string;
+  private readonly unsubscribe: () => void;
+
+  constructor(private readonly o: QaBrokerOptions) {
+    this.now = o.now ?? (() => new Date().toISOString());
+    for (const s of o.store.all()) {
+      for (const t of s.transcript) if (t.kind === "qa") this.runs.set(t.run.runId, t.run);
+    }
+    this.unsubscribe = o.host.events.subscribe((e) => this.observe(e));
+  }
+
+  dispose(): void {
+    this.unsubscribe();
+  }
+
+  /** Read every unfinished run again from its last seq, so a restart misses nothing and ue-mcp follows it again. */
+  async resume(): Promise<void> {
+    if (!this.o.host.editors().some((e) => e.connected)) return;
+    const open = [...this.runs.values()].filter((r) => !qaEnded(r.state) && r.sessionId);
+    await Promise.all(open.map((r) => this.status(r.runId, r.lastSeq).catch(() => null)));
+  }
+
+  get(runId: string): QaRun | undefined {
+    return this.runs.get(runId);
+  }
+
+  /** Runs no Studio session started, which the chat shows wherever it is open. */
+  unowned(): QaRun[] {
+    return [...this.runs.values()].filter((r) => !r.sessionId && !this.dismissed.has(r.runId));
+  }
+
+  dismiss(runId: string): string | null {
+    const r = this.runs.get(runId);
+    if (!r || r.sessionId) return "only a run started outside Studio's sessions can be dismissed";
+    if (!qaEnded(r.state)) return "the run is still going";
+    this.dismissed.add(runId);
+    this.o.host.events.publish("qa.changed", { runId, dismissed: true });
+    return null;
+  }
+
+  /** The host a session's turn runs on: a run its calls start gets a card in its transcript. */
+  wrap(host: AgentHost, sessionId: string): AgentHost {
+    const callAction = async (category: string, action: string, args: Record<string, unknown> = {}): Promise<ActionResult> => {
+      if (category !== "pie" || !STARTS.has(action)) return host.callAction(category, action, args);
+      const call: Inflight = { sessionId, action };
+      this.inflight.push(call);
+      try {
+        const r = await host.callAction(category, action, args);
+        const body = json(r);
+        if (!failure(r, body) && body) this.started(sessionId, action, body);
+        return r;
+      } finally {
+        this.inflight.splice(this.inflight.indexOf(call), 1);
+      }
+    };
+    return {
+      get projectDir() { return host.projectDir; },
+      get dataDir() { return host.dataDir; },
+      callAction,
+      editors: () => host.editors(),
+      editorOperation: (op) => host.editorOperation(op),
+      events: host.events,
+      setBusy: (busy) => host.setBusy(busy),
+      log: host.log,
+    };
+  }
+
+  /** A session's call started a run: its answer is the card's first state. */
+  private started(sessionId: string, action: string, answer: Record<string, unknown>): void {
+    const runId = typeof answer.run_id === "string" ? answer.run_id : null;
+    if (!runId) return;
+    const had = this.runs.get(runId);
+    const fresh = qaRunFromAnswer(answer, { ...this.ownerOf(sessionId, action), seenAt: this.now() });
+    if (!fresh) return;
+    const run = had ? { ...qaMergeAnswer(had, answer), ...this.ownerOf(sessionId, action, had) } : fresh;
+    this.save(run);
+  }
+
+  /** The session, tool call and subagent behind a run, from the newest matching call still running. */
+  private ownerOf(sessionId: string, action: string, had?: QaRun): Pick<QaRun, "sessionId" | "toolUseId" | "subagent"> {
+    if (had?.sessionId) return { sessionId: had.sessionId, toolUseId: had.toolUseId, ...(had.subagent ? { subagent: had.subagent } : {}) };
+    const s = this.o.store.get(sessionId);
+    const call = s && [...s.transcript].reverse().find((t) => t.kind === "tool" && t.call.name === "ue_mcp" && t.call.outcome === "pending"
+      && (t.call.input as { category?: unknown }).category === "pie" && (t.call.input as { method?: unknown }).method === action);
+    if (!s || call?.kind !== "tool") return { sessionId, toolUseId: null };
+    const agent = call.parent ? s.transcript.find((t) => t.kind === "tool" && t.call.id === call.parent) : undefined;
+    const description = agent?.kind === "tool" ? (agent.call.input as { description?: unknown }).description : undefined;
+    return { sessionId, toolUseId: call.call.id, ...(typeof description === "string" ? { subagent: description } : {}) };
+  }
+
+  /** The verdict form for a run's calls: the session's own, as the call that started it had. */
+  private callOptions(sessionId: string | null | undefined): { elicit?: (p: ElicitParams) => Promise<ElicitResult> } {
+    if (!sessionId || !this.o.forms || !this.o.host.features?.includes(ELICIT_FEATURE)) return {};
+    const forms = this.o.forms;
+    return { elicit: (p) => forms.ask(sessionId, "pie(script_run)", p) };
+  }
+
+  /**
+   * Read a run again: pie(script_status) with the events after sinceSeq, merged
+   * into what Studio has. A run started elsewhere is read with script_results.
+   * Returns the answer as ue-mcp gave it, with the run as it is now.
+   */
+  async status(runId: string, sinceSeq?: number): Promise<{ answer: Record<string, unknown>; run: QaRun | null } | { error: string }> {
+    const had = this.runs.get(runId);
+    const owned = !!had?.sessionId;
+    const args: Record<string, unknown> = { run_id: runId };
+    if (owned && typeof sinceSeq === "number") args.since_seq = sinceSeq;
+    const r = await this.o.host.callAction("pie", owned ? "script_status" : "script_results", args, this.callOptions(had?.sessionId));
+    const body = json(r);
+    const error = failure(r, body);
+    if (error || !body) return { error: error ?? "ue-mcp's answer was not JSON" };
+    // results.json and an ended run's status carry no seq: keep the one Studio has.
+    const base = had ?? qaRunFromAnswer(body, { seenAt: this.now() });
+    if (!base) return { answer: body, run: null };
+    const run = qaMergeAnswer(base, body);
+    if (body.state === "idle" && Array.isArray(body.steps) && body.steps.length === 0) return { answer: body, run: had ?? null };
+    this.save(run);
+    return { answer: body, run };
+  }
+
+  /** The user's verdict on a manual step, through pie(verdict). Returns an error to show, or the run. */
+  async verdict(runId: string, body: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
+    const b = (body ?? {}) as { step?: unknown; verdict?: unknown; note?: unknown };
+    if (!Number.isInteger(b.step) || !QA_VERDICTS.includes(b.verdict as QaVerdict)) return { error: "body must be { step, verdict: pass | fail | skip, note? }", status: 400 };
+    const note = typeof b.note === "string" ? b.note.trim() : "";
+    const had = this.runs.get(runId);
+    const r = await this.o.host.callAction("pie", "verdict", { run_id: runId, step: b.step, verdict: b.verdict, ...(note ? { note } : {}) });
+    const answer = json(r);
+    const error = failure(r, answer);
+    if (error) return { error, status: 409 };
+    if (!had) return { error: `Studio has no run ${runId}`, status: 404 };
+    const run = qaApplyVerdictAnswer(had, answer);
+    this.save(run);
+    return { run };
+  }
+
+  /** The run's results.json, from its file when it is the project's, otherwise as ue-mcp reads it. */
+  async results(runId: string): Promise<Record<string, unknown> | { error: string }> {
+    const run = this.runs.get(runId);
+    const file = run?.resultsPath ? path.resolve(run.resultsPath) : null;
+    const root = path.resolve(this.o.host.projectDir, "Saved", "MCPObservations");
+    if (file && path.basename(file) === "results.json" && file.toLowerCase().startsWith(root.toLowerCase() + path.sep) && fs.existsSync(file)) {
+      try {
+        return JSON.parse(fs.readFileSync(file, "utf-8")) as Record<string, unknown>;
+      } catch {
+        // Being rewritten by a late verdict: ask ue-mcp instead.
+      }
+    }
+    const r = await this.o.host.callAction("pie", "script_results", { run_id: runId });
+    const body = json(r);
+    const error = failure(r, body);
+    return error || !body ? { error: error ?? "ue-mcp's answer was not JSON" } : body;
+  }
+
+  // ── Events ────────────────────────────────────────────────────────
+
+  private observe(e: { type: string; data: Record<string, unknown> }): void {
+    if (e.type === "editor.connected") {
+      void this.resume();
+      return;
+    }
+    if (!e.type.startsWith("script.")) return;
+    const runId = typeof e.data.runId === "string" ? e.data.runId : null;
+    if (!runId) return;
+    const waiting = this.reading.get(runId);
+    if (waiting) {
+      waiting.push(e);
+      return;
+    }
+    const had = this.runs.get(runId);
+    if (had) {
+      const next = qaApplyStreamEvent(had, e.type, e.data);
+      if (next !== had) this.save(next);
+      return;
+    }
+    void this.discover(runId, e);
+  }
+
+  /**
+   * A run Studio has not seen: one a Studio call is starting (its events can
+   * come before the call's answer), or one started elsewhere. Read it once,
+   * then apply what arrived meanwhile.
+   */
+  private async discover(runId: string, first: { type: string; data: Record<string, unknown> }): Promise<void> {
+    const queued = [first];
+    this.reading.set(runId, queued);
+    const call = this.inflight[0];
+    try {
+      // A Studio call's run is read with its status, carrying the session's form; another's with its results, which leave its follower alone.
+      const r = await (call
+        ? this.o.host.callAction("pie", "script_status", { run_id: runId }, this.callOptions(call.sessionId))
+        : this.o.host.callAction("pie", "script_results", { run_id: runId })).catch(() => null);
+      const body = r ? json(r) : null;
+      const owner = call ? this.ownerOf(call.sessionId, call.action) : { sessionId: null, toolUseId: null };
+      let run = (body && !failure(r!, body) ? qaRunFromAnswer(body, { ...owner, seenAt: this.now() }) : null)
+        ?? qaRunFromAnswer({ run_id: runId, script: first.data.script, state: "armed", steps: [] }, { ...owner, seenAt: this.now() })!;
+      // The call's own answer may have landed while this read.
+      const landed = this.runs.get(runId);
+      if (landed) run = landed;
+      for (const e of queued) run = qaApplyStreamEvent(run, e.type, e.data);
+      this.save(run);
+    } finally {
+      this.reading.delete(runId);
+    }
+  }
+
+  // ── Records ───────────────────────────────────────────────────────
+
+  /** Keep the run, its line in its session's transcript, and tell the UI. */
+  private save(run: QaRun): void {
+    this.runs.set(run.runId, run);
+    const s = run.sessionId ? this.o.store.get(run.sessionId) : undefined;
+    if (s) {
+      const entry = s.transcript.find((t) => t.kind === "qa" && t.run.runId === run.runId);
+      if (entry?.kind === "qa") {
+        entry.run = run;
+        this.o.store.save(s);
+      } else {
+        s.transcript.push({ kind: "qa", run });
+        this.o.store.save(s);
+        this.o.host.events.publish("transcript.added", { sessionId: s.id, entry: { kind: "qa", run } as unknown as Record<string, unknown> });
+      }
+    }
+    // No sessionId: the open chat would load its whole transcript again on each step. The card takes the run from here.
+    this.o.host.events.publish("qa.changed", { runId: run.runId, run: run as unknown as Record<string, unknown> });
+  }
+}
+
+export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?: FormBroker): QaBroker {
+  const broker = new QaBroker({ host: api as unknown as QaHost, store, forms });
+  const id = (req: { params: Record<string, string> }) => req.params.id;
+  api.route("GET", "/qa/runs", () => ({ body: { runs: broker.unowned() } }));
+  api.route("GET", "/qa/runs/:id/status", async (req) => {
+    const raw = (req.query as Record<string, unknown> | undefined)?.since_seq;
+    const since = typeof raw === "string" && /^\d+$/.test(raw) ? Number(raw) : undefined;
+    const r = await broker.status(id(req), since);
+    return "error" in r ? { status: 409, body: { error: r.error } } : { body: r };
+  });
+  api.route("POST", "/qa/runs/:id/verdict", async (req) => {
+    const r = await broker.verdict(id(req), req.body);
+    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("GET", "/qa/runs/:id/results", async (req) => {
+    const r = await broker.results(id(req));
+    return "error" in r && typeof r.error === "string" && Object.keys(r).length === 1 ? { status: 404, body: r } : { body: r };
+  });
+  api.route("DELETE", "/qa/runs/:id", (req) => {
+    const error = broker.dismiss(id(req));
+    return error ? { status: 409, body: { error } } : { status: 204 };
+  });
+  void broker.resume();
+  return broker;
+}

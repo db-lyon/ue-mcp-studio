@@ -96,7 +96,7 @@ export function formatDuration(secs: number): string {
 }
 
 const timeOf = (t: TranscriptEntry): number =>
-  t.kind === "dialog" ? t.dialog.openedAt : Date.parse(t.kind === "tool" ? t.call.endedAt ?? t.call.startedAt : t.at);
+  t.kind === "dialog" ? t.dialog.openedAt : t.kind === "qa" ? Date.parse(t.run.seenAt) : Date.parse(t.kind === "tool" ? t.call.endedAt ?? t.call.startedAt : t.at);
 
 export interface AgentStatus {
   state: AgentState;

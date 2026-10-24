@@ -21,7 +21,7 @@
  *   POST /updates/{plugin,studio,restart}       run an update step, or keep it until no turn is in progress
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
- * Editor dialogs (/dialogs) are in dialog-routes.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
+ * Editor dialogs (/dialogs) are in dialog-routes.ts, PIE test script runs (/qa) in qa.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts.
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,
@@ -50,6 +50,7 @@ import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
 import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
+import { registerQa } from "./qa.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 import { registerQuickRoute } from "./quick.js";
@@ -144,10 +145,12 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const unobserve = api.events.subscribe((e) => busy.observe(e));
   const forms = registerForms(api);
   const dialogs = registerDialogs(api, store, settings, forms);
+  const qa = registerQa(api, store, forms);
   const runner = new AgentRunner({
     host: api,
     busy,
     dialogs,
+    qa,
     store,
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
     model: () => settings.model(),
@@ -564,6 +567,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       unwatchAssets();
       updates.stop();
       dialogs.dispose();
+      qa.dispose();
       runner.dispose();
     },
   };
