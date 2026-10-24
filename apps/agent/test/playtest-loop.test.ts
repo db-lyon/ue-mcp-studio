@@ -410,6 +410,13 @@ describe("judging an attempt", () => {
     expect(theirs.kind === "again" && theirs.failing[0].line).toMatch(/Note: Too loud/);
   });
 
+  it("tells the next attempt when the engine's act failed, and which action", () => {
+    const actFail: StepState = { status: "failed", evidence: { reason: "Door.OpenAngle never went above 80" } };
+    const r = run([{ ...actFail, act_result: { status: "failed", reason: "an action failed", actions: [{ index: 0, action: "goto", ok: true }, { index: 1, action: "press", ok: false, error: "no Input Action IA_Interact" }] } } as StepState]);
+    expect(r.steps[0].actResult?.status).toBe("failed");
+    expect(failingSteps(r)[0].line).toMatch(/The engine's act failed: an action failed \(press: no Input Action IA_Interact\)\./);
+  });
+
   it("reads a reported blocker from the report's last lines", () => {
     expect(reportedBlocker("x\nBLOCKED: outside_project: the engine's BaseInput.ini")).toMatchObject({ kind: "outside_project" });
     expect(reportedBlocker("**BLOCKED**: needs person: plug in a gamepad")).toMatchObject({ kind: "needs_person" });
