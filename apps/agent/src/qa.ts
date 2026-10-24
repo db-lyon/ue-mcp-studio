@@ -343,6 +343,11 @@ export class QaBroker {
     return next;
   }
 
+  /** A script something outside a session's calls saved, such as the playtest flow: its draft card in that session. */
+  async drafted(sessionId: string, script: Record<string, unknown>): Promise<QaRun | null> {
+    return this.draftFrom(script, sessionId, undefined, typeof script.path === "string" ? script.path : undefined);
+  }
+
   /** A script pie(script_delete) removed: its draft cards say so. */
   private deleted(path: string): void {
     const run = this.runs.get(qaDraftId(path));

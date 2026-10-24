@@ -13,7 +13,8 @@
  *   DELETE /sessions/:id            remove one (stops its turn first)
  *   PUT  /sessions/:id/draft        the unsent message, kept across reloads
  *   POST /sessions/:id/seen         a subagent thread the user opened, so it is no longer new
- *   POST /sessions/:id/messages     send a message; the turn runs in the background
+ *   POST /sessions/:id/messages     send a message; the turn runs in the background. "/playtest <text>" runs the playtest flow
+ *   POST /sessions/:id/playtest     a /playtest: { text?, source? }, source an agent message's transcript index
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *   POST /quick                     the editor's quick ask: a new session with its first message (quick.ts)
@@ -28,10 +29,11 @@
  * studio.transcript.added, studio.turn.delta, studio.tool.finished,
  * studio.approval.requested and studio.approval.resolved.
  */
-import type { DaemonExtensionApi } from "ue-mcp/daemon";
+import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
+import { PlaytestFlow } from "./playtest-flow.js";
 import { registerFlowModel, type ModelHost } from "./flow-model.js";
 import { CLAUDE_SIGN_IN_AVAILABLE, PROVIDERS } from "@ue-mcp-studio/shared";
-import type { ApprovalDecision, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { ApprovalDecision, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
@@ -163,6 +165,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     route: () => ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
     askBeforeChanges: () => settings.askBeforeChanges(),
     playtestRuns: () => playtests.runs(),
+    playtestFlow: new PlaytestFlow({
+      endpoint: () => {
+        const d = readDiscovery(api.projectDir);
+        return d ? { port: d.port, token: d.token } : null;
+      },
+      subscribe: (listener) => api.events.subscribe((e) => listener(e)),
+    }),
   });
   // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
   const unregisterModel = registerFlowModel(api as ModelHost, {
@@ -448,6 +457,20 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (running) stopSide(s.id);
     // The turn runs past this response; its progress is on the event stream.
     runner.sendNow(s.id, m.text, m.files).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
+    return { status: 202, body: { sessionId: s.id } };
+  });
+  // A /playtest from a button: Make playtest on an agent message (source), or Retry on a failed one.
+  api.route("POST", "/sessions/:id/playtest", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const b = (req.body ?? {}) as { text?: unknown; source?: unknown };
+    if (b.text !== undefined && typeof b.text !== "string") return bad("body must be { text?: string, source?: integer }");
+    if (b.source !== undefined && !Number.isInteger(b.source)) return bad("source is the transcript index of an agent message");
+    const source = b.source as number | undefined;
+    if (source !== undefined && (s.transcript[source]?.kind !== "assistant" || s.transcript[source].parent)) return bad(`entry ${source} is not one of the agent's messages`);
+    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress; wait for it to finish or stop it" } };
+    const request: PlaytestRequest = { text: (b.text as string | undefined) ?? "", ...(source !== undefined ? { source } : {}) };
+    runner.playtest(s.id, request).catch((e) => api.log.warn(`playtest in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });
   // A message written while a turn runs: it waits, and goes when the turns before it have ended.

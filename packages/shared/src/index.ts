@@ -7,7 +7,7 @@
 export const EXTENSION_NAME = "studio";
 
 import type { QaRun } from "./qa.js";
-import type { PlaytestRequest } from "./commands.js";
+import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -210,7 +210,13 @@ export type TranscriptEntry = (
   | { kind: "dialog"; dialog: EditorDialog }
   /** A PIE test script run, drawn as its checklist. Always on the main thread, whoever started it. */
   | { kind: "qa"; run: QaRun }
-  /** A /playtest turn that ended without saving a script: why, and the request Retry sends again. */
+  /**
+   * A /playtest, run as ue-mcp's playtest flow: its stage while it runs, then
+   * created (the Draft card follows) or failed, with the flow's errors and the
+   * request Retry sends again. `attempt` counts the flow's drafts.
+   */
+  | { kind: "playtest"; state: PlaytestStage | "failed"; request: PlaytestRequest; attempt: number; errors?: string[]; at: string }
+  /** A failed /playtest from an older Studio, which ran it as a forced turn. */
   | { kind: "playtest-failed"; reason: string; request: PlaytestRequest; at: string }
 ) & { parent?: string };
 

@@ -1097,3 +1097,13 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .msg-actions .small-button { padding: 1px 8px; }
 .playtest-failed { display: flex; flex-direction: column; gap: 4px; }
 .playtest-failed .row { align-items: center; }
+.playtest-failed ul { margin: 0; padding-left: 18px; }
+
+/* A /playtest's flow: its stages, the one running marked. */
+.playtest-progress { border-color: var(--line); background: var(--panel-2); }
+.playtest-stages { list-style: none; margin: 0; padding: 0; gap: 14px; flex-wrap: wrap; }
+.playtest-stages li.done { color: var(--ok); }
+.playtest-stages li.done::before { content: "\2713  "; }
+.playtest-stages li.active { font-weight: 600; }
+.playtest-stages li.active::before { content: "\25CF  "; }
+.playtest-stages li.dim { opacity: 0.55; }
