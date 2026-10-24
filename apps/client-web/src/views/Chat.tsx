@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { QaScriptStep, SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
+import type { PlaytestRequest, QaScriptStep, SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
 import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
-import { EditMessageContext, MainTranscript, PlaytestConvertContext, SubagentThread, type EditMode } from "../chat/Transcript";
+import { EditMessageContext, MainTranscript, PlaytestCommandContext, PlaytestConvertContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
@@ -256,6 +256,17 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
         create: (name: string, steps: QaScriptStep[]) => api.qaCreateScript(detail.id, name, steps).then(() => loadDetail(detail.id)),
       }
     : null), [detail?.id, detail?.status, disconnected, busy]);
+  // Make playtest and Retry: a /playtest turn, started when no turn runs.
+  const playtest = useMemo(() => (detail && !disconnected
+    ? {
+        busy,
+        run: (request: PlaytestRequest) => {
+          setThread(null);
+          setSent((n) => n + 1);
+          api.playtest(detail.id, request).then(() => loadDetail(detail.id), (e: Error) => setError(e.message));
+        },
+      }
+    : null), [detail?.id, disconnected, busy]);
   const dialogs = useDialogs(daemon);
   const forms = useForms(daemon, detail?.id ?? null);
   const outside = useOutsideRuns(daemon.events, daemon.streaming);
@@ -368,6 +379,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
           <AssetTranscriptContext.Provider value={detail.transcript}>
           <EditMessageContext.Provider value={disconnected ? null : editMessage}>
           <PlaytestConvertContext.Provider value={convert}>
+          <PlaytestCommandContext.Provider value={playtest}>
             <div className="thread-stage" ref={stage}>
               <MainTranscript
                 transcript={detail.transcript}
@@ -425,6 +437,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
               {!narrow && threads}
             </Composer>
             {narrow && <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{threads}</Sheet>}
+          </PlaytestCommandContext.Provider>
           </PlaytestConvertContext.Provider>
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>
