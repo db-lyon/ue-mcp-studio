@@ -183,7 +183,6 @@ export const api = {
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
   qaSaveScript: (runId: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps }),
   qaDeleteScript: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`),
-  qaCreateScript: (sessionId: string, name: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/scripts", { sessionId, name, steps }),
   qaDismiss: (runId: string) => call<void>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}`),
   qaResultsUrl: (runId: string) => `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,
   dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),

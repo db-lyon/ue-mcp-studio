@@ -1,6 +1,6 @@
 /**
  * Draft playtests: the card a created script gets before anything runs, its
- * Run, Edit and Delete, the players Studio keeps for each step, and the
+ * Start Playtest, Edit and Delete, the players Studio keeps for each step, and the
  * Playtest runs setting that decides whether the agent may start a run.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -115,7 +115,7 @@ describe("Playtest runs", () => {
 });
 
 describe("the draft card's buttons", () => {
-  it("Run sets PIE's players, runs the script on the auto steps' player, and turns the same card live", async () => {
+  it("Start Playtest sets PIE's players, runs the script on the auto steps' player, and turns the same card live", async () => {
     const { agent, broker, s } = setup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
     calls = [];
@@ -127,7 +127,7 @@ describe("the draft card's buttons", () => {
     expect(cards(s.id).map((c) => c.runId)).toEqual([RUN]);
   });
 
-  it("Run with one player leaves PIE's settings alone and uses the running PIE when asked", async () => {
+  it("Start Playtest with one player leaves PIE's settings alone and uses the running PIE when asked", async () => {
     const { agent, broker } = setup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: [STEPS[1]] });
     calls = [];
@@ -154,14 +154,6 @@ describe("the draft card's buttons", () => {
     expect(calls).toEqual([{ category: "pie", action: "script_delete", args: { path: PATH, confirm: true } }]);
     expect(cards(s.id)[0]).toMatchObject({ state: "draft", deleted: true });
     expect(await broker.runScript(qaDraftId(PATH), {})).toMatchObject({ status: 409 });
-  });
-
-  it("Turn into Playtest saves the steps Studio read as a new script, with its draft card", async () => {
-    const { broker, s } = setup();
-    const r = await broker.createScript({ sessionId: s.id, name: "SigilPickup", steps: STEPS });
-    expect(calls[0]).toMatchObject({ action: "script_create", args: { name: "SigilPickup", onConflict: "error", steps: strip(STEPS) } });
-    expect("run" in r && r.run.state).toBe("draft");
-    expect(cards(s.id)).toHaveLength(1);
   });
 
   it("Assign to subagent works on a draft: the subagent's run takes the draft's card", async () => {
@@ -192,8 +184,9 @@ describe("an assignment on a draft that went live", () => {
 
 describe("a subagent's new run", () => {
   it("carries the assignment, so its card offers Cancel and the thread", async () => {
-    const { broker, assigned, s } = setup();
-    const ended = { ...(await broker.createScript({ sessionId: s.id, name: "SigilPickup", steps: STEPS }) as { run: QaRun }).run };
+    const { agent, broker, assigned, s } = setup();
+    await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
+    const ended = { ...cards(s.id)[0] };
     broker.setAssigner({ assign: () => ({ callId: "studio_11", done: new Promise(() => {}) }), stop: () => true });
     broker.assign(ended.runId, {});
     // No draft left to take: the run gets a card of its own.
@@ -210,7 +203,7 @@ describe("a subagent's new run", () => {
   });
 });
 
-describe("a verdict on a draft's manual step, before Run", () => {
+describe("a verdict on a draft's manual step, before Start Playtest", () => {
   const MANUAL = "script_SigilPickup_manual";
   function manualSetup() {
     const base = qaHost();
@@ -254,7 +247,7 @@ describe("a verdict on a draft's manual step, before Run", () => {
     expect(calls.map((c) => c.action)).toEqual(["verdict"]);
   });
 
-  it("refuses a verdict on an auto step before Run, and a fail without a note", async () => {
+  it("refuses a verdict on an auto step before Start Playtest, and a fail without a note", async () => {
     const { broker, agent } = manualSetup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
     calls.length = 0;
@@ -263,7 +256,7 @@ describe("a verdict on a draft's manual step, before Run", () => {
     expect(calls).toEqual([]);
   });
 
-  it("Run on the manual run's card ends it and starts a full run with PIE in the same card", async () => {
+  it("Start Playtest on the manual run's card ends it and starts a full run with PIE in the same card", async () => {
     const { broker, agent, s } = manualSetup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
     await broker.verdict(qaDraftId(PATH), { step: 1, verdict: "skip" });

@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { parseSlashCommand, type FlowRunRequest, type PlaytestRequest, type QaScriptStep, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { parseSlashCommand, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
 import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
-import { EditMessageContext, MainTranscript, PlaytestCommandContext, PlaytestConvertContext, SubagentThread, type EditMode } from "../chat/Transcript";
+import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { pillsFor } from "../chat/pill-providers";
 import { PillRow } from "../chat/Pills";
@@ -49,7 +49,12 @@ const loadFlowNames = () => api.flows().then((r) => r.flows);
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
 
-export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session: string | null; n: number } }) {
+export function ChatView({ daemon, nav, active = true }: {
+  daemon: DaemonState;
+  nav?: { session: string | null; n: number };
+  /** False while another tab is up: the chat stays mounted but leaves the location alone. */
+  active?: boolean;
+}) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   /** Whether the list has come back once: until then an empty list is not "no sessions". */
   const [listed, setListed] = useState(false);
@@ -118,7 +123,9 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
   }, [nav?.n]);
 
   const loadSettings = () => api.settings().then(setSettings, () => setSettings(null));
-  useEffect(() => writeLocation({ tab: "Chat", session: selected }), [selected]);
+  useEffect(() => {
+    if (active) writeLocation({ tab: "Chat", session: selected });
+  }, [selected, active]);
   useEffect(() => {
     void loadList();
     void loadSettings();
@@ -272,17 +279,6 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
-  // A prose playtest's "Turn into Playtest": sent now, or queued behind a running turn.
-  const convert = useMemo(() => (detail && !disconnected
-    ? {
-        status: detail.status,
-        send: (text: string) => {
-          setSent((n) => n + 1);
-          (busy ? api.queue(detail.id, text) : api.send(detail.id, text)).then(() => loadDetail(detail.id), (e: Error) => setError(e.message));
-        },
-        create: (name: string, steps: QaScriptStep[]) => api.qaCreateScript(detail.id, name, steps).then(() => loadDetail(detail.id)),
-      }
-    : null), [detail?.id, detail?.status, disconnected, busy]);
   // The Make playtest pill and Retry: the playtest flow, started when no turn runs.
   const playtest = useMemo(() => (detail && !disconnected
     ? {
@@ -409,7 +405,6 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
           <AssetLinksContext.Provider value={assetLinks}>
           <AssetTranscriptContext.Provider value={detail.transcript}>
           <EditMessageContext.Provider value={disconnected ? null : editMessage}>
-          <PlaytestConvertContext.Provider value={convert}>
           <PlaytestCommandContext.Provider value={playtest}>
             <div className="thread-stage" ref={stage}>
               <MainTranscript
@@ -472,7 +467,6 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
             </Composer>
             {narrow && <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{threads}</Sheet>}
           </PlaytestCommandContext.Provider>
-          </PlaytestConvertContext.Provider>
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>
           </AssetLinksContext.Provider>
