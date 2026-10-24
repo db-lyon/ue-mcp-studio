@@ -125,7 +125,7 @@ export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boo
           ))}
         </ol>
         {slow && !failed && <p className="dim small">Taking longer than it should. If Studio does not reload, close its tab and open it again.</p>}
-        {failed && <div className="banner bad small">{run.error}</div>}
+        {failed && <div className="banner bad small update-error">{run.error}</div>}
         {finished && run.summary && <p className="muted small">{run.summary}</p>}
         {(finished || failed) && (
           <div className="row">

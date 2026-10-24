@@ -143,6 +143,11 @@ export class UpdateQueue {
     }
   }
 
+  /** A step that started in the background and failed later: the panel's run stops on it, with the error. */
+  fail(step: DeferredStep, error: string): void {
+    this.markRun(step, "failed", error);
+  }
+
   private finishRun(): void {
     fs.rmSync(path.join(this.o.dataDir, RUN_FILE), { force: true });
     this.o.publish?.("update.run", { run: null });

@@ -165,6 +165,35 @@ export function isNewer(a: string, b: string): boolean {
   return false;
 }
 
+/** npx-cli.js beside the Node running this daemon (UE_MCP_STUDIO_NPX names another), or null when there is none. */
+function npxCli(): string | null {
+  const npx = process.env.UE_MCP_STUDIO_NPX || path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
+  return fs.existsSync(npx) ? npx : null;
+}
+
+/**
+ * The node arguments that run `pkg` through npx. npx applies the user's
+ * min-release-age even to a package min-release-age-exclude names, which
+ * npm install does not (ue-mcp#1510), so a release is refused on its first
+ * days. These are ue-mcp's and Studio's own packages: the gate is lifted for them.
+ */
+export function npxArgs(npx: string, pkg: string): string[] {
+  return [npx, "-y", "--min-release-age=0", pkg];
+}
+
+/**
+ * What a failed npx run said, for the panel: npm's own error lines when it
+ * wrote any, without the pointer to its log file, else the last lines written.
+ */
+export function failureText(stderr: string): string {
+  const lines = stderr.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean);
+  const npm = lines
+    .filter((l) => /^npm (error|ERR!)/.test(l))
+    .map((l) => l.replace(/^npm (error|ERR!)\s?/, ""))
+    .filter((l) => l && !/^A complete log of this run|^\S*[\\/]_logs[\\/]/.test(l));
+  return (npm.length ? npm : lines.slice(-5)).join("\n").slice(-2000);
+}
+
 const sha256 = (file: string) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 const tarExe = () => (process.platform === "win32" ? path.join(process.env.SystemRoot ?? "C:\\Windows", "System32", "tar.exe") : "tar");
 
@@ -183,7 +212,14 @@ export class Updater {
     private readonly publish: (type: string, data: Record<string, unknown>) => void = () => {},
     private readonly fetchImpl: typeof fetch = fetch,
     private readonly channel: () => UpdateChannel = () => readChannel(),
+    /** A background run (the Studio update, the daemon restart) that failed while this daemon still runs. */
+    private readonly onBackgroundFailure: (step: "studio" | "restart", error: string) => void = () => {},
   ) {}
+
+  /** The ue-mcp package the manifest names, else the beta channel. */
+  private async ueMcpPackage(): Promise<string> {
+    return this.manifest().then((m) => (m as ReleaseManifest & { ueMcp?: { package?: string } }).ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
+  }
 
   /** Studio's latest.json on the chosen channel; UE_MCP_STUDIO_CHANNEL, when set, outranks the choice. */
   async manifestUrl(): Promise<string> {
@@ -277,11 +313,10 @@ export class Updater {
    * (ue-mcp@beta) each time, so a daemon it starts runs the version just
    * installed rather than the one this daemon runs.
    */
-  private async ueMcp(args: string[]): Promise<{ started: boolean; error?: string }> {
-    const npx = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
-    if (!fs.existsSync(npx)) return { started: false, error: "npx was not found beside Node" };
-    const pkg = await this.manifest().then((m) => (m as ReleaseManifest & { ueMcp?: { package?: string } }).ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
-    runHidden([npx, "-y", pkg, ...args], this.host.projectDir);
+  private async ueMcp(step: "studio", args: string[]): Promise<{ started: boolean; error?: string }> {
+    const npx = npxCli();
+    if (!npx) return { started: false, error: "npx was not found beside Node" };
+    runHidden([...npxArgs(npx, await this.ueMcpPackage()), ...args], this.host.projectDir, (error) => this.onBackgroundFailure(step, error));
     return { started: true };
   }
 
@@ -291,7 +326,7 @@ export class Updater {
     if (this.busy) return { started: false, error: `an update is already running (${this.busy})` };
     const uproject = this.uproject();
     if (!uproject) return { started: false, error: "could not find the project" };
-    return this.ueMcp(["extension", "install", await this.manifestUrl(), uproject]);
+    return this.ueMcp("studio", ["extension", "install", await this.manifestUrl(), uproject]);
   }
 
   /**
@@ -303,15 +338,24 @@ export class Updater {
     const uproject = this.uproject();
     if (!uproject) return { ok: false, error: "could not find the project" };
     if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) return { ok: false, error: `not a version: ${version}` };
-    const npx = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
-    if (!fs.existsSync(npx)) return { ok: false, error: "npx was not found beside Node" };
+    const npx = npxCli();
+    if (!npx) return { ok: false, error: "npx was not found beside Node" };
     this.publish("update.progress", { part: "ueMcp", message: `Installing ue-mcp ${version} and its bridge source` });
+    let stderr = "";
     const code = await new Promise<number | null>((resolve) => {
-      const c = spawn(process.execPath, [npx, "-y", `ue-mcp@${version}`, "update", uproject, "--no-build"], { cwd: this.host.projectDir, stdio: "ignore", windowsHide: true });
+      const c = spawn(process.execPath, [...npxArgs(npx, `ue-mcp@${version}`), "update", uproject, "--no-build"], { cwd: this.host.projectDir, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
+      c.stderr.setEncoding("utf-8");
+      c.stderr.on("data", (d: string) => void (stderr = (stderr + d).slice(-64_000)));
       c.on("exit", resolve);
-      c.on("error", () => resolve(null));
+      c.on("error", (e) => {
+        stderr += e.message;
+        resolve(null);
+      });
     });
-    if (code !== 0) return { ok: false, error: `ue-mcp ${version} update exited with ${code ?? "an error"}` };
+    if (code !== 0) {
+      const said = failureText(stderr);
+      return { ok: false, error: `ue-mcp ${version} update exited with ${code ?? "an error"}${said ? `:\n${said}` : ""}` };
+    }
     if (this.host.editors().some((e) => e.connected)) {
       this.publish("update.progress", { part: "ueMcp", message: "Rebuilding the editor on the new bridge" });
       await this.host.editorOperation("rebuild");
@@ -325,12 +369,13 @@ export class Updater {
     const uproject = this.uproject();
     if (!uproject) return { started: false, error: "could not find the project" };
     // Stop, then start: two ue-mcp runs in one background chain, so the stop does not take the start down with it.
-    const npx = path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npx-cli.js");
-    const pkg = await this.manifest().then((m) => (m as ReleaseManifest & { ueMcp?: { package?: string } }).ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
-    const script = `const {execFileSync}=require("child_process");const a=[${JSON.stringify(npx)},"-y",${JSON.stringify(pkg)}];` +
+    // The start's stderr is the chain's, which runHidden keeps for a failure this daemon outlives.
+    const npx = npxCli();
+    if (!npx) return { started: false, error: "npx was not found beside Node" };
+    const script = `const {execFileSync}=require("child_process");const a=${JSON.stringify(npxArgs(npx, await this.ueMcpPackage()))};` +
       `try{execFileSync(process.execPath,[...a,"daemon","stop",${JSON.stringify(uproject)}],{stdio:"ignore",windowsHide:true})}catch{}` +
-      `execFileSync(process.execPath,[...a,"daemon","start",${JSON.stringify(uproject)}],{stdio:"ignore",windowsHide:true});`;
-    runHidden(["-e", script], this.host.projectDir);
+      `try{execFileSync(process.execPath,[...a,"daemon","start",${JSON.stringify(uproject)}],{stdio:["ignore","ignore","inherit"],windowsHide:true})}catch(e){process.exit(e.status||1)}`;
+    runHidden(["-e", script], this.host.projectDir, (error) => this.onBackgroundFailure("restart", error));
     return { started: true };
   }
 
@@ -412,13 +457,28 @@ async function startFailure(host: UpdaterHost): Promise<string | null> {
  * cmd.exe, which opens a window of its own unless it inherits a console, and
  * a child that is not detached dies with this daemon, which the chain stops.
  * So a detached wrapper outlives the daemon and runs the chain in a console
- * that has no window.
+ * that has no window. The chain's stderr goes to a file: when the chain fails
+ * while this daemon still runs, `onFailure` gets what it said.
  */
-export function runHidden(args: string[], cwd: string): void {
+export function runHidden(args: string[], cwd: string, onFailure?: (error: string) => void): void {
+  const log = path.join(os.tmpdir(), `studio-update-${crypto.randomUUID()}.log`);
   const wrapper =
-    'const c=require("child_process").spawn(process.execPath,JSON.parse(process.env.STUDIO_CHAIN),{stdio:"ignore",windowsHide:true});' +
-    'c.on("exit",(x)=>process.exit(x??0));c.on("error",()=>process.exit(1));';
-  spawn(process.execPath, ["-e", wrapper], { detached: true, stdio: "ignore", windowsHide: true, cwd, env: { ...process.env, STUDIO_CHAIN: JSON.stringify(args) } }).unref();
+    'const fs=require("fs");const err=fs.openSync(process.env.STUDIO_CHAIN_LOG,"w");' +
+    'const c=require("child_process").spawn(process.execPath,JSON.parse(process.env.STUDIO_CHAIN),{stdio:["ignore","ignore",err],windowsHide:true});' +
+    'c.on("exit",(x)=>{fs.closeSync(err);if(!x)try{fs.rmSync(process.env.STUDIO_CHAIN_LOG,{force:true})}catch{}process.exit(x??0)});c.on("error",(e)=>{fs.writeSync(err,String(e.message));process.exit(1)});';
+  const w = spawn(process.execPath, ["-e", wrapper], { detached: true, stdio: "ignore", windowsHide: true, cwd, env: { ...process.env, STUDIO_CHAIN: JSON.stringify(args), STUDIO_CHAIN_LOG: log } });
+  w.on("exit", (code) => {
+    let said = "";
+    try {
+      said = failureText(fs.readFileSync(log, "utf-8"));
+    } catch {
+      // No log: the wrapper did not start.
+    }
+    fs.rm(log, { force: true }, () => {});
+    if (code !== 0) onFailure?.(said || `the update exited with ${code ?? "an error"}`);
+  });
+  w.on("error", (e) => onFailure?.(e.message));
+  w.unref();
 }
 
 /** A file the editor just let go of can stay locked for a moment on Windows. */

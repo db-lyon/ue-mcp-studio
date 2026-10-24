@@ -42,7 +42,7 @@ import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverag
 import { StudioSignInFlow } from "./signin.js";
 import { AttachmentStore } from "./attachments.js";
 import { detectVcs, diffOf, listChanges } from "./vcs.js";
-import { Updater, writeChannel } from "./updates.js";
+import { Updater, readChannel, writeChannel } from "./updates.js";
 import { DEFERRED_STEPS, UpdateQueue, type DeferredStep } from "./update-queue.js";
 import { issueBody, submitFeedback, validate, type Environment } from "./feedback.js";
 import * as fs from "node:fs";
@@ -197,7 +197,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
 
   // Studio's own updates: the extension and the editor plugin, against the release channel.
-  const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data));
+  // A Studio update or restart that fails in the background stops the panel's run with what npm said.
+  const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data), fetch, () => readChannel(), (step, error) => updates.fail(step, error));
   // A step that restarts the daemon or closes the editor waits while any turn is in progress.
   const writeRestartCause = (cause: string) => {
     fs.mkdirSync(api.dataDir, { recursive: true });
