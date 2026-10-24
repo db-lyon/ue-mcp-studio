@@ -167,6 +167,7 @@ const runnerOn = (s = store) =>
   new AgentRunner({ host, store: s, provider: () => { throw new Error("the API route is not used"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false });
 
 describe("editor_restart on the subscription route", () => {
+  // Real time: the editor reconnects 1.2 s in, polled each second, then a shell runs. A loaded run takes longer than the 5 s default.
   it("rebuilds, waits for the editor to connect again, and every later call returns a real result", async () => {
     host.operation = async (op) => {
       host.connected = false;
@@ -201,7 +202,7 @@ describe("editor_restart on the subscription route", () => {
     expect(fin.status).toBe("idle");
     expect(fin.transcript.filter((t) => t.kind === "tool").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["done", "done", "done"]);
     expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "Rebuilt and checked." });
-  });
+  }, 20_000);
 });
 
 describe("editing a message on the subscription route", () => {

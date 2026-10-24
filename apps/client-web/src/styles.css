@@ -847,6 +847,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-override { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .qa-assignment { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .qa-assignment-live { color: var(--accent); }
+.prose-playtest { gap: 8px; margin: -2px 0 8px; align-items: center; flex-wrap: wrap; }
 .qa-summary { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; border-top: 1px solid var(--line); padding-top: 8px; }
 
 /* Top bar: its tools in a row when wide. Narrow, a menu button and the current tab's name,

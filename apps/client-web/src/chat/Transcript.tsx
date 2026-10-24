@@ -7,6 +7,7 @@ import { DiffView } from "./Diff";
 import { breakable } from "./breakable";
 import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
+import { conversionMessage, offerConversion } from "./prose-playtest";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import {
   OUTCOME_LABEL,
@@ -48,6 +49,13 @@ function positionIn(transcript: readonly unknown[] | null | undefined, entry: Tr
 export type EditMode = "rewind" | "fork";
 export const EditMessageContext = createContext<((index: number, text: string, mode: EditMode) => void) | null>(null);
 
+/**
+ * Turns a reply that wrote a playtest out as prose into a Playtest: sends the
+ * agent the message that has it build and run the steps as a test script.
+ * Null where nothing can be sent.
+ */
+export const PlaytestConvertContext = createContext<{ status: TurnStatus; send: (text: string) => void } | null>(null);
+
 /** One line of a conversation that is not a subagent: a message, a note or a tool call. Renders again only when the entry changes. */
 export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) {
   const transcript = useContext(AssetTranscriptContext);
@@ -57,13 +65,42 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "assistant") {
     const at = positionIn(transcript, entry);
-    return <Reply text={entry.text} at={at < 0 ? undefined : at} />;
+    return (
+      <>
+        <Reply text={entry.text} at={at < 0 ? undefined : at} />
+        {at >= 0 && !entry.parent && <ConvertToPlaytest at={at} />}
+      </>
+    );
   }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
   if (entry.kind === "qa") return <QaCard run={entry.run} />;
   return <ToolCall call={entry.call} />;
 });
+
+/** "Turn into Playtest" under a finished reply that lists PASS and FAIL steps from a turn that ran no test script. */
+function ConvertToPlaytest({ at }: { at: number }) {
+  const convert = useContext(PlaytestConvertContext);
+  const transcript = useContext(AssetTranscriptContext);
+  const [sent, setSent] = useState(false);
+  const steps = convert && transcript ? offerConversion(transcript as readonly TranscriptEntry[], at, convert.status) : null;
+  if (!convert || !steps || sent) return null;
+  return (
+    <div className="prose-playtest row small">
+      <span className="dim">These {steps.length} steps were written out, not run.</span>
+      <button
+        className="small-button"
+        title="The agent builds these steps as a test script and runs it, so you get a Playtest card"
+        onClick={() => {
+          setSent(true);
+          convert.send(conversionMessage(steps));
+        }}
+      >
+        Turn into Playtest
+      </button>
+    </div>
+  );
+}
 
 /**
  * A message the user sent. Edit opens it in place. With anything after it,
