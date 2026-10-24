@@ -10,6 +10,7 @@ import type { Effort } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import type { ToolExecution } from "./tools.js";
+import { messagesUsage, usageTokens } from "./usage.js";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
@@ -75,6 +76,8 @@ export interface SubscriptionTurn {
   onTask: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
+  /** Tokens the turn spent since the last report, subagents' included, as each model message arrives. */
+  onTokens?: (tokens: number) => void;
 }
 
 /** Text alone goes as a string; with an image or a document, as one user message of blocks. */
@@ -230,6 +233,8 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     });
     const messages = (q as AsyncIterable<SDKMessage>)[Symbol.asyncIterator]();
     let error: string | null = null;
+    // The SDK repeats a message per content block with its usage so far: count each message's growth once.
+    const spent = new Map<string, number>();
     for (;;) {
       const next = await Promise.race([messages.next(), stopped]);
       if (!next || next.done || t.signal.aborted) break;
@@ -252,6 +257,14 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         if (!m.parent_tool_use_id && e.type === "content_block_delta" && e.delta.type === "text_delta") t.onDelta(e.delta.text);
       } else if (m.type === "assistant") {
         if (m.error) error = `Claude: ${m.error}`;
+        if (t.onTokens) {
+          const tokens = usageTokens(messagesUsage((m.message as { usage?: unknown }).usage));
+          const before = spent.get(m.message.id) ?? 0;
+          if (tokens > before) {
+            spent.set(m.message.id, tokens);
+            t.onTokens(tokens - before);
+          }
+        }
         const content = (m.message.content as ContentBlock[]).map((b) => (b.type === "tool_use" ? ({ ...b, name: studioName(b.name) } as ContentBlock) : b));
         for (const b of content) if (b.type === "tool_use") calls.add(b.id, b.name, b.input);
         t.onAssistant(m.message.id, content, m.parent_tool_use_id);

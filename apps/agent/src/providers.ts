@@ -9,6 +9,9 @@ import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER, t
 import { OpenAICompatibleProvider, OPENAI_BASE_URLS, PROVIDER_EXTRA } from "./openai-compat.js";
 import { ResponsesProvider } from "./responses.js";
 import type { Effort } from "@ue-mcp-studio/shared";
+import { messagesUsage, type TokenUsage } from "./usage.js";
+
+export type { TokenUsage } from "./usage.js";
 
 export type MessageParam = Anthropic.Beta.BetaMessageParam;
 export type ContentBlock = Anthropic.Beta.BetaContentBlock;
@@ -32,7 +35,10 @@ export interface ModelTurn {
   refusal?: string;
   /** Web searches the provider ran on its side during the turn, for the transcript. */
   searches?: WebSearchRecord[];
+  /** The tokens the turn cost, when the provider reports them. */
+  usage?: TokenUsage;
 }
+
 
 export interface WebSearchRecord {
   id: string;
@@ -148,6 +154,7 @@ export class AnthropicProvider implements ModelProvider {
       stopReason: message.stop_reason,
       refusal: refusalOf(message.stop_reason, (message as { stop_details?: unknown }).stop_details),
       searches: searchesIn(message.content),
+      usage: messagesUsage(message.usage),
     };
   }
 
@@ -195,6 +202,7 @@ export class GatewayProvider implements ModelProvider {
       content: message.content,
       stopReason: message.stop_reason,
       refusal: refusalOf(message.stop_reason, (message as { stop_details?: unknown }).stop_details),
+      usage: messagesUsage(message.usage),
     };
   }
 }

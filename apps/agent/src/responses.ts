@@ -8,6 +8,7 @@
 import { isSearchRefusal, type ContentBlock, type ModelProvider, type ModelRequest, type ModelTurn, type WebSearchRecord } from "./providers.js";
 import { sseLines } from "./openai-compat.js";
 import { openaiEffort, withEffort } from "./effort.js";
+import { openaiUsage, type TokenUsage } from "./usage.js";
 
 export const RESPONSES_URL = "https://api.openai.com/v1/responses";
 
@@ -76,11 +77,12 @@ export async function readResponsesStream(lines: AsyncIterable<string>, onText: 
   const content: ContentBlock[] = [];
   const searches: WebSearchRecord[] = [];
   let completed = false;
+  let usage: TokenUsage | undefined;
   for await (const line of lines) {
     if (!line.startsWith("data:")) continue;
     const data = line.slice(5).trim();
     if (!data || data === "[DONE]") continue;
-    const e = JSON.parse(data) as { type: string; delta?: string; item?: Block; response?: { error?: { code?: string; message?: string }; incomplete_details?: { reason?: string } } };
+    const e = JSON.parse(data) as { type: string; delta?: string; item?: Block; response?: { error?: { code?: string; message?: string }; incomplete_details?: { reason?: string }; usage?: unknown } };
     if (e.type === "response.output_text.delta" && e.delta) onText(e.delta);
     else if (e.type === "response.output_item.done" && e.item) {
       const it = e.item;
@@ -109,6 +111,7 @@ export async function readResponsesStream(lines: AsyncIterable<string>, onText: 
       }
     } else if (e.type === "response.completed") {
       completed = true;
+      usage = openaiUsage(e.response?.usage);
     } else if (e.type === "response.failed" || e.type === "error") {
       const err = e.response?.error ?? (e as unknown as { error?: { code?: string; message?: string } }).error;
       throw new Error((err?.code && USAGE_ERRORS[err.code]) ?? `ChatGPT: ${err?.message ?? err?.code ?? "the response failed"}`);
@@ -117,7 +120,7 @@ export async function readResponsesStream(lines: AsyncIterable<string>, onText: 
     }
   }
   if (!completed) throw new Error("The ChatGPT response ended before it completed.");
-  return { content, stopReason: content.some((b) => b.type === "tool_use") ? "tool_use" : "end_turn", searches };
+  return { content, stopReason: content.some((b) => b.type === "tool_use") ? "tool_use" : "end_turn", searches, ...(usage ? { usage } : {}) };
 }
 
 export class ResponsesProvider implements ModelProvider {
