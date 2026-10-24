@@ -446,10 +446,10 @@ export class QaBroker {
     return { run: this.runs.get(runId)! };
   }
 
+  /** The subagent ended: whichever card holds it now (a draft's run takes its card, and its assignment) says how. */
   private assignmentEnded(runId: string, callId: string, state: "done" | "failed" | "stopped"): void {
-    const run = this.runs.get(runId);
-    if (!run?.assignment || run.assignment.callId !== callId || run.assignment.state !== "running") return;
-    this.save({ ...run, assignment: { ...run.assignment, state } });
+    const holders = [this.runs.get(runId), ...this.runs.values()].filter((r): r is QaRun => r?.assignment?.callId === callId && r.assignment.state === "running");
+    for (const run of new Set(holders)) this.save({ ...run, assignment: { ...run.assignment!, state } });
   }
 
   /** The run's results.json, from its file when it is the project's, otherwise as ue-mcp reads it. */

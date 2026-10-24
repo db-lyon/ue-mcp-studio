@@ -175,3 +175,17 @@ describe("the draft card's buttons", () => {
     expect(cards(s.id)[0]).toMatchObject({ runId: RUN, assignment: { callId: "studio_9", state: "running" } });
   });
 });
+
+describe("an assignment on a draft that went live", () => {
+  it("ends on the live card when the subagent finishes", async () => {
+    const { agent, broker, assigned, s } = setup();
+    await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
+    let finish!: (r: { isError: boolean }) => void;
+    broker.setAssigner({ assign: () => ({ callId: "studio_10", done: new Promise((r) => (finish = r)) }), stop: () => true });
+    broker.assign(qaDraftId(PATH), {});
+    await assigned.callAction("pie", "script_run", { script: PATH, start_pie: true });
+    finish({ isError: false });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(cards(s.id)[0]).toMatchObject({ runId: RUN, assignment: { callId: "studio_10", state: "done" } });
+  });
+});
