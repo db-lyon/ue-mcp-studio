@@ -238,8 +238,20 @@ export class QaBroker {
     const had = this.runs.get(runId);
     const fresh = qaRunFromAnswer(answer, { ...this.ownerOf(sessionId, action), seenAt: this.now() });
     if (!fresh) return;
-    const run = had ? { ...qaMergeAnswer(had, answer), ...this.ownerOf(sessionId, action, had) } : fresh;
+    let run: QaRun = had ? { ...qaMergeAnswer(had, answer), ...this.ownerOf(sessionId, action, had) } : fresh;
+    // A run a subagent the user assigned starts shows that subagent too: its Cancel and its thread.
+    if (!run.assignment) {
+      const parent = this.callParent(sessionId, run.toolUseId);
+      const assignment = parent ? [...this.runs.values()].find((r) => r.assignment?.callId === parent && r.assignment.state === "running")?.assignment : undefined;
+      if (assignment) run = { ...run, assignment };
+    }
     this.save(run);
+  }
+
+  /** The agent call a tool call was made under. */
+  private callParent(sessionId: string, toolUseId: string | null): string | undefined {
+    if (!toolUseId) return undefined;
+    return this.o.store.get(sessionId)?.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId)?.parent;
   }
 
   /** The session, tool call and subagent behind a run, from the newest matching call still running. */
