@@ -88,7 +88,7 @@ export function toChatRequest(req: ModelRequest): Record<string, unknown> {
     return { type: "function", function: { name: tool.name, description: tool.description ?? "", parameters: tool.input_schema ?? { type: "object" } } };
   });
   const effort = openaiEffort(req.model, req.effort) ?? geminiEffort(req.model, req.effort);
-  return { model: req.model, messages, tools, ...(effort ? { reasoning_effort: effort } : {}), stream: true };
+  return { model: req.model, messages, ...(tools.length ? { tools } : {}), ...(effort ? { reasoning_effort: effort } : {}), stream: true };
 }
 
 const STOP: Record<string, string> = { tool_calls: "tool_use", stop: "end_turn", length: "max_tokens", content_filter: "refusal" };

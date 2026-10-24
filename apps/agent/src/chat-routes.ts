@@ -29,6 +29,7 @@
  * studio.approval.requested and studio.approval.resolved.
  */
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
+import { registerFlowModel, type ModelHost } from "./flow-model.js";
 import { CLAUDE_SIGN_IN_AVAILABLE, PROVIDERS } from "@ue-mcp-studio/shared";
 import type { ApprovalDecision, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
@@ -162,6 +163,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     route: () => ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
     askBeforeChanges: () => settings.askBeforeChanges(),
     playtestRuns: () => playtests.runs(),
+  });
+  // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
+  const unregisterModel = registerFlowModel(api as ModelHost, {
+    projectDir: api.projectDir,
+    model: () => settings.model(),
+    effort: () => settings.effort(),
+    subscription: () => route() === "claude",
+    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
   });
   // A playtest's card hands it to a subagent the runner starts beside the session's turns.
   qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId) });
@@ -571,6 +580,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       unobserve();
       unwatchAssets();
       updates.stop();
+      unregisterModel();
       dialogs.dispose();
       qa.dispose();
       runner.dispose();

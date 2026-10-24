@@ -53,12 +53,12 @@ export function toResponsesRequest(req: ModelRequest, search = false): Record<st
     const tool = t as { name: string; description?: string; input_schema?: unknown };
     return { type: "function", name: tool.name, description: tool.description ?? "", parameters: tool.input_schema ?? { type: "object" } } as Record<string, unknown>;
   });
-  if (search) tools.push({ type: "web_search" });
+  if (search && req.search !== false) tools.push({ type: "web_search" });
   return {
     model: req.model,
     instructions: req.system.map((b) => b.text).join("\n\n"),
     input,
-    tools,
+    ...(tools.length ? { tools } : {}),
     ...withEffort("reasoning", openaiEffort(req.model, req.effort)),
     store: false,
     stream: true,

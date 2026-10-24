@@ -21,6 +21,8 @@ export interface ModelRequest {
   messages: MessageParam[];
   /** How long the model reasons; high when not given. */
   effort?: Effort;
+  /** false: no provider-side web search goes with the request, as for a flow's text-only step. */
+  search?: boolean;
 }
 
 export interface ModelTurn {
@@ -82,7 +84,7 @@ export function requestBody(req: ModelRequest): Anthropic.Beta.MessageCreatePara
     model: req.model,
     max_tokens: MAX_TOKENS,
     system: req.system,
-    tools: req.tools,
+    ...(req.tools.length ? { tools: req.tools } : {}),
     messages: withoutProviderExtra(req.messages),
     output_config: { effort: req.effort ?? "high" },
     cache_control: { type: "ephemeral" },
@@ -124,7 +126,7 @@ export class AnthropicProvider implements ModelProvider {
 
   async run(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<ModelTurn> {
     const attempt = async (r: ModelRequest): Promise<Anthropic.Beta.BetaMessage> => {
-      if (!this.search) return this.stream(r, onText, signal);
+      if (!this.search || r.search === false) return this.stream(r, onText, signal);
       try {
         return await this.stream({ ...r, tools: [...r.tools, ANTHROPIC_WEB_SEARCH] }, onText, signal);
       } catch (e) {

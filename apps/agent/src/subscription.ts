@@ -268,3 +268,64 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     return t.signal.aborted ? null : e instanceof Error ? e.message : String(e);
   }
 }
+
+export interface SubscriptionCompletion {
+  projectDir: string;
+  model: string;
+  effort: Effort;
+  system: string;
+  prompt: string;
+  signal: AbortSignal;
+}
+
+/**
+ * One text answer on the user's Claude sign-in, for a flow's agent step: no
+ * tools at all, built-in or Studio's, one turn, and no session kept. The
+ * answer is the turn's result text.
+ */
+export async function runSubscriptionCompletion(c: SubscriptionCompletion): Promise<{ text: string } | { error: string }> {
+  if (!(claudeLogin() ?? (await refreshClaudeLogin()))) return { error: "Sign in to Claude Code first: run `claude /login` in a terminal." };
+  const rt = await runtime();
+  if ("error" in rt) return rt;
+  fs.mkdirSync(claudeHome(), { recursive: true });
+  const abort = new AbortController();
+  const onStop = () => abort.abort();
+  if (c.signal.aborted) onStop();
+  else c.signal.addEventListener("abort", onStop, { once: true });
+  try {
+    const q = query({
+      prompt: c.prompt,
+      options: {
+        model: c.model,
+        effort: c.effort,
+        systemPrompt: c.system,
+        tools: [],
+        allowedTools: [],
+        settingSources: [],
+        maxTurns: 1,
+        persistSession: false,
+        cwd: c.projectDir,
+        pathToClaudeCodeExecutable: rt.exe,
+        abortController: abort,
+        env: claudeEnv({}),
+      },
+    });
+    let text = "";
+    let error: string | null = null;
+    for await (const m of q as AsyncIterable<SDKMessage>) {
+      if (m.type === "assistant") {
+        if (m.error) error = `Claude: ${m.error}`;
+        for (const b of m.message.content as ContentBlock[]) if (b.type === "text") text += b.text;
+      } else if (m.type === "result") {
+        if (m.subtype === "success" && !m.is_error) text = m.result || text;
+        else error = error ?? (m.subtype === "success" ? m.result : `The turn ended: ${m.subtype}`);
+      }
+    }
+    if (c.signal.aborted) return { error: "stopped" };
+    return error ? { error } : { text };
+  } catch (e) {
+    return { error: c.signal.aborted ? "stopped" : e instanceof Error ? e.message : String(e) };
+  } finally {
+    c.signal.removeEventListener("abort", onStop);
+  }
+}
