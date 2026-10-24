@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { formatBytes, type PendingFile } from "./attachments";
+import { useSlashMenu } from "./SlashMenu";
+import type { SlashCommand } from "@ue-mcp-studio/shared";
 
 /** The text box grows with what is written up to this many lines, then scrolls. */
 export const MAX_LINES = 15;
@@ -39,7 +41,7 @@ export function fitHeight({ content, line, chrome, floor, room }: { content: num
  * the dragged height is a minimum the content can still grow past. A double
  * click on the divider forgets it. `height` is the saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -59,10 +61,13 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   stage?: RefObject<HTMLElement>;
   height?: number | null;
   onHeight?: (h: number | null) => void;
+  /** The slash commands the menu offers; the registry's when not given. */
+  commands?: readonly SlashCommand[];
   children?: ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  const slash = useSlashMenu(draft, onDraft, commands);
   /** A hidden copy of the box, out of the page flow, measured instead of the box so typing never lays out the conversation. */
   const mirror = useRef<HTMLTextAreaElement>(null);
   const [floor, setFloor] = useState<number | null>(height ?? null);
@@ -208,12 +213,14 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         </div>
       )}
       <textarea ref={mirror} className="composer-mirror" rows={1} tabIndex={-1} aria-hidden readOnly defaultValue="" />
+      {slash.menu}
       <textarea
         ref={box}
         rows={1}
         value={draft}
         placeholder={placeholder}
         disabled={busy && !onQueue}
+        {...slash.aria}
         onChange={(e) => onDraft(e.target.value)}
         onBlur={onBlur}
         onPaste={(e) => {
@@ -224,6 +231,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           }
         }}
         onKeyDown={(e) => {
+          if (slash.keyDown(e)) return;
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             if (!canSend) return;

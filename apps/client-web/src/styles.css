@@ -1084,3 +1084,10 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .sheet-grip { position: absolute; top: 0; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line-strong); }
 .sheet-body { overflow-y: auto; min-height: 0; }
 .sheet-body .agents-bar { max-height: none; border-top: 0; padding-top: 0; }
+
+/* Slash commands: the menu over the message box while a command name is typed. */
+.slash-menu { position: absolute; left: 16px; right: 16px; bottom: calc(100% - 6px); z-index: 5; margin: 0; padding: 4px; list-style: none; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); }
+.slash-menu li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.slash-menu li.active { background: var(--panel-3); }
+.slash-name { font-family: var(--mono, monospace); }
+.slash-summary { flex-basis: 100%; }
