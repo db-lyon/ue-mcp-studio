@@ -7,6 +7,8 @@ import { qaRunFromAnswer, type PendingForm, type QaRun } from "@ue-mcp-studio/sh
 const m = vi.hoisted(() => ({
   qaVerdict: vi.fn(),
   qaStatus: vi.fn(),
+  qaAssign: vi.fn(),
+  qaCancelAssign: vi.fn(),
   answerForm: vi.fn(async () => {}),
   qaResultsUrl: (id: string) => `/v1/ext/studio/qa/runs/${id}/results`,
 }));
@@ -199,5 +201,84 @@ describe("the checklist card", () => {
     const newer = { ...runOf({ steps: [{ ...STEPS[0], status: "passed" }, STEPS[1], STEPS[2]] }), lastSeq: 3 };
     page.push({ id: nextId++, type: "studio.qa.changed", at: "", data: { runId: RUN, run: newer as unknown as Record<string, unknown> } });
     expect(within(step(0)).getByText("Auto pass")).toBeTruthy();
+  });
+});
+
+describe("assigning the playtest to a subagent", () => {
+  const running = (r: QaRun): QaRun => ({ ...r, assignment: { callId: "studio_1", sessionId: "s1", state: "running", at: "" } });
+
+  it("starts the subagent from the card, then offers Cancel and its thread while it runs", async () => {
+    const run = runOf();
+    m.qaAssign.mockResolvedValue({ run: running(run) });
+    m.qaCancelAssign.mockResolvedValue({ run: { ...run, assignment: { callId: "studio_1", sessionId: "s1", state: "stopped", at: "" } } });
+    const onThread = vi.fn();
+    mount(run, { onThread });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Assign to subagent" }));
+    });
+    expect(m.qaAssign).toHaveBeenCalledWith(RUN, null);
+    expect(screen.queryByRole("button", { name: "Assign to subagent" })).toBeNull();
+    expect(screen.getByText("A subagent is running this playtest.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open its thread" }));
+    expect(onThread).toHaveBeenCalledWith("studio_1");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Cancel the subagent" }));
+    });
+    expect(m.qaCancelAssign).toHaveBeenCalledWith(RUN);
+    expect(screen.getByText("The subagent was stopped.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Assign to subagent" })).toBeTruthy();
+  });
+
+  it("runs a playtest started elsewhere in the open session", async () => {
+    const run = qaRunFromAnswer(answer(), { sessionId: null, seenAt: "" })!;
+    m.qaAssign.mockResolvedValue({ run: running(run) });
+    mount(run, { sessionId: "open" });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Assign to subagent" }));
+    });
+    expect(m.qaAssign).toHaveBeenCalledWith(RUN, "open");
+  });
+
+  it("follows the agent's word on the subagent even when the card's steps are newer", () => {
+    const page = mount(runOf());
+    page.push(ev("script.step_passed", { seq: 5, step: { index: 0, status: "passed" } }));
+    const older = { ...running(runOf()), lastSeq: 2 };
+    page.push({ id: nextId++, type: "studio.qa.changed", at: "", data: { runId: RUN, run: older as unknown as Record<string, unknown> } });
+    expect(screen.getByRole("button", { name: "Cancel the subagent" })).toBeTruthy();
+    expect(within(step(0)).getByText("Auto pass")).toBeTruthy();
+  });
+
+  it("offers nothing to assign when every step left is a person's", () => {
+    const steps = [{ ...STEPS[0], status: "passed" }, { ...STEPS[1], status: "passed" }, { ...STEPS[2], agent_judgeable: false, status: "awaiting_verdict" }];
+    mount(runOf({ state: "awaiting_verdict", steps }));
+    expect(screen.queryByRole("button", { name: "Assign to subagent" })).toBeNull();
+    expect(within(step(2)).getByText("yours")).toBeTruthy();
+  });
+
+  it("badges the agent's verdict, shows its evidence on hover and expanded, and overrides it with one click", async () => {
+    const agentStep = {
+      ...STEPS[2], status: "passed", verdict_source: "agent", note: "No pop across 12 frames",
+      evidence: { note: "No pop across 12 frames", captures: ["C:/MyGame/Saved/Screenshots/door_01.png", "C:/MyGame/Saved/Screenshots/door_02.png"] },
+    };
+    const run = runOf({ state: "finished", steps: [{ ...STEPS[0], status: "passed" }, { ...STEPS[1], status: "passed" }, agentStep] });
+    const overridden = { ...run, steps: run.steps.map((s) => (s.index === 2 ? { ...s, status: "failed" as const, verdictSource: "action" as const, evidence: undefined, note: undefined } : s)) };
+    m.qaVerdict.mockResolvedValue({ run: overridden });
+    mount(run);
+    expect(screen.getAllByRole("status").find((e) => e.classList.contains("qa-summary"))!.textContent).toContain("The agent judged 1 step.");
+    const badge = within(step(2)).getByText("Agent");
+    expect(badge.getAttribute("title")).toBe(["No pop across 12 frames", "C:/MyGame/Saved/Screenshots/door_01.png", "C:/MyGame/Saved/Screenshots/door_02.png"].join(String.fromCharCode(10)));
+    expect(within(step(0)).queryByText("Agent")).toBeNull();
+    const details = step(2).querySelector("details")!;
+    expect(within(details).getByText("What the agent saw")).toBeTruthy();
+    expect(within(details).getByText("C:/MyGame/Saved/Screenshots/door_02.png")).toBeTruthy();
+    // Its own verdict is not offered again.
+    expect(within(step(2)).queryByRole("button", { name: "Override step 3 with Pass" })).toBeNull();
+    await act(async () => {
+      fireEvent.click(within(step(2)).getByRole("button", { name: "Override step 3 with Fail" }));
+    });
+    expect(m.qaVerdict).toHaveBeenCalledWith(RUN, 2, "fail");
+    expect(within(step(2)).getByText("Failed")).toBeTruthy();
+    expect(within(step(2)).queryByText("Agent")).toBeNull();
+    expect(within(step(2)).queryByRole("button")).toBeNull();
   });
 });

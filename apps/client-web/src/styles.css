@@ -838,6 +838,15 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-verdict button.picked { border-color: var(--accent); color: var(--text); }
 .qa-verdict button.verdict-pass:hover:not(:disabled) { border-color: var(--ok); }
 .qa-verdict button.verdict-fail:hover:not(:disabled) { border-color: var(--bad); }
+.qa-badge { flex-shrink: 0; border-radius: 999px; padding: 0 7px; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; border: 1px solid var(--line-strong); cursor: help; }
+.qa-badge.agent { color: var(--accent); border-color: var(--accent-line); background: var(--accent-wash); }
+.qa-agent-evidence, .qa-override { margin-left: calc(1.6em + 8px); }
+.qa-agent-evidence summary { cursor: pointer; color: var(--muted); }
+.qa-agent-evidence p { margin: 4px 0; white-space: pre-wrap; }
+.qa-agent-evidence ul { margin: 4px 0; padding-left: 16px; overflow-wrap: anywhere; }
+.qa-override { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.qa-assignment { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.qa-assignment-live { color: var(--accent); }
 .qa-summary { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; border-top: 1px solid var(--line); padding-top: 8px; }
 
 /* Top bar: its tools in a row when wide. Narrow, a menu button and the current tab's name,

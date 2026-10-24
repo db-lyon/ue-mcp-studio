@@ -248,7 +248,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
   const dialogs = useDialogs(daemon);
   const forms = useForms(daemon, detail?.id ?? null);
   const outside = useOutsideRuns(daemon.events, daemon.streaming);
-  const qaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms }), [daemon.events, daemon.streaming, forms]);
+  const qaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms, sessionId: detail?.id ?? null, onThread: openThreadId }), [daemon.events, daemon.streaming, forms, detail?.id, openThreadId]);
   /** The runs with a card on screen, so their verdict forms are answered there. */
   const qaRuns = useMemo(() => new Set([
     ...(detail?.transcript ?? []).flatMap((t) => (t.kind === "qa" ? [t.run.runId] : [])),
