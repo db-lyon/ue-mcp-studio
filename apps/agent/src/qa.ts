@@ -555,6 +555,19 @@ export class QaBroker {
     }
     this.o.host.events.publish("qa.attention", { sessionId, runId: run.runId, loopId: loop.id, title: "Playtest needs you", text: attentionText(run, loop) });
     this.o.loop?.notify?.(sessionId, loop, run);
+    this.editorToast(loop, run);
+  }
+
+  /**
+   * The same blocker as a toast in the editor. Best effort: the Windows
+   * notification and the card are the signals, so a failed call, or a bridge
+   * without editor(show_notification), changes nothing.
+   */
+  private editorToast(loop: QaLoop, run: QaRun): void {
+    const args = { text: loop.blocker?.reason ?? "The playtest loop stopped and needs you.", subText: run.scriptName, severity: "warning" };
+    void Promise.resolve()
+      .then(() => this.o.host.callAction("editor", "show_notification", args))
+      .catch(() => undefined);
   }
 
   /**
