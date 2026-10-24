@@ -21,13 +21,16 @@ const FLOWS = [
   { name: "rebuild_lighting" },
   { name: "playtest" },
 ];
+/** A step that reads an input, as ue-mcp#1512 reports it. */
+const at = (path: string, task: string, flow = "rebuild") => ({ path, task, flow });
+/** The plan's inputs, required first, as ue-mcp#1512 orders them. */
 const INPUTS: FlowInput[] = [
-  { name: "clean", type: "boolean", default: false, steps: [2] },
-  { name: "config", type: "string", enum: ["Development", "Shipping"], default: "Development", description: "Build configuration", steps: [2] },
-  { name: "target", type: "string", required: true, steps: [2, 3] },
-  { name: "jobs", type: "integer", steps: [2] },
-  { name: "maps", type: "array", steps: [3] },
-  { name: "mode", type: ["string", "number"], conflict: true, steps: [1, 3] },
+  { name: "target", type: "string", required: true, steps: [at("2", "project.build"), at("3", "editor.start")] },
+  { name: "clean", type: "boolean", default: false, required: false, steps: [at("2", "project.build")] },
+  { name: "config", type: "string", enum: ["Development", "Shipping"], default: "Development", description: "Build configuration", required: false, steps: [at("2", "project.build")] },
+  { name: "jobs", type: "integer", required: false, steps: [at("2", "project.build")] },
+  { name: "maps", type: "array", required: false, steps: [at("3", "editor.start")] },
+  { name: "mode", type: ["string", "number"], conflict: true, required: false, steps: [at("1", "editor.stop"), at("3", "editor.start")] },
 ];
 
 function daemon(plans: Record<string, unknown>) {
@@ -74,7 +77,7 @@ describe("reading /flow's text", () => {
     expect(fields.maps).toMatchObject({ type: "string" });
     expect(fields.maps.description).toContain("JSON.");
     expect(fields.mode.description).toContain("Steps type it differently (string, number).");
-    expect(fields.target.description).toBe("Read by steps 2, 3.");
+    expect(fields.target.description).toBe("Read by steps 2 (project.build), 3 (editor.start).");
   });
 });
 
@@ -128,7 +131,7 @@ describe("the /flow form", () => {
   });
 
   it("says when no flow has the name, with the closest, and a pick opens that one", async () => {
-    daemon({ rebuild: { steps: [], inputs: [{ name: "clean", type: "boolean" }] } });
+    daemon({ rebuild: { steps: [], inputs: [{ name: "clean", type: "boolean", required: false, steps: [at("1", "project.build")] }] } });
     render(<FlowLauncher text="/flow rebild" run={vi.fn(async () => {})} onClose={() => {}} />);
     expect(await screen.findByText("No flow named rebild.")).toBeTruthy();
     expect(m.planFlow).toHaveBeenCalledWith("rebild");
@@ -155,6 +158,47 @@ describe("the /flow form", () => {
     });
     render(<FlowLauncher text="/flow rebuild" run={vi.fn(async () => {})} onClose={() => {}} />);
     expect(await screen.findByText("'flow.plan' was refused because a modal dialog is open")).toBeTruthy();
+  });
+});
+
+describe("the /flow form, against ue-mcp#1512's plan", () => {
+  it("holds Run on playtest until its required target is given", async () => {
+    daemon({ playtest: { steps: [], inputs: [
+      { name: "target", type: "string", required: true, description: "What to test", steps: [at("1", "playtest.gather", "playtest")] },
+      { name: "context", type: "string", required: false, steps: [at("1", "playtest.gather", "playtest")] },
+    ] } });
+    const run = vi.fn(async () => {});
+    render(<FlowLauncher text="/flow playtest" run={run} onClose={() => {}} />);
+    await screen.findByRole("group", { name: "Run flow playtest" });
+    const go = screen.getByRole("button", { name: "Run" }) as HTMLButtonElement;
+    expect(go.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText(/^target/), { target: { value: "/Game/BP_Hero" } });
+    fireEvent.click(go);
+    expect(run).toHaveBeenCalledWith({ name: "playtest", params: { target: "/Game/BP_Hero" } });
+  });
+
+  it("nests a step-scoped flow's params under the steps that read them", async () => {
+    daemon({ rebuild: { steps: [], definition: { options_scope: "step", steps: {} }, inputs: [
+      { name: "target", type: "string", required: true, steps: [at("2", "project.build"), at("3", "editor.start")] },
+      { name: "clean", type: "boolean", required: false, steps: [at("2", "project.build")] },
+    ] } });
+    const run = vi.fn(async () => {});
+    render(<FlowLauncher text="/flow rebuild target=Editor clean=true" run={run} onClose={() => {}} />);
+    await screen.findByRole("group", { name: "Run flow rebuild" });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    expect(run).toHaveBeenCalledWith({ name: "rebuild", params: { 2: { target: "Editor", clean: true }, 3: { target: "Editor" } } });
+  });
+
+  it("says plainly when a step-scoped param is read by a nested step", async () => {
+    daemon({ rebuild: { steps: [], options_scope: "step", inputs: [
+      { name: "target", type: "string", required: true, steps: [at("2/1", "project.build", "child")] },
+    ] } });
+    const run = vi.fn(async () => {});
+    render(<FlowLauncher text="/flow rebuild target=Editor" run={run} onClose={() => {}} />);
+    await screen.findByRole("group", { name: "Run flow rebuild" });
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    expect(run).not.toHaveBeenCalled();
+    expect(screen.getByText(/takes its params per step/)).toBeTruthy();
   });
 });
 

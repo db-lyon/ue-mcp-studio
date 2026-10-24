@@ -3,6 +3,8 @@ import {
   closestNames,
   flowFormFields,
   flowInputsOf,
+  flowOptionsScope,
+  stepScopedParams,
   flowPlanSteps,
   flowValue,
   parseFlowArgs,
@@ -23,7 +25,7 @@ type Loaded =
   | { kind: "unknown"; closest: string[] }
   | { kind: "error"; message: string }
   /** inputs null: this ue-mcp's plan does not report them, so the form takes key=value pairs. */
-  | { kind: "ready"; flow: FlowListing | null; steps: FlowPlanStep[]; inputs: FlowInput[] | null };
+  | { kind: "ready"; flow: FlowListing | null; steps: FlowPlanStep[]; inputs: FlowInput[] | null; scope: "flat" | "step" };
 
 /** A pair typed after the name, as the value of the field it prefills. */
 function prefillValue(raw: string, input: FlowInput | undefined): unknown {
@@ -88,9 +90,10 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
       if (flows && !flow) return setLoaded({ kind: "unknown", closest: closestNames(name, flows.map((f) => f.name)) });
       if (!plan.ok) return setLoaded({ kind: "error", message: plan.e.message });
       const inputs = flowInputsOf(plan.p);
-      setLoaded({ kind: "ready", flow, steps: flowPlanSteps(plan.p), inputs });
+      const scope = flowOptionsScope(plan.p);
+      setLoaded({ kind: "ready", flow, steps: flowPlanSteps(plan.p), inputs, scope });
       // Nothing to ask: it runs as it is.
-      if (inputs && inputs.length === 0) start(Object.fromEntries(Object.entries(typed).map(([k, v]) => [k, flowValue(v, null)])));
+      if (inputs && inputs.length === 0) start(scope === "step" ? {} : Object.fromEntries(Object.entries(typed).map(([k, v]) => [k, flowValue(v, null)])));
     });
     return () => {
       live = false;
@@ -165,6 +168,14 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
     const { fields, required } = flowFormFields(inputs);
     const byName = new Map(inputs.map((i) => [i.name, i]));
     const prefill = Object.fromEntries(Object.entries(typed).filter(([k]) => k in fields).map(([k, v]) => [k, prefillValue(v, byName.get(k))]));
+    // A step-scoped flow takes each param under the step it is for.
+    const scoped = loaded.scope === "step";
+    const submit = (params: Record<string, unknown>) => {
+      if (!scoped) return start(params);
+      const nested = stepScopedParams(inputs, params);
+      if (nested) return start(nested);
+      setError("This flow takes its params per step, and one of them is read by a nested flow's step, a hook step or no step, so this form cannot address it. Run the flow with flow(run) and params per step.");
+    };
     body = (
       <>
         {loaded.flow?.description && <p className="small">{loaded.flow.description}</p>}
@@ -178,7 +189,7 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
           submitLabel="Run"
           declineLabel="Cancel"
           requireFilled
-          onSubmit={(content) => start(paramsFrom(inputs, content, typed))}
+          onSubmit={(content) => submit(paramsFrom(inputs, content, typed))}
           onDecline={onClose}
         />
       </>

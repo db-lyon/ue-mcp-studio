@@ -6,18 +6,28 @@
  */
 import type { FormField } from "./index.js";
 
-/** One input a run may pass, as the plan reports it: a parameter of its step actions the steps leave unset. */
+/** A step that reads an input: its path (`3`, `2/1` in a nested flow, `on_start/1` for a hook), task and the flow it is declared in. */
+export interface FlowInputStep {
+  path: string;
+  task: string;
+  flow: string;
+}
+
+/**
+ * One input a run may pass, as the plan reports it (ue-mcp#1508): a parameter
+ * of its step actions the steps leave unset. Required inputs come first.
+ */
 export interface FlowInput {
   name: string;
-  /** A JSON schema type. Two steps that type it differently report both, with `conflict`. */
-  type?: string | string[];
+  /** A JSON schema type, or every distinct type when the steps disagree (`conflict`). */
+  type: string | string[];
+  conflict?: true;
   description?: string;
   enum?: unknown[];
   default?: unknown;
-  required?: boolean;
+  required: boolean;
   /** The steps that read it. */
-  steps?: Array<string | number>;
-  conflict?: boolean;
+  steps: FlowInputStep[];
 }
 
 /** A flow GET /v1/flows lists. */
@@ -64,6 +74,31 @@ export function flowInputsOf(plan: unknown): FlowInput[] | null {
   return list.filter((x): x is FlowInput => !!x && typeof x === "object" && typeof (x as FlowInput).name === "string");
 }
 
+/**
+ * How a flow takes its params: `flat` spreads every param into every step,
+ * `step` reads each key as a step selector. Flat unless the plan says so.
+ */
+export function flowOptionsScope(plan: unknown): "flat" | "step" {
+  const p = plan as { options_scope?: unknown; definition?: { options_scope?: unknown } } | null | undefined;
+  return (p?.options_scope ?? p?.definition?.options_scope) === "step" ? "step" : "flat";
+}
+
+/**
+ * A step-scoped flow's params: each value under the path of every step that
+ * reads it. Null when a param is read by a nested or hook step, or by no
+ * step, which a step selector cannot address.
+ */
+export function stepScopedParams(inputs: FlowInput[], params: Record<string, unknown>): Record<string, Record<string, unknown>> | null {
+  const byName = new Map(inputs.map((i) => [i.name, i]));
+  const out: Record<string, Record<string, unknown>> = {};
+  for (const [k, v] of Object.entries(params)) {
+    const steps = byName.get(k)?.steps ?? [];
+    if (!steps.length || steps.some((s) => s.path.includes("/"))) return null;
+    for (const s of steps) (out[s.path] ??= {})[k] = v;
+  }
+  return out;
+}
+
 /** The plan's steps, in run order. */
 export function flowPlanSteps(plan: unknown): FlowPlanStep[] {
   const list = (plan as { steps?: unknown } | null | undefined)?.steps;
@@ -86,7 +121,8 @@ export function flowFormFields(inputs: FlowInput[]): { fields: Record<string, Fo
   const fields: Record<string, FormField> = {};
   for (const i of inputs) {
     const type = singleType(i);
-    const steps = i.steps?.length ? `Read by ${i.steps.length === 1 ? "step" : "steps"} ${i.steps.join(", ")}.` : "";
+    const read = (i.steps ?? []).map((s) => `${s.path} (${s.task})`);
+    const steps = read.length ? `Read by ${read.length === 1 ? "step" : "steps"} ${read.join(", ")}.` : "";
     const conflict = i.conflict && Array.isArray(i.type) ? `Steps type it differently (${i.type.join(", ")}).` : "";
     const json = type === "array" || type === "object" ? "JSON." : "";
     const description = [i.description ?? "", json, conflict, steps].filter(Boolean).join(" ") || undefined;
