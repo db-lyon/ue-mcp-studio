@@ -31,7 +31,8 @@ import { modelName } from "./models.js";
 import { AttachmentStore, contentFor } from "./attachments.js";
 import { keptName, toolResultContent } from "./images.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
-import { parseSlashCommand, type Attachment, type PlaytestRequest } from "@ue-mcp-studio/shared";
+import { flowCommandText, flowValue, parseFlowArgs, parseSlashCommand, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
+import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 
 /**
@@ -145,6 +146,8 @@ export interface RunnerOptions {
   playtestRuns?: () => PlaytestRunsMode;
   /** Runs ue-mcp's playtest flow for /playtest, Make playtest and Retry. */
   playtestFlow?: PlaytestFlow;
+  /** Runs any of the project's flows for /flow. */
+  flows?: FlowCaller;
 }
 
 const now = (): string => new Date().toISOString();
@@ -292,6 +295,16 @@ export class AgentRunner {
         this.o.store.save(s);
         continue;
       }
+      // A /flow's run answered the previous daemon: its card says it was cut off.
+      const run = [...s.transcript].reverse().find((t) => t.kind === "flow");
+      if (run?.kind === "flow" && run.state === "running") {
+        Object.assign(run, { state: "failed", errors: [`It was cut off: ${why}. The flow may have gone on in the editor.`] });
+        for (const step of run.steps) if (step.state === "running") step.state = "failed";
+        s.status = "idle";
+        s.waitingCause = null;
+        this.o.store.save(s);
+        continue;
+      }
       const asked = new Set((s.approvals ?? []).map((a) => a.toolUseId));
       // An approval only the previous daemon could answer; its call asks again when the turn resumes.
       if (s.approvals?.length) {
@@ -323,6 +336,12 @@ export class AgentRunner {
     // A /playtest message runs the playtest flow, not a turn.
     const command = attachments.length ? null : parseSlashCommand(text);
     if (command?.name === "playtest") return this.playtest(sessionId, { text: command.args }, text);
+    // A /flow message (queued, or from a client without the form) runs with the pairs it names.
+    if (command?.name === "flow") {
+      const { name, values } = parseFlowArgs(command.args);
+      const params = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, flowValue(v, null)]));
+      return this.flow(sessionId, { name, params, text: text.trim() });
+    }
     const s = this.require(sessionId);
     if (this.active.has(s.id) || s.status === "running" || s.status === "waiting") {
       throw new Error("a turn is already in progress; stop it or wait for it to finish");
@@ -438,6 +457,60 @@ export class AgentRunner {
         changed();
         s.notes.push(`The user ran ${shown}: the playtest flow made no playtest. ${outcome.errors.join(" ")}`);
       }
+      this.setStatus(s, "idle", null);
+    } finally {
+      if (this.active.get(s.id) === controller) this.active.delete(s.id);
+    }
+  }
+
+  /**
+   * A /flow: one of the project's flows, run with the params the user gave.
+   * Its card lists the steps as the flow's events report them, then the run's
+   * summary, or its errors. The agent gets a note either way, with its next turn.
+   */
+  async flow(sessionId: string, request: FlowRunRequest): Promise<void> {
+    const s = this.require(sessionId);
+    if (this.busy(s)) throw new Error("a turn is already in progress; stop it or wait for it to finish");
+    const name = request.name.trim();
+    if (!name) throw new Error("name the flow to run: /flow <name>");
+    const shown = request.text?.trim() || flowCommandText(name, request.params);
+    s.archived = false;
+    if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
+    s.transcript.push({ kind: "user", text: shown, at: now() });
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
+    const card: Extract<TranscriptEntry, { kind: "flow" }> = { kind: "flow", name, params: request.params, state: "running", steps: [], at: now() };
+    s.draft = "";
+    s.error = null;
+    this.addEntry(s, card);
+    const controller = new AbortController();
+    this.active.set(s.id, controller);
+    this.setStatus(s, "running", null);
+    const changed = () => {
+      this.o.store.save(s);
+      this.o.host.events.publish("flowrun.changed", { sessionId: s.id, name, state: card.state });
+    };
+    try {
+      const outcome = this.o.flows
+        ? await this.o.flows.run(name, request.params, (e) => {
+          if (!controller.signal.aborted && applyStepEvent(card.steps, e)) changed();
+        }, controller.signal)
+        : { success: false, errors: ["This Studio has no way to run flows."], steps: [] };
+      if (controller.signal.aborted) {
+        card.state = "stopped";
+        card.errors = ["Stopped waiting for it. The flow may still be running in the editor."];
+        for (const step of card.steps) if (step.state === "running") step.state = "failed";
+        return changed();
+      }
+      if (!card.steps.length) card.steps = outcome.steps;
+      for (const step of card.steps) if (step.state === "running") step.state = outcome.success ? "done" : "failed";
+      card.state = outcome.success ? "succeeded" : "failed";
+      if (outcome.summary) card.summary = outcome.summary;
+      if (outcome.errors.length) card.errors = outcome.errors;
+      if (outcome.duration !== undefined) card.duration = outcome.duration;
+      changed();
+      s.notes.push(outcome.success
+        ? `The user ran ${shown}: the flow succeeded.${outcome.summary ? `\n${outcome.summary}` : ""}`
+        : `The user ran ${shown}: the flow failed. ${[...outcome.errors, outcome.summary ?? ""].filter(Boolean).join(" ")}`);
       this.setStatus(s, "idle", null);
     } finally {
       if (this.active.get(s.id) === controller) this.active.delete(s.id);
