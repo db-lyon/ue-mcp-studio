@@ -1143,3 +1143,15 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .timeline-label { min-width: 0; overflow-wrap: anywhere; }
 .playtest-budget input.tokens { width: 9em; }
 .playtest-budget input.minutes { width: 5em; }
+
+/* The Assign to subagent loop on a playtest card. */
+.qa-card.needs-you { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.qa-card.attention { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.3s; }
+.qa-loop { display: flex; flex-direction: column; gap: 6px; }
+.qa-needs-you ul { margin: 4px 0 0; padding-left: 18px; }
+.qa-attempts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.qa-attempt { border-left: 2px solid var(--line-strong); padding: 2px 0 2px 10px; }
+.qa-attempt.reverted { opacity: 0.65; }
+.qa-attempt details summary { cursor: pointer; color: var(--muted); }
+.qa-attempt ul { margin: 2px 0; padding-left: 16px; overflow-wrap: anywhere; }
+.qa-attempt-group { margin-top: 2px; }

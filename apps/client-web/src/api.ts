@@ -184,6 +184,8 @@ export const api = {
   qaAssign: (runId: string, sessionId?: string | null) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`, sessionId ? { sessionId } : {}),
   qaCancelAssign: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`),
+  qaRevertLoop: (runId: string, attempt?: number) =>
+    call<{ run: QaRun; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/loop/revert`, attempt === undefined ? {} : { attempt }),
   qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
   qaSaveScript: (runId: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps }),
