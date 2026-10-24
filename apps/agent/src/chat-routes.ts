@@ -160,6 +160,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     route: () => ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
     askBeforeChanges: () => settings.askBeforeChanges(),
   });
+  // A playtest's card hands it to a subagent the runner starts beside the session's turns.
+  qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId) });
 
   const bad = (error: string) => ({ status: 400, body: { error } });
   const missing = (id: string) => ({ status: 404, body: { error: `no session ${id}` } });

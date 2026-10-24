@@ -4,12 +4,17 @@
  * on the manual steps. The card starts from the run Studio saved and applies
  * the script.* events on the daemon's stream itself; after the stream drops it
  * reads the run again from its last seq. A verdict form ue-mcp raised for the
- * run is answered from the same buttons.
+ * run is answered from the same buttons. Assign to subagent hands the playtest
+ * to a subagent that drives PIE and judges the manual steps it may judge; its
+ * verdicts carry an Agent badge and its evidence, and one click overrides each.
  */
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import {
+  qaAgentMayJudge,
+  qaAgentVerdict,
   qaApplyStreamEvent,
+  qaAssignable,
   qaEnded,
   qaMergeAnswer,
   qaSummaryOf,
@@ -27,13 +32,19 @@ export interface QaLive {
   events: DaemonEvent[];
   streaming: boolean;
   forms: PendingForm[];
+  /** The session on screen, where a subagent for a run started elsewhere runs. */
+  sessionId?: string | null;
+  /** Open a subagent's thread, by its agent call id. */
+  onThread?: (callId: string) => void;
 }
 export const QaContext = createContext<QaLive | null>(null);
 
 /** The newer of two views of a run: the higher seq, and the server's on a tie. */
 export function newerRun(server: QaRun, local: QaRun): QaRun {
   if (server.runId !== local.runId) return server;
-  return server.lastSeq >= local.lastSeq ? server : local;
+  if (server.lastSeq >= local.lastSeq) return server;
+  // The steps from the newer events, the subagent as the agent last saved it.
+  return server.assignment ? { ...local, assignment: server.assignment } : local;
 }
 
 /**
@@ -114,6 +125,18 @@ export function evidenceText(s: QaStep): string {
   return lines.join("\n");
 }
 
+/** What the agent saw for a verdict it gave, for the hover and the expanded view. */
+export function agentEvidenceText(s: QaStep): string {
+  const note = s.evidence?.note ?? s.note;
+  const lines: string[] = [];
+  if (note) lines.push(note);
+  for (const c of s.evidence?.captures ?? []) lines.push(c);
+  return lines.join("\n") || "The agent gave no evidence.";
+}
+
+/** The verdict a settled step holds. */
+const verdictOf = (s: QaStep): QaVerdict | null => (s.status === "passed" ? "pass" : s.status === "failed" ? "fail" : s.status === "skipped" ? "skip" : null);
+
 const tone = (s: QaStep): string =>
   s.status === "passed" ? "ok" : s.status === "failed" ? "bad" : s.status === "awaiting_verdict" ? "warn" : s.status === "running" ? "run" : "";
 
@@ -131,6 +154,9 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
   /** Verdicts picked for a form that asks about several steps, sent once each has one. */
   const [picked, setPicked] = useState<Record<number, QaVerdict>>({});
   const [sending, setSending] = useState<Record<number, QaVerdict>>({});
+  /** Overrides of the agent's verdicts on their way. */
+  const [overriding, setOverriding] = useState<Record<number, QaVerdict>>({});
+  const [assigning, setAssigning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const pool = own ? [own, ...(live?.forms ?? [])] : live?.forms ?? [];
@@ -184,10 +210,39 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
     });
   };
 
+  /** One click replaces the agent's verdict with the user's. */
+  const override = (step: QaStep, verdict: QaVerdict) => {
+    setOverriding((cur) => ({ ...cur, [step.index]: verdict }));
+    setError(null);
+    const clear = () => setOverriding((cur) => {
+      const { [step.index]: _gone, ...rest } = cur;
+      return rest;
+    });
+    api.qaVerdict(run.runId, step.index, verdict).then((r) => {
+      clear();
+      setRun((c) => newerRun(r.run, c));
+    }, (e: Error) => {
+      clear();
+      setError(e.message);
+    });
+  };
+
+  const assignment = run.assignment;
+  const assigned = assignment?.state === "running";
+  const assignSession = run.sessionId ?? live?.sessionId ?? null;
+  const toggleAssign = () => {
+    setAssigning(true);
+    setError(null);
+    (assigned ? api.qaCancelAssign(run.runId) : api.qaAssign(run.runId, run.sessionId ? null : assignSession))
+      .then((r) => setRun((c) => newerRun(r.run, c)), (e: Error) => setError(e.message))
+      .finally(() => setAssigning(false));
+  };
+
   const ended = qaEnded(run.state);
   const sum = run.summary ?? qaSummaryOf(run.steps);
   const settled = sum.total - sum.pending;
   const partial = Object.keys(picked).length > 0;
+  const byAgentCount = run.steps.filter(qaAgentVerdict).length;
 
   return (
     <div className={`qa-card card state-${run.state}`} role="group" aria-label={`Playtest ${run.scriptName}`}>
@@ -199,26 +254,68 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
         <span className={`pill ${ended ? (sum.failed ? "bad" : "ok") : waiting.length ? "warn" : ""}`} role="status">
           {ended ? (run.state === "stopped" ? "Stopped" : "Finished") : waiting.length ? "Waiting for you" : run.state === "armed" ? "Starting" : `Running, ${settled} of ${sum.total}`}
         </span>
+        {assigned ? (
+          <button className="small-button" disabled={assigning} onClick={toggleAssign} aria-label="Cancel the subagent">Cancel</button>
+        ) : assignSession && qaAssignable(run) && (
+          <button className="small-button" disabled={assigning} onClick={toggleAssign} title="A subagent drives PIE, runs the auto steps and judges the manual steps it may judge">Assign to subagent</button>
+        )}
         {onDismiss && ended && <button className="ghost small-button" aria-label="Dismiss this run" onClick={onDismiss}>Dismiss</button>}
       </div>
+      {assignment && (
+        <div className="qa-assignment small" role="status">
+          <span className={assigned ? "qa-assignment-live" : "dim"}>
+            {assigned ? "A subagent is running this playtest." : assignment.state === "done" ? "A subagent ran this playtest." : assignment.state === "stopped" ? "The subagent was stopped." : "The subagent failed."}
+          </span>
+          {live?.onThread && <button className="ghost small-button" onClick={() => live.onThread!(assignment.callId)}>Open its thread</button>}
+        </div>
+      )}
       <ol className="qa-steps">
         {run.steps.map((s) => {
           const evidence = s.judge === "auto" ? evidenceText(s) : "";
           const verdictable = s.judge === "manual" && s.status === "awaiting_verdict";
           const busy = sending[s.index];
+          const byAgent = qaAgentVerdict(s);
+          const why = byAgent ? agentEvidenceText(s) : "";
           return (
             <li key={s.index} className={`qa-step ${tone(s)}`} data-status={s.status}>
               <div className="qa-step-row">
                 <span className="qa-num mono dim">{s.index + 1}</span>
                 <span className="qa-instruction">{s.instruction}</span>
                 <span className={`qa-judge mono small ${s.judge}`}>{s.judge}</span>
+                {s.judge === "manual" && !qaAgentMayJudge(s) && <span className="qa-judge mono small" title="Only a person gives this step's verdict">yours</span>}
+                {byAgent && <span className="qa-badge agent small" title={why} tabIndex={0} aria-label={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</span>}
                 <span className={`qa-status small ${tone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
                   {statusLabel(s)}
                 </span>
               </div>
               {s.expect && <div className="qa-expect mono dim small">{s.expect.value} {s.expect.op}{s.expect.target !== undefined ? ` ${s.expect.target}` : ""}{s.withinMs ? `, within ${s.withinMs} ms` : ""}</div>}
               {s.status === "failed" && s.judge === "auto" && evidence && <div className="qa-evidence small" role="note">{evidence.split("\n").slice(1).join(" ") || evidence}</div>}
-              {s.note && !verdictable && <div className="qa-note small">{s.note}</div>}
+              {s.note && !verdictable && !byAgent && <div className="qa-note small">{s.note}</div>}
+              {byAgent && (
+                <details className="qa-agent-evidence small">
+                  <summary>What the agent saw</summary>
+                  {(s.evidence?.note ?? s.note) && <p>{s.evidence?.note ?? s.note}</p>}
+                  {(s.evidence?.captures ?? []).length > 0 && (
+                    <ul className="mono">{s.evidence!.captures!.map((c) => <li key={c}>{c}</li>)}</ul>
+                  )}
+                </details>
+              )}
+              {byAgent && (
+                <div className="qa-override small">
+                  <span className="dim">Override:</span>
+                  {VERDICTS.filter((v) => v.verdict !== verdictOf(s)).map((v) => (
+                    <button
+                      key={v.verdict}
+                      className={`small-button verdict-${v.verdict} ${overriding[s.index] === v.verdict ? "picked" : ""}`}
+                      aria-label={`Override step ${s.index + 1} with ${v.label}`}
+                      disabled={!!overriding[s.index]}
+                      onClick={() => override(s, v.verdict)}
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               {verdictable && (
                 <div className="qa-verdict">
                   <input
@@ -260,6 +357,7 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
           <span>
             {run.state === "stopped" ? "Stopped" : "Finished"}: {sum.passed} passed, {sum.failed} failed, {sum.skipped} skipped
             {sum.pending ? `, ${sum.pending} not settled` : ""}{sum.regressions ? `, ${sum.regressions} regressed` : ""}.
+            {byAgentCount > 0 && ` The agent judged ${byAgentCount === 1 ? "1 step" : `${byAgentCount} steps`}.`}
           </span>
           {run.resultsPath && (
             <a href={api.qaResultsUrl(run.runId)} target="_blank" rel="noreferrer" title={run.resultsPath}>results.json</a>

@@ -9,7 +9,8 @@
 export type QaStepStatus = "pending" | "running" | "passed" | "failed" | "awaiting_verdict" | "skipped";
 export type QaRunState = "armed" | "running" | "awaiting_verdict" | "finished" | "stopped" | "idle";
 export type QaVerdict = "pass" | "fail" | "skip";
-export type QaVerdictSource = "auto" | "action" | "elicitation" | "source_run";
+/** Who decided a step: the observer, a person (action, elicitation), an agent, or the source run of a replay. */
+export type QaVerdictSource = "auto" | "action" | "elicitation" | "agent" | "source_run";
 
 export interface QaExpect {
   value: string;
@@ -28,6 +29,9 @@ export interface QaEvidence {
   verdict_frame?: number;
   verdict_at_ms?: number;
   reason?: string;
+  /** A verdict's evidence: what its author saw, and the frames it looked at. */
+  note?: string;
+  captures?: string[];
 }
 
 export interface QaStep {
@@ -42,6 +46,8 @@ export interface QaStep {
   evidence?: QaEvidence;
   note?: string;
   verdictSource?: QaVerdictSource;
+  /** Manual steps: false keeps the verdict with a person; an agent never gives it. */
+  agentJudgeable?: boolean;
   /** Replay runs: the step's status in the source run, and whether it passed there and failed here. */
   sourceStatus?: QaStepStatus;
   regression?: boolean;
@@ -80,6 +86,18 @@ export interface QaRun {
   subagent?: string;
   /** When Studio first saw it, ISO 8601. */
   seenAt: string;
+  /** The run's input recording, which a later run of the script can replay to drive the pawn. */
+  recordingId?: string;
+  /** The subagent the user assigned the playtest to from its card. */
+  assignment?: QaAssignment;
+}
+
+/** A playtest handed to a subagent: its agent call, which is its thread, and how it is going. */
+export interface QaAssignment {
+  callId: string;
+  sessionId: string;
+  state: "running" | "done" | "failed" | "stopped";
+  at: string;
 }
 
 /** The answer actions a manual step takes. */
@@ -96,7 +114,7 @@ const int = (v: unknown): number | undefined => (Number.isInteger(v) ? (v as num
 
 const STEP_STATUSES: readonly QaStepStatus[] = ["pending", "running", "passed", "failed", "awaiting_verdict", "skipped"];
 const RUN_STATES: readonly QaRunState[] = ["armed", "running", "awaiting_verdict", "finished", "stopped", "idle"];
-const SOURCES: readonly QaVerdictSource[] = ["auto", "action", "elicitation", "source_run"];
+const SOURCES: readonly QaVerdictSource[] = ["auto", "action", "elicitation", "agent", "source_run"];
 const stepStatus = (v: unknown): QaStepStatus | undefined => (STEP_STATUSES.includes(v as QaStepStatus) ? (v as QaStepStatus) : undefined);
 const runState = (v: unknown): QaRunState | undefined => (RUN_STATES.includes(v as QaRunState) ? (v as QaRunState) : undefined);
 const source = (v: unknown): QaVerdictSource | undefined => (SOURCES.includes(v as QaVerdictSource) ? (v as QaVerdictSource) : undefined);
@@ -120,6 +138,7 @@ function stepPatchSnake(s: Obj): Partial<QaStep> {
     evidence: (obj(s.evidence) ?? undefined) as QaEvidence | undefined,
     note: str(s.note),
     verdictSource: source(s.verdict_source),
+    agentJudgeable: typeof s.agent_judgeable === "boolean" ? s.agent_judgeable : undefined,
     sourceStatus: stepStatus(s.source_status),
     regression: typeof s.regression === "boolean" ? s.regression : undefined,
   });
@@ -139,6 +158,7 @@ function stepPatchCamel(s: Obj): Partial<QaStep> {
     evidence: (obj(s.evidence) ?? undefined) as QaEvidence | undefined,
     note: str(s.note),
     verdictSource: source(s.verdictSource),
+    agentJudgeable: typeof s.agentJudgeable === "boolean" ? s.agentJudgeable : typeof s.agent_judgeable === "boolean" ? s.agent_judgeable : undefined,
     sourceStatus: stepStatus(s.sourceStatus),
     regression: typeof s.regression === "boolean" ? s.regression : undefined,
   });
@@ -207,6 +227,7 @@ export function qaRunFromAnswer(answer: unknown, where: { sessionId?: string | n
     .sort((x, y) => x.index - y.index);
   const events = Array.isArray(a.events) ? a.events.map((e) => int(obj(e)?.seq) ?? 0) : [];
   const replayOf = str(a.replay_of);
+  const recordingId = str(a.recording_id);
   const run: QaRun = {
     runId,
     script: str(a.script) ?? "inline",
@@ -222,6 +243,7 @@ export function qaRunFromAnswer(answer: unknown, where: { sessionId?: string | n
     toolUseId: where.toolUseId ?? null,
     ...(where.subagent ? { subagent: where.subagent } : {}),
     seenAt: where.seenAt ?? new Date().toISOString(),
+    ...(recordingId ? { recordingId } : {}),
   };
   return settle(run);
 }
@@ -246,6 +268,7 @@ export function qaMergeAnswer(run: QaRun, answer: unknown): QaRun {
     lastSeq: Math.max(next.lastSeq, fresh.lastSeq),
     resultsPath: fresh.resultsPath ?? next.resultsPath,
     ...(fresh.replayOf ? { replayOf: fresh.replayOf } : {}),
+    ...(fresh.recordingId ? { recordingId: fresh.recordingId } : {}),
   });
 }
 
@@ -350,7 +373,8 @@ export function qaApplyVerdictAnswer(run: QaRun, answer: unknown): QaRun {
   const a = obj(answer);
   const index = int(a?.step);
   if (!a || str(a.run_id) !== run.runId || index === undefined) return run;
-  const steps = patchStep(run.steps, defined({ index, status: stepStatus(a.status), note: str(a.note), verdictSource: source(a.verdict_source) }), true);
+  const evidence = obj(a.evidence) as QaEvidence | null;
+  const steps = patchStep(run.steps, defined({ index, status: stepStatus(a.status), note: str(a.note), verdictSource: source(a.verdict_source), evidence: evidence ?? undefined }), true);
   return settle({ ...run, steps, state: runState(a.state) ?? run.state, awaiting: indices(a.awaiting) ?? run.awaiting });
 }
 
@@ -375,4 +399,18 @@ export function qaVerdictForm(form: { message: string; fields: Record<string, un
   if (steps.length === 0) return null;
   const runId = /\(run ([A-Za-z0-9_-]+)\)/.exec(form.message)?.[1] ?? null;
   return { runId, steps: steps.sort((a, b) => a - b) };
+}
+
+/** A verdict an agent gave, which a person may override. */
+export const qaAgentVerdict = (s: QaStep): boolean => s.verdictSource === "agent" && qaSettled(s.status);
+
+/** Whether an agent may judge a manual step: unless the script keeps it with a person. */
+export const qaAgentMayJudge = (s: QaStep): boolean => s.judge === "manual" && s.agentJudgeable !== false;
+
+/**
+ * Whether a playtest has work a subagent could do: a step not settled, or an
+ * auto step that failed and might pass with the pawn driven.
+ */
+export function qaAssignable(run: QaRun): boolean {
+  return run.steps.some((s) => (!qaSettled(s.status) && (s.judge === "auto" || qaAgentMayJudge(s))) || (s.judge === "auto" && s.status === "failed"));
 }

@@ -5,6 +5,8 @@
  *   GET    /qa/runs/:id/status          the run read again: pie(script_status), with since_seq when given
  *   POST   /qa/runs/:id/verdict         a manual step's verdict: { step, verdict: pass | fail | skip, note? }
  *   GET    /qa/runs/:id/results         the run's results.json
+ *   POST   /qa/runs/:id/assign          hand the playtest to a subagent: { sessionId? } for a run started elsewhere
+ *   DELETE /qa/runs/:id/assign          cancel that subagent
  *   DELETE /qa/runs/:id                 take a finished run started elsewhere off the chat
  *
  * A run a session's pie(script_run) or pie(script_replay) started is a qa entry
@@ -34,6 +36,7 @@ import {
 } from "@ue-mcp-studio/shared";
 import { ELICIT_FEATURE, type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import type { SessionStore } from "./sessions.js";
+import { playtestBrief, playtestDescription } from "./playtest-brief.js";
 import type { AgentHost } from "./tools.js";
 
 /** The pie actions that start a run. */
@@ -51,10 +54,17 @@ export interface QaHost {
   log: { warn(message: string, detail?: unknown): void };
 }
 
+/** Starts and stops the subagent a playtest is assigned to: the runner's assignSubagent and stopSubagent. */
+export interface QaAssigner {
+  assign(sessionId: string, description: string, prompt: string): { callId: string; done: Promise<{ isError: boolean; stopped?: boolean }> };
+  stop(sessionId: string, callId: string): boolean;
+}
+
 export interface QaBrokerOptions {
   host: QaHost;
   store: SessionStore;
   forms?: FormBroker;
+  assigner?: QaAssigner;
   now?: () => string;
 }
 
@@ -98,7 +108,15 @@ export class QaBroker {
   constructor(private readonly o: QaBrokerOptions) {
     this.now = o.now ?? (() => new Date().toISOString());
     for (const s of o.store.all()) {
-      for (const t of s.transcript) if (t.kind === "qa") this.runs.set(t.run.runId, t.run);
+      for (const t of s.transcript) {
+        if (t.kind !== "qa") continue;
+        // A subagent runs in one daemon only: one this process did not start is over.
+        if (t.run.assignment?.state === "running") {
+          t.run = { ...t.run, assignment: { ...t.run.assignment, state: "stopped" } };
+          o.store.save(s);
+        }
+        this.runs.set(t.run.runId, t.run);
+      }
     }
     this.unsubscribe = o.host.events.subscribe((e) => this.observe(e));
   }
@@ -228,6 +246,49 @@ export class QaBroker {
     return { run };
   }
 
+  setAssigner(assigner: QaAssigner): void {
+    this.o.assigner = assigner;
+  }
+
+  /**
+   * Hand a playtest to a subagent that drives PIE for the user: it runs the
+   * auto steps and judges the manual steps it may judge, with evidence. The
+   * thread is in the run's session, or the session the user has open for a
+   * run started elsewhere.
+   */
+  assign(runId: string, body: unknown): { run: QaRun } | { error: string; status: number } {
+    const run = this.runs.get(runId);
+    if (!run) return { error: `Studio has no run ${runId}`, status: 404 };
+    const asked = (body as { sessionId?: unknown } | undefined)?.sessionId;
+    const sessionId = run.sessionId ?? (typeof asked === "string" ? asked : null);
+    if (!sessionId || !this.o.store.get(sessionId)) return { error: "open a session to run the subagent in", status: 400 };
+    if (!this.o.assigner) return { error: "subagents are not available", status: 409 };
+    if (run.assignment?.state === "running") return { error: "a subagent is already running this playtest", status: 409 };
+    const { callId, done } = this.o.assigner.assign(sessionId, playtestDescription(run), playtestBrief(run));
+    const next: QaRun = { ...run, assignment: { callId, sessionId, state: "running", at: this.now() } };
+    this.save(next);
+    void done.then((r) => this.assignmentEnded(runId, callId, r.stopped ? "stopped" : r.isError ? "failed" : "done"));
+    return { run: next };
+  }
+
+  /** Stop the subagent a playtest is assigned to. */
+  cancel(runId: string): { run: QaRun } | { error: string; status: number } {
+    const run = this.runs.get(runId);
+    const a = run?.assignment;
+    if (!run || !a || a.state !== "running") return { error: "no subagent is running this playtest", status: 404 };
+    if (!this.o.assigner?.stop(a.sessionId, a.callId)) {
+      this.assignmentEnded(runId, a.callId, "stopped");
+      return { run: this.runs.get(runId)! };
+    }
+    return { run: this.runs.get(runId)! };
+  }
+
+  private assignmentEnded(runId: string, callId: string, state: "done" | "failed" | "stopped"): void {
+    const run = this.runs.get(runId);
+    if (!run?.assignment || run.assignment.callId !== callId || run.assignment.state !== "running") return;
+    this.save({ ...run, assignment: { ...run.assignment, state } });
+  }
+
   /** The run's results.json, from its file when it is the project's, otherwise as ue-mcp reads it. */
   async results(runId: string): Promise<Record<string, unknown> | { error: string }> {
     const run = this.runs.get(runId);
@@ -337,6 +398,14 @@ export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?:
   api.route("GET", "/qa/runs/:id/results", async (req) => {
     const r = await broker.results(id(req));
     return "error" in r && typeof r.error === "string" && Object.keys(r).length === 1 ? { status: 404, body: r } : { body: r };
+  });
+  api.route("POST", "/qa/runs/:id/assign", (req) => {
+    const r = broker.assign(id(req), req.body);
+    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("DELETE", "/qa/runs/:id/assign", (req) => {
+    const r = broker.cancel(id(req));
+    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
   });
   api.route("DELETE", "/qa/runs/:id", (req) => {
     const error = broker.dismiss(id(req));
