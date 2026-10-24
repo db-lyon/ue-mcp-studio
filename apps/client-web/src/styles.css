@@ -1091,3 +1091,9 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .slash-menu li.active { background: var(--panel-3); }
 .slash-name { font-family: var(--mono, monospace); }
 .slash-summary { flex-basis: 100%; }
+
+/* Under each agent message: Make playtest. */
+.msg-actions { gap: 6px; margin: -4px 0 6px; }
+.msg-actions .small-button { padding: 1px 8px; }
+.playtest-failed { display: flex; flex-direction: column; gap: 4px; }
+.playtest-failed .row { align-items: center; }

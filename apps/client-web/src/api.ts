@@ -15,6 +15,7 @@ import type {
   FeedbackReport,
   FeedbackResult,
   ModelCatalog,
+  PlaytestRequest,
   QueuedMessage,
   SessionDetail,
   Attachment,
@@ -145,6 +146,8 @@ export const api = {
   saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
   send: (id: string, text: string, attachments: string[] = [], now = false) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),
+  playtest: (id: string, request: PlaytestRequest) =>
+    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/playtest`, request),
   queue: (id: string, text: string, attachments: string[] = []) =>
     call<QueuedMessage>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue`, { text, attachments }),
   editQueued: (id: string, qid: string, text: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(qid)}`, { text }),
