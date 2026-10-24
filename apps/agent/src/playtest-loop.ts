@@ -52,6 +52,11 @@ const round = (v: unknown): string => (typeof v === "number" && Number.isFinite(
 /** What the observer or the judge saw for a step, in one line. */
 export function stepEvidence(s: QaStep): string {
   const parts: string[] = [];
+  const act = s.actResult;
+  if (act?.status === "failed") {
+    const broken = (act.actions ?? []).filter((a) => !a.ok).map((a) => `${a.action}${a.error ? `: ${a.error}` : ""}`);
+    parts.push(`The engine's act failed${act.reason ? `: ${act.reason}` : ""}${broken.length ? ` (${broken.join("; ")})` : ""}.`);
+  }
   if (s.expect) parts.push(`Expected ${s.expect.value} ${s.expect.op}${s.expect.target !== undefined ? ` ${s.expect.target}` : ""}${s.withinMs ? ` within ${s.withinMs} ms` : ""}.`);
   const e = s.evidence;
   if (e?.at_start !== undefined || e?.at_end !== undefined) parts.push(`${e?.value ?? s.expect?.value ?? "The value"} was ${e?.at_start ?? "never read"} at the start and ${e?.at_end ?? "never read"} at the end.`);

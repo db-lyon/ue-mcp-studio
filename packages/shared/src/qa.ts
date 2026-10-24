@@ -60,6 +60,16 @@ export interface QaStep {
    */
   arrange?: unknown;
   act?: unknown;
+  /** What the step's arrange and act did in the run, as ue-mcp reports it. */
+  actResult?: QaActResult;
+}
+
+/** A step's act_result: whether its arrange and act ran, and each action's outcome. */
+export interface QaActResult {
+  status: "running" | "done" | "failed" | "skipped";
+  reason?: string;
+  actions?: Array<{ index: number; action: string; ok: boolean; error?: string; at_ms?: number }>;
+  duration_ms?: number;
 }
 
 export interface QaSummary {
@@ -237,6 +247,7 @@ function stepPatchSnake(s: Obj): Partial<QaStep> {
     regression: typeof s.regression === "boolean" ? s.regression : undefined,
     arrange: s.arrange ?? undefined,
     act: s.act ?? undefined,
+    actResult: (obj(s.act_result) ?? undefined) as QaActResult | undefined,
   });
 }
 
