@@ -1,6 +1,6 @@
 /**
  * Draft playtests: the card a created script gets before anything runs, its
- * Run, Edit and Delete, the players Studio keeps for each step, and the
+ * Start Playtest, Edit and Delete, the players Studio keeps for each step, and the
  * Playtest runs setting that decides whether the agent may start a run.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -115,7 +115,7 @@ describe("Playtest runs", () => {
 });
 
 describe("the draft card's buttons", () => {
-  it("Run sets PIE's players, runs the script on the auto steps' player, and turns the same card live", async () => {
+  it("Start Playtest sets PIE's players, runs the script on the auto steps' player, and turns the same card live", async () => {
     const { agent, broker, s } = setup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
     calls = [];
@@ -127,7 +127,7 @@ describe("the draft card's buttons", () => {
     expect(cards(s.id).map((c) => c.runId)).toEqual([RUN]);
   });
 
-  it("Run with one player leaves PIE's settings alone and uses the running PIE when asked", async () => {
+  it("Start Playtest with one player leaves PIE's settings alone and uses the running PIE when asked", async () => {
     const { agent, broker } = setup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: [STEPS[1]] });
     calls = [];
@@ -203,7 +203,7 @@ describe("a subagent's new run", () => {
   });
 });
 
-describe("a verdict on a draft's manual step, before Run", () => {
+describe("a verdict on a draft's manual step, before Start Playtest", () => {
   const MANUAL = "script_SigilPickup_manual";
   function manualSetup() {
     const base = qaHost();
@@ -247,7 +247,7 @@ describe("a verdict on a draft's manual step, before Run", () => {
     expect(calls.map((c) => c.action)).toEqual(["verdict"]);
   });
 
-  it("refuses a verdict on an auto step before Run, and a fail without a note", async () => {
+  it("refuses a verdict on an auto step before Start Playtest, and a fail without a note", async () => {
     const { broker, agent } = manualSetup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
     calls.length = 0;
@@ -256,7 +256,7 @@ describe("a verdict on a draft's manual step, before Run", () => {
     expect(calls).toEqual([]);
   });
 
-  it("Run on the manual run's card ends it and starts a full run with PIE in the same card", async () => {
+  it("Start Playtest on the manual run's card ends it and starts a full run with PIE in the same card", async () => {
     const { broker, agent, s } = manualSetup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
     await broker.verdict(qaDraftId(PATH), { step: 1, verdict: "skip" });

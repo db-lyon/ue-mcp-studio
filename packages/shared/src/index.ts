@@ -639,11 +639,11 @@ export interface AgentSettings {
 /** Playtest runs, a setting per project: manual (the default) or automatic. */
 export type PlaytestRunsMode = "manual" | "automatic";
 export const PLAYTEST_RUNS: ReadonlyArray<{ mode: PlaytestRunsMode; label: string; help: string }> = [
-  { mode: "manual", label: "Manual", help: "Playtests run only when you click Run or Assign to subagent." },
+  { mode: "manual", label: "Manual", help: "Playtests run only when you click Start Playtest or Assign to subagent." },
   { mode: "automatic", label: "Automatic", help: "The agent can start playtests itself." },
 ];
 /** What the agent hears when Manual refuses its run. */
-export const PLAYTEST_RUNS_REFUSAL = "Playtest runs is set to Manual in Settings > Agent. Click Run on the card to start it.";
+export const PLAYTEST_RUNS_REFUSAL = "Playtest runs is set to Manual in Settings > Agent. Click Start Playtest on the card to start it.";
 
 /** An actor or asset the editor's "Chat about this" hands to a quick ask. */
 export interface QuickContextItem {

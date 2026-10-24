@@ -56,7 +56,7 @@ export const QA = [
 export function playtestRunsLine(mode: PlaytestRunsMode): string {
   return mode === "automatic"
     ? "Playtest runs is set to Automatic in Settings > Agent: you may start a playtest yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
-    : "Playtest runs is set to Manual in Settings > Agent: only the user starts a playtest, with Run or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Playtest runs to Automatic.";
+    : "Playtest runs is set to Manual in Settings > Agent: only the user starts a playtest, with Start Playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Playtest runs to Automatic.";
 }
 
 const WORK = [
