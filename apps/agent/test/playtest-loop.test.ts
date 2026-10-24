@@ -37,6 +37,8 @@ let listeners: Array<(e: { type: string; data: Record<string, unknown> }) => voi
 let runs: Map<string, Record<string, unknown>>;
 let steps: Array<Record<string, unknown>>;
 let runCount: number;
+/** Bumped per test, so a fake attempt left running by an ended test does nothing. */
+let generation = 0;
 
 const ok = (body: Record<string, unknown>): ActionResult => ({ isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, ...body }) }] });
 
@@ -101,7 +103,10 @@ interface Harness {
 function setup(plan: Attempt[], opts: { steps?: Array<Record<string, unknown>>; first?: StepState[] } = {}): Harness {
   steps = opts.steps ?? STEPS;
   const h = host();
-  const s = store.create();
+  // This test's store and generation: an attempt still running when the test ends must not write after it.
+  const st = store;
+  const gen = generation;
+  const s = st.create();
   // The card: an ended run of the script, which the user assigns.
   const first = `${BASE}00`;
   runs.set(first, answerOf(first, opts.first ?? [OPEN_FAIL, PASS]));
@@ -123,12 +128,14 @@ function setup(plan: Attempt[], opts: { steps?: Array<Record<string, unknown>>; 
         stoppers.set(callId, () => resolve({ isError: true, stopped: true, text: "stopped" }));
         void (async () => {
           await new Promise((r) => setTimeout(r, 1));
+          if (gen !== generation) return;
           for (const [p, v] of Object.entries(step.files ?? {})) support.cp.files.set(p, v);
-          const live = store.get(s.id)!;
+          const live = st.get(s.id);
+          if (!live) return;
           for (const [i, c] of (step.calls ?? []).entries()) {
             live.transcript.push({ kind: "tool", call: { id: `${callId}_c${i}`, name: c.name, input: c.input, outcome: c.outcome ?? "done", result: c.result, startedAt: "" }, parent: callId } as TranscriptEntry);
           }
-          store.save(live);
+          st.save(live);
           for (const e of step.events ?? []) emit(e.type, e.data);
           if (step.run) {
             runCount++;
@@ -167,6 +174,7 @@ beforeEach(() => {
   listeners = [];
   runs = new Map();
   runCount = 0;
+  generation++;
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
