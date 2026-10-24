@@ -146,6 +146,8 @@ export interface RunnerOptions {
   playtestRuns?: () => PlaytestRunsMode;
   /** Runs ue-mcp's playtest flow for /playtest, Make playtest and Retry. */
   playtestFlow?: PlaytestFlow;
+  /** Per-turn review: a checkpoint before each turn and after it. */
+  review?: { turnStarted(s: StoredSession): Promise<void>; turnEnded(s: StoredSession): Promise<void> };
 }
 
 const now = (): string => new Date().toISOString();
@@ -348,6 +350,8 @@ export class AgentRunner {
     s.draft = "";
     s.error = null;
     this.setStatus(s, "running", null);
+    // The checkpoint before the turn lands before the model can change anything.
+    await this.o.review?.turnStarted(s).catch((e) => this.o.host.log.warn("the review checkpoint before the turn failed", e));
     const onClaude = !!this.o.subscription?.();
     const rewound = !!s.rewound;
     s.rewound = false;
@@ -906,12 +910,16 @@ export class AgentRunner {
   }
 
   private setStatus(s: StoredSession, status: StoredSession["status"], waitingCause: string | null): void {
+    const was = s.status;
     s.status = status;
     s.waitingCause = waitingCause;
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status, waitingCause });
     // A turn that finished sends the next queued message. One that stopped or failed leaves the queue for the user.
     if (status === "idle" && s.queue?.length) setTimeout(() => void this.sendQueued(s.id), 0);
+    // A turn that ended, however it ended, gets its checkpoint after and its review.
+    const ended = status !== "running" && status !== "waiting" && (was === "running" || was === "waiting");
+    if (ended && s.reviewing) void this.o.review?.turnEnded(s).catch((e) => this.o.host.log.warn("the review checkpoint after the turn failed", e));
   }
 
   /** Queue a message behind the running turn. With no turn running it is sent at once. */

@@ -22,6 +22,7 @@
  *   POST /updates/{plugin,studio,restart}       run an update step, or keep it until no turn is in progress
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
+ * Per-turn review (/review, /sessions/:id/review, /sessions/:id/reviews, /sessions/:id/timeline) is in review.ts.
  * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts.
  *
@@ -54,6 +55,7 @@ import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
+import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
@@ -151,8 +153,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const forms = registerForms(api);
   const dialogs = registerDialogs(api, store, settings, forms);
   const qa = registerQa(api, store, forms, playtests);
+  const review = registerReview(api, store, () => settings.reviewTurns());
   const runner = new AgentRunner({
     host: api,
+    review,
     busy,
     dialogs,
     qa,

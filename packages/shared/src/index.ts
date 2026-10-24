@@ -7,6 +7,7 @@
 export const EXTENSION_NAME = "studio";
 
 import type { QaRun } from "./qa.js";
+import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 
 /** GET /v1/ext/studio/about */
@@ -92,6 +93,8 @@ export interface StudioSettings {
   theme: StudioTheme;
   /** Ask the user before the agent runs a command or edits a file. */
   askBeforeChanges: boolean;
+  /** Checkpoint each turn and show what it changed, for sessions that have not set their own (per-turn review). */
+  reviewTurns: boolean;
   /** The height dragged on the chat composer's divider, in pixels, or null for the default. */
   composerHeight: number | null;
   /** When an editor dialog needs an answer. */
@@ -110,6 +113,7 @@ export interface StudioSettingsUpdate {
   gatewayUrl?: string;
   theme?: StudioTheme;
   askBeforeChanges?: boolean;
+  reviewTurns?: boolean;
   composerHeight?: number | null;
   dialogPolicy?: DialogPolicy;
   keys?: Partial<Record<KeyProviderId, string>>;
@@ -216,6 +220,8 @@ export type TranscriptEntry = (
    * request Retry sends again. `attempt` counts the flow's drafts.
    */
   | { kind: "playtest"; state: PlaytestStage | "failed"; request: PlaytestRequest; attempt: number; errors?: string[]; at: string }
+  /** What a turn changed in the project, with Keep or Revert per item: per-turn review. Main thread only. */
+  | { kind: "review"; review: TurnReview }
   /** A failed /playtest from an older Studio, which ran it as a forced turn. */
   | { kind: "playtest-failed"; reason: string; request: PlaytestRequest; at: string }
 ) & { parent?: string };
@@ -273,6 +279,10 @@ export interface SessionDetail extends SessionSummary {
   approvals: ApprovalRequest[];
   /** The latest turn, from its tool calls: what the composer's pills are made from. */
   turn?: TurnFacts;
+  /** This session's review switch; absent or null follows Settings > Agent. */
+  review?: boolean | null;
+  /** The session's checkpoints, oldest first: each reviewed turn, restore and playtest loop attempt. */
+  timeline?: TimelineMark[];
 }
 
 /**
@@ -719,4 +729,5 @@ export interface StudioPluginUpdate {
   fabUrl?: string;
 }
 export * from "./qa.js";
+export * from "./review.js";
 export * from "./commands.js";
