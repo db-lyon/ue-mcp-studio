@@ -9,7 +9,7 @@ import { useNow } from "./hooks";
  * screen, with the session above it in small type while a subagent's thread
  * is open. `onAgents`, when given, adds a button for the session's subagents.
  */
-export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, onSessions, onMain, onStop, onAgents }: {
+export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, onSessions, onMain, onStop, onAgents, onReview }: {
   title: string;
   thread: Call | null;
   transcript: TranscriptEntry[];
@@ -20,6 +20,8 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
   onMain: () => void;
   onStop: (id: string) => void;
   onAgents?: () => void;
+  /** Opens the session's review switch and checkpoint timeline. */
+  onReview?: () => void;
 }) {
   const now = useNow(thread?.outcome === "pending");
   const st = thread ? agentStatus(thread, transcript, sessionWaiting, now) : null;
@@ -44,6 +46,9 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
         </span>
       )}
       {st && thread && isActive(st.state) && <button className="thread-stop" onClick={() => onStop(thread.id)}>Stop</button>}
+      {onReview && !thread && (
+        <button className="ghost chat-review-button" onClick={onReview} title="Review and checkpoints">Checkpoints</button>
+      )}
       {onAgents && agents > 0 && (
         <button className="ghost chat-agents-button" onClick={onAgents} aria-label={`Subagents (${agents})`} title="Subagents">
           <AgentsGlyph />

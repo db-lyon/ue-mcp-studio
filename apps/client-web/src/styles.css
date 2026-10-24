@@ -1111,3 +1111,33 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .pill-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 6px; }
 .pill-suggestion { border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px 10px; background: var(--panel-2); color: var(--text); cursor: pointer; white-space: nowrap; }
 .pill-suggestion:hover { border-color: var(--accent); }
+
+/* Per-turn review: the turn card, an item's diff, and the checkpoint timeline. */
+.review-open { position: absolute; top: 8px; right: 12px; z-index: 2; }
+.review-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; min-width: 0; }
+.review-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.review-group { display: flex; flex-direction: column; gap: 4px; }
+.review-group-label { text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+.review-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.review-item { border-left: 2px solid var(--line-strong); padding: 4px 0 4px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.review-item.state-kept { border-left-color: var(--ok); }
+.review-item.state-reverted { border-left-color: var(--dim); }
+.review-item.state-reverted .review-item-name { text-decoration: line-through; color: var(--muted); }
+.review-item-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.review-item-name { padding: 0; font-weight: 600; overflow-wrap: anywhere; text-align: left; }
+.review-item-path { overflow-wrap: anywhere; }
+.review-conflict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.review-diff { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.review-pictures { display: flex; gap: 10px; flex-wrap: wrap; }
+.review-pictures figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.review-pictures img { max-width: 220px; max-height: 220px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); }
+.review-nopicture { width: 160px; height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; border: 1px dashed var(--line-strong); border-radius: 4px; padding: 6px; box-sizing: border-box; }
+.blueprint-diff { list-style: none; margin: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; max-height: 320px; overflow: auto; }
+.review-panel { gap: 10px; }
+.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.timeline-mark { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.timeline-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.timeline-mark.restore .timeline-dot { background: var(--warn); }
+.timeline-mark.attempt .timeline-dot { background: var(--ok); }
+.timeline-mark.undone { opacity: 0.6; }
+.timeline-label { min-width: 0; overflow-wrap: anywhere; }

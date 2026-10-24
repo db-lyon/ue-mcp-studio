@@ -46,3 +46,16 @@ describe("Settings > Agent: Playtest runs", () => {
     expect(screen.getByText("Update Studio to choose this.")).toBeTruthy();
   });
 });
+
+describe("Settings > Agent: Review each turn", () => {
+  it("is on by default and saves off", async () => {
+    m.agentSettings.mockResolvedValue(agent("manual"));
+    m.saveSettings.mockImplementation(async (u: { reviewTurns: boolean }) => ({ askBeforeChanges: true, dialogPolicy: { kind: "wait" }, reviewTurns: u.reviewTurns }));
+    await act(async () => void render(<AgentView />));
+    const box = screen.getByRole("checkbox", { name: "Review each turn" }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    await act(async () => void fireEvent.click(box));
+    expect(m.saveSettings).toHaveBeenCalledWith({ reviewTurns: false });
+    expect((screen.getByRole("checkbox", { name: "Review each turn" }) as HTMLInputElement).checked).toBe(false);
+  });
+});

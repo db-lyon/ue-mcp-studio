@@ -37,6 +37,11 @@ import type {
   PendingForm,
   QaRun, QaScriptStep, PlaytestRunsMode,
   QaVerdict,
+  CheckpointChange,
+  RestoreOutcome,
+  ReviewStatus,
+  TimelineMark,
+  TurnReview,
 } from "@ue-mcp-studio/shared";
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
@@ -109,6 +114,9 @@ export interface FlowSummary {
   name: string;
   description?: string;
 }
+
+const reviewBase = (sessionId: string, reviewId: string): string =>
+  `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/reviews/${encodeURIComponent(reviewId)}`;
 
 export const api = {
   health: () => call<DaemonHealth>("GET", "/v1/health"),
@@ -183,6 +191,19 @@ export const api = {
   qaCreateScript: (sessionId: string, name: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/scripts", { sessionId, name, steps }),
   qaDismiss: (runId: string) => call<void>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}`),
   qaResultsUrl: (runId: string) => `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,
+  reviewStatus: () => call<ReviewStatus>("GET", "/v1/ext/studio/review/status"),
+  setSessionReview: (sessionId: string, on: boolean | null) => call<{ review: boolean | null }>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/review`, { on }),
+  reviewDiff: (sessionId: string, reviewId: string, path: string) =>
+    call<{ change: CheckpointChange; before?: string; after?: string }>("GET", `${reviewBase(sessionId, reviewId)}/diff?path=${encodeURIComponent(path)}`),
+  reviewKeep: (sessionId: string, reviewId: string, paths: string[]) => call<{ review: TurnReview }>("POST", `${reviewBase(sessionId, reviewId)}/keep`, { paths }),
+  reviewRevert: (sessionId: string, reviewId: string, paths: string[], force = false) =>
+    call<{ review: TurnReview; outcome: RestoreOutcome }>("POST", `${reviewBase(sessionId, reviewId)}/revert`, force ? { paths, force } : { paths }),
+  reviewUndo: (sessionId: string, reviewId: string, path: string) => call<{ review: TurnReview; outcome: RestoreOutcome }>("POST", `${reviewBase(sessionId, reviewId)}/undo`, { path }),
+  timelineRestore: (sessionId: string, checkpoint: string, force = false) =>
+    call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/restore`, force ? { checkpoint, force } : { checkpoint }),
+  timelineUndo: (sessionId: string, checkpoint: string) =>
+    call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/undo`, { checkpoint }),
+  reviewImageUrl: (name: string) => `/v1/ext/studio/review/images/${encodeURIComponent(name)}`,
   dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),
   answerDialog: (id: string, answer: DialogAnswer) => call<void>("POST", `/v1/ext/studio/dialogs/${encodeURIComponent(id)}`, answer),
   resolveAssets: (refs: AssetRef[], sessionId: string | null) =>

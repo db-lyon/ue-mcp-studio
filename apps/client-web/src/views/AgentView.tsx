@@ -51,6 +51,15 @@ export function AgentView() {
       </section>
 
       <section className="card">
+        <h2>Review</h2>
+        <label className="row toggle">
+          <input type="checkbox" checked={settings.reviewTurns !== false} onChange={(e) => api.saveSettings({ reviewTurns: e.target.checked }).then(setSettings, fail)} />
+          <span>Review each turn</span>
+        </label>
+        <p className="muted small">On: Studio takes a ue-mcp checkpoint before and after each turn, and a card lists what the turn changed so you can keep or revert each file. A session's Checkpoints panel turns it on or off for that session. Assign to subagent on a playtest needs it on.</p>
+      </section>
+
+      <section className="card">
         <h2>Editor dialogs</h2>
         {agent.dialogMode ? (
           <fieldset>

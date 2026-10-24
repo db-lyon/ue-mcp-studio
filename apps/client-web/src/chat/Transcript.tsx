@@ -7,6 +7,7 @@ import { DiffView } from "./Diff";
 import { breakable } from "./breakable";
 import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
+import { TurnReviewCard } from "./TurnReview";
 import { offerConversion } from "./prose-playtest";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import {
@@ -75,6 +76,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
   if (entry.kind === "qa") return <QaCard run={entry.run} />;
+  if (entry.kind === "review") return <TurnReviewCard review={entry.review} />;
   if (entry.kind === "playtest") {
     return entry.state === "failed"
       ? <PlaytestFailed errors={entry.errors?.length ? entry.errors : ["The playtest flow made no playtest."]} request={entry.request} />
