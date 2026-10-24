@@ -14,7 +14,8 @@ import { AgentRunner } from "../src/runner.js";
 import { SessionStore } from "../src/sessions.js";
 import { QaBroker, type QaHost } from "../src/qa.js";
 import type { AgentHost } from "../src/tools.js";
-import type { ModelProvider } from "../src/providers.js";
+import type { ModelProvider, ModelTurn } from "../src/providers.js";
+import { SessionStore as Sessions } from "../src/sessions.js";
 
 const PATH = "/Game/PIEStudio/Scripts/TS_Playtest_BP_Hero";
 const saved = { success: true, path: PATH, name: "TS_Playtest_BP_Hero", steps: [{ instruction: "Press Space twice", judge: "auto", expect: { value: "Pawn.JumpCount", op: "eq", target: 2 } }], step_count: 1 };
@@ -165,12 +166,12 @@ describe("a /playtest in a session", () => {
   });
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  function setup(answer: () => { status: number; body: unknown }, events: FlowEventLike[] = []) {
+  function setup(answer: () => { status: number; body: unknown }, events: FlowEventLike[] = [], turns: ModelTurn[] = [], editor: (category: string, action: string) => Record<string, unknown> = () => ({})) {
     const ok = (body: Record<string, unknown>): ActionResult => ({ isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, ...body }) }] });
     const host = {
       projectDir: path.join(root, "project"),
       dataDir: path.join(root, "data"),
-      callAction: async () => ok({}),
+      callAction: async (category: string, action: string) => ok(editor(category, action)),
       editors: () => [{ connected: true, name: "P", port: 1, pid: 1, lastDisconnect: null }],
       editorOperation: async (op: string) => ({ op, steps: [] }),
       events: { publish: (type: string, data?: Record<string, unknown>) => void published.push({ type, data }), subscribe: () => () => {} },
@@ -178,7 +179,7 @@ describe("a /playtest in a session", () => {
       log: { info() {}, warn() {} },
     } as unknown as QaHost & AgentHost;
     const qa = new QaBroker({ host, store });
-    const model: ModelProvider = { run: async () => { throw new Error("a /playtest runs no chat turn"); } };
+    const model: ModelProvider = { run: async () => { const t = turns.shift(); if (!t) throw new Error("a /playtest runs no chat turn"); return t; } };
     const d = fakeDaemon(answer, events);
     const runner = new AgentRunner({ host, store, qa, provider: () => model, model: () => "claude-opus-5-5", playtestFlow: d.flow });
     const s = store.create("New session");
@@ -234,5 +235,43 @@ describe("a /playtest in a session", () => {
     const after = store.get(s.id)!;
     expect(after.transcript[0]).toMatchObject({ state: "failed" });
     expect(after.status).toBe("idle");
+  });
+
+  const call = (id: string, category: string, method: string, args: Record<string, unknown> = {}): ModelTurn => ({
+    content: [{ type: "tool_use", id, name: "ue_mcp", input: { action: "call", category, method, args } } as never],
+    stopReason: "tool_use",
+  });
+  const said = (t: string): ModelTurn => ({ content: [{ type: "text", text: t, citations: null } as never], stopReason: "end_turn" });
+
+  it("records what a turn changed from its calls, for the Make playtest pill, and runs the flow on it", async () => {
+    const { runner, s, d } = setup(() => success, [], [
+      call("c1", "blueprint", "read_blueprint", { assetPath: "/Game/BP_Door" }),
+      call("c2", "blueprint", "add_component", { assetPath: "/Game/BP_Hero", componentClass: "AudioComponent" }),
+      said("Added a jump sound to BP_Hero."),
+    ], (_c, action) => (action === "add_component" ? { updated: true } : {}));
+    await runner.send(s.id, "add a jump sound to the hero");
+    const facts = Sessions.detail(store.get(s.id)!).turn!;
+    expect(facts).toEqual({ start: 0, mutations: 1, targets: [{ kind: "asset", path: "/Game/BP_Hero", saved: false }], playtest: false });
+    await expect(runner.playtest(s.id, { text: "", turn: 3 })).rejects.toThrow(/does not begin the latest turn/);
+    await runner.playtest(s.id, { text: "", turn: 0 });
+    const params = JSON.parse(String(d.requests[0].init.body)).params;
+    expect(params.target).toBe("/Game/BP_Hero");
+    expect(params.context).toContain("Assets it changed: /Game/BP_Hero");
+    expect(params.context).toContain("Assistant: Added a jump sound to BP_Hero.");
+    // The /playtest is the latest turn now, and it made a playtest: no pill follows it.
+    expect(Sessions.detail(store.get(s.id)!).turn).toMatchObject({ playtest: true, mutations: 0 });
+  });
+
+  it("counts no change for a turn that only read, and marks one that saved a playtest itself", async () => {
+    const { runner, s } = setup(() => success, [], [
+      call("c1", "blueprint", "read_blueprint", { assetPath: "/Game/BP_Door" }),
+      said("It has a hinge."),
+      call("c2", "pie", "script_create", { name: "Door", steps: [{ instruction: "Open it" }] }),
+      said("Saved a playtest."),
+    ], (_c, action) => (action === "script_create" ? { created: true, path: "/Game/Scripts/Door", name: "Door", steps: [{ instruction: "Open it", judge: "manual" }] } : {}));
+    await runner.send(s.id, "what does the door have?");
+    expect(Sessions.detail(store.get(s.id)!).turn).toMatchObject({ mutations: 0, playtest: false });
+    await runner.send(s.id, "make a playtest of the door");
+    expect(Sessions.detail(store.get(s.id)!).turn).toMatchObject({ playtest: true });
   });
 });

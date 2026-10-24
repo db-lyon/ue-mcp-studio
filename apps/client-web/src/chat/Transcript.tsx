@@ -68,7 +68,6 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
     return (
       <>
         <Reply text={entry.text} at={at < 0 ? undefined : at} />
-        {at >= 0 && !entry.parent && <MessageActions at={at} />}
         {at >= 0 && !entry.parent && <ConvertToPlaytest at={at} />}
       </>
     );
@@ -86,29 +85,10 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
 });
 
 /**
- * Runs a /playtest from a button: Make playtest on an agent message, Retry on
- * a failed one. `busy` while a turn runs, when neither can start. Null where
- * nothing can be sent.
+ * Runs a /playtest from a button: Retry on a failed one. `busy` while a turn
+ * runs, when it cannot start. Null where nothing can be sent.
  */
 export const PlaytestCommandContext = createContext<{ busy: boolean; run: (req: PlaytestRequest) => void } | null>(null);
-
-/** Under each of the agent's messages: Make playtest, a /playtest made from that message. */
-function MessageActions({ at }: { at: number }) {
-  const playtest = useContext(PlaytestCommandContext);
-  if (!playtest) return null;
-  return (
-    <div className="msg-actions row small">
-      <button
-        className="ghost small-button"
-        disabled={playtest.busy}
-        title={playtest.busy ? "Wait for the running turn to end" : "Draft a playtest from this message, as a Playtest card"}
-        onClick={() => playtest.run({ text: "", source: at })}
-      >
-        Make playtest
-      </button>
-    </div>
-  );
-}
 
 /** The playtest flow's stages, in order, as the card names them. */
 const PLAYTEST_STAGES: Array<[PlaytestStage, string]> = [

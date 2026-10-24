@@ -7,7 +7,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import type { TurnFacts, ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
 import { modelName } from "./models.js";
 import type { ToolImage } from "./images.js";
@@ -67,6 +67,22 @@ export interface StoredSession {
   approvals?: ApprovalRequest[];
   /** Kinds of call the user allowed for the rest of the session: shell, edit. */
   allowed?: string[];
+  /** What the latest turn did, from its tool calls. */
+  turn?: TurnFacts;
+}
+
+/** Whether a call saved a playtest: pie(script_create), or a run of the playtest flow. */
+function playtestCall(t: TranscriptEntry): boolean {
+  if (t.kind === "playtest") return true;
+  if (t.kind !== "tool" || t.call.name !== "ue_mcp") return false;
+  const i = (t.call.input ?? {}) as { action?: unknown; category?: unknown; method?: unknown; args?: { flowName?: unknown } };
+  if (i.action !== "call") return false;
+  return (i.category === "pie" && i.method === "script_create") || (i.category === "flow" && i.method === "run" && i.args?.flowName === "playtest");
+}
+
+/** A turn's facts, with whether any call in it, a subagent's included, saved a playtest. */
+export function turnFacts(transcript: TranscriptEntry[], turn: TurnFacts): TurnFacts {
+  return { ...turn, playtest: turn.playtest || transcript.slice(turn.start).some(playtestCall) };
 }
 
 function agentCounts(s: StoredSession): { total: number; running: number } {
@@ -212,6 +228,6 @@ export class SessionStore {
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [] };
+    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}) };
   }
 }

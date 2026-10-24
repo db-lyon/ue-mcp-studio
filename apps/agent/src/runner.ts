@@ -32,7 +32,7 @@ import { AttachmentStore, contentFor } from "./attachments.js";
 import { keptName, toolResultContent } from "./images.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
 import { parseSlashCommand, type Attachment, type PlaytestRequest } from "@ue-mcp-studio/shared";
-import { playtestParams, type PlaytestFlow } from "./playtest-flow.js";
+import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 
 /**
  * Testing gameplay with the user: a playtest, which is a test script the agent
@@ -341,6 +341,7 @@ export class AgentRunner {
       at: now(),
       ...(attachments.length ? { attachments: attachments.map(({ id, name, type, size }) => ({ id, name, type, size })) } : {}),
     });
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
     s.draft = "";
     s.error = null;
     this.setStatus(s, "running", null);
@@ -389,10 +390,16 @@ export class AgentRunner {
     const source = request.source === undefined ? null : s.transcript[request.source];
     if (request.source !== undefined && (source?.kind !== "assistant" || source.parent)) throw new Error(`entry ${request.source} is not one of the agent's messages`);
     const shown = text ?? (request.text.trim() ? `/playtest ${request.text.trim()}` : "/playtest");
-    const params = playtestParams(request.text, source?.kind === "assistant" ? source.text : null, s.transcript);
+    // The Make playtest pill names the latest turn: its changes are the target, the turn the context.
+    const turn = request.turn === undefined ? null : s.turn?.start === request.turn ? s.turn : undefined;
+    if (turn === undefined) throw new Error(`entry ${request.turn} does not begin the latest turn`);
+    const params = turn
+      ? playtestTurnParams(s.transcript.slice(turn.start), turn.targets)
+      : playtestParams(request.text, source?.kind === "assistant" ? source.text : null, s.transcript);
     s.archived = false;
     if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
     s.transcript.push({ kind: "user", text: shown, at: now(), ...(request.source !== undefined ? { source: request.source } : {}) });
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: true };
     const card: Extract<TranscriptEntry, { kind: "playtest" }> = { kind: "playtest", state: "gathering", request, attempt: 1, at: now() };
     s.draft = "";
     s.error = null;
@@ -547,11 +554,11 @@ export class AgentRunner {
     }
     const running = executeTool(this.hostFor(s.id, detached), name, input, signal);
     // What a call does after its subagent was stopped is still tracked for the crash report.
-    if (sub) void running.then((e) => sub.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
+    if (sub) void running.then((e) => sub.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
     const done = sub ? await unlessAborted(running, sub) : await running;
     if (!done) return stoppedHere();
     let exec = done;
-    this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+    this.mergeExec(s, exec, exec.outcome !== "unknown");
     // Stopped while the editor worked: the stop already answered this call.
     if (controller.signal.aborted) return exec;
     if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
@@ -1128,13 +1135,13 @@ export class AgentRunner {
       const exec = await executeTool(this.hostFor(s.id), p.name, p.input, signal);
       if (signal.aborted) {
         // Stopped while the editor worked: the stop already answered this call.
-        this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+        this.mergeExec(s, exec, exec.outcome !== "unknown");
         this.o.store.save(s);
         return true;
       }
       if (exec.outcome === "unknown") {
         p.state = "unknown";
-        this.mergeTouched(s, exec.touched, false);
+        this.mergeExec(s, exec, false);
         this.o.store.save(s);
         return this.pause(s);
       }
@@ -1142,7 +1149,7 @@ export class AgentRunner {
       p.result = exec.text;
       p.isError = exec.isError;
       if (exec.images) p.images = exec.images;
-      this.mergeTouched(s, exec.touched, true);
+      this.mergeExec(s, exec, true);
       this.markSaved(s, exec.saved);
       this.recordOutcome(s, p, exec.outcome);
       if (p.name === "editor_restart" && !exec.isError && !editorConnected(this.o.host) && this.operating()) {
@@ -1211,10 +1218,10 @@ export class AgentRunner {
           }
           const running = executeTool(this.hostFor(s.id, detached), u.name, input, signal);
           // A stop lets the call go at once; what it does after is still tracked for the crash report.
-          void running.then((e) => signal.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
+          void running.then((e) => signal.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
           const exec = await unlessAborted(running, signal);
           if (!exec || signal.aborted) return stopped();
-          this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+          this.mergeExec(s, exec, exec.outcome !== "unknown");
           this.markSaved(s, exec.saved);
           this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
           results.push({ type: "tool_result", tool_use_id: u.id, content: toolResultContent(exec.text, exec.images), is_error: exec.isError || undefined });
@@ -1275,6 +1282,16 @@ export class AgentRunner {
     s.messages.push({ role: "user", content } as MessageParam);
     s.pending = null;
     this.o.store.save(s);
+  }
+
+  /** A call's changes: what the session touched, and the turn's count of changing calls with the targets they named. */
+  private mergeExec(s: StoredSession, exec: ToolExecution, known: boolean): void {
+    this.mergeTouched(s, exec.touched, known);
+    if (!exec.changed || !s.turn) return;
+    s.turn.mutations++;
+    for (const t of exec.touched) {
+      if (!s.turn.targets.some((x) => x.kind === t.kind && x.path === t.path)) s.turn.targets.push({ ...t });
+    }
   }
 
   private mergeTouched(s: StoredSession, items: { kind: "asset" | "actor"; path: string; saved: boolean }[], known: boolean): void {

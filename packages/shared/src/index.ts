@@ -271,6 +271,23 @@ export interface SessionDetail extends SessionSummary {
   error: string | null;
   /** Tool calls waiting for the user, oldest first. */
   approvals: ApprovalRequest[];
+  /** The latest turn, from its tool calls: what the composer's pills are made from. */
+  turn?: TurnFacts;
+}
+
+/**
+ * What one turn did, from its tool calls alone. `start` is the transcript
+ * index of the message that began it. `mutations` counts the calls that
+ * changed something, as the tool layer classifies them (an editor call whose
+ * answer reports a change, a command, a file write or edit); `targets` are the
+ * assets and actors those calls named. `playtest`: the turn saved a playtest
+ * with pie(script_create) or ran the playtest flow.
+ */
+export interface TurnFacts {
+  start: number;
+  mutations: number;
+  targets: TouchedItem[];
+  playtest: boolean;
 }
 
 /** One line of a diff: kept, removed or added. A gap stands for unchanged lines left out. */

@@ -6,7 +6,7 @@
  * recent conversation, follows the run's flow.* events to show its stage, and
  * reads the saved script or the errors from the run's answer.
  */
-import type { PlaytestStage, TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { PlaytestStage, TouchedItem, TranscriptEntry } from "@ue-mcp-studio/shared";
 
 export const PLAYTEST_FLOW = "playtest";
 
@@ -103,6 +103,30 @@ export function playtestParams(text: string, source: string | null, transcript: 
   }
   const parts = [head, convo ? `The recent conversation:\n${convo}` : ""].filter(Boolean).join("\n\n");
   return { target, context: parts.length > CONTEXT_CHARS ? parts.slice(parts.length - CONTEXT_CHARS) : parts };
+}
+
+/**
+ * The flow's params for the Make playtest pill: the assets and actors the
+ * turn changed as the target, the first asset first, and the turn itself as
+ * the context: what it changed, and its messages.
+ */
+export function playtestTurnParams(turn: TranscriptEntry[], targets: TouchedItem[]): PlaytestFlowParams {
+  const assets = targets.filter((t) => t.kind === "asset").map((t) => t.path);
+  const actors = targets.filter((t) => t.kind === "actor").map((t) => t.path);
+  const messages = recentMessages(turn);
+  const target = assets[0] ?? actors[0] ?? playtestTarget("", null, messages.map((m) => m.text));
+  const changed = [
+    assets.length ? `Assets it changed: ${assets.join(", ")}` : "",
+    actors.length ? `Actors it changed: ${actors.join(", ")}` : "",
+  ].filter(Boolean).join("\n");
+  const lines = messages.map((m) => `${m.who}: ${m.text}`);
+  let convo = lines.join("\n\n");
+  while (changed.length + convo.length > CONTEXT_CHARS && lines.length > 1) {
+    lines.shift();
+    convo = lines.join("\n\n");
+  }
+  const context = [`Test what the agent's last turn changed.${changed ? `\n${changed}` : ""}`, convo ? `That turn:\n${convo}` : ""].filter(Boolean).join("\n\n");
+  return { target, context: context.length > CONTEXT_CHARS ? context.slice(0, CONTEXT_CHARS) : context };
 }
 
 interface FlowStepReport {

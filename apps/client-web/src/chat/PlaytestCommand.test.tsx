@@ -29,22 +29,10 @@ function show(entry: TranscriptEntry, busy = false, run = vi.fn()) {
   return run;
 }
 
-describe("Make playtest", () => {
-  it("is on an agent message and sends a /playtest made from it", () => {
-    const run = show(transcript[1]);
-    fireEvent.click(screen.getByRole("button", { name: "Make playtest" }));
-    expect(run).toHaveBeenCalledWith({ text: "", source: 1 });
-  });
-
-  it("waits while a turn runs", () => {
-    show(transcript[1], true);
-    expect((screen.getByRole("button", { name: "Make playtest" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("is not on the user's messages, and a sourced /playtest says where it came from", () => {
-    show(transcript[2]);
+describe("an agent message", () => {
+  it("carries no Make playtest of its own: the composer's pill offers it", () => {
+    show(transcript[1]);
     expect(screen.queryByRole("button", { name: "Make playtest" })).toBeNull();
-    expect(screen.getByText(/from the agent's message above/)).toBeTruthy();
   });
 });
 

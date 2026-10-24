@@ -14,7 +14,7 @@
  *   PUT  /sessions/:id/draft        the unsent message, kept across reloads
  *   POST /sessions/:id/seen         a subagent thread the user opened, so it is no longer new
  *   POST /sessions/:id/messages     send a message; the turn runs in the background. "/playtest <text>" runs the playtest flow
- *   POST /sessions/:id/playtest     a /playtest: { text?, source? }, source an agent message's transcript index
+ *   POST /sessions/:id/playtest     a /playtest: { text?, source?, turn? }, source an agent message's transcript index, turn the latest turn's (the Make playtest pill)
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *   POST /quick                     the editor's quick ask: a new session with its first message (quick.ts)
@@ -463,13 +463,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/sessions/:id/playtest", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
-    const b = (req.body ?? {}) as { text?: unknown; source?: unknown };
-    if (b.text !== undefined && typeof b.text !== "string") return bad("body must be { text?: string, source?: integer }");
+    const b = (req.body ?? {}) as { text?: unknown; source?: unknown; turn?: unknown };
+    if (b.text !== undefined && typeof b.text !== "string") return bad("body must be { text?: string, source?: integer, turn?: integer }");
+    if (b.turn !== undefined && (!Number.isInteger(b.turn) || s.turn?.start !== b.turn)) return bad("turn is the transcript index that began the latest turn");
     if (b.source !== undefined && !Number.isInteger(b.source)) return bad("source is the transcript index of an agent message");
     const source = b.source as number | undefined;
     if (source !== undefined && (s.transcript[source]?.kind !== "assistant" || s.transcript[source].parent)) return bad(`entry ${source} is not one of the agent's messages`);
     if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress; wait for it to finish or stop it" } };
-    const request: PlaytestRequest = { text: (b.text as string | undefined) ?? "", ...(source !== undefined ? { source } : {}) };
+    const request: PlaytestRequest = { text: (b.text as string | undefined) ?? "", ...(source !== undefined ? { source } : {}), ...(b.turn !== undefined ? { turn: b.turn as number } : {}) };
     runner.playtest(s.id, request).catch((e) => api.log.warn(`playtest in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });

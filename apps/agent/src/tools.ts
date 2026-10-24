@@ -13,7 +13,7 @@ import * as path from "node:path";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import type { TouchedItem } from "@ue-mcp-studio/shared";
-import { isLocalTool, localToolDefinitions, runLocal, validateLocal } from "./local-tools.js";
+import { CHANGING_TOOLS, isLocalTool, localToolDefinitions, runLocal, validateLocal, type LocalToolName } from "./local-tools.js";
 import { firstFailedStep, type OperationStep } from "./operation-result.js";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type ToolImage } from "./images.js";
 
@@ -103,6 +103,8 @@ export interface ToolExecution {
   touched: TouchedItem[];
   /** Paths a save action reports saved; "*" for everything. */
   saved: string[];
+  /** The call changed something: an editor call whose answer reports a change, a command, a file write or edit. */
+  changed?: boolean;
   /** Images the model sees with the result: an image file read, a screenshot an editor call wrote. */
   images?: ToolImage[];
 }
@@ -191,7 +193,8 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
 
   if (isLocalTool(name)) {
     const r = await runLocal(host.projectDir, name, input, signal);
-    return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [], ...(r.images?.length ? { images: r.images } : {}) };
+    const changed = !r.isError && CHANGING_TOOLS.includes(name as LocalToolName);
+    return { text: r.text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [], ...(changed ? { changed } : {}), ...(r.images?.length ? { images: r.images } : {}) };
   }
 
   if (name === "editor_restart") {
@@ -241,7 +244,8 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     return { text, isError: true, outcome: "unknown", touched: namedTargets(args), saved: [] };
   }
   const json = parseJson(text);
-  const touched = !r.isError && reportsChange(json) ? namedTargets(args) : [];
+  const changed = !r.isError && reportsChange(json);
+  const touched = changed ? namedTargets(args) : [];
   const savedHere = json?.saved === true;
   for (const t of touched) t.saved = savedHere;
   let saved: string[] = [];
@@ -250,7 +254,7 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     saved = named.length > 0 ? named : ["*"];
   }
   const images = r.isError ? [] : await resultImages(host.projectDir, r, startedAt);
-  return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched, saved, ...(images.length ? { images } : {}) };
+  return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched, saved, ...(changed ? { changed } : {}), ...(images.length ? { images } : {}) };
 }
 
 /**

@@ -53,4 +53,10 @@ export type PlaytestStage = "gathering" | "drafting" | "checking" | "created";
 export interface PlaytestRequest {
   text: string;
   source?: number;
+  /**
+   * The Make playtest pill: the turn it is made from, by the transcript index
+   * that began it. The turn's changed assets and actors are the target, and
+   * the turn is the context.
+   */
+  turn?: number;
 }
