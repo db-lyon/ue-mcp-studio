@@ -33,6 +33,19 @@ import { keptName, toolResultContent } from "./images.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
 import type { Attachment } from "@ue-mcp-studio/shared";
 
+/**
+ * Testing gameplay with the user: a test script run as a checklist card in the
+ * chat, never a list of steps written out in a reply.
+ */
+export const QA = [
+  "When the user wants gameplay tested or checked in Play In Editor (a QA pass, a test plan, a checklist, steps to try), do not write the steps out as a list in your reply. "
+    + "Run them as a ue-mcp test script: pie.script_create saves a script asset to run again later, or pass the steps inline to pie.script_run. Studio shows the run as a live checklist card the user answers in the chat.",
+  "Make a step auto with an expect when a value the observer reads can decide it (a property, a distance, visibility), and manual when only a person can judge it (how it looks or feels). Describe pie.script_create first for the step format.",
+  "Run it with pie.script_run and wait: true (start_pie: true when PIE is not running), then report the summary and the results_path from its answer. "
+    + "The user answers manual steps with the Pass, Fail and Skip buttons on the card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message. "
+    + "If the answer says steps are awaiting a verdict, tell the user to answer them on the card and end your turn.",
+];
+
 const WORK = [
   "Anything in the running editor (assets, levels, actors, Blueprints, materials, Niagara) goes through ue_mcp: find the action with ue_mcp search, check its parameters with ue_mcp describe, then call it.",
   "Prefer a dedicated action to editor.execute_python. Save what you change when the task is done, unless the user says otherwise.",
@@ -42,6 +55,7 @@ const WORK = [
   "Use those for files, version control and the web, never for what ue_mcp does in the editor. .uasset and .umap files are binary and the editor owns them: change them through ue_mcp, not the file tools.",
   "Stop or restart this project's editor with editor_restart or ue_mcp editor.stop_editor. Never kill an editor process from the shell, by PID or by name: other projects' editors run on the same machine.",
   "Read a file before you edit it. Commands and file changes may wait for the user to allow them; when the user declines one, do not try it again in another form: take another way or ask.",
+  ...QA,
 ];
 
 /** Where the machine tools work, for the prompts. */
