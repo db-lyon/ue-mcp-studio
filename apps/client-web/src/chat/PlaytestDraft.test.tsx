@@ -1,0 +1,156 @@
+// @vitest-environment jsdom
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import type { DaemonEvent } from "ue-mcp/daemon";
+import { qaDraftFromScript, qaRunFromAnswer, type QaRun } from "@ue-mcp-studio/shared";
+
+const m = vi.hoisted(() => ({
+  qaRun: vi.fn(),
+  qaSaveScript: vi.fn(),
+  qaDeleteScript: vi.fn(),
+  qaAssign: vi.fn(),
+  qaCancelAssign: vi.fn(),
+  qaVerdict: vi.fn(),
+  qaStatus: vi.fn(),
+  answerForm: vi.fn(async () => {}),
+  qaResultsUrl: (id: string) => `/v1/ext/studio/qa/runs/${id}/results`,
+}));
+vi.mock("../api", () => ({ api: m }));
+import { QaCard, QaContext, type QaLive } from "./Qa";
+import { playersNeeded } from "./PlaytestDraft";
+
+afterEach(() => {
+  cleanup();
+  vi.clearAllMocks();
+});
+
+const PATH = "/Game/PIEStudio/Scripts/SigilPickup";
+const RUN = "script_SigilPickup_20261024_120000";
+const STEPS = [
+  { instruction: "Pick up the sigil", judge: "auto", expect: { value: "PlayerState.SigilAttributes.Sigil.CurrentValue", op: "eq", target: 100, within_ms: 5000 } },
+  { instruction: "The pickup plays on the client", judge: "manual" },
+];
+const draft = (over: Partial<QaRun> = {}): QaRun => ({ ...qaDraftFromScript({ path: PATH, name: "SigilPickup", default_within_ms: 5000, steps: STEPS }, { sessionId: "s1", players: { 0: "host", 1: "client 1" }, seenAt: "" })!, ...over });
+const live = (): QaRun => qaRunFromAnswer({ run_id: RUN, script: PATH, script_name: "SigilPickup", state: "armed", steps: STEPS.map((s, index) => ({ ...s, index, status: "pending" })), awaiting: [], last_seq: 1 }, { sessionId: "s1" })!;
+
+let nextId = 1;
+function mount(run: QaRun, extra: Partial<QaLive> = {}) {
+  let cur: QaLive = { events: [], streaming: true, forms: [], sessionId: "s1", ...extra };
+  const ui = (v: QaLive) => <QaContext.Provider value={v}><QaCard run={run} /></QaContext.Provider>;
+  const r = render(ui(cur));
+  return { ...r, push: (...e: DaemonEvent[]) => { cur = { ...cur, events: [...cur.events, ...e] }; r.rerender(ui(cur)); } };
+}
+const step = (n: number) => screen.getAllByRole("listitem")[n];
+
+describe("a draft Playtest card", () => {
+  it("lists every step unrun, with its player, and auto with its check or manual", () => {
+    mount(draft());
+    expect(screen.getByText("Playtest draft")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Draft");
+    expect(screen.getByText(PATH)).toBeTruthy();
+    expect(within(step(0)).getByText("host")).toBeTruthy();
+    expect(within(step(0)).getByText("auto")).toBeTruthy();
+    expect(step(0).textContent).toContain("PlayerState.SigilAttributes.Sigil.CurrentValue eq 100, within 5000 ms");
+    expect(within(step(1)).getByText("client 1")).toBeTruthy();
+    expect(within(step(1)).getByText("manual")).toBeTruthy();
+    // Unrun: no status, no verdict buttons.
+    expect(within(step(0)).queryByText("Pending")).toBeNull();
+    expect(within(step(1)).queryByRole("button")).toBeNull();
+    for (const name of ["Run", "Assign to subagent", "Edit", "Delete"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+  });
+
+  it("Run offers its options, starts with them, and the same card goes live", async () => {
+    m.qaRun.mockResolvedValue({ run: live() });
+    const page = mount(draft());
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    const options = screen.getByRole("group", { name: "Run options" });
+    // Two players named: two players and a listen server, to start with.
+    expect((within(options).getByLabelText("Players") as HTMLInputElement).value).toBe("2");
+    expect((within(options).getByRole("checkbox", { name: "Listen server" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(within(options).getByRole("checkbox", { name: /Start PIE/ }));
+    fireEvent.click(within(options).getByRole("checkbox", { name: /Record/ }));
+    await act(async () => {
+      fireEvent.click(within(options).getByRole("button", { name: "Start" }));
+    });
+    expect(m.qaRun).toHaveBeenCalledWith(`draft:${PATH}`, { startPie: false, players: 2, listen: true, record: false });
+    expect(screen.getByText("Playtest")).toBeTruthy();
+    expect(screen.getAllByRole("status")[0].textContent).toBe("Starting");
+    expect(within(step(0)).getByText("Pending")).toBeTruthy();
+    // Live, with the run's events applied.
+    page.push({ id: nextId++, type: "script.step_passed", at: "", data: { runId: RUN, seq: 3, step: { index: 0, status: "passed" } } });
+    expect(within(step(0)).getByText("Auto pass")).toBeTruthy();
+  });
+
+  it("goes live when a run of its script takes it elsewhere, as an assigned subagent's does", () => {
+    const page = mount(draft());
+    page.push({ id: nextId++, type: "studio.qa.changed", at: "", data: { runId: RUN, run: live() as unknown as Record<string, unknown>, replaces: `draft:${PATH}` } });
+    expect(screen.getByText("Playtest")).toBeTruthy();
+    expect(within(step(0)).getByText("Pending")).toBeTruthy();
+  });
+
+  it("Edit changes steps in place and saves them, players included", async () => {
+    m.qaSaveScript.mockImplementation(async (_id: string, steps: unknown[]) => ({ run: draft({ steps: draft().steps.slice(1) }) , steps }));
+    mount(draft());
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Step 1 instruction"), { target: { value: "Pick up the sigil on the altar" } });
+    fireEvent.change(screen.getByLabelText("Step 1 target"), { target: { value: "50" } });
+    fireEvent.change(screen.getByLabelText("Step 2 judge"), { target: { value: "auto" } });
+    fireEvent.change(screen.getByLabelText("Step 2 player"), { target: { value: "host" } });
+    fireEvent.change(screen.getByLabelText("Step 2 value"), { target: { value: "BP_ShrineGate_C.bIsOpen" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add a step" }));
+    fireEvent.change(screen.getByLabelText("Step 3 instruction"), { target: { value: "The gate looks right" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    expect(m.qaSaveScript).toHaveBeenCalledWith(`draft:${PATH}`, [
+      { instruction: "Pick up the sigil on the altar", judge: "auto", expect: { value: "PlayerState.SigilAttributes.Sigil.CurrentValue", op: "eq", target: 50, within_ms: 5000 }, player: "host" },
+      { instruction: "The pickup plays on the client", judge: "auto", expect: { value: "BP_ShrineGate_C.bIsOpen", op: "eq" }, player: "host" },
+      { instruction: "The gate looks right", judge: "manual" },
+    ]);
+    // The editor closes on the saved draft.
+    expect(screen.queryByRole("group", { name: "Edit the playtest" })).toBeNull();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
+
+  it("Delete asks once more, then deletes the script", async () => {
+    m.qaDeleteScript.mockResolvedValue({ run: draft({ deleted: true }) });
+    mount(draft());
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(m.qaDeleteScript).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Delete the script" }));
+    });
+    expect(m.qaDeleteScript).toHaveBeenCalledWith(`draft:${PATH}`);
+    expect(screen.getByRole("status").textContent).toBe("Deleted");
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Assign to subagent" })).toBeNull();
+  });
+
+  it("Assign to subagent on a draft hands it over and offers Cancel", async () => {
+    m.qaAssign.mockResolvedValue({ run: draft({ assignment: { callId: "studio_1", sessionId: "s1", state: "running", at: "" } }) });
+    mount(draft(), { onThread: vi.fn() });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Assign to subagent" }));
+    });
+    expect(m.qaAssign).toHaveBeenCalledWith(`draft:${PATH}`, null);
+    expect(screen.getByRole("button", { name: "Cancel the subagent" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open its thread" })).toBeTruthy();
+  });
+
+  it("shows ue-mcp's refusal of a Run", async () => {
+    m.qaRun.mockRejectedValue(new Error("PIE could not be set to 2 players: no editor"));
+    mount(draft());
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Start" }));
+    });
+    expect(screen.getByText("PIE could not be set to 2 players: no editor")).toBeTruthy();
+    expect(screen.getByText("Playtest draft")).toBeTruthy();
+  });
+
+  it("counts the players the steps name", () => {
+    expect(playersNeeded(draft())).toBe(2);
+    expect(playersNeeded(draft({ steps: draft().steps.map((s) => ({ ...s, player: undefined })) }))).toBe(1);
+  });
+});

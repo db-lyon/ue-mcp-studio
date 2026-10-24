@@ -34,7 +34,7 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
-  QaRun,
+  QaRun, QaScriptStep, PlaytestRunsMode,
   QaVerdict,
 } from "@ue-mcp-studio/shared";
 
@@ -161,7 +161,7 @@ export const api = {
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
   agentSettings: () => call<AgentSettings>("GET", "/v1/ext/studio/agent-settings"),
-  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode }>) => call<AgentSettings>("PUT", "/v1/ext/studio/agent-settings", u),
+  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>) => call<AgentSettings>("PUT", "/v1/ext/studio/agent-settings", u),
   forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
@@ -173,6 +173,11 @@ export const api = {
   qaAssign: (runId: string, sessionId?: string | null) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`, sessionId ? { sessionId } : {}),
   qaCancelAssign: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`),
+  qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
+    call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
+  qaSaveScript: (runId: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps }),
+  qaDeleteScript: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`),
+  qaCreateScript: (sessionId: string, name: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/scripts", { sessionId, name, steps }),
   qaDismiss: (runId: string) => call<void>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}`),
   qaResultsUrl: (runId: string) => `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,
   dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),
