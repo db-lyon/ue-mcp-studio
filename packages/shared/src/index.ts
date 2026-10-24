@@ -8,6 +8,7 @@ export const EXTENSION_NAME = "studio";
 
 import type { QaRun } from "./qa.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
+import type { FlowRunState, FlowStepProgress } from "./flows.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -216,6 +217,11 @@ export type TranscriptEntry = (
    * request Retry sends again. `attempt` counts the flow's drafts.
    */
   | { kind: "playtest"; state: PlaytestStage | "failed"; request: PlaytestRequest; attempt: number; errors?: string[]; at: string }
+  /**
+   * A /flow: the flow, the params it was run with, each step as the flow.*
+   * events report it, and the run's summary and errors once it has ended.
+   */
+  | { kind: "flow"; name: string; params: Record<string, unknown>; state: FlowRunState; steps: FlowStepProgress[]; summary?: string; errors?: string[]; duration?: number; at: string }
   /** A failed /playtest from an older Studio, which ran it as a forced turn. */
   | { kind: "playtest-failed"; reason: string; request: PlaytestRequest; at: string }
 ) & { parent?: string };
@@ -639,11 +645,11 @@ export interface AgentSettings {
 /** Playtest runs, a setting per project: manual (the default) or automatic. */
 export type PlaytestRunsMode = "manual" | "automatic";
 export const PLAYTEST_RUNS: ReadonlyArray<{ mode: PlaytestRunsMode; label: string; help: string }> = [
-  { mode: "manual", label: "Manual", help: "Playtests run only when you click Run or Assign to subagent." },
+  { mode: "manual", label: "Manual", help: "Playtests run only when you click Start Playtest or Assign to subagent." },
   { mode: "automatic", label: "Automatic", help: "The agent can start playtests itself." },
 ];
 /** What the agent hears when Manual refuses its run. */
-export const PLAYTEST_RUNS_REFUSAL = "Playtest runs is set to Manual in Settings > Agent. Click Run on the card to start it.";
+export const PLAYTEST_RUNS_REFUSAL = "Playtest runs is set to Manual in Settings > Agent. Click Start Playtest on the card to start it.";
 
 /** An actor or asset the editor's "Chat about this" hands to a quick ask. */
 export interface QuickContextItem {
@@ -720,3 +726,4 @@ export interface StudioPluginUpdate {
 }
 export * from "./qa.js";
 export * from "./commands.js";
+export * from "./flows.js";

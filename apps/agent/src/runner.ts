@@ -31,7 +31,8 @@ import { modelName } from "./models.js";
 import { AttachmentStore, contentFor } from "./attachments.js";
 import { keptName, toolResultContent } from "./images.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
-import { parseSlashCommand, type Attachment, type PlaytestRequest } from "@ue-mcp-studio/shared";
+import { flowCommandText, flowValue, parseFlowArgs, parseSlashCommand, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
+import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 
 /**
@@ -43,7 +44,7 @@ import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtes
 export const QA = [
   "When the user wants gameplay tested or checked in Play In Editor (a playtest, a QA pass, a test plan, a checklist, steps to try), do not write the steps out as a list in your reply, and not as a table either. "
     + "Deliver it as a playtest: create a ue-mcp test script with pie.script_create (pie.script_update changes one), and Studio shows it as a Playtest card in the chat. Even when the user asks only for a draft or a plan, the draft is the created script.",
-  "Every playtest is a created script and its card; there is no other way to deliver one. A reply that lists steps marked PASS or FAIL, or steps for the user to try, as prose or a table, is a failed playtest, and Studio flags it to the user as one. "
+  "Every playtest is a created script and its card; there is no other way to deliver one. A reply that lists steps marked PASS or FAIL, or steps for the user to try, as prose or a table, is a failed playtest. "
     + "Never mark a step passed or failed from your own reading of the editor: the script run's observer, the user on the card, or a subagent the user assigned decides it.",
   "Make a step auto with an expect when a value the observer reads can decide it (a property, a distance, visibility), and manual when only a person can judge it (how it looks or feels). Describe pie.script_create first for the step format. "
     + "In a multiplayer playtest give each step a player, \"host\" or \"client 1\", \"client 2\" and so on: Studio keeps it, shows it on the card and takes it out before ue-mcp sees the step.",
@@ -56,7 +57,7 @@ export const QA = [
 export function playtestRunsLine(mode: PlaytestRunsMode): string {
   return mode === "automatic"
     ? "Playtest runs is set to Automatic in Settings > Agent: you may start a playtest yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
-    : "Playtest runs is set to Manual in Settings > Agent: only the user starts a playtest, with Run or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Playtest runs to Automatic.";
+    : "Playtest runs is set to Manual in Settings > Agent: only the user starts a playtest, with Start Playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Playtest runs to Automatic.";
 }
 
 const WORK = [
@@ -145,6 +146,8 @@ export interface RunnerOptions {
   playtestRuns?: () => PlaytestRunsMode;
   /** Runs ue-mcp's playtest flow for /playtest, Make playtest and Retry. */
   playtestFlow?: PlaytestFlow;
+  /** Runs any of the project's flows for /flow. */
+  flows?: FlowCaller;
 }
 
 const now = (): string => new Date().toISOString();
@@ -292,6 +295,16 @@ export class AgentRunner {
         this.o.store.save(s);
         continue;
       }
+      // A /flow's run answered the previous daemon: its card says it was cut off.
+      const run = [...s.transcript].reverse().find((t) => t.kind === "flow");
+      if (run?.kind === "flow" && run.state === "running") {
+        Object.assign(run, { state: "failed", errors: [`It was cut off: ${why}. The flow may have gone on in the editor.`] });
+        for (const step of run.steps) if (step.state === "running") step.state = "failed";
+        s.status = "idle";
+        s.waitingCause = null;
+        this.o.store.save(s);
+        continue;
+      }
       const asked = new Set((s.approvals ?? []).map((a) => a.toolUseId));
       // An approval only the previous daemon could answer; its call asks again when the turn resumes.
       if (s.approvals?.length) {
@@ -323,6 +336,12 @@ export class AgentRunner {
     // A /playtest message runs the playtest flow, not a turn.
     const command = attachments.length ? null : parseSlashCommand(text);
     if (command?.name === "playtest") return this.playtest(sessionId, { text: command.args }, text);
+    // A /flow message (queued, or from a client without the form) runs with the pairs it names.
+    if (command?.name === "flow") {
+      const { name, values } = parseFlowArgs(command.args);
+      const params = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, flowValue(v, null)]));
+      return this.flow(sessionId, { name, params, text: text.trim() });
+    }
     const s = this.require(sessionId);
     if (this.active.has(s.id) || s.status === "running" || s.status === "waiting") {
       throw new Error("a turn is already in progress; stop it or wait for it to finish");
@@ -438,6 +457,60 @@ export class AgentRunner {
         changed();
         s.notes.push(`The user ran ${shown}: the playtest flow made no playtest. ${outcome.errors.join(" ")}`);
       }
+      this.setStatus(s, "idle", null);
+    } finally {
+      if (this.active.get(s.id) === controller) this.active.delete(s.id);
+    }
+  }
+
+  /**
+   * A /flow: one of the project's flows, run with the params the user gave.
+   * Its card lists the steps as the flow's events report them, then the run's
+   * summary, or its errors. The agent gets a note either way, with its next turn.
+   */
+  async flow(sessionId: string, request: FlowRunRequest): Promise<void> {
+    const s = this.require(sessionId);
+    if (this.busy(s)) throw new Error("a turn is already in progress; stop it or wait for it to finish");
+    const name = request.name.trim();
+    if (!name) throw new Error("name the flow to run: /flow <name>");
+    const shown = request.text?.trim() || flowCommandText(name, request.params);
+    s.archived = false;
+    if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
+    s.transcript.push({ kind: "user", text: shown, at: now() });
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
+    const card: Extract<TranscriptEntry, { kind: "flow" }> = { kind: "flow", name, params: request.params, state: "running", steps: [], at: now() };
+    s.draft = "";
+    s.error = null;
+    this.addEntry(s, card);
+    const controller = new AbortController();
+    this.active.set(s.id, controller);
+    this.setStatus(s, "running", null);
+    const changed = () => {
+      this.o.store.save(s);
+      this.o.host.events.publish("flowrun.changed", { sessionId: s.id, name, state: card.state });
+    };
+    try {
+      const outcome = this.o.flows
+        ? await this.o.flows.run(name, request.params, (e) => {
+          if (!controller.signal.aborted && applyStepEvent(card.steps, e)) changed();
+        }, controller.signal)
+        : { success: false, errors: ["This Studio has no way to run flows."], steps: [] };
+      if (controller.signal.aborted) {
+        card.state = "stopped";
+        card.errors = ["Stopped waiting for it. The flow may still be running in the editor."];
+        for (const step of card.steps) if (step.state === "running") step.state = "failed";
+        return changed();
+      }
+      if (!card.steps.length) card.steps = outcome.steps;
+      for (const step of card.steps) if (step.state === "running") step.state = outcome.success ? "done" : "failed";
+      card.state = outcome.success ? "succeeded" : "failed";
+      if (outcome.summary) card.summary = outcome.summary;
+      if (outcome.errors.length) card.errors = outcome.errors;
+      if (outcome.duration !== undefined) card.duration = outcome.duration;
+      changed();
+      s.notes.push(outcome.success
+        ? `The user ran ${shown}: the flow succeeded.${outcome.summary ? `\n${outcome.summary}` : ""}`
+        : `The user ran ${shown}: the flow failed. ${[...outcome.errors, outcome.summary ?? ""].filter(Boolean).join(" ")}`);
       this.setStatus(s, "idle", null);
     } finally {
       if (this.active.get(s.id) === controller) this.active.delete(s.id);

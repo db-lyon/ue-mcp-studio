@@ -218,7 +218,10 @@ nav { display: flex; align-items: stretch; height: 100%; gap: 2px; overflow-x: a
 }
 .tab:hover:not(:disabled) { background: transparent; color: var(--text); border-color: transparent; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+/* The page under the bar. The chat, kept while another tab is up, is parked over it unseen in the same box. */
+.stage { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 main { flex: 1; overflow: auto; padding: 18px; min-height: 0; }
+main.parked { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .spacer { flex: 1; }
 
 .chip {
@@ -851,7 +854,6 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-override { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .qa-assignment { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .qa-assignment-live { color: var(--accent); }
-.prose-playtest { gap: 8px; margin: -2px 0 8px; align-items: center; flex-wrap: wrap; }
 .qa-player { flex-shrink: 0; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
 .qa-card.state-draft { border-style: dashed; }
 .qa-script-path { overflow-wrap: anywhere; margin-top: -4px; }
@@ -1113,3 +1115,15 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .pill-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 6px; }
 .pill-suggestion { border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px 10px; background: var(--panel-2); color: var(--text); cursor: pointer; white-space: nowrap; }
 .pill-suggestion:hover { border-color: var(--accent); }
+
+/* /flow: the form above the composer, and the run's card in the transcript. */
+.flow-names { flex-wrap: wrap; gap: 6px; }
+.flow-plan { margin: 4px 0; padding-left: 20px; overflow-wrap: anywhere; }
+.flow-card { border-color: var(--line); background: var(--panel-2); display: flex; flex-direction: column; gap: 6px; }
+.flow-card .row { gap: 10px; }
+.flow-steps { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
+.flow-steps li.done { color: var(--ok); }
+.flow-steps li.failed { color: var(--bad); }
+.flow-steps li.running { font-weight: 600; }
+.flow-steps li.skipped { opacity: 0.55; }
+.flow-summary { max-height: 30vh; margin: 0; white-space: pre-wrap; }
