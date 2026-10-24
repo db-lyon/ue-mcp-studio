@@ -213,7 +213,8 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
     }
     setSending((cur) => ({ ...cur, [step.index]: verdict }));
     setError(null);
-    api.qaVerdict(run.runId, step.index, verdict, note?.trim() || undefined).then((r) => setRun((c) => newerRun(r.run, c)), (e: Error) => {
+    // A verdict on a draft answers with the manual run that took its card.
+    api.qaVerdict(run.runId, step.index, verdict, note?.trim() || undefined).then((r) => setRun((c) => (r.run.runId === c.runId ? newerRun(r.run, c) : r.run)), (e: Error) => {
       setSending((cur) => {
         const { [step.index]: _gone, ...rest } = cur;
         return rest;
@@ -263,6 +264,8 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
 
   const draft = qaIsDraft(run);
   const ended = qaEnded(run.state);
+  /** Run on the card: a draft's, or the manual run a verdict on the draft started, which a full run replaces. */
+  const runnable = (draft || (!!run.manual && !ended)) && !run.deleted && !assigned;
   const sum = run.summary ?? qaSummaryOf(run.steps);
   const settled = sum.total - sum.pending;
   const partial = Object.keys(picked).length > 0;
@@ -278,7 +281,7 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
         <span className={`pill ${draft ? "" : ended ? (sum.failed ? "bad" : "ok") : waiting.length ? "warn" : ""}`} role="status">
           {draft ? (run.deleted ? "Deleted" : "Draft") : ended ? (run.state === "stopped" ? "Stopped" : "Finished") : waiting.length ? "Waiting for you" : run.state === "armed" ? "Starting" : `Running, ${settled} of ${sum.total}`}
         </span>
-        {draft && !run.deleted && !assigned && (
+        {runnable && (
           <button className="primary small-button" disabled={working} aria-expanded={panel === "run"} onClick={() => setPanel(panel === "run" ? null : "run")}>Run</button>
         )}
         {assigned ? (
@@ -299,7 +302,7 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
         {onDismiss && ended && <button className="ghost small-button" aria-label="Dismiss this run" onClick={onDismiss}>Dismiss</button>}
       </div>
       {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
-      {panel === "run" && draft && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
+      {panel === "run" && runnable && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
       {panel === "delete" && <div className="small dim">Deleting removes the script asset. <button className="ghost small-button" onClick={() => setPanel(null)}>Keep it</button></div>}
       {assignment && (
         <div className="qa-assignment small" role="status">
@@ -315,7 +318,9 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
       <ol className="qa-steps">
         {run.steps.map((s) => {
           const evidence = s.judge === "auto" ? evidenceText(s) : "";
-          const verdictable = s.judge === "manual" && s.status === "awaiting_verdict";
+          // A draft's manual steps take a verdict before Run: the first one starts the manual run.
+          const verdictable = s.judge === "manual" && (s.status === "awaiting_verdict" || (draft && !run.deleted && !assigned));
+          const unchecked = s.judge === "auto" && (draft || (!!run.manual && s.status === "pending"));
           const failBox = failing?.index === s.index ? failing : null;
           const busy = sending[s.index];
           const byAgent = qaAgentVerdict(s);
@@ -329,7 +334,8 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
                 <span className={`qa-judge mono small ${s.judge}`}>{s.judge}</span>
                 {s.judge === "manual" && !qaAgentMayJudge(s) && <span className="qa-judge mono small" title="Only a person gives this step's verdict">yours</span>}
                 {byAgent && <span className="qa-badge agent small" title={why} tabIndex={0} aria-label={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</span>}
-                {!draft && <span className={`qa-status small ${tone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
+                {unchecked ? <span className="qa-status small dim">Not checked: click Run</span>
+                  : !draft && <span className={`qa-status small ${tone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
                   {statusLabel(s)}
                 </span>}
               </div>

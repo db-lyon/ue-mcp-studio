@@ -95,6 +95,12 @@ export interface QaRun {
   assignment?: QaAssignment;
   /** A draft whose script was deleted. */
   deleted?: boolean;
+  /**
+   * A manual run: pie(script_run) with mode manual, started by a verdict on a
+   * draft's card. No PIE, every manual step awaiting in any order, and the
+   * auto steps not checked until Run starts a full run.
+   */
+  manual?: boolean;
 }
 
 /** A playtest handed to a subagent: its agent call, which is its thread, and how it is going. */
@@ -254,6 +260,7 @@ export function qaRunFromAnswer(answer: unknown, where: { sessionId?: string | n
     ...(where.subagent ? { subagent: where.subagent } : {}),
     seenAt: where.seenAt ?? new Date().toISOString(),
     ...(recordingId ? { recordingId } : {}),
+    ...(a.mode === "manual" ? { manual: true } : {}),
   };
   return settle(run);
 }

@@ -296,13 +296,42 @@ export class QaBroker {
     return { answer: body, run };
   }
 
+  /**
+   * A draft's manual run: pie(script_run) with mode manual, no PIE, every
+   * manual step awaiting in any order. The user started it by clicking a
+   * verdict, so the Playtest runs setting does not apply. It takes the draft's card.
+   */
+  private async startManual(draft: QaRun): Promise<{ run: QaRun } | { error: string; status: number }> {
+    const sessionId = draft.sessionId;
+    if (!sessionId || draft.deleted || draft.script === "inline") return { error: "only a saved script's draft can take a verdict", status: 409 };
+    const r = await this.o.host.callAction("pie", "script_run", { script: draft.script, mode: "manual", start_pie: false, record: false }, this.callOptions(sessionId));
+    const answer = json(r);
+    const error = failure(r, answer);
+    if (error || !answer) return { error: error ?? "ue-mcp's answer was not JSON", status: 409 };
+    if (typeof answer.run_id !== "string") return { error: "ue-mcp started no manual run", status: 409 };
+    this.started(sessionId, "script_run", { ...answer, mode: "manual" });
+    const run = this.runs.get(answer.run_id);
+    if (!run) return { error: "the manual run's card could not be made", status: 409 };
+    const manual = { ...run, manual: true };
+    this.save(manual);
+    return { run: manual };
+  }
+
   /** The user's verdict on a manual step, through pie(verdict). Returns an error to show, or the run. */
   async verdict(runId: string, body: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
     const b = (body ?? {}) as { step?: unknown; verdict?: unknown; note?: unknown };
     if (!Number.isInteger(b.step) || !QA_VERDICTS.includes(b.verdict as QaVerdict)) return { error: "body must be { step, verdict: pass | fail | skip, note? }", status: 400 };
     const note = typeof b.note === "string" ? b.note.trim() : "";
     if (b.verdict === "fail" && !note) return { error: "a fail needs a note: what went wrong", status: 400 };
-    const had = this.runs.get(runId);
+    let had = this.runs.get(runId);
+    // A verdict on a draft's manual step starts its manual run first, which takes the card.
+    if (had && qaIsDraft(had)) {
+      if (had.steps.find((s) => s.index === b.step)?.judge !== "manual") return { error: "only a manual step takes a verdict before Run", status: 409 };
+      const started = await this.startManual(had);
+      if ("error" in started) return started;
+      had = started.run;
+      runId = had.runId;
+    }
     const r = await this.o.host.callAction("pie", "verdict", { run_id: runId, step: b.step, verdict: b.verdict, ...(note ? { note } : {}) });
     const answer = json(r);
     const error = failure(r, answer);
@@ -399,9 +428,15 @@ export class QaBroker {
   async runScript(runId: string, body: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     if (!run || run.script === "inline" || run.deleted) return { error: "only a saved script can be run from its card", status: 409 };
-    if (!qaIsDraft(run) && !qaEnded(run.state)) return { error: "the playtest is running", status: 409 };
+    if (!qaIsDraft(run) && !qaEnded(run.state) && !run.manual) return { error: "the playtest is running", status: 409 };
     const sessionId = run.sessionId;
     if (!sessionId) return { error: "the playtest has no session", status: 409 };
+    // Run on a manual run's card: that run ends, with the verdicts it has, and a full run with PIE takes the card.
+    if (run.manual && !qaEnded(run.state)) {
+      const stop = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Run started a full run" });
+      const error = failure(stop, json(stop));
+      if (error) return { error: `the manual run could not be ended: ${error}`, status: 409 };
+    }
     const o = (body ?? {}) as QaRunOptions;
     const players = Number.isInteger(o.players) && (o.players as number) > 0 ? (o.players as number) : 1;
     if (players > 1 || o.listen) {
@@ -550,9 +585,11 @@ export class QaBroker {
     let replaces: string | undefined;
     if (s) {
       const entry = s.transcript.find((t) => t.kind === "qa" && t.run.runId === run.runId);
-      // A run of a script the session has a draft of takes the draft's card, which goes live.
+      // A run of a script the session has a draft of takes the draft's card, which goes live; a full run
+      // takes the card of the manual run a verdict on that draft started.
       const draft = entry || qaIsDraft(run) || run.script === "inline" ? undefined
-        : s.transcript.find((t) => t.kind === "qa" && t.run.runId === qaDraftId(run.script) && qaIsDraft(t.run) && !t.run.deleted);
+        : s.transcript.find((t) => t.kind === "qa" && t.run.runId !== run.runId && qaScriptKey(t.run.script) === qaScriptKey(run.script) && !t.run.deleted
+          && ((t.run.runId === qaDraftId(run.script) && qaIsDraft(t.run)) || (t.run.manual && !run.manual)));
       if (draft?.kind === "qa") {
         replaces = draft.run.runId;
         if (!run.assignment && draft.run.assignment?.state === "running") run = { ...run, assignment: draft.run.assignment };
