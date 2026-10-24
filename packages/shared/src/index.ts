@@ -7,6 +7,7 @@
 export const EXTENSION_NAME = "studio";
 
 import type { QaRun } from "./qa.js";
+import type { PlaytestRequest } from "./commands.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -201,13 +202,16 @@ export interface AttachmentUpload {
 }
 
 export type TranscriptEntry = (
-  | { kind: "user"; text: string; at: string; attachments?: Attachment[] }
+  /** source: a /playtest made from an agent message, by that message's transcript index. */
+  | { kind: "user"; text: string; at: string; attachments?: Attachment[]; source?: number }
   | { kind: "assistant"; text: string; at: string }
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }
   | { kind: "dialog"; dialog: EditorDialog }
   /** A PIE test script run, drawn as its checklist. Always on the main thread, whoever started it. */
   | { kind: "qa"; run: QaRun }
+  /** A /playtest turn that ended without saving a script: why, and the request Retry sends again. */
+  | { kind: "playtest-failed"; reason: string; request: PlaytestRequest; at: string }
 ) & { parent?: string };
 
 export interface SessionSummary {
@@ -692,3 +696,4 @@ export interface StudioPluginUpdate {
   fabUrl?: string;
 }
 export * from "./qa.js";
+export * from "./commands.js";
