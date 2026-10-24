@@ -37,6 +37,11 @@ let listeners: Array<(e: { type: string; data: Record<string, unknown> }) => voi
 let runs: Map<string, Record<string, unknown>>;
 let steps: Array<Record<string, unknown>>;
 let runCount: number;
+/** Every editor(show_notification) the broker sent, and how the fake bridge answers it. */
+/** Bumped per test, so a fake attempt left running by an ended test does nothing. */
+let generation = 0;
+let toasts: Array<Record<string, unknown>>;
+let toastAnswer: "ok" | "unknown" | "throw";
 
 const ok = (body: Record<string, unknown>): ActionResult => ({ isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, ...body }) }] });
 
@@ -48,7 +53,13 @@ function answerOf(runId: string, states: StepState[], state = "finished"): Recor
 const host = (): QaHost & AgentHost => ({
   projectDir: path.join(root, "project"),
   dataDir: path.join(root, "data"),
-  callAction: async (_category: string, action: string, args: Record<string, unknown> = {}) => {
+  callAction: async (category: string, action: string, args: Record<string, unknown> = {}) => {
+    if (category === "editor" && action === "show_notification") {
+      toasts.push(args);
+      if (toastAnswer === "throw") throw new Error("the editor went away");
+      if (toastAnswer === "unknown") return { isError: true, content: [{ type: "text", text: "Unknown method: show_notification" }] };
+      return ok({ onScreen: true });
+    }
     if (action === "script_run") throw new Error("runs come from the fake subagent");
     if (action === "script_status" || action === "script_results") return ok(runs.get(String(args.run_id)) ?? {});
     if (action === "verdict") {
@@ -101,7 +112,10 @@ interface Harness {
 function setup(plan: Attempt[], opts: { steps?: Array<Record<string, unknown>>; first?: StepState[] } = {}): Harness {
   steps = opts.steps ?? STEPS;
   const h = host();
-  const s = store.create();
+  // This test's store and generation: an attempt still running when the test ends must not write after it.
+  const st = store;
+  const gen = generation;
+  const s = st.create();
   // The card: an ended run of the script, which the user assigns.
   const first = `${BASE}00`;
   runs.set(first, answerOf(first, opts.first ?? [OPEN_FAIL, PASS]));
@@ -123,12 +137,14 @@ function setup(plan: Attempt[], opts: { steps?: Array<Record<string, unknown>>; 
         stoppers.set(callId, () => resolve({ isError: true, stopped: true, text: "stopped" }));
         void (async () => {
           await new Promise((r) => setTimeout(r, 1));
+          if (gen !== generation) return;
           for (const [p, v] of Object.entries(step.files ?? {})) support.cp.files.set(p, v);
-          const live = store.get(s.id)!;
+          const live = st.get(s.id);
+          if (!live) return;
           for (const [i, c] of (step.calls ?? []).entries()) {
             live.transcript.push({ kind: "tool", call: { id: `${callId}_c${i}`, name: c.name, input: c.input, outcome: c.outcome ?? "done", result: c.result, startedAt: "" }, parent: callId } as TranscriptEntry);
           }
-          store.save(live);
+          st.save(live);
           for (const e of step.events ?? []) emit(e.type, e.data);
           if (step.run) {
             runCount++;
@@ -167,6 +183,9 @@ beforeEach(() => {
   listeners = [];
   runs = new Map();
   runCount = 0;
+  toasts = [];
+  toastAnswer = "ok";
+  generation++;
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -222,6 +241,32 @@ describe("the hard blockers", () => {
     await h.broker.verdict(`${BASE}01`, { step: 2, verdict: "pass" });
     expect(h.loop().state).toBe("passed");
     expect(h.loop().blocker).toBeUndefined();
+  });
+
+  it("shows the blocker as a warning toast in the editor, and carries on when the bridge cannot", async () => {
+    for (const answer of ["ok", "unknown", "throw"] as const) {
+      toasts = [];
+      toastAnswer = answer;
+      support.notified.length = 0;
+      published = [];
+      const h = setup([{ run: [PASS, PASS, { status: "awaiting_verdict" }], runState: "awaiting_verdict" }], { steps: [...STEPS, PERSON], first: [OPEN_FAIL, PASS, { status: "awaiting_verdict" }] });
+      await assign(h);
+      await ended(h);
+      await until(() => toasts.length > 0);
+      expect(h.loop().state).toBe("needs_you");
+      expect(toasts).toEqual([{ text: h.loop().blocker!.reason, subText: "DoorOpens", severity: "warning" }]);
+      // The primary signals are unaffected by how the toast went.
+      expect(support.notified).toHaveLength(1);
+      expect(published.filter((p) => p.type === "qa.attention")).toHaveLength(1);
+    }
+  });
+
+  it("shows no toast for a loop that passes", async () => {
+    const h = setup([{ run: [PASS, PASS] }]);
+    await assign(h);
+    await ended(h);
+    expect(h.loop().state).toBe("passed");
+    expect(toasts).toEqual([]);
   });
 
   it("no progress: the same step fails the same way on two attempts in a row after a change", async () => {
