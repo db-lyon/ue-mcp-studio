@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { PlaytestRequest, QaScriptStep, SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
+import type { PlaytestRequest, SessionDetail, SessionSummary, StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
 import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
-import { EditMessageContext, MainTranscript, PlaytestCommandContext, PlaytestConvertContext, SubagentThread, type EditMode } from "../chat/Transcript";
+import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { pillsFor } from "../chat/pill-providers";
 import { PillRow } from "../chat/Pills";
@@ -255,17 +255,6 @@ export function ChatView({ daemon, nav, active = true }: {
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
-  // A prose playtest's "Turn into Playtest": sent now, or queued behind a running turn.
-  const convert = useMemo(() => (detail && !disconnected
-    ? {
-        status: detail.status,
-        send: (text: string) => {
-          setSent((n) => n + 1);
-          (busy ? api.queue(detail.id, text) : api.send(detail.id, text)).then(() => loadDetail(detail.id), (e: Error) => setError(e.message));
-        },
-        create: (name: string, steps: QaScriptStep[]) => api.qaCreateScript(detail.id, name, steps).then(() => loadDetail(detail.id)),
-      }
-    : null), [detail?.id, detail?.status, disconnected, busy]);
   // The Make playtest pill and Retry: the playtest flow, started when no turn runs.
   const playtest = useMemo(() => (detail && !disconnected
     ? {
@@ -392,7 +381,6 @@ export function ChatView({ daemon, nav, active = true }: {
           <AssetLinksContext.Provider value={assetLinks}>
           <AssetTranscriptContext.Provider value={detail.transcript}>
           <EditMessageContext.Provider value={disconnected ? null : editMessage}>
-          <PlaytestConvertContext.Provider value={convert}>
           <PlaytestCommandContext.Provider value={playtest}>
             <div className="thread-stage" ref={stage}>
               <MainTranscript
@@ -453,7 +441,6 @@ export function ChatView({ daemon, nav, active = true }: {
             </Composer>
             {narrow && <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{threads}</Sheet>}
           </PlaytestCommandContext.Provider>
-          </PlaytestConvertContext.Provider>
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>
           </AssetLinksContext.Provider>

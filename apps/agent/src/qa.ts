@@ -10,7 +10,6 @@
  *   POST   /qa/runs/:id/run             Run on a draft's card: { startPie?, players?, listen?, record? }
  *   PUT    /qa/runs/:id/script          Edit on a draft's card: { steps }, saved with pie(script_update)
  *   DELETE /qa/runs/:id/script          Delete on a draft's card: pie(script_delete)
- *   POST   /qa/scripts                  Turn into Playtest: { sessionId, name, steps }, saved with pie(script_create)
  *   DELETE /qa/runs/:id                 take a finished run started elsewhere off the chat
  *
  * A script a session's pie(script_create) or pie(script_update) saves is a
@@ -407,19 +406,6 @@ export class QaBroker {
     return { run: this.runs.get(runId)! };
   }
 
-  /** Turn into Playtest with steps Studio read from a reply: the script, saved with pie(script_create), and its draft card. */
-  async createScript(body: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
-    const b = (body ?? {}) as { sessionId?: unknown; name?: unknown; steps?: unknown };
-    if (typeof b.sessionId !== "string" || !this.o.store.get(b.sessionId)) return { error: "open a session for the playtest", status: 400 };
-    if (typeof b.name !== "string" || !b.name.trim() || !Array.isArray(b.steps) || b.steps.length === 0) return { error: "body must be { sessionId, name, steps }", status: 400 };
-    const r = await this.drafting(this.o.host, b.sessionId, "script_create", { name: b.name.trim(), steps: b.steps, onConflict: "error" });
-    const answer = json(r);
-    const error = failure(r, answer);
-    if (error || !answer) return { error: error ?? "ue-mcp's answer was not JSON", status: 409 };
-    const run = typeof answer.path === "string" ? this.runs.get(qaDraftId(answer.path)) : undefined;
-    return run ? { run } : { error: "the script was saved but its steps could not be read", status: 409 };
-  }
-
   /**
    * Run on a draft's card: PIE set to the players asked for, then
    * pie(script_run) of its script. The run takes the draft's card, so the same
@@ -656,10 +642,6 @@ export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?:
   api.route("DELETE", "/qa/runs/:id/script", async (req) => {
     const r = await broker.deleteScript(id(req));
     return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
-  });
-  api.route("POST", "/qa/scripts", async (req) => {
-    const r = await broker.createScript(req.body);
-    return "error" in r ? { status: r.status, body: { error: r.error } } : { status: 201, body: r };
   });
   api.route("DELETE", "/qa/runs/:id", (req) => {
     const error = broker.dismiss(id(req));

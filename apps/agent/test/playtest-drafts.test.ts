@@ -156,14 +156,6 @@ describe("the draft card's buttons", () => {
     expect(await broker.runScript(qaDraftId(PATH), {})).toMatchObject({ status: 409 });
   });
 
-  it("Turn into Playtest saves the steps Studio read as a new script, with its draft card", async () => {
-    const { broker, s } = setup();
-    const r = await broker.createScript({ sessionId: s.id, name: "SigilPickup", steps: STEPS });
-    expect(calls[0]).toMatchObject({ action: "script_create", args: { name: "SigilPickup", onConflict: "error", steps: strip(STEPS) } });
-    expect("run" in r && r.run.state).toBe("draft");
-    expect(cards(s.id)).toHaveLength(1);
-  });
-
   it("Assign to subagent works on a draft: the subagent's run takes the draft's card", async () => {
     const { agent, broker, assigned, s } = setup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
@@ -192,8 +184,9 @@ describe("an assignment on a draft that went live", () => {
 
 describe("a subagent's new run", () => {
   it("carries the assignment, so its card offers Cancel and the thread", async () => {
-    const { broker, assigned, s } = setup();
-    const ended = { ...(await broker.createScript({ sessionId: s.id, name: "SigilPickup", steps: STEPS }) as { run: QaRun }).run };
+    const { agent, broker, assigned, s } = setup();
+    await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
+    const ended = { ...cards(s.id)[0] };
     broker.setAssigner({ assign: () => ({ callId: "studio_11", done: new Promise(() => {}) }), stop: () => true });
     broker.assign(ended.runId, {});
     // No draft left to take: the run gets a card of its own.
