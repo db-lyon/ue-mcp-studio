@@ -7,7 +7,8 @@
  */
 
 export type QaStepStatus = "pending" | "running" | "passed" | "failed" | "awaiting_verdict" | "skipped";
-export type QaRunState = "armed" | "running" | "awaiting_verdict" | "finished" | "stopped" | "idle";
+/** draft: a script the agent created that nobody has run yet; Studio's own state, never ue-mcp's. */
+export type QaRunState = "draft" | "armed" | "running" | "awaiting_verdict" | "finished" | "stopped" | "idle";
 export type QaVerdict = "pass" | "fail" | "skip";
 /** Who decided a step: the observer, a person (action, elicitation), an agent, or the source run of a replay. */
 export type QaVerdictSource = "auto" | "action" | "elicitation" | "agent" | "source_run";
@@ -48,6 +49,8 @@ export interface QaStep {
   verdictSource?: QaVerdictSource;
   /** Manual steps: false keeps the verdict with a person; an agent never gives it. */
   agentJudgeable?: boolean;
+  /** Which player the step is for in a multiplayer playtest: "host" or "client <n>". Studio keeps it; ue-mcp's steps have no player. */
+  player?: string;
   /** Replay runs: the step's status in the source run, and whether it passed there and failed here. */
   sourceStatus?: QaStepStatus;
   regression?: boolean;
@@ -90,6 +93,8 @@ export interface QaRun {
   recordingId?: string;
   /** The subagent the user assigned the playtest to from its card. */
   assignment?: QaAssignment;
+  /** A draft whose script was deleted. */
+  deleted?: boolean;
 }
 
 /** A playtest handed to a subagent: its agent call, which is its thread, and how it is going. */
@@ -113,7 +118,7 @@ const num = (v: unknown): number | undefined => (typeof v === "number" && Number
 const int = (v: unknown): number | undefined => (Number.isInteger(v) ? (v as number) : undefined);
 
 const STEP_STATUSES: readonly QaStepStatus[] = ["pending", "running", "passed", "failed", "awaiting_verdict", "skipped"];
-const RUN_STATES: readonly QaRunState[] = ["armed", "running", "awaiting_verdict", "finished", "stopped", "idle"];
+const RUN_STATES: readonly QaRunState[] = ["draft", "armed", "running", "awaiting_verdict", "finished", "stopped", "idle"];
 const SOURCES: readonly QaVerdictSource[] = ["auto", "action", "elicitation", "agent", "source_run"];
 const stepStatus = (v: unknown): QaStepStatus | undefined => (STEP_STATUSES.includes(v as QaStepStatus) ? (v as QaStepStatus) : undefined);
 const runState = (v: unknown): QaRunState | undefined => (RUN_STATES.includes(v as QaRunState) ? (v as QaRunState) : undefined);
@@ -413,4 +418,80 @@ export const qaAgentMayJudge = (s: QaStep): boolean => s.judge === "manual" && s
  */
 export function qaAssignable(run: QaRun): boolean {
   return run.steps.some((s) => (!qaSettled(s.status) && (s.judge === "auto" || qaAgentMayJudge(s))) || (s.judge === "auto" && s.status === "failed"));
+}
+
+/** A draft's run id: the script it is a draft of. */
+export const qaDraftId = (scriptPath: string): string => `draft:${qaScriptKey(scriptPath)}`;
+export const qaIsDraft = (run: QaRun): boolean => run.state === "draft";
+
+/** A script path without its object name, the same however it was written: /Game/S/Door.Door is /Game/S/Door. */
+export function qaScriptKey(path: string): string {
+  const dot = path.lastIndexOf(".");
+  return dot > path.lastIndexOf("/") ? path.slice(0, dot) : path;
+}
+
+/** The step fields a script holds, as pie(script_create) and script_update take them, with Studio's player. */
+export interface QaScriptStep {
+  instruction: string;
+  judge: "auto" | "manual";
+  expect?: QaExpect;
+  agent_judgeable?: boolean;
+  player?: string;
+}
+
+/** A draft card from a pie(script_create), script_update or script_read answer: { path, name, steps, default_within_ms }. Null when it names no script. */
+export function qaDraftFromScript(answer: unknown, where: { sessionId?: string | null; players?: Record<number, string>; seenAt?: string } = {}): QaRun | null {
+  const a = obj(answer);
+  const path = str(a?.path);
+  if (!a || !path || !Array.isArray(a.steps)) return null;
+  const within = int(a.default_within_ms) ?? 5000;
+  const steps: QaStep[] = (a.steps as unknown[]).map((x, index) => {
+    const s = obj(x) ?? {};
+    const expect = (obj(s.expect) ?? undefined) as QaExpect | undefined;
+    const judge = s.judge === "manual" ? "manual" as const : "auto" as const;
+    const player = where.players?.[index];
+    return {
+      index,
+      instruction: str(s.instruction) ?? "",
+      judge,
+      ...(expect ? { expect } : {}),
+      status: "pending" as const,
+      withinMs: (expect?.within_ms ?? 0) > 0 ? expect!.within_ms : within,
+      ...(judge === "manual" && typeof s.agent_judgeable === "boolean" ? { agentJudgeable: s.agent_judgeable } : {}),
+      ...(player ? { player } : {}),
+    };
+  });
+  return {
+    runId: qaDraftId(path),
+    script: qaScriptKey(path),
+    scriptName: str(a.name) ?? qaScriptKey(path).split("/").pop() ?? path,
+    state: "draft",
+    steps,
+    awaiting: [],
+    lastSeq: 0,
+    summary: qaSummaryOf(steps),
+    resultsPath: null,
+    sessionId: where.sessionId ?? null,
+    toolUseId: null,
+    seenAt: where.seenAt ?? new Date().toISOString(),
+  };
+}
+
+/** A card's steps as a script's, for pie(script_update): what the user edited, with each step's player kept beside it. */
+export function qaScriptSteps(run: QaRun): QaScriptStep[] {
+  return run.steps.map((s) => ({
+    instruction: s.instruction,
+    judge: s.judge,
+    ...(s.judge === "auto" && s.expect ? { expect: s.expect } : {}),
+    ...(s.judge === "manual" && s.agentJudgeable === false ? { agent_judgeable: false } : {}),
+    ...(s.player ? { player: s.player } : {}),
+  }));
+}
+
+/** The PIE instance a player is: the host is instance 0, client n is instance n. */
+export function qaPieInstance(player: string | undefined): number | undefined {
+  if (!player) return undefined;
+  if (/^host$/i.test(player)) return 0;
+  const m = /^client\s*(\d+)?$/i.exec(player.trim());
+  return m ? Number(m[1] ?? 1) : undefined;
 }

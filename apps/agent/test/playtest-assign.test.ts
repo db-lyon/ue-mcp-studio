@@ -38,7 +38,7 @@ describe("the playtest brief", () => {
 
   it("asks for agent verdicts with frames and a note as evidence", () => {
     const b = playtestBrief(runOf());
-    expect(b).toMatch(/editor\.capture_screenshot \(target "pie"\)/);
+    expect(b).toMatch(/editor\.capture_screenshot \(target "pie", on the step's player\)/);
     expect(b).toMatch(/source: "agent"/);
     expect(b).toMatch(/evidence: \{ note, captures \}/);
     expect(b).toMatch(/note says what you saw in the frames \(it must not be empty\)/);

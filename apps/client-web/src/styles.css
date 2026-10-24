@@ -848,6 +848,17 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-assignment { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .qa-assignment-live { color: var(--accent); }
 .prose-playtest { gap: 8px; margin: -2px 0 8px; align-items: center; flex-wrap: wrap; }
+.qa-player { flex-shrink: 0; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+.qa-card.state-draft { border-style: dashed; }
+.qa-script-path { overflow-wrap: anywhere; margin-top: -4px; }
+.qa-run-options { display: flex; flex-direction: column; gap: 6px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+.qa-run-options input[type="number"] { width: 4.5em; }
+.qa-edit { display: flex; flex-direction: column; gap: 8px; }
+.qa-edit-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.qa-edit-step { display: flex; flex-direction: column; gap: 4px; border-left: 2px solid var(--line-strong); padding-left: 8px; }
+.qa-edit-step .row { gap: 6px; flex-wrap: wrap; align-items: center; }
+.qa-edit-instruction { flex: 1 1 200px; min-width: 0; }
+.qa-edit-short { width: 6.5em; }
 .qa-summary { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; border-top: 1px solid var(--line); padding-top: 8px; }
 
 /* Top bar: its tools in a row when wide. Narrow, a menu button and the current tab's name,

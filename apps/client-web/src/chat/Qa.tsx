@@ -16,6 +16,7 @@ import {
   qaApplyStreamEvent,
   qaAssignable,
   qaEnded,
+  qaIsDraft,
   qaMergeAnswer,
   qaSummaryOf,
   qaVerdictForm,
@@ -25,6 +26,7 @@ import {
   type QaVerdict,
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import { DraftEditor, RunPanel, type RunOptions } from "./PlaytestDraft";
 import { native } from "../native";
 
 /** What a card needs from the page: the daemon's stream, and the session's waiting forms. */
@@ -76,10 +78,12 @@ export function useLiveRun(run: QaRun, live: Pick<QaLive, "events" | "streaming"
       for (const e of fresh) {
         if (e.type.startsWith("script.")) next = qaApplyStreamEvent(next, e.type, e.data);
         else if (e.type === "studio.qa.changed" && (e.data.run as QaRun | undefined)?.runId === c.runId) next = newerRun(e.data.run as QaRun, next);
+        // A draft's run took its card: the card goes live.
+        else if (e.type === "studio.qa.changed" && e.data.replaces === c.runId && e.data.run) next = e.data.run as QaRun;
       }
       return next;
     });
-    if (gap && !qaEnded(latest.current.state)) resync();
+    if (gap && !qaEnded(latest.current.state) && !qaIsDraft(latest.current)) resync();
   }, [events]);
 
   const streaming = live?.streaming;
@@ -87,7 +91,7 @@ export function useLiveRun(run: QaRun, live: Pick<QaLive, "events" | "streaming"
   useEffect(() => {
     const back = was.current === false && streaming === true;
     was.current = streaming;
-    if (back && !qaEnded(latest.current.state)) resync(latest.current.lastSeq);
+    if (back && !qaEnded(latest.current.state) && !qaIsDraft(latest.current)) resync(latest.current.lastSeq);
   }, [streaming]);
 
   return [cur, setCur];
@@ -157,6 +161,9 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
   /** Overrides of the agent's verdicts on their way. */
   const [overriding, setOverriding] = useState<Record<number, QaVerdict>>({});
   const [assigning, setAssigning] = useState(false);
+  /** A draft's open panel: Run's options, Edit, or Delete waiting for its second click. */
+  const [panel, setPanel] = useState<"run" | "edit" | "delete" | null>(null);
+  const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const pool = own ? [own, ...(live?.forms ?? [])] : live?.forms ?? [];
@@ -238,6 +245,18 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
       .finally(() => setAssigning(false));
   };
 
+  /** A draft's Run, Edit and Delete: each answers with the card's next state. */
+  const act = (call: () => Promise<{ run: QaRun }>) => {
+    setWorking(true);
+    setError(null);
+    call().then((r) => {
+      setPanel(null);
+      setRun((c) => (r.run.runId === c.runId ? newerRun(r.run, c) : r.run));
+    }, (e: Error) => setError(e.message)).finally(() => setWorking(false));
+  };
+  const start = (o: RunOptions) => act(() => api.qaRun(run.runId, o));
+
+  const draft = qaIsDraft(run);
   const ended = qaEnded(run.state);
   const sum = run.summary ?? qaSummaryOf(run.steps);
   const settled = sum.total - sum.pending;
@@ -247,20 +266,36 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
   return (
     <div className={`qa-card card state-${run.state}`} role="group" aria-label={`Playtest ${run.scriptName}`}>
       <div className="qa-head">
-        <span className="eyebrow">{run.replayOf ? "Playtest replay" : "Playtest"}</span>
+        <span className="eyebrow">{draft ? "Playtest draft" : run.replayOf ? "Playtest replay" : "Playtest"}</span>
         <strong className="qa-title">{run.scriptName}</strong>
         {run.subagent && <span className="dim small">run by {run.subagent}</span>}
         <span className="spacer" />
-        <span className={`pill ${ended ? (sum.failed ? "bad" : "ok") : waiting.length ? "warn" : ""}`} role="status">
-          {ended ? (run.state === "stopped" ? "Stopped" : "Finished") : waiting.length ? "Waiting for you" : run.state === "armed" ? "Starting" : `Running, ${settled} of ${sum.total}`}
+        <span className={`pill ${draft ? "" : ended ? (sum.failed ? "bad" : "ok") : waiting.length ? "warn" : ""}`} role="status">
+          {draft ? (run.deleted ? "Deleted" : "Draft") : ended ? (run.state === "stopped" ? "Stopped" : "Finished") : waiting.length ? "Waiting for you" : run.state === "armed" ? "Starting" : `Running, ${settled} of ${sum.total}`}
         </span>
+        {draft && !run.deleted && !assigned && (
+          <button className="primary small-button" disabled={working} aria-expanded={panel === "run"} onClick={() => setPanel(panel === "run" ? null : "run")}>Run</button>
+        )}
         {assigned ? (
           <button className="small-button" disabled={assigning} onClick={toggleAssign} aria-label="Cancel the subagent">Cancel</button>
-        ) : assignSession && qaAssignable(run) && (
+        ) : assignSession && qaAssignable(run) && !run.deleted && (
           <button className="small-button" disabled={assigning} onClick={toggleAssign} title="A subagent drives PIE, runs the auto steps and judges the manual steps it may judge">Assign to subagent</button>
+        )}
+        {draft && !run.deleted && !assigned && (
+          <>
+            <button className="small-button" disabled={working} aria-expanded={panel === "edit"} onClick={() => setPanel(panel === "edit" ? null : "edit")}>Edit</button>
+            {panel === "delete" ? (
+              <button className="danger-button small-button" disabled={working} onClick={() => act(() => api.qaDeleteScript(run.runId))}>Delete the script</button>
+            ) : (
+              <button className="ghost small-button" disabled={working} onClick={() => setPanel("delete")}>Delete</button>
+            )}
+          </>
         )}
         {onDismiss && ended && <button className="ghost small-button" aria-label="Dismiss this run" onClick={onDismiss}>Dismiss</button>}
       </div>
+      {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
+      {panel === "run" && draft && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
+      {panel === "delete" && <div className="small dim">Deleting removes the script asset. <button className="ghost small-button" onClick={() => setPanel(null)}>Keep it</button></div>}
       {assignment && (
         <div className="qa-assignment small" role="status">
           <span className={assigned ? "qa-assignment-live" : "dim"}>
@@ -269,6 +304,9 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
           {live?.onThread && <button className="ghost small-button" onClick={() => live.onThread!(assignment.callId)}>Open its thread</button>}
         </div>
       )}
+      {panel === "edit" && draft ? (
+        <DraftEditor run={run} busy={working} onSave={(steps) => act(() => api.qaSaveScript(run.runId, steps))} onCancel={() => setPanel(null)} />
+      ) : (
       <ol className="qa-steps">
         {run.steps.map((s) => {
           const evidence = s.judge === "auto" ? evidenceText(s) : "";
@@ -281,12 +319,13 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
               <div className="qa-step-row">
                 <span className="qa-num mono dim">{s.index + 1}</span>
                 <span className="qa-instruction">{s.instruction}</span>
+                {s.player && <span className="qa-player mono small" title="The player this step is for">{s.player}</span>}
                 <span className={`qa-judge mono small ${s.judge}`}>{s.judge}</span>
                 {s.judge === "manual" && !qaAgentMayJudge(s) && <span className="qa-judge mono small" title="Only a person gives this step's verdict">yours</span>}
                 {byAgent && <span className="qa-badge agent small" title={why} tabIndex={0} aria-label={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</span>}
-                <span className={`qa-status small ${tone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
+                {!draft && <span className={`qa-status small ${tone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
                   {statusLabel(s)}
-                </span>
+                </span>}
               </div>
               {s.expect && <div className="qa-expect mono dim small">{s.expect.value} {s.expect.op}{s.expect.target !== undefined ? ` ${s.expect.target}` : ""}{s.withinMs ? `, within ${s.withinMs} ms` : ""}</div>}
               {s.status === "failed" && s.judge === "auto" && evidence && <div className="qa-evidence small" role="note">{evidence.split("\n").slice(1).join(" ") || evidence}</div>}
@@ -344,6 +383,7 @@ export function QaCard({ run: saved, form: own, onDismiss }: { run: QaRun; form?
           );
         })}
       </ol>
+      )}
       {partial && form && (
         <div className="row">
           <span className="dim small">Pick the rest, or send these now; the others then wait on this card.</span>

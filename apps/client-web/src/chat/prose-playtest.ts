@@ -1,9 +1,12 @@
 /**
- * A playtest the agent wrote out as prose instead of running: a numbered list
- * of steps marked PASS or FAIL, in a turn that ran no test script. Studio
- * offers to turn it into a Playtest, which the agent then builds and runs.
+ * A playtest the agent wrote out instead of creating its script: a numbered
+ * list of steps marked PASS or FAIL, or a table of steps with their checks, in
+ * a turn that saved and ran no test script. Studio offers to turn it into a
+ * Playtest: a table it reads whole becomes the script at once, anything else
+ * goes to the agent to build. Either way the result is a draft card.
  */
-import type { TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import type { QaExpect, QaScriptStep, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import { scriptName, tablePlaytest, tableScriptSteps } from "./table-playtest";
 
 export interface ProseStep {
   /** The step with its markers taken out. */
@@ -101,27 +104,48 @@ function stepsOf(items: string[]): ProseStep[] | null {
   return items.map((t, i) => ({ instruction: clean(t) || t.trim(), mark: marks[i] === "pass" || marks[i] === "fail" ? (marks[i] as "pass" | "fail") : null }));
 }
 
-const STARTS = new Set(["script_run", "script_replay"]);
+/** Calls that delivered a playtest: a script saved or run. */
+const DELIVERED = new Set(["script_create", "script_update", "script_run", "script_replay"]);
 
-/** Whether a call ran a test script. */
-function ranScript(t: TranscriptEntry): boolean {
+/** Whether a call saved or ran a test script, or a Playtest card showed. */
+function delivered(t: TranscriptEntry): boolean {
   if (t.kind === "qa") return true;
   if (t.kind !== "tool" || t.call.name !== "ue_mcp") return false;
   const input = t.call.input as { action?: unknown; category?: unknown; method?: unknown };
-  return input.action === "call" && input.category === "pie" && typeof input.method === "string" && STARTS.has(input.method);
+  return input.action === "call" && input.category === "pie" && typeof input.method === "string" && DELIVERED.has(input.method);
 }
 
 const isTurnStart = (t: TranscriptEntry): boolean => t.kind === "user" && !t.parent;
 
-/** What the user sends to turn a prose playtest into a Playtest. */
+/** What the user sends to have the agent turn a written playtest into a Playtest. */
 export const CONVERT_PREFIX = "Turn the steps in your last reply into a Playtest";
 
+/** A written playtest Studio can turn into a Playtest. */
+export interface Conversion {
+  count: number;
+  /** Steps Studio read whole (a table that says how each row is judged): saved as the script directly. */
+  script: { name: string; steps: QaScriptStep[] } | null;
+  /** Otherwise the message that has the agent build the script. */
+  message: string;
+}
+
+/** The written playtest in a reply: a table of steps, or a numbered list marked PASS or FAIL. */
+export function writtenPlaytest(text: string): Conversion | null {
+  const table = tablePlaytest(text);
+  if (table) {
+    const steps = tableScriptSteps(table);
+    return { count: table.steps.length, script: steps ? { name: scriptName(table.name), steps } : null, message: conversionMessage(table.steps) };
+  }
+  const list = proseSteps(text);
+  return list ? { count: list.length, script: null, message: conversionMessage(list) } : null;
+}
+
 /**
- * Whether the reply at `at` is a finished prose playtest worth converting: its
- * turn has ended, ran no test script anywhere (the main agent or a subagent),
- * and the user has not asked to convert it since.
+ * Whether the reply at `at` is a finished written playtest worth converting:
+ * its turn has ended without saving or running a test script anywhere (the
+ * main agent or a subagent), and the user has not asked to convert it since.
  */
-export function offerConversion(transcript: readonly TranscriptEntry[], at: number, status: TurnStatus): ProseStep[] | null {
+export function offerConversion(transcript: readonly TranscriptEntry[], at: number, status: TurnStatus): Conversion | null {
   const entry = transcript[at];
   if (!entry || entry.kind !== "assistant" || entry.parent) return null;
   let start = at;
@@ -130,22 +154,22 @@ export function offerConversion(transcript: readonly TranscriptEntry[], at: numb
   while (end < transcript.length && !isTurnStart(transcript[end])) end++;
   const ended = end < transcript.length || (status !== "running" && status !== "waiting");
   if (!ended) return null;
-  for (let i = start; i < end; i++) if (ranScript(transcript[i])) return null;
+  for (let i = start; i < end; i++) if (delivered(transcript[i])) return null;
   for (let i = end; i < transcript.length; i++) {
     const t = transcript[i];
     if (t.kind === "user" && t.text.startsWith(CONVERT_PREFIX)) return null;
   }
-  return proseSteps(entry.text);
+  return writtenPlaytest(entry.text);
 }
 
-/** The message that has the agent build and run the steps as a Playtest. */
-export function conversionMessage(steps: ProseStep[]): string {
+/** The message that has the agent save the steps as a script: a draft, which its card shows. */
+export function conversionMessage(steps: Array<{ instruction: string; player?: string; judge?: string; expect?: QaExpect }>): string {
   return [
-    `${CONVERT_PREFIX} and run it. Do not answer with a list.`,
+    `${CONVERT_PREFIX}. Do not answer with a list or a table.`,
     "Create it with pie.script_create (a short name for the script), one step per item below, in this order:",
-    ...steps.map((s, i) => `${i + 1}. ${s.instruction}`),
-    "For each step, find a value an observation profile in the project tracks that decides it (look the profiles up with ue_mcp search, read the one that fits and name it as the script's profile). "
+    ...steps.map((s, i) => `${i + 1}. ${s.instruction}${s.player ? ` (player: ${s.player})` : ""}${s.judge === "manual" ? " (manual)" : s.expect ? ` (auto: ${s.expect.value} ${s.expect.op}${s.expect.target !== undefined ? ` ${s.expect.target}` : ""})` : ""}`),
+    "For each step without its check, find a value an observation profile in the project tracks that decides it (look the profiles up with ue_mcp search, read the one that fits and name it as the script's profile). "
       + "When you can name one, make the step auto with an expect on that value. When you cannot, make it manual: the user judges it on the card.",
-    "Then run it with pie.script_run, start_pie: true and wait: true, and report the summary and results_path.",
+    "Keep each step's player. Save the script and stop there: the card shows it as a draft, and the user starts it.",
   ].join("\n");
 }

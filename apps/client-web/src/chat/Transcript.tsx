@@ -2,11 +2,11 @@ import { createContext, memo, useContext, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { lineDiff, type Attachment, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
+import { lineDiff, type Attachment, type QaScriptStep, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
 import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
-import { conversionMessage, offerConversion } from "./prose-playtest";
+import { offerConversion } from "./prose-playtest";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import {
   OUTCOME_LABEL,
@@ -53,7 +53,7 @@ export const EditMessageContext = createContext<((index: number, text: string, m
  * agent the message that has it build and run the steps as a test script.
  * Null where nothing can be sent.
  */
-export const PlaytestConvertContext = createContext<{ status: TurnStatus; send: (text: string) => void } | null>(null);
+export const PlaytestConvertContext = createContext<{ status: TurnStatus; send: (text: string) => void; create: (name: string, steps: QaScriptStep[]) => Promise<unknown> } | null>(null);
 
 /** One line of a conversation that is not a subagent: a message, a note or a tool call. Renders again only when the entry changes. */
 export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) {
@@ -77,26 +77,43 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   return <ToolCall call={entry.call} />;
 });
 
-/** "Turn into Playtest" under a finished reply that lists PASS and FAIL steps from a turn that ran no test script. */
+/**
+ * "Turn into Playtest" under a finished reply that wrote a playtest out (a
+ * PASS and FAIL list, or a table of steps) in a turn that saved no script. A
+ * table read whole becomes the script at once; anything else goes to the agent.
+ */
 function ConvertToPlaytest({ at }: { at: number }) {
   const convert = useContext(PlaytestConvertContext);
   const transcript = useContext(AssetTranscriptContext);
-  const [sent, setSent] = useState(false);
-  const steps = convert && transcript ? offerConversion(transcript as readonly TranscriptEntry[], at, convert.status) : null;
-  if (!convert || !steps || sent) return null;
+  const [state, setState] = useState<"offer" | "working" | "done">("offer");
+  const [error, setError] = useState<string | null>(null);
+  const found = convert && transcript ? offerConversion(transcript as readonly TranscriptEntry[], at, convert.status) : null;
+  if (!convert || !found || state === "done") return null;
+  const go = () => {
+    setError(null);
+    if (!found.script) {
+      setState("done");
+      convert.send(found.message);
+      return;
+    }
+    setState("working");
+    convert.create(found.script.name, found.script.steps).then(() => setState("done"), (e: Error) => {
+      setState("offer");
+      setError(e.message);
+    });
+  };
   return (
     <div className="prose-playtest row small">
-      <span className="dim">These {steps.length} steps were written out, not run.</span>
+      <span className="dim">These {found.count} steps were written out, not saved as a playtest.</span>
       <button
         className="small-button"
-        title="The agent builds these steps as a test script and runs it, so you get a Playtest card"
-        onClick={() => {
-          setSent(true);
-          convert.send(conversionMessage(steps));
-        }}
+        disabled={state === "working"}
+        title={found.script ? "Saves these steps as a test script and shows its Playtest card" : "The agent saves these steps as a test script, and its Playtest card shows"}
+        onClick={go}
       >
         Turn into Playtest
       </button>
+      {error && <span className="bad">{error}</span>}
     </div>
   );
 }
