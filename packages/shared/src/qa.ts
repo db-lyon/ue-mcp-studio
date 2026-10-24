@@ -205,6 +205,11 @@ function patchStep(steps: QaStep[], patch: Partial<QaStep>, verdict = false): Qa
   const p = !verdict && qaSettled(was.status) && patch.status && !qaSettled(patch.status) ? { ...patch, status: was.status } : patch;
   const next = steps.slice();
   next[i] = { ...was, ...p };
+  // A person's verdict replacing an agent's clears the agent's evidence, as ue-mcp does.
+  if (verdict && was.verdictSource === "agent" && p.verdictSource && p.verdictSource !== "agent") {
+    if (!p.evidence) delete next[i].evidence;
+    if (p.note === undefined) delete next[i].note;
+  }
   return next;
 }
 

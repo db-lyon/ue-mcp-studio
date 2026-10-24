@@ -79,6 +79,11 @@ describe("a playtest's agent verdicts in the run model", () => {
       evidence: { note: "No pop across 12 frames", captures: ["C:/P/Saved/Screenshots/door_01.png"] }, state: "running", awaiting: [],
     });
     expect(next.steps[1]).toMatchObject({ status: "passed", verdictSource: "agent", evidence: { captures: ["C:/P/Saved/Screenshots/door_01.png"] } });
+    // A person's override clears the agent's evidence and note.
+    const overridden = qaApplyVerdictAnswer(next, { success: true, run_id: RUN, step: 1, status: "failed", verdict: "fail", verdict_source: "action", state: "running", awaiting: [] });
+    expect(overridden.steps[1]).toMatchObject({ status: "failed", verdictSource: "action" });
+    expect(overridden.steps[1].evidence).toBeUndefined();
+    expect(overridden.steps[1].note).toBeUndefined();
   });
 });
 

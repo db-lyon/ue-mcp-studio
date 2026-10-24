@@ -189,3 +189,23 @@ describe("an assignment on a draft that went live", () => {
     expect(cards(s.id)[0]).toMatchObject({ runId: RUN, assignment: { callId: "studio_10", state: "done" } });
   });
 });
+
+describe("a subagent's new run", () => {
+  it("carries the assignment, so its card offers Cancel and the thread", async () => {
+    const { broker, assigned, s } = setup();
+    const ended = { ...(await broker.createScript({ sessionId: s.id, name: "SigilPickup", steps: STEPS }) as { run: QaRun }).run };
+    broker.setAssigner({ assign: () => ({ callId: "studio_11", done: new Promise(() => {}) }), stop: () => true });
+    broker.assign(ended.runId, {});
+    // No draft left to take: the run gets a card of its own.
+    await broker.deleteScript(ended.runId);
+    const live = store.get(s.id)!;
+    live.transcript.push({ kind: "tool", call: { id: "studio_11", name: "agent", input: { description: "Playtest SigilPickup", prompt: "p" }, outcome: "pending", startedAt: "" } });
+    live.transcript.push({ kind: "tool", call: { id: "c2", name: "ue_mcp", input: { action: "call", category: "pie", method: "script_run" }, outcome: "pending", startedAt: "" }, parent: "studio_11" });
+    store.save(live);
+    await assigned.callAction("pie", "script_run", { script: PATH });
+    expect(cards(s.id).map((c) => c.runId)).toEqual([ended.runId, RUN]);
+    const card = cards(s.id).find((c) => c.runId === RUN)!;
+    expect(card.assignment).toMatchObject({ callId: "studio_11", state: "running" });
+    expect(card.subagent).toBe("Playtest SigilPickup");
+  });
+});
