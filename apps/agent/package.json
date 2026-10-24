@@ -1,6 +1,6 @@
 {
   "name": "@ue-mcp-studio/agent",
-  "version": "0.1.24-beta.3",
+  "version": "0.1.24-beta.4",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -8,7 +8,7 @@
     "name": "studio",
     "api": {
       "min": 1,
-      "max": 1
+      "max": 2
     }
   },
   "scripts": {
@@ -31,6 +31,6 @@
     "@types/node": "^22.20.5",
     "@types/omggif": "^1.0.5",
     "@types/pngjs": "^6.0.5",
-    "ue-mcp": "1.4.11-beta.2"
+    "ue-mcp": "1.4.11-beta.3"
   }
 }

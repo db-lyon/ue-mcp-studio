@@ -13,7 +13,6 @@ import type { ToolExecution } from "./tools.js";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
-import { PIE_TOOL, PIE_TOOL_NAME, PLAYTEST_ACTION } from "./playtest-command.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -76,15 +75,7 @@ export interface SubscriptionTurn {
   onTask: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
-  /**
-   * A /playtest turn. The SDK cannot force a tool, so the turn's only tool is
-   * pie with its one action, script_create: no built-ins, no subagents.
-   */
-  playtest?: boolean;
 }
-
-/** The SDK name of a /playtest turn's one tool. */
-export const PIE_SDK_TOOL = `${PREFIX}${PIE_TOOL_NAME}`;
 
 /** Text alone goes as a string; with an image or a document, as one user message of blocks. */
 function promptOf(blocks: unknown[], resume: string | null): string | AsyncIterable<SDKUserMessage> {
@@ -162,20 +153,10 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     return { content: [{ type: "text" as const, text: exec.text }, ...images], isError: exec.isError };
   };
 
-  const pie = tool(
-    PIE_TOOL_NAME,
-    (PIE_TOOL as { description?: string }).description ?? "",
-    {
-      action: z.literal(PLAYTEST_ACTION),
-      name: z.string(),
-      steps: z.array(z.record(z.string(), z.unknown())),
-    },
-    handler(PIE_TOOL_NAME),
-  );
   const server = createSdkMcpServer({
     name: SERVER,
     alwaysLoad: true,
-    tools: t.playtest ? [pie] : [
+    tools: [
       tool(
         "ue_mcp",
         "Unreal Editor actions through ue-mcp. action=search finds actions by intent (query); action=describe gives one action's parameters (category + method) or a category's actions (category alone); action=call runs one action (category, method, args). Describe before the first call of an action.",
@@ -216,20 +197,17 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         systemPrompt: t.system,
         // Built-ins: the subagent tool, and web search, which runs on Anthropic's side and touches nothing here.
         // Everything else goes through Studio's tools, so one approval model and one transcript cover every route.
-        // A /playtest has none of them: pie is its only tool.
-        tools: t.playtest ? [] : [AGENT, SEARCH],
-        ...(t.playtest ? {} : {
-          agents: {
-            [WORKER]: {
-              description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
-              prompt: t.subagentSystem,
-              effort: t.effort,
-              tools: [...STUDIO_TOOLS, SEARCH],
-            },
+        tools: [AGENT, SEARCH],
+        agents: {
+          [WORKER]: {
+            description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
+            prompt: t.subagentSystem,
+            effort: t.effort,
+            tools: [...STUDIO_TOOLS, SEARCH],
           },
-        }),
+        },
         mcpServers: { [SERVER]: server },
-        allowedTools: t.playtest ? [PIE_SDK_TOOL] : [...STUDIO_TOOLS, AGENT, SEARCH],
+        allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH],
         settingSources: [],
         includePartialMessages: true,
         resume: t.resume ?? undefined,
@@ -288,5 +266,66 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     return t.signal.aborted ? null : error;
   } catch (e) {
     return t.signal.aborted ? null : e instanceof Error ? e.message : String(e);
+  }
+}
+
+export interface SubscriptionCompletion {
+  projectDir: string;
+  model: string;
+  effort: Effort;
+  system: string;
+  prompt: string;
+  signal: AbortSignal;
+}
+
+/**
+ * One text answer on the user's Claude sign-in, for a flow's agent step: no
+ * tools at all, built-in or Studio's, one turn, and no session kept. The
+ * answer is the turn's result text.
+ */
+export async function runSubscriptionCompletion(c: SubscriptionCompletion): Promise<{ text: string } | { error: string }> {
+  if (!(claudeLogin() ?? (await refreshClaudeLogin()))) return { error: "Sign in to Claude Code first: run `claude /login` in a terminal." };
+  const rt = await runtime();
+  if ("error" in rt) return rt;
+  fs.mkdirSync(claudeHome(), { recursive: true });
+  const abort = new AbortController();
+  const onStop = () => abort.abort();
+  if (c.signal.aborted) onStop();
+  else c.signal.addEventListener("abort", onStop, { once: true });
+  try {
+    const q = query({
+      prompt: c.prompt,
+      options: {
+        model: c.model,
+        effort: c.effort,
+        systemPrompt: c.system,
+        tools: [],
+        allowedTools: [],
+        settingSources: [],
+        maxTurns: 1,
+        persistSession: false,
+        cwd: c.projectDir,
+        pathToClaudeCodeExecutable: rt.exe,
+        abortController: abort,
+        env: claudeEnv({}),
+      },
+    });
+    let text = "";
+    let error: string | null = null;
+    for await (const m of q as AsyncIterable<SDKMessage>) {
+      if (m.type === "assistant") {
+        if (m.error) error = `Claude: ${m.error}`;
+        for (const b of m.message.content as ContentBlock[]) if (b.type === "text") text += b.text;
+      } else if (m.type === "result") {
+        if (m.subtype === "success" && !m.is_error) text = m.result || text;
+        else error = error ?? (m.subtype === "success" ? m.result : `The turn ended: ${m.subtype}`);
+      }
+    }
+    if (c.signal.aborted) return { error: "stopped" };
+    return error ? { error } : { text };
+  } catch (e) {
+    return { error: c.signal.aborted ? "stopped" : e instanceof Error ? e.message : String(e) };
+  } finally {
+    c.signal.removeEventListener("abort", onStop);
   }
 }

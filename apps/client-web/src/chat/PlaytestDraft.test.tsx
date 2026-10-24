@@ -42,6 +42,39 @@ function mount(run: QaRun, extra: Partial<QaLive> = {}) {
 }
 const step = (n: number) => screen.getAllByRole("listitem")[n];
 
+describe("a manual step's verdict before Run", () => {
+  const MANUAL = "script_SigilPickup_manual";
+  const manual = (status: "awaiting_verdict" | "passed" | "failed", note?: string): QaRun => ({
+    ...qaRunFromAnswer({ run_id: MANUAL, mode: "manual", script: PATH, script_name: "SigilPickup", state: "awaiting_verdict", steps: STEPS.map((s, index) => ({ ...s, index, status: index === 1 ? status : "pending", ...(index === 1 && note ? { note } : {}) })), awaiting: status === "awaiting_verdict" ? [1] : [], last_seq: 1 }, { sessionId: "s1" })!,
+  });
+
+  it("is sent from the draft, and the card stays in place as the manual run, with Run still there", async () => {
+    m.qaVerdict.mockResolvedValue({ run: manual("passed") });
+    mount(draft());
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Pass step 2" }));
+    });
+    expect(m.qaVerdict).toHaveBeenCalledWith(`draft:${PATH}`, 1, "pass", undefined);
+    expect(screen.getAllByRole("group", { name: "Playtest SigilPickup" })).toHaveLength(1);
+    expect(within(step(1)).getByText("Passed")).toBeTruthy();
+    expect(within(step(0)).getByText("Not checked: click Run")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Run" })).toBeTruthy();
+  });
+
+  it("Fail asks what went wrong first, and sends the note", async () => {
+    m.qaVerdict.mockResolvedValue({ run: manual("failed", "No sound on the client") });
+    mount(draft());
+    fireEvent.click(screen.getByRole("button", { name: "Fail step 2" }));
+    expect(m.qaVerdict).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("What went wrong?"), { target: { value: "No sound on the client" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    });
+    expect(m.qaVerdict).toHaveBeenCalledWith(`draft:${PATH}`, 1, "fail", "No sound on the client");
+    expect(within(step(1)).getByText("No sound on the client")).toBeTruthy();
+  });
+});
+
 describe("a draft Playtest card", () => {
   it("lists every step unrun, with its player, and auto with its check or manual", () => {
     mount(draft());
@@ -53,9 +86,11 @@ describe("a draft Playtest card", () => {
     expect(step(0).textContent).toContain("PlayerState.SigilAttributes.Sigil.CurrentValue eq 100, within 5000 ms");
     expect(within(step(1)).getByText("client 1")).toBeTruthy();
     expect(within(step(1)).getByText("manual")).toBeTruthy();
-    // Unrun: no status, no verdict buttons.
+    // Unrun: the auto step waits for Run, the manual step takes its verdict now.
     expect(within(step(0)).queryByText("Pending")).toBeNull();
-    expect(within(step(1)).queryByRole("button")).toBeNull();
+    expect(within(step(0)).getByText("Not checked: click Run")).toBeTruthy();
+    expect(within(step(0)).queryByRole("button")).toBeNull();
+    expect(within(step(1)).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip"]);
     for (const name of ["Run", "Assign to subagent", "Edit", "Delete"]) expect(screen.getByRole("button", { name })).toBeTruthy();
   });
 

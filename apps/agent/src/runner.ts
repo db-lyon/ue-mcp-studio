@@ -32,14 +32,7 @@ import { AttachmentStore, contentFor } from "./attachments.js";
 import { keptName, toolResultContent } from "./images.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
 import { parseSlashCommand, type Attachment, type PlaytestRequest } from "@ue-mcp-studio/shared";
-import { NO_CALL, PIE_TOOL, PIE_TOOL_NAME, PLAYTEST_ACTION, PLAYTEST_ATTEMPTS, PLAYTEST_SYSTEM, playtestCallError, playtestPrompt, playtestText } from "./playtest-command.js";
-
-/** A /playtest turn on the Claude sign-in: whether its script was saved, its attempts, and the last error. */
-interface PlaytestTries {
-  made: boolean;
-  attempts: number;
-  error: string | null;
-}
+import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 
 /**
  * Testing gameplay with the user: a playtest, which is a test script the agent
@@ -150,6 +143,8 @@ export interface RunnerOptions {
   qa?: QaBroker;
   /** The project's Playtest runs setting, for the prompts; manual when not given. */
   playtestRuns?: () => PlaytestRunsMode;
+  /** Runs ue-mcp's playtest flow for /playtest, Make playtest and Retry. */
+  playtestFlow?: PlaytestFlow;
 }
 
 const now = (): string => new Date().toISOString();
@@ -288,6 +283,15 @@ export class AgentRunner {
         this.endCalls(s, () => cut, "unknown", t.call.id);
         this.recordOutcome(s, { id: t.call.id, name: "agent", input: {}, state: "done", result: cut, isError: true }, "unknown");
       }
+      // A /playtest's flow answered the previous daemon, if anyone: its card says it was cut off, and Retry runs it again.
+      const flow = this.runningPlaytest(s);
+      if (flow) {
+        Object.assign(flow, { state: "failed", errors: [`It was cut off: ${why}.`] });
+        s.status = "idle";
+        s.waitingCause = null;
+        this.o.store.save(s);
+        continue;
+      }
       const asked = new Set((s.approvals ?? []).map((a) => a.toolUseId));
       // An approval only the previous daemon could answer; its call asks again when the turn resumes.
       if (s.approvals?.length) {
@@ -295,12 +299,6 @@ export class AgentRunner {
         this.o.store.save(s);
       }
       if (s.status !== "running" && s.status !== "waiting") continue;
-      if (s.playtest) {
-        // A /playtest is one turn's job: one the restart cut off failed, and Retry sends it again.
-        this.endCalls(s, () => `The /playtest was cut off (${why}).`, "unknown");
-        this.playtestFailed(s, s.playtest, `It was cut off: ${why}.`);
-        continue;
-      }
       if (this.o.subscription?.()) {
         // The SDK cannot pick up a turn a restart cut off: end it, saying what was cut off and by what.
         this.endTurn(s, { by: "studio", why }, asked);
@@ -321,22 +319,13 @@ export class AgentRunner {
   }
 
   /** Add the user's message and run the turn. Resolves when the turn ends, pauses or fails. */
-  async send(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = [], request?: PlaytestRequest): Promise<void> {
-    // A /playtest message, or a request from a button: its turn has one job.
-    const command = request ? null : parseSlashCommand(text);
-    const playtest = request ?? (command?.name === "playtest" ? { text: command.args } : null);
-    // What script_create takes, read before the turn starts: the turn cannot describe it.
-    const describe = playtest ? await this.describeScriptCreate() : null;
+  async send(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = []): Promise<void> {
+    // A /playtest message runs the playtest flow, not a turn.
+    const command = attachments.length ? null : parseSlashCommand(text);
+    if (command?.name === "playtest") return this.playtest(sessionId, { text: command.args }, text);
     const s = this.require(sessionId);
     if (this.active.has(s.id) || s.status === "running" || s.status === "waiting") {
       throw new Error("a turn is already in progress; stop it or wait for it to finish");
-    }
-    let modelText = text;
-    if (playtest) {
-      const source = playtest.source === undefined ? null : s.transcript[playtest.source];
-      if (playtest.source !== undefined && (source?.kind !== "assistant" || source.parent)) throw new Error(`entry ${playtest.source} is not one of the agent's messages`);
-      if (request) text = playtestText(request);
-      modelText = playtestPrompt(playtest, source?.kind === "assistant" ? source.text : null, describe);
     }
     s.archived = false;
     if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = text.trim().split("\n")[0].slice(0, 60) || attachments[0]?.name || s.title;
@@ -344,18 +333,17 @@ export class AgentRunner {
     const content: unknown[] = [];
     for (const note of s.notes.splice(0)) content.push({ type: "text", text: `[Studio] ${note}` });
     for (const a of attachments) content.push(...(await contentFor(a)));
-    if (modelText.trim()) content.push({ type: "text", text: modelText });
+    if (text.trim()) content.push({ type: "text", text });
     s.messages.push({ role: "user", content } as MessageParam);
     s.transcript.push({
       kind: "user",
       text,
       at: now(),
       ...(attachments.length ? { attachments: attachments.map(({ id, name, type, size }) => ({ id, name, type, size })) } : {}),
-      ...(playtest?.source !== undefined ? { source: playtest.source } : {}),
     });
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
     s.draft = "";
     s.error = null;
-    s.playtest = playtest;
     this.setStatus(s, "running", null);
     const onClaude = !!this.o.subscription?.();
     const rewound = !!s.rewound;
@@ -371,132 +359,97 @@ export class AgentRunner {
         s.offClaude = false;
         // After an edit the model only changed sessions, not the user: nothing to tell them.
         if (!rewound) this.addEntry(s, { kind: "note", text: `On ${modelName(s.model)} via your Claude sign-in from here, with the whole conversation so far.`, at: now() });
-        return this.runSubscription(s.id, [{ type: "text", text: carryOver(earlier) }, ...content], playtest);
+        return this.runSubscription(s.id, [{ type: "text", text: carryOver(earlier) }, ...content]);
       }
-      return this.runSubscription(s.id, content, playtest);
+      return this.runSubscription(s.id, content);
     }
     // The Claude conversation misses this turn: a later turn on the Claude sign-in carries the whole session again.
     if (s.sdkSession) s.offClaude = true;
-    if (playtest) await this.runPlaytestTurn(s.id, playtest);
-    else await this.runTurn(s.id);
+    await this.runTurn(s.id);
   }
 
-  /** What ue-mcp says pie.script_create takes, for a /playtest turn's prompt; null when it cannot be read. */
-  private async describeScriptCreate(): Promise<string | null> {
-    try {
-      const r = await this.o.host.callAction("project", "describe_action", { name: `pie.${PLAYTEST_ACTION}` });
-      const text = r.content.map((c) => c.text ?? "").join("\n").trim();
-      return r.isError || !text ? null : text.slice(0, 12_000);
-    } catch {
-      return null;
+  /** The card of a /playtest whose flow is still running, if there is one. */
+  private runningPlaytest(s: StoredSession): Extract<TranscriptEntry, { kind: "playtest" }> | null {
+    for (let i = s.transcript.length - 1; i >= 0; i--) {
+      const t = s.transcript[i];
+      if (t.kind === "playtest") return t.state === "created" || t.state === "failed" ? null : t;
     }
+    return null;
   }
 
   /**
-   * A /playtest on the API path: the model is sent the pie tool alone, forced
-   * with the provider's tool choice, and its call is checked here too. One
-   * script_create that fails is answered and the model called once more. The
-   * turn ends with the Draft card the call made, or the failure state; the
-   * model's text is never shown.
+   * A /playtest, from a message or a button (Make playtest, Retry): ue-mcp's
+   * playtest flow, given what to test and the recent conversation. Its card
+   * shows the flow's stage; then the Draft card follows, or the card says no
+   * playtest was made, with the flow's errors and Retry. The agent gets a note
+   * either way, with its next turn.
    */
-  private async runPlaytestTurn(id: string, req: PlaytestRequest): Promise<void> {
-    if (this.active.has(id)) return;
+  async playtest(sessionId: string, request: PlaytestRequest, text?: string): Promise<void> {
+    const s = this.require(sessionId);
+    if (this.busy(s)) throw new Error("a turn is already in progress; stop it or wait for it to finish");
+    const source = request.source === undefined ? null : s.transcript[request.source];
+    if (request.source !== undefined && (source?.kind !== "assistant" || source.parent)) throw new Error(`entry ${request.source} is not one of the agent's messages`);
+    const shown = text ?? (request.text.trim() ? `/playtest ${request.text.trim()}` : "/playtest");
+    // The Make playtest pill names the latest turn: its changes are the target, the turn the context.
+    const turn = request.turn === undefined ? null : s.turn?.start === request.turn ? s.turn : undefined;
+    if (turn === undefined) throw new Error(`entry ${request.turn} does not begin the latest turn`);
+    const params = turn
+      ? playtestTurnParams(s.transcript.slice(turn.start), turn.targets)
+      : playtestParams(request.text, source?.kind === "assistant" ? source.text : null, s.transcript);
+    s.archived = false;
+    if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
+    s.transcript.push({ kind: "user", text: shown, at: now(), ...(request.source !== undefined ? { source: request.source } : {}) });
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: true };
+    const card: Extract<TranscriptEntry, { kind: "playtest" }> = { kind: "playtest", state: "gathering", request, attempt: 1, at: now() };
+    s.draft = "";
+    s.error = null;
+    this.addEntry(s, card);
     const controller = new AbortController();
-    const signal = controller.signal;
-    this.active.set(id, controller);
-    const s = this.require(id);
+    this.active.set(s.id, controller);
+    this.setStatus(s, "running", null);
+    const changed = () => {
+      this.o.store.save(s);
+      this.o.host.events.publish("playtest.changed", { sessionId: s.id, state: card.state, attempt: card.attempt });
+    };
     try {
-      let failure: string = NO_CALL;
-      for (let attempt = 0; attempt < PLAYTEST_ATTEMPTS; attempt++) {
-        const turn = await this.o.provider().run(
-          {
-            sessionId: s.id,
-            model: this.o.model(),
-            effort: this.o.effort?.(),
-            system: [{ type: "text", text: `${system(this.o.host.projectDir, this.runsMode())}\n${PLAYTEST_SYSTEM}` }],
-            tools: [PIE_TOOL],
-            forceTool: PIE_TOOL_NAME,
-            messages: s.messages,
-          },
-          () => {},
-          signal,
-        );
-        if (signal.aborted) return;
-        if (turn.stopReason === "refusal") {
-          s.messages.push({ role: "assistant", content: turn.content } as MessageParam);
-          return this.playtestFailed(s, req, `The model declined: ${turn.refusal ?? "no reason given"}`);
-        }
-        const uses = turn.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
-        if (uses.length === 0) {
-          s.messages.push({ role: "assistant", content: turn.content } as MessageParam);
-          return this.playtestFailed(s, req, NO_CALL);
-        }
-        // The assistant message goes in with its results, so a stop part way leaves no call unanswered.
-        const results: Array<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }> = [];
-        let made = false;
-        let retry: string | null = null;
-        for (const u of uses) {
-          const input = (u.input ?? {}) as Record<string, unknown>;
-          this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() } });
-          const refusedCall = made ? "Not run: the playtest is saved, and a /playtest makes one." : playtestCallError(u.name, input);
-          if (refusedCall) {
-            this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: refusedCall, isError: true }, "error");
-            results.push({ type: "tool_result", tool_use_id: u.id, content: refusedCall, is_error: true });
-            if (!made) retry = refusedCall;
-            continue;
-          }
-          await this.waitForEditor(s, signal);
-          if (signal.aborted) return;
-          const exec = await executeTool(this.hostFor(s.id), u.name, input, signal);
-          if (signal.aborted) return;
-          this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
-          const p: PendingTool = { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError };
-          this.recordOutcome(s, p, exec.outcome);
-          results.push({ type: "tool_result", tool_use_id: u.id, content: exec.text, ...(exec.isError ? { is_error: true } : {}) });
-          if (exec.isError || refused(exec.text)) retry = exec.text || "script_create failed";
-          else made = true;
-        }
-        s.messages.push({ role: "assistant", content: turn.content } as MessageParam, { role: "user", content: results } as MessageParam);
-        if (made) return this.playtestMade(s);
-        failure = retry ?? NO_CALL;
+      const flow = this.o.playtestFlow;
+      const outcome = flow
+        ? await flow.run(params, (stage, attempt) => {
+          if (controller.signal.aborted) return;
+          card.state = stage;
+          card.attempt = attempt;
+          changed();
+        }, controller.signal)
+        : { made: false as const, errors: ["This Studio has no playtest flow to run."] };
+      if (controller.signal.aborted) {
+        card.state = "failed";
+        card.errors = ["Stopped."];
+        return changed();
       }
-      return this.playtestFailed(s, req, failure);
-    } catch (e) {
-      if (signal.aborted) return;
-      this.playtestFailed(s, req, e instanceof Error ? e.message : String(e));
+      if (outcome.made) {
+        card.state = "created";
+        changed();
+        await this.o.qa?.drafted(s.id, outcome.script);
+        const name = typeof outcome.script.name === "string" ? outcome.script.name : String(outcome.script.path);
+        s.notes.push(`The user ran ${shown}: the playtest flow saved the test script "${name}" (${String(outcome.script.path)}), shown as a draft Playtest card in the chat.`);
+      } else {
+        card.state = "failed";
+        card.errors = outcome.errors;
+        changed();
+        s.notes.push(`The user ran ${shown}: the playtest flow made no playtest. ${outcome.errors.join(" ")}`);
+      }
+      this.setStatus(s, "idle", null);
     } finally {
-      if (this.active.get(id) === controller) this.active.delete(id);
+      if (this.active.get(s.id) === controller) this.active.delete(s.id);
     }
-  }
-
-  /** A /playtest saved its script: the Draft card is in the transcript, and the turn ends with nothing else shown. */
-  private playtestMade(s: StoredSession): void {
-    // Roles stay in turn for the next message, whichever provider reads them.
-    if (s.messages[s.messages.length - 1]?.role === "user") {
-      s.messages.push({ role: "assistant", content: [{ type: "text", text: "I saved the playtest. Its draft Playtest card is in the chat for the user to run." }] } as MessageParam);
-    }
-    s.playtest = null;
-    this.setStatus(s, "idle", null);
-  }
-
-  /** A /playtest that saved no script: "No playtest was made." with Retry, in place of whatever the model wrote. */
-  private playtestFailed(s: StoredSession, req: PlaytestRequest, reason: string, viaSdk = false): void {
-    if (!viaSdk && s.messages[s.messages.length - 1]?.role === "user") {
-      s.messages.push({ role: "assistant", content: [{ type: "text", text: `No playtest was made: ${reason}` }] } as MessageParam);
-    }
-    s.playtest = null;
-    this.addEntry(s, { kind: "playtest-failed", reason, request: req, at: now() });
-    this.setStatus(s, "idle", null);
   }
 
   /** The Agent SDK runs the loop; tool calls still go through executeTool and the transcript. */
-  private async runSubscription(id: string, prompt: unknown[], playtest: PlaytestRequest | null = null): Promise<void> {
+  private async runSubscription(id: string, prompt: unknown[]): Promise<void> {
     const controller = new AbortController();
     this.active.set(id, controller);
     const s = this.require(id);
     let lastId: string | null = null;
-    // A /playtest: its pie calls are counted and checked here, and what the model writes is not shown.
-    const tries: PlaytestTries = { made: false, attempts: 0, error: null };
     // Agent calls the SDK runs in the background: their tool result only says they started.
     const background = new Set<string>();
     try {
@@ -507,19 +460,16 @@ export class AgentRunner {
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",
-        system: playtest ? `${system(this.o.host.projectDir, this.runsMode())}\n${PLAYTEST_SYSTEM}` : system(this.o.host.projectDir, this.runsMode()),
+        system: system(this.o.host.projectDir, this.runsMode()),
         subagentSystem: subagentSystem(this.o.host.projectDir, this.runsMode()),
         prompt,
         resume: s.sdkSession ?? null,
         signal: controller.signal,
-        playtest: !!playtest,
         onSession: (sid) => {
           s.sdkSession = sid;
           this.o.store.save(s);
         },
-        onDelta: (text) => {
-          if (!playtest) this.o.host.events.publish("turn.delta", { sessionId: s.id, text });
-        },
+        onDelta: (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
         onAssistant: (mid, blocks, parent) => {
           // A subagent's messages are its own conversation: only the main agent's mirror into the session's.
           if (!parent) {
@@ -530,7 +480,7 @@ export class AgentRunner {
           }
           const tag = parent ? { parent } : {};
           for (const b of blocks) {
-            if (b.type === "text" && b.text && !playtest) this.addEntry(s, { kind: "assistant", text: b.text, at: now(), ...tag });
+            if (b.type === "text" && b.text) this.addEntry(s, { kind: "assistant", text: b.text, at: now(), ...tag });
             if (b.type === "tool_use") {
               this.addEntry(s, { kind: "tool", call: { id: b.id, name: b.name, input: b.input, outcome: "pending", startedAt: now() }, ...tag });
             }
@@ -570,17 +520,9 @@ export class AgentRunner {
           if (stop) this.subagents.set(callId, () => void stop());
           else this.subagents.delete(callId);
         },
-        runTool: (toolId, name, input) => playtest
-          ? this.playtestTool(s, controller, tries, toolId, name, input)
-          : this.subscriptionTool(s, controller, toolId, name, input),
+        runTool: (toolId, name, input) => this.subscriptionTool(s, controller, toolId, name, input),
       });
       if (controller.signal.aborted) return;
-      if (playtest) {
-        // Whatever the model wrote, the outcome is the Draft card or the failure state.
-        if (tries.made) this.playtestMade(s);
-        else this.playtestFailed(s, playtest, tries.error ?? error ?? NO_CALL, true);
-        return;
-      }
       s.error = error;
       this.setStatus(s, error ? "error" : "idle", null);
     } finally {
@@ -612,11 +554,11 @@ export class AgentRunner {
     }
     const running = executeTool(this.hostFor(s.id, detached), name, input, signal);
     // What a call does after its subagent was stopped is still tracked for the crash report.
-    if (sub) void running.then((e) => sub.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
+    if (sub) void running.then((e) => sub.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
     const done = sub ? await unlessAborted(running, sub) : await running;
     if (!done) return stoppedHere();
     let exec = done;
-    this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+    this.mergeExec(s, exec, exec.outcome !== "unknown");
     // Stopped while the editor worked: the stop already answered this call.
     if (controller.signal.aborted) return exec;
     if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
@@ -627,42 +569,6 @@ export class AgentRunner {
     // A subagent the user assigned runs beside the session's turns, not as one.
     if (!detached && s.status !== "running") this.setStatus(s, "running", null);
     return exec;
-  }
-
-  /**
-   * A call in a /playtest turn on the Claude sign-in, where the SDK cannot
-   * force the tool. Only pie(script_create) runs, at most PLAYTEST_ATTEMPTS
-   * times and never after one succeeded; each answer tells the model what
-   * to do next, which is to end the turn once the script is saved.
-   */
-  private async playtestTool(s: StoredSession, controller: AbortController, tries: PlaytestTries, toolId: string, name: string, input: Record<string, unknown>): Promise<ToolExecution> {
-    const wrong = tries.made || tries.attempts >= PLAYTEST_ATTEMPTS ? null : playtestCallError(name, input);
-    const refusal = tries.made ? "Not run: the playtest is saved, and a /playtest makes one. End the turn now."
-      : tries.attempts >= PLAYTEST_ATTEMPTS ? "Not run: this /playtest has had its attempts. End the turn now."
-      : wrong;
-    if (refusal) {
-      // Another tool or action is a failed attempt, answered like a failed script_create.
-      if (wrong) {
-        tries.attempts++;
-        tries.error = wrong;
-      }
-      this.recordOutcome(s, { id: toolId, name, input, state: "done", result: refusal, isError: true }, "error");
-      return { text: refusal, isError: true, outcome: "error", touched: [], saved: [] };
-    }
-    tries.attempts++;
-    await this.waitForEditor(s, controller.signal);
-    const exec = await this.subscriptionTool(s, controller, toolId, name, input);
-    if (!exec.isError && !refused(exec.text)) {
-      tries.made = true;
-      return { ...exec, text: `${exec.text}\nSaved. Its draft Playtest card is in the chat. End the turn now without writing anything.` };
-    }
-    tries.error = exec.text || "script_create failed";
-    return {
-      ...exec,
-      text: tries.attempts < PLAYTEST_ATTEMPTS
-        ? `${exec.text}\nFix what this names and call pie with action script_create once more.`
-        : `${exec.text}\nThat was the last attempt. End the turn now.`,
-    };
   }
 
   /** What a turn's controller was aborted for. */
@@ -753,7 +659,6 @@ export class AgentRunner {
 
   /** Answer what a turn left open, leave the model a note, and set the session's state. `asked`: calls waiting for approval, which never ran. */
   private endTurn(s: StoredSession, cause: Interruption, asked: Set<string>): void {
-    s.playtest = null;
     const running: Array<{ name: string; input: Record<string, unknown> }> = [];
     const outcome = cause.by === "user" ? "stopped" : "unknown";
     if (s.pending) {
@@ -1230,13 +1135,13 @@ export class AgentRunner {
       const exec = await executeTool(this.hostFor(s.id), p.name, p.input, signal);
       if (signal.aborted) {
         // Stopped while the editor worked: the stop already answered this call.
-        this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+        this.mergeExec(s, exec, exec.outcome !== "unknown");
         this.o.store.save(s);
         return true;
       }
       if (exec.outcome === "unknown") {
         p.state = "unknown";
-        this.mergeTouched(s, exec.touched, false);
+        this.mergeExec(s, exec, false);
         this.o.store.save(s);
         return this.pause(s);
       }
@@ -1244,7 +1149,7 @@ export class AgentRunner {
       p.result = exec.text;
       p.isError = exec.isError;
       if (exec.images) p.images = exec.images;
-      this.mergeTouched(s, exec.touched, true);
+      this.mergeExec(s, exec, true);
       this.markSaved(s, exec.saved);
       this.recordOutcome(s, p, exec.outcome);
       if (p.name === "editor_restart" && !exec.isError && !editorConnected(this.o.host) && this.operating()) {
@@ -1313,10 +1218,10 @@ export class AgentRunner {
           }
           const running = executeTool(this.hostFor(s.id, detached), u.name, input, signal);
           // A stop lets the call go at once; what it does after is still tracked for the crash report.
-          void running.then((e) => signal.aborted && this.mergeTouched(s, e.touched, e.outcome !== "unknown"), () => {});
+          void running.then((e) => signal.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
           const exec = await unlessAborted(running, signal);
           if (!exec || signal.aborted) return stopped();
-          this.mergeTouched(s, exec.touched, exec.outcome !== "unknown");
+          this.mergeExec(s, exec, exec.outcome !== "unknown");
           this.markSaved(s, exec.saved);
           this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
           results.push({ type: "tool_result", tool_use_id: u.id, content: toolResultContent(exec.text, exec.images), is_error: exec.isError || undefined });
@@ -1377,6 +1282,16 @@ export class AgentRunner {
     s.messages.push({ role: "user", content } as MessageParam);
     s.pending = null;
     this.o.store.save(s);
+  }
+
+  /** A call's changes: what the session touched, and the turn's count of changing calls with the targets they named. */
+  private mergeExec(s: StoredSession, exec: ToolExecution, known: boolean): void {
+    this.mergeTouched(s, exec.touched, known);
+    if (!exec.changed || !s.turn) return;
+    s.turn.mutations++;
+    for (const t of exec.touched) {
+      if (!s.turn.targets.some((x) => x.kind === t.kind && x.path === t.path)) s.turn.targets.push({ ...t });
+    }
   }
 
   private mergeTouched(s: StoredSession, items: { kind: "asset" | "actor"; path: string; saved: boolean }[], known: boolean): void {

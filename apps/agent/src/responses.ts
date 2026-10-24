@@ -53,14 +53,12 @@ export function toResponsesRequest(req: ModelRequest, search = false): Record<st
     const tool = t as { name: string; description?: string; input_schema?: unknown };
     return { type: "function", name: tool.name, description: tool.description ?? "", parameters: tool.input_schema ?? { type: "object" } } as Record<string, unknown>;
   });
-  // A forced tool goes alone: the named function, one call, no search beside it.
-  if (search && !req.forceTool) tools.push({ type: "web_search" });
+  if (search && req.search !== false) tools.push({ type: "web_search" });
   return {
     model: req.model,
     instructions: req.system.map((b) => b.text).join("\n\n"),
     input,
-    tools,
-    ...(req.forceTool ? { tool_choice: { type: "function", name: req.forceTool }, parallel_tool_calls: false } : {}),
+    ...(tools.length ? { tools } : {}),
     ...withEffort("reasoning", openaiEffort(req.model, req.effort)),
     store: false,
     stream: true,

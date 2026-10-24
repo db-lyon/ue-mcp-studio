@@ -86,20 +86,44 @@ describe("the checklist card", () => {
     expect(within(step(0)).getByText("Auto pass")).toBeTruthy();
   });
 
-  it("puts Pass, Fail and Skip only on a manual step awaiting its verdict, and sends it with the note", async () => {
+  it("puts Pass, Fail and Skip only on a manual step awaiting its verdict, and Fail asks what went wrong", async () => {
     const waiting = runOf({ state: "awaiting_verdict", steps: [{ ...STEPS[0], status: "passed" }, { ...STEPS[1], status: "passed" }, { ...STEPS[2], status: "awaiting_verdict" }], awaiting: [{ index: 2, instruction: "x" }], last_seq: 7 });
     const settled = { ...waiting, state: "finished" as const, awaiting: [], steps: waiting.steps.map((s) => (s.index === 2 ? { ...s, status: "failed" as const, note: "Pops on the second frame", verdictSource: "action" as const } : s)) };
     m.qaVerdict.mockResolvedValue({ run: settled });
     mount(waiting);
     expect(within(step(0)).queryByRole("button")).toBeNull();
-    fireEvent.change(screen.getByLabelText("Note for step 3"), { target: { value: "Pops on the second frame" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fail step 3" }));
+    // Escape cancels without recording anything.
+    const box = screen.getByLabelText("What went wrong?");
+    expect(document.activeElement).toBe(box);
+    fireEvent.keyDown(box, { key: "Escape" });
+    expect(screen.queryByLabelText("What went wrong?")).toBeNull();
+    expect(m.qaVerdict).not.toHaveBeenCalled();
+    // A note is required.
+    fireEvent.click(screen.getByRole("button", { name: "Fail step 3" }));
+    const submit = screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("What went wrong?"), { target: { value: "Pops on the second frame" } });
+    expect(submit.disabled).toBe(false);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Fail step 3" }));
+      fireEvent.click(submit);
     });
     expect(m.qaVerdict).toHaveBeenCalledWith(RUN, 2, "fail", "Pops on the second frame");
     expect(within(step(2)).getByText("Failed")).toBeTruthy();
     expect(within(step(2)).getByText("Pops on the second frame")).toBeTruthy();
-    expect(within(step(2)).queryByRole("button")).toBeNull();
+    expect(within(step(2)).queryByRole("button", { name: "Pass step 3" })).toBeNull();
+    // The note can be edited, which sends the verdict again with the new note.
+    const edited = { ...settled, steps: settled.steps.map((s) => (s.index === 2 ? { ...s, note: "Pops on frames 2 and 3" } : s)) };
+    m.qaVerdict.mockResolvedValue({ run: edited });
+    fireEvent.click(within(step(2)).getByRole("button", { name: "Edit the note on step 3" }));
+    const editBox = screen.getByLabelText("What went wrong?") as HTMLTextAreaElement;
+    expect(editBox.value).toBe("Pops on the second frame");
+    fireEvent.change(editBox, { target: { value: "Pops on frames 2 and 3" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    });
+    expect(m.qaVerdict).toHaveBeenLastCalledWith(RUN, 2, "fail", "Pops on frames 2 and 3");
+    expect(within(step(2)).getByText("Pops on frames 2 and 3")).toBeTruthy();
   });
 
   it("shows ue-mcp's refusal and lets the user try again", async () => {
@@ -130,9 +154,10 @@ describe("the checklist card", () => {
     fireEvent.click(screen.getByRole("button", { name: "Skip step 2" }));
     expect(m.answerForm).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Skip step 2" }).getAttribute("aria-pressed")).toBe("true");
-    fireEvent.change(screen.getByLabelText("Note for step 3"), { target: { value: "smooth" } });
-    fireEvent.click(screen.getByRole("button", { name: "Pass step 3" }));
-    expect(m.answerForm).toHaveBeenCalledWith("f1", { action: "accept", content: { step_1: "skip", step_2: "pass", step_2_note: "smooth" } });
+    fireEvent.click(screen.getByRole("button", { name: "Fail step 3" }));
+    fireEvent.change(screen.getByLabelText("What went wrong?"), { target: { value: "it pops" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(m.answerForm).toHaveBeenCalledWith("f1", { action: "accept", content: { step_1: "skip", step_2: "fail", step_2_note: "it pops" } });
     expect(m.qaVerdict).not.toHaveBeenCalled();
   });
 
@@ -276,7 +301,13 @@ describe("assigning the playtest to a subagent", () => {
     await act(async () => {
       fireEvent.click(within(step(2)).getByRole("button", { name: "Override step 3 with Fail" }));
     });
-    expect(m.qaVerdict).toHaveBeenCalledWith(RUN, 2, "fail");
+    // Overriding to Fail asks what went wrong, as Fail does.
+    expect(m.qaVerdict).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByLabelText("What went wrong?"), { target: { value: "It pops on frame 2" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    });
+    expect(m.qaVerdict).toHaveBeenCalledWith(RUN, 2, "fail", "It pops on frame 2");
     expect(within(step(2)).getByText("Failed")).toBeTruthy();
     expect(within(step(2)).queryByText("Agent")).toBeNull();
     expect(within(step(2)).queryByRole("button")).toBeNull();

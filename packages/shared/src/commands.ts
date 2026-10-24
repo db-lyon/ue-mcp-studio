@@ -41,13 +41,22 @@ export function matchCommands(query: string, commands: readonly SlashCommand[] =
   return commands.filter((c) => c.name.startsWith(q));
 }
 
+/** Where a /playtest's flow is: gathering context, drafting, checking the draft, created. */
+export type PlaytestStage = "gathering" | "drafting" | "checking" | "created";
+
 /**
  * POST /v1/ext/studio/sessions/:id/playtest, and what a /playtest message
- * sends: a turn whose one job is to save a playtest with pie(script_create).
+ * sends: ue-mcp's playtest flow, which saves a playtest with pie(script_create).
  * `text` is what the user wants tested; `source` the transcript index of the
  * agent message it is made from ("Make playtest" on that message).
  */
 export interface PlaytestRequest {
   text: string;
   source?: number;
+  /**
+   * The Make playtest pill: the turn it is made from, by the transcript index
+   * that began it. The turn's changed assets and actors are the target, and
+   * the turn is the context.
+   */
+  turn?: number;
 }

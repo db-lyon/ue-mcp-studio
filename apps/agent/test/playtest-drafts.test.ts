@@ -209,3 +209,72 @@ describe("a subagent's new run", () => {
     expect(card.subagent).toBe("Playtest SigilPickup");
   });
 });
+
+describe("a verdict on a draft's manual step, before Run", () => {
+  const MANUAL = "script_SigilPickup_manual";
+  function manualSetup() {
+    const base = qaHost();
+    const host = {
+      ...base,
+      callAction: async (category: string, action: string, args: Record<string, unknown> = {}) => {
+        if (action === "script_run" && args.mode === "manual") {
+          calls.push({ category, action, args });
+          return ok({ ...runAnswer, run_id: MANUAL, mode: "manual", state: "awaiting_verdict", steps: strip(STEPS).map((st, index) => ({ ...st, index, status: st.judge === "manual" ? "awaiting_verdict" : "pending" })), awaiting: [1] });
+        }
+        if (action === "verdict") {
+          calls.push({ category, action, args });
+          return ok({ run_id: args.run_id, step: args.step, status: args.verdict === "pass" ? "passed" : args.verdict === "fail" ? "failed" : "skipped", note: args.note });
+        }
+        return base.callAction(category, action, args);
+      },
+    } as unknown as QaHost & AgentHost;
+    const broker = new QaBroker({ host, store, playtests, now: () => "2026-10-24T12:00:00.000Z" });
+    const s = store.create();
+    return { broker, s, agent: broker.wrap(host, s.id) };
+  }
+
+  it("starts a manual run with no PIE, even with Playtest runs set to Manual, sends the verdict, and keeps the card in place", async () => {
+    const { broker, agent, s } = manualSetup();
+    expect(playtests.runs()).toBe("manual");
+    await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
+    calls.length = 0;
+    const r = await broker.verdict(qaDraftId(PATH), { step: 1, verdict: "pass" });
+    expect("run" in r && r.run).toMatchObject({ runId: MANUAL, manual: true });
+    expect(calls.map((c) => [c.action, c.args])).toEqual([
+      ["script_run", { script: PATH, mode: "manual", start_pie: false, record: false }],
+      ["verdict", { run_id: MANUAL, step: 1, verdict: "pass" }],
+    ]);
+    const all = cards(s.id);
+    expect(all).toHaveLength(1);
+    expect(all[0]).toMatchObject({ runId: MANUAL, manual: true });
+    expect(all[0].steps[1].status).toBe("passed");
+    // The next verdict goes to the same manual run.
+    calls.length = 0;
+    await broker.verdict(MANUAL, { step: 1, verdict: "fail", note: "No sound on the client" });
+    expect(calls.map((c) => c.action)).toEqual(["verdict"]);
+  });
+
+  it("refuses a verdict on an auto step before Run, and a fail without a note", async () => {
+    const { broker, agent } = manualSetup();
+    await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
+    calls.length = 0;
+    expect(await broker.verdict(qaDraftId(PATH), { step: 0, verdict: "pass" })).toMatchObject({ status: 409 });
+    expect(await broker.verdict(qaDraftId(PATH), { step: 1, verdict: "fail" })).toMatchObject({ status: 400 });
+    expect(calls).toEqual([]);
+  });
+
+  it("Run on the manual run's card ends it and starts a full run with PIE in the same card", async () => {
+    const { broker, agent, s } = manualSetup();
+    await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
+    await broker.verdict(qaDraftId(PATH), { step: 1, verdict: "skip" });
+    calls.length = 0;
+    const r = await broker.runScript(MANUAL, {});
+    expect("run" in r && r.run.runId).toBe(RUN);
+    expect(calls.map((c) => c.action)).toEqual(["script_stop", "script_run"]);
+    expect(calls[1].args).toMatchObject({ script: PATH, start_pie: true });
+    const all = cards(s.id);
+    expect(all).toHaveLength(1);
+    expect(all[0].runId).toBe(RUN);
+    expect(all[0].manual).toBeUndefined();
+  });
+});

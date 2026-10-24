@@ -52,7 +52,6 @@ export function agentCalls(transcript: TranscriptEntry[]): Call[] {
 export const TOOL_TAG: Record<string, string> = {
   ue_mcp: "ue-mcp",
   editor_restart: "ue-mcp",
-  pie: "ue-mcp",
   shell: "shell",
   read_file: "read",
   write_file: "write",
@@ -70,8 +69,6 @@ export function toolLabel(call: Call): string {
     command?: string; path?: string; pattern?: string; url?: string; offset?: number; limit?: number; glob?: string;
   };
   if (call.name === "editor_restart") return `editor ${i.operation ?? ""}`;
-  // A /playtest's pie tool names its action inline.
-  if (call.name === "pie") return `pie.${i.action ?? ""}`;
   if (call.name === "shell") return firstLine(i.command ?? "");
   if (call.name === "read_file") return i.offset || i.limit ? `${i.path ?? ""} (from line ${i.offset ?? 1})` : i.path ?? "";
   if (call.name === "write_file" || call.name === "edit_file") return i.path ?? "";

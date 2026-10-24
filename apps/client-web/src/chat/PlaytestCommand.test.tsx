@@ -14,7 +14,8 @@ const transcript: TranscriptEntry[] = [
   { kind: "user", text: "add a double jump", at },
   { kind: "assistant", text: "Added a double jump to BP_Hero: press Space twice.", at },
   { kind: "user", text: "/playtest", at, source: 1 },
-  { kind: "playtest-failed", reason: "The model answered without calling pie(script_create).", request: { text: "", source: 1 }, at },
+  { kind: "playtest", state: "failed", request: { text: "", source: 1 }, attempt: 3, errors: ["Step 1 expect.value: Pawn.JumpCnt is not a value PIE can read", "The script has no auto step"], at },
+  { kind: "playtest", state: "drafting", request: { text: "" }, attempt: 2, at },
 ];
 
 function show(entry: TranscriptEntry, busy = false, run = vi.fn()) {
@@ -28,30 +29,27 @@ function show(entry: TranscriptEntry, busy = false, run = vi.fn()) {
   return run;
 }
 
-describe("Make playtest", () => {
-  it("is on an agent message and sends a /playtest made from it", () => {
-    const run = show(transcript[1]);
-    fireEvent.click(screen.getByRole("button", { name: "Make playtest" }));
-    expect(run).toHaveBeenCalledWith({ text: "", source: 1 });
-  });
-
-  it("waits while a turn runs", () => {
-    show(transcript[1], true);
-    expect((screen.getByRole("button", { name: "Make playtest" }) as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("is not on the user's messages, and a sourced /playtest says where it came from", () => {
-    show(transcript[2]);
+describe("an agent message", () => {
+  it("carries no Make playtest of its own: the composer's pill offers it", () => {
+    show(transcript[1]);
     expect(screen.queryByRole("button", { name: "Make playtest" })).toBeNull();
-    expect(screen.getByText(/from the agent's message above/)).toBeTruthy();
   });
 });
 
-describe("a /playtest that made nothing", () => {
-  it("says no playtest was made and why, and Retry sends the same request", () => {
+describe("a /playtest's flow", () => {
+  it("shows its stages while it runs, the one in progress marked, and the draft's attempt", () => {
+    show(transcript[4]);
+    const stages = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(stages).toEqual(["Gathering", "Drafting (attempt 2)", "Checking", "Created"]);
+    expect(screen.getByText("Drafting (attempt 2)").getAttribute("aria-current")).toBe("step");
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  });
+
+  it("says no playtest was made, lists the flow's errors, and Retry sends the same request", () => {
     const run = show(transcript[3]);
     expect(screen.getByText("No playtest was made.")).toBeTruthy();
-    expect(screen.getByText("The model answered without calling pie(script_create).")).toBeTruthy();
+    expect(screen.getByText("Step 1 expect.value: Pawn.JumpCnt is not a value PIE can read")).toBeTruthy();
+    expect(screen.getByText("The script has no auto step")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
     expect(run).toHaveBeenCalledWith({ text: "", source: 1 });
   });

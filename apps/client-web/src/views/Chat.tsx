@@ -8,6 +8,8 @@ import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, PlaytestConvertContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
+import { pillsFor } from "../chat/pill-providers";
+import { PillRow } from "../chat/Pills";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
@@ -178,6 +180,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
     if (!selected || !canSend) return;
     const text = draft;
     const files = attach.ready.map((a) => a.id);
+    clearPills();
     setDraft("");
     attach.clear();
     void api.saveDraft(selected, "").catch(() => {});
@@ -256,7 +259,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
         create: (name: string, steps: QaScriptStep[]) => api.qaCreateScript(detail.id, name, steps).then(() => loadDetail(detail.id)),
       }
     : null), [detail?.id, detail?.status, disconnected, busy]);
-  // Make playtest and Retry: a /playtest turn, started when no turn runs.
+  // The Make playtest pill and Retry: the playtest flow, started when no turn runs.
   const playtest = useMemo(() => (detail && !disconnected
     ? {
         busy,
@@ -267,6 +270,10 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
         },
       }
     : null), [detail?.id, disconnected, busy]);
+  // The pills above the composer, from the session's tool-call facts. Escape, a click or a sent message clears the row.
+  const [dismissedPills, setDismissedPills] = useState<ReadonlySet<string>>(new Set());
+  const pills = useMemo(() => (detail && !disconnected ? pillsFor(detail, dismissedPills) : []), [detail, disconnected, dismissedPills]);
+  const clearPills = useCallback(() => setDismissedPills((cur) => new Set([...cur, ...pills.map((p) => p.id)])), [pills]);
   const dialogs = useDialogs(daemon);
   const forms = useForms(daemon, detail?.id ?? null);
   const outside = useOutsideRuns(daemon.events, daemon.streaming);
@@ -415,6 +422,7 @@ export function ChatView({ daemon, nav }: { daemon: DaemonState; nav?: { session
             <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
             <FormCards forms={forms} runs={qaRuns} />
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
+            {playtest && <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} />}
             <Composer
               draft={draft}
               onDraft={setDraft}

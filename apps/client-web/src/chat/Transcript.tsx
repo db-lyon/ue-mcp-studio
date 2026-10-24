@@ -2,7 +2,7 @@ import { createContext, memo, useContext, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
-import { lineDiff, type Attachment, type PlaytestRequest, type QaScriptStep, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
+import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type QaScriptStep, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
 import { breakable } from "./breakable";
 import { DialogLine } from "./Dialogs";
@@ -68,7 +68,6 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
     return (
       <>
         <Reply text={entry.text} at={at < 0 ? undefined : at} />
-        {at >= 0 && !entry.parent && <MessageActions at={at} />}
         {at >= 0 && !entry.parent && <ConvertToPlaytest at={at} />}
       </>
     );
@@ -76,46 +75,57 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
   if (entry.kind === "qa") return <QaCard run={entry.run} />;
-  if (entry.kind === "playtest-failed") return <PlaytestFailed entry={entry} />;
+  if (entry.kind === "playtest") {
+    return entry.state === "failed"
+      ? <PlaytestFailed errors={entry.errors?.length ? entry.errors : ["The playtest flow made no playtest."]} request={entry.request} />
+      : <PlaytestProgress entry={entry} />;
+  }
+  if (entry.kind === "playtest-failed") return <PlaytestFailed errors={[entry.reason]} request={entry.request} />;
   return <ToolCall call={entry.call} />;
 });
 
 /**
- * Runs a /playtest from a button: Make playtest on an agent message, Retry on
- * a failed one. `busy` while a turn runs, when neither can start. Null where
- * nothing can be sent.
+ * Runs a /playtest from a button: Retry on a failed one. `busy` while a turn
+ * runs, when it cannot start. Null where nothing can be sent.
  */
 export const PlaytestCommandContext = createContext<{ busy: boolean; run: (req: PlaytestRequest) => void } | null>(null);
 
-/** Under each of the agent's messages: Make playtest, a /playtest made from that message. */
-function MessageActions({ at }: { at: number }) {
-  const playtest = useContext(PlaytestCommandContext);
-  if (!playtest) return null;
+/** The playtest flow's stages, in order, as the card names them. */
+const PLAYTEST_STAGES: Array<[PlaytestStage, string]> = [
+  ["gathering", "Gathering"],
+  ["drafting", "Drafting"],
+  ["checking", "Checking"],
+  ["created", "Created"],
+];
+
+/** A /playtest while its flow runs: the stages, the one in progress marked, and the draft's attempt after a retry. */
+function PlaytestProgress({ entry }: { entry: Extract<TranscriptEntry, { kind: "playtest" }> }) {
+  const at = PLAYTEST_STAGES.findIndex(([s]) => s === entry.state);
   return (
-    <div className="msg-actions row small">
-      <button
-        className="ghost small-button"
-        disabled={playtest.busy}
-        title={playtest.busy ? "Wait for the running turn to end" : "Draft a playtest from this message, as a Playtest card"}
-        onClick={() => playtest.run({ text: "", source: at })}
-      >
-        Make playtest
-      </button>
+    <div className="banner playtest-progress" role="status" aria-label="Playtest progress">
+      <ol className="row small playtest-stages">
+        {PLAYTEST_STAGES.map(([stage, label], i) => (
+          <li key={stage} className={i < at || entry.state === "created" ? "done" : i === at ? "active" : "dim"} aria-current={i === at ? "step" : undefined}>
+            {label}
+            {stage === "drafting" && entry.attempt > 1 && ` (attempt ${entry.attempt})`}
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
 
-/** A /playtest that saved no script. The model's own words are not shown: only that it failed, why, and Retry. */
-function PlaytestFailed({ entry }: { entry: Extract<TranscriptEntry, { kind: "playtest-failed" }> }) {
+/** A /playtest that saved no script: that it failed, the flow's errors, and Retry. */
+function PlaytestFailed({ errors, request }: { errors: string[]; request: PlaytestRequest }) {
   const playtest = useContext(PlaytestCommandContext);
   return (
     <div className="banner bad playtest-failed" role="status">
       <div className="row">
         <strong>No playtest was made.</strong>
         <span className="spacer" />
-        {playtest && <button className="small-button" disabled={playtest.busy} onClick={() => playtest.run(entry.request)}>Retry</button>}
+        {playtest && <button className="small-button" disabled={playtest.busy} onClick={() => playtest.run(request)}>Retry</button>}
       </div>
-      <div className="small">{entry.reason}</div>
+      {errors.length === 1 ? <div className="small">{errors[0]}</div> : <ul className="small">{errors.map((e, i) => <li key={i}>{e}</li>)}</ul>}
     </div>
   );
 }

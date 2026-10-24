@@ -834,7 +834,9 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-evidence { color: var(--bad-text); white-space: pre-wrap; }
 .qa-note { color: var(--muted); font-style: italic; }
 .qa-verdict { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.qa-note-input { flex: 1 1 180px; min-width: 0; }
+.qa-fail-note { display: flex; flex-direction: column; gap: 4px; margin-left: calc(1.6em + 8px); }
+.qa-fail-note textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.qa-note-edit { margin-left: 6px; font-style: normal; }
 .qa-verdict button.picked { border-color: var(--accent); color: var(--text); }
 .qa-verdict button.verdict-pass:hover:not(:disabled) { border-color: var(--ok); }
 .qa-verdict button.verdict-fail:hover:not(:disabled) { border-color: var(--bad); }
@@ -1092,8 +1094,20 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .slash-name { font-family: var(--mono, monospace); }
 .slash-summary { flex-basis: 100%; }
 
-/* Under each agent message: Make playtest. */
-.msg-actions { gap: 6px; margin: -4px 0 6px; }
-.msg-actions .small-button { padding: 1px 8px; }
 .playtest-failed { display: flex; flex-direction: column; gap: 4px; }
 .playtest-failed .row { align-items: center; }
+.playtest-failed ul { margin: 0; padding-left: 18px; }
+
+/* A /playtest's flow: its stages, the one running marked. */
+.playtest-progress { border-color: var(--line); background: var(--panel-2); }
+.playtest-stages { list-style: none; margin: 0; padding: 0; gap: 14px; flex-wrap: wrap; }
+.playtest-stages li.done { color: var(--ok); }
+.playtest-stages li.done::before { content: "\2713  "; }
+.playtest-stages li.active { font-weight: 600; }
+.playtest-stages li.active::before { content: "\25CF  "; }
+.playtest-stages li.dim { opacity: 0.55; }
+
+/* The pill row above the composer: small suggestions from the session's tool calls. */
+.pill-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 6px; }
+.pill-suggestion { border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px 10px; background: var(--panel-2); color: var(--text); cursor: pointer; white-space: nowrap; }
+.pill-suggestion:hover { border-color: var(--accent); }
