@@ -3,7 +3,7 @@
  * how to drive PIE so the auto steps evaluate, and how to judge the manual
  * steps it may judge from frames, with evidence.
  */
-import { qaAgentMayJudge, qaEnded, qaSettled, type QaRun, type QaStep } from "@ue-mcp-studio/shared";
+import { qaAgentMayJudge, qaEnded, qaIsDraft, qaPieInstance, qaSettled, type QaRun, type QaStep } from "@ue-mcp-studio/shared";
 
 /** The thread's title in the chat. */
 export const playtestDescription = (run: QaRun): string => `Playtest ${run.scriptName}`;
@@ -12,11 +12,15 @@ function stepLine(s: QaStep): string {
   const who = s.judge === "auto" ? "auto" : qaAgentMayJudge(s) ? "manual, you judge it" : "manual, the user judges it";
   const expect = s.expect ? ` Expect ${s.expect.value} ${s.expect.op}${s.expect.target !== undefined ? ` ${s.expect.target}` : ""}${s.withinMs ? ` within ${s.withinMs} ms` : ""}.` : "";
   const note = s.note ? ` Note: ${s.note}` : "";
-  return `${s.index}. [${who}] ${s.instruction}.${expect} Status: ${s.status}${s.verdictSource ? ` (by ${s.verdictSource})` : ""}.${note}`;
+  const player = s.player ? `, for the ${s.player}` : "";
+  return `${s.index}. [${who}${player}] ${s.instruction}.${expect} Status: ${s.status}${s.verdictSource ? ` (by ${s.verdictSource})` : ""}.${note}`;
 }
 
 export function playtestBrief(run: QaRun): string {
-  const live = !qaEnded(run.state);
+  const draft = qaIsDraft(run);
+  const live = !draft && !qaEnded(run.state);
+  const players = [...new Set(run.steps.map((s) => s.player).filter((p): p is string => !!p))];
+  const clients = Math.max(0, ...players.map((p) => qaPieInstance(p) ?? 0));
   const inline = run.script === "inline";
   const again = inline
     ? "pie.script_run with the same steps inline (read them with pie.script_results for this run)"
@@ -31,15 +35,18 @@ export function playtestBrief(run: QaRun): string {
     ...run.steps.map(stepLine),
     "",
     "How to work:",
-    live
+    draft
+      ? `- The playtest has not run yet. Start it with ${again}, start_pie: true and wait: false, then work on the run_id it answers with. Never pass wait: true: you have to drive the pawn while it runs.`
+      : live
       ? `- The run is still going: work on it. Follow it with pie.script_status (run_id ${run.runId}, since_seq the last_seq you read).`
       : `- The run has ended${open.length ? ` with ${open.length} step${open.length === 1 ? "" : "s"} not passed` : ""}. Run it again with ${again}, start_pie: true and wait: false, then work on the new run_id it answers with. Never pass wait: true: you have to drive the pawn while it runs.`,
+    ...(clients > 0 ? [`- Steps name players (${players.join(", ")}). Before starting, set PIE to ${clients + 1} players with editor.configure_pie (numClients ${clients + 1}, netMode listen). Drive and capture each step on its own player: the host is pie_instance 0, client n is pie_instance n, client_id 0. pie.script_run observes one player for the auto steps: pass the pie_instance of the player the auto steps are for.`] : []),
     "- If PIE is not running when you need it, start the run with start_pie: true. Do not stop PIE while a step is waiting for the user.",
     run.recordingId
       ? `- Drive the pawn so the auto steps can pass. A run of this script recorded its input as recording ${run.recordingId}: once PIE is up, replay it with pie.replay_arm (recording_id ${run.recordingId}). If the replay does not reach a step, drive the rest with pie.inject_input, pie.inject_input_start, pie.inject_input_update, pie.inject_input_stop and pie.inject_input_tape.`
       : "- Drive the pawn so the auto steps can pass: pie.inject_input for one frame, pie.inject_input_start, pie.inject_input_update and pie.inject_input_stop for a hold, pie.inject_input_tape for a run of values. Find the project's Enhanced Input actions with ue_mcp search first. Describe each action before its first call.",
     mine.length
-      ? `- For each manual step you judge (${mine.map((s) => s.index).join(", ")}), once it is awaiting a verdict: capture frames of the PIE viewport with editor.capture_screenshot (target "pie"), look at them, and decide pass or fail; skip only when the step cannot be reached. Then call pie.verdict with run_id, step, verdict, source: "agent" and evidence: { note, captures }, where note says what you saw in the frames (it must not be empty) and captures are the capture file paths. Describe pie.verdict before its first call.`
+      ? `- For each manual step you judge (${mine.map((s) => s.index).join(", ")}), once it is awaiting a verdict: capture frames of the PIE viewport with editor.capture_screenshot (target "pie", on the step's player), look at them, and decide pass or fail; skip only when the step cannot be reached. Then call pie.verdict with run_id, step, verdict, source: "agent" and evidence: { note, captures }, where note says what you saw in the frames (it must not be empty) and captures are the capture file paths. Describe pie.verdict before its first call.`
       : "- No manual step is yours to judge.",
     theirs.length
       ? `- Steps ${theirs.map((s) => s.index).join(", ")} are the user's to judge: never give them a verdict. Leave them awaiting.`
