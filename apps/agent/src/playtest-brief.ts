@@ -3,7 +3,7 @@
  * how to drive PIE so the auto steps evaluate, and how to judge the manual
  * steps it may judge from frames, with evidence.
  */
-import { qaAgentMayJudge, qaEnded, qaIsDraft, qaPieInstance, qaSettled, type QaRun, type QaStep } from "@ue-mcp-studio/shared";
+import { qaActs, qaAgentMayJudge, qaEnded, qaIsDraft, qaPieInstance, qaSettled, type QaRun, type QaStep } from "@ue-mcp-studio/shared";
 
 /** The thread's title in the chat. */
 export const playtestDescription = (run: QaRun): string => `Playtest ${run.scriptName}`;
@@ -13,7 +13,8 @@ function stepLine(s: QaStep): string {
   const expect = s.expect ? ` Expect ${s.expect.value} ${s.expect.op}${s.expect.target !== undefined ? ` ${s.expect.target}` : ""}${s.withinMs ? ` within ${s.withinMs} ms` : ""}.` : "";
   const note = s.note ? ` Note: ${s.note}` : "";
   const player = s.player ? `, for the ${s.player}` : "";
-  return `${s.index}. [${who}${player}] ${s.instruction}.${expect} Status: ${s.status}${s.verdictSource ? ` (by ${s.verdictSource})` : ""}.${note}`;
+  const acts = qaActs(s) ? ", the engine acts" : "";
+  return `${s.index}. [${who}${player}${acts}] ${s.instruction}.${expect} Status: ${s.status}${s.verdictSource ? ` (by ${s.verdictSource})` : ""}.${note}`;
 }
 
 export function playtestBrief(run: QaRun): string {
@@ -29,6 +30,8 @@ export function playtestBrief(run: QaRun): string {
   const mine = manual.filter(qaAgentMayJudge);
   const theirs = manual.filter((s) => !qaAgentMayJudge(s));
   const open = run.steps.filter((s) => !qaSettled(s.status) || (s.judge === "auto" && s.status === "failed"));
+  const driven = run.steps.filter((s) => s.judge === "auto" && !qaActs(s));
+  const acting = run.steps.filter(qaActs);
   return [
     `The user assigned you the playtest "${run.scriptName}" from its Playtest card. Run it in Play In Editor on their behalf so its steps get verdicts.`,
     `Run ${run.runId}, script ${run.script}, state ${run.state}. Step indices are 0-based, as pie.verdict takes them:`,
@@ -42,7 +45,8 @@ export function playtestBrief(run: QaRun): string {
       : `- The run has ended${open.length ? ` with ${open.length} step${open.length === 1 ? "" : "s"} not passed` : ""}. Run it again with ${again}, start_pie: true and wait: false, then work on the new run_id it answers with. Never pass wait: true: you have to drive the pawn while it runs.`,
     ...(clients > 0 ? [`- Steps name players (${players.join(", ")}). Before starting, set PIE to ${clients + 1} players with editor.configure_pie (numClients ${clients + 1}, netMode listen). Drive and capture each step on its own player: the host is pie_instance 0, client n is pie_instance n, client_id 0. pie.script_run observes one player for the auto steps: pass the pie_instance of the player the auto steps are for.`] : []),
     "- If PIE is not running when you need it, start the run with start_pie: true. Do not stop PIE while a step is waiting for the user.",
-    run.recordingId
+    ...(acting.length ? [`- Steps ${acting.map((s) => s.index).join(", ")} carry their own act: the engine drives them during the run. Do not inject input for them; wait for their verdicts.`] : []),
+    driven.length === 0 && acting.length ? "- No auto step needs you to drive the pawn." : run.recordingId
       ? `- Drive the pawn so the auto steps can pass. A run of this script recorded its input as recording ${run.recordingId}: once PIE is up, replay it with pie.replay_arm (recording_id ${run.recordingId}). If the replay does not reach a step, drive the rest with pie.inject_input, pie.inject_input_start, pie.inject_input_update, pie.inject_input_stop and pie.inject_input_tape.`
       : "- Drive the pawn so the auto steps can pass: pie.inject_input for one frame, pie.inject_input_start, pie.inject_input_update and pie.inject_input_stop for a hold, pie.inject_input_tape for a run of values. Find the project's Enhanced Input actions with ue_mcp search first. Describe each action before its first call. If injected input does nothing, check the player's mapping contexts with get_input_mapping_contexts and apply the project's with apply_mapping_context.",
     mine.length

@@ -514,7 +514,8 @@ export const qaAgentMayJudge = (s: QaStep): boolean => s.judge === "manual" && s
  * auto step that failed and might pass with the pawn driven.
  */
 export function qaAssignable(run: QaRun): boolean {
-  return run.steps.some((s) => (!qaSettled(s.status) && (s.judge === "auto" || qaAgentMayJudge(s))) || (s.judge === "auto" && s.status === "failed"));
+  // A failed step of either kind is one a subagent can work on: it fixes the project and runs again.
+  return run.steps.some((s) => (!qaSettled(s.status) && (s.judge === "auto" || qaAgentMayJudge(s))) || s.status === "failed");
 }
 
 /** A draft's run id: the script it is a draft of. */

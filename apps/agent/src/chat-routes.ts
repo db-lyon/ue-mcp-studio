@@ -186,7 +186,25 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
   });
   // A playtest's card hands it to a subagent the runner starts beside the session's turns.
-  qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId) });
+  qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId), tokens: (callId) => runner.tokensOf(callId) });
+  // It loops until the playtest passes, each attempt between checkpoints, within the budget in Settings > Agent.
+  qa.setLoopSupport({
+    checkpoints: {
+      unavailable: () => review.unavailable(),
+      checkpoint: (label) => review.checkpoint(label),
+      changes: (from, to) => review.changes(from, to),
+      restore: (checkpoint, paths, force) => review.restore(checkpoint, paths, force),
+      mark: (sid, m) => {
+        const s = store.get(sid);
+        if (s) review.mark(s, m);
+      },
+    },
+    budget: () => playtests.budget(),
+    blocked: (sid) => {
+      const s = store.get(sid);
+      return s && !review.on(s) ? "Review is off in this session, so no checkpoints would let you undo its changes. Turn it on in the session's Checkpoints panel." : null;
+    },
+  });
 
   const bad = (error: string) => ({ status: 400, body: { error } });
   const missing = (id: string) => ({ status: 404, body: { error: `no session ${id}` } });

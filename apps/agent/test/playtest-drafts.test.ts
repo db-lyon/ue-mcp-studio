@@ -13,6 +13,7 @@ import { SessionStore } from "../src/sessions.js";
 import { QaBroker, type QaHost } from "../src/qa.js";
 import { PlaytestStore } from "../src/playtest-store.js";
 import type { AgentHost } from "../src/tools.js";
+import { fakeLoopSupport, until } from "./loop-fakes.js";
 
 const PATH = "/Game/PIEStudio/Scripts/SigilPickup";
 const RUN = "script_SigilPickup_20261024_120000";
@@ -58,7 +59,7 @@ afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
 function setup() {
   const host = qaHost();
-  const broker = new QaBroker({ host, store, playtests, now: () => "2026-10-24T12:00:00.000Z" });
+  const broker = new QaBroker({ host, store, playtests, loop: fakeLoopSupport(), now: () => "2026-10-24T12:00:00.000Z" });
   const s = store.create();
   return { host, broker, s, agent: broker.wrap(host, s.id), assigned: broker.wrap(host, s.id, { assigned: true }) };
 }
@@ -168,7 +169,7 @@ describe("the draft card's buttons", () => {
     const { agent, broker, assigned, s } = setup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
     broker.setAssigner({ assign: () => ({ callId: "studio_9", done: new Promise(() => {}) }), stop: () => true });
-    const a = broker.assign(qaDraftId(PATH), {});
+    const a = await broker.assign(qaDraftId(PATH), {});
     expect("run" in a && a.run.assignment?.state).toBe("running");
     await assigned.callAction("pie", "script_run", { script: PATH, start_pie: true });
     expect(cards(s.id)).toHaveLength(1);
@@ -177,16 +178,19 @@ describe("the draft card's buttons", () => {
 });
 
 describe("an assignment on a draft that went live", () => {
-  it("ends on the live card when the subagent finishes", async () => {
+  it("keeps the loop on the live card: its next attempt runs there", async () => {
     const { agent, broker, assigned, s } = setup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
     let finish!: (r: { isError: boolean }) => void;
-    broker.setAssigner({ assign: () => ({ callId: "studio_10", done: new Promise((r) => (finish = r)) }), stop: () => true });
-    broker.assign(qaDraftId(PATH), {});
+    let n = 0;
+    broker.setAssigner({ assign: () => ({ callId: `studio_${10 + n++}`, done: new Promise((r) => (finish = r)) }), stop: () => true });
+    await broker.assign(qaDraftId(PATH), {});
     await assigned.callAction("pie", "script_run", { script: PATH, start_pie: true });
     finish({ isError: false });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(cards(s.id)[0]).toMatchObject({ runId: RUN, assignment: { callId: "studio_10", state: "done" } });
+    await until(() => n === 2);
+    expect(cards(s.id)).toHaveLength(1);
+    expect(cards(s.id)[0]).toMatchObject({ runId: RUN, assignment: { callId: "studio_11", state: "running", loop: { state: "running" } } });
+    expect(cards(s.id)[0].assignment!.loop!.attempts.map((a) => a.runId)).toEqual([RUN, undefined]);
   });
 });
 
@@ -195,7 +199,7 @@ describe("a subagent's new run", () => {
     const { broker, assigned, s } = setup();
     const ended = { ...(await broker.createScript({ sessionId: s.id, name: "SigilPickup", steps: STEPS }) as { run: QaRun }).run };
     broker.setAssigner({ assign: () => ({ callId: "studio_11", done: new Promise(() => {}) }), stop: () => true });
-    broker.assign(ended.runId, {});
+    await broker.assign(ended.runId, {});
     // No draft left to take: the run gets a card of its own.
     await broker.deleteScript(ended.runId);
     const live = store.get(s.id)!;
@@ -228,7 +232,7 @@ describe("a verdict on a draft's manual step, before Run", () => {
         return base.callAction(category, action, args);
       },
     } as unknown as QaHost & AgentHost;
-    const broker = new QaBroker({ host, store, playtests, now: () => "2026-10-24T12:00:00.000Z" });
+    const broker = new QaBroker({ host, store, playtests, loop: fakeLoopSupport(), now: () => "2026-10-24T12:00:00.000Z" });
     const s = store.create();
     return { broker, s, agent: broker.wrap(host, s.id) };
   }
