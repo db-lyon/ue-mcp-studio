@@ -15,7 +15,6 @@ import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import type { TouchedItem } from "@ue-mcp-studio/shared";
 import { isLocalTool, localToolDefinitions, runLocal, validateLocal } from "./local-tools.js";
 import { firstFailedStep, type OperationStep } from "./operation-result.js";
-import { PIE_TOOL_NAME, PLAYTEST_ACTION, playtestCallError } from "./playtest-command.js";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type ToolImage } from "./images.js";
 
 /** The part of the daemon's extension API the agent uses, so tests can stand in for it. */
@@ -116,11 +115,6 @@ export function validateInput(name: string, input: unknown): string | null {
   if (name === "editor_restart") {
     if (i.operation !== "restart" && i.operation !== "rebuild") return "operation must be restart or rebuild";
     return null;
-  }
-  if (name === PIE_TOOL_NAME) {
-    const refused = playtestCallError(name, i);
-    if (refused) return refused;
-    return Array.isArray(i.steps) && i.steps.length > 0 ? null : "script_create needs steps: at least one";
   }
   if (name !== "ue_mcp") return `unknown tool ${name}`;
   if (i.action === "search") return typeof i.query === "string" && i.query.trim() ? null : "search needs query";
@@ -228,11 +222,9 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     return { text: resultText(r), isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
 
-  // A /playtest's pie tool is ue-mcp's pie category with its action named inline: the rest are the action's parameters.
-  const pie = name === PIE_TOOL_NAME;
-  const category = pie ? "pie" : input.category as string;
-  const method = pie ? PLAYTEST_ACTION : input.method as string;
-  const args = pie ? (({ action: _a, ...rest }) => rest)(input) : (input.args as Record<string, unknown> | undefined) ?? {};
+  const category = input.category as string;
+  const method = input.method as string;
+  const args = (input.args as Record<string, unknown> | undefined) ?? {};
   // Unknown only when the editor went away during the call. One already gone never ran it, so its error is the answer.
   const wasConnected = editorConnected(host);
   const startedAt = Date.now();

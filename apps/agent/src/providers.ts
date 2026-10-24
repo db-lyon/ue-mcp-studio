@@ -21,24 +21,7 @@ export interface ModelRequest {
   messages: MessageParam[];
   /** How long the model reasons; high when not given. */
   effort?: Effort;
-  /**
-   * The one tool the model must call, by name, with each provider's own forced
-   * tool choice: a /playtest turn's pie. No provider-side search goes with it.
-   */
-  forceTool?: string;
 }
-
-/**
- * Models that refuse a forced tool_choice (any or tool) with a 400. They get
- * tool_choice auto with one call at most, and the turn offers only that tool.
- */
-const NO_FORCED_CHOICE = new Set(["claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5", "claude-sonnet-5-5"]);
-
-/** A request refused for its forced tool_choice, by a model not yet in NO_FORCED_CHOICE. */
-export const isForcedChoiceRefusal = (e: unknown): boolean => {
-  const message = e instanceof Error ? e.message : String(e);
-  return /tool_choice/i.test(message) && ((e as { status?: number })?.status === 400 || /\b400\b/.test(message));
-};
 
 export interface ModelTurn {
   content: ContentBlock[];
@@ -94,7 +77,7 @@ const FALLBACK_MODELS = new Set(["claude-fable-5-1", "claude-opus-5-5", "claude-
  * The request body both providers send. The chosen effort, the conversation
  * prefix cached, and the refusal fallback on where the model has one.
  */
-export function requestBody(req: ModelRequest, forced = true): Anthropic.Beta.MessageCreateParamsNonStreaming {
+export function requestBody(req: ModelRequest): Anthropic.Beta.MessageCreateParamsNonStreaming {
   const body: Anthropic.Beta.MessageCreateParamsNonStreaming = {
     model: req.model,
     max_tokens: MAX_TOKENS,
@@ -104,11 +87,6 @@ export function requestBody(req: ModelRequest, forced = true): Anthropic.Beta.Me
     output_config: { effort: req.effort ?? "high" },
     cache_control: { type: "ephemeral" },
   };
-  if (req.forceTool) {
-    body.tool_choice = forced && !NO_FORCED_CHOICE.has(req.model)
-      ? { type: "tool", name: req.forceTool, disable_parallel_tool_use: true }
-      : { type: "auto", disable_parallel_tool_use: true };
-  }
   if (FALLBACK_MODELS.has(req.model)) {
     body.betas = ["server-side-fallback-2026-07-01"];
     body.fallbacks = "default";
@@ -146,15 +124,6 @@ export class AnthropicProvider implements ModelProvider {
 
   async run(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<ModelTurn> {
     const attempt = async (r: ModelRequest): Promise<Anthropic.Beta.BetaMessage> => {
-      if (r.forceTool) {
-        try {
-          return await this.stream(r, onText, signal);
-        } catch (e) {
-          // A model that has no forced choice: the turn still offers only that tool, one call at most.
-          if (!isForcedChoiceRefusal(e)) throw e;
-          return this.stream(r, onText, signal, false);
-        }
-      }
       if (!this.search) return this.stream(r, onText, signal);
       try {
         return await this.stream({ ...r, tools: [...r.tools, ANTHROPIC_WEB_SEARCH] }, onText, signal);
@@ -180,8 +149,8 @@ export class AnthropicProvider implements ModelProvider {
     };
   }
 
-  private stream(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal, forced = true): Promise<Anthropic.Beta.BetaMessage> {
-    const stream = this.client.beta.messages.stream(requestBody(req, forced), { signal });
+  private stream(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<Anthropic.Beta.BetaMessage> {
+    const stream = this.client.beta.messages.stream(requestBody(req), { signal });
     stream.on("text", (delta) => onText(delta));
     return stream.finalMessage();
   }
@@ -201,16 +170,7 @@ export class GatewayProvider implements ModelProvider {
   ) {}
 
   async run(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal): Promise<ModelTurn> {
-    try {
-      return await this.request(req, onText, signal, true);
-    } catch (e) {
-      if (!req.forceTool || !isForcedChoiceRefusal(e)) throw e;
-      return this.request(req, onText, signal, false);
-    }
-  }
-
-  private async request(req: ModelRequest, onText: (text: string) => void, signal: AbortSignal, forced: boolean): Promise<ModelTurn> {
-    const { betas, ...body } = requestBody(req, forced);
+    const { betas, ...body } = requestBody(req);
     const res = await this.fetchImpl(`${this.gatewayUrl}/v1/messages`, {
       method: "POST",
       signal,

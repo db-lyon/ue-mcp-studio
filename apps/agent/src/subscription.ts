@@ -13,7 +13,6 @@ import type { ToolExecution } from "./tools.js";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
-import { PIE_TOOL, PIE_TOOL_NAME, PLAYTEST_ACTION } from "./playtest-command.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -76,15 +75,7 @@ export interface SubscriptionTurn {
   onTask: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
-  /**
-   * A /playtest turn. The SDK cannot force a tool, so the turn's only tool is
-   * pie with its one action, script_create: no built-ins, no subagents.
-   */
-  playtest?: boolean;
 }
-
-/** The SDK name of a /playtest turn's one tool. */
-export const PIE_SDK_TOOL = `${PREFIX}${PIE_TOOL_NAME}`;
 
 /** Text alone goes as a string; with an image or a document, as one user message of blocks. */
 function promptOf(blocks: unknown[], resume: string | null): string | AsyncIterable<SDKUserMessage> {
@@ -162,20 +153,10 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     return { content: [{ type: "text" as const, text: exec.text }, ...images], isError: exec.isError };
   };
 
-  const pie = tool(
-    PIE_TOOL_NAME,
-    (PIE_TOOL as { description?: string }).description ?? "",
-    {
-      action: z.literal(PLAYTEST_ACTION),
-      name: z.string(),
-      steps: z.array(z.record(z.string(), z.unknown())),
-    },
-    handler(PIE_TOOL_NAME),
-  );
   const server = createSdkMcpServer({
     name: SERVER,
     alwaysLoad: true,
-    tools: t.playtest ? [pie] : [
+    tools: [
       tool(
         "ue_mcp",
         "Unreal Editor actions through ue-mcp. action=search finds actions by intent (query); action=describe gives one action's parameters (category + method) or a category's actions (category alone); action=call runs one action (category, method, args). Describe before the first call of an action.",
@@ -216,20 +197,17 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         systemPrompt: t.system,
         // Built-ins: the subagent tool, and web search, which runs on Anthropic's side and touches nothing here.
         // Everything else goes through Studio's tools, so one approval model and one transcript cover every route.
-        // A /playtest has none of them: pie is its only tool.
-        tools: t.playtest ? [] : [AGENT, SEARCH],
-        ...(t.playtest ? {} : {
-          agents: {
-            [WORKER]: {
-              description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
-              prompt: t.subagentSystem,
-              effort: t.effort,
-              tools: [...STUDIO_TOOLS, SEARCH],
-            },
+        tools: [AGENT, SEARCH],
+        agents: {
+          [WORKER]: {
+            description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
+            prompt: t.subagentSystem,
+            effort: t.effort,
+            tools: [...STUDIO_TOOLS, SEARCH],
           },
-        }),
+        },
         mcpServers: { [SERVER]: server },
-        allowedTools: t.playtest ? [PIE_SDK_TOOL] : [...STUDIO_TOOLS, AGENT, SEARCH],
+        allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH],
         settingSources: [],
         includePartialMessages: true,
         resume: t.resume ?? undefined,

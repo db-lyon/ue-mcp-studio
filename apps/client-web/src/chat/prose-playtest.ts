@@ -110,7 +110,6 @@ const DELIVERED = new Set(["script_create", "script_update", "script_run", "scri
 /** Whether a call saved or ran a test script, or a Playtest card showed. */
 function delivered(t: TranscriptEntry): boolean {
   if (t.kind === "qa") return true;
-  if (t.kind === "tool" && t.call.name === "pie") return DELIVERED.has(String((t.call.input as { action?: unknown }).action));
   if (t.kind !== "tool" || t.call.name !== "ue_mcp") return false;
   const input = t.call.input as { action?: unknown; category?: unknown; method?: unknown };
   return input.action === "call" && input.category === "pie" && typeof input.method === "string" && DELIVERED.has(input.method);

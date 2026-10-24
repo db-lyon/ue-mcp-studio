@@ -7,7 +7,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { ApprovalRequest, PlaytestRequest, QueuedMessage, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import type { ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
 import { modelName } from "./models.js";
 import type { ToolImage } from "./images.js";
@@ -67,8 +67,6 @@ export interface StoredSession {
   approvals?: ApprovalRequest[];
   /** Kinds of call the user allowed for the rest of the session: shell, edit. */
   allowed?: string[];
-  /** The /playtest the running turn is, so a restart that cuts it off ends it as a failed one. */
-  playtest?: PlaytestRequest | null;
 }
 
 function agentCounts(s: StoredSession): { total: number; running: number } {
