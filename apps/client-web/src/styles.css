@@ -1287,7 +1287,7 @@ button.strip-head:hover:not(:disabled) { background: none; border: 0; }
 .playtest-strip.many { padding-top: 4px; }
 
 /* A live playtest's place in the transcript while its card is on the strip. */
-.qa-pinned { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; padding: 2px 10px; border-left: 2px solid var(--accent-line); color: var(--muted); }
+.qa-pinned { display: flex; align-items: baseline; gap: 8px; flex-wrap: nowrap; margin: 0; padding: 2px 10px; border-left: 2px solid var(--accent-line); color: var(--muted); }
 .qa-pinned-mark { color: var(--accent); }
 .qa-pinned-text { flex: 0 1 auto; min-width: 0; }
 
@@ -1409,3 +1409,7 @@ button.qa-scroll-cue:hover:not(:disabled) { border-color: var(--accent); color: 
 button.qa-scroll-cue:disabled { visibility: hidden; }
 /* At 380 px with more than one that needs you, the strip takes the room they need. */
 @media (max-width: 760px) { .playtest-strip.needs-you { max-height: 62vh; } }
+/* Playtests side by side in the transcript share one pointer to the strip. */
+.qa-pinned-names { color: var(--text); }
+.qa-pinned-text { flex: 0 1 auto; min-width: 0; }
+.qa-pinned > button { flex-shrink: 0; }

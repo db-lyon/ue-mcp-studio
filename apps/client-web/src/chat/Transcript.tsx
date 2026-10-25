@@ -63,7 +63,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
-  if (entry.kind === "qa") return <TranscriptPlaytest run={entry.run} />;
+  if (entry.kind === "qa") return <TranscriptPlaytest run={entry.run} transcript={transcript} at={positionIn(transcript, entry)} />;
   if (entry.kind === "review") return <TurnReviewCard review={entry.review} />;
   if (entry.kind === "playtest") {
     return entry.state === "failed"

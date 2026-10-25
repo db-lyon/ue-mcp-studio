@@ -45,13 +45,13 @@ let nextId = 1;
 const changed = (r: QaRun, replaces?: string): DaemonEvent => ({ id: nextId++, type: "studio.qa.changed", at, data: { runId: r.runId, run: r as unknown as Record<string, unknown>, ...(replaces ? { replaces } : {}) } });
 
 /** The chat's wiring: the strip over the transcript's entries. */
-function Session({ transcript, events }: { transcript: TranscriptEntry[]; events: DaemonEvent[] }) {
+function Session({ transcript, events, grouped = false }: { transcript: TranscriptEntry[]; events: DaemonEvent[]; grouped?: boolean }) {
   const runs = useSessionRuns("s1", transcript, events);
   const strip = usePinned(runs.runs, runs.alias);
   return (
     <PinnedContext.Provider value={strip.ids}>
       <PlaytestStrip runs={strip.pinned} onHide={strip.hide} />
-      <div data-testid="transcript">{transcript.map((t, i) => (t.kind === "qa" ? <TranscriptPlaytest key={i} run={t.run} /> : null))}</div>
+      <div data-testid="transcript">{transcript.map((t, i) => (t.kind === "qa" ? <TranscriptPlaytest key={i} run={t.run} {...(grouped ? { transcript, at: i } : {})} /> : null))}</div>
     </PinnedContext.Provider>
   );
 }
@@ -244,6 +244,23 @@ describe("the strip of live playtests", () => {
         else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
       }
     }
+  });
+
+  it("gives playtests side by side in the transcript one line that names each", () => {
+    const transcript = entries(
+      run("a", "Running", "running", ["running", "pending"]),
+      run("b", "Waiting", "awaiting_verdict", ["passed", "awaiting_verdict"]),
+      run("c", "Done", "finished", ["passed", "passed"]),
+      run("d", "Later", "running", ["running", "pending"]),
+    );
+    render(<Session transcript={transcript} events={[]} grouped />);
+    const notes = within(transcriptEl()).getAllByRole("note");
+    expect(notes.map((n) => n.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "↑2 playtests are on the strip above: Running running, Waiting needs you.Show them",
+      "↑Playtest Later is running on the strip above.Show it",
+    ]);
+    // The finished one between them is a full card.
+    expect(within(transcriptEl()).getByRole("group", { name: "Playtest Done" })).toBeTruthy();
   });
 
   it("sums up in words", () => {
