@@ -207,6 +207,11 @@ export class QaBroker {
     return this.runs.get(runId);
   }
 
+  /** Every run and draft this process knows, in every session and none. */
+  all(): QaRun[] {
+    return [...this.runs.values()];
+  }
+
   /** Runs no Studio session started, which the chat shows wherever it is open. */
   unowned(): QaRun[] {
     return [...this.runs.values()].filter((r) => !r.sessionId && !this.dismissed.has(r.runId));
