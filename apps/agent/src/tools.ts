@@ -17,7 +17,7 @@ import { CHANGING_TOOLS, isLocalTool, localToolDefinitions, runLocal, validateLo
 import { firstFailedStep, type OperationStep } from "./operation-result.js";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type ToolImage } from "./images.js";
 import { compactDescribe, compactSearch } from "./discovery.js";
-import { compactJson } from "./model-text.js";
+import { compactJson, keepForModel, saveResult } from "./model-text.js";
 
 /** The part of the daemon's extension API the agent uses, so tests can stand in for it. */
 export interface AgentHost {
@@ -283,7 +283,7 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     saved = named.length > 0 ? named : ["*"];
   }
   const images = r.isError ? [] : await resultImages(host.projectDir, r, startedAt);
-  const modelText = compactJson(text);
+  const modelText = keepForModel(compactJson(text), () => saveResult(host.dataDir, `${category}.${method}`, text));
   return {
     text, isError: r.isError, outcome: r.isError ? "error" : "done", touched, saved,
     ...(modelText !== text ? { modelText } : {}), ...(changed ? { changed } : {}), ...(images.length ? { images } : {}),
