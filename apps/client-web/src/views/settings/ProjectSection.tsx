@@ -79,7 +79,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
 
       <Card label="MCP clients">
         {clients.length === 0 && <p className="cfg-note">No other MCP client is configured for this project.</p>}
-        {!inEditor() && <p className="cfg-note">The MCP clients, native Unreal tools and skills set up for this project are changed from Studio inside the editor. Changing them runs ue-mcp init, which needs the editor.</p>}
+        {!inEditor() && <p className="cfg-note">Change the MCP clients, native Unreal tools and skills set up for this project from Studio's panel in the editor. Changing them runs ue-mcp init, which needs the editor.</p>}
         {clients.map((c) => (
           <div key={c.id} className="toggle-row inline">
             <span className="dot ok" style={{ marginTop: 6 }} />

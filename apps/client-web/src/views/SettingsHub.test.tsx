@@ -47,7 +47,7 @@ describe("Settings sections", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Approvals & review/ }));
     expect(onSection).toHaveBeenCalledWith("approvals");
     rerender(<SettingsHub daemon={daemon} section="approvals" onSection={onSection} onTheme={vi.fn()} narrow />);
-    fireEvent.click(screen.getByRole("button", { name: /Settings$/ }));
+    fireEvent.click(screen.getByRole("button", { name: /All settings$/ }));
     expect(onSection).toHaveBeenLastCalledWith(null);
   });
 

@@ -49,10 +49,12 @@ describe("Agents: what each vendor's own files give its models", () => {
   it("opens on the main agent's convention, says who reads it, and lists each kind with its source", async () => {
     await show();
     const tabs = screen.getByRole("navigation", { name: "Whose files" });
-    // Connected first, then the rest, each group by tool name: no vendor leads by default.
-    expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Claude Code1", "Codex4", "AGENTS.md0", "Gemini CLI0"]);
+    // One fixed order in every state; a dot, not the position, marks what a route reads.
+    expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Claude Code1", "Codex4", "Gemini CLI0", "AGENTS.md0"]);
+    expect([...tabs.querySelectorAll("button")].map((b) => !!b.querySelector(".dot"))).toEqual([true, true, false, false]);
     expect(tabs.querySelector("[aria-current=page]")?.textContent).toBe("Codex4");
-    expect(screen.getByText(/In use: ChatGPT sign-in, OpenAI key, the main agent's route\./)).toBeTruthy();
+    expect(screen.getByText(/In use: ChatGPT sign-in, OpenAI key, the main agent's route\. Studio reads these files the way Codex does\./)).toBeTruthy();
+    expect(screen.getByText("Project")).toBeTruthy();
     expect(screen.getByText("AGENTS.md is past Codex's 32 KiB limit for instruction files, so it is not read.")).toBeTruthy();
     expect(screen.getByText("scout")).toBeTruthy();
     expect(screen.getByText("gpt-6-luna").closest("dd")?.textContent).toBe("6 Luna (file says gpt-6-luna)");
@@ -70,7 +72,7 @@ describe("Agents: what each vendor's own files give its models", () => {
   it("says where each vendor would read files a project does not have yet", async () => {
     await show();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^Gemini CLI/ })));
-    expect(screen.getByText(/None found\. Gemini CLI reads a GEMINI\.md in the project folder\./)).toBeTruthy();
+    expect(screen.getByText(/None found in any of those places\. The usual one is a GEMINI\.md in the project folder\./)).toBeTruthy();
     expect(screen.getByText(/Not in use: no route for these models is connected\./)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Connect one in Models & accounts" })).toBeTruthy();
   });
@@ -99,11 +101,11 @@ describe("Agents: what each vendor's own files give its models", () => {
   it("selects no vendor's files when nothing is connected, and lists what each has", async () => {
     const none = overview({ main: null, conventions: overview().conventions.map((c) => ({ ...c, routes: [] })) });
     await show({}, none);
-    const tabs = screen.getByRole("navigation", { name: "Whose files" });
-    expect(tabs.querySelector("[aria-current=page]")).toBeNull();
-    expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["AGENTS.md0", "Claude Code1", "Codex4", "Gemini CLI0"]);
+    // No tab strip until one is chosen: the summary is the one way in.
+    expect(screen.queryByRole("navigation", { name: "Whose files" })).toBeNull();
     expect(screen.getByText(/For OpenAI models: 2 instruction files, 1 subagent, 1 skill\./)).toBeTruthy();
-    await act(async () => void fireEvent.click(screen.getAllByRole("button", { name: "Show" })[2]));
+    await act(async () => void fireEvent.click(screen.getAllByRole("button", { name: "Show" })[1]));
+    const tabs = screen.getByRole("navigation", { name: "Whose files" });
     expect(tabs.querySelector("[aria-current=page]")?.textContent).toBe("Codex4");
   });
 

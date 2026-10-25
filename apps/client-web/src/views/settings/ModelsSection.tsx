@@ -29,10 +29,13 @@ export function ModelsSection() {
   };
   useEffect(refresh, []);
   if (!settings) return <>{msg.node ?? <p className="muted">Loading</p>}</>;
-  /** One order on every card: what is connected first, then by name. */
-  const byConnected = <T extends ProviderId>(ids: readonly T[], name: (id: T) => string): T[] =>
-    [...ids].sort((a, b) => Number(!!settings.connected[b]) - Number(!!settings.connected[a]) || name(a).localeCompare(name(b)));
-  const runsAny = (v: ModelCatalog["providers"][number]): boolean => v.connected || v.models.some((m) => m.signIns.some((s) => catalog?.signedIn[s]));
+  /** One vendor order on every card and every state; the dot, not the position, says what is connected. */
+  const vendorRank = (id: ProviderId): number => {
+    const v = (KEY_PROVIDER_IDS as readonly string[]).includes(id) ? id : SIGN_IN_VENDOR[id as SignInId];
+    const i = (KEY_PROVIDER_IDS as readonly string[]).indexOf(v ?? "");
+    return i < 0 ? KEY_PROVIDER_IDS.length : i;
+  };
+  const byVendor = <T extends ProviderId>(ids: readonly T[]): T[] => [...ids].sort((a, b) => vendorRank(a) - vendorRank(b));
   const keyOnly = KEY_PROVIDER_IDS.filter((v) => !OFFERED_SIGN_INS.some((s) => SIGN_IN_VENDOR[s] === v)).map((v) => PROVIDERS[v].name);
   return (
     <>
@@ -41,12 +44,12 @@ export function ModelsSection() {
       <div className="cfg-cols">
         <Card label="Sign-ins">
           <p className="cfg-note">A sign-in runs its vendor's models on your plan, and is used before a key.</p>
-          {byConnected(OFFERED_SIGN_INS, (p) => ROUTE_NAME[p]).map((p) => <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={msg.fail} />)}
+          {byVendor(OFFERED_SIGN_INS).map((p) => <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={msg.fail} />)}
           {keyOnly.length > 0 && <p className="cfg-note">{keyOnly.join(" and ")} {keyOnly.length === 1 ? "has" : "have"} no sign-in: {keyOnly.length === 1 ? "its" : "their"} models run on a key.</p>}
         </Card>
         <Card label="API keys">
           <p className="cfg-note">Optional. A model runs on your key only when no sign-in runs it. Keys stay on this machine and serve every project.</p>
-          {byConnected(KEY_PROVIDER_IDS, (p) => PROVIDERS[p].name).map((p) => <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={msg.fail} />)}
+          {byVendor(KEY_PROVIDER_IDS).map((p) => <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={msg.fail} />)}
         </Card>
       </div>
       <Card label="Models">
@@ -56,7 +59,7 @@ export function ModelsSection() {
               <tr><th>Model</th><th>Routes, in the order they are tried</th><th className="r">On this machine</th></tr>
             </thead>
             <tbody>
-              {[...(catalog?.providers ?? [])].sort((a, b) => Number(runsAny(b)) - Number(runsAny(a)) || a.name.localeCompare(b.name)).flatMap((v) => v.models.map((m) => {
+              {[...(catalog?.providers ?? [])].sort((a, b) => vendorRank(a.id) - vendorRank(b.id)).flatMap((v) => v.models.map((m) => {
                 const routes: Array<{ id: SignInId | "key"; on: boolean }> = [...m.signIns.map((s) => ({ id: s, on: !!catalog!.signedIn[s] })), { id: "key" as const, on: v.connected }];
                 const runs = routes.find((r) => r.on);
                 return (

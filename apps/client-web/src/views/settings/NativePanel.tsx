@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { CONVENTION_INFO, type Convention, type NativeFile, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
+import { CONVENTIONS, CONVENTION_INFO, type Convention, type NativeFile, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { Card, tokens, useMessage } from "./controls";
 
@@ -32,10 +32,9 @@ function OpenFile({ path, onError }: { path: string; onError: (e: Error) => void
 
 const count = (v: NativeView) => v.instructions.length + v.subagents.length + v.skills.length;
 
-/** Tabs by convention: those a connected route reads first, then the rest, each group by tool name. */
+/** Tabs in one fixed order, the vendors' order everywhere in Settings; a dot marks those a route reads. */
 export function conventionOrder(o: NativeOverview): NativeView[] {
-  const rank = (v: NativeView) => (v.convention === o.main || v.routes.length ? 0 : 1);
-  return [...o.conventions].sort((a, b) => rank(a) - rank(b) || CONVENTION_INFO[a.convention].tool.localeCompare(CONVENTION_INFO[b.convention].tool));
+  return [...o.conventions].sort((a, b) => CONVENTIONS.indexOf(a.convention) - CONVENTIONS.indexOf(b.convention));
 }
 
 /** The tab open first: the main agent's convention, else one a route reads, else none. */
@@ -61,13 +60,23 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
   }, [view?.convention]);
   return (
     <>
-      <nav className="subtabs scroll-tabs" aria-label="Whose files">
-        {ordered.map((v) => (
-          <button key={v.convention} className={`subtab ${v.convention === tab ? "active" : ""}`} aria-current={v.convention === tab ? "page" : undefined} title={`The files ${CONVENTION_INFO[v.convention].vendor} read`} onClick={() => setTab(v.convention)}>
-            {CONVENTION_INFO[v.convention].tool}<span className="count">{count(v)}</span>
-          </button>
-        ))}
-      </nav>
+      {view && (
+        <>
+          <nav className="subtabs scroll-tabs tabs-wide" aria-label="Whose files">
+            {ordered.map((v) => (
+              <button key={v.convention} className={`subtab ${v.convention === tab ? "active" : ""}`} aria-current={v.convention === tab ? "page" : undefined} title={`The files ${CONVENTION_INFO[v.convention].vendor} read`} onClick={() => setTab(v.convention)}>
+                {v.routes.length > 0 && <span className="dot ok" aria-label="read by a connected route" />}{CONVENTION_INFO[v.convention].tool}<span className="count">{count(v)}</span>
+              </button>
+            ))}
+          </nav>
+          <label className="tabs-narrow tab-select">
+            <span className="muted small">Whose files</span>
+            <select value={view.convention} onChange={(e) => setTab(e.target.value as Convention)} aria-label="Whose files">
+              {ordered.map((v) => <option key={v.convention} value={v.convention}>{CONVENTION_INFO[v.convention].tool} ({count(v)}){v.routes.length ? ", in use" : ""}</option>)}
+            </select>
+          </label>
+        </>
+      )}
       {msg.node}
       {view ? <ConventionView view={view} main={overview.main} preview={preview} onConnect={onConnect} onError={msg.fail} /> : (
         <Card label="Found in this project">
@@ -97,6 +106,8 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
   const info = CONVENTION_INFO[view.convention];
   const sdk = preview?.loadedBy === "sdk";
   const inUse = view.routes.length > 0;
+  const scoped = view.instructions.filter((f) => f.scope.kind !== "always").reduce((n, f) => n + f.tokens, 0);
+  const files = preview ? `${preview.files} file${preview.files === 1 ? "" : "s"}` : "";
   return (
     <>
       <p className="muted small">
@@ -105,13 +116,14 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
       <p className="cfg-status">
         <span className={`dot ${inUse ? "ok" : ""}`} aria-hidden />
         {inUse
-          ? <>In use: {view.routes.join(", ")}{view.convention === main ? ", the main agent's route" : ""}.{sdk ? " The Agent SDK loads these files itself." : ""}</>
-          : <>Not in use: no route for these models is connected. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></>}
+          ? <span>In use: {view.routes.join(", ")}{view.convention === main ? ", the main agent's route" : ""}. {sdk ? "The Agent SDK loads these files itself, as Claude Code does." : `Studio reads these files the way ${info.tool === "AGENTS.md" ? "agents that read AGENTS.md do" : `${info.tool} does`}.`}</span>
+          : <span>Not in use: no route for these models is connected. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></span>}
       </p>
       {view.notes.map((n) => <div key={n} className="banner warn small">{n}</div>)}
 
-      <Card label={view.instructions.length ? `Instruction files · ${tokens(view.instructionTokens)} tokens per call` : "Instruction files"}>
-        {view.instructions.length === 0 && <p className="cfg-note">None found. {info.tool} reads a {INSTRUCTION_FILE[view.convention]} in the project folder.</p>}
+      <Card label={view.instructions.length ? `Instruction files · ${tokens(view.instructionTokens)} tokens on every call` : "Instruction files"}>
+        {scoped > 0 && <p className="muted small">Up to {tokens(view.instructionTokens + scoped)} with the files that apply only to some paths or folders.</p>}
+        {view.instructions.length === 0 && <p className="cfg-note">None found in any of those places. The usual one is a {INSTRUCTION_FILE[view.convention]} in the project folder.</p>}
         <ol className="ifiles">
           {view.instructions.map((f, i) => (
             <li key={f.path}>
@@ -126,7 +138,7 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
         </ol>
         {preview?.text && (
           <details className="cfg-note">
-            <summary>{sdk ? `What the Agent SDK loads, as Claude Code loads it (${preview.files} file${preview.files === 1 ? "" : "s"})` : `What Studio gives an agent from these files (${preview.files} file${preview.files === 1 ? "" : "s"})`}</summary>
+            <summary>{sdk ? `What the Agent SDK loads, as Claude Code loads it (${files})` : `What ${info.vendor} are given from these files (${files})`}</summary>
             <pre className="code">{preview.text}</pre>
           </details>
         )}
@@ -138,7 +150,7 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
           {view.subagents.map((a) => (
             <li key={a.path}>
               <div className="ifile-main">
-                <div><strong>{a.name}</strong> <span className="muted small">{a.description}</span></div>
+                <div><strong>{a.name}</strong> <span className="tag">{SOURCE[a.source]}</span> <span className="muted small">{a.description}</span></div>
                 <dl className="fields">
                   <dt>Model</dt><dd>{a.runs.model}{a.model ? <> (file says <code>{a.model}</code>)</> : null}</dd>
                   <dt>Tools</dt><dd>{a.tools}</dd>

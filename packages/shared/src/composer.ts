@@ -49,11 +49,11 @@ export type InstructionScope =
 
 /**
  * What a budget counts, everywhere: input + cache writes + output. Cached
- * reads are excluded (every vendor bills them far below fresh input) and
+ * reads are excluded (vendors that cache bill them well below fresh input) and
  * reported separately in Usage.
  */
 export const BUDGET_DEFINITION =
-  "Budgets count input, cache writes and output. Cached reads are left out, because every vendor bills them far below fresh input. A run is one turn of the main agent's own calls, or one assigned playtest with every attempt in it.";
+  "Budgets count input, cache writes and output. Cached reads are left out, because vendors that cache bill them well below fresh input. A run is one turn of the main agent's own calls, or one assigned playtest with every attempt in it.";
 
 export type BudgetLimitAction = "stop-and-report" | "ask" | "fallback-model";
 

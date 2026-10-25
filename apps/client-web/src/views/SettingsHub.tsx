@@ -152,7 +152,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
       </nav>
       {open && (
         <div className="cfg-content">
-          <button className="ghost cfg-back" onClick={() => onSection(null)}>{"‹"} Settings</button>
+          <button className="ghost cfg-back" onClick={() => onSection(null)}>{"‹"} All settings</button>
           {body}
         </div>
       )}
