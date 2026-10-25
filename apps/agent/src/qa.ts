@@ -8,6 +8,7 @@
  *   POST   /qa/runs/:id/assign          hand the playtest to a subagent loop: { sessionId? } for a run started elsewhere
  *   DELETE /qa/runs/:id/assign          cancel the loop
  *   POST   /qa/runs/:id/loop/revert     revert the loop's changes: { attempt? }, every attempt's when none is named
+ *   POST   /qa/runs/:id/stop            Stop on a live card: pie(script_stop)
  *   POST   /qa/runs/:id/run             Start Playtest on a draft's card: { startPie?, players?, listen?, record? }
  *   PUT    /qa/runs/:id/script          Edit on a draft's card: { steps }, saved with pie(script_update)
  *   DELETE /qa/runs/:id/script          Delete on a draft's card: pie(script_delete)
@@ -608,6 +609,18 @@ export class QaBroker {
     return { run: this.runs.get(saved.runId) ?? saved, outcome };
   }
 
+  /** Stop on a live card: pie(script_stop) ends the run, its unsettled steps left pending. */
+  async stopRun(runId: string): Promise<{ run: QaRun } | { error: string; status: number }> {
+    const run = this.runs.get(runId);
+    if (!run || qaIsDraft(run) || qaEnded(run.state)) return { error: "only a run that is going can be stopped", status: 409 };
+    if (run.assignment?.state === "running") return { error: "a subagent is running this playtest: cancel it instead", status: 409 };
+    const r = await this.o.host.callAction("pie", "script_stop", { run_id: runId, reason: "Stopped from its card" });
+    const error = failure(r, json(r));
+    if (error) return { error, status: 409 };
+    const read = await this.status(runId).catch(() => null);
+    return { run: (read && "run" in read && read.run) || this.runs.get(runId) || run };
+  }
+
   /** Stop the loop, or the subagent, a playtest is assigned to. */
   cancel(runId: string): { run: QaRun } | { error: string; status: number } {
     const run = this.runs.get(runId);
@@ -780,6 +793,10 @@ export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?:
   });
   api.route("DELETE", "/qa/runs/:id/assign", (req) => {
     const r = broker.cancel(id(req));
+    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("POST", "/qa/runs/:id/stop", async (req) => {
+    const r = await broker.stopRun(id(req));
     return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
   });
   api.route("POST", "/qa/runs/:id/run", async (req) => {

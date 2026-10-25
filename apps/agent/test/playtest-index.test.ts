@@ -229,3 +229,29 @@ describe("the routes", () => {
     expect(card.body.run.runId).toBe(qaDraftId(DOOR));
   });
 });
+
+describe("Stop on a live card", () => {
+  it("ends the run with pie(script_stop) and answers with the run read again", async () => {
+    const { broker, run } = setup();
+    const s = store.create("S");
+    await run(s.id, runAnswer("jump_live", JUMP, "running", ["running", "pending"]));
+    next = null;
+    const r = await broker.stopRun("jump_live");
+    expect(calls.find((c) => c.action === "script_stop")?.args).toEqual({ run_id: "jump_live", reason: "Stopped from its card" });
+    expect(calls.some((c) => c.action === "script_status")).toBe(true);
+    expect(r).toMatchObject({ run: { runId: "jump_live" } });
+  });
+
+  it("refuses a run that ended, a draft, and one a subagent runs", async () => {
+    const { broker, run } = setup();
+    const s = store.create("S");
+    await run(s.id, runAnswer("done", JUMP, "finished", ["passed", "passed"]));
+    expect(await broker.stopRun("done")).toMatchObject({ status: 409 });
+    const draft = await broker.drafted(s.id, { path: DOOR, name: "DoorOpens", steps: [{ instruction: "x", judge: "manual" }] });
+    expect(await broker.stopRun(draft!.runId)).toMatchObject({ status: 409 });
+    await run(s.id, runAnswer("looped", NEW, "running", ["running", "pending"]));
+    broker.get("looped")!.assignment = { callId: "c", sessionId: s.id, state: "running", at: "" };
+    expect(await broker.stopRun("looped")).toMatchObject({ status: 409, error: expect.stringContaining("cancel") });
+    expect(calls.some((c) => c.action === "script_stop")).toBe(false);
+  });
+});
