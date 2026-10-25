@@ -839,7 +839,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-status.bad { color: var(--bad); }
 .qa-status.warn { color: var(--warn); font-weight: 600; }
 .qa-status.run { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-.qa-status[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+.qa-status[title] { cursor: help; }
 .qa-expect, .qa-evidence, .qa-note, .qa-verdict { margin-left: calc(1.6em + 8px); }
 .qa-evidence { color: var(--bad-text); white-space: pre-wrap; }
 .qa-note { color: var(--muted); font-style: italic; }
@@ -889,7 +889,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 }
 .bar-menu-button { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 38px; padding: 0; color: var(--text); }
 .bar-menu-button .tab-dot { position: absolute; top: 8px; right: 8px; margin: 0; }
-.bar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15px/1 var(--sans); }
+.bar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 600 15px/1.3 var(--sans); }
 
 .drawer-root { position: fixed; inset: 0; z-index: 70; visibility: hidden; transition: visibility 0s linear 240ms; }
 .drawer-root.open { visibility: visible; transition: none; }
@@ -1222,32 +1222,29 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
    Chrome 90: no color-mix, :has or container queries here. */
 .qa-card.collapsed { padding: 10px 12px; gap: 6px; }
 .qa-by { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pill.run { color: var(--accent); border-color: var(--accent-line); }
+/* Running is not a call to act: a neutral pill, so the warm Needs you stands alone. */
+.pill.run { color: var(--text); border-color: var(--line-strong); }
 .qa-card button.small-button, .playtest-strip button.small-button, .playtests-page button.small-button { min-height: 26px; padding: 0 9px; }
 .qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible, .composer-checkpoints:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .qa-start { display: inline-flex; align-items: stretch; flex-shrink: 0; }
 .qa-start > button.primary { border-radius: var(--radius) 0 0 var(--radius); }
 .qa-card .qa-start > button.qa-start-options { display: inline-flex; align-items: center; padding: 0 7px; margin-left: -1px; border-radius: 0 var(--radius) var(--radius) 0; color: var(--muted); }
 .qa-card .qa-start > button.qa-start-options:hover:not(:disabled) { color: var(--text); }
-.qa-hide { font-size: 14px; line-height: 1; }
 .qa-compact { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .qa-compact-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 .qa-compact-line .qa-meta::before { content: "\B7"; margin-right: 8px; }
 .qa-meta { overflow-wrap: anywhere; }
-/* Dense, on the strip: the path sits in the head row, between the title and the state. */
-.qa-head-path { flex: 1 1 160px; min-width: 120px; }
+/* Narrow, a card's line stacks its summary over where and when it ran. */
 @media (max-width: 760px) {
-  .qa-card.dense .qa-head-path { order: 10; flex-basis: 100%; }
   .qa-compact-line { flex-direction: column; gap: 2px; }
   .qa-compact-line .qa-meta::before { content: none; }
 }
-@media (min-width: 761px) { .qa-card.dense .qa-toggle { min-width: 220px; } }
 @keyframes qa-glow { 50% { opacity: 0.55; } }
 
 /* One bar per step. The button is the hit area; the bar is drawn inside it. A manual step's bar has a pip over it. */
 .qa-path { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; width: 100%; }
 .qa-path-step { flex: 1 1 0; min-width: 6px; position: relative; }
-.qa-path-hit { display: block; position: relative; width: 100%; height: 20px; min-height: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; cursor: pointer; }
+.qa-path-hit { display: block; position: relative; width: 100%; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; cursor: pointer; }
 span.qa-path-hit { cursor: default; }
 button.qa-path-hit:hover:not(:disabled) { background: transparent; border: 0; }
 .qa-path-hit::before { content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 6px; border-radius: 3px; background: var(--line-strong); transition: top 0.12s, height 0.12s; }
@@ -1288,7 +1285,7 @@ button.strip-head:hover:not(:disabled) { background: none; border: 0; }
 .playtest-strip.many { padding-top: 4px; }
 
 /* A live playtest's place in the transcript while its card is on the strip. */
-.qa-pinned { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0; padding: 2px 10px; border-left: 2px solid var(--accent-line); color: var(--muted); }
+.qa-pinned { display: flex; align-items: baseline; gap: 8px; flex-wrap: nowrap; margin: 0; padding: 2px 10px; border-left: 2px solid var(--accent-line); color: var(--muted); }
 .qa-pinned-mark { color: var(--accent); }
 .qa-pinned-text { flex: 0 1 auto; min-width: 0; }
 
@@ -1317,20 +1314,21 @@ button.filter-chip.attention .filter-count { color: var(--warn); font-weight: 70
 }
 .qa-meta-session { display: inline-block; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; color: var(--muted); }
 @media (max-width: 760px) {
-  h1.playtests-title { display: none; }
   .playtests-page { padding: 4px 4px 12px; }
   .qa-meta-session { max-width: 100%; }
 }
 /* Review pass: the step path reads without colour, the strip has an edge, the editor themes keep card edges. */
-.qa-path-hit::before { top: 7px; height: 8px; }
-button.qa-path-hit:hover::before, button.qa-path-hit:focus-visible::before { top: 5px; height: 12px; }
-.qa-path-step.manual .qa-path-hit::after { top: 0; width: 6px; height: 6px; margin-left: -3px; background: var(--text); opacity: 0.75; }
+.qa-path-hit::before { top: 12px; height: 8px; }
+button.qa-path-hit:hover::before, button.qa-path-hit:focus-visible::before { top: 10px; height: 12px; }
+.qa-path-step.manual .qa-path-hit::after { top: 1px; width: 6px; height: 6px; margin-left: -3px; background: var(--text); opacity: 0.75; }
 .qa-chevron { color: var(--text); opacity: 0.7; }
 .playtests-row .qa-kind.plain, .qa-card.dense .qa-kind.plain { display: none; }
 .playtest-strip { border-bottom: 2px solid var(--line-strong); }
 button.strip-more { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 :root[data-theme="editor"] .qa-card:not(.needs-you):not(.state-awaiting_verdict),
 :root[data-theme="editor-orange"] .qa-card:not(.needs-you):not(.state-awaiting_verdict) { border-color: var(--line-strong); }
+:root[data-theme="editor"] .qa-card.needs-you, :root[data-theme="editor"] .qa-card.state-awaiting_verdict,
+:root[data-theme="editor-orange"] .qa-card.needs-you, :root[data-theme="editor-orange"] .qa-card.state-awaiting_verdict { border-color: var(--warn); }
 :root[data-theme="editor"] .qa-card .pill, :root[data-theme="editor-orange"] .qa-card .pill,
 :root[data-theme="editor"] .playtests-page .pill, :root[data-theme="editor-orange"] .playtests-page .pill { font: 400 11px/1.6 var(--sans); }
 /* The strip draws over the transcript's top edge, so a clipped transcript card never reads as part of it. */
@@ -1341,7 +1339,7 @@ button.strip-more { align-self: flex-start; max-width: 100%; overflow: hidden; t
 /* An open card on the strip keeps its head in view: its steps scroll inside it. */
 .playtest-strip .qa-card.open .qa-body { max-height: 34vh; overflow-y: auto; padding-right: 6px; }
 /* The transcript fades in under the strip, so a line cut by its edge reads as scrolled, not broken. */
-.playtest-strip + .thread-stage::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 18px; z-index: 3; pointer-events: none; background: linear-gradient(var(--panel), transparent); }
+.playtest-strip + .thread-stage::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 40px; z-index: 3; pointer-events: none; background: linear-gradient(var(--panel) 25%, transparent); }
 .qa-card button.small-button, .playtests-page button.small-button { font-size: 11px; letter-spacing: 0; }
 button.strip-more { white-space: normal; text-align: left; }
 .strip-more-state { color: var(--muted); }
@@ -1349,18 +1347,112 @@ button.strip-more { white-space: normal; text-align: left; }
 /* Third review pass. Running reads apart from waiting by more than a warm hue; skipped stays visible. */
 .qa-path-step.run .qa-path-hit::before { background: var(--text); opacity: 0.85; }
 .qa-path-step.skipped .qa-path-hit::before { box-shadow: inset 0 0 0 1.5px var(--muted); }
-/* Steps scrolled inside an open strip card show that more is below. */
-.playtest-strip .qa-card.open .qa-body {
-  background:
-    linear-gradient(var(--panel), var(--panel)) 0 100% / 100% 16px no-repeat local,
-    linear-gradient(transparent, rgba(255, 255, 255, 0.14)) 0 100% / 100% 16px no-repeat scroll;
-}
 @media (max-width: 760px) {
   .playtest-strip { max-height: 48vh; }
   .playtest-strip .qa-card.open .qa-body { max-height: 26vh; }
 }
-.qa-card.offline .pill { opacity: 0.6; }
-button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 2px 8px; }
+button.strip-more { line-height: 1.4; padding: 2px 8px; }
+.strip-more > span { white-space: nowrap; }
 /* Fourth review pass: a waiting bar stands taller than the rest; focus rings stand off the control. */
-.qa-path-step.warn .qa-path-hit::before { top: 4px; height: 14px; }
+.qa-path-step.warn .qa-path-hit::before { top: 10px; height: 12px; }
 .qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-offset: 2px; }
+/* Each card's actions where it is drawn. Outside the page's rows and the strip's box, these wrappers only group. */
+.qa-states, .qa-actions, .qa-slot { display: contents; }
+.qa-last-known { color: var(--text); font-weight: 600; }
+/* On the page every action has a slot of its own width, so the buttons stand in the same columns on every row. */
+.qa-card.slotted, .qa-card.slotted.open { padding: 10px 12px; }
+.qa-card.slotted .qa-head { flex-wrap: nowrap; }
+.qa-card.slotted .qa-states { display: flex; align-items: center; justify-content: flex-start; gap: 6px; width: 12rem; margin-left: auto; }
+.qa-card.slotted .qa-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.qa-card.slotted .qa-slot { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.qa-card.slotted .qa-slot-run { width: 9rem; }
+.qa-card.slotted .qa-slot-assign { width: 9.5rem; }
+@media (max-width: 760px) {
+  .qa-card.slotted .qa-head { flex-wrap: wrap; }
+  .qa-card.slotted .qa-actions { order: 10; flex-basis: 100%; flex-wrap: wrap; row-gap: 6px; }
+  /* Narrow, the row's buttons pack from the left under its title. */
+  .qa-card.slotted .qa-states { width: auto; }
+  .qa-card.slotted .qa-slot-run, .qa-card.slotted .qa-slot-assign { width: auto; }
+  .qa-card.slotted .qa-slot:empty { display: none; }
+}
+/* On the strip a card always has one box under its head: the step it is on, or the one that needs you, with the card's own buttons at its end. */
+.qa-now { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
+.qa-now .qa-answer-step { flex: 1 1 200px; }
+.qa-now .qa-num { color: var(--muted); }
+.qa-now-row { display: flex; align-items: center; gap: 6px; min-height: 26px; }
+.qa-now-status { display: inline-flex; align-items: center; min-height: 26px; color: var(--muted); font: 500 11px/1 var(--mono); white-space: nowrap; }
+.qa-box-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.qa-answer .qa-verdict { flex-wrap: nowrap; }
+.qa-card.dense .qa-answer-step, .qa-card.dense .qa-answer.needs .qa-answer-text { min-width: 0; }
+.qa-card.dense .qa-answer-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-card.dense .qa-verdict { min-height: 26px; }
+@media (min-width: 761px) {
+  .qa-now-row { margin-left: auto; }
+  /* Stop stands apart from a step's verdicts. */
+  .qa-answer .qa-box-actions { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--line-strong); }
+}
+@media (max-width: 760px) {
+  .qa-card.dense .qa-answer, .qa-card.dense .qa-now { flex-direction: column; align-items: stretch; flex-wrap: nowrap; }
+  .qa-card.dense .qa-answer-step, .qa-card.dense .qa-answer.needs .qa-answer-text { flex: 0 0 auto; }
+  .qa-card.dense .qa-verdict, .qa-card.dense .qa-now-row { width: 100%; }
+}
+/* An open card's steps on the strip scroll inside it: a row over and under them says how many are out of view. */
+.qa-body-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.playtest-strip .qa-card.open .qa-body { position: relative; }
+button.qa-scroll-cue { align-self: stretch; min-height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); color: var(--muted); font: 500 11px/1 var(--sans); letter-spacing: 0; text-align: center; }
+button.qa-scroll-cue:hover:not(:disabled) { border-color: var(--accent); color: var(--text); background: var(--panel-2); }
+button.qa-scroll-cue:disabled { visibility: hidden; }
+/* At 380 px with more than one that needs you, the strip takes the room they need. */
+@media (max-width: 760px) { .playtest-strip.needs-you { max-height: 55vh; } }
+/* Playtests side by side in the transcript share one pointer to the strip. */
+.qa-pinned-names { color: var(--text); }
+.qa-pinned-text { flex: 0 1 auto; min-width: 0; }
+.qa-pinned > button { flex-shrink: 0; }
+/* At 380 px the session's name opens its card: a link in the row's line, where Open in session has no room. */
+button.qa-meta-session.link { display: inline-flex; align-items: baseline; gap: 4px; height: auto; min-height: 0; max-width: 100%; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; letter-spacing: 0; text-align: left; cursor: pointer; vertical-align: bottom; }
+button.qa-meta-session.link:hover:not(:disabled) { background: none; border: 0; color: var(--text); }
+.qa-meta-session-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-underline-offset: 3px; }
+/* On the strip an open card's other action sits under its steps, not in its head. */
+.qa-more-actions { display: flex; gap: 6px; padding-top: 2px; }
+/* The step path's marks: what each means, and a step a run that ended never reached. */
+.qa-path-step.unrun .qa-path-hit::before { background: repeating-linear-gradient(90deg, var(--line-strong) 0 3px, transparent 3px 6px); box-shadow: none; }
+.qa-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); }
+.qa-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.qa-legend-mark { display: inline-block; width: 18px; height: 8px; border-radius: 3px; background: var(--line-strong); }
+.qa-legend-mark.ok { background: var(--ok); }
+.qa-legend-mark.bad { background: repeating-linear-gradient(135deg, var(--bad) 0 3px, transparent 3px 5px); box-shadow: inset 0 0 0 1.5px var(--bad); }
+.qa-legend-mark.warn { background: var(--warn); }
+.qa-legend-mark.run { background: var(--text); opacity: 0.85; }
+.qa-legend-mark.skipped { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.qa-legend-mark.unrun { background: repeating-linear-gradient(90deg, var(--line-strong) 0 3px, transparent 3px 6px); }
+.qa-legend-pip { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--text); opacity: 0.75; }
+/* A step's tag and status stand in columns of their own, clear of the list's right edge. */
+.qa-step { padding-right: 8px; }
+.qa-judge { min-width: 4.5em; text-align: right; }
+.qa-status { min-width: 5.5em; text-align: right; }
+/* Focus is drawn in the text colour, so it never reads as the warm Needs you edge; on a step it rings the bar, not its hit area. */
+.qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-color: var(--text); }
+button.qa-path-hit:focus-visible { outline: none; }
+button.qa-path-hit:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+/* A session's name in a row's line is the way to its card there. */
+@media (min-width: 761px) { .qa-meta-session-name { max-width: 30ch; } }
+@media (max-width: 760px) { .qa-meta-session-name { max-width: 16ch; } }
+/* A verdict that cannot be given now keeps no colour. */
+.qa-card button.verdict-pass:disabled, .qa-card button.verdict-fail:disabled { border-color: var(--line); }
+.filter-count { font-family: var(--sans); font-variant-numeric: tabular-nums; font-weight: 600; }
+.qa-compact-open { line-height: inherit; vertical-align: baseline; }
+.playtests-empty.card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 18px 20px; }
+.playtests-empty.card p { margin: 0; }
+.playtests-empty code { font-family: var(--mono); color: var(--text); }
+/* At 380 px a pointer line's button goes under its words rather than floating beside them. */
+@media (max-width: 760px) {
+  .qa-pinned { flex-wrap: wrap; }
+  .qa-pinned-text { flex: 1 1 100%; }
+}
+/* The editor themes draw status words in their own sans face, and a loop's reason in their warning colour. */
+:root[data-theme="editor"] .qa-now-status, :root[data-theme="editor-orange"] .qa-now-status { font: 400 12px/1 var(--sans); }
+:root[data-theme="editor"] .qa-answer.needs .qa-answer-text, :root[data-theme="editor-orange"] .qa-answer.needs .qa-answer-text { color: var(--warn); }
+/* At 380 px a card's buttons always take their own row under its title, whatever the face's widths. */
+@media (max-width: 760px) {
+  .qa-card:not(.dense):not(.slotted) .qa-actions { display: flex; order: 10; flex-basis: 100%; flex-wrap: wrap; gap: 6px; }
+}

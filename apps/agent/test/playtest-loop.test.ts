@@ -9,7 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult } from "ue-mcp/daemon";
-import { PLAYTEST_RUNS_REFUSAL, qaRunFromAnswer, type QaLoop, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
+import { PLAYTEST_RUNS_REFUSAL, qaNeedsYou, qaRunFromAnswer, type QaLoop, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { SessionStore } from "../src/sessions.js";
 import { QaBroker, type QaAssigner, type QaHost } from "../src/qa.js";
 import { decide, failingSteps, firstBrief, fixBrief, reportedBlocker } from "../src/playtest-loop.js";
@@ -379,6 +379,21 @@ describe("the hard blockers", () => {
 });
 
 describe("Cancel and revert", () => {
+  it("Cancel loop on a loop that needs the user closes it, keeping its blocker and attempts", async () => {
+    const h = setup([{ run: [OPEN_FAIL, PASS] }, { files: { "Content/BP_Door.uasset": "v2" }, run: [OPEN_FAIL, PASS] }]);
+    await assign(h);
+    await ended(h);
+    expect(qaNeedsYou(h.card())).toBe(true);
+    const r = h.broker.cancel(h.card().runId);
+    expect("run" in r && r.run.assignment?.loop?.state).toBe("stopped");
+    expect(h.loop()).toMatchObject({ state: "stopped", endedAt: "2026-10-24T10:00:00.000Z", blocker: { kind: "no_progress" } });
+    expect(h.loop().attempts).toHaveLength(2);
+    expect(qaNeedsYou(h.card())).toBe(false);
+    expect(h.stops).toEqual([]);
+    // Closed, there is nothing left to cancel.
+    expect("error" in h.broker.cancel(h.card().runId)).toBe(true);
+  });
+
   it("Cancel stops the loop at once and leaves the attempt's checkpoint restorable", async () => {
     const h = setup([{ files: { "Content/BP_Door.uasset": "v2" }, hang: true }]);
     await assign(h);

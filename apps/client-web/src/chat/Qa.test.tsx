@@ -79,15 +79,15 @@ describe("the checklist card", () => {
       ev("script.step_failed", { seq: 5, step: { index: 1, status: "failed", evidence: { value: "Door.OpenAngle", at_start: 0, at_end: 12.5, samples: 130, observed: true } } }),
       ev("script.verdict_requested", { seq: 7, awaiting: [{ index: 2, instruction: "The door opens without a visible pop" }] }),
     );
-    expect(within(step(0)).getByText("Auto pass")).toBeTruthy();
-    const fail = within(step(1)).getByText("Auto fail");
+    expect(within(step(0)).getByText("Passed")).toBeTruthy();
+    const fail = within(step(1)).getByText("Failed");
     expect(fail.getAttribute("title")).toContain("Expected Door.OpenAngle gt 80 within 5000 ms");
     expect(fail.getAttribute("title")).toContain("Door.OpenAngle: 0 at the start, 12.5 at the end, 130 samples");
-    expect(within(step(2)).getByText("Awaiting verdict")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("Waiting for you");
+    expect(within(step(2)).getByText("Needs you")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Needs you");
     // Another run's events change nothing.
     page.push({ ...ev("script.step_failed", { seq: 9, step: { index: 0, status: "failed" } }), data: { runId: "other", seq: 9, step: { index: 0, status: "failed" } } });
-    expect(within(step(0)).getByText("Auto pass")).toBeTruthy();
+    expect(within(step(0)).getByText("Passed")).toBeTruthy();
   });
 
   it("puts Pass, Fail and Skip only on a manual step awaiting its verdict, and Fail asks what went wrong", async () => {
@@ -187,11 +187,11 @@ describe("the checklist card", () => {
       page.update({ streaming: true });
     });
     expect(m.qaStatus).toHaveBeenCalledWith(RUN, 3);
-    expect(within(step(1)).getByText("Auto fail")).toBeTruthy();
-    expect(within(step(2)).getByText("Awaiting verdict")).toBeTruthy();
+    expect(within(step(1)).getByText("Failed")).toBeTruthy();
+    expect(within(step(2)).getByText("Needs you")).toBeTruthy();
     // The stream replays what the daemon still holds: nothing already applied counts twice.
     page.push(ev("script.step_started", { seq: 4, step: { index: 1, status: "running" } }));
-    expect(within(step(1)).getByText("Auto fail")).toBeTruthy();
+    expect(within(step(1)).getByText("Failed")).toBeTruthy();
   });
 
   it("reads the whole run again after a gap in the stream", async () => {
@@ -229,7 +229,7 @@ describe("the checklist card", () => {
     const page = mount(runOf());
     const newer = { ...runOf({ steps: [{ ...STEPS[0], status: "passed" }, STEPS[1], STEPS[2]] }), lastSeq: 3 };
     page.push({ id: nextId++, type: "studio.qa.changed", at: "", data: { runId: RUN, run: newer as unknown as Record<string, unknown> } });
-    expect(within(step(0)).getByText("Auto pass")).toBeTruthy();
+    expect(within(step(0)).getByText("Passed")).toBeTruthy();
   });
 });
 
@@ -274,7 +274,7 @@ describe("assigning the playtest to a subagent", () => {
     const older = { ...running(runOf()), lastSeq: 2 };
     page.push({ id: nextId++, type: "studio.qa.changed", at: "", data: { runId: RUN, run: older as unknown as Record<string, unknown> } });
     expect(screen.getByRole("button", { name: "Cancel the subagent" })).toBeTruthy();
-    expect(within(step(0)).getByText("Auto pass")).toBeTruthy();
+    expect(within(step(0)).getByText("Passed")).toBeTruthy();
   });
 
   it("offers nothing to assign when every step left is a person's", () => {
@@ -330,8 +330,11 @@ describe("the collapsed card", () => {
     expect(bars.map((b) => b.className.split(" ")[1])).toEqual(["ok", "bad", ""]);
     const bar = within(bars[1]).getByRole("button");
     expect(bar.getAttribute("aria-label")).toBe("Step 2, auto, Failed");
-    expect(bar.getAttribute("title")).toBe("2. Open the door (auto): Auto fail");
-    expect(screen.getByText("3 steps: 1 passed, 1 failed")).toBeTruthy();
+    expect(bar.getAttribute("title")).toBe("2. Open the door (auto): Failed");
+    // The step the finished run never reached is marked so, apart from one still to come.
+    expect(bars[2].className).toContain("unrun");
+    expect(within(bars[2]).getByRole("button").getAttribute("title")).toBe("3. " + STEPS[2].instruction + " (" + STEPS[2].judge + "): Not run");
+    expect(screen.getByText("3 steps: 1 passed, 1 failed, 1 not run")).toBeTruthy();
     expect(screen.queryByText("Walk up to the door")).toBeNull();
     // The pill says how it ended in words, not only in colour.
     expect(screen.getAllByRole("status")[0].textContent).toBe("1 failed");
@@ -377,7 +380,7 @@ describe("the collapsed card", () => {
     const steps = STEPS.map((s, i) => ({ ...s, status: i === 2 ? "awaiting_verdict" : "passed" }));
     collapsed(runOf({ state: "awaiting_verdict", steps, awaiting: [2] }));
     expect(screen.getByRole("button", { name: /DoorOpens/, expanded: false })).toBeTruthy();
-    const ask = screen.getByRole("group", { name: "Step 3 waits for your verdict" });
+    const ask = screen.getByRole("group", { name: "Step 3 needs you" });
     expect(within(ask).getByText("The door opens without a visible pop")).toBeTruthy();
     await act(async () => {
       fireEvent.click(within(ask).getByRole("button", { name: "Pass step 3" }));
@@ -398,8 +401,8 @@ describe("the collapsed card", () => {
     const two = [...STEPS, { index: 3, instruction: "The hinge sounds right", judge: "manual", status: "awaiting_verdict", within_ms: 5000 }];
     const steps = two.map((s, i) => ({ ...s, status: i >= 2 ? "awaiting_verdict" : "passed" }));
     collapsed(runOf({ state: "awaiting_verdict", steps, awaiting: [2, 3] }));
-    expect(screen.getByRole("group", { name: "Step 3 waits for your verdict" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "1 more" }));
+    expect(screen.getByRole("group", { name: "Step 3 needs you" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "1 more step needs you" }));
     expect(screen.getByText("The hinge sounds right")).toBeTruthy();
   });
 

@@ -76,10 +76,10 @@ describe("the Playtests page", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
     const meta = (name: string) => row(name).querySelector(".qa-meta")?.textContent;
-    expect(meta("Door")).toBe("Started 3 minutes ago in Doors");
-    expect(row("Door").querySelector(".qa-meta-session")?.getAttribute("title")).toBe("Doors");
+    expect(meta("Door")).toBe("Started 3 minutes ago in Doors↗");
+    expect(row("Door").querySelector(".qa-meta-session")?.getAttribute("title")).toBe("Open the card in Doors");
     expect(meta("Jump")).toBe("Ran 2 hours ago outside Studio");
-    expect(meta("Walk")).toMatch(/^Ran .* in Walking$/);
+    expect(meta("Walk")).toMatch(/^Ran .* in Walking↗$/);
     expect(meta("Fresh")).toBe("Never run");
     expect(within(row("Jump")).getAllByRole("listitem").map((li) => li.className.split(" ")[1])).toEqual(["bad", "ok"]);
   });
@@ -122,12 +122,13 @@ describe("the Playtests page", () => {
     expect(m.qaAssign).toHaveBeenCalledWith(card.runId, null);
   });
 
-  it("opens a playtest's card in its session", () => {
+  it("opens a playtest's card in its session from the session's name", () => {
     const { onOpenSession } = page();
-    fireEvent.click(within(row("Door")).getByRole("button", { name: "Open in session" }));
+    fireEvent.click(within(row("Door")).getByRole("button", { name: "Doors" }));
     expect(onOpenSession).toHaveBeenCalledWith("s1", "w1");
     fireEvent.click(screen.getByRole("button", { name: "Failing 1" }));
-    expect(within(row("Jump")).queryByRole("button", { name: "Open in session" })).toBeNull();
+    // Run outside Studio, it has no session to open.
+    expect(within(row("Jump")).queryByRole("button", { name: /↗|session/ })).toBeNull();
   });
 
   it("opens the full card in place from a step's bar", () => {
@@ -144,6 +145,44 @@ describe("the Playtests page", () => {
     expect(screen.getByText(/Nothing needs you/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Failing 0" }));
     expect(screen.getByText(/No playtest is failing/)).toBeTruthy();
+  });
+
+  it("keeps every row's actions in the same slots, in the same order, whichever it offers", () => {
+    page();
+    fireEvent.click(screen.getByRole("button", { name: "All 4" }));
+    for (const name of ["Door", "Jump", "Walk", "Fresh"]) {
+      const card = row(name);
+      expect(card.className).toContain("slotted");
+      expect([...card.querySelectorAll(".qa-actions > .qa-slot")].map((el) => el.className.replace("qa-slot ", ""))).toEqual(["qa-slot-run", "qa-slot-assign", "qa-slot-extra"]);
+      expect(card.querySelector(".qa-states")).toBeTruthy();
+    }
+    expect(within(row("Walk").querySelector<HTMLElement>(".qa-slot-run")!).getByRole("button", { name: "Run again" })).toBeTruthy();
+    expect(within(row("Jump").querySelector<HTMLElement>(".qa-slot-assign")!).getByRole("button", { name: "Assign to subagent" })).toBeTruthy();
+  });
+
+  it("says its states are the last known while the editor is away, at full strength", () => {
+    page({ playtests: [ENTRIES[0]], listed: false });
+    const card = row("Door");
+    expect(card.querySelector(".qa-compact-summary")!.textContent).toMatch(/^Last known: /);
+    expect(within(card).getByRole("status").textContent).toBe("Needs you");
+    expect((within(card).getByRole("button", { name: "Pass step 2" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("says what each mark on a step path means", () => {
+    page();
+    const legend = screen.getByRole("note", { name: "What the step marks mean" });
+    expect(legend.textContent).toContain("Passed");
+    expect(legend.textContent).toContain("Not run");
+    expect(legend.textContent).toContain("Judged by a person");
+  });
+
+  it("with no playtests at all, says how to make one and goes to Chat", () => {
+    const onChat = vi.fn();
+    render(<PlaytestsView daemon={daemon} index={{ index: { playtests: [], listed: true }, error: null, reload: vi.fn() }} onOpenSession={vi.fn()} onChat={onChat} />);
+    expect(screen.getByText("No playtests yet")).toBeTruthy();
+    expect(screen.getByText("/playtest").tagName).toBe("CODE");
+    fireEvent.click(screen.getByRole("button", { name: "Go to Chat" }));
+    expect(onChat).toHaveBeenCalled();
   });
 
   it("offers no Start Playtest on a script that is gone", () => {

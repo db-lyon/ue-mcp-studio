@@ -8,10 +8,11 @@
  *
  * A pinned run's card in the transcript gives way to one line that points at
  * the strip, so the same card is never on screen twice; it comes back in full
- * when the run ends. A run that just ended stays a few seconds, so its result
- * is seen where it was watched.
+ * when the run ends. Pinned runs side by side in the transcript share one
+ * line. A run that just ended stays a few seconds, so its result is seen
+ * where it was watched.
  */
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { qaActive, qaNeedsYou, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { QaCard, newerRun } from "./Qa";
@@ -142,7 +143,7 @@ const REVEAL = "studio-reveal-playtest";
 export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaRun) => void }) {
   const [folded, setFolded] = useState(false);
   const [all, setAll] = useState(false);
-  // Narrow, one card and the rest named under it; the strip must leave the conversation room.
+  // Narrow, the cards that need the user, or one when none does, and the rest named under them; the strip must leave the conversation room.
   const narrow = useMedia(NARROW);
   const first = narrow ? 1 : STRIP_SHOWN;
   useEffect(() => {
@@ -158,10 +159,10 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
   }, []);
   if (runs.length === 0) return null;
   const many = runs.length > 1;
-  // Wide, every one that needs the user is shown and the rest fill up to the first few. Narrow, one
-  // card, with the rest named below it, those that need the user first and marked.
+  // Every one that needs the user is shown. Wide, the rest fill up to the first few; narrow, a card
+  // is shown only when none needs the user. The rest are named below.
   const you = runs.filter(qaNeedsYou);
-  const shown = all ? runs : narrow ? runs.slice(0, 1) : [...you, ...runs.filter((r) => !qaNeedsYou(r)).slice(0, Math.max(0, first - you.length))];
+  const shown = all ? runs : [...you, ...runs.filter((r) => !qaNeedsYou(r)).slice(0, Math.max(0, first - you.length))];
   const rest = runs.filter((r) => !shown.includes(r));
   return (
     <section className={`playtest-strip ${many ? "many" : ""} ${you.length ? "needs-you" : ""}`} aria-label="Live playtests">
@@ -181,14 +182,14 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
             <button className="small-button strip-more" onClick={() => setAll(true)} aria-label={`Show ${rest.length} more: ${rest.map((r) => r.scriptName).join(", ")}`}>
               Show {rest.length} more:{" "}
               {rest.map((r, i) => (
-                <span key={r.runId}>
+                <Fragment key={r.runId}>
                   {i > 0 && ", "}
-                  {r.scriptName} <span className={`strip-more-state ${qaNeedsYou(r) ? "warn" : ""}`}>({pinnedState(r).replace(/^is /, "")})</span>
-                </span>
+                  <span>{r.scriptName} <span className={`strip-more-state ${qaNeedsYou(r) ? "warn" : ""}`}>({pinnedState(r).replace(/^is /, "")})</span></span>
+                </Fragment>
               ))}
             </button>
           )}
-          {all && runs.length > (narrow ? 1 : Math.max(first, you.length)) && (
+          {all && runs.length > Math.max(first, you.length) && (
             <button className="ghost small-button strip-more" onClick={() => setAll(false)}>Show fewer</button>
           )}
         </div>
@@ -208,17 +209,54 @@ const pinnedState = (r: QaRun): string => (qaNeedsYou(r) ? "needs you" : r.state
 /** The runs on the strip: every id the transcript may hold for one, to the run its card there shows. */
 export const PinnedContext = createContext<ReadonlyMap<string, QaRun>>(new Map());
 
-/** A transcript's qa entry: its full card, or one line pointing at its live card on the strip. */
-export function TranscriptPlaytest({ run }: { run: QaRun }) {
-  const live = useContext(PinnedContext).get(run.runId);
+/**
+ * A transcript's qa entry: its full card, or one line pointing at its live
+ * card on the strip. Pinned runs one after another in the transcript share the
+ * first one's line, which names each of them.
+ */
+export function TranscriptPlaytest({ run, transcript, at = -1 }: { run: QaRun; transcript?: readonly unknown[] | null; at?: number }) {
+  const pinned = useContext(PinnedContext);
+  const live = pinned.get(run.runId);
   if (!live) return <QaCard run={run} />;
+  const pinnedAt = (i: number): QaRun | null => {
+    const e = transcript?.[i] as TranscriptEntry | undefined;
+    return e?.kind === "qa" ? pinned.get(e.run.runId) ?? null : null;
+  };
+  if (at > 0 && pinnedAt(at - 1)) return null;
+  const group = [live];
+  for (let i = at + 1; at >= 0 && pinnedAt(i); i++) {
+    const r = pinnedAt(i)!;
+    if (!group.some((g) => g.runId === r.runId)) group.push(r);
+  }
+  // Named in the strip's own order, so the line reads as the strip does.
+  const order = [...new Set(pinned.values())];
+  group.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+  if (group.length === 1) {
+    return (
+      <div className="qa-pinned small" role="note">
+        <span className="qa-pinned-text">
+          <span className="qa-pinned-mark" aria-hidden="true">{"↑"} </span>
+          Playtest <strong>{live.scriptName}</strong> {pinnedState(live)} on the strip above.
+        </span>
+        <button className="small-button" onClick={() => revealPinned(live.runId)}>Show it</button>
+      </div>
+    );
+  }
+  const first = group.find(qaNeedsYou) ?? group[0];
   return (
     <div className="qa-pinned small" role="note">
-      <span className="qa-pinned-mark" aria-hidden="true">{"↑"}</span>
       <span className="qa-pinned-text">
-        Playtest <strong>{live.scriptName}</strong> {pinnedState(live)} on the strip above.
+        <span className="qa-pinned-mark" aria-hidden="true">{"↑"} </span>
+        {group.length} playtests are on the strip above:{" "}
+        {group.map((r, i) => (
+          <span key={r.runId}>
+            {i > 0 && ", "}
+            <strong className="qa-pinned-names">{r.scriptName}</strong> {pinnedState(r).replace(/^is /, "")}
+          </span>
+        ))}
+        .
       </span>
-      <button className="ghost small-button" onClick={() => revealPinned(live.runId)}>Show it</button>
+      <button className="small-button" onClick={() => revealPinned(first.runId)}>Show them</button>
     </div>
   );
 }

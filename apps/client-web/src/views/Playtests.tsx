@@ -18,10 +18,10 @@ import {
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
-import { QaCard, QaContext, type QaCardActions, type QaLive } from "../chat/Qa";
+import { PathLegend, QaCard, QaContext, type QaCardActions, type QaLive } from "../chat/Qa";
 
 const FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [
-  { id: "needs-you", label: "Needs you", empty: "Nothing needs you. A playtest that waits for a verdict, or a loop that stops for you, shows here." },
+  { id: "needs-you", label: "Needs you", empty: "Nothing needs you. A playtest step that needs your verdict, or a loop that stops for you, shows here." },
   { id: "failing", label: "Failing", empty: "No playtest is failing: every last run passed." },
   { id: "all", label: "All", empty: "No playtests in this project yet. Ask the agent for one in a session, or type /playtest in the message box." },
 ];
@@ -81,12 +81,14 @@ export function usePlaytestIndex(daemon: Pick<DaemonState, "events" | "streaming
   return { index, error, reload };
 }
 
-export function PlaytestsView({ daemon, index: source, onOpenSession }: {
+export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: {
   daemon: DaemonState;
   /** The index the app keeps, which also counts what needs the user on the tab. */
   index: ReturnType<typeof usePlaytestIndex>;
   /** Go to a session and open the playtest's card there. */
   onOpenSession: (sessionId: string, runId: string) => void;
+  /** Go to the Chat tab, where a playtest is asked for. */
+  onChat?: () => void;
 }) {
   const { index, error, reload } = source;
   const all = index?.playtests ?? [];
@@ -109,9 +111,9 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
     <div className="playtests-page">
       <div className="playtests-head">
         <h1 className="playtests-title">Playtests</h1>
-        <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} listed`) : ""}</span>
+        <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} known while the editor is away`) : ""}</span>
         <span className="spacer" />
-        <button className="ghost small-button" onClick={() => reload(true)} title="List the project's scripts again">Refresh</button>
+        <button className="small-button" onClick={() => reload(true)} title="List the project's scripts again">Refresh</button>
       </div>
       <div className="playtests-filters" role="group" aria-label="Show">
         {FILTERS.map((f) => (
@@ -125,12 +127,19 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
           </button>
         ))}
       </div>
+      {all.length > 0 && <PathLegend />}
       {error && <div className="banner bad small" role="alert">{error}</div>}
       {index && !index.listed && (
         <div className="banner warn small">The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.</div>
       )}
       {!index && !error && <p className="dim small">Loading playtests</p>}
-      {index && rows.length === 0 && <p className="muted playtests-empty">{FILTERS.find((f) => f.id === filter)!.empty}</p>}
+      {index && rows.length === 0 && (all.length === 0 ? (
+        <div className="playtests-empty card">
+          <strong>No playtests yet</strong>
+          <p className="muted">Ask the agent for one in a session, or type <code>/playtest</code> in the message box.</p>
+          {onChat && <button className="primary small-button" onClick={onChat}>Go to Chat</button>}
+        </div>
+      ) : <p className="muted playtests-empty">{FILTERS.find((f) => f.id === filter)!.empty}</p>)}
       <QaContext.Provider value={live}>
         <div className="playtests-list">
           {rows.map((e) => <PlaytestRow key={e.script} entry={e} offline={index?.listed === false} onOpenSession={onOpenSession} onChanged={() => reload()} />)}
@@ -140,11 +149,13 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
   );
 }
 
-/** Where and when the shown run ran. */
-function metaOf(e: PlaytestEntry): ReactNode {
+/** Where and when the shown run ran. Given `open`, the session's name is the way to its card there. */
+function metaOf(e: PlaytestEntry, open?: () => void): ReactNode {
   const title = e.session?.title || "Untitled";
   const where = e.session
-    ? <> <span className="qa-meta-session" title={title}>in {title}</span></>
+    ? <> in {open
+      ? <button type="button" className="qa-meta-session link" title={`Open the card in ${title}`} onClick={open}><span className="qa-meta-session-name">{title}</span><span aria-hidden="true">{"↗"}</span></button>
+      : <span className="qa-meta-session" title={title}>{title}</span>}</>
     : e.last ? " outside Studio" : "";
   const when = e.last ? `${qaEnded(e.last.state) ? "Ran" : "Started"} ${ranAgo(e.last.seenAt)}` : e.card ? "Never run, drafted" : "Never run";
   return <>{e.deleted && "Script deleted. "}{when}{where}</>;
@@ -170,12 +181,10 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
   };
   if (!shown) return null;
   const target = entry.session && entry.last?.sessionId === entry.session.id ? entry.last : entry.card;
-  const open = target?.sessionId ? (
-    <button className="small-button" onClick={() => onOpenSession(target.sessionId!, target.runId)} title={`Open the card in ${entry.session?.title ?? "its session"}`}>Open in session</button>
-  ) : null;
+  const go = target?.sessionId ? () => onOpenSession(target.sessionId!, target.runId) : undefined;
   return (
     <div className={`playtests-row ${entry.deleted ? "deleted" : ""}`}>
-      <QaCard run={shown} actions={entry.deleted ? {} : actions} meta={metaOf(entry)} extra={open} offline={offline ? "The editor is not connected" : undefined} />
+      <QaCard run={shown} actions={entry.deleted ? {} : actions} meta={metaOf(entry, go)} slotted offline={offline ? "The editor is not connected" : undefined} />
     </div>
   );
 }

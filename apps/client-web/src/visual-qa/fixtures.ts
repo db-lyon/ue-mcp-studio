@@ -7,6 +7,7 @@
 import {
   qaActive,
   qaDraftFromScript,
+  qaNeedsYou,
   qaRunFromAnswer,
   type PlaytestEntry,
   type PlaytestIndexAnswer,
@@ -44,7 +45,7 @@ export function run(id: string, name: string, state: string, statuses: string[],
         ...s,
         status,
         ...(s.judge === "auto" && status === "failed" ? { evidence: { value: s.expect?.value, at_start: 0, at_end: 0, samples: 120, observed: true, reason: "The value never changed in the window" } } : {}),
-        ...(s.judge === "manual" && status === "failed" ? { note: "The door snaps open on the first frame", verdict_source: "action" } : {}),
+        ...(s.judge === "manual" && status === "failed" ? { note: index === 1 ? "The landing clips through the ledge" : "The door snaps open on the first frame", verdict_source: "action" } : {}),
       };
     }),
     awaiting: statuses.flatMap((s, i) => (s === "awaiting_verdict" ? [i] : [])),
@@ -97,14 +98,19 @@ const summary = (title: string, minutes: number): SessionSummary => ({
 /** A conversation that leads up to the playtests it holds. */
 function transcript(runs: QaRun[]): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [
-    { kind: "user", text: "Make a playtest for the door in L_Playtest: walk into the trigger, check it opens, and let me judge how it looks.", at: ago(12) },
-    { kind: "assistant", text: "I saved the playtest as a script. The observer checks the jump, the door angle and the sprint speed, and you judge the jump arc and how the door opens.", at: ago(11) },
+    { kind: "user", text: "Make a playtest for L_Playtest: jump, walk into the door trigger and sprint, and let me judge how the jump and the door look.", at: ago(12) },
   ];
+  if (runs.length === 0) {
+    entries.push({ kind: "assistant", text: "Which level should it run in? L_Playtest is open now.", at: ago(11) });
+    return entries;
+  }
+  entries.push({ kind: "assistant", text: "I saved it as a script. The observer checks the jump, the door angle and the sprint speed; you judge the jump arc and how the door opens.", at: ago(11) });
   for (const r of runs) entries.push({ kind: "qa", run: r });
-  const live = runs.some(qaActive);
-  const ended = runs.some((r) => r.state === "finished" || r.state === "stopped");
-  if (live) entries.push({ kind: "assistant", text: "It is running now. I will read the results when it ends.", at: ago(3) });
-  else if (ended) entries.push({ kind: "assistant", text: "The run ended. Its card has each step's result.", at: ago(3) });
+  const text = runs.some(qaNeedsYou) ? "It needs you now: the strip above has what it is waiting on."
+    : runs.some(qaActive) ? "It is running. I will read the results when it ends."
+    : runs.some((r) => r.state === "finished" || r.state === "stopped") ? "The run ended; its card has each step's result."
+    : "Start Playtest on its card runs it.";
+  entries.push({ kind: "assistant", text, at: ago(3) });
   return entries;
 }
 
@@ -152,9 +158,11 @@ export const SCENARIOS: Record<string, Scenario> = {
   "focus-verdict": inSession("Keyboard focus on Pass in the strip", "Door playtest", [RUNS.waiting], undefined, ".playtest-strip .qa-answer button"),
   "finished-failures": inSession("Finished with failures: back in the transcript, not on the strip", "Landing check", [RUNS.failed]),
   "finished-failures-open": inSession("Finished with failures, opened from a failed step's bar", "Landing check", [RUNS.failed], ".qa-path-step[data-status='failed'] button"),
-  "stopped": inSession("Stopped: in the transcript, a neutral pill", "Sprint", [RUNS.stopped]),
-  "loop-running": inSession("Assigned loop running: on the strip with its attempt", "Gate trigger", [RUNS.loopRunning]),
+  "stopped": inSession("Stopped: in the transcript, a neutral pill, with the steps it never reached marked", "Sprint", [RUNS.stopped]),
+  "loop-running": inSession("Assigned loop running: on the strip with its attempt", "Ledge grab", [RUNS.loopRunning]),
   "loop-needs-you": inSession("Loop that needs you: on the strip with its reason and Review", "Gate trigger", [RUNS.loopNeedsYou]),
+  "loop-needs-you-open": inSession("Loop that needs you, opened from the strip: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".playtest-strip .qa-toggle"),
+  "strip-two-need-you": inSession("Two that need you and one running: both that need you are shown at every width", "Door playtest", [RUNS.running, RUNS.waiting, RUNS.loopNeedsYou]),
   "strip-several": inSession("Several live: summary line, needs-you first, bounded height", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
   "page-needs-you": { title: "Playtests page, Needs you", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "needs-you" },
   "page-failing": { title: "Playtests page, Failing", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "failing" },

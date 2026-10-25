@@ -4,14 +4,31 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { qaRunFromAnswer, type QaLoop, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
 
-vi.mock("../api", () => ({ api: new Proxy({}, { get: () => () => new Promise(() => {}) }) }));
+const apiCalls = vi.hoisted(() => [] as Array<{ name: string; args: unknown[] }>);
+vi.mock("../api", () => ({
+  api: new Proxy({}, {
+    get: (_t, name) => (...args: unknown[]) => {
+      apiCalls.push({ name: String(name), args });
+      return new Promise(() => {});
+    },
+  }),
+}));
 import { ENDED_GRACE_MS, PinnedContext, PlaytestStrip, TranscriptPlaytest, stripSummary, usePinned, useSessionRuns } from "./PlaytestStrip";
 
-beforeEach(() => window.localStorage.clear());
+const realMatchMedia = window.matchMedia;
+beforeEach(() => {
+  window.localStorage.clear();
+  apiCalls.length = 0;
+});
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  window.matchMedia = realMatchMedia;
 });
+/** The panel at 380 px: every max-width query matches. */
+const narrow = () => {
+  window.matchMedia = ((query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+};
 
 const at = "2026-10-25T15:00:00.000Z";
 const run = (id: string, name: string, state: string, statuses: string[], over: Partial<QaRun> = {}): QaRun => ({
@@ -28,13 +45,13 @@ let nextId = 1;
 const changed = (r: QaRun, replaces?: string): DaemonEvent => ({ id: nextId++, type: "studio.qa.changed", at, data: { runId: r.runId, run: r as unknown as Record<string, unknown>, ...(replaces ? { replaces } : {}) } });
 
 /** The chat's wiring: the strip over the transcript's entries. */
-function Session({ transcript, events }: { transcript: TranscriptEntry[]; events: DaemonEvent[] }) {
+function Session({ transcript, events, grouped = false }: { transcript: TranscriptEntry[]; events: DaemonEvent[]; grouped?: boolean }) {
   const runs = useSessionRuns("s1", transcript, events);
   const strip = usePinned(runs.runs, runs.alias);
   return (
     <PinnedContext.Provider value={strip.ids}>
       <PlaytestStrip runs={strip.pinned} onHide={strip.hide} />
-      <div data-testid="transcript">{transcript.map((t, i) => (t.kind === "qa" ? <TranscriptPlaytest key={i} run={t.run} /> : null))}</div>
+      <div data-testid="transcript">{transcript.map((t, i) => (t.kind === "qa" ? <TranscriptPlaytest key={i} run={t.run} {...(grouped ? { transcript, at: i } : {})} /> : null))}</div>
     </PinnedContext.Provider>
   );
 }
@@ -59,8 +76,9 @@ describe("the strip of live playtests", () => {
 
   it("takes a verdict right on the strip", () => {
     render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "awaiting_verdict"]))} events={[]} />);
-    const ask = within(stripEl()!).getByRole("group", { name: "Step 2 waits for your verdict" });
-    expect(within(ask).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip"]);
+    const ask = within(stripEl()!).getByRole("group", { name: "Step 2 needs you" });
+    // The card's Stop sits in the same box, after the verdicts.
+    expect(within(ask).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip", "Stop"]);
     expect(stripEl()!.className).toContain("needs-you");
   });
 
@@ -160,6 +178,101 @@ describe("the strip of live playtests", () => {
     render(<Session transcript={transcript} events={[]} />);
     expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest WaitA", "Playtest WaitB", "Playtest WaitC"]);
     expect(within(stripEl()!).getByRole("button", { name: "Show 1 more: Running" }).textContent).toContain("Running (running)");
+  });
+
+  it("shows every one that needs the user at 380 px too, naming only the rest", () => {
+    narrow();
+    const transcript = entries(
+      run("a", "Running", "running", ["running", "pending"]),
+      run("b", "WaitA", "awaiting_verdict", ["passed", "awaiting_verdict"]),
+      run("c", "Gate", "finished", ["failed", "passed"], { assignment: { callId: "x", sessionId: "s1", state: "done", at, loop: loop("needs_you") } }),
+    );
+    render(<Session transcript={transcript} events={[]} />);
+    expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest WaitA", "Playtest Gate"]);
+    expect(within(stripEl()!).getByRole("button", { name: "Show 1 more: Running" })).toBeTruthy();
+  });
+
+  it("at 380 px with none that needs the user, shows one card and names the rest", () => {
+    narrow();
+    render(<Session transcript={entries(run("a", "One", "running", ["running", "pending"]), run("b", "Two", "running", ["running", "pending"]))} events={[]} />);
+    expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / })).toHaveLength(1);
+    expect(within(stripEl()!).getByRole("button", { name: "Show 1 more: Two" })).toBeTruthy();
+  });
+
+  it("offers Review, Cancel loop and Hide from strip on a loop that needs the user", () => {
+    const r = run("a", "Gate", "finished", ["failed", "passed"], { assignment: { callId: "x", sessionId: "s1", state: "done", at, loop: loop("needs_you") } });
+    render(<Session transcript={entries(r)} events={[]} />);
+    const box = within(stripEl()!).getByRole("group", { name: "The loop needs you" });
+    expect(within(box).getAllByRole("button").map((b) => b.textContent)).toEqual(["Review", "Cancel loop", "Hide from strip"]);
+    fireEvent.click(within(box).getByRole("button", { name: "Cancel loop" }));
+    expect(apiCalls.find((c) => c.name === "qaCancelAssign")?.args).toEqual(["a"]);
+  });
+
+  it("holds the place of the verdict buttons with the step a card is on", () => {
+    render(<Session transcript={entries(run("a", "Jump", "running", ["running", "pending"]))} events={[]} />);
+    const now = within(stripEl()!).getByRole("status", { name: "Checking: Jump step 1" });
+    const box = now.closest(".qa-now") as HTMLElement;
+    expect(box.textContent).toContain("Checking");
+    expect(within(box).getByRole("button", { name: "Stop playtest Jump" })).toBeTruthy();
+  });
+
+  it("says how many steps of an open card on the strip are scrolled out of view, above and below", () => {
+    // jsdom lays nothing out: the card's steps are 60 px each in a 100 px window.
+    const geometry = (el: HTMLElement, key: string): number => {
+      if (el.classList.contains("qa-body")) return ({ clientHeight: 100, scrollHeight: 300 } as Record<string, number>)[key] ?? 0;
+      if (el.classList.contains("qa-step")) return key === "offsetTop" ? Number(el.dataset.index) * 60 : key === "offsetHeight" ? 60 : 0;
+      return 0;
+    };
+    const props = ["clientHeight", "scrollHeight", "offsetTop", "offsetHeight"] as const;
+    const saved = props.map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)] as const);
+    for (const k of props) Object.defineProperty(HTMLElement.prototype, k, { configurable: true, get(this: HTMLElement) { return geometry(this, k); } });
+    try {
+      render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "passed", "passed", "passed", "awaiting_verdict"]))} events={[]} />);
+      fireEvent.click(within(stripEl()!).getByRole("button", { name: /PT|Door/, expanded: false }));
+      expect(within(stripEl()!).getByRole("button", { name: /4 steps below/ })).toBeTruthy();
+      expect(within(stripEl()!).queryByRole("button", { name: /above/ })).toBeNull();
+      const body = stripEl()!.querySelector<HTMLElement>(".qa-body")!;
+      body.scrollTop = 130;
+      act(() => {
+        body.dispatchEvent(new Event("scroll"));
+      });
+      expect(within(stripEl()!).getByRole("button", { name: /3 steps above/ })).toBeTruthy();
+      expect(within(stripEl()!).getByRole("button", { name: /2 steps below/ })).toBeTruthy();
+    } finally {
+      for (const [k, d] of saved) {
+        if (d) Object.defineProperty(HTMLElement.prototype, k, d);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
+      }
+    }
+  });
+
+  it("gives playtests side by side in the transcript one line that names each", () => {
+    const transcript = entries(
+      run("a", "Running", "running", ["running", "pending"]),
+      run("b", "Waiting", "awaiting_verdict", ["passed", "awaiting_verdict"]),
+      run("c", "Done", "finished", ["passed", "passed"]),
+      run("d", "Later", "running", ["running", "pending"]),
+    );
+    render(<Session transcript={transcript} events={[]} grouped />);
+    const notes = within(transcriptEl()).getAllByRole("note");
+    expect(notes.map((n) => n.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      // In the strip's order: what needs the user first.
+      "↑ 2 playtests are on the strip above: Waiting needs you, Running running.Show them",
+      "↑ Playtest Later is running on the strip above.Show it",
+    ]);
+    // The finished one between them is a full card.
+    expect(within(transcriptEl()).getByRole("group", { name: "Playtest Done" })).toBeTruthy();
+  });
+
+  it("keeps a card's buttons where they were when it is opened on the strip, adding only detail", () => {
+    render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "awaiting_verdict"]))} events={[]} />);
+    const buttons = () => within(within(stripEl()!).getByRole("group", { name: "Step 2 needs you" })).getAllByRole("button").map((b) => b.textContent);
+    expect(buttons()).toEqual(["Pass", "Fail", "Skip", "Stop"]);
+    fireEvent.click(within(stripEl()!).getByRole("button", { name: /Door/, expanded: false }));
+    expect(buttons()).toEqual(["Pass", "Fail", "Skip", "Stop"]);
+    // The verdict is asked once, in the box; the head carries no buttons.
+    expect(within(stripEl()!).getAllByRole("button", { name: "Pass step 2" })).toHaveLength(1);
+    expect(stripEl()!.querySelector(".qa-head .qa-actions")).toBeNull();
   });
 
   it("sums up in words", () => {
