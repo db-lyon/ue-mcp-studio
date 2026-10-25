@@ -57,6 +57,7 @@ describe("Project > context strategy for other clients", () => {
     expect(screen.getByText(/so clients get Full whatever the file says/)).toBeTruthy();
     // The strategy in effect and the saved one are both named.
     expect(screen.getByText("in effect, from the environment")).toBeTruthy();
-    expect(screen.getByText("saved, overridden")).toBeTruthy();
+    expect(screen.getByText("saved in ue-mcp.yml")).toBeTruthy();
+    expect((screen.getByRole("radio", { name: /^Full/ }) as HTMLInputElement).checked).toBe(true);
   });
 });

@@ -49,7 +49,7 @@ export function ModelsSection() {
         <div className="scroll-x">
           <table className="cfg-table">
             <thead>
-              <tr><th>Model</th><th>Runs via</th><th className="r">Here</th></tr>
+              <tr><th>Model</th><th>Routes, in the order they are tried</th><th className="r">On this machine</th></tr>
             </thead>
             <tbody>
               {(catalog?.providers ?? []).flatMap((v) => v.models.map((m) => {
@@ -66,7 +66,7 @@ export function ModelsSection() {
                         </div>
                       ))}
                     </td>
-                    <td className="r small">{runs ? <span className="tag ok">runs here</span> : <span className="dim">not connected</span>}</td>
+                    <td className="r small">{runs ? <span className="tag ok">{runs.id === "key" ? `${v.name} key` : ROUTE_NAME[runs.id]}</span> : <span className="dim">not connected</span>}</td>
                   </tr>
                 );
               }))}
@@ -113,7 +113,7 @@ export function ProviderRow({ provider, settings, onChange, onError }: {
     <div className="toggle-row inline">
       <span className={`dot ${connected ? "ok" : ""}`} style={{ marginTop: 6 }} />
       <div className="grow">
-        <div className="t"><strong>{PROVIDERS[provider].name}</strong> <span className="muted small">{status}</span></div>
+        <div className="t"><strong>{signIn ? ROUTE_NAME[provider as SignInId] : `${PROVIDERS[provider].name} key`}</strong> <span className="muted small">{status}</span></div>
         {signIn && !connected && <SignInForm id={provider} onDone={onChange} />}
         {!signIn && open && !connected && <KeyForm provider={provider} onSaved={() => { setOpen(false); onChange(); }} />}
       </div>

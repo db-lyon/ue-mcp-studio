@@ -15,6 +15,7 @@ import { api } from "../../api";
 import { Head } from "../SettingsHub";
 import { Card, NumberField, Opt, Row, Seg, Shared, Switch, useMessage } from "./controls";
 
+
 const RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [{ id: "ask", name: "Ask" }, { id: "allow", name: "Allow" }];
 
 export const DIALOG_MODES: { id: DialogMode; name: string; about: string }[] = [
@@ -30,7 +31,7 @@ export const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[]
 ];
 
 const PLAYTEST_STARTS: ReadonlyArray<{ id: PlaytestRunsMode; name: string; help: string }> = [
-  { id: "manual", name: "Manual", help: "A playtest runs only when you press Start Playtest or Assign on its card." },
+  { id: "manual", name: "Manual", help: "A playtest runs only when you start it, or assign it to a helper, from its card." },
   { id: "automatic", name: "Automatic", help: "Agents start playtests themselves when the work calls for one." },
 ];
 
@@ -96,14 +97,18 @@ export function ApprovalsSection() {
         {agent.dialogMode ? (
           <div className="opts">
             {DIALOG_MODES.map((d) => (
-              <Opt key={d.id} name="dialog-mode" on={dialogMode === d.id} onPick={() => void saveAgent({ dialogMode: d.id })} title={d.name} desc={d.about} />
+              <div key={d.id}>
+                <Opt name="dialog-mode" on={dialogMode === d.id} onPick={() => void saveAgent({ dialogMode: d.id })} title={d.name} desc={d.about} />
+                {d.id === "interactive" && (dialogMode === "interactive" || dialogMode === null) && (
+                  <DialogPolicyField policy={settings.dialogPolicy} onSave={(dialogPolicy) => void save({ dialogPolicy })} />
+                )}
+              </div>
             ))}
             {dialogMode === null && <p className="cfg-note">Not set: each client decides. Studio shows them to you.</p>}
           </div>
         ) : (
           <p className="cfg-note">Update ue-mcp to choose this from Studio.</p>
         )}
-        {(dialogMode === "interactive" || dialogMode === null) && <DialogPolicyField policy={settings.dialogPolicy} onSave={(dialogPolicy) => void save({ dialogPolicy })} />}
       </Card>
 
       <Card label="After it acts">
@@ -116,27 +121,34 @@ export function ApprovalsSection() {
 }
 
 const POLICIES: ReadonlyArray<{ id: DialogPolicy["kind"]; name: string }> = [
-  { id: "wait", name: "Wait" },
-  { id: "agent", name: "Agent decides" },
-  { id: "safe", name: "Press the safe default" },
+  { id: "wait", name: "Keep waiting for me" },
+  { id: "agent", name: "Let the agent decide" },
+  { id: "safe", name: "Press the safe default, Cancel or Keep" },
 ];
 
-/** "If you do not answer in Studio": the project's policy for a dialog nobody answers. Studio's own, not shared. */
+/**
+ * "If you do not answer in Studio", under Show them to me in Studio, the only
+ * mode it applies to: the project's policy for a dialog nobody answers.
+ * Studio's own, not shared.
+ */
 export function DialogPolicyField({ policy, onSave }: { policy: DialogPolicy; onSave: (p: DialogPolicy) => void }) {
   const minutes = policy.kind === "wait" ? 2 : policy.minutes;
   return (
-    <div className="field" style={{ marginTop: 12 }}>
+    <div className="field dialog-policy" role="radiogroup" aria-label="If you do not answer in Studio">
       <span className="flabel">If you do not answer in Studio</span>
-      <div className="cfg-inline">
-        <Seg label="If you do not answer in Studio" value={policy.kind} options={POLICIES} onChange={(kind) => onSave(kind === "wait" ? { kind } : { kind, minutes })} />
-        {policy.kind !== "wait" && (
-          <>
-            <span className="muted">after</span>
-            <NumberField label="Minutes" value={policy.minutes} min={1} max={MAX_DIALOG_MINUTES} onSave={(n) => n !== null && onSave({ kind: policy.kind as "agent" | "safe", minutes: n })} className="cfg-num minutes" />
-            <span className="muted">minutes</span>
-          </>
-        )}
-      </div>
+      {POLICIES.map((p) => (
+        <label key={p.id} className="cfg-inline small">
+          <input type="radio" name="dialog-policy" checked={policy.kind === p.id} aria-label={p.name} onChange={() => onSave(p.id === "wait" ? { kind: "wait" } : { kind: p.id, minutes })} />
+          <span>{p.name}</span>
+          {p.id !== "wait" && policy.kind === p.id && (
+            <span className="nowrap cfg-inline">
+              <span className="muted">after</span>
+              <NumberField label="Minutes" value={policy.minutes} min={1} max={MAX_DIALOG_MINUTES} onSave={(n) => n !== null && onSave({ kind: p.id as "agent" | "safe", minutes: n })} className="cfg-num minutes" />
+              <span className="muted">minutes</span>
+            </span>
+          )}
+        </label>
+      ))}
       <span className="help">The dialog shows in the chat with its buttons, and the window flashes when you are elsewhere. Saved for this project.</span>
     </div>
   );

@@ -37,7 +37,7 @@ async function show(v = view()) {
 describe("Agents > Instructions", () => {
   it("lists every file in reading order, says when scoped ones apply, and previews the result", async () => {
     await show();
-    expect([...document.querySelectorAll(".path")].map((e) => e.textContent)).toEqual([".github/copilot-instructions.md", "CLAUDE.md", "Source/Game/AGENTS.md"]);
+    expect([...document.querySelectorAll(".ifiles .ifile-main > .path")].map((e) => e.textContent)).toEqual([".github/copilot-instructions.md", "CLAUDE.md", "Source/Game/AGENTS.md"]);
     expect(screen.getByText("Only when an agent works in Source/Game.")).toBeTruthy();
     expect(screen.getByText(/2 files, 30 tokens on every call\. Plus Source\/Game\/AGENTS\.md \(30\)/)).toBeTruthy();
   });

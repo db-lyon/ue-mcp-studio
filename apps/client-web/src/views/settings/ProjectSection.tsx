@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { StatusReport } from "ue-mcp/daemon";
 import { CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO, type ClientContextStrategy, type ContextStrategy } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
-import { native } from "../../native";
+import { inEditor, native } from "../../native";
 import { ProjectSetup } from "../ProjectSetup";
 import { ConfigView } from "../Config";
 import { Head, type SettingsSection } from "../SettingsHub";
@@ -55,17 +55,16 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         {context && (
           <>
             {context.envOverride && (
-              <div className="banner warn small"><span className="mono">UE_MCP_CONTEXT_STRATEGY={context.envOverride}</span> is set where ue-mcp runs, so clients get {CONTEXT_STRATEGY_INFO[context.envOverride].name} whatever the file says, until it is removed.</div>
+              <div className="banner warn small"><span className="mono">UE_MCP_CONTEXT_STRATEGY={context.envOverride}</span> is set where ue-mcp runs, so clients get {CONTEXT_STRATEGY_INFO[context.envOverride].name} whatever the file says. Choosing here changes ue-mcp.yml, which takes effect once that variable is removed.</div>
             )}
             <div className="opts row3" style={{ marginTop: 8 }}>
               {CONTEXT_STRATEGIES.map((s) => (
                 <Opt
                   key={s}
                   name="client-context"
-                  on={context.strategy === s}
-                  overridden={!!context.envOverride}
+                  on={(context.envOverride ?? context.strategy) === s}
                   onPick={() => void pick(s)}
-                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from the environment</span></>}{context.envOverride && context.strategy === s && context.envOverride !== s && <> <span className="tag">saved, overridden</span></>}</>}
+                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from the environment</span></>}{context.envOverride && context.strategy === s && context.envOverride !== s && <> <span className="tag">saved in ue-mcp.yml</span></>}</>}
                   desc={<><br />{CONTEXT_STRATEGY_INFO[s].sees} {CONTEXT_STRATEGY_INFO[s].discovery}</>}
                 />
               ))}
@@ -79,7 +78,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       </Card>
 
       <Card label="MCP clients">
-        {clients.length === 0 && <p className="cfg-note">None configured. Set them up below, from the editor.</p>}
+        {clients.length === 0 && <p className="cfg-note">No other MCP client is configured for this project.</p>}
         {clients.map((c) => (
           <div key={c.id} className="toggle-row inline">
             <span className="dot ok" style={{ marginTop: 6 }} />
@@ -88,6 +87,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         ))}
       </Card>
 
+      {!inEditor() && <p className="cfg-note">Which MCP clients, native Unreal tools and skills this project is set up with is changed from Studio inside the editor, where it runs ue-mcp init.</p>}
       <ProjectSetup onApplied={load} />
 
       {p && (

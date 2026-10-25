@@ -59,7 +59,7 @@ export function StatusView({ daemon }: { daemon: DaemonState }) {
         <dl className="grid">
           <dt>Version</dt><dd>{h.version} (API {h.apiVersion})</dd>
           <dt>Process</dt><dd>pid {h.pid}, since {new Date(h.startedAt).toLocaleString()}</dd>
-          <dt>MCP clients</dt><dd>{h.clients}{h.inflight ? `, ${h.inflight} call(s) in flight` : ""}</dd>
+          <dt>MCP clients connected now</dt><dd>{h.clients}{h.inflight ? `, ${h.inflight} call(s) in flight` : ""}</dd>
           <dt>Extensions</dt><dd>{h.extensions.map((x) => `${x.name} ${x.version}`).join(", ") || "none"}</dd>
           <dt>UI</dt><dd>{h.ui ?? "development server"}</dd>
           <dt>Project</dt><dd className="mono">{h.projectRoot}</dd>

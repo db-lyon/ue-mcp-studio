@@ -59,14 +59,8 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
     };
   }, []);
 
-  if (!inEditor()) {
-    return (
-      <section className="card">
-        <h2>Clients and tools setup</h2>
-        <p className="muted">Open Studio in the editor to change which MCP clients, native tools and skills this project is set up with. The context strategy above works from anywhere.</p>
-      </section>
-    );
-  }
+  // Outside the editor the setup cannot be read or run; the MCP clients card says where to change it.
+  if (!inEditor()) return null;
   if (failed) {
     return (
       <section className="card">

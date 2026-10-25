@@ -10,7 +10,7 @@ export function Seg<T extends string>({ value, options, onChange, label, disable
   disabled?: boolean;
 }) {
   return (
-    <div className="seg" role="radiogroup" aria-label={label}>
+    <div className={`seg ${options.length >= 3 || options.reduce((n, o) => n + o.name.length, 0) > 24 ? "many" : ""}`} role="radiogroup" aria-label={label}>
       {options.map((o) => (
         <button
           key={o.id}

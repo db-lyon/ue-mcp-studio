@@ -85,15 +85,20 @@ function MainAgent({ settings, onSettings, saveUsage, onSection, onInstructions,
           <ModelPicker settings={settings} onSettings={onSettings} />
           <EffortPicker settings={settings} onSettings={onSettings} />
         </div>
-        {settings.route === null && (
+        {settings.route === null && !Object.values(settings.connected ?? {}).some(Boolean) && (
+          <p className="banner warn small" style={{ marginTop: 10 }}>
+            No model can run on this machine yet. <button className="link" onClick={() => onSection("models")}>Connect a sign-in or an API key</button> for any vendor, then pick its model here.
+          </p>
+        )}
+        {settings.route === null && Object.values(settings.connected ?? {}).some(Boolean) && (
           <p className="banner warn small" style={{ marginTop: 10 }}>
             Nothing on this machine can run this model yet. <button className="link" onClick={() => onSection("models")}>Connect it in Models & accounts</button>.
           </p>
         )}
       </Card>
-      <Card label="Knowledge and vision">
+      <Card label="What it reads and sees">
         <Row title="Project instruction files" help={<>{files ? `${files.on} of ${files.all} files are on. ` : ""}Each agent that reads instruction files reads the ones that are on. <button className="link" onClick={onInstructions}>Turn files on or off in Instructions</button></>}>
-          <Seg label="Project instruction files" value={usage.projectInstructions ? "all" : "none"} options={[{ id: "all", name: "Read the files that are on" }, { id: "none", name: "Read none" }]} onChange={(v) => saveUsage({ projectInstructions: v === "all" })} />
+          <Seg label="Project instruction files" value={usage.projectInstructions ? "all" : "none"} options={[{ id: "all", name: "Files turned on in Instructions" }, { id: "none", name: "None" }]} onChange={(v) => saveUsage({ projectInstructions: v === "all" })} />
         </Row>
         <Row title="Screenshot size" help="The longest side of a screenshot or picture an agent is shown. A larger image costs more every time the conversation is read again.">
           <Seg label="Screenshot size" value={usage.imageSize} options={IMAGE_SIZES} onChange={(v) => saveUsage({ imageSize: v })} />

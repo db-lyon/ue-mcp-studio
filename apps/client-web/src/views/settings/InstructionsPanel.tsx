@@ -57,6 +57,8 @@ export function InstructionsPanel({ agents }: { agents: Array<{ id: string; name
     const after = at === 0 ? null : order[at - 1].path;
     api.saveInstructions({ added: added(view).map((a) => (a.path === f.path ? { path: a.path, after } : a)) }).then(setView, msg.fail);
   };
+  /** Each file once: one that only repeats another is shown under it. */
+  const listed = view.files.filter((f) => !f.sameAs);
   const pointable = view.files.filter((f) => POINTABLE.includes(f.path) && !f.sameAs).map((f) => f.path);
   const create = () => api.createAgentsMd(creating ?? []).then((r) => {
     setView(r.view);
@@ -76,7 +78,7 @@ export function InstructionsPanel({ agents }: { agents: Array<{ id: string; name
   return (
     <>
       <div className="banner info small">
-        Studio reads every common instruction file, in the order below, and gives the same text to every agent on every vendor. Where files disagree the later one wins, and the agent is told so. AGENTS.md comes after the other shared files, so it wins among them; local files come last.
+        Studio reads every common instruction file in the order below and gives the same text to every agent on every vendor. Where files disagree the later one wins, and the agent is told so. AGENTS.md comes after the other shared files, so it wins among them; local files come last.
       </div>
       {msg.node}
       <div className="cfg-side">
@@ -112,41 +114,37 @@ export function InstructionsPanel({ agents }: { agents: Array<{ id: string; name
               <button className="ghost" onClick={() => setAdding(null)}>Cancel</button>
             </div>
           )}
-          {view.files.length === 0 && <p className="cfg-note">This project has no instruction files yet. Create AGENTS.md to give every agent the same instructions.</p>}
-          <div className="scroll-x">
-            <table className="cfg-table">
-              <thead>
-                <tr><th>#</th><th>File</th><th className="r">Tokens</th><th className="hide-narrow">Read by</th><th className="r">Read</th></tr>
-              </thead>
-              <tbody>
-                {view.files.map((f, i) => (
-                  <tr key={f.path}>
-                    <td className="dim num">{f.order}</td>
-                    <td>
-                      <div className="path">{f.path}</div>
-                      {scopeNote(f) && <div className={`cfg-note ${f.missing ? "warn" : ""}`}>{scopeNote(f)}</div>}
-                      {f.on && !f.sameAs && <div className="readers show-narrow">Read by {readers(f)}</div>}
-                      {f.convention === "added" && (
-                        <div className="cfg-inline small">
-                          <button className="ghost" disabled={i === 0} onClick={() => move(f, -1)} aria-label={`Read ${f.path} earlier`}>Earlier</button>
-                          <button className="ghost" disabled={i === view.files.length - 1} onClick={() => move(f, 1)} aria-label={`Read ${f.path} later`}>Later</button>
-                          <button className="ghost" onClick={() => void removeAdded(f.path)}>Remove</button>
-                        </div>
-                      )}
-                    </td>
-                    <td className="r num">{f.sameAs ? "0" : tokens(f.tokens)}</td>
-                    <td className="hide-narrow readers">{f.on && !f.sameAs ? readers(f) : ""}</td>
-                    <td className="r">
-                      {f.sameAs
-                        ? <span className="dim small">as {f.sameAs}</span>
-                        : <Switch label={`Read ${f.path}`} on={f.on} disabled={!!f.missing} onChange={(v) => toggle(f, v)} />}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="cfg-note">Recognised: {view.recognised.join(", ")}. Add a file to include anything else, such as a style guide. New files Studio creates are AGENTS.md.</p>
+          {listed.length === 0 && <p className="cfg-note">This project has no instruction files yet. Create AGENTS.md to give every agent the same instructions.</p>}
+          {listed.length > 0 && (
+            <ol className="ifiles">
+              {listed.map((f, i) => (
+                <li key={f.path} className={f.on ? "" : "off"}>
+                  <span className="ifile-n dim num">{i + 1}</span>
+                  <div className="ifile-main">
+                    <div className="path">{f.path}</div>
+                    {scopeNote(f) && <div className={`cfg-note ${f.missing ? "warn" : ""}`}>{scopeNote(f)}</div>}
+                    {view.files.filter((x) => x.sameAs === f.path).map((x) => (
+                      <div key={x.path} className="cfg-note ifile-same"><span className="path">{x.path}</span> {x.imports?.length ? "imports this file" : "has the same text"}, so it is read once, here.</div>
+                    ))}
+                    <div className="readers">{tokens(f.tokens)} tokens{f.on ? `, read by ${readers(f)}` : ", read by no agent"}</div>
+                    {f.convention === "added" && (
+                      <div className="cfg-inline small">
+                        <button className="ghost" disabled={i === 0} onClick={() => move(f, -1)} aria-label={`Read ${f.path} earlier`}>Earlier</button>
+                        <button className="ghost" disabled={i === listed.length - 1} onClick={() => move(f, 1)} aria-label={`Read ${f.path} later`}>Later</button>
+                        <button className="ghost" onClick={() => void removeAdded(f.path)}>Remove</button>
+                      </div>
+                    )}
+                  </div>
+                  <Switch label={`Read ${f.path}`} on={f.on} disabled={!!f.missing} onChange={(v) => toggle(f, v)} />
+                </li>
+              ))}
+            </ol>
+          )}
+          <details className="cfg-note">
+            <summary>Which files Studio looks for</summary>
+            <ul className="recognised">{view.recognised.map((r) => <li key={r} className="path">{r}</li>)}</ul>
+            Add a file to include anything else, such as a style guide. The file Studio creates is AGENTS.md.
+          </details>
         </Card>
         <Card label="What an agent reads">
           {agents.length > 1 && (

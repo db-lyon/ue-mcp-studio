@@ -55,7 +55,7 @@ describe("Approvals & review: before it acts", () => {
   it("starts playtests Manual by default, saves Automatic, and says to update an older Studio", async () => {
     await show();
     expect(checked("Starting playtests", "Manual")).toBe(true);
-    expect(screen.getByText("A playtest runs only when you press Start Playtest or Assign on its card.")).toBeTruthy();
+    expect(screen.getByText("A playtest runs only when you start it, or assign it to a helper, from its card.")).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Automatic" })));
     expect(m.saveAgentSettings).toHaveBeenCalledWith({ playtestRuns: "automatic" });
     cleanup();
