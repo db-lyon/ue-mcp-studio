@@ -151,6 +151,12 @@ const verdictOf = (s: QaStep): QaVerdict | null => (s.status === "passed" ? "pas
 const tone = (s: QaStep): string =>
   s.status === "passed" ? "ok" : s.status === "failed" ? "bad" : s.status === "awaiting_verdict" ? "warn" : s.status === "running" ? "run" : "";
 
+/** A running run's pill: the step it is on, or how far it got when none is running. */
+export function runningText(run: QaRun, settled: number, total: number): string {
+  const on = run.steps.find((s) => s.status === "running");
+  return on ? `Running step ${on.index + 1} of ${total}` : `Running, ${settled} of ${total} done`;
+}
+
 /** One line for the collapsed card: how many steps, and where they stand. */
 export function pathSummary(run: QaRun, sum: ReturnType<typeof qaSummaryOf>): string {
   const steps = `${run.steps.length} step${run.steps.length === 1 ? "" : "s"}`;
@@ -215,7 +221,7 @@ export interface QaCardActions {
  * `extra` adds buttons to the head, for the page. `dense` puts the path in the
  * head row, for the strip.
  */
-export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outside, meta, extra, dense = false }: {
+export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outside, meta, extra, dense = false, offline }: {
   run: QaRun;
   form?: PendingForm;
   onDismiss?: () => void;
@@ -225,6 +231,8 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
   meta?: ReactNode;
   extra?: ReactNode;
   dense?: boolean;
+  /** Why the card cannot act now, such as the editor being away: its actions are drawn disabled with this as their hover. */
+  offline?: string;
 }) {
   const live = useContext(QaContext);
   const [run, setRun] = useLiveRun(saved, live);
@@ -369,16 +377,18 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
   const owned = !!run.sessionId;
   /**
    * Start Playtest on the card: a draft's, or the manual run a verdict on the
-   * draft started, which a full run replaces. Outside a session, an ended run's
-   * too, which runs the script again.
+   * draft started, which a full run replaces; on an ended run, Run again. Not
+   * while a loop that stopped for the user waits on its Review.
    */
-  const runnable = (draft || (!!run.manual && !ended) || (!!outside?.start && ended)) && !run.deleted && !assigned && (owned || !!outside?.start);
-  const canAssign = (!!assignSession || !!outside?.assign) && qaAssignable(run) && !run.deleted && assignment?.loop?.state !== "passed";
+  const needsYouLoop = assignment?.loop?.state === "needs_you" ? assignment.loop : null;
+  const runnable = (draft || (!!run.manual && !ended) || ended) && !run.deleted && !assigned && !needsYouLoop && (outside ? !!outside.start : owned);
+  const stoppable = !draft && !ended && !assigned && !run.manual && owned;
+  const stop = () => act(() => api.qaStop(run.runId));
+  const canAssign = (outside ? !!outside.assign : !!assignSession) && qaAssignable(run) && !run.deleted && assignment?.loop?.state !== "passed";
   const sum = run.summary ?? qaSummaryOf(run.steps);
   const settled = sum.total - sum.pending;
   const partial = Object.keys(picked).length > 0;
   const byAgentCount = run.steps.filter(qaAgentVerdict).length;
-  const needsYouLoop = assignment?.loop?.state === "needs_you" ? assignment.loop : null;
   /** The step the collapsed card asks about: the first waiting one not yet picked or sent. */
   const ask = waiting.find((s) => s.judge === "manual" && !picked[s.index] && !sending[s.index]) ?? null;
   // A draft says so in its eyebrow; a pill names only what is not plain from it.
@@ -388,14 +398,14 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       ? (run.state === "stopped" ? { tone: "", text: "Stopped" } : { tone: sum.failed ? "bad" : "ok", text: sum.failed ? `${sum.failed} failed` : "Passed" })
       : waiting.length
         ? { tone: "warn", text: "Waiting for you" }
-        : { tone: "run", text: run.state === "armed" ? "Starting" : `Running, ${settled} of ${sum.total}` };
+        : { tone: "run", text: run.state === "armed" ? "Starting" : runningText(run, settled, sum.total) };
 
   const startButtons = runnable && (
     <span className="qa-start" role="group" aria-label="Start Playtest">
-      <button className="primary small-button" disabled={working} onClick={quickStart}>{working ? "Starting" : ended ? "Run again" : "Start Playtest"}</button>
+      <button className="primary small-button" disabled={working || !!offline} title={offline} onClick={quickStart}>{working ? "Starting" : ended ? "Run again" : "Start Playtest"}</button>
       <button
         className="small-button qa-start-options"
-        disabled={working}
+        disabled={working || !!offline}
         aria-label="Start Playtest options"
         aria-expanded={open && panel === "run"}
         title="Players, listen server, PIE and recording"
@@ -414,7 +424,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       <div className="qa-head">
         <button className="qa-toggle" aria-expanded={open} aria-controls={`qa-body-${run.runId}`} onClick={() => setOpen(!open)}>
           <span className="qa-chevron" aria-hidden="true">{open ? "▾" : "▸"}</span>
-          <span className="eyebrow">{draft ? "Playtest draft" : run.replayOf ? "Playtest replay" : "Playtest"}</span>
+          <span className={`eyebrow ${draft || run.replayOf ? "qa-kind" : "qa-kind plain"}`}>{draft ? "Playtest draft" : run.replayOf ? "Playtest replay" : "Playtest"}</span>
           <strong className="qa-title">{run.scriptName}</strong>
         </button>
         {run.subagent && <span className="dim small qa-by">run by {run.subagent}</span>}
@@ -424,13 +434,14 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
         {pill && <span className={`pill ${pill.tone}`} role="status">{pill.text}</span>}
         {assignment?.loop && (() => {
           const p = loopPill(assignment.loop);
-          return <span className={`pill ${p.tone}`} role="status" aria-label={`Loop: ${p.text}`}>{p.text}</span>;
+          return <span className={`pill ${p.tone}`} role="status" aria-label={`Loop: ${p.text}`} title="A subagent loop runs this playtest">{p.text}</span>;
         })()}
         {startButtons}
+        {stoppable && <button className="small-button" disabled={working} onClick={stop} aria-label={`Stop playtest ${run.scriptName}`}>Stop</button>}
         {assigned ? (
-          (open || outside) && <button className="small-button" disabled={assigning} onClick={toggleAssign} aria-label={assignment?.loop ? "Cancel the loop" : "Cancel the subagent"}>Cancel</button>
+          (open || outside || dense) && <button className="small-button" disabled={assigning} onClick={toggleAssign} aria-label={assignment?.loop ? "Cancel the loop" : "Cancel the subagent"}>Cancel</button>
         ) : canAssign && (open || outside) && (
-          <button className="small-button" disabled={assigning} onClick={toggleAssign} title="A subagent runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you">Assign to subagent</button>
+          <button className="small-button" disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "A subagent runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"}>Assign to subagent</button>
         )}
         {open && draft && owned && !run.deleted && !assigned && (
           <>
@@ -444,7 +455,6 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
         )}
         {extra}
         {onDismiss && ended && <button className="ghost small-button" aria-label="Dismiss this run" onClick={onDismiss}>Dismiss</button>}
-        {onHide && <button className="ghost small-button qa-hide" aria-label={`Hide ${run.scriptName} from the strip`} title="Hide from the strip; the card stays in the conversation" onClick={onHide}>{"×"}</button>}
       </div>
       {!open && (!dense || ask || needsYouLoop || error) && (
         <div className="qa-compact">
@@ -469,6 +479,8 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
                     key={v.verdict}
                     className={`small-button verdict-${v.verdict}`}
                     aria-label={`${v.label} step ${ask.index + 1}`}
+                    disabled={!!offline}
+                    title={offline}
                     onClick={() => {
                       if (v.verdict !== "fail") return decide(ask, v.verdict);
                       setFailing({ index: ask.index, via: "verdict" });
@@ -485,7 +497,10 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           {!ask && needsYouLoop && (
             <div className="qa-answer needs" role="group" aria-label="The loop needs you">
               <span className="qa-answer-text">{needsYouLoop.blocker?.reason ?? "The loop stopped and needs you."}</span>
-              <button className="small-button" onClick={() => openAt(null)}>Review</button>
+              <span className="qa-verdict">
+                <button className="small-button" onClick={() => openAt(null)}>Review</button>
+                {onHide && <button className="ghost small-button qa-hide" aria-label={`Hide ${run.scriptName} from the strip`} title="Hide from the strip; the card stays in the conversation" onClick={onHide}>Hide</button>}
+              </span>
             </div>
           )}
           {error && <div className="banner bad small">{error}</div>}

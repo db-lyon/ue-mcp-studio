@@ -5,6 +5,7 @@
  * draws them exactly as it would draw a live run in that state.
  */
 import {
+  qaActive,
   qaDraftFromScript,
   qaRunFromAnswer,
   type PlaytestEntry,
@@ -70,13 +71,13 @@ function loop(state: QaLoop["state"]): QaLoop {
 const assigned = (state: QaLoop["state"]) => ({ callId: "agent-2", sessionId: "qa-session", state: state === "running" ? "running" as const : "done" as const, at: ago(9), loop: loop(state) });
 
 export const RUNS = {
-  draft: { ...qaDraftFromScript({ path: `${SCRIPTS}/PT_DoorOpens`, name: "PT_DoorOpens", steps: STEPS.slice(0, 4) }, { sessionId: "qa-session", seenAt: ago(6) })! },
+  draft: { ...qaDraftFromScript({ path: `${SCRIPTS}/PT_DoorOpens`, name: "PT_DoorOpens", steps: STEPS }, { sessionId: "qa-session", seenAt: ago(6) })! },
   armed: run("script_PT_DoorOpens_armed", "PT_DoorOpens", "armed", ["pending", "pending", "pending", "pending", "pending"]),
   running: run("script_PT_JumpCheck_running", "PT_JumpCheck", "running", ["passed", "running", "pending", "pending", "pending"]),
   waiting: run("script_PT_DoorOpens_waiting", "PT_DoorOpens", "awaiting_verdict", ["passed", "passed", "passed", "awaiting_verdict", "pending"]),
   failed: run("script_PT_LandingCheck_done", "PT_LandingCheck", "finished", ["passed", "failed", "passed", "failed", "skipped"]),
   stopped: run("script_PT_Sprint_stopped", "PT_Sprint", "stopped", ["passed", "passed", "pending", "pending", "pending"]),
-  loopRunning: run("script_PT_GateTrigger_loop", "PT_GateTrigger", "running", ["passed", "passed", "running", "pending", "pending"], { assignment: assigned("running") }),
+  loopRunning: run("script_PT_LedgeGrab_loop", "PT_LedgeGrab", "running", ["passed", "passed", "running", "pending", "pending"], { assignment: assigned("running") }),
   loopNeedsYou: run("script_PT_GateTrigger_blocked", "PT_GateTrigger", "finished", ["passed", "passed", "failed", "skipped", "passed"], { assignment: assigned("needs_you") }),
 };
 
@@ -97,10 +98,13 @@ const summary = (title: string, minutes: number): SessionSummary => ({
 function transcript(runs: QaRun[]): TranscriptEntry[] {
   const entries: TranscriptEntry[] = [
     { kind: "user", text: "Make a playtest for the door in L_Playtest: walk into the trigger, check it opens, and let me judge how it looks.", at: ago(12) },
-    { kind: "assistant", text: "I saved the playtest as a script with five steps: the observer checks the jump, the door angle and the sprint speed, and you judge the jump arc and how the door opens. Start it from its card when PIE is ready.", at: ago(11) },
+    { kind: "assistant", text: "I saved the playtest as a script. The observer checks the jump, the door angle and the sprint speed, and you judge the jump arc and how the door opens.", at: ago(11) },
   ];
   for (const r of runs) entries.push({ kind: "qa", run: r });
-  if (runs.length) entries.push({ kind: "assistant", text: "The run is on its card. I will look at the results once it ends.", at: ago(3) });
+  const live = runs.some(qaActive);
+  const ended = runs.some((r) => r.state === "finished" || r.state === "stopped");
+  if (live) entries.push({ kind: "assistant", text: "It is running now. I will read the results when it ends.", at: ago(3) });
+  else if (ended) entries.push({ kind: "assistant", text: "The run ended. Its card has each step's result.", at: ago(3) });
   return entries;
 }
 

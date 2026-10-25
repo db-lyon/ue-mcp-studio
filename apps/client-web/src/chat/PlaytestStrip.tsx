@@ -16,6 +16,7 @@ import type { DaemonEvent } from "ue-mcp/daemon";
 import { qaActive, qaNeedsYou, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { QaCard, newerRun } from "./Qa";
 import { focusRun } from "../attention";
+import { NARROW, useMedia } from "../layout";
 
 /** How long a run that ended stays on the strip. */
 export const ENDED_GRACE_MS = 6000;
@@ -81,7 +82,7 @@ function writeHidden(s: Set<string>): void {
 }
 
 /** The runs the strip shows, needs-you first, then live, then ones that just ended; and their ids the transcript gives way to. */
-export function usePinned(runs: QaRun[], alias: ReadonlyMap<string, string>): { pinned: QaRun[]; ids: ReadonlyMap<string, string>; hide: (r: QaRun) => void } {
+export function usePinned(runs: QaRun[], alias: ReadonlyMap<string, string>): { pinned: QaRun[]; ids: ReadonlyMap<string, QaRun>; hide: (r: QaRun) => void } {
   const [hidden, setHidden] = useState<Set<string>>(readHidden);
   const [ending, setEnding] = useState<ReadonlySet<string>>(new Set());
   const wasActive = useRef(new Set<string>());
@@ -108,8 +109,8 @@ export function usePinned(runs: QaRun[], alias: ReadonlyMap<string, string>): { 
   const shown = [...active, ...runs.filter((r) => ending.has(r.runId) && !active.includes(r))];
   const rank = (r: QaRun) => (qaNeedsYou(r) ? 0 : qaActive(r) ? 1 : 2);
   shown.sort((a, b) => rank(a) - rank(b) || (a.seenAt < b.seenAt ? -1 : a.seenAt > b.seenAt ? 1 : 0));
-  const ids = new Map(shown.map((r) => [r.runId, r.runId]));
-  for (const [from, to] of alias) if (ids.has(to)) ids.set(from, to);
+  const ids = new Map(shown.map((r) => [r.runId, r]));
+  for (const [from, to] of alias) if (ids.has(to)) ids.set(from, ids.get(to)!);
   return {
     pinned: shown,
     ids,
@@ -133,11 +134,32 @@ export function stripSummary(runs: QaRun[]): string {
   return `${runs.length} playtests: ${parts.join(", ")}`;
 }
 
+/** How many cards the strip shows before the rest wait behind "N more". */
+export const STRIP_SHOWN = 2;
+/** The DOM event a pinned line sends to bring its card into view, wherever it is on the strip. */
+const REVEAL = "studio-reveal-playtest";
+
 export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaRun) => void }) {
   const [folded, setFolded] = useState(false);
+  const [all, setAll] = useState(false);
+  // Narrow, one card and the rest named under it; the strip must leave the conversation room.
+  const first = useMedia(NARROW) ? 1 : STRIP_SHOWN;
+  useEffect(() => {
+    const reveal = (e: Event) => {
+      const runId = (e as CustomEvent<string>).detail;
+      setFolded(false);
+      setAll(true);
+      // Drawn on the next frame: then opened and scrolled to.
+      requestAnimationFrame(() => focusRun(runId));
+    };
+    window.addEventListener(REVEAL, reveal);
+    return () => window.removeEventListener(REVEAL, reveal);
+  }, []);
   if (runs.length === 0) return null;
   const many = runs.length > 1;
   const you = runs.some(qaNeedsYou);
+  const shown = all ? runs : runs.slice(0, first);
+  const rest = runs.slice(shown.length);
   return (
     <section className={`playtest-strip ${many ? "many" : ""} ${you ? "needs-you" : ""}`} aria-label="Live playtests">
       {many && (
@@ -149,17 +171,33 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
       )}
       {!folded && (
         <div className="strip-list">
-          {runs.map((r) => (
+          {shown.map((r) => (
             <QaCard key={r.runId} run={r} dense onHide={r.assignment?.loop?.state === "needs_you" && !qaNeedsYouStep(r) ? () => onHide(r) : undefined} />
           ))}
+          {rest.length > 0 && (
+            <button className="small-button strip-more" onClick={() => setAll(true)} title={rest.map((r) => r.scriptName).join(", ")}>
+              {rest.length} more: {rest.map((r) => r.scriptName).join(", ")}
+            </button>
+          )}
+          {all && runs.length > first && (
+            <button className="ghost small-button strip-more" onClick={() => setAll(false)}>Show fewer</button>
+          )}
         </div>
       )}
     </section>
   );
 }
 
-/** The runs on the strip: every id the transcript may hold for one, to the id of its card there. */
-export const PinnedContext = createContext<ReadonlyMap<string, string>>(new Map());
+/** Bring a run's card on the strip into view and open it, showing every card when it is past the first ones. */
+export function revealPinned(runId: string): void {
+  window.dispatchEvent(new CustomEvent(REVEAL, { detail: runId }));
+}
+
+/** What a pinned run is doing, for its line in the transcript. */
+const pinnedState = (r: QaRun): string => (qaNeedsYou(r) ? "needs you" : qaActive(r) ? "is running" : "just ended");
+
+/** The runs on the strip: every id the transcript may hold for one, to the run its card there shows. */
+export const PinnedContext = createContext<ReadonlyMap<string, QaRun>>(new Map());
 
 /** A transcript's qa entry: its full card, or one line pointing at its live card on the strip. */
 export function TranscriptPlaytest({ run }: { run: QaRun }) {
@@ -169,9 +207,9 @@ export function TranscriptPlaytest({ run }: { run: QaRun }) {
     <div className="qa-pinned small" role="note">
       <span className="qa-pinned-mark" aria-hidden="true">{"↑"}</span>
       <span className="qa-pinned-text">
-        Playtest <strong>{run.scriptName}</strong> is live, pinned at the top of the conversation.
+        Playtest <strong>{live.scriptName}</strong> {pinnedState(live)} on the strip above.
       </span>
-      <button className="ghost small-button" onClick={() => focusRun(live)}>Show it</button>
+      <button className="ghost small-button" onClick={() => revealPinned(live.runId)}>Show it</button>
     </div>
   );
 }

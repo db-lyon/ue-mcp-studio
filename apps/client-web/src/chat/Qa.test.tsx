@@ -10,6 +10,8 @@ const m = vi.hoisted(() => ({
   qaStatus: vi.fn(),
   qaAssign: vi.fn(),
   qaCancelAssign: vi.fn(),
+  qaStop: vi.fn(),
+  qaRun: vi.fn(),
   answerForm: vi.fn(async () => {}),
   qaResultsUrl: (id: string) => `/v1/ext/studio/qa/runs/${id}/results`,
 }));
@@ -399,6 +401,39 @@ describe("the collapsed card", () => {
     expect(screen.getByRole("group", { name: "Step 3 waits for your verdict" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "1 more" }));
     expect(screen.getByText("The hinge sounds right")).toBeTruthy();
+  });
+
+  it("names the step a running run is on", () => {
+    collapsed(runOf({ state: "running", steps: STEPS.map((s, i) => ({ ...s, status: ["passed", "running", "pending"][i] })) }));
+    expect(screen.getAllByRole("status")[0].textContent).toBe("Running step 2 of 3");
+  });
+
+  it("stops a live run from its collapsed card", async () => {
+    m.qaStop.mockResolvedValue({ run: runOf({ state: "stopped" }) });
+    collapsed(runOf({ state: "running", steps: STEPS.map((s, i) => ({ ...s, status: i === 0 ? "running" : "pending" })) }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Stop playtest DoorOpens" }));
+    });
+    expect(m.qaStop).toHaveBeenCalledWith(RUN);
+    expect(screen.getAllByRole("status")[0].textContent).toBe("Stopped");
+  });
+
+  it("runs an ended playtest again from its card in the session, in one click", async () => {
+    m.qaRun.mockResolvedValue({ run: { ...runOf({ state: "armed" }), runId: "next" } });
+    collapsed(runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "passed" })) }));
+    expect(screen.queryByRole("button", { name: /^Stop/ })).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Run again" }));
+    });
+    expect(m.qaRun).toHaveBeenCalledWith(RUN, { startPie: true, players: 1, listen: false, record: true });
+  });
+
+  it("draws its actions disabled, saying why, while it cannot act", () => {
+    const steps = STEPS.map((s, i) => ({ ...s, status: i === 2 ? "awaiting_verdict" : "passed" }));
+    render(<QaContext.Provider value={{ events: [], streaming: true, forms: [] }}><QaCard run={runOf({ state: "awaiting_verdict", steps, awaiting: [2] })} offline="The editor is not connected" /></QaContext.Provider>);
+    const pass = screen.getByRole("button", { name: "Pass step 3" }) as HTMLButtonElement;
+    expect(pass.disabled).toBe(true);
+    expect(pass.title).toBe("The editor is not connected");
   });
 
   it("says what a loop that stopped needs, and opens on Review", () => {

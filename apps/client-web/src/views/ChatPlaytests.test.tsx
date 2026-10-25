@@ -43,7 +43,7 @@ describe("a session's playtests", () => {
     expect(strip.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(within(stage as HTMLElement).getByRole("group", { name: "Playtest Walk" })).toBeTruthy();
     expect(within(stage as HTMLElement).queryByRole("group", { name: "Playtest Door" })).toBeNull();
-    expect(within(stage as HTMLElement).getByRole("note").textContent).toContain("Door is live");
+    expect(within(stage as HTMLElement).getByRole("note").textContent).toContain("Door is running on the strip above");
     // No row of buttons above the conversation, and no per-session Playtests button.
     expect(container.querySelector(".conversation-tools")).toBeNull();
     expect(screen.queryByRole("button", { name: /^Playtests/ })).toBeNull();

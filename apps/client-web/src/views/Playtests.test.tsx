@@ -139,7 +139,7 @@ describe("the Playtests page", () => {
 
   it("says what each empty filter means, and when the editor could not list scripts", () => {
     page({ playtests: [ENTRIES[2]], listed: false });
-    expect(screen.getByText(/scripts that have never run are not listed/)).toBeTruthy();
+    expect(screen.getByText(/scripts that have never run are missing/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Needs you 0" }));
     expect(screen.getByText(/Nothing needs you/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Failing 0" }));

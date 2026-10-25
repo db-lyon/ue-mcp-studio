@@ -109,7 +109,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
     <div className="playtests-page">
       <div className="playtests-head">
         <h1 className="playtests-title">Playtests</h1>
-        <span className="dim small playtests-count">{index ? `${all.length} in this project` : ""}</span>
+        <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} listed`) : ""}</span>
         <span className="spacer" />
         <button className="ghost small-button" onClick={() => reload(true)} title="List the project's scripts again">Refresh</button>
       </div>
@@ -127,13 +127,13 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
       </div>
       {error && <div className="banner bad small" role="alert">{error}</div>}
       {index && !index.listed && (
-        <div className="banner warn small">The editor is not connected, so scripts that have never run are not listed. Runs Studio has seen are.</div>
+        <div className="banner warn small">The editor is not connected: scripts that have never run are missing, and starting a run or a subagent waits for it.</div>
       )}
       {!index && !error && <p className="dim small">Loading playtests</p>}
       {index && rows.length === 0 && <p className="muted playtests-empty">{FILTERS.find((f) => f.id === filter)!.empty}</p>}
       <QaContext.Provider value={live}>
         <div className="playtests-list">
-          {rows.map((e) => <PlaytestRow key={e.script} entry={e} onOpenSession={onOpenSession} onChanged={() => reload()} />)}
+          {rows.map((e) => <PlaytestRow key={e.script} entry={e} offline={index?.listed === false} onOpenSession={onOpenSession} onChanged={() => reload()} />)}
         </div>
       </QaContext.Provider>
     </div>
@@ -144,13 +144,13 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
 function metaOf(e: PlaytestEntry): ReactNode {
   const title = e.session?.title || "Untitled";
   const where = e.session
-    ? <> in <span className="qa-meta-session" title={title}>{title}</span></>
+    ? <> <span className="qa-meta-session" title={title}>in {title}</span></>
     : e.last ? " outside Studio" : "";
   const when = e.last ? `${qaEnded(e.last.state) ? "Ran" : "Started"} ${ranAgo(e.last.seenAt)}` : e.card ? "Never run, drafted" : "Never run";
   return <>{e.deleted && "Script deleted. "}{when}{where}</>;
 }
 
-export function PlaytestRow({ entry, onOpenSession, onChanged }: { entry: PlaytestEntry; onOpenSession: (sessionId: string, runId: string) => void; onChanged: () => void }) {
+export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }: { entry: PlaytestEntry; offline?: boolean; onOpenSession: (sessionId: string, runId: string) => void; onChanged: () => void }) {
   const shown = playtestShown(entry);
   /** The card in a session, made on the first action that needs one. */
   const card = async (): Promise<QaRun> => entry.card ?? (await api.qaPlaytestCard(entry.script)).run;
@@ -171,11 +171,11 @@ export function PlaytestRow({ entry, onOpenSession, onChanged }: { entry: Playte
   if (!shown) return null;
   const target = entry.session && entry.last?.sessionId === entry.session.id ? entry.last : entry.card;
   const open = target?.sessionId ? (
-    <button className="ghost small-button" onClick={() => onOpenSession(target.sessionId!, target.runId)} title={`Open the card in ${entry.session?.title ?? "its session"}`}>Open in session</button>
+    <button className="small-button" onClick={() => onOpenSession(target.sessionId!, target.runId)} title={`Open the card in ${entry.session?.title ?? "its session"}`}>Open in session</button>
   ) : null;
   return (
     <div className={`playtests-row ${entry.deleted ? "deleted" : ""}`}>
-      <QaCard run={shown} actions={entry.deleted ? {} : actions} meta={metaOf(entry)} extra={open} />
+      <QaCard run={shown} actions={entry.deleted ? {} : actions} meta={metaOf(entry)} extra={open} offline={offline ? "The editor is not connected" : undefined} />
     </div>
   );
 }

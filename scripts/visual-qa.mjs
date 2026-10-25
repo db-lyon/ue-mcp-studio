@@ -71,6 +71,7 @@ try {
         if (!el) errors.push(`nothing matched ${click}`);
         else {
           await el.click();
+          await page.mouse.move(1, 1);
           await page.waitForTimeout(700);
         }
       }

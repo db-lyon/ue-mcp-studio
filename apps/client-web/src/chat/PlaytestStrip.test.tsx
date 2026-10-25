@@ -53,7 +53,7 @@ describe("the strip of live playtests", () => {
     expect(within(stripEl()!).getByRole("group", { name: "Playtest Jump" })).toBeTruthy();
     expect(within(stripEl()!).queryByRole("button", { expanded: true, name: /Live/ })).toBeNull();
     expect(within(transcriptEl()).queryByRole("group", { name: "Playtest Jump" })).toBeNull();
-    expect(within(transcriptEl()).getByRole("note").textContent).toContain("Jump is live");
+    expect(within(transcriptEl()).getByRole("note").textContent).toContain("Jump is running on the strip above");
     expect(document.querySelectorAll("[data-run-id='a']")).toHaveLength(1);
   });
 
@@ -73,6 +73,9 @@ describe("the strip of live playtests", () => {
     render(<Session transcript={transcript} events={[]} />);
     const head = within(stripEl()!).getByRole("button", { expanded: true });
     expect(head.textContent).toContain("3 playtests: 1 needs you, 2 running");
+    // Two cards, then the rest behind one button that names them.
+    expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest Waiting", "Playtest Running"]);
+    fireEvent.click(within(stripEl()!).getByRole("button", { name: "1 more: Looping" }));
     expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest Waiting", "Playtest Running", "Playtest Looping"]);
     fireEvent.click(head);
     expect(within(stripEl()!).queryAllByRole("group", { name: /^Playtest / })).toHaveLength(0);
@@ -129,6 +132,22 @@ describe("the strip of live playtests", () => {
   it("never hides a step that waits for a verdict", () => {
     render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "awaiting_verdict"]))} events={[]} />);
     expect(within(stripEl()!).queryByRole("button", { name: /Hide/ })).toBeNull();
+  });
+
+  it("brings a card past the first ones into view from its line in the transcript", async () => {
+    const transcript = entries(
+      run("a", "Running", "running", ["running", "pending"]),
+      run("b", "Waiting", "awaiting_verdict", ["passed", "awaiting_verdict"]),
+      run("c", "Third", "running", ["running", "pending"]),
+    );
+    render(<Session transcript={transcript} events={[]} />);
+    expect(within(stripEl()!).queryByRole("group", { name: "Playtest Third" })).toBeNull();
+    const line = within(transcriptEl()).getAllByRole("note").find((n) => n.textContent?.includes("Third"))!;
+    await act(async () => {
+      fireEvent.click(within(line).getByRole("button", { name: "Show it" }));
+    });
+    expect(within(stripEl()!).getByRole("group", { name: "Playtest Third" })).toBeTruthy();
+    expect(within(transcriptEl()).getAllByRole("note").find((n) => n.textContent?.includes("Waiting"))!.textContent).toContain("Waiting needs you on the strip above");
   });
 
   it("sums up in words", () => {
