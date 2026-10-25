@@ -173,7 +173,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
       </Card>
 
       <Card label="Subagents">
-        {view.subagents.length === 0 && <p className="cfg-note">{SUBAGENT_DIR[view.convention] ? `None found in ${SUBAGENT_DIR[view.convention]!.replace(/ and /, " or ")}.` : "These models have no subagent files; Studio's worker is their helper."}</p>}
+        {view.subagents.length === 0 && <p className="cfg-note">{SUBAGENT_DIR[view.convention] ? `None found in ${SUBAGENT_DIR[view.convention]!.replace(/ and /, " or ")}.` : "Custom endpoints have no subagent files; Studio's worker is their helper."}</p>}
         <ul className="ifiles plain">
           {view.subagents.map((a) => (
             <li key={a.path}>

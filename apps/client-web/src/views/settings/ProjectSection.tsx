@@ -52,7 +52,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       </section>
 
       <Card label={<>Context strategy for other clients <Shared /></>}>
-        <p className="muted small">What a client such as an editor extension or a terminal agent is given at the start of each session. Studio's own agents use Micro.</p>
+        <p className="muted small">What a client such as an editor extension or a terminal agent is given at the start of each session. Studio's own agent uses Micro for now.</p>
         {context && (
           <>
             {context.envOverride && (

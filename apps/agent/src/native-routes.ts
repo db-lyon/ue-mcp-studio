@@ -47,7 +47,7 @@ export function openWithSystem(abs: string): void {
 /** A tool list in Studio's words. */
 function toolSummary(allowed: Set<string> | null, unknown: string[]): string {
   const names = allowed === null ? "every Studio tool (the file sets no limit)" : allowed.size ? [...allowed].join(", ") : "no tools";
-  return unknown.length ? `${names}; not available here: ${unknown.join(", ")}` : names;
+  return unknown.length ? `${names}; no Studio tool does ${unknown.join(", ")}, so it is left out` : names;
 }
 
 export function nativeView(l: Loadout, o: Pick<NativeRouteOptions, "routesFor" | "runsOverApi" | "modelName" | "main">): NativeView {
