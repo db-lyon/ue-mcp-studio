@@ -151,10 +151,9 @@ const verdictOf = (s: QaStep): QaVerdict | null => (s.status === "passed" ? "pas
 const tone = (s: QaStep): string =>
   s.status === "passed" ? "ok" : s.status === "failed" ? "bad" : s.status === "awaiting_verdict" ? "warn" : s.status === "running" ? "run" : "";
 
-/** A running run's pill: the step it is on, or how far it got when none is running. Short, it leaves out "Running": the strip's box says it. */
-export function runningText(run: QaRun, settled: number, total: number, short = false): string {
+/** A running run's pill: the step it is on, or how far it got when none is running. */
+export function runningText(run: QaRun, settled: number, total: number): string {
   const on = run.steps.find((s) => s.status === "running");
-  if (short) return on ? `Step ${on.index + 1} of ${total}` : `${settled} of ${total} done`;
   return on ? `Running step ${on.index + 1} of ${total}` : `Running, ${settled} of ${total} done`;
 }
 
@@ -237,8 +236,8 @@ function NowLine({ run, pill, actions }: { run: QaRun; pill: string | null; acti
  * and below what shows, measured as it scrolls. `overflow` is whether they
  * scroll at all, so the rows that say so keep their place while they do.
  */
-function useScrollCues(body: RefObject<HTMLDivElement>, on: boolean): { overflow: boolean; above: number; below: number; by: (dir: 1 | -1) => void } {
-  const [hidden, setHidden] = useState({ overflow: false, above: 0, below: 0 });
+function useScrollCues(body: RefObject<HTMLDivElement>, on: boolean): { overflow: boolean; above: number; below: number; moreAbove: boolean; moreBelow: boolean; by: (dir: 1 | -1) => void } {
+  const [hidden, setHidden] = useState({ overflow: false, above: 0, below: 0, moreAbove: false, moreBelow: false });
   useLayoutEffect(() => {
     const el = body.current;
     if (!on || !el) return;
@@ -252,7 +251,10 @@ function useScrollCues(body: RefObject<HTMLDivElement>, on: boolean): { overflow
         else if (li.offsetTop + li.offsetHeight > bottom + 2) below++;
       });
       const overflow = el.scrollHeight > el.clientHeight + 2;
-      setHidden((cur) => (cur.overflow === overflow && cur.above === above && cur.below === below ? cur : { overflow, above, below }));
+      // Content that is not a step, such as a loop's attempts, is still out of view.
+      const moreAbove = top > 2;
+      const moreBelow = bottom < el.scrollHeight - 2;
+      setHidden((cur) => (cur.overflow === overflow && cur.above === above && cur.below === below && cur.moreAbove === moreAbove && cur.moreBelow === moreBelow ? cur : { overflow, above, below, moreAbove, moreBelow }));
     };
     measure();
     el.addEventListener("scroll", measure, { passive: true });
@@ -267,12 +269,13 @@ function useScrollCues(body: RefObject<HTMLDivElement>, on: boolean): { overflow
   return { ...hidden, by };
 }
 
-/** One of the rows over and under scrolled steps: how many are out of view that way, which scrolls to them. */
-function ScrollCue({ dir, count, onClick }: { dir: "above" | "below"; count: number; onClick: () => void }) {
-  const steps = `${count} step${count === 1 ? "" : "s"}`;
+/** One of the rows over and under scrolled steps: how many are out of view that way, or that more is, which scrolls to them. */
+function ScrollCue({ dir, count, more, onClick }: { dir: "above" | "below"; count: number; more: boolean; onClick: () => void }) {
+  const what = count > 0 ? `${count} step${count === 1 ? "" : "s"} ${dir}` : `More ${dir}`;
+  const shown = count > 0 || more;
   return (
-    <button type="button" className={`qa-scroll-cue ${dir}`} disabled={count === 0} aria-hidden={count === 0} tabIndex={count === 0 ? -1 : undefined} onClick={onClick}>
-      {count > 0 ? `${dir === "above" ? "▴" : "▾"} ${steps} ${dir}` : " "}
+    <button type="button" className={`qa-scroll-cue ${dir}`} disabled={!shown} aria-hidden={!shown} tabIndex={shown ? undefined : -1} onClick={onClick}>
+      {shown ? `${dir === "above" ? "▴" : "▾"} ${what}` : " "}
     </button>
   );
 }
@@ -357,7 +360,10 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
     }
     const li = body.current?.querySelector<HTMLElement>(`.qa-step[data-index="${target}"]`);
     if (!li) return;
-    li.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    if (dense && body.current) {
+      body.current.scrollTop = li.offsetTop;
+      card.current?.scrollIntoView?.({ block: "nearest" });
+    } else li.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
     // The fail box takes focus itself; otherwise the step does.
     if (!li.querySelector("textarea")) li.focus({ preventScroll: true });
     li.classList.add("flash");
@@ -494,9 +500,12 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       ? (run.state === "stopped" ? { tone: "", text: "Stopped" } : { tone: sum.failed ? "bad" : "ok", text: sum.failed ? `${sum.failed} failed` : "Passed" })
       : waiting.length
         ? { tone: "warn", text: "Needs you" }
-        : { tone: "run", text: run.state === "armed" ? "Starting" : runningText(run, settled, sum.total, dense) };
-  /** Collapsed on the strip, the card's own buttons sit in the box under its path, so its head is one line in every state. */
-  const boxed = dense && !open;
+        : { tone: "run", text: run.state === "armed" ? "Starting" : runningText(run, settled, sum.total) };
+  /**
+   * On the strip the card's own buttons sit in the box under its path, open or
+   * not, so its head is one line in every state and opening it only adds detail.
+   */
+  const boxed = dense;
 
   const stopButton = stoppable && <button className="small-button qa-stop" disabled={working || !!offline} title={offline ?? "End the run now; steps not settled stay pending"} onClick={stop} aria-label={`Stop playtest ${run.scriptName}`}>Stop</button>;
   const cancelAssigned = assigned && <button className="small-button" disabled={assigning} onClick={toggleAssign} aria-label={assignment?.loop ? "Cancel the loop" : "Cancel the subagent"}>{assignment?.loop ? "Cancel loop" : "Cancel"}</button>;
@@ -521,6 +530,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
   );
 
   const runActions = <>{startButtons}{stopButton}</>;
+  const assignButton = <button className="small-button" disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "A subagent runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"}>{needsYouLoop ? "Assign again" : "Assign to subagent"}</button>;
   const boxActions = (runnable || stoppable || assigned) ? <span className="qa-box-actions">{startButtons}{stopButton}{cancelAssigned}</span> : null;
 
   return (
@@ -532,9 +542,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           <strong className="qa-title">{run.scriptName}</strong>
         </button>
         {run.subagent && <span className="dim small qa-by">run by {run.subagent}</span>}
-        {dense && !open && run.steps.length > 0
-          ? <span className="qa-head-path" title={pathSummary(run, sum)}><StepPath steps={run.steps} onStep={(i) => openAt(i)} /></span>
-          : <span className="spacer" />}
+        <span className="spacer" />
         <span className="qa-states">
           {offline && (pill || assignment?.loop) && <span className="qa-last-known small" title={offline}>Last known</span>}
           {pill && <span className={`pill ${pill.tone}`} role="status" title={offline ? `Last known: ${offline}` : undefined}>{pill.text}</span>}
@@ -548,9 +556,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           <span className="qa-slot qa-slot-assign">
             {assigned ? (
               (open || outside || dense) && cancelAssigned
-            ) : canAssign && (open || outside) && (
-              <button className="small-button" disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "A subagent runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"}>{needsYouLoop ? "Assign again" : "Assign to subagent"}</button>
-            )}
+            ) : canAssign && (open || outside) && assignButton}
             {needsYouLoop && open && cancelLoop}
           </span>
           {open && draft && owned && !run.deleted && !assigned && (
@@ -569,9 +575,9 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           </span>
         </span>}
       </div>
-      {!open && (
+      {(!open || dense) && (
         <div className="qa-compact">
-          {!dense && run.steps.length > 0 && <StepPath steps={run.steps} onStep={(i) => openAt(i)} />}
+          {run.steps.length > 0 && <StepPath steps={run.steps} onStep={(i) => openAt(i)} />}
           {!dense && (
             <div className="qa-compact-line small">
               <button className="qa-compact-open" aria-label={`Open playtest ${run.scriptName}`} onClick={() => openAt(null)}>
@@ -624,7 +630,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       )}
       {open && meta && <div className="qa-meta small dim">{meta}</div>}
       {open && <div className="qa-body-wrap">
-      {cues.overflow && <ScrollCue dir="above" count={cues.above} onClick={() => cues.by(-1)} />}
+      {cues.overflow && <ScrollCue dir="above" count={cues.above} more={cues.moreAbove} onClick={() => cues.by(-1)} />}
       <div className="qa-body" id={`qa-body-${run.runId}`} ref={body}>
       {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
       {panel === "run" && runnable && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
@@ -707,7 +713,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
                   ))}
                 </div>
               )}
-              {verdictable && !failBox && (
+              {verdictable && !failBox && !(dense && ask?.index === s.index) && (
                 <div className="qa-verdict">
                   {VERDICTS.map((v) => (
                     <button
@@ -760,8 +766,9 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           )}
         </div>
       )}
+      {dense && !assigned && canAssign && <div className="qa-more-actions">{assignButton}</div>}
       </div>
-      {cues.overflow && <ScrollCue dir="below" count={cues.below} onClick={() => cues.by(1)} />}
+      {cues.overflow && <ScrollCue dir="below" count={cues.below} more={cues.moreBelow} onClick={() => cues.by(1)} />}
       </div>}
     </div>
   );

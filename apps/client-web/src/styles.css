@@ -1233,14 +1233,11 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .qa-compact-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 .qa-compact-line .qa-meta::before { content: "\B7"; margin-right: 8px; }
 .qa-meta { overflow-wrap: anywhere; }
-/* Dense, on the strip: the path sits in the head row, between the title and the state. */
-.qa-head-path { flex: 1 1 160px; min-width: 120px; }
+/* Narrow, a card's line stacks its summary over where and when it ran. */
 @media (max-width: 760px) {
-  .qa-card.dense .qa-head-path { order: 10; flex-basis: 100%; }
   .qa-compact-line { flex-direction: column; gap: 2px; }
   .qa-compact-line .qa-meta::before { content: none; }
 }
-@media (min-width: 761px) { .qa-card.dense .qa-toggle { min-width: 220px; } }
 @keyframes qa-glow { 50% { opacity: 0.55; } }
 
 /* One bar per step. The button is the hit area; the bar is drawn inside it. A manual step's bar has a pip over it. */
@@ -1341,7 +1338,7 @@ button.strip-more { align-self: flex-start; max-width: 100%; overflow: hidden; t
 /* An open card on the strip keeps its head in view: its steps scroll inside it. */
 .playtest-strip .qa-card.open .qa-body { max-height: 34vh; overflow-y: auto; padding-right: 6px; }
 /* The transcript fades in under the strip, so a line cut by its edge reads as scrolled, not broken. */
-.playtest-strip + .thread-stage::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 18px; z-index: 3; pointer-events: none; background: linear-gradient(var(--panel), transparent); }
+.playtest-strip + .thread-stage::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 40px; z-index: 3; pointer-events: none; background: linear-gradient(var(--panel) 25%, transparent); }
 .qa-card button.small-button, .playtests-page button.small-button { font-size: 11px; letter-spacing: 0; }
 button.strip-more { white-space: normal; text-align: left; }
 .strip-more-state { color: var(--muted); }
@@ -1397,19 +1394,15 @@ button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 
   .qa-card.dense .qa-answer, .qa-card.dense .qa-now { flex-direction: column; align-items: stretch; flex-wrap: nowrap; }
   .qa-card.dense .qa-answer-step, .qa-card.dense .qa-answer.needs .qa-answer-text { flex: 0 0 auto; }
   .qa-card.dense .qa-verdict, .qa-card.dense .qa-now-row { width: 100%; }
-  /* Two lines of text in every box, so the card keeps its height as its run moves on. */
-  .qa-card.dense .qa-answer-step { align-items: center; min-height: 2.8em; }
-  .qa-card.dense .qa-answer-text { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.4; }
-  .qa-card.dense .qa-answer.needs .qa-answer-text { min-height: 2.8em; }
 }
 /* An open card's steps on the strip scroll inside it: a row over and under them says how many are out of view. */
 .qa-body-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .playtest-strip .qa-card.open .qa-body { position: relative; }
-button.qa-scroll-cue { align-self: stretch; min-height: 22px; padding: 0 8px; border: 1px dashed var(--line-strong); border-radius: var(--radius); background: var(--panel-2); color: var(--muted); font: 500 11px/1 var(--sans); letter-spacing: 0; text-align: center; }
+button.qa-scroll-cue { align-self: stretch; min-height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); color: var(--muted); font: 500 11px/1 var(--sans); letter-spacing: 0; text-align: center; }
 button.qa-scroll-cue:hover:not(:disabled) { border-color: var(--accent); color: var(--text); background: var(--panel-2); }
 button.qa-scroll-cue:disabled { visibility: hidden; }
 /* At 380 px with more than one that needs you, the strip takes the room they need. */
-@media (max-width: 760px) { .playtest-strip.needs-you { max-height: 62vh; } }
+@media (max-width: 760px) { .playtest-strip.needs-you { max-height: 55vh; } }
 /* Playtests side by side in the transcript share one pointer to the strip. */
 .qa-pinned-names { color: var(--text); }
 .qa-pinned-text { flex: 0 1 auto; min-width: 0; }
@@ -1418,3 +1411,5 @@ button.qa-scroll-cue:disabled { visibility: hidden; }
 button.qa-meta-session.link { display: inline-flex; align-items: baseline; gap: 4px; height: auto; min-height: 0; max-width: 100%; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; letter-spacing: 0; text-align: left; cursor: pointer; vertical-align: bottom; }
 button.qa-meta-session.link:hover:not(:disabled) { background: none; border: 0; color: var(--text); }
 .qa-meta-session-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-underline-offset: 3px; }
+/* On the strip an open card's other action sits under its steps, not in its head. */
+.qa-more-actions { display: flex; gap: 6px; padding-top: 2px; }

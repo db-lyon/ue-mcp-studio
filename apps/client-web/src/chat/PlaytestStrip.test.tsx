@@ -263,6 +263,17 @@ describe("the strip of live playtests", () => {
     expect(within(transcriptEl()).getByRole("group", { name: "Playtest Done" })).toBeTruthy();
   });
 
+  it("keeps a card's buttons where they were when it is opened on the strip, adding only detail", () => {
+    render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "awaiting_verdict"]))} events={[]} />);
+    const buttons = () => within(within(stripEl()!).getByRole("group", { name: "Step 2 needs you" })).getAllByRole("button").map((b) => b.textContent);
+    expect(buttons()).toEqual(["Pass", "Fail", "Skip", "Stop"]);
+    fireEvent.click(within(stripEl()!).getByRole("button", { name: /Door/, expanded: false }));
+    expect(buttons()).toEqual(["Pass", "Fail", "Skip", "Stop"]);
+    // The verdict is asked once, in the box; the head carries no buttons.
+    expect(within(stripEl()!).getAllByRole("button", { name: "Pass step 2" })).toHaveLength(1);
+    expect(stripEl()!.querySelector(".qa-head .qa-actions")).toBeNull();
+  });
+
   it("sums up in words", () => {
     expect(stripSummary([run("a", "A", "running", ["running"]), run("b", "B", "awaiting_verdict", ["awaiting_verdict"])])).toBe("2 playtests: 1 needs you, 1 running");
     expect(stripSummary([run("a", "A", "awaiting_verdict", ["awaiting_verdict"]), run("b", "B", "awaiting_verdict", ["awaiting_verdict"])])).toBe("2 playtests: 2 need you");
