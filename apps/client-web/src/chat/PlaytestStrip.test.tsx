@@ -59,7 +59,7 @@ describe("the strip of live playtests", () => {
 
   it("takes a verdict right on the strip", () => {
     render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "awaiting_verdict"]))} events={[]} />);
-    const ask = within(stripEl()!).getByRole("group", { name: "Step 2 waits for your verdict" });
+    const ask = within(stripEl()!).getByRole("group", { name: "Step 2 needs you" });
     expect(within(ask).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip"]);
     expect(stripEl()!.className).toContain("needs-you");
   });

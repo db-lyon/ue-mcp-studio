@@ -109,7 +109,7 @@ const LABEL: Record<QaStep["status"], string> = {
   running: "Running",
   passed: "Passed",
   failed: "Failed",
-  awaiting_verdict: "Awaiting verdict",
+  awaiting_verdict: "Needs you",
   skipped: "Skipped",
 };
 
@@ -169,7 +169,7 @@ export function pathSummary(run: QaRun, sum: ReturnType<typeof qaSummaryOf>): st
     sum.passed && `${sum.passed} passed`,
     sum.failed && `${sum.failed} failed`,
     sum.skipped && `${sum.skipped} skipped`,
-    waiting && `${waiting} waiting for you`,
+    waiting && `${waiting} need${waiting === 1 ? "s" : ""} you`,
   ].filter(Boolean);
   return parts.length ? `${steps}: ${parts.join(", ")}` : steps;
 }
@@ -257,7 +257,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
   // Asked while the user is elsewhere: flash the window, as an editor dialog does.
   const wants = waiting.length > 0;
   useEffect(() => {
-    if (wants && !document.hasFocus()) void native().drawattention?.(`A playtest step is waiting for your verdict: ${run.scriptName}`).catch(() => false);
+    if (wants && !document.hasFocus()) void native().drawattention?.(`A playtest needs you: ${run.scriptName}`).catch(() => false);
   }, [wants, run.runId]);
   /** The step a bar or Fail opened the card on: scrolled to, focused and marked once it is drawn. */
   const [target, setTarget] = useState<number | null>(null);
@@ -401,7 +401,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
     : ended
       ? (run.state === "stopped" ? { tone: "", text: "Stopped" } : { tone: sum.failed ? "bad" : "ok", text: sum.failed ? `${sum.failed} failed` : "Passed" })
       : waiting.length
-        ? { tone: "warn", text: "Waiting for you" }
+        ? { tone: "warn", text: "Needs you" }
         : { tone: "run", text: run.state === "armed" ? "Starting" : runningText(run, settled, sum.total) };
 
   const startButtons = runnable && (
@@ -472,7 +472,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
             </div>
           )}
           {ask && (
-            <div className="qa-answer" role="group" aria-label={`Step ${ask.index + 1} waits for your verdict`}>
+            <div className="qa-answer" role="group" aria-label={`Step ${ask.index + 1} needs you`}>
               <span className="qa-answer-step">
                 <span className="qa-num mono">{ask.index + 1}</span>
                 <span className="qa-answer-text">{ask.instruction}</span>
