@@ -21,7 +21,7 @@ export function loopHeadline(loop: QaLoop): string {
   if (loop.state === "passed") return `Passed after ${plural(n, "attempt")}.`;
   if (loop.state === "stopped") return `The loop was stopped after ${plural(n, "attempt")}. Each attempt's changes can still be reverted.`;
   if (loop.state === "failed") return `The loop stopped on an error: ${loop.error ?? "unknown"}`;
-  return `Stopped after ${plural(n, "attempt")} for you.`;
+  return `The loop stopped after ${plural(n, "attempt")} and needs you.`;
 }
 
 /** The pill a loop puts beside the run's own status. */
