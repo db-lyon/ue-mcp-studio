@@ -153,7 +153,7 @@ export function UpdatesCard() {
       <div className="row">
         <h2>Updates</h2>
         <span className="spacer" />
-        {!working && steps.length === 0 && <button className="ghost" onClick={load}>Check again</button>}
+        {!working && steps.length === 0 && <button onClick={load}>Check again</button>}
       </div>
       {!u && <p className="muted">Checking</p>}
       {u && (

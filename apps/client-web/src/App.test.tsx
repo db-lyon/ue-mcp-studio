@@ -68,7 +68,7 @@ describe("returning to Chat from another tab", () => {
     const before = await leaveChatOpen();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByText("Settings view")).toBeTruthy();
-    expect(window.location.hash).toBe("#/settings/general");
+    expect(window.location.hash).toBe("#/settings/agents");
     expect(document.querySelector("main.view-chat")?.classList.contains("parked")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Chat" }));
     expectSameChat(before);

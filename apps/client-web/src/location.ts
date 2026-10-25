@@ -1,11 +1,11 @@
 /**
  * Where the panel is: its tab, the Settings section, and the open session,
- * kept in the URL's hash (#/chat/<session>, #/settings/<section>, #/flows,
- * #/plugins). A reload reads it back, and Studio's window carries the hash
+ * kept in the URL's hash (#/chat/<session>, #/settings/<section>, #/playtests,
+ * #/flows, #/plugins). A reload reads it back, and Studio's window carries the hash
  * to the daemon's new address when ue-mcp restarts on another port, so the
  * panel comes back where it was. The draft lives with the session, agent side.
  */
-export type Tab = "Chat" | "Flows" | "Plugins" | "Settings";
+export type Tab = "Chat" | "Playtests" | "Flows" | "Plugins" | "Settings";
 
 export interface PanelLocation {
   tab: Tab;
@@ -13,7 +13,7 @@ export interface PanelLocation {
   section: string | null;
 }
 
-const TABS: Record<string, Tab> = { chat: "Chat", flows: "Flows", plugins: "Plugins", settings: "Settings" };
+const TABS: Record<string, Tab> = { chat: "Chat", playtests: "Playtests", flows: "Flows", plugins: "Plugins", settings: "Settings" };
 
 /** A session id or section name as it may appear in the hash. */
 const SAFE = /^[A-Za-z0-9_-]{1,128}$/;

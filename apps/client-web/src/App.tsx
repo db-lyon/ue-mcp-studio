@@ -10,30 +10,30 @@ import { useUpdateCount } from "./views/Updates";
 import { UpdateRunner } from "./views/UpdateOverlay";
 import { FeedbackDialog } from "./views/Feedback";
 import { ChatView } from "./views/Chat";
-import { SettingsHub, type SettingsSection } from "./views/SettingsHub";
+import { SettingsHub } from "./views/SettingsHub";
+import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { VcsChip } from "./chat/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
 import { DockToggle } from "./views/DockToggle";
 import { NavDrawer } from "./views/NavDrawer";
+import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
+import { playtestMatches } from "@ue-mcp-studio/shared";
 import { NARROW, useMedia } from "./layout";
 import { readLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
 import { focusRun, useAttention } from "./attention";
 import { replaceStaleWindow } from "./window-version";
 
-const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
+const TABS = ["Chat", "Playtests", "Flows", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
-const SECTIONS: SettingsSection[] = ["general", "agent", "account", "project", "diagnostics"];
 
 export function App() {
   const daemon = useDaemon();
   // Where the panel was, from the URL's hash: a reload, or ue-mcp back on a new port, lands there.
   const [tab, setTab] = useState<Tab>(() => readLocation().tab);
-  const [section, setSection] = useState<SettingsSection>(() => {
-    const s = readLocation().section;
-    return s && (SECTIONS as string[]).includes(s) ? (s as SettingsSection) : "general";
-  });
+  // null: the section list, which only a narrow panel shows on its own.
+  const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
   useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
   // The editor's quick ask started a session: show it, from any tab.
   useSessionFocus(daemon.events, (session) => {
@@ -46,6 +46,10 @@ export function App() {
   useEffect(() => {
     if (!narrow) setDrawer(false);
   }, [narrow]);
+  // A wide panel always has a section open, Agents first; a narrow one starts on the section list.
+  useEffect(() => {
+    if (tab === "Settings" && section === null && !narrow) setSection("agents");
+  }, [tab, section, narrow]);
   /** A request for the chat to show a session, or its list (null); `n` tells requests apart. */
   const [chatNav, setChatNav] = useState<{ session: string | null; n: number }>({ session: null, n: 0 });
   const openChat = (session: string | null) => {
@@ -60,6 +64,13 @@ export function App() {
     focusRun(t.runId);
   });
   const updates = useUpdateCount();
+  // The project's playtests: the page's rows, and the count on its tab of those that wait for the user.
+  const playtests = usePlaytestIndex(daemon);
+  const playtestsWaiting = (playtests.index?.playtests ?? []).filter((e) => playtestMatches(e, "needs-you")).length;
+  const openPlaytest = (sessionId: string, runId: string) => {
+    openChat(sessionId);
+    focusRun(runId);
+  };
   // The chat stays mounted once shown, parked while another tab is up, so coming back to it
   // finds the same session, scroll position and composer draft (#40).
   const chatShown = useRef(tab === "Chat");
@@ -105,6 +116,7 @@ export function App() {
                 <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
                   {t}
                   {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
+                  {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={`${playtestsWaiting} ${playtestsWaiting === 1 ? "playtest needs" : "playtests need"} you`}>{playtestsWaiting}</span>}
                 </button>
               ))}
             </nav>
@@ -120,6 +132,7 @@ export function App() {
           tab={tab}
           session={tab === "Chat" ? readLocation().session : null}
           updates={updates}
+          playtestsWaiting={playtestsWaiting}
           onTab={setTab}
           onSession={openChat}
           onNewSession={newSession}
@@ -138,9 +151,10 @@ export function App() {
         )}
         {tab !== "Chat" && (
           <main className={`view-${tab.toLowerCase()}`}>
+            {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
             {tab === "Flows" && <FlowsView daemon={daemon} />}
             {tab === "Plugins" && <PluginsView daemon={daemon} />}
-            {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} />}
+            {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
           </main>
         )}
       </div>

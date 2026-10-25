@@ -1,0 +1,7 @@
+{
+  "provider": "byok",
+  "model": "claude-sonnet-5-5",
+  "effort": "high",
+  "gatewayUrl": "https://gateway.ue-mcp.com",
+  "theme": "ue-mcp"
+}

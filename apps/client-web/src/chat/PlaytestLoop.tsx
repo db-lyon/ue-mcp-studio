@@ -21,7 +21,7 @@ export function loopHeadline(loop: QaLoop): string {
   if (loop.state === "passed") return `Passed after ${plural(n, "attempt")}.`;
   if (loop.state === "stopped") return `The loop was stopped after ${plural(n, "attempt")}. Each attempt's changes can still be reverted.`;
   if (loop.state === "failed") return `The loop stopped on an error: ${loop.error ?? "unknown"}`;
-  return `Stopped after ${plural(n, "attempt")} for you.`;
+  return `The loop stopped after ${plural(n, "attempt")}.`;
 }
 
 /** The pill a loop puts beside the run's own status. */
@@ -53,7 +53,7 @@ export function LoopPanel({ loop, busy, onRevert, onThread }: {
           )}
         </div>
       )}
-      <div className="dim small">{loop.tokens} of {loop.budget.tokens} tokens; up to {loop.budget.minutes} minutes.</div>
+      <div className="muted small">{loop.tokens.toLocaleString("en-US")} of {loop.budget.tokens.toLocaleString("en-US")} tokens; up to {loop.budget.minutes} minutes.</div>
       {loop.attempts.length > 0 && (
         <ol className="qa-attempts">
           {loop.attempts.map((a) => (
@@ -63,14 +63,14 @@ export function LoopPanel({ loop, busy, onRevert, onThread }: {
                 <span className="dim small">{a.endedAt ? (a.changes.length ? plural(a.changes.length, "change") : "no changes") : "running"}</span>
                 {a.reverted && <span className="pill small">Reverted</span>}
                 <span className="spacer" />
-                {onThread && <button className="ghost small-button" onClick={() => onThread(a.callId)}>Thread</button>}
                 {!running && !a.reverted && a.changes.length > 0 && (
                   <button className="small-button" disabled={busy} onClick={() => onRevert(a.n)} aria-label={`Revert attempt ${a.n}`}>Revert</button>
                 )}
+                {onThread && <button className="small-button" onClick={() => onThread(a.callId)}>Thread</button>}
               </div>
               {(a.changes.length > 0 || a.failing.length > 0) && (
                 <details className="small">
-                  <summary>{a.failing.length ? `${plural(a.failing.length, "step")} not passing, ` : ""}{plural(a.changes.length, "change")}</summary>
+                  <summary>{a.failing.length ? `${plural(a.failing.length, "step")} not passing` : "What it changed"}</summary>
                   {a.failing.length > 0 && <ul className="qa-attempt-failing">{a.failing.map((f, i) => <li key={i}>{f}</li>)}</ul>}
                   {REVIEW_GROUPS.map(({ group, label }) => {
                     const items = a.changes.filter((c) => groupOf(c) === group);

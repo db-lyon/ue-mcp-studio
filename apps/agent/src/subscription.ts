@@ -9,8 +9,9 @@ import { createSdkMcpServer, query, tool, type HookCallback, type SDKMessage, ty
 import type { Effort, SubagentMode } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
-import { OMIT_DESCRIPTION, SELECT_DESCRIPTION, UE_MCP_DESCRIPTION, type ToolExecution } from "./tools.js";
-import { messagesUsage, usageTokens } from "./usage.js";
+import { OMIT_DESCRIPTION, SELECT_DESCRIPTION, UE_MCP_DESCRIPTION, forModel, type ToolExecution } from "./tools.js";
+import { kindsOf, messagesUsage, usageTokens, type TokenUsage } from "./usage.js";
+import type { TokenKinds } from "@ue-mcp-studio/shared";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
@@ -24,24 +25,40 @@ const AGENT = "Agent";
 const WORKER = "editor-worker";
 /** The SDK's web search, which runs on Anthropic's side: the one built-in tool besides Agent. */
 const SEARCH = "WebSearch";
+/** The SDK's skill tool, which an explicit tool list must name for the project's skills to load. */
+const SKILL = "Skill";
 
-/** Tool names as Studio's transcript writes them: its own tools unprefixed, the SDK's subagent tool as agent. */
+/** Claude Code's built-in names a skill or subagent may use, each run by Studio's own tool through the SDK's toolAliases. */
+export const BUILTIN_TO_STUDIO: Record<string, string> = { Bash: "shell", Read: "read_file", Write: "write_file", Edit: "edit_file", Glob: "glob", Grep: "grep", WebFetch: "web_fetch" };
+
+/** Tool names as Studio's transcript writes them: its own tools unprefixed, aliased built-ins as the tool that runs them, the SDK's subagent tool as agent. */
 export const studioName = (name: string): string =>
   name.startsWith(PREFIX) ? name.slice(PREFIX.length)
     : name === AGENT || name === "Task" ? "agent"
     : name === SEARCH ? "web_search"
-    : name;
+    : BUILTIN_TO_STUDIO[name] ?? name;
+
+/** A built-in's arguments in the shape Studio's tool takes: file_path as path, -i as ignore_case. */
+export function studioArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...args };
+  if (out.path === undefined && typeof out.file_path === "string") out.path = out.file_path;
+  delete out.file_path;
+  if (out.ignore_case === undefined && typeof out["-i"] === "boolean") out.ignore_case = out["-i"];
+  delete out["-i"];
+  return out;
+}
 
 /** Studio's machine tools in the SDK's form: the same names and descriptions as the API path, checked by zod. */
 function localSdkTools(handler: (name: string) => (args: Record<string, unknown>) => Promise<{ content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>; isError: boolean }>) {
   const desc = Object.fromEntries(localToolDefinitions().map((t) => [(t as { name: string }).name, (t as { description?: string }).description ?? ""]));
   return [
     tool("shell", desc.shell, { command: z.string(), timeout: z.number().optional(), description: z.string().optional() }, handler("shell")),
-    tool("read_file", desc.read_file, { path: z.string(), offset: z.number().optional(), limit: z.number().optional() }, handler("read_file")),
-    tool("write_file", desc.write_file, { path: z.string(), content: z.string() }, handler("write_file")),
-    tool("edit_file", desc.edit_file, { path: z.string(), old_string: z.string(), new_string: z.string(), replace_all: z.boolean().optional() }, handler("edit_file")),
+    // file_path and -i: the built-in names a skill or subagent may use reach these through toolAliases with their own argument names.
+    tool("read_file", desc.read_file, { path: z.string().optional(), file_path: z.string().optional(), offset: z.number().optional(), limit: z.number().optional() }, handler("read_file")),
+    tool("write_file", desc.write_file, { path: z.string().optional(), file_path: z.string().optional(), content: z.string() }, handler("write_file")),
+    tool("edit_file", desc.edit_file, { path: z.string().optional(), file_path: z.string().optional(), old_string: z.string(), new_string: z.string(), replace_all: z.boolean().optional() }, handler("edit_file")),
     tool("glob", desc.glob, { pattern: z.string(), path: z.string().optional() }, handler("glob")),
-    tool("grep", desc.grep, { pattern: z.string(), path: z.string().optional(), glob: z.string().optional(), ignore_case: z.boolean().optional() }, handler("grep")),
+    tool("grep", desc.grep, { pattern: z.string(), path: z.string().optional(), glob: z.string().optional(), ignore_case: z.boolean().optional(), "-i": z.boolean().optional() }, handler("grep")),
     tool("web_fetch", desc.web_fetch, { url: z.string(), max_length: z.number().optional() }, handler("web_fetch")),
   ];
 }
@@ -60,6 +77,13 @@ export interface SubscriptionTurn {
   subagentSystem: string;
   /** Whether the model may start subagents, how many this turn, and what they run on. */
   subagents: { mode: SubagentMode; perTurn: number; model: string; effort: Effort };
+  /**
+   * The project's own Claude Code files: the setting sources the SDK reads
+   * them from, the project's and the user's subagents (passed programmatically
+   * so their tools map onto Studio's), and whether there are skills. Absent:
+   * the SDK reads no files, as while "Read the project's own files" is off.
+   */
+  native?: { settingSources: Array<"user" | "project" | "local">; agents: Record<string, NativeAgentDefinition>; skills: boolean };
   /** The user's message as content blocks: text, and any images or documents attached. */
   prompt: unknown[];
   /** The SDK session to continue, from this Studio session's last turn. */
@@ -80,7 +104,9 @@ export interface SubscriptionTurn {
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
   /** Tokens the turn spent since the last report, as each model message arrives; `parent` is the agent call of a subagent's message. */
-  onTokens?: (tokens: number, parent: string | null) => void;
+  onTokens?: (tokens: number, parent: string | null, detail?: { kinds: TokenKinds; model: string }) => void;
+  /** A limit window the Claude sign-in reported, for Usage's plan meter. */
+  onRateLimit?: (info: { type?: string; utilization?: number; resetsAt?: number; status: string }) => void;
 }
 
 /**
@@ -88,8 +114,22 @@ export interface SubscriptionTurn {
  * subagent Studio defines, on its own model and effort, with a hook that
  * refuses the agent calls past the turn's allowance.
  */
-export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string) {
-  if (s.mode === "off") return { tools: [SEARCH], allowedTools: [...STUDIO_TOOLS, SEARCH] };
+/** A project subagent as the SDK takes it, its tools already in Studio's names. */
+export interface NativeAgentDefinition {
+  description: string;
+  prompt: string;
+  tools?: string[];
+  model?: string;
+  effort?: Effort;
+  maxTurns?: number;
+  skills?: string[];
+  background?: boolean;
+}
+
+export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string, native?: SubscriptionTurn["native"]) {
+  const projectAgents = native ? native.agents : {};
+  const skill = native?.skills ? [SKILL] : [];
+  if (s.mode === "off" && Object.keys(projectAgents).length === 0) return { tools: [SEARCH, ...skill], allowedTools: [...STUDIO_TOOLS, SEARCH, ...skill] };
   let started = 0;
   const limit: HookCallback = async (input) => {
     if (input.hook_event_name !== "PreToolUse") return {};
@@ -99,17 +139,21 @@ export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem
   return {
     // Built-ins: the subagent tool, and web search, which runs on Anthropic's side and touches nothing here.
     // Everything else goes through Studio's tools, so one approval model and one transcript cover every route.
-    tools: [AGENT, SEARCH],
+    tools: [AGENT, SEARCH, ...skill],
     agents: {
-      [WORKER]: {
-        description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
-        prompt: subagentSystem,
-        model: s.model,
-        effort: s.effort,
-        tools: [...STUDIO_TOOLS, SEARCH],
-      },
+      ...(s.mode === "off" ? {} : {
+        [WORKER]: {
+          description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
+          prompt: subagentSystem,
+          model: s.model,
+          effort: s.effort,
+          tools: [...STUDIO_TOOLS, SEARCH],
+        },
+      }),
+      // The project's own subagents, as their files say, each call still through Studio's tools.
+      ...Object.fromEntries(Object.entries(projectAgents).map(([name, a]) => [name, { ...a, prompt: `${subagentSystem}\n\n${a.prompt}` }])),
     },
-    allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH],
+    allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH, ...skill],
     hooks: { PreToolUse: [{ matcher: AGENT, hooks: [limit] }] },
   };
 }
@@ -184,10 +228,10 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   // The SDK does not hand the tool_use id to a handler: match the call to the block the model sent.
   const calls = new CallMatcher();
   const handler = (name: string) => async (args: Record<string, unknown>) => {
-    const exec = await t.runTool(await calls.take(name, args), name, args);
+    const exec = await t.runTool(await calls.take(name, args), name, studioArgs(args));
     // Images go as MCP image content, which the SDK hands the model as images.
     const images = (exec.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mediaType }));
-    return { content: [{ type: "text" as const, text: exec.text }, ...images], isError: exec.isError };
+    return { content: [{ type: "text" as const, text: forModel(exec) }, ...images], isError: exec.isError };
   };
 
   const server = createSdkMcpServer({
@@ -234,9 +278,11 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         model: t.model,
         effort: t.effort,
         systemPrompt: t.system,
-        ...subagentOptions(t.subagents, t.subagentSystem),
+        ...subagentOptions(t.subagents, t.subagentSystem, t.native),
         mcpServers: { [SERVER]: server },
-        settingSources: [],
+        // The project's own files load as Claude Code loads them; none while "Read the project's own files" is off.
+        settingSources: t.native?.settingSources ?? [],
+        ...(t.native ? { toolAliases: Object.fromEntries(Object.entries(BUILTIN_TO_STUDIO).map(([b, s]) => [b, `${PREFIX}${s}`])) } : {}),
         includePartialMessages: true,
         resume: t.resume ?? undefined,
         cwd: t.projectDir,
@@ -260,10 +306,16 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     let error: string | null = null;
     // The SDK repeats a message per content block with its usage so far: count each message's growth once.
     const spent = new Map<string, number>();
+    const spentKinds = new Map<string, TokenKinds>();
     for (;;) {
       const next = await Promise.race([messages.next(), stopped]);
       if (!next || next.done || t.signal.aborted) break;
       const m = next.value;
+      if (m.type === "rate_limit_event") {
+        const i = (m as { rate_limit_info?: { rateLimitType?: string; utilization?: number; resetsAt?: number; status?: string } }).rate_limit_info;
+        if (i) t.onRateLimit?.({ type: i.rateLimitType, utilization: i.utilization, resetsAt: i.resetsAt, status: i.status ?? "allowed" });
+        continue;
+      }
       if (m.type === "system" && "subtype" in m && m.subtype === "init") t.onSession(m.session_id);
       else if (m.type === "system" && "subtype" in m && m.subtype === "task_started") {
         if (m.tool_use_id) {
@@ -283,11 +335,17 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       } else if (m.type === "assistant") {
         if (m.error) error = `Claude: ${m.error}`;
         if (t.onTokens) {
-          const tokens = usageTokens(messagesUsage((m.message as { usage?: unknown }).usage));
+          const u = messagesUsage((m.message as { usage?: unknown }).usage);
+          const tokens = usageTokens(u);
           const before = spent.get(m.message.id) ?? 0;
           if (tokens > before) {
             spent.set(m.message.id, tokens);
-            t.onTokens(tokens - before, m.parent_tool_use_id);
+            // The kinds this message added since its last report, for the ledger.
+            const was = spentKinds.get(m.message.id);
+            const now = u ? kindsOf(u) : { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+            spentKinds.set(m.message.id, now);
+            const delta = (k: keyof TokenKinds) => (now[k] === null ? null : (now[k] ?? 0) - (was?.[k] ?? 0));
+            t.onTokens(tokens - before, m.parent_tool_use_id, { kinds: { input: delta("input"), cacheRead: delta("cacheRead"), cacheWrite: delta("cacheWrite"), output: delta("output") }, model: String((m.message as { model?: unknown }).model ?? "") });
           }
         }
         const content = (m.message.content as ContentBlock[]).map((b) => (b.type === "tool_use" ? ({ ...b, name: studioName(b.name) } as ContentBlock) : b));
@@ -321,7 +379,7 @@ export interface SubscriptionCompletion {
  * tools at all, built-in or Studio's, one turn, and no session kept. The
  * answer is the turn's result text.
  */
-export async function runSubscriptionCompletion(c: SubscriptionCompletion): Promise<{ text: string } | { error: string }> {
+export async function runSubscriptionCompletion(c: SubscriptionCompletion): Promise<{ text: string; usage?: TokenUsage } | { error: string }> {
   if (!(claudeLogin() ?? (await refreshClaudeLogin()))) return { error: "Sign in to Claude Code first: run `claude /login` in a terminal." };
   const rt = await runtime();
   if ("error" in rt) return rt;
@@ -350,17 +408,19 @@ export async function runSubscriptionCompletion(c: SubscriptionCompletion): Prom
     });
     let text = "";
     let error: string | null = null;
+    let usage: TokenUsage | undefined;
     for await (const m of q as AsyncIterable<SDKMessage>) {
       if (m.type === "assistant") {
         if (m.error) error = `Claude: ${m.error}`;
         for (const b of m.message.content as ContentBlock[]) if (b.type === "text") text += b.text;
       } else if (m.type === "result") {
+        usage = messagesUsage((m as { usage?: unknown }).usage);
         if (m.subtype === "success" && !m.is_error) text = m.result || text;
         else error = error ?? (m.subtype === "success" ? m.result : `The turn ended: ${m.subtype}`);
       }
     }
     if (c.signal.aborted) return { error: "stopped" };
-    return error ? { error } : { text };
+    return error ? { error } : { text, ...(usage ? { usage } : {}) };
   } catch (e) {
     return { error: c.signal.aborted ? "stopped" : e instanceof Error ? e.message : String(e) };
   } finally {

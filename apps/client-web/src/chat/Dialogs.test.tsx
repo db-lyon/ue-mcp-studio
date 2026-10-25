@@ -8,7 +8,7 @@ import { api } from "../api";
 import { DialogBannerLine, DialogCards, DialogLine } from "./Dialogs";
 import { clock, decider, outcomeLine, readyIn, statusLine } from "./dialog-model";
 import { Entry } from "./Transcript";
-import { DialogPolicyField } from "../views/Settings";
+import { DialogPolicyField } from "../views/settings/ApprovalsSection";
 
 afterEach(() => {
   cleanup();
@@ -184,10 +184,10 @@ describe("the dialog policy setting", () => {
   it("saves each choice, with the minutes", () => {
     const onSave = vi.fn();
     const { rerender } = render(<DialogPolicyField policy={{ kind: "agent", minutes: 2 }} onSave={onSave} />);
-    expect((screen.getByRole("radio", { name: "Ask me, then let the agent decide" }) as HTMLInputElement).checked).toBe(true);
-    fireEvent.click(screen.getByRole("radio", { name: "Ask me and wait" }));
+    expect((screen.getByRole("radio", { name: "Hand it to the agent" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: "Keep waiting for me" }));
     expect(onSave).toHaveBeenCalledWith({ kind: "wait" });
-    fireEvent.click(screen.getByRole("radio", { name: /press the safe default/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /Press the safe default/ }));
     expect(onSave).toHaveBeenCalledWith({ kind: "safe", minutes: 2 });
     rerender(<DialogPolicyField policy={{ kind: "safe", minutes: 2 }} onSave={onSave} />);
     const minutes = screen.getByLabelText("Minutes");

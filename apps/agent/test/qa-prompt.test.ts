@@ -35,15 +35,15 @@ describe("the agent's instructions", () => {
 describe("the Playtest runs line", () => {
   it("under Manual, never starts a run and points at the setting", () => {
     const line = playtestRunsLine("manual");
-    expect(line).toMatch(/Playtest runs is set to Manual in Settings > Agent/);
+    expect(line).toMatch(/Starting playtests is set to Manual in Settings > Approvals & review/);
     expect(line).toMatch(/Never call pie\.script_run or pie\.script_replay; Studio refuses them/);
-    expect(line).toMatch(/set Playtest runs to Automatic/);
-    expect(PLAYTEST_RUNS_REFUSAL).toBe("Playtest runs is set to Manual in Settings > Agent. Click Start Playtest on the card to start it.");
+    expect(line).toMatch(/set Starting playtests to Automatic/);
+    expect(PLAYTEST_RUNS_REFUSAL).toBe("Starting playtests is set to Manual in Settings > Approvals & review. Click Start Playtest on the card to start it.");
   });
 
   it("under Automatic, may run it with pie.script_run", () => {
     const line = playtestRunsLine("automatic");
-    expect(line).toMatch(/Playtest runs is set to Automatic in Settings > Agent: you may start a playtest yourself with pie\.script_run/);
+    expect(line).toMatch(/Starting playtests is set to Automatic in Settings > Approvals & review: you may start a playtest yourself with pie\.script_run/);
     expect(line).not.toMatch(/Never call pie\.script_run/);
   });
 });

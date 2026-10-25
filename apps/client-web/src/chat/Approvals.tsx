@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ApprovalDecision, ApprovalRequest } from "@ue-mcp-studio/shared";
+import type { ApprovalDecision, ApprovalRequest, BudgetReached } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { DiffView } from "./Diff";
 
@@ -7,6 +7,32 @@ const TITLE: Record<ApprovalRequest["tool"], string> = {
   shell: "Run this command?",
   write_file: "Write this file?",
   edit_file: "Make this edit?",
+  editor_restart: "Restart the editor?",
+  ue_mcp: "Run this action?",
+  budget: "Go on past this budget?",
+};
+
+/** What "Allow for this session" covers, by the kind of request. */
+const KIND: Record<ApprovalRequest["tool"], string> = {
+  shell: "commands",
+  write_file: "file changes",
+  edit_file: "file changes",
+  editor_restart: "editor restarts",
+  ue_mcp: "ue-mcp actions that delete or overwrite",
+  budget: "calls past this budget until it resets",
+};
+
+/** A reached budget in words: whose, what it counts and when it resets. */
+export function budgetLine(b: BudgetReached): string {
+  const whose = b.scope === "agent-day" ? `${b.agent === "main" ? "The main agent" : b.agent ?? "An agent"}'s budget for today` : b.scope === "team-day" ? "Today's budget for all agents" : "This month's budget for all agents";
+  return `${whose}: ${b.spent.toLocaleString("en-US")} of ${b.limit.toLocaleString("en-US")} tokens spent. It resets ${b.scope === "team-month" ? "on the 1st" : "at midnight"} on this machine.`;
+}
+
+const OPERATION: Record<NonNullable<ApprovalRequest["operation"]>, string> = {
+  restart: "Restart the editor",
+  rebuild: "Stop the editor, rebuild the project's C++ and start it again",
+  stop: "Stop the editor",
+  start: "Start the editor",
 };
 
 /** The calls waiting for the user, oldest first, each with its own buttons. */
@@ -31,18 +57,34 @@ export function ApprovalCard({ sessionId, approval: a }: { sessionId: string; ap
       setError(e.message);
     });
   };
-  const title = a.tool === "write_file" && a.creates ? "Create this file?" : TITLE[a.tool];
-  const kind = a.tool === "shell" ? "commands" : "file changes";
+  const title = a.tool === "write_file" && a.creates ? "Create this file?" : a.tool === "editor_restart" && a.operation === "rebuild" ? "Rebuild and restart the editor?" : TITLE[a.tool];
+  const kind = KIND[a.tool];
   return (
     <div className="approval card" role="group" aria-label={title}>
       <div className="approval-head">
         <span className="eyebrow">{title}</span>
         {a.subagent && <span className="dim small">from subagent {a.subagent}</span>}
       </div>
-      {a.tool === "shell" ? (
+      {a.tool === "budget" && a.budget ? (
+        <>
+          <div>{budgetLine(a.budget)}</div>
+          <div className="dim small">The next call waits for you. Deny ends the turn; budgets are in Settings, Usage.</div>
+        </>
+      ) : a.tool === "shell" ? (
         <>
           <pre className="output approval-command">{`$ ${a.command ?? ""}`}</pre>
           {a.cwd && <div className="dim small">in {a.cwd}</div>}
+        </>
+      ) : a.tool === "editor_restart" ? (
+        <>
+          <div>{OPERATION[a.operation ?? "restart"]}. Unsaved work in the editor is lost.</div>
+          {a.reason && <div className="dim small">Why: {a.reason}</div>}
+        </>
+      ) : a.tool === "ue_mcp" ? (
+        <>
+          <div className="approval-path">{a.call?.category}.{a.call?.method}</div>
+          <pre className="output approval-command">{JSON.stringify(a.call?.args ?? {}, null, 2)}</pre>
+          <div className="dim small">ue-mcp marks this action as one that deletes or overwrites.</div>
         </>
       ) : (
         <>

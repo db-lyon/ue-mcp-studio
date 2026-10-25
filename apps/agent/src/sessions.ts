@@ -20,6 +20,8 @@ export interface PendingTool {
   /** running survives a crash or restart only as unknown: whether it took effect is not known. */
   state: "queued" | "running" | "unknown" | "done";
   result?: string;
+  /** The result as the model is given it, when that differs from result. */
+  modelResult?: string;
   isError?: boolean;
   /** Images that go to the model with the result. */
   images?: ToolImage[];
@@ -27,6 +29,8 @@ export interface PendingTool {
 
 export interface StoredSession {
   id: string;
+  /** Where the session started, for the usage ledger: the editor's quick ask; absent for the chat. */
+  source?: "quick";
   title: string;
   createdAt: string;
   updatedAt: string;

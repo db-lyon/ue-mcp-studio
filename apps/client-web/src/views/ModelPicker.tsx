@@ -21,7 +21,8 @@ export function runsVia(catalog: Catalog, vendor: Vendor, m: ModelOption): SignI
   return m.signIns.find((s) => catalog.signedIn[s]) ?? (vendor.connected ? "key" : null);
 }
 
-const VIA_LABEL: Record<SignInId | "key", string> = { chatgpt: "ChatGPT plan", claude: "Claude plan", studio: "Studio plan", key: "your key" };
+/** One name per route, the same in the picker, the Models table and the sign-in rows. */
+export const VIA_LABEL: Record<SignInId | "key", string> = { chatgpt: "ChatGPT sign-in", claude: "Claude sign-in", studio: "Studio plan", key: "key" };
 
 function find(catalog: Catalog | null, vendor: KeyProviderId, model: string): { vendor: Vendor; model: ModelOption } | null {
   const v = catalog?.providers.find((p) => p.id === vendor);
@@ -83,7 +84,8 @@ export function ModelPicker({
   return (
     <div className="picker" ref={box}>
       <button className="picker-button" onClick={() => setOpen(!open)} title="Model">
-        <span>{current?.model.name ?? settings.model}</span>
+        {/* Nothing connected yet: no vendor is chosen for the user. */}
+        <span>{Object.values(settings.connected ?? {}).some(Boolean) ? current?.model.name ?? settings.model : "Choose a model"}</span>
         {via && <span className="picker-via">{via === "key" ? `${PROVIDERS[settings.provider].name} key` : VIA_LABEL[via]}</span>}
         <span className="picker-caret" aria-hidden>{"▾"}</span>
       </button>
@@ -118,7 +120,7 @@ export function ModelPicker({
                       onClick={() => (runs ? void select(p.id, m.id) : setConnecting({ vendor: p.id, model: m.id }))}
                     >
                       <span>{m.name}</span>
-                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs ? VIA_LABEL[runs] : m.signIns.length ? "sign in" : "connect"}</span>
+                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs === "key" ? `${p.name} key` : runs ? VIA_LABEL[runs] : m.signIns.length ? "sign in" : "connect"}</span>
                     </button>
                   );
                 })}
@@ -194,7 +196,7 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 
 const SIGN_IN_ABOUT: Record<SignInId, string> = {
   chatgpt: "With your ChatGPT account. OpenAI models run on your ChatGPT plan's limits.",
-  claude: "Runs Claude models on your Claude plan's limits through the Claude Agent SDK, with the login you made in Claude Code.",
+  claude: "Runs Claude models on your Claude plan, with the login you made in Claude Code.",
   studio: "With your GitHub account. Runs the models in your Studio plan.",
 };
 
@@ -336,7 +338,7 @@ export function EffortPicker({ settings, onSettings }: { settings: StudioSetting
   return (
     <label className="effort" title={error ?? "How long the model reasons before it answers"}>
       <span className="effort-label">Effort</span>
-      <select value={settings.effort} onChange={(e) => void pick(e.target.value as Effort)} aria-label="Effort">
+      <select value={settings.effort} onChange={(e) => void pick(e.target.value as Effort)} aria-label="Effort" disabled={settings.route === null} title={settings.route === null ? "Pick a model that runs first" : undefined}>
         {EFFORTS.map((x) => <option key={x} value={x}>{EFFORT_NAMES[x]}</option>)}
       </select>
     </label>

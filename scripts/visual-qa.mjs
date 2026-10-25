@@ -1,0 +1,99 @@
+// Screenshot the playtest UI in every state, theme and width, with no daemon and no editor.
+//
+//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,...>]
+//
+// Serves apps/client-web with Vite (no proxy) and opens visual-qa.html, the real app
+// with the daemon answered from apps/client-web/src/visual-qa/fixtures.ts. Each
+// scenario is shot in the ue-mcp, editor-orange and editor themes at 1280 and 380
+// pixels wide, and <out>/index.md names every file. Infinite animations are frozen
+// for the shot, so a pulsing bar is drawn at full strength.
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const web = path.join(root, "apps", "client-web");
+const arg = (name) => {
+  const i = process.argv.indexOf(`--${name}`);
+  return i > 0 ? process.argv[i + 1] : undefined;
+};
+const out = path.resolve(arg("out") ?? path.join(os.tmpdir(), "studio-visual-qa"));
+const only = arg("only")?.split(",");
+const BROWSERS = [
+  arg("browser"),
+  process.env.STUDIO_QA_BROWSER,
+  path.join(os.homedir(), "AppData/Local/ms-playwright/chromium-1217/chrome-win64/chrome.exe"),
+  "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+].filter(Boolean);
+const browserPath = BROWSERS.find((p) => fs.existsSync(p));
+if (!browserPath) throw new Error("no Chrome or Edge found: pass --browser <path> or set STUDIO_QA_BROWSER");
+
+const THEMES = ["ue-mcp", "editor-orange", "editor"];
+const WIDTHS = [["wide", 1280], ["narrow", 380]];
+
+const { createServer } = await import("vite");
+const { chromium } = await import("playwright-core");
+
+delete process.env.STUDIO_PROJECT;
+const server = await createServer({ root: web, configFile: path.join(web, "vite.config.ts"), server: { port: 0, strictPort: false }, logLevel: "warn" });
+await server.listen();
+const base = server.resolvedUrls.local[0].replace(/\/$/, "");
+const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+fs.mkdirSync(out, { recursive: true });
+
+const open = async (scenario, theme, width) => {
+  const page = await browser.newPage({ viewport: { width, height: 860 } });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto(`${base}/visual-qa.html?scenario=${encodeURIComponent(scenario)}&theme=${theme}`);
+  await page.waitForSelector(".app");
+  await page.waitForTimeout(1200);
+  return { page, errors };
+};
+
+try {
+  const first = await open("session-empty", "ue-mcp", 1280);
+  const scenarios = await first.page.evaluate(() => window.__visualQa.scenarios);
+  await first.page.close();
+  const lines = ["# Playtests visual QA", "", `Rendered ${new Date().toISOString()} from apps/client-web/src/visual-qa/fixtures.ts, no daemon and no editor.`, ""];
+  for (const [scenario, title] of Object.entries(scenarios)) {
+    if (only && !only.includes(scenario)) continue;
+    lines.push(`## ${scenario}`, "", title, "");
+    for (const theme of THEMES) for (const [label, width] of WIDTHS) {
+      const { page, errors } = await open(scenario, theme, width);
+      const click = await page.evaluate(() => window.__visualQa.click);
+      if (click) {
+        const el = await page.$(click);
+        if (!el) errors.push(`nothing matched ${click}`);
+        else {
+          await el.click();
+          await page.mouse.move(1, 1);
+          await page.waitForTimeout(700);
+        }
+      }
+      const focus = await page.evaluate(() => window.__visualQa.focus);
+      if (focus) {
+        // A key press first, so the browser draws focus as it does for the keyboard.
+        await page.keyboard.press("Shift");
+        if (!(await page.$(focus))) errors.push(`nothing matched ${focus}`);
+        else await page.focus(focus);
+        await page.waitForTimeout(200);
+      }
+      const file = `${scenario}-${theme}-${label}.png`;
+      await page.screenshot({ path: path.join(out, file), animations: "disabled" });
+      lines.push(`- [${theme}, ${label} (${width}px)](${file})${errors.length ? ` errors: ${errors.join("; ")}` : ""}`);
+      console.log(`${file}${errors.length ? `  errors: ${errors.join("; ")}` : ""}`);
+      await page.close();
+    }
+    lines.push("");
+  }
+  fs.writeFileSync(path.join(out, "index.md"), lines.join("\n"));
+  console.log(`wrote ${path.join(out, "index.md")}`);
+} finally {
+  await browser.close();
+  await server.close();
+}

@@ -36,6 +36,11 @@ npm run dev             # UI with hot reload, proxied to the project's daemon
 
 `npm run dev` needs a daemon: `npx ue-mcp daemon start <uproject>` in the ue-mcp checkout. The dev server reads the daemon's discovery file and adds the bearer token itself. No editor is needed except for editor-dependent screens.
 
+### Visual QA
+
+- `npm run visual-qa -- --out <dir>` renders the real UI against stubbed daemon answers (`apps/client-web/src/visual-qa/fixtures.ts`, served as `visual-qa.html`) and screenshots every playtest state in the three themes at 1280 and 380 pixels, with an `index.md`. No daemon or editor is involved.
+- `npm run visual-qa:live` drives the same states against the StudioE2E editor through ue-mcp; its header lists the steps. It touches an editor, so run it only when the user has asked for editor runs, and it refuses without `--editor-approved`.
+
 ## Conventions
 
 - Atomic commits, one logical change each, message says why.

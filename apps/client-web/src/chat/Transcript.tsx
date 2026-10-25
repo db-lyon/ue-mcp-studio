@@ -6,7 +6,7 @@ import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, ty
 import { DiffView } from "./Diff";
 import { breakable } from "./breakable";
 import { DialogLine } from "./Dialogs";
-import { QaCard } from "./Qa";
+import { TranscriptPlaytest } from "./PlaytestStrip";
 import { TurnReviewCard } from "./TurnReview";
 import { FlowCard } from "./FlowCommand";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
@@ -63,7 +63,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
-  if (entry.kind === "qa") return <QaCard run={entry.run} />;
+  if (entry.kind === "qa") return <TranscriptPlaytest run={entry.run} transcript={transcript} at={positionIn(transcript, entry)} />;
   if (entry.kind === "review") return <TurnReviewCard review={entry.review} />;
   if (entry.kind === "playtest") {
     return entry.state === "failed"
@@ -86,7 +86,7 @@ export function tokenCount(n: number): string {
 /** What a turn spent, under its last message, and the limit when that ended it. */
 function UsageLine({ entry }: { entry: Extract<TranscriptEntry, { kind: "usage" }> }) {
   return (
-    <div className="dim small usage-line" title="Input and output tokens. Cache writes are counted, cache reads are not. Settings > Agent > Usage sets the limits.">
+    <div className="dim small usage-line" title="Input and output tokens. Cache writes are counted, cache reads are not. Usage > Budgets in Settings sets the limits.">
       {tokenCount(entry.main + entry.subagents)} tokens this turn
       {entry.subagents > 0 && `, ${tokenCount(entry.subagents)} of them in subagents`}
       {entry.limit !== undefined && `. Stopped at the turn token limit of ${tokenCount(entry.limit)}.`}

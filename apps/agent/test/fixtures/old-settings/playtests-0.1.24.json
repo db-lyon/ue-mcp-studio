@@ -1,0 +1,5 @@
+{
+  "runs": "automatic",
+  "players": { "/Game/Tests/Sprint": { "0": "host", "2": "client 1" } },
+  "budget": { "minutes": 45, "tokens": 3000000 }
+}

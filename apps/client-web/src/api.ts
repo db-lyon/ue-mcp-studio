@@ -5,6 +5,13 @@
  */
 import type { DaemonEvent, DaemonHealth, StatusReport } from "ue-mcp/daemon";
 import type {
+  CacheExplainer,
+  PlanMeter,
+  Price,
+  PriceTable,
+  UsageGroup,
+  UsageSummary,
+  UsageWarning,
   ApprovalDecision,
   AssetOpenResponse,
   AssetRef,
@@ -36,14 +43,43 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
-  QaRun, QaScriptStep, PlaytestRunsMode, PlaytestBudget,
+  QaRun, QaScriptStep, PlaytestRunsMode, PlaytestBudget, PlaytestIndexAnswer,
   QaVerdict,
   CheckpointChange,
   RestoreOutcome,
   ReviewStatus,
   TimelineMark,
   TurnReview,
+  Budgets,
+  ClientContextStrategy,
+  ContextStrategy,
+  NativeOverview,
+  NativePreview,
+  Convention,
 } from "@ue-mcp-studio/shared";
+
+/** GET /usage/summary: a period, a grouping and optional filters. */
+export interface UsageQuery {
+  from: string;
+  to: string;
+  groupBy: UsageGroup;
+  agent?: string;
+  vendor?: string;
+  route?: string;
+  source?: string;
+}
+
+const query = (q: object): string =>
+  Object.entries(q).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join("&");
+
+/** GET and PUT /budgets */
+export interface BudgetsBody {
+  budgets: Budgets;
+  definition: string;
+  agents: Array<{ id: string; name: string }>;
+  /** The most helpers one turn starts: a spend safety limit. */
+  helpersPerTurn: number;
+}
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
 export interface InstalledPlugin {
@@ -180,6 +216,8 @@ export const api = {
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
   qaRuns: () => call<{ runs: QaRun[] }>("GET", "/v1/ext/studio/qa/runs"),
+  qaPlaytests: (fresh = false) => call<PlaytestIndexAnswer>("GET", `/v1/ext/studio/qa/playtests${fresh ? "?fresh=1" : ""}`),
+  qaPlaytestCard: (script: string) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/playtests/card", { script }),
   qaStatus: (runId: string, sinceSeq?: number) =>
     call<{ answer: Record<string, unknown>; run: QaRun | null }>("GET", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/status${sinceSeq === undefined ? "" : `?since_seq=${sinceSeq}`}`),
   qaVerdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
@@ -189,6 +227,7 @@ export const api = {
   qaCancelAssign: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`),
   qaRevertLoop: (runId: string, attempt?: number) =>
     call<{ run: QaRun; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/loop/revert`, attempt === undefined ? {} : { attempt }),
+  qaStop: (runId: string) => call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/stop`),
   qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
   qaSaveScript: (runId: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps }),
@@ -208,6 +247,9 @@ export const api = {
   timelineUndo: (sessionId: string, checkpoint: string) =>
     call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/undo`, { checkpoint }),
   reviewImageUrl: (name: string) => `/v1/ext/studio/review/images/${encodeURIComponent(name)}`,
+  reviewThumbnailUrl: (id: string) => `/v1/ext/studio/review/thumbnails/${encodeURIComponent(id)}`,
+  reviewNativeDiff: (sessionId: string, reviewId: string, path: string) =>
+    call<{ opened: string; windowTitle?: string }>("POST", `${reviewBase(sessionId, reviewId)}/native-diff`, { path }),
   dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),
   answerDialog: (id: string, answer: DialogAnswer) => call<void>("POST", `/v1/ext/studio/dialogs/${encodeURIComponent(id)}`, answer),
   resolveAssets: (refs: AssetRef[], sessionId: string | null) =>
@@ -215,6 +257,19 @@ export const api = {
   reportAssetMiss: (name: string, candidates: number) => call<void>("POST", "/v1/ext/studio/assets/missed", { name, candidates }),
   openAsset: (path: string) => call<AssetOpenResponse>("POST", "/v1/ext/studio/assets/open", { path }),
   stopBusy: () => call<{ stopped: string[] }>("POST", "/v1/ext/studio/busy/stop"),
+  native: () => call<NativeOverview>("GET", "/v1/ext/studio/native"),
+  nativePreview: (convention: Convention) => call<NativePreview>("GET", `/v1/ext/studio/native/preview?convention=${encodeURIComponent(convention)}`),
+  openFile: (path: string) => call<void>("POST", "/v1/ext/studio/files/open", { path }),
+  budgets: () => call<BudgetsBody>("GET", "/v1/ext/studio/budgets"),
+  saveBudgets: (u: { team?: Partial<Budgets["team"]>; agents?: Record<string, Partial<Budgets["agents"][string]> | null>; warnAt?: number; helpersPerTurn?: number }) => call<BudgetsBody>("PUT", "/v1/ext/studio/budgets", u),
+  usageSummary: (q: UsageQuery) => call<UsageSummary>("GET", `/v1/ext/studio/usage/summary?${query(q)}`),
+  usagePlans: (q: { from: string; to: string }) => call<{ plans: PlanMeter[] }>("GET", `/v1/ext/studio/usage/plans?${query(q)}`),
+  usageWarnings: () => call<{ warnings: UsageWarning[] }>("GET", "/v1/ext/studio/usage/warnings"),
+  usageCache: () => call<{ explainers: CacheExplainer[] }>("GET", "/v1/ext/studio/usage/cache"),
+  prices: () => call<PriceTable>("GET", "/v1/ext/studio/prices"),
+  savePrices: (prices: Array<Pick<Price, "vendor" | "model" | "perMTok">>) => call<PriceTable>("PUT", "/v1/ext/studio/prices", { prices }),
+  contextStrategy: () => call<ClientContextStrategy>("GET", "/v1/ext/studio/context-strategy"),
+  saveContextStrategy: (strategy: ContextStrategy) => call<ClientContextStrategy>("PUT", "/v1/ext/studio/context-strategy", { strategy }),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),
   sendFeedback: (report: FeedbackReport) => call<FeedbackResult>("POST", "/v1/ext/studio/feedback", report),
 };
