@@ -72,8 +72,27 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "playtest-failed") return <PlaytestFailed errors={[entry.reason]} request={entry.request} />;
   if (entry.kind === "flow") return <FlowCard entry={entry} />;
+  if (entry.kind === "usage") return <UsageLine entry={entry} />;
   return <ToolCall call={entry.call} />;
 });
+
+/** Tokens as the usage line shows them: 950, 12.4k, 1.2M. */
+export function tokenCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+/** What a turn spent, under its last message, and the limit when that ended it. */
+function UsageLine({ entry }: { entry: Extract<TranscriptEntry, { kind: "usage" }> }) {
+  return (
+    <div className="dim small usage-line" title="Input and output tokens. Cache writes are counted, cache reads are not. Settings > Agent > Usage sets the limits.">
+      {tokenCount(entry.main + entry.subagents)} tokens this turn
+      {entry.subagents > 0 && `, ${tokenCount(entry.subagents)} of them in subagents`}
+      {entry.limit !== undefined && `. Stopped at the turn token limit of ${tokenCount(entry.limit)}.`}
+    </div>
+  );
+}
 
 /**
  * Runs a /playtest from a button: Retry on a failed one. `busy` while a turn

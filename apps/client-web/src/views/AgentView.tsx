@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { PLAYTEST_RUNS, type AgentSettings, type DialogMode, type FeedbackMode, type PlaytestBudget, type PlaytestRunsMode, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
 import { DialogPolicyField } from "./Settings";
+import { UsageCard } from "./UsageCard";
 
 const DIALOG_MODES: { id: DialogMode; name: string; about: string }[] = [
   { id: "interactive", name: "Show them to me in Studio", about: "Each dialog is a card in the chat with its buttons." },
@@ -49,6 +50,8 @@ export function AgentView() {
         </label>
         <p className="muted small">On: each shell command and each file write or edit waits in the chat for Allow or Deny. Reading files and the web never asks.</p>
       </section>
+
+      <UsageCard settings={settings} onSettings={setSettings} onError={fail} />
 
       <section className="card">
         <h2>Review</h2>

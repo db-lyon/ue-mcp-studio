@@ -1148,6 +1148,12 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .playtest-budget input.tokens { width: 9em; }
 .playtest-budget input.minutes { width: 5em; }
 
+/* Settings > Agent > Usage, and the line under each turn saying what it spent. */
+.usage-card input.tokens { width: 9em; }
+.usage-card fieldset { border: 0; padding: 0; margin: 8px 0; }
+.usage-card legend { padding: 0; font-weight: 600; }
+.usage-line { margin: 2px 0 10px; }
+
 /* The Assign to subagent loop on a playtest card. */
 .qa-card.needs-you { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
 .qa-card.attention { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.3s; }

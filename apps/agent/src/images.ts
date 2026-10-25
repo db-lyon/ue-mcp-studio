@@ -19,8 +19,16 @@ import { PNG } from "pngjs";
 import * as jpeg from "jpeg-js";
 import { GifReader } from "omggif";
 
-/** The longest side an image is sent at. */
+/** The longest side an image is ever sent at. */
 export const MAX_IMAGE_EDGE = 2000;
+
+let chosenEdge: () => number = () => MAX_IMAGE_EDGE;
+/** Where the longest side comes from: the project's Image size setting. */
+export function setImageEdge(edge: () => number): void {
+  chosenEdge = edge;
+}
+/** The longest side an image is sent at now. */
+export const imageEdge = (): number => Math.min(MAX_IMAGE_EDGE, chosenEdge());
 /** The most bytes one image is sent as. */
 export const MAX_IMAGE_BYTES = 1.5 * 1024 * 1024;
 /** The largest file read_file decodes, so a stray huge file cannot take the daemon's memory. */
@@ -163,7 +171,7 @@ function encode(img: Rgba, alpha: boolean, quality: number): { mediaType: string
 }
 
 /**
- * An image as a model is sent it. One within MAX_IMAGE_EDGE and
+ * An image as a model is sent it. One within imageEdge() and
  * MAX_IMAGE_BYTES goes as it is; a larger one is scaled down and re-encoded,
  * smaller and at lower quality until it fits.
  */
@@ -171,11 +179,12 @@ export async function prepareImage(buf: Buffer, mediaType: string, source?: stri
   // Decoded even when it goes as it is: a broken image in the history would fail every request after it.
   const full = await decodeImage(buf, mediaType);
   if (full.width < 1 || full.height < 1) throw new Error("the image has no pixels");
-  if (Math.max(full.width, full.height) <= MAX_IMAGE_EDGE && buf.length <= MAX_IMAGE_BYTES) {
+  const most = imageEdge();
+  if (Math.max(full.width, full.height) <= most && buf.length <= MAX_IMAGE_BYTES) {
     return { mediaType, data: buf.toString("base64"), width: full.width, height: full.height, ...(source ? { source } : {}) };
   }
   const alpha = hasAlpha(full);
-  let edge = Math.min(MAX_IMAGE_EDGE, Math.max(full.width, full.height));
+  let edge = Math.min(most, Math.max(full.width, full.height));
   for (;;) {
     const fit = fitSize(full.width, full.height, edge);
     const img = downscale(full, fit.width, fit.height);

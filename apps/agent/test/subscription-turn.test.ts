@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
+import { DEFAULT_USAGE } from "@ue-mcp-studio/shared";
 
 type Handler = (args: Record<string, unknown>) => Promise<{ content: Array<{ type?: string; text?: string; data?: string; mimeType?: string }>; isError: boolean }>;
 interface FakeBinary {
@@ -405,5 +406,47 @@ describe("a daemon restart on the subscription route", () => {
     expect(fin.status).toBe("error");
     expect(fin.transcript[0]).toMatchObject({ call: { outcome: "unknown" } });
     expect(fin.transcript[0].kind === "tool" && fin.transcript[0].call.result).toMatch(/Interrupted: Studio's daemon restarted while this ran.*rebuild may or may not have finished/);
+  });
+});
+
+describe("what a turn spends on the subscription route", () => {
+  const spending = (id: string, input: number, parent: string | null = null, text = "...") =>
+    ({ type: "assistant", parent_tool_use_id: parent, message: { id, content: [{ type: "text", text }], usage: { input_tokens: input, output_tokens: 0 } } });
+
+  it("ends the turn with the main agent's and the subagents' tokens", async () => {
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-u" });
+      b.emit(spending("m1", 3000));
+      b.emit(spending("s1", 5000, "agent-call"));
+      b.emit(spending("m2", 1000, null, "Done."));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-u" });
+    };
+    const s = store.create();
+    await runnerOn().send(s.id, "go");
+    await until(() => store.get(s.id)!.status === "idle");
+    expect(store.get(s.id)!.transcript.at(-1)).toMatchObject({ kind: "usage", main: 4000, subagents: 5000 });
+  });
+
+  it("stops the turn at the token limit", async () => {
+    let afterStop = false;
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-l" });
+      b.emit(spending("m1", 30_000));
+      b.emit(spending("m2", 30_000));
+      await sleep(50);
+      afterStop = !b.signal.aborted;
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-l" });
+    };
+    const runner = new AgentRunner({
+      host, store, provider: () => { throw new Error("the API route is not used"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false,
+      usage: () => ({ ...DEFAULT_USAGE, turnTokenLimit: 50_000 }),
+    });
+    const s = store.create();
+    await runner.send(s.id, "go");
+    await until(() => store.get(s.id)!.status === "error");
+    const fin = store.get(s.id)!;
+    expect(fin.error).toContain("past the turn token limit of 50000");
+    expect(fin.transcript.find((t) => t.kind === "usage")).toMatchObject({ main: 60_000, limit: 50_000 });
+    expect(afterStop).toBe(false);
   });
 });

@@ -35,7 +35,8 @@ import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { PlaytestFlow } from "./playtest-flow.js";
 import { FlowCaller } from "./flow-run.js";
 import { registerFlowModel, type ModelHost } from "./flow-model.js";
-import { CLAUDE_SIGN_IN_AVAILABLE, PROVIDERS } from "@ue-mcp-studio/shared";
+import { CLAUDE_SIGN_IN_AVAILABLE, IMAGE_EDGES, PROVIDERS } from "@ue-mcp-studio/shared";
+import { setImageEdge } from "./images.js";
 import type { ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
@@ -67,6 +68,8 @@ import type { AssetRef } from "@ue-mcp-studio/shared";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
+  // Every image the model is shown, from a tool or the user, goes at the project's Image size.
+  setImageEdge(() => IMAGE_EDGES[settings.usage().imageSize]);
   const store = new SessionStore(api.dataDir);
   const playtests = new PlaytestStore(api.dataDir);
   const attachments = new AttachmentStore(api.dataDir);
@@ -171,6 +174,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
     model: () => settings.model(),
     effort: () => settings.effort(),
+    usage: () => settings.usage(),
+    subagentModel: () => settings.subagentModel(),
     subscription: () => route() === "claude",
     // A key names its vendor, since model names no longer do.
     route: () => ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,

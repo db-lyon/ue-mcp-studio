@@ -1,0 +1,96 @@
+{
+  "query": "create material with expressions emissive unlit",
+  "resultCount": 15,
+  "results": [
+    {
+      "tool": "material",
+      "action": "create_instance",
+      "description": "Create an instance of a parameterized master material, then assign BaseColor, Normal and packed RMA textures with set_parameter or batch_set_instances. Create material instance. Idempotent by path: an existing instance is reported rather than replaced. Params: parentPath, name, packagePath?, onConflict?",
+      "score": 9
+    },
+    {
+      "tool": "material",
+      "action": "create",
+      "description": "Create material. Idempotent by path: an existing material is reported rather than replaced. Params: name, packagePath?, onConflict?",
+      "score": 9
+    },
+    {
+      "tool": "material",
+      "action": "create_designer",
+      "description": "Create a Material Designer material: a DynamicMaterialInstance asset WITH its Material Designer model, through the plugin's own DynamicMaterialInstanceFactory (asset(create_asset_by_class) leaves the model empty). Seeds a Base Color slot when the new model has none, requests a build and saves. Returns path, modelPath, slotCount and a delete_asset rollback. Needs the Material Designer plugin (#1131). Params: name, packagePath?, onConflict?",
+      "score": 9
+    },
+    {
+      "tool": "material",
+      "action": "build_material",
+      "description": "Build a PBR material from a texture set in one call: creates a TextureSample per entry, picks each sampler type FROM THE TEXTURE (a virtual/UDIM texture silently loses its material connection on recompile unless it samples through the Virtual* variant), wires them, recompiles, saves, and reports which connections survived the recompile. name (+ packagePath) creates the material; materialPath builds into an existing one. assignToMesh puts the result on a StaticMesh or SkeletalMesh (#946). A parameterized master and its instances in the same call (#1229): textureParameters=true makes the samples TextureSampleParameter2D nodes named after their keys; parameters[] adds scalar/vector/texture parameter nodes {name, type, default?, group?}; nodes/connections/propertyConnections add math nodes exactly as build_graph does, where a connection can name a texture key (orm), a parameter name (Tint) or a node; instances[] creates one MaterialInstanceConstant per piece {name, parameters: {Tint: {r,g,b}, ORM: '/Game/T_Piece_ORM'}, assignToMesh, slotName} and assigns it to that slot. textures is optional when parameters or nodes say what to build. Params: materialPath (or assetPath) OR name, packagePath?, textures?, textureParameters?, parameters?, nodes?, connections?, propertyConnections?, instances?, samplerTypes?, clearExisting?, assignToMesh? (or meshPath), meshSlots?",
+      "score": 8
+    },
+    {
+      "tool": "material",
+      "action": "create_simple",
+      "description": "Single-call simple material with optional constants and usages[] (e.g. InstancedStaticMeshes, Nanite, NiagaraSprites). Recompiles + saves in one shot (#225). Params: name, packagePath?, onConflict?, baseColor?, metallic?, specular?, roughness?, emissive?, usages?",
+      "score": 6
+    },
+    {
+      "tool": "material",
+      "action": "create_rvt",
+      "description": "Create a RuntimeVirtualTexture asset. materialType is validated against RuntimeVirtualTexture::IsMaterialTypeSupported, which is the reason it is a parameter rather than a follow-up property write: a project can disable individual material types to cut shader permutations, and set_property would happily store one that then compiles to nothing. Everything else (tileCount, tileSize, tileBorderSize, compression, adaptive/private/packed page table, continuous update, LOD group) is a plain UPROPERTY: write it with asset(set_property) at the returned objectPath. Reads back the DERIVED layout - size, pageTableSize, layer count and per-layer pixel format and colour space - which no property read produces. Idempotent by path; rollback deletes the asset. Params: name, packagePath?, materialType?, onConflict?",
+      "score": 6
+    },
+    {
+      "tool": "material",
+      "action": "set_expression_value",
+      "description": "Set a value on an expression node. Common typed knobs: value (constant/param default), texturePath (TextureSample/TextureSampleParameter2D default texture). Constant2Vector/3Vector/4Vector and VectorParameter all take value (or color) as {r,g,b,a}, {x,y,z,w}, [r,g,b,a] or '(R=..,G=..)'; Constant2Vector reads the first two components (#979). Saves the material and reports saved. A TextureCoordinate node takes uTiling, vTiling and coordinateIndex, which are separate top-level keys rather than anything inside `value`. For any OTHER UPROPERTY on the expression (e.g. SamplerType, SamplerSource, Group), pass propertyName + value to hit the generic reflection setter. Reports previousValue and rolls back to it where the previous value can be expressed in this action's own vocabulary. Pass functionPath instead of materialPath to edit a node inside a MaterialFunction (index from list_function_expressions); the function is then updated so every material using it recompiles (#1138, #663). Params: materialPath (or path, or assetPath) OR functionPath (or materialFunctionPath), expressionIndex, value?, color? (or colour), x?, y?, parameterName?, texturePath?, uTiling?, vTiling?, coordinateIndex?, propertyName?",
+      "score": 5
+    },
+    {
+      "tool": "material",
+      "action": "set_custom_expression",
+      "description": "Read/write a MaterialExpressionCustom (HLSL) node: code, named inputs[] (rebuilds input pins; wire them with connect_expressions targetInput=<name>), outputType (float1|float2|float3|float4|materialAttributes), description. Omit code/inputs to read. Add the node first via add_expression expressionType=Custom, or add_function_expression inside a MaterialFunction (then pass functionPath, #1138) (#617). Params: materialPath (or path, or assetPath) OR functionPath (or materialFunctionPath), expressionIndex, code?, inputs?, outputType?, description?",
+      "score": 5
+    },
+    {
+      "tool": "material",
+      "action": "create_function",
+      "description": "Create a MaterialFunction asset (#463). Params: name, packagePath?, onConflict?, description?",
+      "score": 5
+    },
+    {
+      "tool": "material",
+      "action": "add_function_expression",
+      "description": "Add an expression node to a MaterialFunction graph. inputName and inputType apply to a FunctionInput, outputName to a FunctionOutput (#463). name labels any node, so connect_function_expressions can address it by that name. Params: functionPath (or materialFunctionPath), expressionType, positionX?, positionY?, inputName?, inputType?, outputName?, name?",
+      "score": 5
+    },
+    {
+      "tool": "material",
+      "action": "connect_function_expressions",
+      "description": "Wire two expressions inside a MaterialFunction; each expression is named or indexed. The result lists sourceOutputs (the source node's output names by index; an empty name is the default output an omitted sourceOutput selects) and connectedOutputName (#463). Params: functionPath (or materialFunctionPath), sourceExpression, sourceOutput?, targetExpression, targetInput?",
+      "score": 5
+    },
+    {
+      "tool": "material",
+      "action": "set_shading_model",
+      "description": "Set shading model. Params: assetPath (or path), shadingModel",
+      "score": 5
+    },
+    {
+      "tool": "material",
+      "action": "add_expression",
+      "description": "Author parameterized master materials with TextureSampleParameter2D (BaseColor, Normal, packed RMA), ScalarParameter, VectorParameter (tint), TextureCoordinate and Multiply nodes. parameterName names texture/scalar/vector parameters; set_expression_value assigns default textures and SamplerType. Add expression node (#318). Returns expressionIndex, the node's position as set_expression_value and set_custom_expression take it, and expressionName, its unique engine name. Params: materialPath (or path, or assetPath), expressionType, name? (or expressionName), parameterName?, group?, sortPriority?, defaultValue?, value?, channels?, positionX?, positionY?",
+      "score": 5
+    },
+    {
+      "tool": "material",
+      "action": "connect_expressions",
+      "description": "Wire two expressions. sourceOutput and targetInput take a pin name or an index; a single-input node such as Sine, ComponentMask or BlackBody takes targetInput Input (or 0), and the graph editor's short labels (UVs, Tex, Exp) are accepted too. An unknown pin fails and lists the node's pins by index. Params: materialPath (or path, or assetPath), sourceExpression, sourceOutput?, targetExpression, targetInput?",
+      "score": 5
+    },
+    {
+      "tool": "material",
+      "action": "read_graph",
+      "description": "Read the stored material expression graph without creating an editor graph. Returns the same paged expressions as list_expressions, with inputs carrying inputIndex, inputName, connectedExpressionIndex, connectedOutputIndex, connectedExpressionClass and connectedExpressionDescription, plus every root material input under connections (expressionIndex, outputIndex, expressionClass, expressionDescription; null when disconnected). MaterialAttributes is listed only when the material uses material attributes. Pass expressionIndex (a nodeId) to read just that node and the source expressions its inputs link to, unpaged. Params: materialPath (or path, or assetPath), expressionIndex?, cursor?, limit?",
+      "score": 5
+    }
+  ]
+}

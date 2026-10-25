@@ -8,7 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { createRequire } from "node:module";
 import type { ActionResult } from "ue-mcp/daemon";
-import { MAX_IMAGE_BYTES, MAX_IMAGE_EDGE, decodeImage, downscale, fitSize, prepareImage, sniffImage, toolResultContent } from "../src/images.js";
+import { MAX_IMAGE_BYTES, MAX_IMAGE_EDGE, decodeImage, downscale, fitSize, imageEdge, prepareImage, setImageEdge, sniffImage, toolResultContent } from "../src/images.js";
 import { readFile } from "../src/local-tools.js";
 import { resultImages } from "../src/tools.js";
 import { toChatRequest } from "../src/openai-compat.js";
@@ -215,5 +215,17 @@ describe("an image path Unreal reports relative to its binaries", () => {
     expect(imageOnDisk(project, "..\\..\\Elsewhere\\Saved\\Screenshots\\shot.png")).toBe(want);
     expect(imageOnDisk(project, "Saved/Screenshots/shot.png")).toBe(want);
     expect(imageOnDisk(project, "../../Nope/missing.png")).toBeNull();
+  });
+});
+
+describe("the Image size setting", () => {
+  afterEach(() => setImageEdge(() => MAX_IMAGE_EDGE));
+
+  it("sends a screenshot at the chosen size, never past the most a model takes", async () => {
+    setImageEdge(() => 1024);
+    const img = await prepareImage(pngBytes(1600, 900), "image/png");
+    expect([img.width, img.height]).toEqual([1024, 576]);
+    setImageEdge(() => 5000);
+    expect(imageEdge()).toBe(MAX_IMAGE_EDGE);
   });
 });

@@ -16,6 +16,7 @@ import type { TouchedItem } from "@ue-mcp-studio/shared";
 import { CHANGING_TOOLS, isLocalTool, localToolDefinitions, runLocal, validateLocal, type LocalToolName } from "./local-tools.js";
 import { firstFailedStep, type OperationStep } from "./operation-result.js";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type ToolImage } from "./images.js";
+import { compactDescribe, compactSearch } from "./discovery.js";
 
 /** The part of the daemon's extension API the agent uses, so tests can stand in for it. */
 export interface AgentHost {
@@ -32,15 +33,23 @@ export interface AgentHost {
   log: { info(message: string): void; warn(message: string, detail?: unknown): void };
 }
 
+/** The ue_mcp tool's description, the same on every route. */
+export const UE_MCP_DESCRIPTION =
+  "Unreal Editor actions through ue-mcp. action=search finds actions by intent (query); "
+  + "action=describe gives one action's parameters (category + method) or a category's actions (category alone); "
+  + "action=call runs one action (category, method, args). Describe before the first call of an action. "
+  + "A result may report created, existed or updated: read it rather than assuming. "
+  + "A call can keep only the fields it needs with select, or drop large ones with omit: dotted paths that reach through arrays (components.name).";
+
+/** What select and omit say about themselves, on every route. */
+export const SELECT_DESCRIPTION = "call: keep only these dotted paths of the result, e.g. [\"actors.label\", \"actors.class\"]";
+export const OMIT_DESCRIPTION = "call: drop these dotted paths from the result";
+
 /** The editor tools: what the main agent and every subagent can call. */
 export const EDITOR_TOOLS: Anthropic.Beta.BetaToolUnion[] = [
   {
     name: "ue_mcp",
-    description:
-      "Unreal Editor actions through ue-mcp. action=search finds actions by intent (query); "
-      + "action=describe gives one action's parameters (category + method) or a category's actions (category alone); "
-      + "action=call runs one action (category, method, args). Describe before the first call of an action. "
-      + "A result may report created, existed or updated: read it rather than assuming.",
+    description: UE_MCP_DESCRIPTION,
     input_schema: {
       type: "object",
       properties: {
@@ -49,6 +58,8 @@ export const EDITOR_TOOLS: Anthropic.Beta.BetaToolUnion[] = [
         category: { type: "string", description: "describe/call: the category, e.g. blueprint" },
         method: { type: "string", description: "describe/call: the action name, e.g. create" },
         args: { type: "object", description: "call: the action's parameters" },
+        select: { type: "array", items: { type: "string" }, description: SELECT_DESCRIPTION },
+        omit: { type: "array", items: { type: "string" }, description: OMIT_DESCRIPTION },
       },
       required: ["action"],
     },
@@ -127,6 +138,14 @@ export function validateInput(name: string, input: unknown): string | null {
     return null;
   }
   return "action must be search, describe or call";
+}
+
+/** A call's select and omit, when the model gave them as lists of dotted paths. */
+function fieldSelection(input: Record<string, unknown>): Record<string, string[]> {
+  const paths = (v: unknown): string[] | null => (Array.isArray(v) && v.length > 0 && v.every((p) => typeof p === "string") ? (v as string[]) : null);
+  const select = paths(input.select);
+  const omit = paths(input.omit);
+  return { ...(select ? { select } : {}), ...(omit ? { omit } : {}) };
 }
 
 function resultText(r: ActionResult): string {
@@ -215,19 +234,22 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
   const action = input.action as string;
   if (action === "search") {
     const r = await host.callAction("project", "search_tools", { query: input.query, limit: 15 });
-    return { text: resultText(r), isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
+    const text = r.isError ? resultText(r) : compactSearch(resultText(r));
+    return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
   if (action === "describe") {
     const args = typeof input.method === "string" && input.method
       ? { name: `${input.category}.${input.method}` }
       : { name: String(input.category), category: input.category };
     const r = await host.callAction("project", "describe_action", args);
-    return { text: resultText(r), isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
+    const text = r.isError ? resultText(r) : compactDescribe(resultText(r));
+    return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
 
   const category = input.category as string;
   const method = input.method as string;
-  const args = (input.args as Record<string, unknown> | undefined) ?? {};
+  // select and omit ride beside the action's own parameters: ue-mcp's dispatch takes them off before the action runs.
+  const args = { ...((input.args as Record<string, unknown> | undefined) ?? {}), ...fieldSelection(input) };
   // Unknown only when the editor went away during the call. One already gone never ran it, so its error is the answer.
   const wasConnected = editorConnected(host);
   const startedAt = Date.now();
