@@ -839,7 +839,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-status.bad { color: var(--bad); }
 .qa-status.warn { color: var(--warn); font-weight: 600; }
 .qa-status.run { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-.qa-status[title] { cursor: help; text-decoration: underline dotted; text-underline-offset: 3px; }
+.qa-status[title] { cursor: help; }
 .qa-expect, .qa-evidence, .qa-note, .qa-verdict { margin-left: calc(1.6em + 8px); }
 .qa-evidence { color: var(--bad-text); white-space: pre-wrap; }
 .qa-note { color: var(--muted); font-style: italic; }
@@ -1246,7 +1246,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 /* One bar per step. The button is the hit area; the bar is drawn inside it. A manual step's bar has a pip over it. */
 .qa-path { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; width: 100%; }
 .qa-path-step { flex: 1 1 0; min-width: 6px; position: relative; }
-.qa-path-hit { display: block; position: relative; width: 100%; height: 20px; min-height: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; cursor: pointer; }
+.qa-path-hit { display: block; position: relative; width: 100%; height: 24px; min-height: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; cursor: pointer; }
 span.qa-path-hit { cursor: default; }
 button.qa-path-hit:hover:not(:disabled) { background: transparent; border: 0; }
 .qa-path-hit::before { content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 6px; border-radius: 3px; background: var(--line-strong); transition: top 0.12s, height 0.12s; }
@@ -1320,9 +1320,9 @@ button.filter-chip.attention .filter-count { color: var(--warn); font-weight: 70
   .qa-meta-session { max-width: 100%; }
 }
 /* Review pass: the step path reads without colour, the strip has an edge, the editor themes keep card edges. */
-.qa-path-hit::before { top: 7px; height: 8px; }
-button.qa-path-hit:hover::before, button.qa-path-hit:focus-visible::before { top: 5px; height: 12px; }
-.qa-path-step.manual .qa-path-hit::after { top: 0; width: 6px; height: 6px; margin-left: -3px; background: var(--text); opacity: 0.75; }
+.qa-path-hit::before { top: 12px; height: 8px; }
+button.qa-path-hit:hover::before, button.qa-path-hit:focus-visible::before { top: 10px; height: 12px; }
+.qa-path-step.manual .qa-path-hit::after { top: 1px; width: 6px; height: 6px; margin-left: -3px; background: var(--text); opacity: 0.75; }
 .qa-chevron { color: var(--text); opacity: 0.7; }
 .playtests-row .qa-kind.plain, .qa-card.dense .qa-kind.plain { display: none; }
 .playtest-strip { border-bottom: 2px solid var(--line-strong); }
@@ -1353,7 +1353,7 @@ button.strip-more { white-space: normal; text-align: left; }
 }
 button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 2px 8px; }
 /* Fourth review pass: a waiting bar stands taller than the rest; focus rings stand off the control. */
-.qa-path-step.warn .qa-path-hit::before { top: 4px; height: 14px; }
+.qa-path-step.warn .qa-path-hit::before { top: 10px; height: 12px; }
 .qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-offset: 2px; }
 /* Each card's actions where it is drawn. Outside the page's rows and the strip's box, these wrappers only group. */
 .qa-states, .qa-actions, .qa-slot { display: contents; }

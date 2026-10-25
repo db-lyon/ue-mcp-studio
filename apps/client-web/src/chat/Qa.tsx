@@ -678,7 +678,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
                 <div className="qa-note small">
                   {s.note}
                   {s.status === "failed" && s.judge === "manual" && (
-                    <button className="ghost small-button qa-note-edit" aria-label={`Edit the note on step ${s.index + 1}`} onClick={() => setFailing({ index: s.index, via: "edit" })}>Edit</button>
+                    <button className="small-button qa-note-edit" aria-label={`Edit the note on step ${s.index + 1}`} onClick={() => setFailing({ index: s.index, via: "edit" })}>Edit</button>
                   )}
                 </div>
               )}
