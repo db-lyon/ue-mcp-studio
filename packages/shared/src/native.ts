@@ -133,4 +133,6 @@ export interface NativePreview {
   files: number;
   /** On the Claude sign-in the Agent SDK reads the files itself; this is what it reads. */
   loadedBy: "studio" | "sdk";
+  /** On the Claude sign-in: each file as the SDK reads it, in load order, with nothing added between them. */
+  parts?: Array<{ path: string; text: string }>;
 }

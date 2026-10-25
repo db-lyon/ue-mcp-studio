@@ -112,9 +112,12 @@ describe("Agents: what each vendor's own files give its models", () => {
   });
 
   it("titles the preview by who loads the files", async () => {
-    m.nativePreview.mockResolvedValueOnce({ convention: "codex", text: "## CLAUDE.md", tokens: 3, files: 1, loadedBy: "sdk" } as never);
+    m.nativePreview.mockResolvedValueOnce({ convention: "codex", text: "## CLAUDE.md", tokens: 3, files: 1, loadedBy: "sdk", parts: [{ path: "CLAUDE.md", text: "Rules only." }] } as never);
     await show();
     expect(screen.getByText("Preview: the text on every call (1 file)")).toBeTruthy();
+    // The SDK reads the files as they are: the preview adds no headings into their text.
+    expect(screen.getByText("Rules only.").tagName).toBe("PRE");
+    expect(screen.queryByText(/## CLAUDE.md/)).toBeNull();
   });
 
   it("saves the screenshot size", async () => {

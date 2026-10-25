@@ -221,3 +221,5 @@
   .cfg .tabs-narrow select { width: 100%; }
 }
 .cfg .subtab .dot { margin-right: 6px; position: relative; top: -1px; }
+.cfg .preview-part { margin-top: 8px; }
+.cfg .preview-part > .path { margin-bottom: 2px; }

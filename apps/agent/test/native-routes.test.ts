@@ -83,6 +83,7 @@ describe("the native view", () => {
     const p = setup({ vendor: "anthropic", model: "claude-opus-5-5", route: "claude" })("GET /native/preview", undefined, { convention: "claude" }).body as NativePreview;
     // The SDK reads the files itself, so the preview is the files, not a prompt Studio writes.
     expect(p).toMatchObject({ convention: "claude", loadedBy: "sdk", files: 1, text: "## CLAUDE.md\nClaude rules." });
+    expect(p.parts).toEqual([{ path: "CLAUDE.md", text: "Claude rules." }]);
     const own = setup({ vendor: "anthropic", model: "claude-opus-5-5", route: "key" })("GET /native/preview", undefined, { convention: "claude" }).body as NativePreview;
     expect(own).toMatchObject({ loadedBy: "studio", files: 1 });
     expect(own.text).toContain("## From CLAUDE.md\nClaude rules.");

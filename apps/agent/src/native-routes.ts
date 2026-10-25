@@ -120,7 +120,7 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
     const composed = composeNative(l);
     const text = sdk ? always.map((f) => `## ${f.path}\n${f.text}`).join("\n\n") : composed.text ?? "";
     const tokens = sdk ? always.reduce((n, f) => n + f.tokens, 0) : composed.tokens;
-    const body: NativePreview = { convention: c, text, tokens, files: always.length, loadedBy: sdk ? "sdk" : "studio" };
+    const body: NativePreview = { convention: c, text, tokens, files: always.length, loadedBy: sdk ? "sdk" : "studio", ...(sdk ? { parts: always.map((f) => ({ path: f.path, text: f.text })) } : {}) };
     return { body };
   });
 

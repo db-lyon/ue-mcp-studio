@@ -127,7 +127,14 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
         {preview?.text && (
           <details className="cfg-note">
             <summary>Preview: the text on every call ({files})</summary>
-            <pre className="code">{preview.text}</pre>
+            {preview.parts
+              ? preview.parts.map((p) => (
+                <div key={p.path} className="preview-part">
+                  <Path p={p.path} className="path dim" />
+                  <pre className="code">{p.text}</pre>
+                </div>
+              ))
+              : <pre className="code">{preview.text}</pre>}
           </details>
         )}
       </Card>
