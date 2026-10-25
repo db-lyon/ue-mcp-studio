@@ -72,6 +72,7 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   const dots: Partial<Record<SettingsSection, string>> = {};
   const anythingConnected = !!settings && Object.values(settings.connected ?? {}).some(Boolean);
   if (settings && !anythingConnected) dots.models = "Connect a sign-in or an API key";
+  if (settings && settings.route === null) dots.agents = "No model can run the main agent yet";
   else if (settings && settings.route === null) dots.models = "Nothing connected can run the main agent's model";
   if (settings && settings.destructiveKnown === false) dots.approvals = "One kind cannot ask first until ue-mcp is updated";
   if (updates > 0) dots.general = `${updates} ${updates === 1 ? "update" : "updates"} available`;

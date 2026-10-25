@@ -100,10 +100,10 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
       <p className="cfg-status">
         <span className={`dot ${inUse ? "ok" : ""}`} aria-hidden />
         {inUse
-          ? <span>In use: {view.routes.join(", ")}{view.convention === main ? ", the main agent's route" : ""}. {sdk ? "The Agent SDK loads these files itself, as Claude Code does." : `Studio reads these files the way ${info.tool === "AGENTS.md" ? "agents that read AGENTS.md do" : `${info.tool} does`}.`}</span>
+          ? <span>Read by: {view.routes.join(", ")}.{view.convention === main ? " The main agent runs here." : ""} {sdk ? "The Agent SDK loads these files itself, as Claude Code does." : `Studio reads them the way ${info.tool === "AGENTS.md" ? "agents that read AGENTS.md do" : `${info.tool} does`}.`}</span>
           : view.convention === "agents"
-            ? <span>Not in use: models from custom endpoints read these, and none is set up on this machine.</span>
-            : <span>Not in use: no route for these models is connected. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></span>}
+            ? <span>No connected route reads these: models from custom endpoints do, and none is set up on this machine.</span>
+            : <span>No connected route reads these. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></span>}
       </p>
       {view.notes.map((n) => <div key={n} className="banner warn small">{n}</div>)}
 
@@ -124,7 +124,7 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
         </ol>
         {preview?.text && (
           <details className="cfg-note">
-            <summary>Text on every call ({files}){sdk ? ", loaded by the Agent SDK" : ""}</summary>
+            <summary>Preview: the text on every call ({files})</summary>
             <pre className="code">{preview.text}</pre>
           </details>
         )}
@@ -140,8 +140,9 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
                 <dl className="fields">
                   <dt>Model</dt><dd>{a.runs.model}{a.model ? <> (file says <code>{a.model}</code>)</> : null}</dd>
                   <dt>Tools</dt><dd>{a.tools}</dd>
-                  {a.maxTurns ? <><dt>Turns</dt><dd>at most {a.maxTurns}</dd></> : null}
-                  {a.effort ? <><dt>Effort</dt><dd>{a.effort}</dd></> : null}
+                  <dt>Turns</dt><dd>{a.maxTurns ? `at most ${a.maxTurns}` : "no limit set"}</dd>
+                  <dt>Effort</dt><dd>{a.effort ?? "the main agent's"}</dd>
+                  <dt>Size</dt><dd>{tokens(a.tokens)} tokens when started</dd>
                 </dl>
                 {a.runs.note && <div className="cfg-note warn-text">{a.runs.note}</div>}
                 {a.problems.map((p) => <div key={p} className="cfg-note warn-text">{p}</div>)}
@@ -162,7 +163,7 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
                 <div><strong className="mono">{s.name}</strong> <span className="tag">{s.owner ? `Plugin: ${s.owner}` : SOURCE[s.source]}</span></div>
                 <div className="readers">{s.description || "No description."} {tokens(s.tokens)} tokens when loaded.{s.implicit ? "" : " Used only when you name it."}</div>
                 {s.problems.map((p) => <div key={p} className="cfg-note warn-text">{p}</div>)}
-                <Path p={s.path} className="path dim" />
+                <Path p={`${s.path}/SKILL.md`} className="path dim" />
               </div>
               <OpenFile path={s.path} onError={onError} />
             </li>

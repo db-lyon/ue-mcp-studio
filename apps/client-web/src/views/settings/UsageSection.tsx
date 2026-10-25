@@ -7,7 +7,7 @@ import { Card, NumberField, Row, useMessage } from "./controls";
 /** What each row does at its limit, as the runs enforce it today. */
 const AT_LIMIT: Record<string, string> = {
   [MAIN_AGENT_ID]: "The turn stops and says so",
-  [PLAYTEST_RUNNER_ID]: "The loop stops and asks for you",
+  [PLAYTEST_RUNNER_ID]: "The loop stops and waits for you",
 };
 
 /**

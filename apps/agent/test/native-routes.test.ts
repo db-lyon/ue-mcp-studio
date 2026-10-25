@@ -67,6 +67,17 @@ describe("the native view", () => {
     expect(o.conventions[0].instructions.map((f) => f.path)).toEqual(["AGENTS.md"]);
   });
 
+  it("shows no model a subagent would run on while nothing runs the main agent", () => {
+    write(".codex/agents/heavy.toml", 'name = "heavy"\ndescription = "Big"\ndeveloper_instructions = "Think."\nmodel = "gpt-9"\n');
+    write(".codex/agents/plain.toml", 'name = "plain"\ndescription = "Plain"\ndeveloper_instructions = "Do."\n');
+    const o = setup({ vendor: "openai", model: "gpt-6-sol", route: null })("GET /native").body as NativeOverview;
+    const codex = o.conventions.find((c) => c.convention === "codex")!;
+    expect(codex.subagents.map((a) => [a.name, a.runs])).toEqual([
+      ["heavy", { model: "Runs once a route for OpenAI models is connected" }],
+      ["plain", { model: "The main agent's model, none runs here yet" }],
+    ]);
+  });
+
   it("previews the text an agent is given, and says when the SDK loads it itself", () => {
     write("CLAUDE.md", "Claude rules.");
     const p = setup({ vendor: "anthropic", model: "claude-opus-5-5", route: "claude" })("GET /native/preview", undefined, { convention: "claude" }).body as NativePreview;

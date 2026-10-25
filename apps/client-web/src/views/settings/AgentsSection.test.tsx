@@ -53,7 +53,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Claude Code1", "Codex4", "Gemini CLI0", "AGENTS.md0"]);
     expect([...tabs.querySelectorAll("button")].map((b) => !!b.querySelector(".dot"))).toEqual([true, true, false, false]);
     expect(tabs.querySelector("[aria-current=page]")?.textContent).toBe("Codex4");
-    expect(screen.getByText(/In use: ChatGPT sign-in, OpenAI key, the main agent's route\. Studio reads these files the way Codex does\./)).toBeTruthy();
+    expect(screen.getByText(/Read by: ChatGPT sign-in, OpenAI key\. The main agent runs here\. Studio reads them the way Codex does\./)).toBeTruthy();
     expect(screen.getByText("Project")).toBeTruthy();
     expect(screen.getByText("AGENTS.md is past Codex's 32 KiB limit for instruction files, so it is not read.")).toBeTruthy();
     expect(screen.getByText("scout")).toBeTruthy();
@@ -73,7 +73,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     await show();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^Gemini CLI/ })));
     expect(screen.getByText(/None found in any of those places\. The usual one is a GEMINI\.md in the project folder\./)).toBeTruthy();
-    expect(screen.getByText(/Not in use: no route for these models is connected\./)).toBeTruthy();
+    expect(screen.getByText(/No connected route reads these\./)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Connect one in Models & accounts" })).toBeTruthy();
   });
 
@@ -104,17 +104,17 @@ describe("Agents: what each vendor's own files give its models", () => {
     const tabs = screen.getByRole("navigation", { name: "Whose files" });
     expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Claude Code1", "Codex4", "Gemini CLI0", "AGENTS.md0"]);
     expect(tabs.querySelector(".dot")).toBeNull();
-    expect(screen.getByText(/Not in use: no route for these models is connected\./)).toBeTruthy();
+    expect(screen.getByText(/No connected route reads these\./)).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^AGENTS\.md/ })));
     // Custom endpoints read AGENTS.md; nothing to connect until one is set up.
-    expect(screen.getByText(/Not in use: models from custom endpoints read these/)).toBeTruthy();
+    expect(screen.getByText(/No connected route reads these: models from custom endpoints do/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Connect one in Models & accounts" })).toBeNull();
   });
 
   it("titles the preview by who loads the files", async () => {
     m.nativePreview.mockResolvedValueOnce({ convention: "codex", text: "## CLAUDE.md", tokens: 3, files: 1, loadedBy: "sdk" } as never);
     await show();
-    expect(screen.getByText("Text on every call (1 file), loaded by the Agent SDK")).toBeTruthy();
+    expect(screen.getByText("Preview: the text on every call (1 file)")).toBeTruthy();
   });
 
   it("saves the screenshot size", async () => {
