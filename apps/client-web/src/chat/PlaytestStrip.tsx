@@ -143,7 +143,8 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
   const [folded, setFolded] = useState(false);
   const [all, setAll] = useState(false);
   // Narrow, one card and the rest named under it; the strip must leave the conversation room.
-  const first = useMedia(NARROW) ? 1 : STRIP_SHOWN;
+  const narrow = useMedia(NARROW);
+  const first = narrow ? 1 : STRIP_SHOWN;
   useEffect(() => {
     const reveal = (e: Event) => {
       const runId = (e as CustomEvent<string>).detail;
@@ -157,9 +158,10 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
   }, []);
   if (runs.length === 0) return null;
   const many = runs.length > 1;
-  // Every one that needs the user is shown; the rest fill up to the first few.
+  // Wide, every one that needs the user is shown and the rest fill up to the first few. Narrow, one
+  // card, with the rest named below it, those that need the user first and marked.
   const you = runs.filter(qaNeedsYou);
-  const shown = all ? runs : [...you, ...runs.filter((r) => !qaNeedsYou(r)).slice(0, Math.max(0, first - you.length))];
+  const shown = all ? runs : narrow ? runs.slice(0, 1) : [...you, ...runs.filter((r) => !qaNeedsYou(r)).slice(0, Math.max(0, first - you.length))];
   const rest = runs.filter((r) => !shown.includes(r));
   return (
     <section className={`playtest-strip ${many ? "many" : ""} ${you.length ? "needs-you" : ""}`} aria-label="Live playtests">
@@ -176,17 +178,17 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
             <QaCard key={r.runId} run={r} dense onHide={r.assignment?.loop?.state === "needs_you" && !qaNeedsYouStep(r) ? () => onHide(r) : undefined} />
           ))}
           {rest.length > 0 && (
-            <button className="ghost small-button strip-more" onClick={() => setAll(true)} aria-label={`Show ${rest.length} more: ${rest.map((r) => r.scriptName).join(", ")}`}>
+            <button className="small-button strip-more" onClick={() => setAll(true)} aria-label={`Show ${rest.length} more: ${rest.map((r) => r.scriptName).join(", ")}`}>
               Show {rest.length} more:{" "}
               {rest.map((r, i) => (
                 <span key={r.runId}>
                   {i > 0 && ", "}
-                  {r.scriptName} <span className="strip-more-state">({pinnedState(r).replace(/^is /, "")})</span>
+                  {r.scriptName} <span className={`strip-more-state ${qaNeedsYou(r) ? "warn" : ""}`}>({pinnedState(r).replace(/^is /, "")})</span>
                 </span>
               ))}
             </button>
           )}
-          {all && runs.length > Math.max(first, you.length) && (
+          {all && runs.length > (narrow ? 1 : Math.max(first, you.length)) && (
             <button className="ghost small-button strip-more" onClick={() => setAll(false)}>Show fewer</button>
           )}
         </div>

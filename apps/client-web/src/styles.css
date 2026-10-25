@@ -1360,5 +1360,7 @@ button.strip-more { white-space: normal; text-align: left; }
   .playtest-strip .qa-card.open .qa-body { max-height: 26vh; }
 }
 .qa-card.offline .pill { opacity: 0.6; }
-.qa-card button.qa-stop, .qa-card button.qa-hide { color: var(--muted); }
 button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 2px 8px; }
+/* Fourth review pass: a waiting bar stands taller than the rest; focus rings stand off the control. */
+.qa-path-step.warn .qa-path-hit::before { top: 4px; height: 14px; }
+.qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-offset: 2px; }
