@@ -636,3 +636,23 @@ Each phase ships on its own and leaves Studio coherent.
 9. **A teammate who lacks an agent's vendor gets that agent's fallbacks**, then the main agent's model, with a warning on the agent and in Usage.
 10. **Budgets are per machine.** Spend depends on each person's plan and keys; a team that wants a norm writes it in AGENTS.md.
 11. **Playtest runs is proposed to ue-mcp as a shared mode**, like dialogs and feedback, so other clients follow it. Until ue-mcp has it, the setting stays Studio's own and carries no shared badge.
+
+---
+
+## 10. Decisions made while building
+
+Recorded as each phase landed, so the plan stays the description of what Studio does.
+
+### Phase 1
+
+1. **Approval defaults.** A new install asks before all four kinds (shell commands, file changes, editor restarts, ue-mcp actions that delete or overwrite). Settings from before the rows keep what they did: askBeforeChanges sets shell and files, and editor restarts and destructive actions stay allowed, because they never asked before. askBeforeChanges is still written beside the rows for one release.
+2. **What counts as an editor restart.** The editor_restart tool, and ue-mcp's editor stop, start, restart and rebuild actions reached through ue_mcp. "Allow for this session" is per kind.
+3. **Destructive actions come only from ue-mcp.** Studio reads the daemon's action effects (`actions.effects`). A daemon without them cannot say, so that row is disabled and says to update ue-mcp; Studio never guesses from action names.
+4. **Cursor rules.** A `.mdc` rule with `alwaysApply: true` or without globs is always read; a rule with globs joins when the agent touches a matching file. Rules that only carry a description are always read, since Studio has no separate relevance step.
+5. **Scoped files join through tool results.** A subfolder's file, or a rule with globs, is appended to the result of the first call in a conversation that touches its folder or a matching file (file tools by path, editor calls by the /Game asset's Content path), once per conversation, on both routes. The main agent and each helper are separate conversations.
+6. **Imports.** `@path` imports are followed one level in CLAUDE.md, GEMINI.md, the local files and subfolder files other than AGENTS.md. A file that only imports a listed file is "same as" it; identical text is included once, at the later file.
+7. **Creating AGENTS.md** writes the always-read shared files under a heading each, and offers to replace CLAUDE.md and GEMINI.md with an import of it (ticked by default), so nothing is read twice. Studio never edits Copilot or Cursor files.
+8. **The user's own file** is `~/.ue-mcp/studio/instructions.md`; Studio reads no other tool's user-level folders.
+9. **Budgets live in the extension's per-project data dir** (budgets.json), per machine, never in the project. The first read moves the turn token limit and the Assign to subagent budget in; both old places are written back when those rows change, so an older Studio stops at the same point. The Playtest runner's per-run tokens and minutes cannot be emptied: the loop must always end.
+10. **Context strategy for other clients** writes `context.strategy` in ue-mcp.yml (micro as no setting, as `ue-mcp init` does), then restarts ue-mcp after the turn in progress, the way the feedback switch does. Seed tokens come from the daemon's projection when it has one, else ue-mcp's published figures, and the page says which. The editor-only setup form no longer carries the strategy; it passes the file's value through.
+11. **Narrow Settings** opens on the section list with one line per section; a wide panel always has a section open, Agents first. Old `#/settings/agent` and `#/settings/account` links land on Agents and Models & accounts.
