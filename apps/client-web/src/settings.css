@@ -226,3 +226,50 @@
 .cfg .ifile-skipped { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 10px 0 10px 32px; border-top: 1px dashed var(--line); }
 @media (max-width: 480px) { .cfg .ifile-skipped { padding-left: 26px; } }
 .cfg .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+/* Usage: the dashboard. Series colours are the categorical slots stepped for a dark surface, in fixed order. */
+.cfg {
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-other: #6f6e69;
+}
+.cfg .usage-filters { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 4px 0 14px; }
+.cfg .usage-warnings { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.cfg .usage-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
+.cfg .tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; background: var(--panel, transparent); min-width: 0; }
+.cfg .tile-label { color: var(--muted); font-size: 12px; }
+.cfg .tile-value { font-size: 26px; font-weight: 600; line-height: 1.2; color: var(--text); }
+@media (max-width: 760px) { .cfg .usage-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cfg .plan { padding: 10px 0; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.cfg .plan:first-of-type { border-top: 0; }
+.cfg .meter-row { display: grid; grid-template-columns: 150px minmax(0, 1fr) 90px 150px; gap: 10px; align-items: center; font-size: 13px; }
+.cfg .meter { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.cfg .meter-fill { height: 100%; border-radius: 4px; background: var(--series-1); }
+.cfg .meter-fill.warn { background: var(--warn); }
+.cfg .meter-fill.bad { background: var(--bad); }
+.cfg .meter-value { text-align: right; }
+@media (max-width: 600px) {
+  .cfg .meter-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .cfg .meter-row .meter { grid-column: 1 / -1; grid-row: 2; }
+  .cfg .meter-row .meter-reset { grid-column: 1 / -1; }
+}
+.cfg .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+.cfg .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.cfg .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.cfg .swatch.line { height: 0; border-top: 2px dashed var(--text); width: 14px; border-radius: 0; }
+.cfg .s1 { background: var(--series-1); } .cfg .s2 { background: var(--series-2); } .cfg .s3 { background: var(--series-3); }
+.cfg .s4 { background: var(--series-4); } .cfg .s5 { background: var(--series-5); } .cfg .s6 { background: var(--series-6); }
+.cfg .s7 { background: var(--series-7); } .cfg .so { background: var(--series-other); }
+.cfg .daychart { position: relative; height: 180px; display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid var(--line-strong); }
+.cfg .daycol { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; min-width: 0; cursor: default; }
+.cfg .daycol:hover .daystack { filter: brightness(1.15); }
+.cfg .daystack { width: 100%; max-width: 44px; margin: 0 auto; display: flex; flex-direction: column-reverse; gap: 2px; min-height: 0; }
+.cfg .daystack .seg { min-height: 2px; flex-basis: 0; }
+.cfg .daystack .seg:last-child { border-radius: 4px 4px 0 0; }
+.cfg .budget-line { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--text); opacity: 0.6; pointer-events: auto; }
+.cfg .dayaxis { display: flex; gap: 4px; font-size: 11px; color: var(--dim); margin-top: 4px; }
+.cfg .dayaxis span { flex: 1 1 0; text-align: center; min-width: 0; white-space: nowrap; overflow: visible; }
+.cfg .cache-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 14px; }
+.cfg .cache-col { display: flex; flex-direction: column; gap: 6px; }
+.cfg .price-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+.cfg .price-form input { width: 110px; }
+.cfg .usage-table td.num, .cfg .usage-table th.r { white-space: nowrap; }
