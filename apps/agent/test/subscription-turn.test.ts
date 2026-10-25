@@ -27,6 +27,7 @@ const sdk = vi.hoisted(() => ({
   resumes: [] as Array<string | undefined>,
   interrupts: 0,
   stopTask: null as null | ((taskId: string) => void),
+  options: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("../src/runtime.js", () => ({ ensureRuntime: async () => "claude.exe", installedRuntime: () => "claude.exe" }));
@@ -40,6 +41,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   createSdkMcpServer: (o: { tools: Array<{ name: string; handler: Handler }> }) => ({ tools: o.tools }),
   query: ({ prompt, options }: { prompt: unknown; options: { resume?: string; mcpServers: { studio: { tools: Array<{ name: string; handler: Handler }> } }; abortController: AbortController; env: Record<string, string | undefined> } }) => {
     sdk.prompts.push(prompt);
+    sdk.options.push(options as unknown as Record<string, unknown>);
     sdk.envs.push(options.env);
     sdk.resumes.push(options.resume);
     const queue: unknown[] = [];
@@ -89,6 +91,8 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 const { AgentRunner } = await import("../src/runner.js");
 const { SessionStore } = await import("../src/sessions.js");
+const { loadout } = await import("../src/native.js");
+const { composeNative, toolsFor } = await import("../src/native-runtime.js");
 
 class Host {
   connected = true;
@@ -467,5 +471,57 @@ describe("what a turn spends on the subscription route", () => {
     expect(fin.error).toContain("past the main agent's per-run budget of 50000 tokens");
     expect(fin.transcript.find((t) => t.kind === "usage")).toMatchObject({ main: 60_000, limit: 50_000 });
     expect(afterStop).toBe(false);
+  });
+});
+
+describe("the project's own Claude Code files on the Claude sign-in", () => {
+  const native = () => {
+    const l = loadout("claude", host.projectDir, path.join(root, "home"), new Map(), root);
+    return { convention: "claude" as const, loadout: l, composed: composeNative(l), helpers: [], skills: l.skills, sdkLoads: true };
+  };
+  const write = (rel: string, text: string) => {
+    fs.mkdirSync(path.dirname(path.join(host.projectDir, rel)), { recursive: true });
+    fs.writeFileSync(path.join(host.projectDir, rel), text);
+  };
+
+  it("load through the SDK's own setting sources, with subagents' tools mapped onto Studio's and built-in names aliased", async () => {
+    write("CLAUDE.md", "Project rule only the SDK should read.");
+    write(".claude/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews changes\ntools: Read, Grep\nmodel: haiku\n---\nReview carefully.");
+    write(".claude/skills/naming/SKILL.md", "---\nname: naming\ndescription: Asset naming\n---\nPrefix with the zone.");
+    write("Source/a.txt", "hello");
+    sdk.script = async (b) => {
+      // A skill told the model to use the built-in Read: it runs Studio's read_file.
+      b.emit(assistant("m1", [{ type: "tool_use", id: "r1", name: "Read", input: { file_path: "Source/a.txt" } }]));
+      const r = await b.call("read_file", { file_path: "Source/a.txt" });
+      b.emit(results("r1", r));
+      b.emit({ type: "result", subtype: "success", is_error: false, result: "done", session_id: "x" });
+    };
+    const runner = new AgentRunner({ host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false, native });
+    const s = store.create();
+    await runner.send(s.id, "check the naming");
+    await until(() => store.get(s.id)!.status === "idle");
+    const o = sdk.options.at(-1)!;
+    expect(o.settingSources).toEqual(["user", "project", "local"]);
+    expect(o.toolAliases).toMatchObject({ Read: "mcp__studio__read_file", Bash: "mcp__studio__shell", Edit: "mcp__studio__edit_file" });
+    expect(o.tools).toEqual(expect.arrayContaining(["Agent", "WebSearch", "Skill"]));
+    expect((o.agents as Record<string, { tools: string[]; model: string; prompt: string }>).reviewer).toMatchObject({ tools: ["mcp__studio__read_file", "mcp__studio__grep"], model: "haiku" });
+    expect((o.agents as Record<string, { prompt: string }>).reviewer.prompt).toContain("Review carefully.");
+    // The SDK reads CLAUDE.md itself, so Studio's prompt does not carry it as well.
+    expect(String(o.systemPrompt)).not.toContain("Project rule only the SDK should read.");
+    const call = store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "r1");
+    expect(call?.kind === "tool" && call.call).toMatchObject({ name: "read_file", outcome: "done" });
+    expect(call?.kind === "tool" && call.call.result).toContain("hello");
+    expect(toolsFor({ tools: ["Read", "Grep"], noShell: false }).allowed).toEqual(new Set(["read_file", "grep"]));
+  });
+
+  it("load none while the project's own files are off", async () => {
+    sdk.script = async (b) => b.emit({ type: "result", subtype: "success", is_error: false, result: "ok", session_id: "x" });
+    const runner = new AgentRunner({ host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, native: () => null });
+    const s = store.create();
+    await runner.send(s.id, "hi");
+    await until(() => store.get(s.id)!.status === "idle");
+    const o = sdk.options.at(-1)!;
+    expect(o.settingSources).toEqual([]);
+    expect(o).not.toHaveProperty("toolAliases");
   });
 });

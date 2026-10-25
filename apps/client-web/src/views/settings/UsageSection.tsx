@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
-import { BUDGET_LIMITS, MAIN_AGENT_ID, PLAYTEST_RUNNER_ID, type Budget } from "@ue-mcp-studio/shared";
+import { BUDGET_LIMITS, MAIN_AGENT_ID, MAX_SUBAGENTS_PER_TURN, PLAYTEST_RUNNER_ID, type Budget } from "@ue-mcp-studio/shared";
 import { api, type BudgetsBody } from "../../api";
 import { Head } from "../SettingsHub";
-import { Avatar, Card, NumberField, useMessage } from "./controls";
+import { Card, NumberField, Row, useMessage } from "./controls";
 
 /** What each row does at its limit, as the runs enforce it today. */
 const AT_LIMIT: Record<string, string> = {
   [MAIN_AGENT_ID]: "The turn stops and says so",
-  [PLAYTEST_RUNNER_ID]: "The loop stops and asks for you",
+  [PLAYTEST_RUNNER_ID]: "The loop stops and waits for you",
 };
 
 /**
@@ -43,7 +43,7 @@ export function UsageSection() {
                 return (
                   <tr key={a.id}>
                     <td>
-                      <div className="cfg-inline"><Avatar id={a.id} name={a.name} small /><strong>{a.name}</strong></div>
+                      <strong>{a.name}</strong>
                       <div className="cfg-note">{runner ? "One assigned playtest, every attempt included" : "One turn of its own calls"}</div>
                     </td>
                     <td data-label="Tokens per run">
@@ -52,7 +52,7 @@ export function UsageSection() {
                     <td data-label="Minutes per run">
                       {runner
                         ? <NumberField label={`${a.name} minutes per run`} value={b.perRunMinutes} min={1} max={BUDGET_LIMITS.maxMinutes} onSave={(n) => void save(a.id, { perRunMinutes: n })} />
-                        : <span className="dim" title="A turn has no time limit">no time limit</span>}
+                        : <input type="text" className="minutes" disabled value="" placeholder="None" aria-label={`${a.name} minutes per run: a turn has no time limit`} title="A turn has no time limit" />}
                     </td>
                     <td className="small" data-label="At the limit">{AT_LIMIT[a.id] ?? "Stops and reports"}</td>
                   </tr>
@@ -61,7 +61,10 @@ export function UsageSection() {
             </tbody>
           </table>
         </div>
-        <p className="cfg-note">Empty means no limit. Tokens from {BUDGET_LIMITS.minTokens.toLocaleString("en-US")} to {BUDGET_LIMITS.maxTokens.toLocaleString("en-US")}; minutes up to {BUDGET_LIMITS.maxMinutes}. Each turn ends with a line in the chat saying what it spent.</p>
+        <Row title="Helpers per turn" help="The most helpers one turn may start, Studio's worker and the project's own subagents together. Past it, the main agent is told to do the work itself.">
+          <NumberField label="Helpers per turn" value={body.helpersPerTurn} min={1} max={MAX_SUBAGENTS_PER_TURN} onSave={(n) => n !== null && void api.saveBudgets({ helpersPerTurn: n }).then(setBody, msg.fail)} />
+        </Row>
+        <p className="cfg-note">The main agent's limits can be left empty for no limit. The playtest runner always has both, so its loop ends. Tokens from {BUDGET_LIMITS.minTokens.toLocaleString("en-US")} to {BUDGET_LIMITS.maxTokens.toLocaleString("en-US")}; minutes up to {BUDGET_LIMITS.maxMinutes}. Each turn ends with a line in the chat saying what it spent.</p>
       </Card>
     </>
   );

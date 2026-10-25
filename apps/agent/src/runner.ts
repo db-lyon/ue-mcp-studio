@@ -16,7 +16,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_INSTRUCTION_SETTINGS, DEFAULT_USAGE, type ApprovalDecision, type Approvals, type Budget, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
+import { DEFAULT_USAGE, type ApprovalDecision, type Approvals, type Budget, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { usageTokens } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
@@ -37,8 +37,10 @@ import { flowCommandText, flowValue, parseFlowArgs, parseSlashCommand, type Atta
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { subagentLimitText } from "./subagent-limit.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
-import { compose, conditionalFor, pathsOf, type Composed } from "./instructions.js";
+import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, type ActionEffects } from "./approval-kind.js";
+import { AGENT_TOOL } from "./tools.js";
+import { SKILL_TOOL, agentTool, sdkAgents, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 
 /**
  * Testing gameplay with the user: a playtest, which is a test script the agent
@@ -90,12 +92,7 @@ export function subagentLine(usage: Pick<UsageSettings, "subagents" | "subagents
     + `Give each one different assets and files, then check what they report. ${most}`;
 }
 
-/** The project's instruction files as a prompt section, by the old switch, when the runner is given nothing composed. */
-function defaultInstructions(projectDir: string, usage: UsageSettings): Composed {
-  return compose(projectDir, DEFAULT_INSTRUCTION_SETTINGS, usage.projectInstructions ? "all" : "none");
-}
-
-const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = defaultInstructions(projectDir, usage)): string => [
+const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING): string => [
   "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
   playtestRunsLine(runs),
@@ -113,7 +110,7 @@ export const SUBAGENT_SYSTEM = [
   "Finish with a short report: what you created or changed (asset paths and files), what you saved, and anything that failed.",
 ].join("\n");
 
-const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = defaultInstructions(projectDir, usage)): string =>
+const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING): string =>
   [SUBAGENT_SYSTEM, playtestRunsLine(runs), where(projectDir), instructions.text]
     .filter((l): l is string => !!l).join("\n");
 
@@ -168,8 +165,8 @@ export interface RunnerOptions {
   effects?: ActionEffects;
   /** The main agent's budget: a turn stops at its per-run tokens. The old turn token limit when not given. */
   mainBudget?: () => Budget;
-  /** The project's instruction files as composed for the agent; the old CLAUDE.md switch when not given. */
-  instructions?: () => Composed;
+  /** The main agent's vendor's own files: instructions, subagents and skills. Null while "Read the project's own files" is off. */
+  native?: () => NativeRun | null;
   /** Tracks each turn's editor calls, for the window's busy state. */
   busy?: BusyTracker;
   /** Puts the editor dialogs a session's calls meet in the chat. */
@@ -299,7 +296,41 @@ export class AgentRunner {
   private readonly instructionsSent = new Map<string, Set<string>>();
 
   private composed(): Composed {
-    return this.o.instructions?.() ?? defaultInstructions(this.o.host.projectDir, this.usage());
+    return this.native()?.composed ?? NOTHING;
+  }
+
+  private native(): NativeRun | null {
+    return this.o.native?.() ?? null;
+  }
+
+  /** The main agent's tools: the work tools, the agent tool when a helper can run, and the skill tool when there are skills. */
+  private mainTools() {
+    const n = this.native();
+    const worker = this.usage().subagents !== "off";
+    const helpers = n?.helpers ?? [];
+    const tools = [...WORK_TOOLS];
+    if (worker || helpers.length) tools.push(agentTool(AGENT_TOOL, helpers.map((h) => ({ name: h.name, description: h.description }))));
+    if (n?.skills.length) tools.push(SKILL_TOOL);
+    return tools;
+  }
+
+  /** What Studio adds to the SDK's prompt from the project's files: nothing when the SDK reads them itself. */
+  private sdkComposed(): Composed {
+    const n = this.native();
+    return n?.sdkLoads ? NOTHING : this.composed();
+  }
+
+  /** The SDK options that load the project's own Claude Code files; none while they are off. */
+  private sdkNative(): { native?: { settingSources: Array<"user" | "project" | "local">; agents: ReturnType<typeof sdkAgents>; skills: boolean } } {
+    const n = this.native();
+    if (!n?.sdkLoads) return {};
+    return { native: { settingSources: ["user", "project", "local"], agents: sdkAgents(n.loadout), skills: n.skills.length > 0 } };
+  }
+
+  /** The skills line of a prompt, when the project has skills. */
+  private skillLines(): string | null {
+    const n = this.native();
+    return n ? skillsSection(n.skills) : null;
   }
 
   /**
@@ -307,8 +338,9 @@ export class AgentRunner {
    * a subfolder's AGENTS.md once the agent works there, a rule whose globs
    * match a file it read or changed. Each once per conversation.
    */
-  private withInstructions(conversation: string, name: string, input: Record<string, unknown>, exec: ToolExecution): ToolExecution {
-    const c = this.composed();
+  private withInstructions(conversation: string, name: string, input: Record<string, unknown>, exec: ToolExecution, sdk = false): ToolExecution {
+    // On the Claude sign-in the SDK loads a subfolder's files itself when the agent works there.
+    const c = sdk ? this.sdkComposed() : this.composed();
     if (c.conditional.length === 0) return exec;
     let sent = this.instructionsSent.get(conversation);
     if (!sent) this.instructionsSent.set(conversation, (sent = new Set()));
@@ -636,8 +668,10 @@ export class AgentRunner {
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",
-        system: system(this.o.host.projectDir, this.runsMode(), usage, this.composed()),
-        subagentSystem: subagentSystem(this.o.host.projectDir, this.runsMode(), usage, this.composed()),
+        // The SDK reads the project's own files itself: Studio adds none of their text.
+        system: system(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()),
+        subagentSystem: subagentSystem(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()),
+        ...this.sdkNative(),
         subagents: { mode: usage.subagents, perTurn: usage.subagentsPerTurn, model: this.subagentModel(), effort: this.subagentEffort() },
         prompt,
         resume: s.sdkSession ?? null,
@@ -742,7 +776,7 @@ export class AgentRunner {
     if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
     if (controller.signal.aborted) return exec;
     this.markSaved(s, exec.saved);
-    if (!exec.isError) exec = this.withInstructions(owner ?? s.id, name, input, exec);
+    if (!exec.isError) exec = this.withInstructions(owner ?? s.id, name, input, exec, true);
     const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) };
     this.recordOutcome(s, p, exec.outcome);
     // A subagent the user assigned runs beside the session's turns, not as one.
@@ -931,8 +965,9 @@ export class AgentRunner {
       model: this.subagentModel(),
       effort: this.subagentEffort(),
       // Its runs are the user's, from the card: the brief says to start one.
-      system: subagentSystem(this.o.host.projectDir, "automatic", usage, this.composed()),
-      subagentSystem: subagentSystem(this.o.host.projectDir, "automatic", usage, this.composed()),
+      system: subagentSystem(this.o.host.projectDir, "automatic", usage, this.sdkComposed()),
+      subagentSystem: subagentSystem(this.o.host.projectDir, "automatic", usage, this.sdkComposed()),
+      ...this.sdkNative(),
       // A subagent starts none of its own.
       subagents: { mode: "off", perTurn: 0, model: this.subagentModel(), effort: this.subagentEffort() },
       prompt: [{ type: "text", text: prompt }],
@@ -1241,8 +1276,8 @@ export class AgentRunner {
             sessionId: s.id,
             model: this.o.model(),
             effort: this.o.effort?.(),
-            system: [{ type: "text", text: system(this.o.host.projectDir, this.runsMode(), usage, this.composed()) }],
-            tools: usage.subagents === "off" ? WORK_TOOLS : TOOLS,
+            system: [{ type: "text", text: [system(this.o.host.projectDir, this.runsMode(), usage, this.composed()), this.skillLines()].filter(Boolean).join("\n") }],
+            tools: this.mainTools(),
             messages: s.messages,
           },
           (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
@@ -1293,11 +1328,21 @@ export class AgentRunner {
     const queued = pending.filter((p) => p.name === "agent" && p.state === "queued");
     // Past the turn's allowance an agent call is answered with the limit, and the model does that part itself.
     const usage = this.usage();
-    const left = usage.subagents === "off" ? 0 : Math.max(0, usage.subagentsPerTurn - (s.turn?.agents ?? 0));
-    const agents = queued.slice(0, left);
-    for (const p of queued.slice(left)) {
+    // Studio's own worker can be off from earlier settings; the project's own helpers follow their files.
+    const workerOff = usage.subagents === "off";
+    const refusedWorker = workerOff ? queued.filter((p) => typeof p.input.helper !== "string") : [];
+    for (const p of refusedWorker) {
       p.state = "done";
-      p.result = usage.subagents === "off" ? "Helpers are off in Settings > Agents > Delegation. Do this part yourself." : subagentLimitText(usage.subagentsPerTurn);
+      p.result = "Studio's own worker is off in this project's settings. Name one of the project's helpers, or do this part yourself.";
+      p.isError = true;
+      this.recordOutcome(s, p, "error");
+    }
+    const runnable = queued.filter((p) => !refusedWorker.includes(p));
+    const left = Math.max(0, usage.subagentsPerTurn - (s.turn?.agents ?? 0));
+    const agents = runnable.slice(0, left);
+    for (const p of runnable.slice(left)) {
+      p.state = "done";
+      p.result = subagentLimitText(usage.subagentsPerTurn);
       p.isError = true;
       this.recordOutcome(s, p, "error");
     }
@@ -1351,6 +1396,14 @@ export class AgentRunner {
         continue;
       }
 
+      if (p.name === "skill") {
+        const r = skillResult(this.native()?.skills ?? [], p.input.name);
+        p.state = "done";
+        p.result = r.text;
+        p.isError = r.isError;
+        this.recordOutcome(s, p, r.isError ? "error" : "done");
+        continue;
+      }
       p.state = "running";
       this.o.store.save(s);
       const exec = await executeTool(this.hostFor(s.id), p.name, p.input, signal);
@@ -1394,6 +1447,20 @@ export class AgentRunner {
   private async runSubagent(s: StoredSession, call: PendingTool, signal: AbortSignal, detached = false): Promise<{ text: string; isError: boolean; stopped?: boolean }> {
     const prompt = call.input.prompt;
     if (typeof prompt !== "string" || !prompt.trim()) return { text: "Invalid input: agent needs prompt", isError: true };
+    const n = this.native();
+    let helper: NativeHelper | null = null;
+    if (typeof call.input.helper === "string") {
+      helper = n?.helpers.find((h) => h.name === call.input.helper) ?? null;
+      if (!helper) return { text: `No helper named ${call.input.helper}. The project's helpers are: ${(n?.helpers ?? []).map((h) => h.name).join(", ") || "none"}.`, isError: true };
+    }
+    const tools = helper?.allowed ? WORK_TOOLS.filter((t) => helper!.allowed!.has((t as { name: string }).name as never)) : [...WORK_TOOLS];
+    if (n?.skills.length) tools.push(SKILL_TOOL);
+    const steps = helper?.maxTurns ?? SUBAGENT_STEPS;
+    const base = subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.usage(), this.composed());
+    const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
+    const provider = helper?.run ? helper.run.provider : this.o.provider;
+    const model = helper?.run?.model ?? this.subagentModel();
+    const effort = (helper?.effort as Effort | null) ?? this.subagentEffort();
     const parent = call.id;
     const messages: MessageParam[] = [{ role: "user", content: prompt }];
     let report = "";
@@ -1408,15 +1475,15 @@ export class AgentRunner {
       ? { text: "Stopped by the user.", isError: true }
       : { text: "The user stopped this subagent before it finished. Do not redo its task unless the user asks.", isError: true, stopped: true });
     try {
-      for (let step = 0; step < SUBAGENT_STEPS; step++) {
+      for (let step = 0; step < steps; step++) {
         if (signal.aborted) return stopped();
-        const turn = await this.o.provider().run(
+        const turn = await provider().run(
           {
             sessionId: s.id,
-            model: this.subagentModel(),
-            effort: this.subagentEffort(),
-            system: [{ type: "text", text: subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.usage(), this.composed()) }],
-            tools: WORK_TOOLS,
+            model,
+            effort,
+            system: [{ type: "text", text: systemText }],
+            tools,
             messages,
           },
           () => {},
@@ -1440,6 +1507,19 @@ export class AgentRunner {
         for (const u of uses) {
           const input = (u.input ?? {}) as Record<string, unknown>;
           this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() }, parent });
+          if (u.name === "skill") {
+            const r = skillResult(n?.skills ?? [], input.name);
+            this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: r.text, isError: r.isError }, r.isError ? "error" : "done");
+            results.push({ type: "tool_result", tool_use_id: u.id, content: r.text, is_error: r.isError || undefined });
+            continue;
+          }
+          // A tool the helper's file does not allow is refused, never run.
+          if (helper?.allowed && !helper.allowed.has(u.name as never)) {
+            const text = `The ${helper.name} helper's file does not allow ${u.name}.`;
+            this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: text, isError: true }, "error");
+            results.push({ type: "tool_result", tool_use_id: u.id, content: text, is_error: true });
+            continue;
+          }
           if (u.name === "ue_mcp" && input.action === "call") await this.waitForEditor(s, signal, Infinity, detached);
           if (signal.aborted) return stopped();
           const gate = await this.gate(s, u.id, u.name, input, signal);
@@ -1462,7 +1542,7 @@ export class AgentRunner {
         }
         messages.push({ role: "user", content: results } as MessageParam);
       }
-      return { text: `The subagent stopped after ${SUBAGENT_STEPS} steps without finishing. Its last report: ${report || "none"}`, isError: true };
+      return { text: `The subagent stopped after ${steps} steps without finishing. Its last report: ${report || "none"}`, isError: true };
     } catch (e) {
       if (signal.aborted) return stopped();
       return { text: `The subagent failed: ${e instanceof Error ? e.message : String(e)}`, isError: true };

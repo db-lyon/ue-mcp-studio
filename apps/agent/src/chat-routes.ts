@@ -68,8 +68,13 @@ import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js"
 import type { AssetRef } from "@ue-mcp-studio/shared";
 import { BudgetStore } from "./budgets.js";
 import { DaemonActionEffects } from "./approval-kind.js";
-import { PHASE1_AGENTS, registerComposerRoutes } from "./composer-routes.js";
-import { compose } from "./instructions.js";
+import { BUDGET_ROWS, registerComposerRoutes } from "./composer-routes.js";
+import { registerNativeRoutes } from "./native-routes.js";
+import { fullModelName, modelName } from "./models.js";
+import { userHome } from "./instructions.js";
+import { loadout } from "./native.js";
+import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
+import { DEFAULT_USAGE, KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, type KeyProviderId } from "@ue-mcp-studio/shared";
 import { MAIN_AGENT_ID } from "@ue-mcp-studio/shared";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
@@ -124,13 +129,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const signedIn = (): Record<SignInId, boolean> => ({ chatgpt: chatgpt.signedIn() !== null, claude: CLAUDE_SIGN_IN_AVAILABLE && claudeLogin() !== null, studio: accountToken() !== null });
 
   /** A sign-in that runs the model comes first; the vendor key is the fallback. */
-  const route = (): ModelRoute => {
-    const vendor = settings.provider();
+  /** How a model runs now: a sign-in that runs it first, else the vendor's key, else nothing. */
+  const routeOf = (vendor: KeyProviderId, model: string): ModelRoute => {
     const done = signedIn();
-    const via = signInsFor(vendor, settings.model(), coverage()).find((s) => done[s]);
+    const via = signInsFor(vendor, model, coverage()).find((s) => done[s]);
     if (via) return via;
     return settings.key(vendor) ? "key" : null;
   };
+  const route = (): ModelRoute => routeOf(settings.provider(), settings.model());
   // Who is signed in to Claude comes from the runtime's own `auth status`.
   const refreshClaude = async (): Promise<void> => {
     if (!CLAUDE_SIGN_IN_AVAILABLE) return;
@@ -185,6 +191,39 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const d = readDiscovery(api.projectDir);
     return d ? { port: d.port, token: d.token } : null;
   };
+  // The main agent's vendor's own files: instructions, subagents and skills (native.ts), read again at most every few seconds.
+  const skillOwners = (): Map<string, string> => {
+    const list = (api as unknown as { skills?: { list(): Array<{ dir: string; owner: { kind: string; package?: string } }> } }).skills?.list;
+    if (typeof list !== "function") return new Map();
+    try {
+      return new Map(list().filter((s) => s.owner.kind === "plugin" && s.owner.package).map((s) => [path.resolve(s.dir), s.owner.package!]));
+    } catch {
+      return new Map();
+    }
+  };
+  let nativeCache: { at: number; key: string; run: NativeRun | null } | null = null;
+  const nativeRun = (): NativeRun | null => {
+    if (!settings.usage().projectInstructions) return null;
+    const vendor = settings.provider();
+    const key = `${vendor}:${settings.model()}:${route()}`;
+    if (nativeCache && nativeCache.key === key && Date.now() - nativeCache.at < 3000) return nativeCache.run;
+    const convention = conventionOf(vendor);
+    const l = loadout(convention, api.projectDir, userHome(), skillOwners());
+    const helpers: NativeHelper[] = l.subagents.filter((a) => !a.problems.some((p) => p.endsWith("is required"))).map((a) => {
+      const { allowed } = toolsFor(a);
+      const wants = modelOf(convention, a.model);
+      const base = { name: a.name, description: a.description, prompt: a.prompt, allowed, maxTurns: a.maxTurns, effort: a.effort };
+      if (!wants || (wants.vendor === vendor && wants.model === settings.model())) return base;
+      const r = KEY_PROVIDER_IDS.includes(wants.vendor as KeyProviderId) ? routeOf(wants.vendor as KeyProviderId, wants.model) : null;
+      // Studio's loop runs a model over the API; the Claude sign-in runs whole conversations, so it needs a key here.
+      const viaKey = r === "claude" && settings.key(wants.vendor as KeyProviderId) ? "key" : r;
+      if (!viaKey || viaKey === "claude") return { ...base, note: `Its file names ${a.model}, which nothing on this machine runs over the API; it runs on the main agent's model.` };
+      return { ...base, run: { model: wants.model, provider: () => providerFor(settings, viaKey, { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }, wants.vendor as KeyProviderId) } };
+    });
+    const run: NativeRun = { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills, sdkLoads: route() === "claude" };
+    nativeCache = { at: Date.now(), key, run };
+    return run;
+  };
   const runner = new AgentRunner({
     host: api,
     review,
@@ -204,7 +243,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     approvals: () => settings.approvals(),
     effects,
     mainBudget: () => budgets.agent(MAIN_AGENT_ID),
-    instructions: () => compose(api.projectDir, settings.instructions(), settings.usage().projectInstructions ? "all" : "none"),
+    native: nativeRun,
     playtestRuns: () => playtests.runs(),
     playtestFlow: new PlaytestFlow({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
@@ -278,11 +317,44 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [] };
   };
   registerAgentSettings(api, () => updates.request("restart", {}), playtests, budgets);
+  registerNativeRoutes(api, {
+    enabled: () => settings.usage().projectInstructions,
+    main: () => ({ vendor: settings.provider(), model: settings.model(), route: route() }),
+    routesFor: (vendor) => {
+      if (!KEY_PROVIDER_IDS.includes(vendor as KeyProviderId)) return [];
+      const done = signedIn();
+      const names: string[] = [];
+      if (vendor === "anthropic" && done.claude) names.push("Claude sign-in");
+      if (vendor === "anthropic" && done.studio && STUDIO_PLAN_AVAILABLE) names.push("Studio plan");
+      if (vendor === "openai" && done.chatgpt) names.push("ChatGPT sign-in");
+      if (settings.key(vendor as KeyProviderId)) names.push(`${PROVIDERS[vendor as KeyProviderId].name} key`);
+      return names;
+    },
+    runsOverApi: (vendor, model) => {
+      if (!KEY_PROVIDER_IDS.includes(vendor as KeyProviderId)) return false;
+      const r = routeOf(vendor as KeyProviderId, model);
+      return r !== null && (r !== "claude" || !!settings.key(vendor as KeyProviderId));
+    },
+    modelName: fullModelName,
+    worker: () => {
+      const u = settings.usage();
+      // Unset, the worker follows the main agent, whichever model that is.
+      return {
+        // A model of another vendor than the main agent's is not used: the worker then runs on the main agent's.
+        model: u.subagentModel && u.subagentModel.provider === settings.provider() ? fullModelName(u.subagentModel.model) : null,
+        effort: u.subagentEffort,
+        starts: u.subagents === "off" ? "never" : u.subagents,
+        fromSettings: u.subagentModel !== null || u.subagentEffort !== null || u.subagents !== DEFAULT_USAGE.subagents,
+      };
+    },
+    home: userHome,
+    owners: skillOwners,
+  });
   registerComposerRoutes(api, {
     settings,
     budgets,
     restartUeMcp: () => updates.request("restart", {}),
-    agents: () => PHASE1_AGENTS(settings.usage().projectInstructions),
+    agents: () => BUDGET_ROWS,
   });
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));

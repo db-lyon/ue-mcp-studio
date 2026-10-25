@@ -28,10 +28,8 @@ import {
   type UsageSettings,
   APPROVAL_KINDS,
   DEFAULT_APPROVALS,
-  DEFAULT_INSTRUCTION_SETTINGS,
   migrateApprovals,
   type Approvals,
-  type InstructionSettings,
 } from "@ue-mcp-studio/shared";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
@@ -51,8 +49,6 @@ interface StoredSettings {
   usage: UsageSettings;
   /** What each kind of action does first: ask, or go ahead. Replaces askBeforeChanges, which is still written for an older Studio. */
   approvals: Approvals;
-  /** Which project instruction files are off, and files the user added. */
-  instructions: InstructionSettings;
 }
 
 /** The most tokens a turn token limit may be set to. */
@@ -149,22 +145,6 @@ export function approvalsOf(raw: Record<string, unknown>): Approvals {
   return Object.fromEntries(APPROVAL_KINDS.map((k) => [k, a[k] === "ask" || a[k] === "allow" ? a[k] : base[k]])) as Approvals;
 }
 
-/** Project paths are kept with forward slashes, relative to the project, or ~/ for the user's own. */
-const instructionPath = (v: unknown): string | null =>
-  typeof v === "string" && v.trim() && !v.includes("\u0000") ? v.trim().replace(/\\/g, "/") : null;
-
-export function instructionSettingsOf(raw: unknown): InstructionSettings {
-  const r = (raw && typeof raw === "object" ? raw : {}) as { off?: unknown; added?: unknown };
-  const off = Array.isArray(r.off) ? r.off.map(instructionPath).filter((x): x is string => !!x) : [];
-  const added = Array.isArray(r.added)
-    ? r.added.flatMap((x: { path?: unknown; after?: unknown }) => {
-      const p = instructionPath(x?.path);
-      return p ? [{ path: p, after: x.after === null || x.after === undefined ? null : instructionPath(x.after) }] : [];
-    })
-    : [];
-  return { off: [...new Set(off)], added };
-}
-
 /**
  * The selected model's vendor. Settings written before vendors were named said
  * byok, gateway or studio, all of which ran Claude models.
@@ -214,11 +194,10 @@ export class SettingsStore {
         dialogPolicy: dialogPolicyOf(raw.dialogPolicy) ?? DEFAULT_DIALOG_POLICY,
         usage: usageOf(raw.usage),
         approvals: approvalsOf(raw),
-        instructions: instructionSettingsOf(raw.instructions),
       };
     } catch {
       // No settings yet: a new install, which asks before every kind of change.
-      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS }, instructions: { ...DEFAULT_INSTRUCTION_SETTINGS } };
+      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS } };
     }
   }
 
@@ -388,18 +367,6 @@ export class SettingsStore {
   /** What each kind of action does first. */
   approvals(): Approvals {
     return this.stored().approvals;
-  }
-
-  instructions(): InstructionSettings {
-    return this.stored().instructions;
-  }
-
-  /** Replace the instruction settings: which files are off, and the added ones. */
-  setInstructions(next: InstructionSettings): InstructionSettings {
-    const s = this.stored();
-    s.instructions = instructionSettingsOf(next);
-    this.write(s);
-    return s.instructions;
   }
 
   /** How much a turn may spend, and on what. */

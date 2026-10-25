@@ -190,3 +190,39 @@
 .cfg button.cfg-back { padding-left: 0; }
 .cfg .dialog-policy { margin: 8px 0 4px 30px; padding-left: 12px; border-left: 2px solid var(--line-strong); gap: 6px; }
 .cfg table.cfg-table td.l, .cfg table.cfg-table th.l { text-align: left; }
+
+/* Agents: the switch that heads the project's agent files, and the tabs under it. */
+.cfg .cfg-block-head { margin: 22px 0 6px; padding-top: 14px; border-top: 1px solid var(--line); }
+.cfg .cfg-block-head .toggle-row { padding: 0; }
+.cfg .subtabs.scroll-tabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+.cfg .subtabs.scroll-tabs .subtab { white-space: nowrap; flex: 0 0 auto; }
+.cfg .cfg-status { display: flex; align-items: baseline; gap: 8px; margin: 4px 0 12px; font-size: 13px; }
+.cfg .cfg-status .dot { position: relative; top: -1px; }
+.cfg ul.ifiles { list-style: none; margin: 0; padding: 0; }
+.cfg .ifiles.plain > li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: start; padding: 10px 0; border-top: 1px solid var(--line); }
+.cfg .ifiles.plain > li:first-child { border-top: 0; }
+.cfg dl.fields { display: grid; grid-template-columns: max-content 1fr; gap: 2px 10px; margin: 2px 0; font-size: 12px; color: var(--muted); }
+.cfg dl.fields dt { color: var(--dim); }
+.cfg dl.fields dd { margin: 0; overflow-wrap: anywhere; }
+.cfg .ifiles button.small-button, .cfg button.open-file { font: 500 12px/1.4 var(--sans); padding: 3px 10px; white-space: nowrap; text-transform: none; letter-spacing: 0; }
+@media (max-width: 480px) {
+  .cfg ol.ifiles > li { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 8px; }
+}
+
+/* Models & accounts: the sign-in rows' trailing note sits on the row's centre line, and statuses never break. */
+.cfg .toggle-row.inline > .dim.small { align-self: center; white-space: nowrap; }
+.cfg .toggle-row .t .muted.small { white-space: nowrap; }
+.cfg .info-tip { color: var(--muted); text-decoration: underline dotted var(--line-strong); text-underline-offset: 3px; cursor: help; }
+/* The vendor files: tabs where they fit, a select on a phone-width panel. */
+.cfg .tabs-narrow { display: none; }
+@media (max-width: 480px) {
+  .cfg .tabs-wide { display: none; }
+  .cfg .tabs-narrow { display: flex; flex-direction: column; align-items: stretch; text-align: left; gap: 4px; margin: 4px 0 10px; }
+  .cfg .tabs-narrow select { width: 100%; }
+}
+.cfg .subtab .dot { margin-right: 6px; position: relative; top: -1px; }
+.cfg .preview-part { margin-top: 8px; }
+.cfg .preview-part > .path { margin-bottom: 2px; }
+.cfg .ifile-skipped { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; padding: 10px 0 10px 32px; border-top: 1px dashed var(--line); }
+@media (max-width: 480px) { .cfg .ifile-skipped { padding-left: 26px; } }
+.cfg .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

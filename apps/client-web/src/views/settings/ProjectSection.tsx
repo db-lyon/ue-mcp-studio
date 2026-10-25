@@ -7,6 +7,7 @@ import { ProjectSetup } from "../ProjectSetup";
 import { ConfigView } from "../Config";
 import { Head, type SettingsSection } from "../SettingsHub";
 import { Card, Opt, Shared, tokens, useMessage } from "./controls";
+import { Path } from "./NativePanel";
 
 /**
  * Project: what ue-mcp gives every MCP client connected to this project. The
@@ -31,7 +32,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
   const p = report?.plugin;
   return (
     <>
-      <Head title="Project" lead="What ue-mcp gives every MCP client connected to this project, Studio's agents included." />
+      <Head title="Project" lead="What ue-mcp gives the MCP clients connected to this project, and the editor plugin they reach it through." />
       {msg.node}
       <section className="card">
         <div className="cfg-inline">
@@ -50,8 +51,8 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         ))}
       </section>
 
-      <Card label={<>Context strategy for other MCP clients <Shared /></>}>
-        <p className="muted small">What a client such as an editor extension or a terminal agent is given at the start of each session. Studio's own agents use Micro.</p>
+      <Card label={<>Context strategy for other clients <Shared /></>}>
+        <p className="muted small">What a client such as an editor extension or a terminal agent is given at the start of each session. Studio's own agent uses Micro for now.</p>
         {context && (
           <>
             {context.envOverride && (
@@ -64,14 +65,14 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                   name="client-context"
                   on={context.strategy === s}
                   onPick={() => void pick(s)}
-                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from the environment</span></>}</>}
+                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from the environment</span></>}{context.envOverride && context.envOverride !== s && context.strategy === s && <> <span className="tag">saved, not in effect</span></>}</>}
                   desc={<><br />{CONTEXT_STRATEGY_INFO[s].sees} {CONTEXT_STRATEGY_INFO[s].discovery}</>}
                 />
               ))}
             </div>
             <p className="cfg-note" style={{ marginTop: 8 }}>
               {clients.length ? `Applies to ${clients.map((c) => c.name).join(" and ")} on this project. ` : "No other MCP client is configured for this project yet. "}
-              Saved in ue-mcp.yml as context.strategy{context.fromFile ? "" : " (not set: micro, the default)"}; a client gets it from its next session. Token counts are {context.seedSource}. A smaller start is not always a cheaper session: count the discovery calls too.
+              Saved in ue-mcp.yml as context.strategy{context.fromFile ? "" : " (not set, so Micro, the default)"}; a client gets it from its next session. Token counts are {context.seedSource}. A smaller start is not always a cheaper session: count the discovery calls too.
             </p>
           </>
         )}
@@ -79,7 +80,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
 
       <Card label="MCP clients">
         {clients.length === 0 && <p className="cfg-note">No other MCP client is configured for this project.</p>}
-        {!inEditor() && <p className="cfg-note">Which MCP clients, native Unreal tools and skills this project is set up with is changed from Studio inside the editor, because it runs ue-mcp init there.</p>}
+        {!inEditor() && <p className="cfg-note">Change the MCP clients, native Unreal tools and skills set up for this project from Studio's panel in the editor. Changing them runs ue-mcp init, which needs the editor.</p>}
         {clients.map((c) => (
           <div key={c.id} className="toggle-row inline">
             <span className="dot ok" style={{ marginTop: 6 }} />
@@ -96,7 +97,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
             <dt>Installed</dt><dd>{p.deployed ? `${p.installedVersion ?? "?"} (${p.installKind ?? "unknown"})` : "no"}</dd>
             <dt>Package</dt><dd>{p.packagedVersion ?? "?"}</dd>
             <dt>Enabled</dt><dd>{p.enabledInUproject ? "yes" : "no"}</dd>
-            <dt>Location</dt><dd className="mono">{p.pluginDir ?? "-"}</dd>
+            <dt>Location</dt><dd>{p.pluginDir ? <Path p={p.pluginDir} /> : "-"}</dd>
             <dt>Engine</dt><dd>{report!.project.engine ?? "?"}</dd>
             <dt>C++ toolchain</dt><dd>{report!.toolchain.present ? report!.toolchain.name : "none"}</dd>
             <dt>Node.js</dt><dd>{report!.node.version}</dd>

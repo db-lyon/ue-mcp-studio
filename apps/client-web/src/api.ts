@@ -46,9 +46,9 @@ import type {
   Budgets,
   ClientContextStrategy,
   ContextStrategy,
-  InstructionSettings,
-  InstructionsPreview,
-  InstructionsView,
+  NativeOverview,
+  NativePreview,
+  Convention,
 } from "@ue-mcp-studio/shared";
 
 /** GET and PUT /budgets */
@@ -56,6 +56,8 @@ export interface BudgetsBody {
   budgets: Budgets;
   definition: string;
   agents: Array<{ id: string; name: string }>;
+  /** The most helpers one turn starts: a spend safety limit. */
+  helpersPerTurn: number;
 }
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
@@ -234,12 +236,11 @@ export const api = {
   reportAssetMiss: (name: string, candidates: number) => call<void>("POST", "/v1/ext/studio/assets/missed", { name, candidates }),
   openAsset: (path: string) => call<AssetOpenResponse>("POST", "/v1/ext/studio/assets/open", { path }),
   stopBusy: () => call<{ stopped: string[] }>("POST", "/v1/ext/studio/busy/stop"),
-  instructions: () => call<InstructionsView>("GET", "/v1/ext/studio/instructions"),
-  saveInstructions: (u: Partial<InstructionSettings>) => call<InstructionsView>("PUT", "/v1/ext/studio/instructions", u),
-  instructionsPreview: (agent?: string) => call<InstructionsPreview>("GET", `/v1/ext/studio/instructions/preview${agent ? `?agent=${encodeURIComponent(agent)}` : ""}`),
-  createAgentsMd: (point: string[]) => call<{ written: string; pointed: string[]; view: InstructionsView }>("POST", "/v1/ext/studio/instructions/agents-md", { point }),
+  native: () => call<NativeOverview>("GET", "/v1/ext/studio/native"),
+  nativePreview: (convention: Convention) => call<NativePreview>("GET", `/v1/ext/studio/native/preview?convention=${encodeURIComponent(convention)}`),
+  openFile: (path: string) => call<void>("POST", "/v1/ext/studio/files/open", { path }),
   budgets: () => call<BudgetsBody>("GET", "/v1/ext/studio/budgets"),
-  saveBudgets: (u: { team?: Partial<Budgets["team"]>; agents?: Record<string, Partial<Budgets["agents"][string]> | null>; warnAt?: number }) => call<BudgetsBody>("PUT", "/v1/ext/studio/budgets", u),
+  saveBudgets: (u: { team?: Partial<Budgets["team"]>; agents?: Record<string, Partial<Budgets["agents"][string]> | null>; warnAt?: number; helpersPerTurn?: number }) => call<BudgetsBody>("PUT", "/v1/ext/studio/budgets", u),
   contextStrategy: () => call<ClientContextStrategy>("GET", "/v1/ext/studio/context-strategy"),
   saveContextStrategy: (strategy: ContextStrategy) => call<ClientContextStrategy>("PUT", "/v1/ext/studio/context-strategy", { strategy }),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),

@@ -22,7 +22,7 @@ export const APPROVAL_ROWS: ReadonlyArray<{ kind: ApprovalKind; label: string; h
   { kind: "shell", label: "Shell commands", help: "Each command waits in the chat for Allow or Deny." },
   { kind: "files", label: "File changes", help: "Writes and edits to files on this machine." },
   { kind: "editorRestart", label: "Restart or rebuild the editor", help: "Unsaved work in the editor is lost on a restart." },
-  { kind: "destructive", label: "ue-mcp actions that delete or overwrite", help: "Deleting assets or actors, clearing, reverting, overwriting. Read from ue-mcp's own action metadata." },
+  { kind: "destructive", label: "ue-mcp actions that delete or overwrite", help: "Deleting assets or actors, clearing, reverting, overwriting. ue-mcp says which actions these are." },
 ];
 
 /**
@@ -37,18 +37,6 @@ export function migrateApprovals(askBeforeChanges: boolean): Approvals {
 
 /* ── Project instructions ─────────────────────────────────────────── */
 
-/** The file conventions Studio reads, in the order it reads them. */
-export type InstructionConvention =
-  | "studio" // ~/.ue-mcp/studio/instructions.md, the user's own
-  | "copilot" // .github/copilot-instructions.md
-  | "cursor" // .cursor/rules/*.mdc, .cursorrules
-  | "gemini" // GEMINI.md
-  | "claude" // CLAUDE.md, .claude/CLAUDE.md
-  | "agents" // AGENTS.md
-  | "nested" // any of those in a subfolder
-  | "local" // AGENTS.local.md, CLAUDE.local.md
-  | "added"; // a file the user added
-
 /** When a file is part of what an agent reads. */
 export type InstructionScope =
   | { kind: "always" }
@@ -57,67 +45,15 @@ export type InstructionScope =
   /** A file in a subfolder: only once the agent works in that folder. */
   | { kind: "folder"; folder: string };
 
-export interface InstructionFile {
-  /** As shown and stored: relative to the project with forward slashes, or ~/... for the user's own. */
-  path: string;
-  convention: InstructionConvention;
-  /** 1-based position in reading order. Later wins where files disagree. */
-  order: number;
-  /** Approximate tokens of what it adds (0 when it is included as another file). */
-  tokens: number;
-  /** The user's switch. Off: no agent reads it. */
-  on: boolean;
-  scope: InstructionScope;
-  /** Included once, as this file: the same text, or a file that only imports it. */
-  sameAs?: string;
-  /** Files it imports with @path, followed one level. */
-  imports?: string[];
-  /** The file is gone: an added path that no longer exists. */
-  missing?: boolean;
-  /** Agent ids that read it, when the team is known. */
-  readBy?: string[];
-}
-
-/** GET /instructions */
-export interface InstructionsView {
-  files: InstructionFile[];
-  /** Tokens of every file that is on and always read, duplicates once. */
-  alwaysTokens: number;
-  /** The project has an AGENTS.md: when false, POST /instructions/agents-md creates one. */
-  hasAgentsMd: boolean;
-  /** The conventions Studio recognises, for the page's footer. */
-  recognised: string[];
-}
-
-/** PUT /instructions: which files are off, and files the user added with where they go in the order. */
-export interface InstructionSettings {
-  off: string[];
-  /** after: the path it is read after; null reads it first. */
-  added: Array<{ path: string; after: string | null }>;
-}
-
-export const DEFAULT_INSTRUCTION_SETTINGS: InstructionSettings = { off: [], added: [] };
-
-/** GET /instructions/preview?agent= */
-export interface InstructionsPreview {
-  agent: string | null;
-  /** What the agent is given, as composed. */
-  text: string;
-  tokens: number;
-  /** Files read only in some folders or for some files, which join when the agent works there. */
-  conditional: Array<{ path: string; scope: InstructionScope; tokens: number }>;
-  files: number;
-}
-
 /* ── Budgets ──────────────────────────────────────────────────────── */
 
 /**
  * What a budget counts, everywhere: input + cache writes + output. Cached
- * reads are excluded (every vendor bills them far below fresh input) and
+ * reads are excluded (vendors that cache bill them well below fresh input) and
  * reported separately in Usage.
  */
 export const BUDGET_DEFINITION =
-  "Budgets count input, cache writes and output. Cached reads are left out, because every vendor bills them far below fresh input. A run is one turn of the main agent's own calls, or one assigned playtest with every attempt in it.";
+  "Budgets count input, cache writes and output. Cached reads are left out, because they cost far less than fresh input. A run is one turn of the main agent's own calls, or one assigned playtest with every attempt in it.";
 
 export type BudgetLimitAction = "stop-and-report" | "ask" | "fallback-model";
 
@@ -166,7 +102,7 @@ export type ContextStrategy = "micro" | "lean" | "full";
 export const CONTEXT_STRATEGIES: readonly ContextStrategy[] = ["micro", "lean", "full"];
 
 export const CONTEXT_STRATEGY_INFO: Record<ContextStrategy, { name: string; sees: string; discovery: string }> = {
-  micro: { name: "Micro", sees: "One gateway tool fronts everything: search, describe, call.", discovery: "A search and a describe before the first call of each action." },
+  micro: { name: "Micro", sees: "A single tool that finds an action, describes it and calls it.", discovery: "A search and a describe before the first call of each action." },
   lean: { name: "Lean", sees: "A tool per category with its action names; signatures on demand.", discovery: "About one round trip to learn a category." },
   full: { name: "Full", sees: "A tool per category with every action's signature inline.", discovery: "No discovery calls." },
 };

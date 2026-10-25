@@ -40,6 +40,7 @@ describe("Project > context strategy for other clients", () => {
     expect((screen.getByRole("radio", { name: /^Micro/ }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("~19k tokens")).toBeTruthy();
     expect(screen.getByText(/Applies to Claude Code on this project/)).toBeTruthy();
+    // ue-mcp.yml serves every client: the shared badge says so.
     expect(screen.getAllByText("Shared with other clients")).toHaveLength(1);
   });
 
