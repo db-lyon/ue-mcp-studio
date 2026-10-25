@@ -2,7 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { compactDescribe, compactSearch, paramList, summary } from "../src/discovery.js";
+import { compactDescribe, compactSearch, paramList, summary, withoutPerCall } from "../src/discovery.js";
 
 const fixture = (name: string) => fs.readFileSync(path.join(__dirname, "fixtures", name), "utf-8");
 
@@ -31,7 +31,8 @@ describe("category answers", () => {
     const out = compactDescribe(raw);
     const lines = out.split("\n");
     expect(lines[0]).toMatch(/^material: \d+ actions/);
-    expect(lines[1]).toBe("read(assetPath|path|materialPath)");
+    expect(lines[1]).toBe("Every call also takes select?, omit? and timeoutMs?.");
+    expect(lines[2]).toBe("read(assetPath|path|materialPath)");
     expect(out.length).toBeLessThan(raw.length);
   });
 
@@ -66,5 +67,24 @@ describe("descriptions", () => {
   it("give their parameter names to the signature", () => {
     expect(paramList("Do it. Params: parentPath, name, packagePath? (default /Game), onConflict?")).toBe("parentPath, name, packagePath?, onConflict?");
     expect(paramList("Measure. Params: none (#704)")).toBe("");
+  });
+});
+
+describe("per-call options", () => {
+  it("are taken off each signature, wherever they sit", () => {
+    expect(withoutPerCall("get_outliner(filter?, omit?, select?, timeoutMs?:n)")).toBe("get_outliner(filter?)");
+    expect(withoutPerCall("save(select?, force?:b, timeoutMs?:n)")).toBe("save(force?:b)");
+    expect(withoutPerCall("ping(omit?, select?, timeoutMs?:n)")).toBe("ping()");
+    expect(withoutPerCall("read(one(assetPath; actorLabel), selector?)")).toBe("read(one(assetPath; actorLabel), selector?)");
+  });
+
+  it("are named once in a category answer", () => {
+    const raw = JSON.stringify({ category: "level", count: 2, signatures: ["get_outliner(filter?, omit?, select?, timeoutMs?:n)", "save(force?:b, omit?, select?, timeoutMs?:n)"] });
+    expect(compactDescribe(raw).split("\n")).toEqual([
+      "level: 2 actions. Describe one (category + method) for its full parameters.",
+      "Every call also takes select?, omit? and timeoutMs?.",
+      "get_outliner(filter?)",
+      "save(force?:b)",
+    ]);
   });
 });
