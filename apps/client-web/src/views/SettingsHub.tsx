@@ -121,7 +121,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
   else if (open === "diagnostics") body = (
     <>
-      <Head title="Diagnostics" lead="The editor and daemon as Studio sees them now, and the daemon's log." />
+      <Head title="Diagnostics" lead="The editor and daemon as Studio sees them now, and the daemon's recent events." />
       <StatusView daemon={daemon} />
       <LogsView daemon={daemon} />
     </>

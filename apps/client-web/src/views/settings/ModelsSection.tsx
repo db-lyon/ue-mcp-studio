@@ -70,7 +70,7 @@ export function ModelsSection() {
                         </div>
                       ))}
                     </td>
-                    <td className="r small" data-label="On this machine">{runs ? <span className="tag ok">{runs.id === "key" ? `${v.name} key` : ROUTE_NAME[runs.id]}</span> : <span className="dim">not connected</span>}</td>
+                    <td className="r small" data-label="On this machine">{runs ? <span className="tag ok">{runs.id === "key" ? `${v.name} key` : ROUTE_NAME[runs.id]}</span> : <span className="dim">Not connected</span>}</td>
                   </tr>
                 );
               }))}

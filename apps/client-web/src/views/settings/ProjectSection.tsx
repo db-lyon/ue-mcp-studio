@@ -64,14 +64,14 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                   name="client-context"
                   on={context.strategy === s}
                   onPick={() => void pick(s)}
-                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from the environment</span></>}</>}
+                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from the environment</span></>}{context.envOverride && context.envOverride !== s && context.strategy === s && <> <span className="tag">saved, not in effect</span></>}</>}
                   desc={<><br />{CONTEXT_STRATEGY_INFO[s].sees} {CONTEXT_STRATEGY_INFO[s].discovery}</>}
                 />
               ))}
             </div>
             <p className="cfg-note" style={{ marginTop: 8 }}>
               {clients.length ? `Applies to ${clients.map((c) => c.name).join(" and ")} on this project. ` : "No other MCP client is configured for this project yet. "}
-              Saved in ue-mcp.yml as context.strategy{context.fromFile ? "" : " (not set: micro, the default)"}; a client gets it from its next session. Token counts are {context.seedSource}. A smaller start is not always a cheaper session: count the discovery calls too.
+              Saved in ue-mcp.yml as context.strategy{context.fromFile ? "" : " (not set, so Micro, the default)"}; a client gets it from its next session. Token counts are {context.seedSource}. A smaller start is not always a cheaper session: count the discovery calls too.
             </p>
           </>
         )}
@@ -79,7 +79,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
 
       <Card label="MCP clients">
         {clients.length === 0 && <p className="cfg-note">No other MCP client is configured for this project.</p>}
-        {!inEditor() && <p className="cfg-note">Which MCP clients, native Unreal tools and skills this project is set up with is changed from Studio inside the editor, because it runs ue-mcp init there.</p>}
+        {!inEditor() && <p className="cfg-note">The MCP clients, native Unreal tools and skills set up for this project are changed from Studio inside the editor. Changing them runs ue-mcp init, which needs the editor.</p>}
         {clients.map((c) => (
           <div key={c.id} className="toggle-row inline">
             <span className="dot ok" style={{ marginTop: 6 }} />

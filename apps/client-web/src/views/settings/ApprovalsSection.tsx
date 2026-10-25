@@ -62,7 +62,7 @@ export function ApprovalsSection() {
   const dialogMode = agent.dialogMode?.mode ?? null;
   return (
     <>
-      <Head title="Approvals & review" lead="What waits for you before an agent acts, and what you check after. It applies to every agent; each agent's own tools are set in Agents." />
+      <Head title="Approvals & review" lead="What waits for you before an agent acts, and what you check after. It applies to every agent. Each subagent's tools come from its own file; Agents shows them." />
       {msg.node}
       <Card label="Before it acts">
         {APPROVAL_ROWS.map((r) => {

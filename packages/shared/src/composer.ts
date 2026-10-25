@@ -102,7 +102,7 @@ export type ContextStrategy = "micro" | "lean" | "full";
 export const CONTEXT_STRATEGIES: readonly ContextStrategy[] = ["micro", "lean", "full"];
 
 export const CONTEXT_STRATEGY_INFO: Record<ContextStrategy, { name: string; sees: string; discovery: string }> = {
-  micro: { name: "Micro", sees: "One gateway tool fronts everything: search, describe, call.", discovery: "A search and a describe before the first call of each action." },
+  micro: { name: "Micro", sees: "A single tool that finds an action, describes it and calls it.", discovery: "A search and a describe before the first call of each action." },
   lean: { name: "Lean", sees: "A tool per category with its action names; signatures on demand.", discovery: "About one round trip to learn a category." },
   full: { name: "Full", sees: "A tool per category with every action's signature inline.", discovery: "No discovery calls." },
 };
