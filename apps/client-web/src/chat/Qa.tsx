@@ -113,10 +113,8 @@ const LABEL: Record<QaStep["status"], string> = {
   skipped: "Skipped",
 };
 
-/** "Auto pass", "Auto fail", or the status as it reads for a manual step. */
+/** A step's status in words; its auto or manual tag says who judged it. */
 export function statusLabel(s: QaStep): string {
-  if (s.judge === "auto" && s.status === "passed") return "Auto pass";
-  if (s.judge === "auto" && s.status === "failed") return "Auto fail";
   return LABEL[s.status];
 }
 
@@ -701,7 +699,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
                 <div className="qa-note small">
                   {s.note}
                   {s.status === "failed" && s.judge === "manual" && (
-                    <button className="small-button qa-note-edit" aria-label={`Edit the note on step ${s.index + 1}`} onClick={() => setFailing({ index: s.index, via: "edit" })}>Edit</button>
+                    <button className="small-button qa-note-edit" aria-label={`Edit the note on step ${s.index + 1}`} onClick={() => setFailing({ index: s.index, via: "edit" })}>Edit note</button>
                   )}
                 </div>
               )}

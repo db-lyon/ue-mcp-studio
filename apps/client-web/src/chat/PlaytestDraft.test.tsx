@@ -128,7 +128,7 @@ describe("a draft Playtest card", () => {
     expect(within(step(0)).getByText("Pending")).toBeTruthy();
     // Live, with the run's events applied.
     page.push({ id: nextId++, type: "script.step_passed", at: "", data: { runId: RUN, seq: 3, step: { index: 0, status: "passed" } } });
-    expect(within(step(0)).getByText("Auto pass")).toBeTruthy();
+    expect(within(step(0)).getByText("Passed")).toBeTruthy();
   });
 
   it("goes live when a run of its script takes it elsewhere, as an assigned subagent's does", () => {
