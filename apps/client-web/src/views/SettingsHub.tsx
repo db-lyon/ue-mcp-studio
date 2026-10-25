@@ -78,7 +78,7 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   const lines: Partial<Record<SettingsSection, string>> = {};
   if (settings) {
     const model = extra.models?.providers.flatMap((p) => p.models).find((m) => m.id === settings.model)?.name ?? settings.model;
-    const helpers = settings.usage?.subagents === "off" ? "no helpers" : settings.usage?.subagents === "asked" ? "helpers when asked" : "helpers automatic";
+    const helpers = settings.usage?.projectInstructions === false ? "project files off" : "reads the project's own files";
     const anything = Object.values(settings.connected ?? {}).some(Boolean);
     lines.agents = !anything ? "No model connected yet" : `${model}${settings.route ? ` on ${ROUTE_LABEL[settings.route] ?? settings.route}` : ", not connected"}, ${helpers}`;
     const signIns = (["claude", "chatgpt", "studio"] as const).filter((s) => settings.connected?.[s]).length;

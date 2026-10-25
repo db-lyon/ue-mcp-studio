@@ -16,7 +16,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_INSTRUCTION_SETTINGS, DEFAULT_USAGE, type ApprovalDecision, type Approvals, type Budget, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
+import { DEFAULT_USAGE, type ApprovalDecision, type Approvals, type Budget, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { usageTokens } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
@@ -37,7 +37,7 @@ import { flowCommandText, flowValue, parseFlowArgs, parseSlashCommand, type Atta
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { subagentLimitText } from "./subagent-limit.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
-import { compose, conditionalFor, pathsOf, type Composed } from "./instructions.js";
+import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, type ActionEffects } from "./approval-kind.js";
 import { AGENT_TOOL } from "./tools.js";
 import { SKILL_TOOL, agentTool, sdkAgents, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
@@ -92,12 +92,7 @@ export function subagentLine(usage: Pick<UsageSettings, "subagents" | "subagents
     + `Give each one different assets and files, then check what they report. ${most}`;
 }
 
-/** The project's instruction files as a prompt section, by the old switch, when the runner is given nothing composed. */
-function defaultInstructions(projectDir: string, usage: UsageSettings): Composed {
-  return compose(projectDir, DEFAULT_INSTRUCTION_SETTINGS, usage.projectInstructions ? "all" : "none");
-}
-
-const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = defaultInstructions(projectDir, usage)): string => [
+const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING): string => [
   "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
   playtestRunsLine(runs),
@@ -115,7 +110,7 @@ export const SUBAGENT_SYSTEM = [
   "Finish with a short report: what you created or changed (asset paths and files), what you saved, and anything that failed.",
 ].join("\n");
 
-const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = defaultInstructions(projectDir, usage)): string =>
+const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING): string =>
   [SUBAGENT_SYSTEM, playtestRunsLine(runs), where(projectDir), instructions.text]
     .filter((l): l is string => !!l).join("\n");
 
@@ -170,8 +165,6 @@ export interface RunnerOptions {
   effects?: ActionEffects;
   /** The main agent's budget: a turn stops at its per-run tokens. The old turn token limit when not given. */
   mainBudget?: () => Budget;
-  /** The project's instruction files as composed for the agent; the old CLAUDE.md switch when not given. */
-  instructions?: () => Composed;
   /** The main agent's vendor's own files: instructions, subagents and skills. Null while "Read the project's own files" is off. */
   native?: () => NativeRun | null;
   /** Tracks each turn's editor calls, for the window's busy state. */
@@ -303,9 +296,7 @@ export class AgentRunner {
   private readonly instructionsSent = new Map<string, Set<string>>();
 
   private composed(): Composed {
-    const n = this.native();
-    if (n) return n.composed;
-    return this.o.instructions?.() ?? defaultInstructions(this.o.host.projectDir, this.usage());
+    return this.native()?.composed ?? NOTHING;
   }
 
   private native(): NativeRun | null {
@@ -326,7 +317,7 @@ export class AgentRunner {
   /** What Studio adds to the SDK's prompt from the project's files: nothing when the SDK reads them itself. */
   private sdkComposed(): Composed {
     const n = this.native();
-    return n?.sdkLoads ? { text: null, tokens: 0, files: 0, conditional: [] } : this.composed();
+    return n?.sdkLoads ? NOTHING : this.composed();
   }
 
   /** The SDK options that load the project's own Claude Code files; none while they are off. */

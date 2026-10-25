@@ -7,11 +7,11 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { envStrategy, PHASE1_AGENTS, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
+import { envStrategy, BUDGET_ROWS, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
 import { SettingsStore } from "../src/settings.js";
 import { BudgetStore } from "../src/budgets.js";
 import { PlaytestStore } from "../src/playtest-store.js";
-import { PUBLISHED_SEEDS, type ClientContextStrategy, type InstructionsView } from "@ue-mcp-studio/shared";
+import { PUBLISHED_SEEDS, type ClientContextStrategy } from "@ue-mcp-studio/shared";
 
 type Handler = (req: { body?: unknown; query?: Record<string, string> }) => Promise<{ status?: number; body?: unknown }> | { status?: number; body?: unknown };
 let root: string;
@@ -42,7 +42,7 @@ function setup(extra: Record<string, unknown> = {}) {
     playtestBudget: () => playtests.budget(),
     setPlaytestBudget: (b) => playtests.setBudget(b),
   });
-  registerComposerRoutes(api, { settings, budgets, restartUeMcp: async () => void restarts++, agents: () => PHASE1_AGENTS(settings.usage().projectInstructions) });
+  registerComposerRoutes(api, { settings, budgets, restartUeMcp: async () => void restarts++, agents: () => BUDGET_ROWS });
   const call = async (key: string, body?: unknown, query: Record<string, string> = {}) => {
     const h = routes.get(key);
     if (!h) throw new Error(`no route ${key}`);
@@ -93,40 +93,6 @@ describe("context strategy for other clients", () => {
     const tokens = { micro: 2100, lean: 18500, full: 50200 };
     const { call } = setup({ context: { project: ({ strategy }: { strategy: keyof typeof tokens }) => ({ seedTokens: tokens[strategy] }) } });
     expect((await call("GET /context-strategy")).body).toMatchObject({ seeds: tokens, seedSource: "measured by this ue-mcp" });
-  });
-});
-
-describe("instruction routes", () => {
-  it("lists files, turns one off, and previews what the main agent gets", async () => {
-    fs.writeFileSync(path.join(root, "AGENTS.md"), "Shared rules.");
-    fs.writeFileSync(path.join(root, "GEMINI.md"), "Gemini only.");
-    const { call } = setup();
-    let v = (await call("GET /instructions")).body as InstructionsView;
-    expect(v.files.map((f) => [f.path, f.readBy])).toEqual([["GEMINI.md", ["main", "playtest-runner"]], ["AGENTS.md", ["main", "playtest-runner"]]]);
-    v = (await call("PUT /instructions", { off: ["GEMINI.md"] })).body as InstructionsView;
-    expect(v.files.find((f) => f.path === "GEMINI.md")).toMatchObject({ on: false, readBy: [] });
-    const p = (await call("GET /instructions/preview", undefined, { agent: "main" })).body as { text: string };
-    expect(p.text).toContain("Shared rules.");
-    expect(p.text).not.toContain("Gemini only.");
-    expect((await call("GET /instructions/preview", undefined, { agent: "nobody" })).status).toBe(404);
-    expect((await call("PUT /instructions", { off: "GEMINI.md" })).status).toBe(400);
-  });
-
-  it("follows the old switch: none when the agent was told not to read the project's files", async () => {
-    fs.writeFileSync(path.join(root, "AGENTS.md"), "Shared rules.");
-    const { call, settings } = setup();
-    settings.update({ usage: { projectInstructions: false } });
-    expect(((await call("GET /instructions/preview")).body as { text: string }).text).toBe("");
-  });
-
-  it("creates AGENTS.md once", async () => {
-    fs.writeFileSync(path.join(root, "CLAUDE.md"), "Claude rules.");
-    const { call, published } = setup();
-    const r = await call("POST /instructions/agents-md", { point: ["CLAUDE.md"] });
-    expect(r.status).toBe(201);
-    expect((r.body as { view: InstructionsView }).view.hasAgentsMd).toBe(true);
-    expect(published).toContain("instructions.changed");
-    expect((await call("POST /instructions/agents-md", {})).status).toBe(409);
   });
 });
 

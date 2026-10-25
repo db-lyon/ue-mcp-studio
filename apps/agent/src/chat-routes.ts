@@ -68,11 +68,13 @@ import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js"
 import type { AssetRef } from "@ue-mcp-studio/shared";
 import { BudgetStore } from "./budgets.js";
 import { DaemonActionEffects } from "./approval-kind.js";
-import { PHASE1_AGENTS, registerComposerRoutes } from "./composer-routes.js";
-import { compose, userHome } from "./instructions.js";
+import { BUDGET_ROWS, registerComposerRoutes } from "./composer-routes.js";
+import { registerNativeRoutes } from "./native-routes.js";
+import { modelName } from "./models.js";
+import { userHome } from "./instructions.js";
 import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
-import { KEY_PROVIDER_IDS, conventionOf, type KeyProviderId } from "@ue-mcp-studio/shared";
+import { DEFAULT_USAGE, KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, type KeyProviderId } from "@ue-mcp-studio/shared";
 import { MAIN_AGENT_ID } from "@ue-mcp-studio/shared";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
@@ -241,7 +243,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     approvals: () => settings.approvals(),
     effects,
     mainBudget: () => budgets.agent(MAIN_AGENT_ID),
-    instructions: () => compose(api.projectDir, settings.instructions(), "none"),
     native: nativeRun,
     playtestRuns: () => playtests.runs(),
     playtestFlow: new PlaytestFlow({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
@@ -316,11 +317,42 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [] };
   };
   registerAgentSettings(api, () => updates.request("restart", {}), playtests, budgets);
+  registerNativeRoutes(api, {
+    enabled: () => settings.usage().projectInstructions,
+    main: () => ({ vendor: settings.provider(), model: settings.model(), route: route() }),
+    routesFor: (vendor) => {
+      if (!KEY_PROVIDER_IDS.includes(vendor as KeyProviderId)) return [];
+      const done = signedIn();
+      const names: string[] = [];
+      if (vendor === "anthropic" && done.claude) names.push("Claude sign-in");
+      if (vendor === "anthropic" && done.studio && STUDIO_PLAN_AVAILABLE) names.push("Studio plan");
+      if (vendor === "openai" && done.chatgpt) names.push("ChatGPT sign-in");
+      if (settings.key(vendor as KeyProviderId)) names.push(`${PROVIDERS[vendor as KeyProviderId].name} key`);
+      return names;
+    },
+    runsOverApi: (vendor, model) => {
+      if (!KEY_PROVIDER_IDS.includes(vendor as KeyProviderId)) return false;
+      const r = routeOf(vendor as KeyProviderId, model);
+      return r !== null && (r !== "claude" || !!settings.key(vendor as KeyProviderId));
+    },
+    modelName,
+    worker: () => {
+      const u = settings.usage();
+      return {
+        model: modelName(settings.subagentModel()),
+        effort: u.subagentEffort ?? settings.effort(),
+        starts: u.subagents === "off" ? "never" : u.subagents,
+        fromSettings: u.subagentModel !== null || u.subagentEffort !== null || u.subagents !== DEFAULT_USAGE.subagents,
+      };
+    },
+    home: userHome,
+    owners: skillOwners,
+  });
   registerComposerRoutes(api, {
     settings,
     budgets,
     restartUeMcp: () => updates.request("restart", {}),
-    agents: () => PHASE1_AGENTS(settings.usage().projectInstructions),
+    agents: () => BUDGET_ROWS,
   });
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));

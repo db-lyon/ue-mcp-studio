@@ -14,6 +14,8 @@ import { GatewayProvider, type ModelProvider, type ModelRequest, type ModelTurn 
 import { validateInput, type AgentHost } from "../src/tools.js";
 import { pngBytes } from "./image-fixtures.js";
 import { DEFAULT_USAGE, type UsageSettings } from "@ue-mcp-studio/shared";
+import { loadout } from "../src/native.js";
+import { composeNative, type NativeRun } from "../src/native-runtime.js";
 
 class FakeHost implements AgentHost {
   connected = true;
@@ -96,6 +98,12 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(root, { recursive: true, force: true });
 });
+
+/** The project's own Claude Code files as chat-routes reads them, bounded to the test's folder. */
+function nativeClaude(): NativeRun {
+  const l = loadout("claude", host.projectDir, path.join(root, "home"), new Map(), root);
+  return { convention: "claude", loadout: l, composed: composeNative(l), helpers: [], skills: l.skills, sdkLoads: false };
+}
 
 function runnerWith(model: ScriptedModel, s = store): AgentRunner {
   return new AgentRunner({ host, store: s, provider: () => model, model: () => "claude-opus-5-5" });
@@ -1070,15 +1078,15 @@ describe("Settings > Agent > Usage", () => {
     expect(fin.transcript.find((t) => t.kind === "usage")).toMatchObject({ main: 60_000, subagents: 0, limit: 50_000 });
   });
 
-  it("puts the project's CLAUDE.md in both prompts unless turned off", async () => {
+  it("puts the project's CLAUDE.md in the prompt as Claude Code reads it, and nothing while the project's own files are off", async () => {
     fs.writeFileSync(path.join(host.projectDir, "CLAUDE.md"), "Blueprints live under /Game/BP.");
     const on = new ScriptedModel([() => text("ok")]);
     const s = store.create();
-    await new AgentRunner({ host, store, provider: () => on, model: () => "claude-opus-5-5", usage: () => DEFAULT_USAGE }).send(s.id, "hi");
+    await new AgentRunner({ host, store, provider: () => on, model: () => "claude-opus-5-5", usage: () => DEFAULT_USAGE, native: nativeClaude }).send(s.id, "hi");
     expect(on.requests[0].system[0].text).toContain("## From CLAUDE.md\nBlueprints live under /Game/BP.");
     const off = new ScriptedModel([() => text("ok")]);
     const t = store.create();
-    await new AgentRunner({ host, store, provider: () => off, model: () => "claude-opus-5-5", usage: () => withUsage({ projectInstructions: false }) }).send(t.id, "hi");
+    await new AgentRunner({ host, store, provider: () => off, model: () => "claude-opus-5-5", usage: () => withUsage({ projectInstructions: false }), native: () => null }).send(t.id, "hi");
     expect(off.requests[0].system[0].text).not.toContain("Blueprints live under");
   });
 });
@@ -1185,21 +1193,21 @@ describe("approval rows: editor restarts and ue-mcp actions that delete or overw
 });
 
 describe("instruction files that join as the agent works", () => {
-  it("adds a subfolder's AGENTS.md to the first result that touches the folder, once", async () => {
+  it("adds a subfolder's CLAUDE.md to the first result that touches the folder, once, as Claude Code loads it on demand", async () => {
     fs.mkdirSync(path.join(host.projectDir, "Source", "Game"), { recursive: true });
-    fs.writeFileSync(path.join(host.projectDir, "Source", "Game", "AGENTS.md"), "Use the Game module's logging category.");
+    fs.writeFileSync(path.join(host.projectDir, "Source", "Game", "CLAUDE.md"), "Use the Game module's logging category.");
     fs.writeFileSync(path.join(host.projectDir, "Source", "Game", "A.cpp"), "int a;");
-    fs.writeFileSync(path.join(host.projectDir, "AGENTS.md"), "Root rules.");
+    fs.writeFileSync(path.join(host.projectDir, "CLAUDE.md"), "Root rules.");
     const read = (id: string, file: string): ModelTurn => ({ content: [{ type: "tool_use", id, name: "read_file", input: { path: file } } as never], stopReason: "tool_use" });
     const model = new ScriptedModel([() => read("r1", "Source/Game/A.cpp"), () => read("r2", "Source/Game/A.cpp"), () => text("ok")]);
     const s = store.create();
-    await new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5" }).send(s.id, "read it");
+    await new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", native: nativeClaude }).send(s.id, "read it");
     await until(() => store.get(s.id)!.status === "idle");
-    expect(model.requests[0].system[0].text).toContain("## From AGENTS.md\nRoot rules.");
+    expect(model.requests[0].system[0].text).toContain("## From CLAUDE.md\nRoot rules.");
     expect(model.requests[0].system[0].text).not.toContain("logging category");
     const results = store.get(s.id)!.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((b) => (b as { type: string }).type === "tool_result") as Array<{ content: unknown }>;
     const texts = results.map((r) => JSON.stringify(r.content));
-    expect(texts[0]).toContain("Instructions from Source/Game/AGENTS.md apply to this work in Source/Game");
-    expect(texts[1]).not.toContain("Instructions from Source/Game/AGENTS.md");
+    expect(texts[0]).toContain("Instructions from Source/Game/CLAUDE.md apply to this work in Source/Game");
+    expect(texts[1]).not.toContain("Instructions from Source/Game/CLAUDE.md");
   });
 });

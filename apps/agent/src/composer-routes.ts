@@ -1,10 +1,6 @@
 /**
  * Settings routes grouped by decision, under /v1/ext/studio:
  *
- *   GET  /instructions                 every instruction file found, in reading order, with sizes and duplicates
- *   PUT  /instructions                 { off, added }: files turned off, and files the user added where they go
- *   GET  /instructions/preview?agent=  the composed text an agent is given
- *   POST /instructions/agents-md       { point?: string[] } create AGENTS.md from the shared files
  *   GET  /budgets                      every budget, the definition, and the agents that have rows
  *   PUT  /budgets                      { team?, agents?, warnAt? }
  *   GET  /context-strategy             what ue-mcp.yml gives other MCP clients, and what each strategy costs
@@ -23,10 +19,7 @@ import {
   PUBLISHED_SEEDS,
   type ClientContextStrategy,
   type ContextStrategy,
-  type InstructionSettings,
-  type InstructionFile,
 } from "@ue-mcp-studio/shared";
-import { createAgentsMd, instructionsView, preview, type FileChoice } from "./instructions.js";
 import type { BudgetStore, BudgetsUpdate } from "./budgets.js";
 import type { SettingsStore } from "./settings.js";
 
@@ -35,8 +28,8 @@ export interface ComposerRouteOptions {
   budgets: BudgetStore;
   /** Restart ue-mcp once no turn is in progress, so a changed ue-mcp.yml is read. */
   restartUeMcp: () => Promise<unknown>;
-  /** The agents with a budget row or instruction choice, by id and name. Phase 1: the main agent and the Playtest runner. */
-  agents: () => Array<{ id: string; name: string; instructionFiles: FileChoice }>;
+  /** The runs that have a budget row, by id and name: the main agent and the Playtest runner. */
+  agents: () => Array<{ id: string; name: string }>;
 }
 
 /** The context strategy ue-mcp.yml names, or null when it names none. */
@@ -75,34 +68,6 @@ type Projector = { project(o: { strategy: ContextStrategy; categories?: string[]
 export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRouteOptions): void {
   const bad = (e: unknown) => ({ status: 400, body: { error: e instanceof Error ? e.message : String(e) } });
   const projectDir = api.projectDir;
-
-  const readBy = (file: InstructionFile): string[] =>
-    file.on ? o.agents().filter((a) => a.instructionFiles === "all" || (a.instructionFiles !== "none" && a.instructionFiles.only.includes(file.path))).map((a) => a.id) : [];
-
-  api.route("GET", "/instructions", () => ({ body: instructionsView(projectDir, o.settings.instructions(), readBy) }));
-  api.route("PUT", "/instructions", (req) => {
-    const b = (req.body ?? {}) as Partial<InstructionSettings>;
-    if ((b.off !== undefined && !Array.isArray(b.off)) || (b.added !== undefined && !Array.isArray(b.added))) return bad("body must be { off?: string[], added?: { path, after }[] }");
-    const current = o.settings.instructions();
-    o.settings.setInstructions({ off: b.off ?? current.off, added: b.added ?? current.added });
-    return { body: instructionsView(projectDir, o.settings.instructions(), readBy) };
-  });
-  api.route("GET", "/instructions/preview", (req) => {
-    const id = typeof req.query.agent === "string" && req.query.agent ? req.query.agent : null;
-    const agent = id ? o.agents().find((a) => a.id === id) : o.agents()[0];
-    if (id && !agent) return { status: 404, body: { error: `no agent ${id}` } };
-    return { body: preview(projectDir, o.settings.instructions(), agent?.id ?? null, agent?.instructionFiles ?? "all") };
-  });
-  api.route("POST", "/instructions/agents-md", (req) => {
-    const point = (req.body as { point?: unknown } | undefined)?.point;
-    try {
-      const r = createAgentsMd(projectDir, o.settings.instructions(), Array.isArray(point) ? point.filter((p): p is string => typeof p === "string") : []);
-      api.events.publish("instructions.changed", { created: r.written });
-      return { status: 201, body: { ...r, view: instructionsView(projectDir, o.settings.instructions(), readBy) } };
-    } catch (e) {
-      return { status: 409, body: { error: e instanceof Error ? e.message : String(e) } };
-    }
-  });
 
   const budgetsBody = () => ({
     budgets: o.budgets.get(),
@@ -158,8 +123,8 @@ export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRoute
   });
 }
 
-/** Phase 1's agents: the main agent, and the helper assigned playtests run as. */
-export const PHASE1_AGENTS = (projectInstructions: boolean): Array<{ id: string; name: string; instructionFiles: FileChoice }> => [
-  { id: MAIN_AGENT_ID, name: "Main agent", instructionFiles: projectInstructions ? "all" : "none" },
-  { id: PLAYTEST_RUNNER_ID, name: "Playtest runner", instructionFiles: projectInstructions ? "all" : "none" },
+/** The runs Studio budgets: the main agent's turn, and an assigned playtest's loop. */
+export const BUDGET_ROWS: Array<{ id: string; name: string }> = [
+  { id: MAIN_AGENT_ID, name: "Main agent" },
+  { id: PLAYTEST_RUNNER_ID, name: "Playtest runner" },
 ];
