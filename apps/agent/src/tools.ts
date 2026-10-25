@@ -17,6 +17,7 @@ import { CHANGING_TOOLS, isLocalTool, localToolDefinitions, runLocal, validateLo
 import { firstFailedStep, type OperationStep } from "./operation-result.js";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type ToolImage } from "./images.js";
 import { compactDescribe, compactSearch } from "./discovery.js";
+import { compactJson } from "./model-text.js";
 
 /** The part of the daemon's extension API the agent uses, so tests can stand in for it. */
 export interface AgentHost {
@@ -108,7 +109,10 @@ export const TOOLS: Anthropic.Beta.BetaToolUnion[] = [...WORK_TOOLS, AGENT_TOOL]
 export type CallOutcome = "done" | "error" | "unknown";
 
 export interface ToolExecution {
+  /** The result as the transcript shows it. */
   text: string;
+  /** The result as the model is given it, when that differs from text: the same answer in fewer tokens. */
+  modelText?: string;
   isError: boolean;
   outcome: CallOutcome;
   touched: TouchedItem[];
@@ -119,6 +123,9 @@ export interface ToolExecution {
   /** Images the model sees with the result: an image file read, a screenshot an editor call wrote. */
   images?: ToolImage[];
 }
+
+/** What the model is given for a call: its own text when there is one, else what the transcript shows. */
+export const forModel = (e: Pick<ToolExecution, "text" | "modelText">): string => e.modelText ?? e.text;
 
 /** Check a streamed tool input before running it: eager streaming hands over input unvalidated. */
 export function validateInput(name: string, input: unknown): string | null {
@@ -276,7 +283,11 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
     saved = named.length > 0 ? named : ["*"];
   }
   const images = r.isError ? [] : await resultImages(host.projectDir, r, startedAt);
-  return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched, saved, ...(changed ? { changed } : {}), ...(images.length ? { images } : {}) };
+  const modelText = compactJson(text);
+  return {
+    text, isError: r.isError, outcome: r.isError ? "error" : "done", touched, saved,
+    ...(modelText !== text ? { modelText } : {}), ...(changed ? { changed } : {}), ...(images.length ? { images } : {}),
+  };
 }
 
 /**

@@ -9,7 +9,7 @@ import { createSdkMcpServer, query, tool, type HookCallback, type SDKMessage, ty
 import type { Effort, SubagentMode } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
-import { OMIT_DESCRIPTION, SELECT_DESCRIPTION, UE_MCP_DESCRIPTION, type ToolExecution } from "./tools.js";
+import { OMIT_DESCRIPTION, SELECT_DESCRIPTION, UE_MCP_DESCRIPTION, forModel, type ToolExecution } from "./tools.js";
 import { messagesUsage, usageTokens } from "./usage.js";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
@@ -187,7 +187,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     const exec = await t.runTool(await calls.take(name, args), name, args);
     // Images go as MCP image content, which the SDK hands the model as images.
     const images = (exec.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mediaType }));
-    return { content: [{ type: "text" as const, text: exec.text }, ...images], isError: exec.isError };
+    return { content: [{ type: "text" as const, text: forModel(exec) }, ...images], isError: exec.isError };
   };
 
   const server = createSdkMcpServer({

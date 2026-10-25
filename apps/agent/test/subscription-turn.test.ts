@@ -280,6 +280,25 @@ describe("stopping one subagent on the subscription route", () => {
   });
 });
 
+describe("a call's result on the subscription route", () => {
+  it("goes back to the binary without indentation and stays as ue-mcp answered in the transcript", async () => {
+    const answer = JSON.stringify({ success: true, actors: [{ label: "Sun" }] }, null, 2);
+    host.callAction = async () => ({ isError: false, content: [{ type: "text", text: answer }] });
+    let got: Awaited<ReturnType<FakeBinary["call"]>> | null = null;
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-c" });
+      got = await use(b, "c", "ue_mcp", { action: "call", category: "level", method: "get_outliner", args: {} });
+      b.emit(assistant("m_end", [{ type: "text", text: "One actor." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-c" });
+    };
+    const s = store.create();
+    await runnerOn().send(s.id, "what is in the level");
+    expect(got!.text).toBe(JSON.stringify(JSON.parse(answer)));
+    const call = store.get(s.id)!.transcript.find((t) => t.kind === "tool");
+    expect(call?.kind === "tool" && call.call.result).toBe(answer);
+  });
+});
+
 describe("images on the subscription route", () => {
   it("go back to the binary as MCP image content, and into the transcript", async () => {
     const { pngBytes } = await import("./image-fixtures.js");

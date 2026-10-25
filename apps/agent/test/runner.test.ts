@@ -1083,6 +1083,20 @@ describe("Settings > Agent > Usage", () => {
   });
 });
 
+describe("a call's result on the key route", () => {
+  it("reaches the model without indentation and stays as ue-mcp answered in the transcript", async () => {
+    const answer = JSON.stringify({ success: true, actors: [{ label: "Sun", class: "DirectionalLight" }] }, null, 2);
+    host.handler = async () => ({ isError: false, content: [{ type: "text", text: answer }] });
+    const model = new ScriptedModel([() => call("t1", "level", "get_outliner"), () => text("Done.")]);
+    const s = store.create();
+    await runnerWith(model).send(s.id, "what is in the level");
+    const sent = model.requests[1].messages[2].content as Array<{ type: string; content: unknown }>;
+    expect(sent[0].content).toBe(JSON.stringify(JSON.parse(answer)));
+    const tool = store.get(s.id)!.transcript.find((t) => t.kind === "tool");
+    expect(tool?.kind === "tool" && tool.call.result).toBe(answer);
+  });
+});
+
 describe("select and omit on a call", () => {
   it("go to ue-mcp beside the action's parameters, which takes them off before the action runs", async () => {
     const model = new ScriptedModel([

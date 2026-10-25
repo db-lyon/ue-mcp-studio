@@ -9,6 +9,8 @@
  * reads them again from the conversation.
  */
 
+import { compactJson } from "./model-text.js";
+
 /** The longest description a search or category line keeps. */
 export const LINE_SUMMARY_CHARS = 80;
 
@@ -84,19 +86,20 @@ export function withoutPerCall(signature: string): string {
   return signature.replace(PER_CALL, "").replace(/\(\s*,\s*/g, "(");
 }
 
-/** describe_action's answer for a whole category as one line per action; one action's answer as it came. */
+/** describe_action's answer for a whole category as one line per action; one action's answer as unindented JSON. */
 export function compactDescribe(text: string): string {
   const r = parse(text);
   if (!r) return text;
+  const signatureForm = Array.isArray(r.signatures) && r.signatures.every((x) => typeof x === "string");
+  if (!signatureForm && !Array.isArray(r.actions)) return compactJson(text);
   const footer = "Describe one (category + method) for its full parameters.";
   // ue-mcp from 1.4.11 answers a category with signature lines already: drop only the JSON around them,
   // and the per-call options each line repeats.
-  if (Array.isArray(r.signatures) && r.signatures.every((x) => typeof x === "string")) {
+  if (signatureForm) {
     const sigs = (r.signatures as string[]).map(withoutPerCall);
     const head = `${String(r.category ?? r.tool ?? "")}: ${sigs.length} actions${typeof r.count === "number" && r.count > sigs.length ? ` of ${r.count}` : ""}. ${footer}`;
     return [head, PER_CALL_LINE, ...sigs].join("\n");
   }
-  if (!Array.isArray(r.actions)) return text;
   // The params form lists the per-call options as params of every action: drop them there too.
   let perCall = false;
   const lines = (r.actions as ActionLine[]).map((a) => {

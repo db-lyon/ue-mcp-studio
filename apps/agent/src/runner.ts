@@ -24,7 +24,7 @@ import type { QueuedMessage } from "@ue-mcp-studio/shared";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import type { QaBroker } from "./qa.js";
-import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
+import { TOOLS, WORK_TOOLS, editorConnected, executeTool, forModel, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
 
 /** Set by the release bundle: false leaves the Agent SDK out of it. Unset in development and tests. */
@@ -1344,6 +1344,7 @@ export class AgentRunner {
       }
       p.state = "done";
       p.result = exec.text;
+      if (exec.modelText !== undefined) p.modelResult = exec.modelText;
       p.isError = exec.isError;
       if (exec.images) p.images = exec.images;
       this.mergeExec(s, exec, true);
@@ -1431,7 +1432,7 @@ export class AgentRunner {
           this.mergeExec(s, exec, exec.outcome !== "unknown");
           this.markSaved(s, exec.saved);
           this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
-          results.push({ type: "tool_result", tool_use_id: u.id, content: toolResultContent(exec.text, exec.images), is_error: exec.isError || undefined });
+          results.push({ type: "tool_result", tool_use_id: u.id, content: toolResultContent(forModel(exec), exec.images), is_error: exec.isError || undefined });
         }
         messages.push({ role: "user", content: results } as MessageParam);
       }
@@ -1484,7 +1485,7 @@ export class AgentRunner {
     const content: Array<
       | { type: "tool_result"; tool_use_id: string; content: ReturnType<typeof toolResultContent>; is_error?: boolean }
       | { type: "text"; text: string }
-    > = s.pending.map((p) => ({ type: "tool_result", tool_use_id: p.id, content: toolResultContent(p.result ?? "", p.images), is_error: p.isError || undefined }));
+    > = s.pending.map((p) => ({ type: "tool_result", tool_use_id: p.id, content: toolResultContent(p.modelResult ?? p.result ?? "", p.images), is_error: p.isError || undefined }));
     for (const note of s.notes.splice(0)) content.push({ type: "text", text: `[Studio] ${note}` });
     s.messages.push({ role: "user", content } as MessageParam);
     s.pending = null;
