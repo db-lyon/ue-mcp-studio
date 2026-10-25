@@ -32,7 +32,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
   const p = report?.plugin;
   return (
     <>
-      <Head title="Project" lead="What ue-mcp gives every MCP client connected to this project, Studio's agents included." />
+      <Head title="Project" lead="What ue-mcp gives the MCP clients connected to this project, and the editor plugin they reach it through." />
       {msg.node}
       <section className="card">
         <div className="cfg-inline">
@@ -51,7 +51,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         ))}
       </section>
 
-      <Card label={<>Context strategy <Shared /></>}>
+      <Card label={<>Context strategy for other clients <Shared /></>}>
         <p className="muted small">What a client such as an editor extension or a terminal agent is given at the start of each session. Studio's own agents use Micro.</p>
         {context && (
           <>
