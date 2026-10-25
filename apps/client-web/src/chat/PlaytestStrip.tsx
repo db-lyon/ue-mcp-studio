@@ -142,7 +142,7 @@ const REVEAL = "studio-reveal-playtest";
 export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaRun) => void }) {
   const [folded, setFolded] = useState(false);
   const [all, setAll] = useState(false);
-  // Narrow, one card and the rest named under it; the strip must leave the conversation room.
+  // Narrow, the cards that need the user, or one when none does, and the rest named under them; the strip must leave the conversation room.
   const narrow = useMedia(NARROW);
   const first = narrow ? 1 : STRIP_SHOWN;
   useEffect(() => {
@@ -158,10 +158,10 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
   }, []);
   if (runs.length === 0) return null;
   const many = runs.length > 1;
-  // Wide, every one that needs the user is shown and the rest fill up to the first few. Narrow, one
-  // card, with the rest named below it, those that need the user first and marked.
+  // Every one that needs the user is shown. Wide, the rest fill up to the first few; narrow, a card
+  // is shown only when none needs the user. The rest are named below.
   const you = runs.filter(qaNeedsYou);
-  const shown = all ? runs : narrow ? runs.slice(0, 1) : [...you, ...runs.filter((r) => !qaNeedsYou(r)).slice(0, Math.max(0, first - you.length))];
+  const shown = all ? runs : [...you, ...runs.filter((r) => !qaNeedsYou(r)).slice(0, Math.max(0, first - you.length))];
   const rest = runs.filter((r) => !shown.includes(r));
   return (
     <section className={`playtest-strip ${many ? "many" : ""} ${you.length ? "needs-you" : ""}`} aria-label="Live playtests">
@@ -188,7 +188,7 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
               ))}
             </button>
           )}
-          {all && runs.length > (narrow ? 1 : Math.max(first, you.length)) && (
+          {all && runs.length > Math.max(first, you.length) && (
             <button className="ghost small-button strip-more" onClick={() => setAll(false)}>Show fewer</button>
           )}
         </div>

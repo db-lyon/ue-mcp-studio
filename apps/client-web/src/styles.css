@@ -1407,3 +1407,5 @@ button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 
 button.qa-scroll-cue { align-self: stretch; min-height: 22px; padding: 0 8px; border: 1px dashed var(--line-strong); border-radius: var(--radius); background: var(--panel-2); color: var(--muted); font: 500 11px/1 var(--sans); letter-spacing: 0; text-align: center; }
 button.qa-scroll-cue:hover:not(:disabled) { border-color: var(--accent); color: var(--text); background: var(--panel-2); }
 button.qa-scroll-cue:disabled { visibility: hidden; }
+/* At 380 px with more than one that needs you, the strip takes the room they need. */
+@media (max-width: 760px) { .playtest-strip.needs-you { max-height: 62vh; } }

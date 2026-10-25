@@ -23,7 +23,12 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+  window.matchMedia = realMatchMedia;
 });
+/** The panel at 380 px: every max-width query matches. */
+const narrow = () => {
+  window.matchMedia = ((query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+};
 
 const at = "2026-10-25T15:00:00.000Z";
 const run = (id: string, name: string, state: string, statuses: string[], over: Partial<QaRun> = {}): QaRun => ({
@@ -173,6 +178,25 @@ describe("the strip of live playtests", () => {
     render(<Session transcript={transcript} events={[]} />);
     expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest WaitA", "Playtest WaitB", "Playtest WaitC"]);
     expect(within(stripEl()!).getByRole("button", { name: "Show 1 more: Running" }).textContent).toContain("Running (running)");
+  });
+
+  it("shows every one that needs the user at 380 px too, naming only the rest", () => {
+    narrow();
+    const transcript = entries(
+      run("a", "Running", "running", ["running", "pending"]),
+      run("b", "WaitA", "awaiting_verdict", ["passed", "awaiting_verdict"]),
+      run("c", "Gate", "finished", ["failed", "passed"], { assignment: { callId: "x", sessionId: "s1", state: "done", at, loop: loop("needs_you") } }),
+    );
+    render(<Session transcript={transcript} events={[]} />);
+    expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest WaitA", "Playtest Gate"]);
+    expect(within(stripEl()!).getByRole("button", { name: "Show 1 more: Running" })).toBeTruthy();
+  });
+
+  it("at 380 px with none that needs the user, shows one card and names the rest", () => {
+    narrow();
+    render(<Session transcript={entries(run("a", "One", "running", ["running", "pending"]), run("b", "Two", "running", ["running", "pending"]))} events={[]} />);
+    expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / })).toHaveLength(1);
+    expect(within(stripEl()!).getByRole("button", { name: "Show 1 more: Two" })).toBeTruthy();
   });
 
   it("offers Review, Cancel loop and Hide from strip on a loop that needs the user", () => {
