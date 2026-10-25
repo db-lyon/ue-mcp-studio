@@ -326,10 +326,20 @@ describe("the collapsed card", () => {
     expect(screen.getByRole("button", { name: /DoorOpens/, expanded: false })).toBeTruthy();
     const bars = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem");
     expect(bars.map((b) => b.className.split(" ")[1])).toEqual(["ok", "bad", ""]);
-    expect(bars[1].getAttribute("aria-label")).toBe("Step 2, Auto fail");
-    expect(bars[1].getAttribute("title")).toBe("2. Open the door: Auto fail");
+    const bar = within(bars[1]).getByRole("button");
+    expect(bar.getAttribute("aria-label")).toBe("Step 2, auto, Failed");
+    expect(bar.getAttribute("title")).toBe("2. Open the door (auto): Auto fail");
     expect(screen.getByText("3 steps: 1 passed, 1 failed")).toBeTruthy();
     expect(screen.queryByText("Walk up to the door")).toBeNull();
+    // The pill says how it ended in words, not only in colour.
+    expect(screen.getAllByRole("status")[0].textContent).toBe("1 failed");
+  });
+
+  it("tells manual steps from auto ones by more than colour", () => {
+    collapsed(runOf());
+    const bars = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem");
+    expect(bars.map((b) => b.classList.contains("manual"))).toEqual([false, false, true]);
+    expect(within(bars[2]).getByRole("button").getAttribute("aria-label")).toBe("Step 3, manual, Pending");
   });
 
   it("opens to the full card on a click, and closes again from its title", () => {
@@ -341,9 +351,61 @@ describe("the collapsed card", () => {
     expect(screen.queryByText("Walk up to the door")).toBeNull();
   });
 
-  it("opens by itself when a step waits for the user's verdict", () => {
+  it("opens on the step whose bar was clicked, scrolled to it and focused", () => {
+    const scrolled: string[] = [];
+    const proto = HTMLElement.prototype as unknown as { scrollIntoView?: (o?: unknown) => void };
+    const had = proto.scrollIntoView;
+    proto.scrollIntoView = function (this: HTMLElement) {
+      scrolled.push(this.getAttribute("data-index") ?? "");
+    };
+    try {
+      collapsed(runOf());
+      fireEvent.click(screen.getByRole("button", { name: "Step 3, manual, Pending" }));
+      expect(screen.getByText("The door opens without a visible pop")).toBeTruthy();
+      expect(scrolled).toEqual(["2"]);
+      expect(document.activeElement?.getAttribute("data-index")).toBe("2");
+      expect(document.activeElement?.classList.contains("flash")).toBe(true);
+    } finally {
+      proto.scrollIntoView = had;
+    }
+  });
+
+  it("stays collapsed when a step waits, and takes the verdict there", async () => {
+    m.qaVerdict.mockResolvedValue({ run: runOf({ state: "running", steps: STEPS.map((s, i) => ({ ...s, status: "passed" })) }) });
     const steps = STEPS.map((s, i) => ({ ...s, status: i === 2 ? "awaiting_verdict" : "passed" }));
     collapsed(runOf({ state: "awaiting_verdict", steps, awaiting: [2] }));
-    expect(screen.getByRole("button", { name: "Pass step 3" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /DoorOpens/, expanded: false })).toBeTruthy();
+    const ask = screen.getByRole("group", { name: "Step 3 waits for your verdict" });
+    expect(within(ask).getByText("The door opens without a visible pop")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(ask).getByRole("button", { name: "Pass step 3" }));
+    });
+    expect(m.qaVerdict).toHaveBeenCalledWith(RUN, 2, "pass", undefined);
+  });
+
+  it("opens on the waiting step with its note box when the verdict is Fail", () => {
+    const steps = STEPS.map((s, i) => ({ ...s, status: i === 2 ? "awaiting_verdict" : "passed" }));
+    collapsed(runOf({ state: "awaiting_verdict", steps, awaiting: [2] }));
+    fireEvent.click(screen.getByRole("button", { name: "Fail step 3" }));
+    expect(screen.getByRole("button", { name: /DoorOpens/, expanded: true })).toBeTruthy();
+    expect(screen.getByLabelText("What went wrong?")).toBe(document.activeElement);
+    expect(m.qaVerdict).not.toHaveBeenCalled();
+  });
+
+  it("asks about the next waiting step, and offers the rest in the full card", () => {
+    const two = [...STEPS, { index: 3, instruction: "The hinge sounds right", judge: "manual", status: "awaiting_verdict", within_ms: 5000 }];
+    const steps = two.map((s, i) => ({ ...s, status: i >= 2 ? "awaiting_verdict" : "passed" }));
+    collapsed(runOf({ state: "awaiting_verdict", steps, awaiting: [2, 3] }));
+    expect(screen.getByRole("group", { name: "Step 3 waits for your verdict" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "1 more" }));
+    expect(screen.getByText("The hinge sounds right")).toBeTruthy();
+  });
+
+  it("says what a loop that stopped needs, and opens on Review", () => {
+    const loop = { id: "l1", state: "needs_you", attempts: [], baseline: "c0", budget: { minutes: 60, tokens: 1 }, tokens: 0, startedAt: "", blocker: { kind: "no_progress", reason: "Two attempts changed nothing", evidence: [] } };
+    collapsed({ ...runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }), assignment: { callId: "c", sessionId: "s1", state: "done", at: "", loop } as QaRun["assignment"] });
+    expect(screen.getByText("Two attempts changed nothing")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.getByRole("button", { name: /DoorOpens/, expanded: true })).toBeTruthy();
   });
 });

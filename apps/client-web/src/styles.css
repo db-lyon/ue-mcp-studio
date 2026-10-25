@@ -822,15 +822,6 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-toggle { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .qa-toggle:hover .qa-title { text-decoration: underline; text-underline-offset: 3px; }
 .qa-chevron { width: 1em; color: var(--muted); flex-shrink: 0; }
-.qa-compact { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.qa-path { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; width: 100%; }
-.qa-path-step { flex: 1; min-width: 4px; height: 6px; border-radius: 3px; background: var(--line-strong); }
-.qa-path-step.ok { background: var(--ok); }
-.qa-path-step.bad { background: var(--bad); }
-.qa-path-step.warn { background: var(--warn); }
-.qa-path-step.run { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-.qa-path-step.skipped { background: repeating-linear-gradient(135deg, var(--line-strong) 0 3px, transparent 3px 6px); }
-.qa-compact:hover .qa-path-step { filter: brightness(1.15); }
 .qa-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .qa-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .qa-step { border-left: 2px solid var(--line-strong); padding: 5px 0 5px 10px; display: flex; flex-direction: column; gap: 4px; }
@@ -1131,16 +1122,6 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .pill-suggestion:hover { border-color: var(--accent); }
 
 /* Per-turn review: the turn card, an item's diff, and the checkpoint timeline. */
-/* A row of its own above the transcript, so the first message never sits under it. */
-.conversation-tools { display: flex; justify-content: flex-end; gap: 6px; flex-shrink: 0; padding: 8px 12px 0; }
-/* Playtests beside Checkpoints: how many the session has, marked when one waits for the user. */
-.conversation-tools .count, .chat-playtests-button .count { margin-left: 4px; color: var(--muted); }
-.conversation-tools .needs-you, .chat-playtests-button.needs-you { border-color: var(--warn); color: var(--warn); }
-.conversation-tools .needs-you .count, .chat-playtests-button.needs-you .count { color: var(--warn); }
-.playtests-panel { display: flex; flex-direction: column; gap: 10px; }
-.playtests-item { display: flex; flex-direction: column; align-items: flex-end; }
-.playtests-item .qa-card { width: 100%; margin: 0; }
-.playtests-show { margin-top: -2px; }
 .review-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; min-width: 0; }
 .review-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .review-group { display: flex; flex-direction: column; gap: 4px; }
@@ -1236,3 +1217,90 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .flow-steps li.running { font-weight: 600; }
 .flow-steps li.skipped { opacity: 0.55; }
 .flow-summary { max-height: 30vh; margin: 0; white-space: pre-wrap; }
+
+/* Playtests: the collapsed card, the session's strip of live ones, and the project page.
+   Chrome 90: no color-mix, :has or container queries here. */
+.qa-card.collapsed { padding: 10px 12px; gap: 6px; }
+.qa-by { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill.run { color: var(--accent); border-color: var(--accent-line); }
+.qa-card button.small-button, .playtest-strip button.small-button, .playtests-page button.small-button { min-height: 26px; padding: 0 9px; }
+.qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible, .composer-checkpoints:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.qa-start { display: inline-flex; align-items: stretch; flex-shrink: 0; }
+.qa-start > button.primary { border-radius: var(--radius) 0 0 var(--radius); }
+.qa-card .qa-start > button.qa-start-options { display: inline-flex; align-items: center; padding: 0 7px; margin-left: -1px; border-radius: 0 var(--radius) var(--radius) 0; color: var(--muted); }
+.qa-card .qa-start > button.qa-start-options:hover:not(:disabled) { color: var(--text); }
+.qa-hide { font-size: 14px; line-height: 1; }
+.qa-compact { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.qa-meta { overflow-wrap: anywhere; }
+
+/* One bar per step. The button is the hit area; the bar is drawn inside it. A manual step's bar has a pip over it. */
+.qa-path { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; width: 100%; }
+.qa-path-step { flex: 1 1 0; min-width: 6px; position: relative; }
+.qa-path-hit { display: block; position: relative; width: 100%; height: 20px; min-height: 0; padding: 0; border: 0; border-radius: 3px; background: transparent; cursor: pointer; }
+span.qa-path-hit { cursor: default; }
+button.qa-path-hit:hover:not(:disabled) { background: transparent; border: 0; }
+.qa-path-hit::before { content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 6px; border-radius: 3px; background: var(--line-strong); transition: top 0.12s, height 0.12s; }
+.qa-path-step.manual .qa-path-hit::after { content: ""; position: absolute; left: 50%; top: 2px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--muted); }
+.qa-path-step.ok .qa-path-hit::before { background: var(--ok); }
+.qa-path-step.bad .qa-path-hit::before { background: var(--bad); }
+.qa-path-step.warn .qa-path-hit::before { background: var(--warn); animation: pulse 1.6s ease-in-out infinite; }
+.qa-path-step.warn .qa-path-hit::after { background: var(--warn); }
+.qa-path-step.run .qa-path-hit::before { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.qa-path-step.skipped .qa-path-hit::before { background: repeating-linear-gradient(135deg, var(--line-strong) 0 3px, transparent 3px 6px); box-shadow: inset 0 0 0 1px var(--line-strong); }
+button.qa-path-hit:hover::before, button.qa-path-hit:focus-visible::before { top: 7px; height: 10px; }
+.qa-compact-open { align-self: flex-start; max-width: 100%; height: auto; min-height: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: 0; text-align: left; cursor: pointer; }
+button.qa-compact-open:hover:not(:disabled) { background: none; border: 0; }
+.qa-compact-open:hover .qa-compact-summary { color: var(--text); text-decoration: underline; text-underline-offset: 3px; }
+
+/* A waiting step's verdict, on the collapsed card. */
+.qa-answer { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 2px; padding: 6px 8px; border: 1px solid var(--warn); border-radius: var(--radius); background: var(--panel-2); }
+.qa-answer-step { flex: 1 1 200px; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+.qa-answer-step .qa-num { width: auto; color: var(--warn); font-weight: 700; }
+.qa-answer-text { min-width: 0; overflow-wrap: anywhere; }
+.qa-answer.needs .qa-answer-text { flex: 1 1 200px; color: var(--warn-text); }
+.qa-answer .qa-verdict { margin-left: 0; }
+.qa-card button.verdict-pass, .playtest-strip button.verdict-pass { border-color: var(--ok); }
+.qa-card button.verdict-fail, .playtest-strip button.verdict-fail { border-color: var(--bad); }
+.qa-step:focus { outline: none; }
+.qa-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.qa-step.flash { background: var(--accent-wash); transition: background 0.4s; }
+
+/* The strip under the session's header: live playtests only, absent when there are none. */
+.playtest-strip { flex-shrink: 0; display: flex; flex-direction: column; gap: 6px; max-height: 45vh; overflow-y: auto; padding: 8px 12px; border-bottom: 1px solid var(--line); background: var(--panel); box-shadow: 0 6px 12px -10px rgba(0, 0, 0, 0.6); }
+.playtest-strip.needs-you { border-top: 2px solid var(--warn); }
+.playtest-strip .qa-card { margin: 0; }
+.strip-list { display: flex; flex-direction: column; gap: 6px; }
+button.strip-head { display: flex; align-items: baseline; gap: 8px; width: 100%; min-height: 26px; padding: 2px 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: 0; text-align: left; }
+button.strip-head:hover:not(:disabled) { background: none; border: 0; }
+.strip-summary { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
+.playtest-strip.needs-you .strip-summary { color: var(--warn-text); }
+.playtest-strip.many { padding-top: 4px; }
+
+/* A live playtest's place in the transcript while its card is on the strip. */
+.qa-pinned { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0; padding: 6px 10px; border: 1px dashed var(--line-strong); border-radius: var(--radius); color: var(--muted); }
+.qa-pinned-mark { color: var(--accent); }
+.qa-pinned-text { flex: 1 1 200px; min-width: 0; }
+
+/* Checkpoints in the composer's bar, where it never covers the conversation. */
+button.composer-checkpoints { height: 30px; padding: 0 10px; font: 500 12px/1 var(--sans); letter-spacing: 0; }
+
+/* The Playtests page. */
+.playtests-page { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.playtests-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+h1.playtests-title { margin: 0; font: 600 20px/1.2 var(--sans); letter-spacing: 0; }
+.playtests-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+button.filter-chip { min-height: 30px; padding: 0 12px; border-radius: 999px; background: transparent; border: 1px solid var(--line-strong); color: var(--muted); font: 500 12px/1 var(--sans); letter-spacing: 0; }
+button.filter-chip.active { background: var(--accent-wash); border-color: var(--accent); color: var(--text); }
+.filter-count { margin-left: 4px; font-family: var(--mono); color: var(--dim); }
+button.filter-chip.active .filter-count { color: var(--muted); }
+button.filter-chip.attention .filter-count { color: var(--warn); font-weight: 700; }
+.playtests-list { display: flex; flex-direction: column; gap: 8px; }
+.playtests-row .qa-card { margin: 0; }
+.playtests-row.deleted .qa-title { text-decoration: line-through; color: var(--muted); }
+.playtests-empty { margin: 24px 0; }
+.tab-count { display: inline-block; min-width: 16px; height: 16px; margin-left: 6px; padding: 0 4px; border-radius: 8px; font: 700 10px/16px var(--mono); text-align: center; vertical-align: 1px; }
+.tab-count.warn { background: var(--warn); color: #1a1200; }
+@media (prefers-reduced-motion: reduce) {
+  .qa-path-hit::before { animation: none !important; transition: none; }
+  .qa-step.flash { transition: none; }
+}

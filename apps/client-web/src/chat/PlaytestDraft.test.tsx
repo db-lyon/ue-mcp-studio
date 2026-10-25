@@ -96,10 +96,22 @@ describe("a draft Playtest card", () => {
     for (const name of ["Start Playtest", "Assign to subagent", "Edit", "Delete"]) expect(screen.getByRole("button", { name })).toBeTruthy();
   });
 
-  it("Start Playtest offers its options, starts with them, and the same card goes live", async () => {
+  it("Start Playtest starts in one click, even collapsed, with the players its steps name, and the same card goes live", async () => {
+    m.qaRun.mockResolvedValue({ run: live() });
+    render(<QaContext.Provider value={{ events: [], streaming: true, forms: [], sessionId: "s1" }}><QaCard run={draft()} /></QaContext.Provider>);
+    expect(screen.getByRole("button", { name: /SigilPickup/, expanded: false })).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Start Playtest" }));
+    });
+    expect(m.qaRun).toHaveBeenCalledWith(`draft:${PATH}`, { startPie: true, players: 2, listen: true, record: true });
+    expect(screen.getByText("Playtest")).toBeTruthy();
+    expect(screen.getAllByRole("status")[0].textContent).toBe("Starting");
+  });
+
+  it("Start Playtest's options open its panel, start with what was picked, and the same card goes live", async () => {
     m.qaRun.mockResolvedValue({ run: live() });
     const page = mount(draft());
-    fireEvent.click(screen.getByRole("button", { name: "Start Playtest" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start Playtest options" }));
     const options = screen.getByRole("group", { name: "Start Playtest options" });
     // Two players named: two players and a listen server, to start with.
     expect((within(options).getByLabelText("Players") as HTMLInputElement).value).toBe("2");
@@ -178,9 +190,8 @@ describe("a draft Playtest card", () => {
   it("shows ue-mcp's refusal of a Start Playtest", async () => {
     m.qaRun.mockRejectedValue(new Error("PIE could not be set to 2 players: no editor"));
     mount(draft());
-    fireEvent.click(screen.getByRole("button", { name: "Start Playtest" }));
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Start" }));
+      fireEvent.click(screen.getByRole("button", { name: "Start Playtest" }));
     });
     expect(screen.getByText("PIE could not be set to 2 players: no editor")).toBeTruthy();
     expect(screen.getByText("Playtest draft")).toBeTruthy();
