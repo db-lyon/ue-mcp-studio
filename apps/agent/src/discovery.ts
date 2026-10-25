@@ -67,6 +67,98 @@ interface ActionLine {
   action: string;
 }
 
+/** One parameter, or one field of a parameter, as describe_action reports it. */
+interface Field {
+  type?: string;
+  required?: boolean;
+  description?: string;
+  aliases?: unknown[];
+  items?: Field;
+  properties?: Record<string, Field>;
+  variants?: Field[];
+  enumValues?: unknown[];
+  minimum?: number;
+  maximum?: number;
+  truncated?: boolean;
+  discriminator?: string;
+  [key: string]: unknown;
+}
+
+interface ActionSchema {
+  tool: string;
+  action: string;
+  description?: string;
+  class?: string;
+  params: Array<Field & { name: string }>;
+  alternatives?: Array<{ branches?: unknown[][]; required?: boolean }>;
+  timeoutMs?: number;
+  drift?: unknown[];
+}
+
+/** Options every call takes; the tool's own description says what select and omit do. */
+const PER_CALL = new Set(["select", "omit", "timeoutMs"]);
+/** What a field says that the rendering below already shows, or that the model has no use for. */
+const SHOWN = new Set(["type", "required", "description", "name", "aliases", "items", "properties", "variants", "enumValues", "minimum", "maximum", "truncated", "discriminator", "sources", "alternativeGroup"]);
+
+const oneLine = (s: string): string => s.replace(/\s*\(#\d+(?:[/,]\s*#?\d+)*\)/g, "").replace(/\s+/g, " ").trim();
+
+/** A field's type, with what else constrains it. */
+function fieldType(f: Field): string {
+  const structured = (x: Field | undefined) => !!(x?.properties || x?.variants?.some((v) => v.properties));
+  let t = f.type ?? "any";
+  if (f.variants?.length && !f.variants.some((v) => v.properties)) t = f.variants.map(fieldType).join(" | ");
+  else if (f.items && !structured(f.items) && !t.endsWith("[]")) t = t === "object" ? `{[key]: ${fieldType(f.items)}}` : `${fieldType(f.items)}[]`;
+  const extra: string[] = [];
+  if (f.enumValues?.length) extra.push(`one of ${f.enumValues.map((v) => String(v)).join("|")}`);
+  if (f.minimum !== undefined || f.maximum !== undefined) extra.push(`${f.minimum ?? ""}..${f.maximum ?? ""}`);
+  if (f.discriminator) extra.push(`variant picked by ${f.discriminator}`);
+  if (f.truncated) extra.push("more fields than listed");
+  for (const [k, v] of Object.entries(f)) if (!SHOWN.has(k) && v !== undefined) extra.push(`${k} ${JSON.stringify(v)}`);
+  return extra.length ? `${t} (${extra.join("; ")})` : t;
+}
+
+/** A field as one line, then its own fields indented under it. */
+function fieldLines(name: string, f: Field, indent: string, out: string[], depth = 0): void {
+  const aliases = f.aliases?.length ? ` (or ${f.aliases.join(", ")})` : "";
+  const desc = f.description ? ` - ${oneLine(f.description)}` : "";
+  out.push(`${indent}- ${name}${f.required ? "" : "?"}${aliases}: ${fieldType(f)}${desc}`);
+  if (depth > 6) return;
+  const inner = f.items?.properties || f.items?.variants ? f.items : f;
+  for (const [k, v] of Object.entries(inner.properties ?? {})) fieldLines(k, v, `${indent}  `, out, depth + 1);
+  if (inner.variants?.some((v) => v.properties)) {
+    inner.variants.forEach((v, i) => {
+      out.push(`${indent}  variant ${i + 1}${v.description ? `: ${oneLine(v.description)}` : ""}`);
+      for (const [k, x] of Object.entries(v.properties ?? {})) fieldLines(k, x, `${indent}    `, out, depth + 1);
+    });
+  }
+}
+
+const isSchema = (v: unknown): v is ActionSchema => {
+  const s = v as ActionSchema;
+  return !!s && typeof s.tool === "string" && typeof s.action === "string" && Array.isArray(s.params);
+};
+
+/**
+ * One action's schema as a line per parameter: name, type, what it is for,
+ * and its fields indented under it. Everything describe_action says about
+ * a parameter stays except where ue-mcp's schema came from; the per-call
+ * options, which every action takes, are named once at the end.
+ */
+export function schemaText(s: ActionSchema): string {
+  const out = [`${s.tool}.${s.action}${s.class ? ` [${s.class}]` : ""}: ${oneLine(summary(s.description ?? "", Infinity))}`];
+  const own = s.params.filter((p) => !PER_CALL.has(p.name));
+  if (own.length === 0) out.push("No parameters.");
+  for (const p of own) fieldLines(p.name, p, "", out);
+  for (const a of s.alternatives ?? []) {
+    const branches = (a.branches ?? []).map((b) => (Array.isArray(b) ? b.join(" + ") : String(b)));
+    if (branches.length) out.push(`${a.required ? "Give one of" : "At most one of"}: ${branches.join(" | ")}`);
+  }
+  if (typeof s.timeoutMs === "number") out.push(`Waits up to ${s.timeoutMs} ms unless timeoutMs says otherwise.`);
+  if (s.drift?.length) out.push(`drift: ${JSON.stringify(s.drift)}`);
+  out.push("Every call also takes select?, omit? and timeoutMs?.");
+  return out.join("\n");
+}
+
 /**
  * describe_action's answer for a whole category as its action names on one
  * line; one action's answer as unindented JSON. A category holds up to a few
@@ -78,6 +170,11 @@ interface ActionLine {
 export function compactDescribe(text: string): string {
   const r = parse(text);
   if (!r) return text;
+  if (isSchema(r)) return schemaText(r);
+  // A bare action name several categories provide: each one's schema.
+  if (Array.isArray(r.matches) && r.matches.every(isSchema)) {
+    return [typeof r.hint === "string" ? r.hint : `${r.matches.length} actions match.`, ...(r.matches as ActionSchema[]).map(schemaText)].join("\n\n");
+  }
   // ue-mcp from 1.4.11 answers a category with signature lines, earlier ones with a schema per action.
   const names = Array.isArray(r.signatures) && r.signatures.every((x) => typeof x === "string")
     ? (r.signatures as string[]).map((s) => s.replace(/\(.*$/s, "").trim())
