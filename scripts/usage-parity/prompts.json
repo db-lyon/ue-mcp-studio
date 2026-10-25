@@ -1,0 +1,13 @@
+{
+ "A": "In the open level, add a point light labelled KeyLight at (200, 0, 300) with an intensity of 5000 and a warm orange color, then save the level.",
+ "B": "Give me an overview of this project: list its levels, count the actors by class in the open level, list the materials with the shading model and blend mode each uses, and for each Blueprint give its parent class and its components. Point out anything that looks broken or unused. Don't change anything.",
+ "C": "Build this in the open level: 1) a material /Game/ABWork/M_Glow that is unlit cyan with an emissive strength of 10; 2) an Actor Blueprint /Game/ABWork/BP_GlowCube with a cube static mesh component using M_Glow and a point light component above the cube; 3) three instances of BP_GlowCube placed in a row along X at x = 0, 300 and 600, with y = 0 and z = 100. Compile and save everything.",
+ "D": [
+  "In the open level, place three cubes labelled Pillar_1, Pillar_2 and Pillar_3 at x = -300, 0 and 300 (y = 0, z = 50), and a point light labelled PillarLight at (0, 0, 400) with intensity 3000.",
+  "List every actor in the open level whose label starts with Pillar, with its class, location, scale and the static mesh or light intensity it has.",
+  "Scale Pillar_2 to (1, 1, 3), move PillarLight to (0, 0, 600) with intensity 6000, and make Pillar_1 and Pillar_3 use the engine's cylinder mesh instead of the cube.",
+  "Read back Pillar_1, Pillar_2, Pillar_3 and PillarLight from the editor and tell me whether each one matches what I asked for.",
+  "Save the level."
+ ],
+ "E": "Take a screenshot of the level viewport and describe what the scene looks like. Does the lighting look right?"
+}

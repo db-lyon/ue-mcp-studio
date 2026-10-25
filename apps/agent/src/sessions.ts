@@ -20,6 +20,8 @@ export interface PendingTool {
   /** running survives a crash or restart only as unknown: whether it took effect is not known. */
   state: "queued" | "running" | "unknown" | "done";
   result?: string;
+  /** The result as the model is given it, when that differs from result. */
+  modelResult?: string;
   isError?: boolean;
   /** Images that go to the model with the result. */
   images?: ToolImage[];

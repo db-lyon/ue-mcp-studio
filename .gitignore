@@ -5,3 +5,5 @@ dist/
 *.key.pem
 .env*
 release/
+# Usage parity runs: harness bundles, results and reports.
+apps/agent/.usage-parity/

@@ -2,7 +2,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { compactDescribe, compactSearch, paramList, summary, withoutPerCall } from "../src/discovery.js";
+import { compactDescribe, compactSearch, paramList, summary } from "../src/discovery.js";
 
 const fixture = (name: string) => fs.readFileSync(path.join(__dirname, "fixtures", name), "utf-8");
 
@@ -26,17 +26,18 @@ describe("search answers", () => {
 });
 
 describe("category answers", () => {
-  it("drop the JSON around ue-mcp's signature lines", () => {
+  it("name every action of the category on one line, far smaller than a line per action", () => {
     const raw = fixture("describe-category.json");
     const out = compactDescribe(raw);
-    const lines = out.split("\n");
-    expect(lines[0]).toMatch(/^material: \d+ actions/);
-    expect(lines[1]).toBe("Every call also takes select?, omit? and timeoutMs?.");
-    expect(lines[2]).toBe("read(assetPath|path|materialPath)");
-    expect(out.length).toBeLessThan(raw.length);
+    const [head, names] = out.split("\n");
+    expect(head).toBe("material: 58 actions. Describe one (category + method) for its parameters, or search by intent.");
+    expect(names.split(", ")).toHaveLength(58);
+    expect(names.startsWith("read, list_parameters, set_parameter, ")).toBe(true);
+    const signatures = (JSON.parse(raw) as { signatures: string[] }).signatures.join("\n");
+    expect(out.length).toBeLessThan(signatures.length / 4);
   });
 
-  it("turn an older ue-mcp's per-action schemas into one line each", () => {
+  it("name an older ue-mcp's per-action schemas the same way", () => {
     const raw = JSON.stringify({
       tool: "level",
       actionCount: 2,
@@ -45,16 +46,95 @@ describe("category answers", () => {
         { tool: "level", action: "spawn_light", description: "Spawn a light.", class: "mutate", params: [{ name: "lightType", required: true }, { name: "location", required: false }] },
       ],
     }, null, 2);
-    expect(compactDescribe(raw)).toBe([
-      "level: 2 actions. Describe one (category + method) for its full parameters.",
-      "get_outliner(filter?): List the level's actors.",
-      "spawn_light(lightType, location?) [mutate]: Spawn a light.",
-    ].join("\n"));
+    expect(compactDescribe(raw)).toBe("level: 2 actions. Describe one (category + method) for its parameters, or search by intent.\nget_outliner, spawn_light");
   });
 
-  it("leave one action's schema as it came", () => {
-    const one = JSON.stringify({ tool: "level", action: "spawn_light", params: [] });
-    expect(compactDescribe(one)).toBe(one);
+  it("say how many there are when the answer holds only some", () => {
+    const raw = JSON.stringify({ category: "animation", count: 341, signatures: ["play(a)", "stop()"], nextOffset: 2 });
+    expect(compactDescribe(raw).split("\n")[0]).toMatch(/^animation: 2 actions of 341\./);
+  });
+
+  it("leave JSON they do not recognise as unindented JSON", () => {
+    expect(compactDescribe(JSON.stringify({ error: "Unknown category" }, null, 2))).toBe("{\"error\":\"Unknown category\"}");
+  });
+});
+
+const perCall = [
+  { name: "omit", type: "string|string[]", required: false, description: "Drop these result fields", sources: ["declared"] },
+  { name: "select", type: "string|string[]", required: false, description: "Keep only these result fields", sources: ["declared"] },
+  { name: "timeoutMs", type: "integer", required: false, minimum: 0, maximum: 3600000, description: "How long to wait", sources: ["declared"] },
+];
+
+describe("one action's answer", () => {
+  it("goes out as a line per parameter with its fields indented under it", () => {
+    const raw = JSON.stringify({
+      tool: "level", action: "spawn_light", class: "mutate", classSource: "declared", bridge: "spawn_light", local: false, drift: [],
+      description: "Place light (#331/#310). Params: lightType, location?",
+      params: [
+        { name: "lightType", type: "string", required: true, description: "point | spot", sources: ["documented"] },
+        { name: "location", type: "object", required: false, description: "World location", properties: { x: { type: "number", required: true }, y: { type: "number", required: true } } },
+        { name: "color", type: "object", required: false, items: { type: "any", required: false } },
+        ...perCall,
+      ],
+    }, null, 2);
+    expect(compactDescribe(raw)).toBe([
+      "level.spawn_light [mutate]: Place light.",
+      "- lightType: string - point | spot",
+      "- location?: object - World location",
+      "  - x: number",
+      "  - y: number",
+      "- color?: {[key]: any}",
+      "Every call also takes select?, omit? and timeoutMs?.",
+    ].join("\n"));
+    expect(compactDescribe(raw).length).toBeLessThan(raw.length / 3);
+  });
+
+  it("keeps aliases, allowed values, ranges, variants, alternatives and anything else a field says", () => {
+    const raw = JSON.stringify({
+      tool: "animation", action: "edit", class: "mutate", description: "Edit.", timeoutMs: 300000,
+      alternatives: [{ branches: [["assetPath"], ["assetPaths"]], required: true }],
+      params: [
+        { name: "assetPath", type: "string", required: false, aliases: ["path"] },
+        { name: "assetPaths", type: "string[]", required: false, items: { type: "string", required: true } },
+        { name: "mode", type: "string", required: false, enumValues: ["fixed", "local_delta"], default: "fixed" },
+        { name: "frames", type: "array", required: false, items: { type: "integer", required: true }, minimum: 0 },
+        { name: "names", type: "string|string[]", required: false, variants: [{ type: "string" }, { type: "string[]" }] },
+        {
+          name: "operations", type: "object[]", required: true,
+          items: { type: "object", required: true, discriminator: "op", variants: [
+            { type: "object", description: "Set one key", properties: { op: { type: "literal", required: true }, value: { type: "number", required: true } } },
+            { type: "object", description: "Offset (#12)", properties: { op: { type: "literal", required: true } } },
+          ] },
+        },
+      ],
+    });
+    expect(compactDescribe(raw).split("\n")).toEqual([
+      "animation.edit [mutate]: Edit.",
+      "- assetPath? (or path): string",
+      "- assetPaths?: string[]",
+      "- mode?: string (one of fixed|local_delta; default \"fixed\")",
+      "- frames?: integer[] (0..)",
+      "- names?: string | string[]",
+      "- operations: object[]",
+      "  variant 1: Set one key",
+      "    - op: literal",
+      "    - value: number",
+      "  variant 2: Offset",
+      "    - op: literal",
+      "Give one of: assetPath | assetPaths",
+      "Waits up to 300000 ms unless timeoutMs says otherwise.",
+      "Every call also takes select?, omit? and timeoutMs?.",
+    ]);
+  });
+
+  it("goes out once per category when a bare name matches several", () => {
+    const one = (tool: string) => ({ tool, action: "read", description: "Read it.", params: [{ name: "assetPath", type: "string", required: true }] });
+    const raw = JSON.stringify({ name: "read", matchCount: 2, hint: "'read' is provided by 2 categories.", matches: [one("material"), one("blueprint")] });
+    expect(compactDescribe(raw).split("\n\n")).toEqual([
+      "'read' is provided by 2 categories.",
+      "material.read: Read it.\n- assetPath: string\nEvery call also takes select?, omit? and timeoutMs?.",
+      "blueprint.read: Read it.\n- assetPath: string\nEvery call also takes select?, omit? and timeoutMs?.",
+    ]);
   });
 });
 
@@ -67,40 +147,5 @@ describe("descriptions", () => {
   it("give their parameter names to the signature", () => {
     expect(paramList("Do it. Params: parentPath, name, packagePath? (default /Game), onConflict?")).toBe("parentPath, name, packagePath?, onConflict?");
     expect(paramList("Measure. Params: none (#704)")).toBe("");
-  });
-});
-
-describe("per-call options", () => {
-  it("are taken off each signature, wherever they sit", () => {
-    expect(withoutPerCall("get_outliner(filter?, omit?, select?, timeoutMs?:n)")).toBe("get_outliner(filter?)");
-    expect(withoutPerCall("save(select?, force?:b, timeoutMs?:n)")).toBe("save(force?:b)");
-    expect(withoutPerCall("ping(omit?, select?, timeoutMs?:n)")).toBe("ping()");
-    expect(withoutPerCall("read(one(assetPath; actorLabel), selector?)")).toBe("read(one(assetPath; actorLabel), selector?)");
-  });
-
-  it("are named once in a category answer", () => {
-    const raw = JSON.stringify({ category: "level", count: 2, signatures: ["get_outliner(filter?, omit?, select?, timeoutMs?:n)", "save(force?:b, omit?, select?, timeoutMs?:n)"] });
-    expect(compactDescribe(raw).split("\n")).toEqual([
-      "level: 2 actions. Describe one (category + method) for its full parameters.",
-      "Every call also takes select?, omit? and timeoutMs?.",
-      "get_outliner(filter?)",
-      "save(force?:b)",
-    ]);
-  });
-
-  it("are named once in a category answer that lists each action's params", () => {
-    const raw = JSON.stringify({
-      tool: "level",
-      actions: [
-        { tool: "level", action: "get_outliner", class: "read", description: "List actors.", params: [{ name: "filter" }, { name: "omit" }, { name: "select" }, { name: "timeoutMs" }] },
-        { tool: "level", action: "save", class: "mutate", description: "Save.", params: [{ name: "force", required: true }, { name: "omit" }, { name: "select" }, { name: "timeoutMs" }] },
-      ],
-    });
-    expect(compactDescribe(raw).split("\n")).toEqual([
-      "level: 2 actions. Describe one (category + method) for its full parameters.",
-      "Every call also takes select?, omit? and timeoutMs?.",
-      "get_outliner(filter?): List actors.",
-      "save(force) [mutate]: Save.",
-    ]);
   });
 });
