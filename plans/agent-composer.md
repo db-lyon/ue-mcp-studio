@@ -237,7 +237,10 @@ export interface HandoffRule {
   background: boolean;
   /**
    * What the helper starts from.
-   * shared: the main agent's conversation so far, then the brief. Only when model and route match the main agent's (a prompt cache belongs to one model); reuses the main agent's cache.
+   * shared: the main agent's conversation so far, then the brief. Only when model and route match the main agent's (a prompt cache belongs to one model).
+   *   A cache matches the exact prefix (tools, system prompt, messages), so a shared-context helper keeps the main agent's
+   *   system prompt, tool list, preloaded skills and context strategy unchanged. Its own instructions go into the brief
+   *   message, and a narrower tool scope is enforced by a permission check on each call, not by removing tools.
    * brief: the brief alone. brief-and-files: the brief and the files the main agent read this turn.
    */
   startWith: "shared" | "brief" | "brief-and-files";
@@ -390,7 +393,7 @@ Applying a template asks where it goes: the project's team (written to `.ue-mcp/
 | model, effort | `model`, `effort` |
 | tools | `allowedTools` over Studio's in-process tools (`mcp__studio__*`), plus the SDK's web search when `web.search` |
 | on-demand skills | `plugins: [{ type: "local", path }]` pointing at a folder Studio generates with the attached skills, and `skills` naming them |
-| a helper on the main agent's model, starting from shared context | a forked query of the main agent's session (`resume` with `forkSession: true`), started by Studio's `delegate` tool beside the turn; it reuses the main agent's cache |
+| a helper on the main agent's model, starting from shared context | a forked query of the main agent's session (`resume` with `forkSession: true`, `resumeSessionAt` the last complete message before the `delegate` call, so the fork never ends on an unanswered tool call), with the same `systemPrompt` and tools; its instructions arrive as the brief and its scope is enforced in `canUseTool`. Phase 2 starts by verifying the fork mid-turn; if it does not hold, these helpers start fresh and the UI says so |
 | other helpers on the Claude sign-in | `agents: { [id]: { description, prompt, model, effort, tools, skills, maxTurns, background } }`; a native subagent starts from its own prompt and the brief, so it is a fresh start on the same plan |
 | helpers on another vendor or route | the same `delegate(helper, brief)` tool in the in-process server; Studio runs the helper on its own loop and returns the report |
 | per-turn and parallel limits | the PreToolUse hook Studio already uses for the subagent limit, applied to `Agent` and `delegate` |
@@ -410,7 +413,7 @@ Applying a template asks where it goes: the project's team (written to `.ue-mcp/
 | Web search | vendor-run where the vendor has it, else fetch only | same |
 | Skills | SDK skill tool or Studio's `skill` tool, same contract | same |
 
-The agent editor's **compatibility strip** lists only rows where this agent's effective route differs from the main agent's, and is hidden when none do. The effort control shows the vendor's own levels (Anthropic: Low to Max; OpenAI: Low to Extra high; Gemini: Low to High); "inherit" shows the level that will be sent.
+The agent editor's **compatibility strip** lists only rows where this agent's effective model or route differs from the main agent's, and is hidden when none do. When a helper starts from shared context, the editor greys its Tools, Skills and Context strategy cards with one line saying they follow the main agent's so the cache matches; its instructions become the brief preamble, and its tool scope still applies as a permission check. The effort control shows the vendor's own levels (Anthropic: Low to Max; OpenAI: Low to Extra high; Gemini: Low to High); "inherit" shows the level that will be sent.
 
 ### 2.9 Decisions inside the composer
 
@@ -611,7 +614,7 @@ The team migration creates is "Lead and workers" when subagents were on, "Solo" 
 
 Each phase ships on its own and leaves Studio coherent.
 
-1. **Settings layout.** The seven sections, every card moved, approvals split into rows, Instructions with every convention (still one agent), context strategy for other clients outside the editor, shared badges. Usage > Budgets ships here as the one place budgets are edited, with today's two limits as its first rows (the main agent's per-turn tokens, the assigned-playtest budget); agent rows join it in phase 2.
+1. **Settings layout.** The seven sections, every card moved, approvals split into rows, Instructions with every convention (still one agent), context strategy for other clients outside the editor, shared badges. Usage > Budgets ships here as the one place budgets are edited, with today's two limits as its first rows (the main agent's per-turn tokens, the assigned-playtest budget); agent rows join it in phase 2. Today's counter already counts cache writes inside input and leaves cached reads out, which is the budget definition, so phase 1 needs no new counting.
 2. **Agents, any vendor.** Team model, files and layers, main and helpers on any vendor and route, shared context and fresh start on both loops, the relay tool on the SDK route, compatibility strip, fallbacks, Worker, templates, delegation, bindings, per-agent tool scope. Migration runs here.
 3. **Usage ledger and dashboard.** Four token kinds, plan meters, price table, per-day budgets and warnings. Depends on the token-usage work's counting.
 4. **Skills.** Library across four sources, preload and on demand on both routes, plugin skills grouped by plugin. Needs the daemon's skills listing.
