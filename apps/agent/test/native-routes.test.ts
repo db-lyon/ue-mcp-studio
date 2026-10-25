@@ -58,7 +58,7 @@ describe("the native view", () => {
     expect(codex.routes).toEqual(["ChatGPT sign-in"]);
     expect(codex.instructions.map((f) => f.path)).toEqual(["AGENTS.md"]);
     expect(codex.subagents.map((a) => [a.name, a.runs])).toEqual([
-      ["heavy", { model: "GPT-6-SOL, the main agent's", note: "Nothing on this machine runs gpt-9 over the API, so it runs on the main agent's model." }],
+      ["heavy", { model: "The main agent's, GPT-6-SOL", note: "Nothing on this machine runs gpt-9 over the API, so it runs on the main agent's model." }],
       ["scout", { model: "GPT-6-LUNA" }],
     ]);
     expect(codex.subagents[0].tools).toContain("edit_file");
@@ -70,8 +70,11 @@ describe("the native view", () => {
   it("previews the text an agent is given, and says when the SDK loads it itself", () => {
     write("CLAUDE.md", "Claude rules.");
     const p = setup({ vendor: "anthropic", model: "claude-opus-5-5", route: "claude" })("GET /native/preview", undefined, { convention: "claude" }).body as NativePreview;
-    expect(p).toMatchObject({ convention: "claude", loadedBy: "sdk" });
-    expect(p.text).toContain("## From CLAUDE.md\nClaude rules.");
+    // The SDK reads the files itself, so the preview is the files, not a prompt Studio writes.
+    expect(p).toMatchObject({ convention: "claude", loadedBy: "sdk", files: 1, text: "## CLAUDE.md\nClaude rules." });
+    const own = setup({ vendor: "anthropic", model: "claude-opus-5-5", route: "key" })("GET /native/preview", undefined, { convention: "claude" }).body as NativePreview;
+    expect(own).toMatchObject({ loadedBy: "studio", files: 1 });
+    expect(own.text).toContain("## From CLAUDE.md\nClaude rules.");
     expect(setup()("GET /native/preview", undefined, { convention: "nobody" }).status).toBe(400);
   });
 });

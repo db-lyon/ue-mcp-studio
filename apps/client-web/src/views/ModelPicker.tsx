@@ -338,7 +338,7 @@ export function EffortPicker({ settings, onSettings }: { settings: StudioSetting
   return (
     <label className="effort" title={error ?? "How long the model reasons before it answers"}>
       <span className="effort-label">Effort</span>
-      <select value={settings.effort} onChange={(e) => void pick(e.target.value as Effort)} aria-label="Effort">
+      <select value={settings.effort} onChange={(e) => void pick(e.target.value as Effort)} aria-label="Effort" disabled={settings.route === null} title={settings.route === null ? "Pick a model that runs first" : undefined}>
         {EFFORTS.map((x) => <option key={x} value={x}>{EFFORT_NAMES[x]}</option>)}
       </select>
     </label>

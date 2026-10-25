@@ -12,6 +12,7 @@ export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
   { id: "full", name: `Full ${IMAGE_EDGES.full} px` },
 ];
 
+const SAME = "Same as the main agent";
 const STARTS: Record<string, string> = { never: "never: earlier settings turned it off", asked: "when you ask for a helper", automatic: "when the work splits into independent parts" };
 
 /**
@@ -56,25 +57,27 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
         <Row title="Screenshot size" help="The longest side of a screenshot or picture an agent is shown. A larger image costs more every time the conversation is read again.">
           <Seg label="Screenshot size" value={settings.usage.imageSize} options={IMAGE_SIZES} onChange={(v) => void saveUsage({ imageSize: v })} />
         </Row>
-        <Row inline title="Read the project's own files" help="Instructions, subagents and skills from each vendor's files in the project and your home folder. Off: every route reads none.">
-          <Switch label="Read the project's own files" on={settings.usage.projectInstructions} onChange={(v) => void saveUsage({ projectInstructions: v })} />
-        </Row>
       </Card>
-
-      {native && settings.usage.projectInstructions && <NativePanel overview={native} />}
-      {native && !settings.usage.projectInstructions && <p className="cfg-note">The project's own files are not read. Turn it on above to see what each vendor's files give its models.</p>}
 
       {native && (
         <Card label="Studio's own worker">
           <p className="muted small">The helper Studio adds for work that splits into independent parts, beside the project's own subagents. Per-turn limits are in <button className="link" onClick={() => onSection("usage")}>Usage</button>.</p>
           <dl className="grid">
-            <dt>Model</dt><dd>{native.worker.model}</dd>
-            <dt>Effort</dt><dd>{EFFORT_NAMES[native.worker.effort as Effort] ?? native.worker.effort}</dd>
+            <dt>Model</dt><dd>{native.worker.model ?? SAME}</dd>
+            <dt>Effort</dt><dd>{native.worker.effort ? EFFORT_NAMES[native.worker.effort as Effort] ?? native.worker.effort : SAME}</dd>
             <dt>Starts</dt><dd>{STARTS[native.worker.starts]}</dd>
           </dl>
           {native.worker.fromSettings && <p className="cfg-note">These come from settings you made in an earlier Studio, which it still follows.</p>}
         </Card>
       )}
+
+      <div className="cfg-block-head">
+        <Row inline title="The project's agent files" help="Instructions, subagents and skills from each vendor's own files in the project and your home folder, read as that vendor's tools read them. Off: no route reads any of them.">
+          <Switch label="Read the project's agent files" on={settings.usage.projectInstructions} onChange={(v) => void saveUsage({ projectInstructions: v })} />
+        </Row>
+      </div>
+      {native && settings.usage.projectInstructions && <NativePanel overview={native} onConnect={() => onSection("models")} />}
+      {native && !settings.usage.projectInstructions && <p className="cfg-note">Off: agents are given none of the project's own files.</p>}
     </>
   );
 }

@@ -34,7 +34,7 @@ export const CONVENTION_INFO: Record<Convention, { name: string; tool: string; v
   agents: {
     name: "Other models",
     tool: "AGENTS.md",
-    vendor: "custom endpoints",
+    vendor: "models from custom endpoints",
     reads: "AGENTS.md in each folder from the repository root down to the project, and skills from .agents/skills, the files no single vendor owns.",
     docs: "https://agents.md",
   },
@@ -105,8 +105,10 @@ export interface NativeView {
 
 /** Studio's own helper for work that splits, as earlier settings left it. */
 export interface WorkerView {
-  model: string;
-  effort: string;
+  /** Null: the main agent's model, whichever that is. */
+  model: string | null;
+  /** Null: the main agent's effort. */
+  effort: string | null;
   starts: "never" | "asked" | "automatic";
   /** The values come from settings the user made before these became read only. */
   fromSettings: boolean;
@@ -127,6 +129,8 @@ export interface NativePreview {
   convention: Convention;
   text: string;
   tokens: number;
+  /** The instruction files read on every call, in load order. */
+  files: number;
   /** On the Claude sign-in the Agent SDK reads the files itself; this is what it reads. */
   loadedBy: "studio" | "sdk";
 }

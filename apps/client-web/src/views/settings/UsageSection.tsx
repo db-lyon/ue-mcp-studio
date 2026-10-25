@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { BUDGET_LIMITS, MAIN_AGENT_ID, MAX_SUBAGENTS_PER_TURN, PLAYTEST_RUNNER_ID, type Budget } from "@ue-mcp-studio/shared";
 import { api, type BudgetsBody } from "../../api";
 import { Head } from "../SettingsHub";
-import { Avatar, Card, NumberField, Row, useMessage } from "./controls";
+import { Card, NumberField, Row, useMessage } from "./controls";
 
 /** What each row does at its limit, as the runs enforce it today. */
 const AT_LIMIT: Record<string, string> = {
@@ -43,7 +43,7 @@ export function UsageSection() {
                 return (
                   <tr key={a.id}>
                     <td>
-                      <div className="cfg-inline"><Avatar id={a.id} name={a.name} small /><strong>{a.name}</strong></div>
+                      <strong>{a.name}</strong>
                       <div className="cfg-note">{runner ? "One assigned playtest, every attempt included" : "One turn of its own calls"}</div>
                     </td>
                     <td data-label="Tokens per run">
@@ -52,7 +52,7 @@ export function UsageSection() {
                     <td data-label="Minutes per run">
                       {runner
                         ? <NumberField label={`${a.name} minutes per run`} value={b.perRunMinutes} min={1} max={BUDGET_LIMITS.maxMinutes} onSave={(n) => void save(a.id, { perRunMinutes: n })} />
-                        : <span className="dim" title="A turn has no time limit">no time limit</span>}
+                        : <input type="text" className="minutes" disabled value="" placeholder="None" aria-label={`${a.name} minutes per run: a turn has no time limit`} title="A turn has no time limit" />}
                     </td>
                     <td className="small" data-label="At the limit">{AT_LIMIT[a.id] ?? "Stops and reports"}</td>
                   </tr>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { CONVENTION_INFO, type Convention, type NativeFile, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { Card, tokens, useMessage } from "./controls";
@@ -9,113 +9,167 @@ function scopeLine(f: NativeFile): string {
   return f.source === "user" ? "yours, every project" : f.source === "local" ? "this machine only" : "every call";
 }
 
-const SOURCE: Record<string, string> = { user: "Yours", project: "Project", local: "This machine", plugin: "Plugin" };
+const SOURCE: Record<string, string> = { user: "User", project: "Project", local: "This machine", plugin: "Plugin" };
 
-function OpenFile({ path, onError }: { path: string; onError: (e: Error) => void }) {
-  return <button className="ghost small-button" onClick={() => void api.openFile(path).catch(onError)} aria-label={`Open ${path}`}>Open file</button>;
+/** Where each convention keeps its subagents and skills, for the empty states. */
+const SUBAGENT_DIR: Record<Convention, string | null> = { claude: ".claude/agents", codex: ".codex/agents", gemini: ".gemini/agents", agents: null };
+const SKILL_DIR: Record<Convention, string> = { claude: ".claude/skills", codex: ".agents/skills", gemini: ".agents/skills and .gemini/skills", agents: ".agents/skills" };
+const INSTRUCTION_FILE: Record<Convention, string> = { claude: "CLAUDE.md", codex: "AGENTS.md", gemini: "GEMINI.md", agents: "AGENTS.md" };
+
+/** A path that wraps only after its slashes, never inside a name. */
+export function Path({ p, className = "path" }: { p: string; className?: string }) {
+  const parts = p.split("/");
+  return (
+    <div className={className} title={p}>
+      {parts.map((s, i) => <Fragment key={i}>{s}{i < parts.length - 1 && <>/<wbr /></>}</Fragment>)}
+    </div>
+  );
 }
 
-/** Tabs by convention: the main agent's first, then those a connected route reads, then the rest. */
+function OpenFile({ path, onError }: { path: string; onError: (e: Error) => void }) {
+  return <button className="small-button open-file" onClick={() => void api.openFile(path).catch(onError)} aria-label={`Open ${path}`} title={`Open ${path} in its default app`}>Open file</button>;
+}
+
+const count = (v: NativeView) => v.instructions.length + v.subagents.length + v.skills.length;
+
+/** Tabs by convention: those a connected route reads first, then the rest, each group by tool name. */
 export function conventionOrder(o: NativeOverview): NativeView[] {
-  const rank = (v: NativeView) => (v.convention === o.main ? 0 : v.routes.length ? 1 : 2);
-  // Ties by name, so no vendor leads by default.
-  return [...o.conventions].sort((a, b) => rank(a) - rank(b) || CONVENTION_INFO[a.convention].name.localeCompare(CONVENTION_INFO[b.convention].name));
+  const rank = (v: NativeView) => (v.convention === o.main || v.routes.length ? 0 : 1);
+  return [...o.conventions].sort((a, b) => rank(a) - rank(b) || CONVENTION_INFO[a.convention].tool.localeCompare(CONVENTION_INFO[b.convention].tool));
+}
+
+/** The tab open first: the main agent's convention, else one a route reads, else none. */
+export function firstTab(o: NativeOverview): Convention | null {
+  if (o.main) return o.main;
+  return conventionOrder(o).find((v) => v.routes.length)?.convention ?? null;
 }
 
 /**
- * Agents > Project files: what each vendor's own files give its models, read
- * only. Studio reads them as that vendor's tools read them and writes none.
+ * Agents > the project's agent files: what each vendor's own files give its
+ * models, read only. Studio reads them as that vendor's tools read them and
+ * writes none.
  */
-export function NativePanel({ overview }: { overview: NativeOverview }) {
+export function NativePanel({ overview, onConnect }: { overview: NativeOverview; onConnect: () => void }) {
   const ordered = conventionOrder(overview);
-  const [tab, setTab] = useState<Convention>(ordered[0]?.convention ?? "claude");
+  const [tab, setTab] = useState<Convention | null>(() => firstTab(overview));
   const [preview, setPreview] = useState<NativePreview | null>(null);
   const msg = useMessage();
-  const view = overview.conventions.find((c) => c.convention === tab) ?? ordered[0];
+  const view = tab ? overview.conventions.find((c) => c.convention === tab) ?? null : null;
   useEffect(() => {
     setPreview(null);
     if (view) api.nativePreview(view.convention).then(setPreview, () => setPreview(null));
   }, [view?.convention]);
-  if (!view) return null;
-  const info = CONVENTION_INFO[view.convention];
-  const count = (v: NativeView) => v.instructions.length + v.subagents.length + v.skills.length;
   return (
     <>
-      <nav className="subtabs" aria-label="Whose files">
+      <nav className="subtabs scroll-tabs" aria-label="Whose files">
         {ordered.map((v) => (
-          <button key={v.convention} className={`subtab ${v.convention === tab ? "active" : ""}`} aria-current={v.convention === tab ? "page" : undefined} onClick={() => setTab(v.convention)}>
-            {CONVENTION_INFO[v.convention].name}<span className="count">{count(v)}</span>
+          <button key={v.convention} className={`subtab ${v.convention === tab ? "active" : ""}`} aria-current={v.convention === tab ? "page" : undefined} title={`The files ${CONVENTION_INFO[v.convention].vendor} read`} onClick={() => setTab(v.convention)}>
+            {CONVENTION_INFO[v.convention].tool}<span className="count">{count(v)}</span>
           </button>
         ))}
       </nav>
       {msg.node}
+      {view ? <ConventionView view={view} main={overview.main} preview={preview} onConnect={onConnect} onError={msg.fail} /> : (
+        <Card label="Found in this project">
+          <p className="muted small">Each vendor's tools read their own files. A route you connect reads the files of its models' vendor; until then no agent reads any of these.</p>
+          <ul className="ifiles plain">
+            {ordered.map((v) => {
+              const info = CONVENTION_INFO[v.convention];
+              return (
+                <li key={v.convention}>
+                  <div className="ifile-main">
+                    <strong>{info.tool}</strong>
+                    <div className="readers">For {info.vendor}: {v.instructions.length} instruction file{v.instructions.length === 1 ? "" : "s"}, {v.subagents.length} subagent{v.subagents.length === 1 ? "" : "s"}, {v.skills.length} skill{v.skills.length === 1 ? "" : "s"}.</div>
+                  </div>
+                  <button className="small-button" onClick={() => setTab(v.convention)}>Show</button>
+                </li>
+              );
+            })}
+          </ul>
+          <p className="cfg-note"><button className="link" onClick={onConnect}>Connect a route in Models & accounts</button></p>
+        </Card>
+      )}
+    </>
+  );
+}
+
+function ConventionView({ view, main, preview, onConnect, onError }: { view: NativeView; main: Convention | null; preview: NativePreview | null; onConnect: () => void; onError: (e: Error) => void }) {
+  const info = CONVENTION_INFO[view.convention];
+  const sdk = preview?.loadedBy === "sdk";
+  const inUse = view.routes.length > 0;
+  return (
+    <>
       <p className="muted small">
         {info.vendor[0].toUpperCase() + info.vendor.slice(1)} read the files {info.tool} reads: {info.reads} <a href={info.docs} target="_blank" rel="noreferrer">{info.tool} documentation</a>
       </p>
-      <p className="cfg-note">
-        {view.convention === overview.main ? "The main agent reads these. " : ""}
-        {view.routes.length ? `Read on this machine by ${view.routes.join(" and ")}.` : "No connected route reads these yet."}
-        {view.convention === "claude" && preview?.loadedBy === "sdk" ? " On the Claude sign-in the Agent SDK loads them itself, as Claude Code does." : ""}
+      <p className="cfg-status">
+        <span className={`dot ${inUse ? "ok" : ""}`} aria-hidden />
+        {inUse
+          ? <>In use: {view.routes.join(", ")}{view.convention === main ? ", the main agent's route" : ""}.{sdk ? " The Agent SDK loads these files itself." : ""}</>
+          : <>Not in use: no route for these models is connected. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></>}
       </p>
       {view.notes.map((n) => <div key={n} className="banner warn small">{n}</div>)}
 
-      <Card label={`Instruction files ${view.instructions.length ? `(${tokens(view.instructionTokens)} tokens on every call)` : ""}`}>
-        {view.instructions.length === 0 && <p className="cfg-note">None in this project. {view.convention === "claude" ? "Claude Code reads a CLAUDE.md in the project folder." : view.convention === "gemini" ? "Gemini CLI reads a GEMINI.md in the project folder." : "These models read an AGENTS.md in the project folder."}</p>}
+      <Card label={view.instructions.length ? `Instruction files · ${tokens(view.instructionTokens)} tokens per call` : "Instruction files"}>
+        {view.instructions.length === 0 && <p className="cfg-note">None found. {info.tool} reads a {INSTRUCTION_FILE[view.convention]} in the project folder.</p>}
         <ol className="ifiles">
           {view.instructions.map((f, i) => (
             <li key={f.path}>
               <span className="ifile-n dim num">{i + 1}</span>
               <div className="ifile-main">
-                <div className="path">{f.path}</div>
+                <Path p={f.path} />
                 <div className="readers">{tokens(f.tokens)} tokens, {scopeLine(f)}{f.imports?.length ? `, imports ${f.imports.join(", ")}` : ""}</div>
               </div>
-              <OpenFile path={f.path} onError={msg.fail} />
+              <OpenFile path={f.path} onError={onError} />
             </li>
           ))}
         </ol>
         {preview?.text && (
           <details className="cfg-note">
-            <summary>What an agent is given from these files</summary>
+            <summary>{sdk ? `What the Agent SDK loads, as Claude Code loads it (${preview.files} file${preview.files === 1 ? "" : "s"})` : `What Studio gives an agent from these files (${preview.files} file${preview.files === 1 ? "" : "s"})`}</summary>
             <pre className="code">{preview.text}</pre>
           </details>
         )}
       </Card>
 
       <Card label="Subagents">
-        {view.subagents.length === 0 && <p className="cfg-note">{view.convention === "agents" ? "These models have no subagent files; Studio's own worker is their helper." : `None in this project. ${info.tool} reads them from ${view.convention === "claude" ? ".claude/agents" : view.convention === "codex" ? ".codex/agents" : ".gemini/agents"}.`}</p>}
-        <ol className="ifiles">
+        {view.subagents.length === 0 && <p className="cfg-note">{SUBAGENT_DIR[view.convention] ? `None found. ${info.tool} reads them from ${SUBAGENT_DIR[view.convention]}.` : "These models have no subagent files; Studio's own worker is their helper."}</p>}
+        <ul className="ifiles plain">
           {view.subagents.map((a) => (
             <li key={a.path}>
-              <span className="ifile-n" />
               <div className="ifile-main">
                 <div><strong>{a.name}</strong> <span className="muted small">{a.description}</span></div>
-                <div className="readers">Runs on {a.runs.model}{a.model ? ` (its file names ${a.model})` : ""}. Tools: {a.tools}.{a.maxTurns ? ` At most ${a.maxTurns} turns.` : ""}{a.effort ? ` Effort ${a.effort}.` : ""}</div>
+                <dl className="fields">
+                  <dt>Model</dt><dd>{a.runs.model}{a.model ? <> (file says <code>{a.model}</code>)</> : null}</dd>
+                  <dt>Tools</dt><dd>{a.tools}</dd>
+                  {a.maxTurns ? <><dt>Turns</dt><dd>at most {a.maxTurns}</dd></> : null}
+                  {a.effort ? <><dt>Effort</dt><dd>{a.effort}</dd></> : null}
+                </dl>
                 {a.runs.note && <div className="cfg-note warn-text">{a.runs.note}</div>}
                 {a.problems.map((p) => <div key={p} className="cfg-note warn-text">{p}</div>)}
-                <div className="path dim">{a.path}</div>
+                <Path p={a.path} className="path dim" />
               </div>
-              <OpenFile path={a.path} onError={msg.fail} />
+              <OpenFile path={a.path} onError={onError} />
             </li>
           ))}
-        </ol>
+        </ul>
       </Card>
 
       <Card label="Skills">
-        {view.skills.length === 0 && <p className="cfg-note">None in this project. {info.tool} reads them from {view.convention === "claude" ? ".claude/skills" : view.convention === "gemini" ? ".agents/skills and .gemini/skills" : ".agents/skills"}.</p>}
-        <ol className="ifiles">
+        {view.skills.length === 0 && <p className="cfg-note">None found. {info.tool} reads them from {SKILL_DIR[view.convention]}.</p>}
+        <ul className="ifiles plain">
           {view.skills.map((s) => (
-            <li key={`${s.path}`}>
-              <span className="ifile-n" />
+            <li key={s.path}>
               <div className="ifile-main">
-                <div><strong className="mono">{s.name}</strong> <span className="tag">{s.owner ? `plugin ${s.owner}` : SOURCE[s.source]}</span></div>
+                <div><strong className="mono">{s.name}</strong> <span className="tag">{s.owner ? `Plugin: ${s.owner}` : SOURCE[s.source]}</span></div>
                 <div className="readers">{s.description || "No description."} {tokens(s.tokens)} tokens when loaded.{s.implicit ? "" : " Used only when you name it."}</div>
                 {s.problems.map((p) => <div key={p} className="cfg-note warn-text">{p}</div>)}
-                <div className="path dim">{s.path}</div>
+                <Path p={s.path} className="path dim" />
               </div>
-              <OpenFile path={s.path} onError={msg.fail} />
+              <OpenFile path={s.path} onError={onError} />
             </li>
           ))}
-        </ol>
+        </ul>
       </Card>
     </>
   );

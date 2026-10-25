@@ -70,7 +70,7 @@ import { BudgetStore } from "./budgets.js";
 import { DaemonActionEffects } from "./approval-kind.js";
 import { BUDGET_ROWS, registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
-import { modelName } from "./models.js";
+import { fullModelName, modelName } from "./models.js";
 import { userHome } from "./instructions.js";
 import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
@@ -335,12 +335,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       const r = routeOf(vendor as KeyProviderId, model);
       return r !== null && (r !== "claude" || !!settings.key(vendor as KeyProviderId));
     },
-    modelName,
+    modelName: fullModelName,
     worker: () => {
       const u = settings.usage();
+      // Unset, the worker follows the main agent, whichever model that is.
       return {
-        model: modelName(settings.subagentModel()),
-        effort: u.subagentEffort ?? settings.effort(),
+        model: u.subagentModel ? fullModelName(u.subagentModel.model) : null,
+        effort: u.subagentEffort,
         starts: u.subagents === "off" ? "never" : u.subagents,
         fromSettings: u.subagentModel !== null || u.subagentEffort !== null || u.subagents !== DEFAULT_USAGE.subagents,
       };

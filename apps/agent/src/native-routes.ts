@@ -59,10 +59,10 @@ export function nativeView(l: Loadout, o: Pick<NativeRouteOptions, "routesFor" |
       const { allowed, unknown } = toolsFor(a);
       const wants = modelOf(l.convention, a.model);
       const runs = !wants
-        ? { model: `${o.modelName(main.model)}, the main agent's` }
+        ? { model: `The main agent's, ${o.modelName(main.model)}` }
         : o.runsOverApi(wants.vendor, wants.model)
           ? { model: o.modelName(wants.model) }
-          : { model: `${o.modelName(main.model)}, the main agent's`, note: `Nothing on this machine runs ${a.model} over the API, so it runs on the main agent's model.` };
+          : { model: `The main agent's, ${o.modelName(main.model)}`, note: `Nothing on this machine runs ${a.model} over the API, so it runs on the main agent's model.` };
       return {
         name: a.name,
         description: a.description,
@@ -103,9 +103,15 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
   api.route("GET", "/native/preview", (req) => {
     const c = req.query.convention as Convention;
     if (!CONVENTIONS.includes(c)) return { status: 400, body: { error: `convention must be one of ${CONVENTIONS.join(", ")}` } };
-    const composed = composeNative(loadout(c, api.projectDir, o.home(), o.owners(), o.top));
+    const l = loadout(c, api.projectDir, o.home(), o.owners(), o.top);
     const main = o.main();
-    const body: NativePreview = { convention: c, text: composed.text ?? "", tokens: composed.tokens, loadedBy: c === "claude" && main.route === "claude" ? "sdk" : "studio" };
+    const sdk = c === "claude" && main.route === "claude";
+    // On the Claude sign-in Studio adds no instruction text: the Agent SDK reads the files, so the preview is the files.
+    const always = l.instructions.filter((f) => f.scope.kind === "always");
+    const composed = composeNative(l);
+    const text = sdk ? always.map((f) => `## ${f.path}\n${f.text}`).join("\n\n") : composed.text ?? "";
+    const tokens = sdk ? always.reduce((n, f) => n + f.tokens, 0) : composed.tokens;
+    const body: NativePreview = { convention: c, text, tokens, files: always.length, loadedBy: sdk ? "sdk" : "studio" };
     return { body };
   });
 

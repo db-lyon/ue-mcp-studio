@@ -49,12 +49,15 @@ describe("Agents: what each vendor's own files give its models", () => {
   it("opens on the main agent's convention, says who reads it, and lists each kind with its source", async () => {
     await show();
     const tabs = screen.getByRole("navigation", { name: "Whose files" });
-    expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["OpenAI4", "Claude1", "Gemini0", "Other models0"]);
-    expect(screen.getByText(/The main agent reads these\. Read on this machine by ChatGPT sign-in and OpenAI key\./)).toBeTruthy();
+    // Connected first, then the rest, each group by tool name: no vendor leads by default.
+    expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Claude Code1", "Codex4", "AGENTS.md0", "Gemini CLI0"]);
+    expect(tabs.querySelector("[aria-current=page]")?.textContent).toBe("Codex4");
+    expect(screen.getByText(/In use: ChatGPT sign-in, OpenAI key, the main agent's route\./)).toBeTruthy();
     expect(screen.getByText("AGENTS.md is past Codex's 32 KiB limit for instruction files, so it is not read.")).toBeTruthy();
     expect(screen.getByText("scout")).toBeTruthy();
-    expect(screen.getByText(/Runs on 6 Luna \(its file names gpt-6-luna\)\. Tools: every tool but shell\./)).toBeTruthy();
-    expect(screen.getByText("plugin ue-mcp-meshy")).toBeTruthy();
+    expect(screen.getByText("gpt-6-luna").closest("dd")?.textContent).toBe("6 Luna (file says gpt-6-luna)");
+    expect(screen.getByText("every tool but shell")).toBeTruthy();
+    expect(screen.getByText("Plugin: ue-mcp-meshy")).toBeTruthy();
     expect(screen.getByText(/Used only when you name it\./)).toBeTruthy();
   });
 
@@ -66,18 +69,19 @@ describe("Agents: what each vendor's own files give its models", () => {
 
   it("says where each vendor would read files a project does not have yet", async () => {
     await show();
-    await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^Gemini/ })));
-    expect(screen.getByText(/None in this project\. Gemini CLI reads a GEMINI\.md in the project folder\./)).toBeTruthy();
-    expect(screen.getByText(/No connected route reads these yet\./)).toBeTruthy();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^Gemini CLI/ })));
+    expect(screen.getByText(/None found\. Gemini CLI reads a GEMINI\.md in the project folder\./)).toBeTruthy();
+    expect(screen.getByText(/Not in use: no route for these models is connected\./)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect one in Models & accounts" })).toBeTruthy();
   });
 
   it("offers no subagent or skill editing, only the switch that reads the files at all", async () => {
     await show();
     expect(screen.queryByRole("combobox", { name: /Helper model/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Add a file|Create AGENTS\.md|New skill/ })).toBeNull();
-    await act(async () => void fireEvent.click(screen.getByRole("switch", { name: "Read the project's own files" })));
+    await act(async () => void fireEvent.click(screen.getByRole("switch", { name: "Read the project's agent files" })));
     expect(m.saveSettings).toHaveBeenCalledWith({ usage: { projectInstructions: false } });
-    expect(screen.getByText(/The project's own files are not read\./)).toBeTruthy();
+    expect(screen.getByText(/Off: agents are given none of the project's own files\./)).toBeTruthy();
   });
 
   it("shows Studio's own worker read only, and says when earlier settings set it", async () => {
@@ -85,6 +89,28 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.getByText("Haiku 5.5")).toBeTruthy();
     expect(screen.getByText("when the work splits into independent parts")).toBeTruthy();
     expect(screen.getByText(/settings you made in an earlier Studio/)).toBeTruthy();
+  });
+
+  it("follows the main agent when the worker has no model of its own", async () => {
+    await show({}, overview({ worker: { model: null, effort: null, starts: "asked", fromSettings: false } }));
+    expect(screen.getAllByText("Same as the main agent")).toHaveLength(2);
+  });
+
+  it("selects no vendor's files when nothing is connected, and lists what each has", async () => {
+    const none = overview({ main: null, conventions: overview().conventions.map((c) => ({ ...c, routes: [] })) });
+    await show({}, none);
+    const tabs = screen.getByRole("navigation", { name: "Whose files" });
+    expect(tabs.querySelector("[aria-current=page]")).toBeNull();
+    expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["AGENTS.md0", "Claude Code1", "Codex4", "Gemini CLI0"]);
+    expect(screen.getByText(/For OpenAI models: 2 instruction files, 1 subagent, 1 skill\./)).toBeTruthy();
+    await act(async () => void fireEvent.click(screen.getAllByRole("button", { name: "Show" })[2]));
+    expect(tabs.querySelector("[aria-current=page]")?.textContent).toBe("Codex4");
+  });
+
+  it("titles the preview by who loads the files", async () => {
+    m.nativePreview.mockResolvedValueOnce({ convention: "codex", text: "## CLAUDE.md", tokens: 3, files: 1, loadedBy: "sdk" } as never);
+    await show();
+    expect(screen.getByText("What the Agent SDK loads, as Claude Code loads it (1 file)")).toBeTruthy();
   });
 
   it("saves the screenshot size", async () => {
