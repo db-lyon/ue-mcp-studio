@@ -11,6 +11,7 @@ import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
 import type { Approvals } from "./composer.js";
+import type { BudgetReached } from "./usage.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -371,7 +372,10 @@ export interface ApprovalRequest {
   id: string;
   /** The tool call it belongs to. */
   toolUseId: string;
-  tool: "shell" | "write_file" | "edit_file" | "editor_restart" | "ue_mcp";
+  /** budget: a budget in Usage was reached and asks before the next call goes on. */
+  tool: "shell" | "write_file" | "edit_file" | "editor_restart" | "ue_mcp" | "budget";
+  /** budget: which one, what was spent and its limit, in budget tokens. */
+  budget?: BudgetReached;
   /** The agent call of the subagent that asked, when a subagent did. */
   parent: string | null;
   /** That subagent's short task name. */

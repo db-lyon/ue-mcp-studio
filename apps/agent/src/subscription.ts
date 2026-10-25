@@ -10,7 +10,8 @@ import type { Effort, SubagentMode } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import { OMIT_DESCRIPTION, SELECT_DESCRIPTION, UE_MCP_DESCRIPTION, forModel, type ToolExecution } from "./tools.js";
-import { messagesUsage, usageTokens } from "./usage.js";
+import { kindsOf, messagesUsage, usageTokens, type TokenUsage } from "./usage.js";
+import type { TokenKinds } from "@ue-mcp-studio/shared";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
@@ -103,7 +104,9 @@ export interface SubscriptionTurn {
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
   /** Tokens the turn spent since the last report, as each model message arrives; `parent` is the agent call of a subagent's message. */
-  onTokens?: (tokens: number, parent: string | null) => void;
+  onTokens?: (tokens: number, parent: string | null, detail?: { kinds: TokenKinds; model: string }) => void;
+  /** A limit window the Claude sign-in reported, for Usage's plan meter. */
+  onRateLimit?: (info: { type?: string; utilization?: number; resetsAt?: number; status: string }) => void;
 }
 
 /**
@@ -303,10 +306,16 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     let error: string | null = null;
     // The SDK repeats a message per content block with its usage so far: count each message's growth once.
     const spent = new Map<string, number>();
+    const spentKinds = new Map<string, TokenKinds>();
     for (;;) {
       const next = await Promise.race([messages.next(), stopped]);
       if (!next || next.done || t.signal.aborted) break;
       const m = next.value;
+      if (m.type === "rate_limit_event") {
+        const i = (m as { rate_limit_info?: { rateLimitType?: string; utilization?: number; resetsAt?: number; status?: string } }).rate_limit_info;
+        if (i) t.onRateLimit?.({ type: i.rateLimitType, utilization: i.utilization, resetsAt: i.resetsAt, status: i.status ?? "allowed" });
+        continue;
+      }
       if (m.type === "system" && "subtype" in m && m.subtype === "init") t.onSession(m.session_id);
       else if (m.type === "system" && "subtype" in m && m.subtype === "task_started") {
         if (m.tool_use_id) {
@@ -326,11 +335,17 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       } else if (m.type === "assistant") {
         if (m.error) error = `Claude: ${m.error}`;
         if (t.onTokens) {
-          const tokens = usageTokens(messagesUsage((m.message as { usage?: unknown }).usage));
+          const u = messagesUsage((m.message as { usage?: unknown }).usage);
+          const tokens = usageTokens(u);
           const before = spent.get(m.message.id) ?? 0;
           if (tokens > before) {
             spent.set(m.message.id, tokens);
-            t.onTokens(tokens - before, m.parent_tool_use_id);
+            // The kinds this message added since its last report, for the ledger.
+            const was = spentKinds.get(m.message.id);
+            const now = u ? kindsOf(u) : { input: 0, cacheRead: 0, cacheWrite: 0, output: 0 };
+            spentKinds.set(m.message.id, now);
+            const delta = (k: keyof TokenKinds) => (now[k] === null ? null : (now[k] ?? 0) - (was?.[k] ?? 0));
+            t.onTokens(tokens - before, m.parent_tool_use_id, { kinds: { input: delta("input"), cacheRead: delta("cacheRead"), cacheWrite: delta("cacheWrite"), output: delta("output") }, model: String((m.message as { model?: unknown }).model ?? "") });
           }
         }
         const content = (m.message.content as ContentBlock[]).map((b) => (b.type === "tool_use" ? ({ ...b, name: studioName(b.name) } as ContentBlock) : b));
@@ -364,7 +379,7 @@ export interface SubscriptionCompletion {
  * tools at all, built-in or Studio's, one turn, and no session kept. The
  * answer is the turn's result text.
  */
-export async function runSubscriptionCompletion(c: SubscriptionCompletion): Promise<{ text: string } | { error: string }> {
+export async function runSubscriptionCompletion(c: SubscriptionCompletion): Promise<{ text: string; usage?: TokenUsage } | { error: string }> {
   if (!(claudeLogin() ?? (await refreshClaudeLogin()))) return { error: "Sign in to Claude Code first: run `claude /login` in a terminal." };
   const rt = await runtime();
   if ("error" in rt) return rt;
@@ -393,17 +408,19 @@ export async function runSubscriptionCompletion(c: SubscriptionCompletion): Prom
     });
     let text = "";
     let error: string | null = null;
+    let usage: TokenUsage | undefined;
     for await (const m of q as AsyncIterable<SDKMessage>) {
       if (m.type === "assistant") {
         if (m.error) error = `Claude: ${m.error}`;
         for (const b of m.message.content as ContentBlock[]) if (b.type === "text") text += b.text;
       } else if (m.type === "result") {
+        usage = messagesUsage((m as { usage?: unknown }).usage);
         if (m.subtype === "success" && !m.is_error) text = m.result || text;
         else error = error ?? (m.subtype === "success" ? m.result : `The turn ended: ${m.subtype}`);
       }
     }
     if (c.signal.aborted) return { error: "stopped" };
-    return error ? { error } : { text };
+    return error ? { error } : { text, ...(usage ? { usage } : {}) };
   } catch (e) {
     return { error: c.signal.aborted ? "stopped" : e instanceof Error ? e.message : String(e) };
   } finally {

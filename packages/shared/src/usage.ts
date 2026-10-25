@@ -140,3 +140,24 @@ export interface CacheExplainer {
   asOf: string;
   source: string;
 }
+
+/** Which budget a run reached. */
+export type BudgetScope = "agent-day" | "team-day" | "team-month";
+
+/** A per-day or per-month budget reached, as the approval and the warnings show it. */
+export interface BudgetReached {
+  scope: BudgetScope;
+  /** agent-day: the agent whose day it is. */
+  agent?: string;
+  /** Budget tokens spent in the period, and its limit. */
+  spent: number;
+  limit: number;
+  /** The local day (YYYY-MM-DD) or month (YYYY-MM) it counts. */
+  period: string;
+  onLimit: "ask" | "stop";
+}
+
+/** GET /usage/warnings */
+export interface UsageWarnings {
+  warnings: UsageWarning[];
+}
