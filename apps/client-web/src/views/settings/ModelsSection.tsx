@@ -105,7 +105,7 @@ export function ProviderRow({ provider, settings, onChange, onError }: {
   const disconnect = () =>
     api.saveSettings(signIn ? { signOut: provider } : { keys: { [provider]: "" } }).then(onChange, onError);
   return (
-    <div className="toggle-row provider-row">
+    <div className="toggle-row">
       <span className={`dot ${connected ? "ok" : ""}`} style={{ marginTop: 6 }} />
       <div className="grow">
         <div className="t"><strong>{PROVIDERS[provider].name}</strong> <span className="muted small">{status}</span></div>
