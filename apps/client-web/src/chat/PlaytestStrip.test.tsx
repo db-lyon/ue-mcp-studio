@@ -210,9 +210,9 @@ describe("the strip of live playtests", () => {
 
   it("holds the place of the verdict buttons with the step a card is on", () => {
     render(<Session transcript={entries(run("a", "Jump", "running", ["running", "pending"]))} events={[]} />);
-    const now = within(stripEl()!).getByRole("status", { name: "Observer checking: Jump step 1" });
+    const now = within(stripEl()!).getByRole("status", { name: "Checking: Jump step 1" });
     const box = now.closest(".qa-now") as HTMLElement;
-    expect(box.textContent).toContain("Observer checking");
+    expect(box.textContent).toContain("Checking");
     expect(within(box).getByRole("button", { name: "Stop playtest Jump" })).toBeTruthy();
   });
 

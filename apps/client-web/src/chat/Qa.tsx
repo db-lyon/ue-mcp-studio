@@ -217,7 +217,7 @@ function NowLine({ run, pill, actions }: { run: QaRun; pill: string | null; acti
     : run.state === "armed" ? "Waiting for PIE to start"
     : loop?.state === "running" ? `A subagent is on attempt ${Math.max(1, loop.attempts.length)}`
     : pill ?? "Running";
-  const status = ended ? "Just ended" : on ? (on.judge === "auto" ? "Observer checking" : "In play") : run.state === "armed" ? "Observer armed" : "Running";
+  const status = ended ? "Just ended" : on ? (on.judge === "auto" ? "Checking" : "In play") : run.state === "armed" ? "Ready" : "Running";
   return (
     <div className="qa-now">
       <span className="qa-answer-step" role="status" aria-label={`${status}: ${text}`}>
