@@ -10,6 +10,7 @@ import type { PlaytestBudget, QaRun } from "./qa.js";
 import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
+import type { Approvals } from "./composer.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -129,8 +130,10 @@ export interface StudioSettings {
   effort: Effort;
   gatewayUrl: string;
   theme: StudioTheme;
-  /** Ask the user before the agent runs a command or edits a file. */
+  /** Ask the user before the agent runs a command or edits a file: true when either approval row asks. Kept for an older panel. */
   askBeforeChanges: boolean;
+  /** What each kind of action does first, in Approvals & review. */
+  approvals: Approvals;
   /** Checkpoint each turn and show what it changed, for sessions that have not set their own (per-turn review). */
   reviewTurns: boolean;
   /** The height dragged on the chat composer's divider, in pixels, or null for the default. */
@@ -151,7 +154,9 @@ export interface StudioSettingsUpdate {
   effort?: Effort;
   gatewayUrl?: string;
   theme?: StudioTheme;
+  /** The old switch: sets the shell and file rows together. */
   askBeforeChanges?: boolean;
+  approvals?: Partial<Approvals>;
   reviewTurns?: boolean;
   composerHeight?: number | null;
   dialogPolicy?: DialogPolicy;
@@ -364,7 +369,7 @@ export interface ApprovalRequest {
   id: string;
   /** The tool call it belongs to. */
   toolUseId: string;
-  tool: "shell" | "write_file" | "edit_file";
+  tool: "shell" | "write_file" | "edit_file" | "editor_restart" | "ue_mcp";
   /** The agent call of the subagent that asked, when a subagent did. */
   parent: string | null;
   /** That subagent's short task name. */
@@ -377,6 +382,11 @@ export interface ApprovalRequest {
   diff?: DiffLine[];
   /** write_file: the file does not exist yet. */
   creates?: boolean;
+  /** editor_restart: what it does, and the reason the agent gave. */
+  operation?: "restart" | "rebuild" | "stop" | "start";
+  reason?: string;
+  /** ue_mcp: the action that deletes or overwrites, and its arguments. */
+  call?: { category: string; method: string; args: Record<string, unknown> };
   at: string;
 }
 
@@ -711,7 +721,7 @@ export const PLAYTEST_RUNS: ReadonlyArray<{ mode: PlaytestRunsMode; label: strin
   { mode: "automatic", label: "Automatic", help: "The agent can start playtests itself." },
 ];
 /** What the agent hears when Manual refuses its run. */
-export const PLAYTEST_RUNS_REFUSAL = "Playtest runs is set to Manual in Settings > Agent. Click Start Playtest on the card to start it.";
+export const PLAYTEST_RUNS_REFUSAL = "Starting playtests is set to Manual in Settings > Approvals & review. Click Start Playtest on the card to start it.";
 
 /** An actor or asset the editor's "Chat about this" hands to a quick ask. */
 export interface QuickContextItem {
@@ -790,3 +800,4 @@ export * from "./qa.js";
 export * from "./review.js";
 export * from "./commands.js";
 export * from "./flows.js";
+export * from "./composer.js";
