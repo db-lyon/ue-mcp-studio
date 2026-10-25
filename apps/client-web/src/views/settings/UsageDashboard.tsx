@@ -102,6 +102,8 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
 
 function Tiles({ s }: { s: UsageSummary }) {
   const t = s.total;
+  // No calls: nothing was reported or billed, so the tiles say so rather than describing calls that never ran.
+  const none = t.calls === 0;
   return (
     <div className="usage-tiles">
       <div className="tile">
@@ -112,16 +114,18 @@ function Tiles({ s }: { s: UsageSummary }) {
       </div>
       <div className="tile">
         <div className="tile-label">Read from cache</div>
-        <div className="tile-value num">{pct(t.cachedShare)}</div>
-        {s.previous?.cachedShare !== undefined && s.previous?.cachedShare !== null && t.cachedShare !== null
-          ? <span className="dim small">{Math.round(s.previous.cachedShare * 100)}% the period before</span>
-          : <span className="dim small">of all input the models read</span>}
-        <div className="dim small">{t.tokens.cacheRead === null ? "No route in the period reports cache reads" : `${tokens(t.tokens.cacheRead)} tokens read from cache`}</div>
+        <div className="tile-value num">{none ? "-" : pct(t.cachedShare)}</div>
+        {none
+          ? <span className="dim small">No calls yet</span>
+          : s.previous?.cachedShare !== undefined && s.previous?.cachedShare !== null && t.cachedShare !== null
+            ? <span className="dim small">{Math.round(s.previous.cachedShare * 100)}% the period before</span>
+            : <span className="dim small">of all input the models read</span>}
+        {!none && <div className="dim small">{t.tokens.cacheRead === null ? "No route in the period reports cache reads" : `${tokens(t.tokens.cacheRead)} tokens read from cache`}</div>}
       </div>
       <div className="tile">
         <div className="tile-label">Estimated cost</div>
-        <div className="tile-value num">{t.cost === null ? "None" : usd(t.cost)}</div>
-        <span className="dim small">{t.cost === null ? "Every call ran on a sign-in, billed by plan" : t.costPartial ? "Keys and endpoints only; some calls had no price or ran on a plan" : "On keys and endpoints, from the price table"}</span>
+        <div className="tile-value num">{none ? "-" : t.cost === null ? "None" : usd(t.cost)}</div>
+        <span className="dim small">{none ? "No calls yet" : t.cost === null ? "Every call ran on a sign-in, billed by plan" : t.costPartial ? "Keys and endpoints only; some calls had no price or ran on a plan" : "On keys and endpoints, from the price table"}</span>
       </div>
       <div className="tile">
         <div className="tile-label">Runs</div>
@@ -150,7 +154,7 @@ function PlanMeters({ plans }: { plans: PlanMeter[] }) {
               <span className="dim small meter-reset">{w.status === "rejected" ? "limit reached" : w.resetsAt ? `resets ${new Date(w.resetsAt).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}` : ""}</span>
             </div>
           ))}
-          <div className="dim small">Studio sent {tokens(p.tokens.input ?? 0)} input, {kind(p.tokens.cacheRead)} cached and {tokens(p.tokens.output ?? 0)} output tokens through it in this period.</div>
+          <div className="dim small">Studio sent {tokens(p.tokens.input ?? 0)} input, {kind(p.tokens.cacheRead)} cached-read, {kind(p.tokens.cacheWrite)} cache-write and {tokens(p.tokens.output ?? 0)} output tokens through it in this period.</div>
         </div>
       ))}
     </Card>
@@ -187,6 +191,12 @@ function DayChart({ s, teamPerDay }: { s: UsageSummary; teamPerDay: number | nul
         {keys.map((k, i) => <span key={k} className="legend-item"><span className={`swatch s${k === "__other" ? "o" : i + 1}`} />{labels.get(k)}</span>)}
         {drawLine && <span className="legend-item"><span className="swatch line" />Daily budget for all agents</span>}
       </div>
+      <div className="daychart-wrap">
+      <div className="dayticks" aria-hidden>
+        <span>{tokens(max)}</span>
+        <span>{tokens(max / 2)}</span>
+        <span>0</span>
+      </div>
       <div className="daychart" role="img" aria-label={`Tokens per day: ${days.map((d) => `${dayLabel(d.day)} ${tokens(d.total)}`).join(", ")}`}>
         {drawLine && <div className="budget-line" style={{ bottom: `${(teamPerDay / max) * 100}%` }} title={`Daily budget for all agents: ${tokens(teamPerDay)} tokens`} />}
         {days.map((d) => (
@@ -197,8 +207,10 @@ function DayChart({ s, teamPerDay }: { s: UsageSummary; teamPerDay: number | nul
           </div>
         ))}
       </div>
+      </div>
       <div className="dayaxis" aria-hidden>
-        {days.map((d, i) => <span key={d.day}>{days.length <= 8 || i % Math.ceil(days.length / 8) === 0 ? dayLabel(d.day) : ""}</span>)}
+        {/* Labelled from the newest day back, so today always has its label. */}
+        {days.map((d, i) => <span key={d.day}>{days.length <= 8 || (days.length - 1 - i) % Math.ceil(days.length / 8) === 0 ? dayLabel(d.day) : ""}</span>)}
       </div>
       {teamPerDay !== null && !drawLine && <p className="cfg-note">The daily budget for all agents, {tokens(teamPerDay)} tokens, is more than twice the busiest day here.</p>}
     </Card>
@@ -223,13 +235,13 @@ function Breakdown({ s, group }: { s: UsageSummary; group: string }) {
                 <td className="r num" data-label="Cache writes">{kind(r.tokens.cacheWrite)}</td>
                 <td className="r num" data-label="Output">{kind(r.tokens.output)}</td>
                 <td className="r num" data-label="From cache">{pct(r.cachedShare)}</td>
-                <td className="r num" data-label="Cost">{r.cost === null ? <span className="dim">plan</span> : <>{usd(r.cost)}{r.costPartial && <span className="dim" title="Some calls had no price, or ran on a plan"> +</span>}</>}</td>
+                <td className="r num" data-label="Cost">{r.cost === null ? <span className="dim">plan</span> : <span className="cost">{usd(r.cost)}{r.costPartial && <span className="dim"> partial</span>}</span>}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <p className="cfg-note">"Not reported" means the vendor does not say; it is never counted as zero.</p>
+      <p className="cfg-note">"Not reported" means the vendor does not say; it is never counted as zero. "Partial" means some of the row's calls ran on a plan or had no price, so the cost covers the rest. "Plan" means every call ran on a sign-in.</p>
     </Card>
   );
 }
@@ -297,11 +309,11 @@ function PricesCard({ table, onSaved, onError }: { table: PriceTable; onSaved: (
         <table className="cfg-table blocks usage-table">
           <thead><tr><th>Model</th>{RATE_KINDS.map((k) => <th key={k.id} className="r">{k.name}</th>)}<th>Source</th><th /></tr></thead>
           <tbody>
-            {table.prices.map((p) => (
+            {[...table.prices].sort((a, b) => Number(!!b.user) - Number(!!a.user) || a.vendor.localeCompare(b.vendor)).map((p) => (
               <tr key={`${p.user ? "u" : "s"}:${p.vendor}:${p.model}`}>
                 <td><strong>{p.model}</strong> <span className="dim small">{p.vendor}</span></td>
-                {RATE_KINDS.map((k) => <td key={k.id} className="r num" data-label={k.name}>{p.perMTok[k.id] === null ? <span className="dim">none</span> : `$${p.perMTok[k.id]}`}</td>)}
-                <td className="small" data-label="Source">{p.user ? "Yours" : <a href={p.source} target="_blank" rel="noreferrer">Vendor's page, {p.asOf}</a>}</td>
+                {RATE_KINDS.map((k) => <td key={k.id} className="r num" data-label={k.name}>{p.perMTok[k.id] === null ? <span className="dim">not priced</span> : p.perMTok[k.id] === 0 ? <span className="dim">no charge</span> : `$${p.perMTok[k.id]}`}</td>)}
+                <td className="small" data-label="Source">{p.user ? "Yours" : <a href={p.source} target="_blank" rel="noreferrer">Vendor's page, {p.asOf}</a>}{p.note && <div className="dim">{p.note}</div>}</td>
                 <td>{p.user && <button className="small-button" onClick={() => void save(own.filter((x) => x !== p))}>Remove</button>}</td>
               </tr>
             ))}

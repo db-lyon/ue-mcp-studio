@@ -48,6 +48,8 @@ export interface Price {
   source: string;
   /** The user's own price, set in Usage. */
   user?: boolean;
+  /** What the flat rate leaves out: a long-prompt tier, a scheduled change, a storage charge. */
+  note?: string;
 }
 
 /** GET /prices */

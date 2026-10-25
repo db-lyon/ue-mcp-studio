@@ -7,19 +7,33 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { CacheExplainer, Price, PriceTable, TokenKinds } from "@ue-mcp-studio/shared";
 
+/** The oldest date in the shipped table: every row carries its own. */
 export const PRICES_AS_OF = "2026-10-06";
 const ANTHROPIC = "https://platform.claude.com/docs/en/about-claude/pricing";
+const OPENAI = "https://developers.openai.com/api/docs/pricing";
+const GOOGLE = "https://ai.google.dev/gemini-api/docs/pricing";
+const OPENAI_LONG = "Short-context rate. Prompts over 272k tokens cost about twice as much for input and 1.5 times for output.";
+const GOOGLE_LONG = "Rate for prompts up to 200k tokens; longer prompts cost more, and cache storage is charged by the hour.";
 
 /**
- * Per million tokens. Anthropic's cache write is the five-minute write Studio
- * sends, 1.25 times input. Haiku 5.5's cached read is not in the published
- * table Studio ships, so it stays unpriced rather than guessed.
+ * Per million tokens, from each vendor's own pricing page on the date given.
+ * Anthropic's cache write is the five-minute write Studio sends, 1.25 times
+ * input. Haiku 5.5's cached read is not in the published table, so it stays
+ * unpriced rather than guessed. A tiered price ships at its base tier, and
+ * the row's note says what that leaves out.
  */
 export const SHIPPED_PRICES: Price[] = [
   { vendor: "anthropic", model: "claude-opus-5-5", perMTok: { input: 4, cacheRead: 0.2, cacheWrite: 5, output: 20 }, asOf: PRICES_AS_OF, source: ANTHROPIC },
   { vendor: "anthropic", model: "claude-sonnet-5-5", perMTok: { input: 2, cacheRead: 0.2, cacheWrite: 2.5, output: 10 }, asOf: PRICES_AS_OF, source: ANTHROPIC },
   { vendor: "anthropic", model: "claude-haiku-5-5", perMTok: { input: 0.1, cacheRead: null, cacheWrite: 0.125, output: 0.5 }, asOf: PRICES_AS_OF, source: ANTHROPIC },
   { vendor: "anthropic", model: "claude-fable-5-1", perMTok: { input: 10, cacheRead: 0.25, cacheWrite: 12.5, output: 50 }, asOf: PRICES_AS_OF, source: ANTHROPIC },
+  // OpenAI and Google charge nothing separate to write the cache.
+  { vendor: "openai", model: "gpt-6-astra", perMTok: { input: 10, cacheRead: 1, cacheWrite: 0, output: 50 }, asOf: "2026-10-25", source: OPENAI, note: OPENAI_LONG },
+  { vendor: "openai", model: "gpt-6.1-sol", perMTok: { input: 2, cacheRead: 0.1, cacheWrite: 0, output: 10 }, asOf: "2026-10-25", source: OPENAI, note: OPENAI_LONG },
+  { vendor: "openai", model: "gpt-6-sol", perMTok: { input: 2, cacheRead: 0.2, cacheWrite: 0, output: 10 }, asOf: "2026-10-25", source: OPENAI, note: OPENAI_LONG },
+  { vendor: "openai", model: "gpt-6-luna", perMTok: { input: 0.1, cacheRead: 0.01, cacheWrite: 0, output: 0.5 }, asOf: "2026-10-25", source: OPENAI, note: OPENAI_LONG },
+  { vendor: "google", model: "gemini-3.1-pro-preview", perMTok: { input: 2, cacheRead: 0.2, cacheWrite: 0, output: 12 }, asOf: "2026-10-22", source: GOOGLE, note: GOOGLE_LONG },
+  { vendor: "google", model: "gemini-3.8-flash", perMTok: { input: 0.75, cacheRead: 0.075, cacheWrite: 0, output: 3.75 }, asOf: "2026-10-22", source: GOOGLE, note: "Rate through December 31, 2026; Google doubles it from January 1, 2027. Cache storage is charged by the hour." },
 ];
 
 /** How each vendor caches, under the same four headings. Shown for the vendors a connected route reaches. */

@@ -259,7 +259,13 @@
 .cfg .s1 { background: var(--series-1); } .cfg .s2 { background: var(--series-2); } .cfg .s3 { background: var(--series-3); }
 .cfg .s4 { background: var(--series-4); } .cfg .s5 { background: var(--series-5); } .cfg .s6 { background: var(--series-6); }
 .cfg .s7 { background: var(--series-7); } .cfg .so { background: var(--series-other); }
-.cfg .daychart { position: relative; height: 180px; display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid var(--line-strong); }
+.cfg .daychart-wrap { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px; }
+.cfg .dayticks { height: 180px; display: flex; flex-direction: column; justify-content: space-between; font-size: 11px; color: var(--dim); text-align: right; }
+.cfg .dayticks span:first-child { transform: translateY(-50%); }
+.cfg .dayticks span:last-child { transform: translateY(50%); }
+.cfg .daychart { position: relative; height: 180px; display: flex; align-items: flex-end; gap: 4px; border-bottom: 1px solid var(--line-strong); background-image: linear-gradient(var(--line) 1px, transparent 1px); background-size: 100% 50%; }
+.cfg .daychart-wrap + .dayaxis { margin-left: 40px; }
+.cfg .usage-table .cost { white-space: nowrap; }
 .cfg .daycol { flex: 1 1 0; height: 100%; display: flex; align-items: flex-end; min-width: 0; cursor: default; }
 .cfg .daycol:hover .daystack { filter: brightness(1.15); }
 .cfg .daystack { width: 100%; max-width: 44px; margin: 0 auto; display: flex; flex-direction: column-reverse; gap: 2px; min-height: 0; }

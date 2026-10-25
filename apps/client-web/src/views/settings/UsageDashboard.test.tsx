@@ -11,7 +11,7 @@ const summary = (o: Partial<UsageSummary> = {}): UsageSummary => ({
   to: new Date(2026, 9, 26).toISOString(),
   groupBy: "agent",
   total: { ...row("total", "All", 3000, { tokens: { input: 2000, cacheRead: 6000, cacheWrite: 500, output: 500 }, cachedShare: 0.7, cost: 1.5, costPartial: true, runs: 4, calls: 12 }) },
-  rows: [row("main", "Main agent", 2000, { cost: 1.5 }), row("scout", "scout", 1000, { tokens: { input: 900, cacheRead: null, cacheWrite: null, output: 100 } })],
+  rows: [row("main", "Main agent", 2000, { cost: 1.5, costPartial: true }), row("scout", "scout", 1000, { tokens: { input: 900, cacheRead: null, cacheWrite: null, output: 100 } })],
   days: [{ day: "2026-10-24", byKey: { main: 1500, scout: 500 } }, { day: "2026-10-25", byKey: { main: 500, scout: 500 } }],
   previous: { budgetTokens: 2000, cachedShare: 0.5 },
   ledgerStarts: new Date(2026, 8, 1).toISOString(),
@@ -66,6 +66,8 @@ describe("Usage dashboard", () => {
     await show();
     expect(screen.getAllByText("not reported").length).toBeGreaterThan(0);
     expect(screen.getByText(/never counted as zero/)).toBeTruthy();
+    // A partly priced row says so beside its amount.
+    expect(document.querySelector(".usage-table .cost")?.textContent).toBe("$1.50 partial");
   });
 
   it("asks for the period and grouping the controls pick", async () => {
@@ -93,8 +95,11 @@ describe("Usage dashboard", () => {
   });
 
   it("says nothing is recorded yet on a fresh machine", async () => {
-    await show(summary({ rows: [], days: [], sessions: [], ledgerStarts: null, previous: null }));
+    await show(summary({ rows: [], days: [], sessions: [], ledgerStarts: null, previous: null, total: { ...row("total", "All", 0), calls: 0, runs: 0 } }));
     expect(screen.getByText(/Nothing recorded yet/)).toBeTruthy();
+    // No calls: the tiles say so instead of describing calls that never ran.
+    expect(screen.getAllByText("No calls yet")).toHaveLength(2);
+    expect(screen.queryByText(/Every call ran on a sign-in/)).toBeNull();
     expect(screen.queryByText("Tokens per day")).toBeNull();
   });
 

@@ -152,7 +152,14 @@ describe("prices", () => {
     // Haiku's cached read has no shipped price: a call that used it gets no cost rather than a guess.
     expect(costOf(priceFor(all, "anthropic", "claude-haiku-5-5"), { input: 10, cacheRead: 5, cacheWrite: 0, output: 1 })).toBeNull();
     expect(costOf(priceFor(all, "anthropic", "claude-haiku-5-5"), { input: 1_000_000, cacheRead: 0, cacheWrite: null, output: 0 })).toBeCloseTo(0.1);
-    expect(priceFor(all, "google", "gemini-3.8-flash")).toBeNull();
+    expect(priceFor(all, "google", "gemini-9-ultra")).toBeNull();
+    // Every vendor Studio lists ships priced, each from its own page and dated, with what a flat rate leaves out.
+    for (const [vendor, model] of [["openai", "gpt-6-sol"], ["openai", "gpt-6-luna"], ["google", "gemini-3.1-pro-preview"], ["google", "gemini-3.8-flash"]]) {
+      const p = priceFor(SHIPPED_PRICES, vendor, model)!;
+      expect(p.source).toMatch(/^https:\/\/(developers\.openai\.com|ai\.google\.dev)\//);
+      expect(p.note).toBeTruthy();
+      expect(p.perMTok.cacheWrite).toBe(0);
+    }
   });
 
   it("refuses a price without a vendor, a model or any rate, and negative rates", () => {
