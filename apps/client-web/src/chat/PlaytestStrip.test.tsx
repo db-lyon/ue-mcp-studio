@@ -256,8 +256,9 @@ describe("the strip of live playtests", () => {
     render(<Session transcript={transcript} events={[]} grouped />);
     const notes = within(transcriptEl()).getAllByRole("note");
     expect(notes.map((n) => n.textContent?.replace(/\s+/g, " ").trim())).toEqual([
-      "↑2 playtests are on the strip above: Running running, Waiting needs you.Show them",
-      "↑Playtest Later is running on the strip above.Show it",
+      // In the strip's order: what needs the user first.
+      "↑ 2 playtests are on the strip above: Waiting needs you, Running running.Show them",
+      "↑ Playtest Later is running on the strip above.Show it",
     ]);
     // The finished one between them is a full card.
     expect(within(transcriptEl()).getByRole("group", { name: "Playtest Done" })).toBeTruthy();

@@ -228,11 +228,14 @@ export function TranscriptPlaytest({ run, transcript, at = -1 }: { run: QaRun; t
     const r = pinnedAt(i)!;
     if (!group.some((g) => g.runId === r.runId)) group.push(r);
   }
+  // Named in the strip's own order, so the line reads as the strip does.
+  const order = [...new Set(pinned.values())];
+  group.sort((a, b) => order.indexOf(a) - order.indexOf(b));
   if (group.length === 1) {
     return (
       <div className="qa-pinned small" role="note">
-        <span className="qa-pinned-mark" aria-hidden="true">{"↑"}</span>
         <span className="qa-pinned-text">
+          <span className="qa-pinned-mark" aria-hidden="true">{"↑"} </span>
           Playtest <strong>{live.scriptName}</strong> {pinnedState(live)} on the strip above.
         </span>
         <button className="small-button" onClick={() => revealPinned(live.runId)}>Show it</button>
@@ -242,8 +245,8 @@ export function TranscriptPlaytest({ run, transcript, at = -1 }: { run: QaRun; t
   const first = group.find(qaNeedsYou) ?? group[0];
   return (
     <div className="qa-pinned small" role="note">
-      <span className="qa-pinned-mark" aria-hidden="true">{"↑"}</span>
       <span className="qa-pinned-text">
+        <span className="qa-pinned-mark" aria-hidden="true">{"↑"} </span>
         {group.length} playtests are on the strip above:{" "}
         {group.map((r, i) => (
           <span key={r.runId}>

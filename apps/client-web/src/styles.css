@@ -1351,7 +1351,8 @@ button.strip-more { white-space: normal; text-align: left; }
   .playtest-strip { max-height: 48vh; }
   .playtest-strip .qa-card.open .qa-body { max-height: 26vh; }
 }
-button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 2px 8px; }
+button.strip-more { line-height: 1.4; padding: 2px 8px; }
+.strip-more > span { white-space: nowrap; }
 /* Fourth review pass: a waiting bar stands taller than the rest; focus rings stand off the control. */
 .qa-path-step.warn .qa-path-hit::before { top: 10px; height: 12px; }
 .qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-offset: 2px; }
@@ -1443,3 +1444,8 @@ button.qa-path-hit:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 
 .playtests-empty.card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 18px 20px; }
 .playtests-empty.card p { margin: 0; }
 .playtests-empty code { font-family: var(--mono); color: var(--text); }
+/* At 380 px a pointer line's button goes under its words rather than floating beside them. */
+@media (max-width: 760px) {
+  .qa-pinned { flex-wrap: wrap; }
+  .qa-pinned-text { flex: 1 1 100%; }
+}
