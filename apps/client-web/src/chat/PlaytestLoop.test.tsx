@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { openCard } from "./qa-test-helpers";
 import { qaRunFromAnswer, type QaLoop, type QaRun } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({
@@ -36,8 +37,11 @@ const attempt = (n: number, changes: Array<{ path: string; status: "added" | "mo
 });
 const loopOf = (over: Partial<QaLoop>): QaLoop => ({ id: "l1", state: "running", attempts: [], baseline: "b0", budget: { minutes: 60, tokens: 2_000_000 }, tokens: 0, startedAt: "x", ...over });
 
-const mount = (run: QaRun, live: Partial<QaLive> = {}) =>
-  render(<QaContext.Provider value={{ events: [], streaming: true, forms: [], sessionId: "s1", ...live }}><QaCard run={run} /></QaContext.Provider>);
+const mount = (run: QaRun, live: Partial<QaLive> = {}) => {
+  const r = render(<QaContext.Provider value={{ events: [], streaming: true, forms: [], sessionId: "s1", ...live }}><QaCard run={run} /></QaContext.Provider>);
+  openCard(r.container);
+  return r;
+};
 
 describe("the loop on the playtest card", () => {
   it("shows Needs you with the reason and the evidence", () => {

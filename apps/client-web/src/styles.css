@@ -818,6 +818,20 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-card.state-awaiting_verdict { border-color: var(--accent-line); background: var(--accent-wash); }
 .qa-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .qa-title { font-size: 14px; overflow-wrap: anywhere; }
+/* The title opens and closes the card; collapsed, the card is the path of its steps and one line. */
+.qa-toggle { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.qa-toggle:hover .qa-title { text-decoration: underline; text-underline-offset: 3px; }
+.qa-chevron { width: 1em; color: var(--muted); flex-shrink: 0; }
+.qa-compact { display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.qa-path { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; width: 100%; }
+.qa-path-step { flex: 1; min-width: 4px; height: 6px; border-radius: 3px; background: var(--line-strong); }
+.qa-path-step.ok { background: var(--ok); }
+.qa-path-step.bad { background: var(--bad); }
+.qa-path-step.warn { background: var(--warn); }
+.qa-path-step.run { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.qa-path-step.skipped { background: repeating-linear-gradient(135deg, var(--line-strong) 0 3px, transparent 3px 6px); }
+.qa-compact:hover .qa-path-step { filter: brightness(1.15); }
+.qa-body { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .qa-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .qa-step { border-left: 2px solid var(--line-strong); padding: 5px 0 5px 10px; display: flex; flex-direction: column; gap: 4px; }
 .qa-step.ok { border-left-color: var(--ok); }
