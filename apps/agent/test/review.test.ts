@@ -82,9 +82,85 @@ describe("the checkpoints around a turn", () => {
       ["Content/Props/SM_Box.uasset", "modified", "asset", "pending"],
       ["Source/Game/Door.cpp", "added", "source", "pending"],
     ]);
-    expect(review.items[1]).toMatchObject({ asset: "/Game/Props/SM_Box.SM_Box", visual: true });
+    expect(review.items[1]).toMatchObject({ asset: "/Game/Props/SM_Box.SM_Box", summary: "1 change: Content box v1 to box v2", native: { available: true } });
+    expect(review.items[0]).toMatchObject({ summary: "1 line added, 1 removed", native: { available: false } });
+    expect(review.items[0].native!.reason).toMatch(/no diff view in Unreal/);
+    // The editor is never asked for a picture: the daemon's asset diff carries them.
+    expect(calls.filter((c) => c.category === "editor")).toEqual([]);
     expect(store.get(s.id)!.timeline).toEqual([{ checkpoint: review.after, label: "Make the box bigger", at: "2026-10-24T10:01:00.000Z", kind: "turn", turn: 0 }]);
     expect(published.some((p) => p.type === "transcript.added" && p.data?.sessionId === s.id)).toBe(true);
+  });
+
+  it("diffs the packages the daemon deferred after the card is posted, updating each summary", async () => {
+    cp.assetDiffLimit = 1;
+    const broker = new ReviewBroker({ host: hostOf(), store, defaultOn: () => true });
+    const s = sessionWithTurn();
+    await broker.turnStarted(s);
+    cp.files.set("Content/A.uasset", "a");
+    cp.files.set("Content/B.uasset", "b");
+    cp.unloadable.add("Content/B.uasset");
+    await broker.turnEnded(s);
+    const review = reviewOf(s)!;
+    expect(cp.log.filter((l) => l.startsWith("assetDiff"))).toEqual(["assetDiff Content/B.uasset"]);
+    expect(review.items.find((i) => i.path === "Content/A.uasset")).toMatchObject({ summary: "New StaticMesh", native: { available: true } });
+    expect(review.items.find((i) => i.path === "Content/B.uasset")).toMatchObject({
+      summary: "Could not diff: the package could not be loaded for diff: bad header",
+      diffError: "the package could not be loaded for diff: bad header",
+      native: { available: false },
+    });
+    expect(published.filter((p) => p.type === "review.changed" && p.data?.reviewId === review.id).length).toBeGreaterThan(0);
+  });
+
+  it("says a package is not diffed when the daemon has no asset diffs", async () => {
+    class Legacy extends FakeCheckpoints {
+      override async changes(from: string, to?: string) {
+        const r = await super.changes(from, to);
+        for (const c of r.changes) delete c.assetDiff;
+        delete r.assetDiffs;
+        return r;
+      }
+    }
+    const legacy = Object.assign(new Legacy(), { assetDiff: undefined, openNativeDiff: undefined, thumbnail: undefined });
+    legacy.files = cp.files;
+    const broker = new ReviewBroker({ host: hostOf(legacy), store, defaultOn: () => true });
+    const s = sessionWithTurn();
+    await broker.turnStarted(s);
+    cp.files.set("Content/Props/SM_Box.uasset", "box v2");
+    await broker.turnEnded(s);
+    const review = reviewOf(s)!;
+    const item = review.items.find((i) => i.kind === "package")!;
+    expect(item.summary).toBe("Not diffed: this ue-mcp has no asset diffs. Update ue-mcp.");
+    expect(item.native).toEqual({ available: false, reason: "This ue-mcp cannot open Unreal's diff. Update ue-mcp." });
+    expect(await broker.nativeDiff(s.id, review.id, { path: item.path })).toMatchObject({ status: 409 });
+  });
+
+  it("opens Unreal's diff of an item: before and after, or the asset as it is now when the turn added it", async () => {
+    const broker = new ReviewBroker({ host: hostOf(), store, defaultOn: () => true });
+    const s = sessionWithTurn();
+    await broker.turnStarted(s);
+    cp.files.set("Content/Props/SM_Box.uasset", "box v2");
+    cp.files.set("Content/Props/SM_New.uasset", "new");
+    await broker.turnEnded(s);
+    const review = reviewOf(s)!;
+    expect(await broker.nativeDiff(s.id, review.id, { path: "Content/Props/SM_Box.uasset" })).toEqual({ opened: "window", windowTitle: "Diff of Content/Props/SM_Box.uasset" });
+    expect(await broker.nativeDiff(s.id, review.id, { path: "Content/Props/SM_New.uasset" })).toEqual({ opened: "editor" });
+    const before = review.before.replace(/^0+/, "");
+    const after = review.after.replace(/^0+/, "");
+    expect(cp.log.filter((l) => l.startsWith("openNativeDiff"))).toEqual([
+      `openNativeDiff Content/Props/SM_Box.uasset ${before} ${after}`,
+      `openNativeDiff Content/Props/SM_New.uasset ${before} current`,
+    ]);
+    expect(await broker.nativeDiff(s.id, review.id, { path: "Nope" })).toMatchObject({ status: 400 });
+  });
+
+  it("serves a version's picture from the daemon, by id", async () => {
+    const broker = new ReviewBroker({ host: hostOf(), store, defaultOn: () => true });
+    const file = path.join(root, "thumb.png");
+    fs.writeFileSync(file, "png bytes");
+    cp.thumbnails.set("c".repeat(40), file);
+    expect(broker.thumbnail("c".repeat(40))).toEqual({ type: "image/png", bytes: Buffer.from("png bytes") });
+    expect(broker.thumbnail("d".repeat(40))).toBeNull();
+    expect(broker.thumbnail("../etc")).toBeNull();
   });
 
   it("marks a turn that changed nothing on the timeline, with no review card", async () => {
@@ -196,6 +272,8 @@ describe("Keep and Revert", () => {
   it("reads an item's diff from the daemon", async () => {
     const broker = new ReviewBroker({ host: hostOf(), store, defaultOn: () => true });
     const { s, review } = await reviewedTurn(broker);
+    const pkg = await broker.diff(s.id, review.id, "Content/Props/SM_Box.uasset");
+    expect("change" in pkg && pkg.change.assetDiff).toMatchObject({ state: "ready", before: { facts: [{ name: "Content", value: "box v1" }] } });
     const d = await broker.diff(s.id, review.id, "Config/DefaultGame.ini");
     expect("change" in d && unifiedLines(d.change.diff!)).toEqual([{ op: "-", text: "Speed=1" }, { op: "+", text: "Speed=2" }]);
     expect(await broker.diff(s.id, review.id, "Nope.txt")).toMatchObject({ status: 404 });

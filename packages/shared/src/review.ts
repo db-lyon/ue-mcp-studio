@@ -5,6 +5,87 @@
  * mirror the daemon's checkpoints API (db-lyon/ue-mcp#1482).
  */
 
+/**
+ * A package's diff, built by ue-mcp on Unreal's own diff code (feature
+ * "checkpoints.assetDiff", db-lyon/ue-mcp): each version loaded with
+ * DiffUtils::LoadPackageForDiff and the engine's records serialized as it
+ * produces them.
+ */
+export interface AssetDiffRecord {
+  /** The engine's own message for it. */
+  displayString: string;
+  /** EPropertyDiffType, EDiffType or ETreeDiffType, by name. */
+  diffType: string;
+  /** EDiffType::Category of a graph record: ADDITION, SUBTRACTION, MODIFICATION, MINOR. */
+  category?: string;
+  toolTip?: string;
+  /** The actor, component, variable or row a record belongs to. */
+  group?: string;
+  /** A difference under a property the details panel does not show. */
+  hidden?: boolean;
+  /** The graph nodes a graph record names, by the title the graph shows. */
+  node1?: { guid: string; name: string; class: string; title: string };
+  node2?: { guid: string; name: string; class: string; title: string };
+  /** The property path, as the details panel names it. */
+  path?: string;
+  property?: string;
+  /** Both values as FProperty::ExportText writes them; null where the property does not exist on that side. */
+  before?: string | null;
+  after?: string | null;
+  graph?: string;
+  /** The property records behind a NODE_PROPERTY graph record. */
+  properties?: AssetDiffRecord[];
+  /** An added or removed actor's class, label and transform. */
+  facts?: AssetFact[];
+}
+
+/** Records under one of the engine's own diff categories. */
+export interface AssetDiffSection {
+  category: string;
+  kind: "properties" | "graph" | "components";
+  engineSource: string;
+  entries: AssetDiffRecord[];
+  hiddenChanges?: number;
+}
+
+export interface AssetFact {
+  name: string;
+  value: string;
+}
+
+export type AssetThumbnail = { id: string; url: string; source: "rendered" | "saved"; note?: string } | { error: string };
+
+export interface AssetVersion {
+  class: string;
+  objectName?: string;
+  facts: AssetFact[];
+  thumbnail?: AssetThumbnail;
+}
+
+export interface AssetDiff {
+  /** ready: diffed. deferred: over the daemon's per-call limit, diffed when asked. error: see error. */
+  state: "ready" | "deferred" | "error";
+  error?: string;
+  packageName?: string;
+  assetClass?: string;
+  status?: "added" | "modified" | "deleted";
+  /** Which of Unreal's diffs serves this class, and what the records are. */
+  engine?: { tool: string; note: string; native: "window" | "details" | "text"; nativeAvailable?: boolean; nativeReason?: string };
+  /** null: that version did not exist. */
+  before?: AssetVersion | null;
+  after?: AssetVersion | null;
+  classChanged?: string;
+  sections?: AssetDiffSection[];
+  /** The engine's own text form of the diff where its diff is a text diff (a DataTable's CSV). */
+  textDiff?: { format: string; diff: string };
+  /** blueprint(diff)'s structural summary. */
+  blueprint?: Record<string, unknown>;
+  recordCount?: number;
+  recordsDropped?: number;
+  summary: string;
+  nativeDiff: { available: boolean; reason?: string };
+}
+
 /** A changed path as the daemon lists it between two checkpoints. */
 export interface CheckpointChange {
   /** Project-relative, forward slashes. */
@@ -19,6 +100,8 @@ export interface CheckpointChange {
   diff?: string;
   /** blueprint(diff)'s answer, Blueprint packages only, with the editor connected. */
   blueprintDiff?: Record<string, unknown>;
+  /** The package's diff from Unreal's own diff code, with a picture of each version. */
+  assetDiff?: AssetDiff;
 }
 
 /** How the card groups a turn's changes. */
@@ -50,7 +133,13 @@ export interface ReviewItem {
   conflict?: boolean;
   /** A reverted item: the checkpoint to restore it to, to undo the revert. */
   undo?: string;
-  /** A mesh, texture or material: the diff shows a before and after picture. */
+  /** One line saying what changed, to decide on without opening the item. */
+  summary?: string;
+  /** The package's diff failed: why. */
+  diffError?: string;
+  /** Whether Unreal's own diff view can open this item, and why not. */
+  native?: { available: boolean; reason?: string };
+  /** Reviews recorded before engine diffs: a mesh, texture or material with a picture captured after the turn. */
   visual?: boolean;
 }
 
@@ -105,7 +194,6 @@ export interface RestoreOutcome {
 export const reviewOn = (session: { review?: boolean | null }, fallback: boolean): boolean => (typeof session.review === "boolean" ? session.review : fallback);
 
 const BLUEPRINT = /^(BP|WBP|ABP|BPI|BPFL|GA|GE|GC)_/i;
-const VISUAL = /^(SM|SK|T|TX|M|MI|MAT|MF|MIC)_/i;
 
 /** The object path of a package under a Content folder: Content/Props/SM_Box.uasset is /Game/Props/SM_Box.SM_Box. */
 export function assetPathOf(rel: string): string | undefined {
@@ -118,20 +206,50 @@ export function assetPathOf(rel: string): string | undefined {
 }
 
 /** The card's group for a change. */
-export function reviewGroupOf(c: Pick<CheckpointChange, "path" | "kind" | "blueprintDiff">): ReviewGroup {
+export function reviewGroupOf(c: Pick<CheckpointChange, "path" | "kind" | "blueprintDiff" | "assetDiff">): ReviewGroup {
   const name = c.path.split("/").pop() ?? c.path;
-  if (/\.umap$/i.test(name)) return "level";
-  if (c.kind === "package") return c.blueprintDiff || BLUEPRINT.test(name) ? "blueprint" : "asset";
+  if (/\.umap$/i.test(name) || /(^|\/)__ExternalActors__\//.test(c.path) || c.assetDiff?.assetClass === "World") return "level";
+  const engineSaysBlueprint = c.assetDiff?.engine?.tool === "SBlueprintDiff";
+  if (c.kind === "package") return c.blueprintDiff || engineSaysBlueprint || BLUEPRINT.test(name) ? "blueprint" : "asset";
   if (c.kind === "config") return "config";
   if (c.kind === "source") return "source";
   return "other";
+}
+
+/** Lines added and removed in a unified diff, in words. */
+export function textChangeSummary(diff: string): string {
+  let added = 0;
+  let removed = 0;
+  for (const l of unifiedLines(diff)) {
+    if (l.op === "+") added++;
+    else if (l.op === "-") removed++;
+  }
+  const n = (k: number, w: string) => `${k} ${k === 1 ? "line" : "lines"} ${w}`;
+  if (added && removed) return `${n(added, "added")}, ${removed} removed`;
+  if (added) return n(added, "added");
+  if (removed) return n(removed, "removed");
+  return "Whitespace or line endings only";
+}
+
+/** Why a file outside Content has no view in Unreal. */
+const NO_NATIVE_FOR_TEXT = "Config and source files have no diff view in Unreal; the text diff here is the whole change.";
+
+/** The one line the card shows for a change. */
+export function changeSummary(c: CheckpointChange): string {
+  if (c.assetDiff) return c.assetDiff.summary;
+  if (c.diff !== undefined) return textChangeSummary(c.diff);
+  if (c.large) return "A large file kept as a plain copy; it is not diffed.";
+  if (c.kind === "package") return "Not diffed: this ue-mcp has no asset diffs. Update ue-mcp.";
+  return c.status === "added" ? "New file" : c.status === "deleted" ? "Deleted file" : "Changed file; not a text file, so there is no line diff.";
 }
 
 /** A change as an item on the turn card, nobody's choice yet. */
 export function reviewItemOf(c: CheckpointChange): ReviewItem {
   const group = reviewGroupOf(c);
   const asset = c.kind === "package" ? assetPathOf(c.path) : undefined;
-  const name = c.path.split("/").pop() ?? "";
+  const native = c.kind === "package"
+    ? c.assetDiff?.nativeDiff ?? { available: false, reason: "This ue-mcp cannot open Unreal's diff. Update ue-mcp." }
+    : { available: false, reason: NO_NATIVE_FOR_TEXT };
   return {
     path: c.path,
     status: c.status,
@@ -140,8 +258,37 @@ export function reviewItemOf(c: CheckpointChange): ReviewItem {
     state: "pending",
     ...(asset ? { asset } : {}),
     ...(c.untracked ? { untracked: true } : {}),
-    ...(group === "asset" && VISUAL.test(name) ? { visual: true } : {}),
+    summary: changeSummary(c),
+    ...(c.assetDiff?.state === "error" ? { diffError: c.assetDiff.error ?? "no reason given" } : {}),
+    native,
   };
+}
+
+/** Each fact of two versions side by side, by name, in the order they come. */
+export function factRows(before: AssetVersion | null | undefined, after: AssetVersion | null | undefined): Array<{ name: string; before?: string; after?: string; changed: boolean }> {
+  const rows = new Map<string, { name: string; before?: string; after?: string; changed: boolean }>();
+  for (const f of before?.facts ?? []) rows.set(f.name, { name: f.name, before: f.value, changed: true });
+  for (const f of after?.facts ?? []) {
+    const r = rows.get(f.name);
+    if (r) {
+      r.after = f.value;
+      r.changed = r.before !== f.value;
+    } else rows.set(f.name, { name: f.name, after: f.value, changed: true });
+  }
+  if (!before || !after) for (const r of rows.values()) r.changed = false;
+  return [...rows.values()];
+}
+
+/** Records by their group (actor, row, variable, component), ungrouped first, in the engine's order. */
+export function recordsByGroup(entries: AssetDiffRecord[]): Array<{ group: string | null; entries: AssetDiffRecord[] }> {
+  const out: Array<{ group: string | null; entries: AssetDiffRecord[] }> = [];
+  for (const e of entries) {
+    const g = e.group ?? null;
+    const at = out.find((x) => x.group === g);
+    if (at) at.entries.push(e);
+    else out.push({ group: g, entries: [e] });
+  }
+  return out.sort((a, b) => (a.group === null ? -1 : b.group === null ? 1 : 0));
 }
 
 /** A unified diff's text as diff lines for the card's diff view. File headers are left out. */

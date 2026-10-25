@@ -4,13 +4,20 @@
  *
  *   GET  /review/status                          whether review can run here, and the Settings default
  *   PUT  /sessions/:id/review                    the session's switch: { on: true | false | null }, null for the default
- *   GET  /sessions/:id/reviews/:rid/diff?path=   one item's diff, with before and after pictures for a mesh, texture or material
+ *   GET  /sessions/:id/reviews/:rid/diff?path=   one item's diff: Unreal's own diff records for a package, with a picture of each version
+ *   POST /sessions/:id/reviews/:rid/native-diff  { path }: open Unreal's own diff of the item in the editor
  *   POST /sessions/:id/reviews/:rid/keep         { paths }
  *   POST /sessions/:id/reviews/:rid/revert       { paths, force? }: put them back as they were before the turn
  *   POST /sessions/:id/reviews/:rid/undo         { path }: undo that item's revert
  *   POST /sessions/:id/timeline/restore          { checkpoint, force? }: Restore to here
  *   POST /sessions/:id/timeline/undo             { checkpoint }: undo the restore whose mark it is
- *   GET  /review/images/:name                    a picture the diff view shows
+ *   GET  /review/thumbnails/:id                  a picture of one package version, by the id the daemon gave it
+ *   GET  /review/images/:name                    a picture an older review captured
+ *
+ * Each package's diff is the daemon's asset diff (feature "checkpoints.assetDiff"):
+ * both versions loaded in the editor and Unreal's own diff code run on them,
+ * with a picture of each version rendered there. Packages past the daemon's
+ * per-call limit are diffed one by one after the card is posted.
  *
  * Edits stay live. With review on, Studio takes a checkpoint before a turn
  * and after it; when the turn changed files, a review entry in the transcript
@@ -26,6 +33,7 @@ import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
 import {
   reviewItemOf,
   reviewOn,
+  type AssetDiff,
   type CheckpointChange,
   type RestoreOutcome,
   type ReviewStatus,
@@ -34,7 +42,6 @@ import {
   type TurnReview,
 } from "@ue-mcp-studio/shared";
 import type { SessionStore, StoredSession } from "./sessions.js";
-import { resultImages } from "./tools.js";
 
 /** The daemon's checkpoint shapes (db-lyon/ue-mcp#1482). */
 export interface CheckpointInfo {
@@ -63,6 +70,8 @@ export interface ChangesResult {
   from: string;
   to: string | null;
   changes: CheckpointChange[];
+  /** Packages past the daemon's limit, diffed by assetDiff on request. */
+  assetDiffs?: { limit: number; diffed: number; deferred: string[] };
 }
 export interface RestoreResult {
   editor: string;
@@ -84,6 +93,12 @@ export interface CheckpointApi {
   create(label?: string, opts?: { editor?: string }): Promise<CheckpointResult>;
   changes(from: string, to?: string, opts?: { editor?: string }): Promise<ChangesResult>;
   restore(checkpoint: string, opts?: { paths?: string[]; force?: boolean; editor?: string }): Promise<RestoreResult>;
+  /** Feature "checkpoints.assetDiff": one package's diff. */
+  assetDiff?(from: string, to: string | undefined, path: string, opts?: { editor?: string }): Promise<AssetDiff>;
+  /** Feature "checkpoints.assetDiff": a version's picture, by id. */
+  thumbnail?(id: string, opts?: { editor?: string }): { file: string; type: string } | null;
+  /** Feature "checkpoints.assetDiff": Unreal's own diff, opened in the editor. */
+  openNativeDiff?(path: string, from: string, to?: string, opts?: { editor?: string }): Promise<{ opened: string; windowTitle?: string }>;
 }
 
 export interface ReviewHost {
@@ -107,8 +122,8 @@ export interface ReviewOptions {
 /** Why review cannot run on a daemon without checkpoints. */
 export const NO_CHECKPOINTS = "This ue-mcp has no checkpoints, so turns cannot be reviewed. Update ue-mcp.";
 
-/** The most pictures one turn's review captures. */
-const MAX_PICTURES = 12;
+/** Why an item cannot be diffed on a daemon without asset diffs. */
+export const NO_ASSET_DIFFS = "This ue-mcp has no asset diffs, so packages show no diff. Update ue-mcp.";
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -261,7 +276,7 @@ export class ReviewBroker {
         s.transcript.push(entry);
         this.o.store.save(s);
         this.o.host.events.publish("transcript.added", { sessionId: s.id, entry: entry as unknown as Record<string, unknown> });
-        await this.pictures(review);
+        await this.diffDeferred(s, review);
       } catch (e) {
         this.o.host.log.warn("the checkpoint after the turn failed; this turn is not reviewed", e);
       }
@@ -382,7 +397,34 @@ export class ReviewBroker {
 
   // ── Diffs and pictures ────────────────────────────────────────────
 
-  /** One item's diff, read from the daemon, with the pictures kept for it. */
+  /**
+   * The packages the daemon left for later, diffed one by one after the card
+   * is posted, each item's summary updated as its diff arrives.
+   */
+  private async diffDeferred(s: StoredSession, review: TurnReview): Promise<void> {
+    const cp = this.cp;
+    if (!cp?.assetDiff) return;
+    const later = review.items.filter((it) => it.kind === "package" && /^Not diffed yet/.test(it.summary ?? ""));
+    for (const it of later) {
+      try {
+        const d = await cp.assetDiff(review.before, review.after, it.path);
+        this.applyDiff(it, d);
+      } catch (e) {
+        it.summary = `Could not diff: ${messageOf(e)}`;
+        it.diffError = messageOf(e);
+      }
+      this.changed(s, review);
+    }
+  }
+
+  private applyDiff(it: TurnReview["items"][number], d: AssetDiff): void {
+    it.summary = d.summary;
+    it.native = d.nativeDiff;
+    if (d.state === "error") it.diffError = d.error ?? "no reason given";
+    else delete it.diffError;
+  }
+
+  /** One item's diff, read from the daemon: for a package, Unreal's own diff records with a picture of each version. */
   async diff(sessionId: string, reviewId: string, file: string): Promise<{ change: CheckpointChange; before?: string; after?: string } | { error: string; status: number }> {
     const f = this.find(sessionId, reviewId);
     if (!f) return { error: `no review ${reviewId}`, status: 404 };
@@ -395,18 +437,65 @@ export class ReviewBroker {
       return { error: messageOf(e), status: 409 };
     }
     if (!change) return { error: `${file} is no longer in the turn's changes`, status: 404 };
-    if (!item.visual || !item.asset) return { change };
-    const pics = this.picturesOf(item.asset);
-    const after = pics.find((p) => p.checkpoint === f.review.after);
-    const before = pics.filter((p) => p.checkpoint !== f.review.after && p.at <= Date.parse(f.review.at)).pop();
-    return { change, ...(before ? { before: before.name } : {}), ...(after ? { after: after.name } : {}) };
+    const cp = this.cp;
+    if (change.assetDiff?.state === "deferred" && cp?.assetDiff) {
+      try {
+        change.assetDiff = await cp.assetDiff(f.review.before, f.review.after, file);
+      } catch (e) {
+        return { error: messageOf(e), status: 409 };
+      }
+    }
+    if (change.assetDiff && item.summary !== change.assetDiff.summary) {
+      this.applyDiff(item, change.assetDiff);
+      this.changed(f.s, f.review);
+    }
+    if (change.kind === "package" && !change.assetDiff) {
+      // A review recorded on a ue-mcp before asset diffs keeps the pictures it captured then.
+      if (!item.visual || !item.asset) return { change };
+      const pics = this.picturesOf(item.asset);
+      const after = pics.find((p) => p.checkpoint === f.review.after);
+      const before = pics.filter((p) => p.checkpoint !== f.review.after && p.at <= Date.parse(f.review.at)).pop();
+      return { change, ...(before ? { before: before.name } : {}), ...(after ? { after: after.name } : {}) };
+    }
+    return { change };
+  }
+
+  /**
+   * Open Unreal's own diff of an item in the editor: before and after the
+   * turn, or for an asset the turn added, the asset as it is now.
+   */
+  async nativeDiff(sessionId: string, reviewId: string, body: unknown): Promise<{ opened: string; windowTitle?: string } | { error: string; status: number }> {
+    const f = this.find(sessionId, reviewId);
+    if (!f) return { error: `no review ${reviewId}`, status: 404 };
+    const p = (body as { path?: unknown } | undefined)?.path;
+    const item = f.review.items.find((x) => x.path === p);
+    if (!item) return { error: "body must be { path } naming an item of the review", status: 400 };
+    if (item.native && !item.native.available) return { error: item.native.reason ?? "Unreal cannot open a diff of this item.", status: 409 };
+    const cp = this.cp;
+    if (!cp?.openNativeDiff) return { error: NO_ASSET_DIFFS, status: 409 };
+    try {
+      return await cp.openNativeDiff(item.path, f.review.before, item.status === "added" ? undefined : f.review.after);
+    } catch (e) {
+      return { error: messageOf(e), status: 409 };
+    }
+  }
+
+  /** A version's picture, from the daemon. */
+  thumbnail(id: string): { type: string; bytes: Buffer } | null {
+    const t = /^[0-9a-f]{40}$/.test(id) ? this.cp?.thumbnail?.(id) : null;
+    if (!t) return null;
+    try {
+      return { type: t.type, bytes: fs.readFileSync(t.file) };
+    } catch {
+      return null;
+    }
   }
 
   private picturesDir(): string {
     return path.join(this.o.host.dataDir, "review-images");
   }
 
-  /** The pictures kept for an asset, oldest first. */
+  /** The pictures an older review kept for an asset, oldest first. */
   private picturesOf(asset: string): Array<{ name: string; checkpoint: string; at: number }> {
     const key = crypto.createHash("sha1").update(asset).digest("hex").slice(0, 16);
     let names: string[] = [];
@@ -424,24 +513,7 @@ export class ReviewBroker {
       .sort((a, b) => a.at - b.at);
   }
 
-  /** The after picture of each mesh, texture and material a turn changed, kept for its diff and the next turn's before. */
-  private async pictures(review: TurnReview): Promise<void> {
-    const visual = review.items.filter((it) => it.visual && it.asset && it.status !== "deleted").slice(0, MAX_PICTURES);
-    if (!visual.length) return;
-    fs.mkdirSync(this.picturesDir(), { recursive: true });
-    for (const it of visual) {
-      const since = Date.now();
-      const r = await this.o.host.callAction("editor", "epic_capture_asset_image", { assetPath: it.asset }).catch(() => null);
-      if (!r || r.isError) continue;
-      const img = (await resultImages(this.o.host.projectDir, r, since, 3000).catch(() => []))[0];
-      if (!img) continue;
-      const key = crypto.createHash("sha1").update(it.asset!).digest("hex").slice(0, 16);
-      const ext = img.mediaType === "image/jpeg" ? "jpg" : "png";
-      fs.writeFileSync(path.join(this.picturesDir(), `${key}-${review.after}-${Date.parse(review.at)}.${ext}`), Buffer.from(img.data, "base64"));
-    }
-  }
-
-  /** A kept picture's bytes, by its name. */
+  /** A picture an older review kept, by its name. */
   picture(name: string): { type: string; bytes: Buffer } | null {
     const m = /^[0-9a-f]+-[0-9a-f]+-\d+\.(png|jpg)$/.exec(name);
     if (!m) return null;
@@ -470,11 +542,17 @@ export function registerReview(api: DaemonExtensionApi, store: SessionStore, def
     if (!file) return { status: 400, body: { error: "path is required" } };
     return answer(await broker.diff(req.params.id, req.params.rid, file));
   });
+  api.route("POST", "/sessions/:id/reviews/:rid/native-diff", async (req) => answer(await broker.nativeDiff(req.params.id, req.params.rid, req.body)));
   api.route("POST", "/sessions/:id/reviews/:rid/keep", (req) => answer(broker.keep(req.params.id, req.params.rid, req.body)));
   api.route("POST", "/sessions/:id/reviews/:rid/revert", async (req) => answer(await broker.revert(req.params.id, req.params.rid, req.body)));
   api.route("POST", "/sessions/:id/reviews/:rid/undo", async (req) => answer(await broker.undoRevert(req.params.id, req.params.rid, req.body)));
   api.route("POST", "/sessions/:id/timeline/restore", async (req) => answer(await broker.restoreTo(req.params.id, req.body)));
   api.route("POST", "/sessions/:id/timeline/undo", async (req) => answer(await broker.undoRestore(req.params.id, req.body)));
+  api.route("GET", "/review/thumbnails/:id", (req) => {
+    const p = broker.thumbnail(req.params.id);
+    // A version's picture never changes: its id is the blob id of that version.
+    return p ? { headers: { "content-type": p.type, "cache-control": "private, max-age=31536000, immutable" }, body: p.bytes } : { status: 404, body: { error: "no such picture" } };
+  });
   api.route("GET", "/review/images/:name", (req) => {
     const p = broker.picture(req.params.name);
     return p ? { headers: { "content-type": p.type, "cache-control": "private, max-age=86400" }, body: p.bytes } : { status: 404, body: { error: "no such picture" } };
