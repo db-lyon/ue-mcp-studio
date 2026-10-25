@@ -14,6 +14,8 @@ import { parseDocument, isSeq } from "yaml";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import type { AgentSettings, DialogMode, FeedbackMode, PlaytestRunsMode } from "@ue-mcp-studio/shared";
 import { budgetOf, type PlaytestStore } from "./playtest-store.js";
+import type { BudgetStore } from "./budgets.js";
+import { PLAYTEST_RUNNER_ID } from "@ue-mcp-studio/shared";
 
 const FEEDBACK_MODES: readonly FeedbackMode[] = ["interactive", "auto-approve", "defer"];
 const DIALOG_MODES: readonly DialogMode[] = ["interactive", "auto", "defer"];
@@ -41,7 +43,7 @@ export function withFeedbackTool(ymlText: string, on: boolean): string {
   return doc.toString();
 }
 
-export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () => Promise<unknown>, playtests?: PlaytestStore): void {
+export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () => Promise<unknown>, playtests?: PlaytestStore, budgets?: BudgetStore): void {
   const modes = (api as unknown as { modes?: Modes }).modes;
   const yml = path.join(api.projectDir, "ue-mcp.yml");
   const read = (): string => (fs.existsSync(yml) ? fs.readFileSync(yml, "utf-8") : "");
@@ -49,7 +51,7 @@ export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () 
     feedbackTool: feedbackToolOn(read()),
     feedbackMode: modes?.get().feedback ?? null,
     dialogMode: modes?.get().dialog ?? null,
-    ...(playtests ? { playtestRuns: playtests.runs(), playtestBudget: playtests.budget() } : {}),
+    ...(playtests ? { playtestRuns: playtests.runs(), playtestBudget: budgets ? budgets.playtestBudget() : playtests.budget() } : {}),
   });
 
   api.route("GET", "/agent-settings", () => ({ body: view() }));
@@ -66,6 +68,8 @@ export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () 
     if (b.dialogMode !== undefined) modes!.setDialog((b.dialogMode as DialogMode | null) ?? undefined);
     if (b.playtestRuns !== undefined) playtests?.setRuns(b.playtestRuns as PlaytestRunsMode);
     if (budget) playtests?.setBudget(budget);
+    // Usage > Budgets holds it now: an older panel's change lands on the Playtest runner's row.
+    if (budget) budgets?.update({ agents: { [PLAYTEST_RUNNER_ID]: { perRunTokens: budget.tokens, perRunMinutes: budget.minutes } } });
     let restarting = false;
     if (typeof b.feedbackTool === "boolean" && b.feedbackTool !== feedbackToolOn(read())) {
       fs.writeFileSync(yml, withFeedbackTool(read(), b.feedbackTool));
