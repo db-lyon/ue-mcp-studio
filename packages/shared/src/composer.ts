@@ -117,7 +117,7 @@ export interface InstructionsPreview {
  * reported separately in Usage.
  */
 export const BUDGET_DEFINITION =
-  "Budgets count input, cache writes and output. Cached reads are left out, because every vendor bills them far below fresh input, and Usage shows them separately. A run is one turn of an agent's own calls, or one hand-off to a helper. Days are calendar days on this machine.";
+  "Budgets count input, cache writes and output. Cached reads are left out, because every vendor bills them far below fresh input. A run is one turn of the main agent's own calls, or one assigned playtest with every attempt in it.";
 
 export type BudgetLimitAction = "stop-and-report" | "ask" | "fallback-model";
 

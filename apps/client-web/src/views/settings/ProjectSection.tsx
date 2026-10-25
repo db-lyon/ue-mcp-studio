@@ -51,11 +51,11 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       </section>
 
       <Card label={<>Context strategy for other MCP clients <Shared /></>}>
-        <p className="muted small">What a client such as an editor extension or a terminal agent is given at the start of each session. Studio's own agents choose theirs in <button className="link" onClick={() => onSection("agents")}>Agents</button>.</p>
+        <p className="muted small">What a client such as an editor extension or a terminal agent is given at the start of each session. Studio's own agents use Micro.</p>
         {context && (
           <>
             {context.envOverride && (
-              <div className="banner warn small">UE_MCP_CONTEXT_STRATEGY={context.envOverride} is set where ue-mcp runs, and wins over this file until it is removed.</div>
+              <div className="banner warn small"><span className="mono">UE_MCP_CONTEXT_STRATEGY={context.envOverride}</span> is set where ue-mcp runs, so clients get {CONTEXT_STRATEGY_INFO[context.envOverride].name} whatever the file says, until it is removed.</div>
             )}
             <div className="opts row3" style={{ marginTop: 8 }}>
               {CONTEXT_STRATEGIES.map((s) => (
@@ -63,8 +63,9 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                   key={s}
                   name="client-context"
                   on={context.strategy === s}
+                  overridden={!!context.envOverride}
                   onPick={() => void pick(s)}
-                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span></>}
+                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from the environment</span></>}{context.envOverride && context.strategy === s && context.envOverride !== s && <> <span className="tag">saved, overridden</span></>}</>}
                   desc={<><br />{CONTEXT_STRATEGY_INFO[s].sees} {CONTEXT_STRATEGY_INFO[s].discovery}</>}
                 />
               ))}
@@ -80,7 +81,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       <Card label="MCP clients">
         {clients.length === 0 && <p className="cfg-note">None configured. Set them up below, from the editor.</p>}
         {clients.map((c) => (
-          <div key={c.id} className="toggle-row">
+          <div key={c.id} className="toggle-row inline">
             <span className="dot ok" style={{ marginTop: 6 }} />
             <div className="grow"><div className="t"><strong>{c.name}</strong> <span className="muted small">{c.pinned ? `ue-mcp@${c.pinned}` : "ue-mcp@latest"}</span></div></div>
           </div>

@@ -81,7 +81,7 @@ export function ApprovalsSection() {
       </Card>
 
       <Card label="Feedback reports">
-        <Row title="Agents can report gaps in ue-mcp's tools" badge={<Shared />} help="Filed as GitHub issues on ue-mcp. Changing this restarts ue-mcp after the turn in progress.">
+        <Row inline title="Agents can report gaps in ue-mcp's tools" badge={<Shared />} help="Filed as GitHub issues on ue-mcp. Changing this restarts ue-mcp after the turn in progress.">
           <Switch label="Agents can report gaps in ue-mcp's tools" on={agent.feedbackTool} onChange={(v) => void saveAgent({ feedbackTool: v })} />
         </Row>
         {agent.feedbackTool && (
@@ -92,9 +92,9 @@ export function ApprovalsSection() {
       </Card>
 
       <Card label="Editor dialogs">
-        <div className="flabel">Who answers a dialog an agent's call opens <Shared /></div>
+        <Row title="Who answers a dialog an agent's call opens" badge={<Shared />} help="A dialog in the editor stops every call until it is answered." />
         {agent.dialogMode ? (
-          <div className="opts" style={{ marginTop: 8 }}>
+          <div className="opts">
             {DIALOG_MODES.map((d) => (
               <Opt key={d.id} name="dialog-mode" on={dialogMode === d.id} onPick={() => void saveAgent({ dialogMode: d.id })} title={d.name} desc={d.about} />
             ))}
@@ -107,7 +107,7 @@ export function ApprovalsSection() {
       </Card>
 
       <Card label="After it acts">
-        <Row title="Review each turn" help="Studio takes a checkpoint before and after each turn and lists what it changed, so you can keep or revert each file. A session's Checkpoints panel can turn it off for that session. Assigning a playtest to a helper needs it on.">
+        <Row inline title="Review each turn" help="Studio takes a checkpoint before and after each turn and lists what it changed, so you can keep or revert each file. A session's Checkpoints panel can turn it off for that session. Assigning a playtest to a helper needs it on.">
           <Switch label="Review each turn" on={settings.reviewTurns !== false} onChange={(v) => void save({ reviewTurns: v })} />
         </Row>
       </Card>
@@ -137,7 +137,7 @@ export function DialogPolicyField({ policy, onSave }: { policy: DialogPolicy; on
           </>
         )}
       </div>
-      <span className="help">A dialog in the editor stops every call until it is answered. It shows in the chat with its buttons, and the window flashes when you are elsewhere. Saved for this project.</span>
+      <span className="help">The dialog shows in the chat with its buttons, and the window flashes when you are elsewhere. Saved for this project.</span>
     </div>
   );
 }

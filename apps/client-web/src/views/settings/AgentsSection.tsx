@@ -37,18 +37,18 @@ type Tab = "main" | "delegation" | "instructions";
 export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) => void }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const [tab, setTab] = useState<Tab>("main");
-  const [count, setCount] = useState<number | null>(null);
+  const [files, setFiles] = useState<{ on: number; all: number } | null>(null);
   const msg = useMessage();
   useEffect(() => {
     api.settings().then(setSettings, msg.fail);
-    api.instructions().then((v) => setCount(v.files.length), () => setCount(null));
+    api.instructions().then((v) => setFiles({ on: v.files.filter((f) => f.on && !f.sameAs).length, all: v.files.filter((f) => !f.sameAs).length }), () => setFiles(null));
   }, []);
   const saveUsage = (u: Partial<UsageSettings>) => api.saveSettings({ usage: u }).then(setSettings, msg.fail);
   if (!settings) return <>{msg.node ?? <p className="muted">Loading</p>}</>;
   const tabs: Array<{ id: Tab; name: string; count?: number | null }> = [
     { id: "main", name: "Main agent" },
     { id: "delegation", name: "Delegation" },
-    { id: "instructions", name: "Instructions", count },
+    { id: "instructions", name: "Instructions", count: files?.all },
   ];
   return (
     <>
@@ -61,14 +61,15 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
           </button>
         ))}
       </nav>
-      {tab === "main" && <MainAgent settings={settings} onSettings={setSettings} saveUsage={saveUsage} onSection={onSection} onInstructions={() => setTab("instructions")} />}
+      {tab === "main" && <MainAgent settings={settings} onSettings={setSettings} saveUsage={saveUsage} onSection={onSection} onInstructions={() => setTab("instructions")} files={files} />}
       {tab === "delegation" && <Delegation settings={settings} saveUsage={saveUsage} />}
       {tab === "instructions" && <InstructionsPanel agents={[{ id: "main", name: "Main agent" }, { id: "playtest-runner", name: "Playtest runner" }]} />}
     </>
   );
 }
 
-function MainAgent({ settings, onSettings, saveUsage, onSection, onInstructions }: {
+function MainAgent({ settings, onSettings, saveUsage, onSection, onInstructions, files }: {
+  files: { on: number; all: number } | null;
   settings: StudioSettings;
   onSettings: (s: StudioSettings) => void;
   saveUsage: (u: Partial<UsageSettings>) => void;
@@ -91,8 +92,8 @@ function MainAgent({ settings, onSettings, saveUsage, onSection, onInstructions 
         )}
       </Card>
       <Card label="Knowledge and vision">
-        <Row title="Project instruction files" help={<>Every convention, in one order. <button className="link" onClick={onInstructions}>See them</button></>}>
-          <Seg label="Project instruction files" value={usage.projectInstructions ? "all" : "none"} options={[{ id: "all", name: "All" }, { id: "none", name: "None" }]} onChange={(v) => saveUsage({ projectInstructions: v === "all" })} />
+        <Row title="Project instruction files" help={<>{files ? `${files.on} of ${files.all} files are on. ` : ""}Each agent that reads instruction files reads the ones that are on. <button className="link" onClick={onInstructions}>Turn files on or off in Instructions</button></>}>
+          <Seg label="Project instruction files" value={usage.projectInstructions ? "all" : "none"} options={[{ id: "all", name: "Read the files that are on" }, { id: "none", name: "Read none" }]} onChange={(v) => saveUsage({ projectInstructions: v === "all" })} />
         </Row>
         <Row title="Screenshot size" help="The longest side of a screenshot or picture an agent is shown. A larger image costs more every time the conversation is read again.">
           <Seg label="Screenshot size" value={usage.imageSize} options={IMAGE_SIZES} onChange={(v) => saveUsage({ imageSize: v })} />

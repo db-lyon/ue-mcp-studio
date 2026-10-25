@@ -6,6 +6,9 @@ import { AccountView } from "../Account";
 import { Head } from "../SettingsHub";
 import { Card, useMessage } from "./controls";
 
+/** The vendor whose models each sign-in runs. */
+const SIGN_IN_VENDOR: Record<SignInId, string> = { claude: "anthropic", chatgpt: "openai", studio: "anthropic" };
+
 const ROUTE_NAME: Record<SignInId | "key", string> = { claude: "Claude sign-in", chatgpt: "ChatGPT sign-in", studio: "Studio plan", key: "key" };
 
 /**
@@ -26,6 +29,7 @@ export function ModelsSection() {
   };
   useEffect(refresh, []);
   if (!settings) return <>{msg.node ?? <p className="muted">Loading</p>}</>;
+  const keyOnly = KEY_PROVIDER_IDS.filter((v) => !OFFERED_SIGN_INS.some((s) => SIGN_IN_VENDOR[s] === v)).map((v) => PROVIDERS[v].name);
   return (
     <>
       <Head title="Models & accounts" lead="What can run models on this machine. Agents choose models; this page decides how each one is reached." />
@@ -34,6 +38,7 @@ export function ModelsSection() {
         <Card label="Sign-ins">
           <p className="cfg-note">A sign-in runs its vendor's models on your plan, and is used before a key.</p>
           {OFFERED_SIGN_INS.map((p) => <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={msg.fail} />)}
+          {keyOnly.length > 0 && <p className="cfg-note">{keyOnly.join(" and ")} {keyOnly.length === 1 ? "has" : "have"} no sign-in: {keyOnly.length === 1 ? "its" : "their"} models run on a key.</p>}
         </Card>
         <Card label="API keys">
           <p className="cfg-note">Optional. A model runs on your key only when no sign-in runs it. Keys stay on this machine and serve every project.</p>
@@ -61,7 +66,7 @@ export function ModelsSection() {
                         </div>
                       ))}
                     </td>
-                    <td className="r small">{runs ? <span className="tag ok">runs</span> : <span className="tag">connect</span>}</td>
+                    <td className="r small">{runs ? <span className="tag ok">runs here</span> : <span className="dim">not connected</span>}</td>
                   </tr>
                 );
               }))}
@@ -105,7 +110,7 @@ export function ProviderRow({ provider, settings, onChange, onError }: {
   const disconnect = () =>
     api.saveSettings(signIn ? { signOut: provider } : { keys: { [provider]: "" } }).then(onChange, onError);
   return (
-    <div className="toggle-row">
+    <div className="toggle-row inline">
       <span className={`dot ${connected ? "ok" : ""}`} style={{ marginTop: 6 }} />
       <div className="grow">
         <div className="t"><strong>{PROVIDERS[provider].name}</strong> <span className="muted small">{status}</span></div>

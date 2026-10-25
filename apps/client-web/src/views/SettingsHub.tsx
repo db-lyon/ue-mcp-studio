@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import type { StudioSettings, StudioTheme } from "@ue-mcp-studio/shared";
+import { CONTEXT_STRATEGY_INFO, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import type { DaemonState } from "../state";
 import { api } from "../api";
 import { AgentsSection } from "./settings/AgentsSection";
@@ -52,16 +52,43 @@ function Icon({ d }: { d: string }) {
   );
 }
 
-/** What needs attention, per section, for the rail's dots. */
-export function useAttentionDots(updates: number): Partial<Record<SettingsSection, string>> {
+const ROUTE_LABEL: Record<string, string> = { claude: "Claude sign-in", chatgpt: "ChatGPT sign-in", studio: "Studio plan", key: "key" };
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * Each section's state in a line, for the narrow section list, and what needs
+ * attention, for the rail's dots. Read once when Settings opens.
+ */
+export function useSectionStatus(updates: number, daemon: DaemonState): { dots: Partial<Record<SettingsSection, string>>; lines: Partial<Record<SettingsSection, string>> } {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
+  const [extra, setExtra] = useState<{ approvalsOff?: number; strategy?: string; ready?: boolean; budgets?: number; models?: ModelCatalog } >({});
   useEffect(() => {
     api.settings().then(setSettings, () => setSettings(null));
+    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: CONTEXT_STRATEGY_INFO[c.strategy].name })), () => undefined);
+    if (typeof api.install === "function") api.install().then((r) => setExtra((e) => ({ ...e, ready: r.ok })), () => undefined);
+    if (typeof api.budgets === "function") api.budgets().then((b) => setExtra((e) => ({ ...e, budgets: Object.values(b.budgets.agents).reduce((n, x) => n + [x.perRunTokens, x.perRunMinutes, x.perDayTokens].filter((v) => v !== null).length, 0) })), () => undefined);
+    if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
   }, []);
   const dots: Partial<Record<SettingsSection, string>> = {};
   if (settings && settings.route === null) dots.models = "Nothing connected can run the main agent's model";
   if (updates > 0) dots.general = `${updates} ${updates === 1 ? "update" : "updates"} available`;
-  return dots;
+  const lines: Partial<Record<SettingsSection, string>> = {};
+  if (settings) {
+    const model = extra.models?.providers.flatMap((p) => p.models).find((m) => m.id === settings.model)?.name ?? settings.model;
+    const helpers = settings.usage?.subagents === "off" ? "no helpers" : settings.usage?.subagents === "asked" ? "helpers when asked" : "helpers automatic";
+    lines.agents = `${model}${settings.route ? ` on ${ROUTE_LABEL[settings.route] ?? settings.route}` : ", not connected"}, ${helpers}`;
+    const signIns = (["claude", "chatgpt", "studio"] as const).filter((s) => settings.connected?.[s]).length;
+    const keys = (["anthropic", "openai", "google"] as const).filter((k) => settings.connected?.[k]).length;
+    lines.models = signIns + keys === 0 ? "Nothing connected yet" : `${plural(signIns, "sign-in")}, ${plural(keys, "key")}`;
+    const rules = settings.approvals ? Object.values(settings.approvals) : [];
+    if (rules.length) lines.approvals = `${rules.filter((r) => r === "ask").length} of ${rules.length} kinds ask first, review ${settings.reviewTurns === false ? "off" : "on"}`;
+  }
+  if (extra.ready !== undefined || extra.strategy) lines.project = [extra.ready === undefined ? null : extra.ready ? "Ready" : "Needs attention", extra.strategy ? `${extra.strategy} for other clients` : null].filter(Boolean).join(", ");
+  if (extra.budgets !== undefined) lines.usage = extra.budgets ? `${plural(extra.budgets, "limit")} set` : "No limits set";
+  lines.general = updates > 0 ? dots.general : "Up to date";
+  const editor = daemon?.health?.editors?.find((e) => e.connected);
+  if (daemon?.health) lines.diagnostics = editor ? `Editor connected, ue-mcp ${daemon.health.version}` : `No editor connected, ue-mcp ${daemon.health.version}`;
+  return { dots, lines };
 }
 
 /**
@@ -77,7 +104,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   updates?: number;
   narrow?: boolean;
 }) {
-  const dots = useAttentionDots(updates);
+  const { dots, lines } = useSectionStatus(updates, daemon);
   // Wide always shows a section; narrow starts on the list.
   const open: SettingsSection | null = section ?? (narrow ? null : "agents");
   let body: ReactNode = null;
@@ -110,7 +137,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
                 <Icon d={ICONS[s.id]} />
                 <span className="cfg-rail-text">
                   <span>{s.name}</span>
-                  <span className="cfg-rsub">{dots[s.id] ?? s.sub}</span>
+                  <span className="cfg-rsub">{dots[s.id] ?? lines[s.id] ?? s.sub}</span>
                 </span>
                 {dots[s.id] && <span className="cfg-rdot" title={dots[s.id]} aria-label={dots[s.id]} />}
               </button>

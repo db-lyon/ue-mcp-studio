@@ -47,7 +47,7 @@ export function StatusView({ daemon }: { daemon: DaemonState }) {
         ))}
         <div className="actions">
           {(["start", "stop", "restart", "rebuild"] as const).map((op) => (
-            <button key={op} disabled={busy !== null} onClick={() => run(op)}>
+            <button key={op} disabled={busy !== null || (op === "start" ? h.editors.some((e) => e.connected) : !h.editors.some((e) => e.connected))} onClick={() => run(op)}>
               {busy === op ? `${op}...` : op[0].toUpperCase() + op.slice(1)}
             </button>
           ))}

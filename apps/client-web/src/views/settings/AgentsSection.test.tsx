@@ -38,7 +38,7 @@ describe("Agents > Main agent", () => {
     await show();
     await act(async () => void fireEvent.click(screen.getByRole("radio", { name: /^Small/ })));
     expect(m.saveSettings).toHaveBeenCalledWith({ usage: { imageSize: "small" } });
-    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "None" })));
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Read none" })));
     expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { projectInstructions: false } });
   });
 });

@@ -33,9 +33,9 @@ export function Switch({ on, onChange, label, disabled }: { on: boolean; onChang
 }
 
 /** A setting on one line: what it is and what it does, with its control at the end. */
-export function Row({ title, help, children, badge }: { title: ReactNode; help?: ReactNode; children?: ReactNode; badge?: ReactNode }) {
+export function Row({ title, help, children, badge, inline }: { title: ReactNode; help?: ReactNode; children?: ReactNode; badge?: ReactNode; inline?: boolean }) {
   return (
-    <div className="toggle-row">
+    <div className={`toggle-row ${inline ? "inline" : ""}`}>
       <div className="grow">
         <div className="t">{title}{badge}</div>
         {help && <div className="d">{help}</div>}
@@ -51,9 +51,9 @@ export function Shared() {
 }
 
 /** A choice with a sentence under it. */
-export function Opt({ on, onPick, title, desc, name, disabled }: { on: boolean; onPick: () => void; title: ReactNode; desc?: ReactNode; name: string; disabled?: boolean }) {
+export function Opt({ on, onPick, title, desc, name, disabled, overridden }: { on: boolean; onPick: () => void; title: ReactNode; desc?: ReactNode; name: string; disabled?: boolean; overridden?: boolean }) {
   return (
-    <label className={`opt ${on ? "on" : ""}`}>
+    <label className={`opt ${on ? "on" : ""} ${overridden ? "overridden" : ""}`}>
       <input type="radio" name={name} checked={on} disabled={disabled} onChange={() => onPick()} />
       <span>
         <span className="t">{title}</span>

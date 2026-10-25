@@ -53,6 +53,10 @@ describe("Project > context strategy for other clients", () => {
 
   it("says when the environment overrides the file", async () => {
     await show(ctx({ envOverride: "full" }));
-    expect(screen.getByText(/UE_MCP_CONTEXT_STRATEGY=full is set where ue-mcp runs/)).toBeTruthy();
+    expect(screen.getByText("UE_MCP_CONTEXT_STRATEGY=full")).toBeTruthy();
+    expect(screen.getByText(/so clients get Full whatever the file says/)).toBeTruthy();
+    // The strategy in effect and the saved one are both named.
+    expect(screen.getByText("in effect, from the environment")).toBeTruthy();
+    expect(screen.getByText("saved, overridden")).toBeTruthy();
   });
 });

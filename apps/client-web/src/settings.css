@@ -140,3 +140,21 @@
   .cfg table.cfg-table.blocks td input:not([type="checkbox"]):not([type="radio"]) { width: 150px; flex: 0 0 auto; }
 }
 .cfg input.minutes { width: 72px; }
+
+/* Inside Settings a stack fills the content column. */
+.cfg .stack { max-width: none; margin: 0; width: 100%; }
+/* The shared badge reads the same in every heading and theme. */
+.cfg .shared { text-transform: none; letter-spacing: 0; font-family: var(--sans); font-weight: 600; }
+.cfg h2.cfg-label { flex-wrap: wrap; }
+/* Paths break at their slashes, never inside a name. */
+.cfg .path { overflow-wrap: break-word; word-break: normal; }
+.cfg .readers { color: var(--muted); font-size: 12px; }
+.cfg .show-narrow { display: none; }
+@media (max-width: 760px) { .cfg .show-narrow { display: block; } }
+/* A row whose control is wide: on a narrow panel the control goes under its label. */
+@media (max-width: 760px) {
+  .cfg .toggle-row:not(.inline) { flex-direction: column; align-items: stretch; gap: 8px; }
+  .cfg .toggle-row:not(.inline) > .seg, .cfg .toggle-row:not(.inline) > select { align-self: flex-start; }
+  .cfg .toggle-row .grow { min-width: 0; }
+}
+.cfg .opt.overridden { opacity: 0.6; }

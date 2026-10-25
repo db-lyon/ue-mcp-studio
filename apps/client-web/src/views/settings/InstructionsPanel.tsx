@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { InstructionFile, InstructionsPreview, InstructionsView } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
-import { Avatar, Card, Switch, tokens, useMessage } from "./controls";
+import { Card, Switch, tokens, useMessage } from "./controls";
 
 /** Files whose text can move into AGENTS.md and be replaced by an import of it. */
 const POINTABLE = ["CLAUDE.md", ".claude/CLAUDE.md", "GEMINI.md"];
@@ -64,6 +64,14 @@ export function InstructionsPanel({ agents }: { agents: Array<{ id: string; name
     msg.ok(r.pointed.length ? `Created AGENTS.md. ${r.pointed.join(" and ")} now import it.` : "Created AGENTS.md.");
   }, msg.fail);
   const name = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
+  /** Who reads a file, by name: every agent, or the first two and how many more. */
+  const readers = (f: InstructionFile): string => {
+    const ids = f.readBy ?? [];
+    if (ids.length === 0) return "no agent";
+    if (ids.length === agents.length && agents.length > 2) return `all ${agents.length} agents`;
+    const names = ids.map(name);
+    return names.length <= 2 ? names.join(" and ") : `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+  };
 
   return (
     <>
@@ -117,6 +125,7 @@ export function InstructionsPanel({ agents }: { agents: Array<{ id: string; name
                     <td>
                       <div className="path">{f.path}</div>
                       {scopeNote(f) && <div className={`cfg-note ${f.missing ? "warn" : ""}`}>{scopeNote(f)}</div>}
+                      {f.on && !f.sameAs && <div className="readers show-narrow">Read by {readers(f)}</div>}
                       {f.convention === "added" && (
                         <div className="cfg-inline small">
                           <button className="ghost" disabled={i === 0} onClick={() => move(f, -1)} aria-label={`Read ${f.path} earlier`}>Earlier</button>
@@ -126,10 +135,12 @@ export function InstructionsPanel({ agents }: { agents: Array<{ id: string; name
                       )}
                     </td>
                     <td className="r num">{f.sameAs ? "0" : tokens(f.tokens)}</td>
-                    <td className="hide-narrow">
-                      <span className="avs">{(f.readBy ?? []).map((id) => <Avatar key={id} id={id} name={name(id)} small />)}</span>
+                    <td className="hide-narrow readers">{f.on && !f.sameAs ? readers(f) : ""}</td>
+                    <td className="r">
+                      {f.sameAs
+                        ? <span className="dim small">as {f.sameAs}</span>
+                        : <Switch label={`Read ${f.path}`} on={f.on} disabled={!!f.missing} onChange={(v) => toggle(f, v)} />}
                     </td>
-                    <td className="r"><Switch label={`Read ${f.path}`} on={f.on} disabled={!!f.sameAs || !!f.missing} onChange={(v) => toggle(f, v)} /></td>
                   </tr>
                 ))}
               </tbody>
