@@ -1316,7 +1316,6 @@ button.filter-chip.attention .filter-count { color: var(--warn); font-weight: 70
 }
 .qa-meta-session { display: inline-block; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; color: var(--muted); }
 @media (max-width: 760px) {
-  h1.playtests-title { display: none; }
   .playtests-page { padding: 4px 4px 12px; }
   .qa-meta-session { max-width: 100%; }
 }
@@ -1413,3 +1412,7 @@ button.qa-scroll-cue:disabled { visibility: hidden; }
 .qa-pinned-names { color: var(--text); }
 .qa-pinned-text { flex: 0 1 auto; min-width: 0; }
 .qa-pinned > button { flex-shrink: 0; }
+/* At 380 px the session's name opens its card: a link in the row's line, where Open in session has no room. */
+button.qa-meta-session.link { display: inline-flex; align-items: baseline; gap: 4px; height: auto; min-height: 0; max-width: 100%; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; letter-spacing: 0; text-align: left; cursor: pointer; vertical-align: bottom; }
+button.qa-meta-session.link:hover:not(:disabled) { background: none; border: 0; color: var(--text); }
+.qa-meta-session-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-underline-offset: 3px; }

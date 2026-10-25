@@ -19,6 +19,7 @@ import {
 import { api } from "../api";
 import type { DaemonState } from "../state";
 import { QaCard, QaContext, type QaCardActions, type QaLive } from "../chat/Qa";
+import { NARROW, useMedia } from "../layout";
 
 const FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [
   { id: "needs-you", label: "Needs you", empty: "Nothing needs you. A playtest step that needs your verdict, or a loop that stops for you, shows here." },
@@ -140,11 +141,13 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
   );
 }
 
-/** Where and when the shown run ran. */
-function metaOf(e: PlaytestEntry): ReactNode {
+/** Where and when the shown run ran. Given `open`, the session's name is the way to it, as it is at 380 px where the row has no room for Open in session. */
+function metaOf(e: PlaytestEntry, open?: () => void): ReactNode {
   const title = e.session?.title || "Untitled";
   const where = e.session
-    ? <> <span className="qa-meta-session" title={title}>in {title}</span></>
+    ? <> in {open
+      ? <button type="button" className="qa-meta-session link" title={`Open the card in ${title}`} onClick={open}><span className="qa-meta-session-name">{title}</span><span aria-hidden="true">{"↗"}</span></button>
+      : <span className="qa-meta-session" title={title}>{title}</span>}</>
     : e.last ? " outside Studio" : "";
   const when = e.last ? `${qaEnded(e.last.state) ? "Ran" : "Started"} ${ranAgo(e.last.seenAt)}` : e.card ? "Never run, drafted" : "Never run";
   return <>{e.deleted && "Script deleted. "}{when}{where}</>;
@@ -152,6 +155,7 @@ function metaOf(e: PlaytestEntry): ReactNode {
 
 export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }: { entry: PlaytestEntry; offline?: boolean; onOpenSession: (sessionId: string, runId: string) => void; onChanged: () => void }) {
   const shown = playtestShown(entry);
+  const narrow = useMedia(NARROW);
   /** The card in a session, made on the first action that needs one. */
   const card = async (): Promise<QaRun> => entry.card ?? (await api.qaPlaytestCard(entry.script)).run;
   const actions: QaCardActions = {
@@ -170,12 +174,13 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
   };
   if (!shown) return null;
   const target = entry.session && entry.last?.sessionId === entry.session.id ? entry.last : entry.card;
-  const open = target?.sessionId ? (
-    <button className="small-button" onClick={() => onOpenSession(target.sessionId!, target.runId)} title={`Open the card in ${entry.session?.title ?? "its session"}`}>Open in session</button>
+  const go = target?.sessionId ? () => onOpenSession(target.sessionId!, target.runId) : undefined;
+  const open = go && !narrow ? (
+    <button className="small-button" onClick={go} title={`Open the card in ${entry.session?.title ?? "its session"}`}>Open in session</button>
   ) : null;
   return (
     <div className={`playtests-row ${entry.deleted ? "deleted" : ""}`}>
-      <QaCard run={shown} actions={entry.deleted ? {} : actions} meta={metaOf(entry)} extra={open} slotted offline={offline ? "The editor is not connected" : undefined} />
+      <QaCard run={shown} actions={entry.deleted ? {} : actions} meta={metaOf(entry, narrow ? go : undefined)} extra={open} slotted offline={offline ? "The editor is not connected" : undefined} />
     </div>
   );
 }

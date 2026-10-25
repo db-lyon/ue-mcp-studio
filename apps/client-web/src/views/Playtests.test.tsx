@@ -130,6 +130,19 @@ describe("the Playtests page", () => {
     expect(within(row("Jump")).queryByRole("button", { name: "Open in session" })).toBeNull();
   });
 
+  it("at 380 px opens the card from the session's name, with no room for Open in session", () => {
+    const real = window.matchMedia;
+    window.matchMedia = ((query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    try {
+      const { onOpenSession } = page();
+      expect(within(row("Door")).queryByRole("button", { name: "Open in session" })).toBeNull();
+      fireEvent.click(within(row("Door")).getByRole("button", { name: "Doors" }));
+      expect(onOpenSession).toHaveBeenCalledWith("s1", "w1");
+    } finally {
+      window.matchMedia = real;
+    }
+  });
+
   it("opens the full card in place from a step's bar", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
