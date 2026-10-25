@@ -304,7 +304,7 @@ function PricesCard({ table, onSaved, onError }: { table: PriceTable; onSaved: (
   };
   return (
     <details className="card advanced">
-      <summary className="muted small">Prices used for estimated cost (shipped table dated {table.shippedAsOf})</summary>
+      <summary className="muted small">Prices used for estimated cost, each dated from its vendor's page</summary>
       <div className="scroll-x">
         <table className="cfg-table blocks usage-table">
           <thead><tr><th>Model</th>{RATE_KINDS.map((k) => <th key={k.id} className="r">{k.name}</th>)}<th>Source</th><th /></tr></thead>
