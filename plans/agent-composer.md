@@ -1,6 +1,6 @@
 # Agents, settings and usage
 
-Status: the plan in force. Phase 1 is built (section 9). Every decision is settled; there are no open questions.
+Status: the plan in force. Phase 1 is built (section 8). Every decision is settled; there are no open questions.
 
 ## Why
 
@@ -12,11 +12,9 @@ Settings grew one card at a time, and it shows:
 - **Studio invented its own agent settings** (subagent mode, model, effort) while every vendor already has project files for exactly this: instructions, subagents and skills that people write once and every tool of that vendor reads.
 - **Context strategy was buried** in an editor-only form, and Studio's own agent had no choice at all.
 
-## The split
+## Scope
 
-**Free (the MIT client, every route: the Claude sign-in, the ChatGPT sign-in, any API key, any custom endpoint).** Studio has no agent or skill editor. A project configures its agents with each vendor's own files, written for that vendor's own tools, and Studio honours them exactly as those tools do. Studio shows, read only, what it loaded on each route, and keeps every spend and safety control: approvals, budgets, the helpers-per-turn cap, image size, the usage dashboard, and the context strategy for Studio's own agent.
-
-**Hosted plan (the Studio sign-in only).** A full agent management system: personas, teams, a skills library, delegation, per-agent budgets, mixed vendors in one team, templates, export and import. Its logic and its entitlement check run in the private gateway. The public client renders it only from data the gateway returns for an entitled account, and only while `STUDIO_PLAN_AVAILABLE` is on. That flag is off: until it is turned on, nothing in the client shows or hints at the plan.
+Every route (the Claude sign-in, the ChatGPT sign-in, any API key, any custom endpoint) works the same way. Studio has no agent or skill editor. A project configures its agents with each vendor's own files, written for that vendor's own tools, and Studio honours them exactly as those tools do. Studio shows, read only, what it loaded on each route, and keeps every spend and safety control: approvals, budgets, the helpers-per-turn cap, image size, the usage dashboard, and the context strategy for Studio's own agent.
 
 ## Decisions at a glance
 
@@ -26,10 +24,9 @@ Settings grew one card at a time, and it shows:
 4. **Studio's own loop reads them the way each vendor's tool does**: instruction files in that tool's order, subagents as helpers of Studio's agent tool, skills through a skill tool with the same contract.
 5. **Agents in Settings is read only**: for each convention, the instruction files, subagents and skills found, with source path, size in tokens and Open file, and a sentence on which files that vendor's tools read.
 6. **The built-in editor worker stays**, Studio's own helper for work that splits, with sensible defaults. The subagent mode, model and effort controls leave the UI; earlier values keep working. The helpers-per-turn cap is in Usage > Budgets as a spend limit.
-7. **Spend and safety stay free and in one place**: Approvals & review (per kind), Usage > Budgets (every limit), and the usage dashboard.
+7. **Spend and safety stay in one place**: Approvals & review (per kind), Usage > Budgets (every limit), and the usage dashboard.
 8. **Context strategy uses ue-mcp's names everywhere: Micro, Lean, Full.** Project sets it for other clients; Studio's own agent has its own choice plus Auto, which stays hidden until measurements ship.
 9. **Usage** is a dashboard in neutral units: four token kinds, estimated cost only where a price exists, plan meters for sign-ins, budgets, and each vendor's caching under the same four headings.
-10. **The hosted plan's agent management** lives in the gateway and is invisible while `STUDIO_PLAN_AVAILABLE` is off.
 
 ---
 
@@ -64,7 +61,7 @@ Desktop: a left rail under two labels (Work; Project and Studio) with a status d
 | Turn token limit | Usage > Budgets | the main agent's per-run tokens |
 | Review each turn | Approvals & review | |
 | Dialog mode and policy | Approvals & review | mode shared; the policy sits under "Show them to me in Studio", the mode it applies to |
-| Playtest runs | Approvals & review > Starting playtests | ue-mcp's shared mode when the daemon offers it (section 7) |
+| Playtest runs | Approvals & review > Starting playtests | ue-mcp's shared mode when the daemon offers it (section 6) |
 | Assign to subagent budget | Usage > Budgets | the Playtest runner's per-run tokens and minutes, never empty |
 | Feedback tool and mode | Approvals & review | shared |
 | Context strategy for other clients | Project | from any browser |
@@ -73,7 +70,7 @@ Desktop: a left rail under two labels (Work; Project and Studio) with a status d
 
 ---
 
-## 2. Agents on the free path: each vendor's own files
+## 2. Agents: each vendor's own files
 
 ### 2.1 Which convention a route reads
 
@@ -81,7 +78,7 @@ The convention follows the model's vendor, whatever the route:
 
 | Model's vendor | Routes | Convention |
 |----------------|--------|------------|
-| Anthropic | Claude sign-in (Agent SDK), Anthropic key, Studio plan | Claude Code |
+| Anthropic | Claude sign-in (Agent SDK), Anthropic key | Claude Code |
 | OpenAI | ChatGPT sign-in, OpenAI key | Codex |
 | Google | Google key | Gemini CLI |
 | A custom endpoint | `endpoint:<id>` | AGENTS.md and `.agents/skills/` |
@@ -105,7 +102,7 @@ Studio starts each session in the project folder, so "the current directory" in 
 - Skills stay files the SDK loads; Studio's tool list names the Skill tool, which an explicit list must include.
 - The account's claude.ai connectors stay out, as before.
 
-**On an Anthropic key or the Studio plan** Studio's own loop reads the same files in the same order (2.6).
+**On an Anthropic key** Studio's own loop reads the same files in the same order (2.6).
 
 ### 2.3 Codex (learn.chatgpt.com/docs)
 
@@ -166,7 +163,7 @@ Open file opens the file in the system's editor through the agent (`POST /files/
 
 **Other clients** (built): Project sets `context.strategy` in ue-mcp.yml from any browser, with each strategy's seed tokens (measured by the daemon's projection when it offers one, else ue-mcp's published figures), the clients it affects, and the environment override marked.
 
-**Studio's own agent**: Micro (today's single ue-mcp tool), Lean (a tool per category with action names, signatures on demand) or Full (every signature inline), from the daemon's projection of ue-mcp's own surfaces (`context.project` and `context.call`), so Studio never rebuilds ue-mcp's tools. Auto picks, per vendor and scope, the strategy with the fewest median tokens among those within one task of the best pass rate, from `context-costs.json` in ue-mcp's measurement format (`ContextMeasurement`). Until a measurement ships, Auto is hidden and Micro is the default. The measurement runner is ready and needs editor runs (section 11).
+**Studio's own agent**: Micro (today's single ue-mcp tool), Lean (a tool per category with action names, signatures on demand) or Full (every signature inline), from the daemon's projection of ue-mcp's own surfaces (`context.project` and `context.call`), so Studio never rebuilds ue-mcp's tools. Auto picks, per vendor and scope, the strategy with the fewest median tokens among those within one task of the best pass rate, from `context-costs.json` in ue-mcp's measurement format (`ContextMeasurement`). Until a measurement ships, Auto is hidden and Micro is the default. The measurement runner is ready and needs editor runs (section 10).
 
 ---
 
@@ -186,24 +183,13 @@ Sign-ins, API keys and the model catalog (built). Adds custom OpenAI-compatible 
 
 ---
 
-## 6. The hosted plan's agent management
-
-Only for the Studio sign-in, only while `STUDIO_PLAN_AVAILABLE` is on, and only for an account the gateway says is entitled. While the flag is off, none of it is rendered, linked or mentioned.
-
-- **What it is**: named agents with personas, models from any vendor, tool scopes, per-agent budgets and skills from a library; teams with a main agent and helpers on mixed vendors; delegation rules and limits; which agent each entry point starts; templates filled from what the user has connected; export and import.
-- **Where it lives**: the private gateway (`db-lyon/ue-mcp-gateway`). It stores the account's agents and teams, checks the entitlement on every call, resolves templates, delegation and budgets, and returns a resolved team: per helper its prompt, model, tools, turn limit and the hand-off text the main agent reads.
-- **What the public client does**: renders the management screens from shapes declared in its own `packages/shared` (never the gateway's code), sends edits to the gateway, and runs the resolved team with the same helper runtime native subagents use (2.6). No paid logic, prices, keys or entitlement rules are in the client.
-- **Gateway routes**: `GET /v1/agents/team`, `PUT /v1/agents/team`, `GET/PUT/DELETE /v1/agents/:id`, `GET /v1/agents/templates`, `POST /v1/agents/team/from-template`, `POST /v1/agents/export`, `POST /v1/agents/import/preview`, `POST /v1/agents/import/apply`, `POST /v1/agents/delegation/try`, each answering 403 `{ entitled: false }` for an account without the plan.
-
----
-
-## 7. ue-mcp prerequisites
+## 6. ue-mcp prerequisites
 
 General daemon features, added to ue-mcp first and announced as feature strings: the skills listing with owners (`skills`, `GET /v1/skills`), projections of ue-mcp's surfaces for a category list and a call into a projected tool (`context.projection`), each action's read and destructive flags (`actions.effects`), the context measurement format (`ContextMeasurement`, its validator and JSON schema), and Playtest runs as a shared mode (`modes.playtest`, `ue-mcp playtest mode`). Studio feature-detects each and keeps today's behaviour without it.
 
 ---
 
-## 8. Routes under /v1/ext/studio
+## 7. Routes under /v1/ext/studio
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -220,18 +206,17 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 
 ---
 
-## 9. Phasing
+## 8. Phasing
 
 1. **Settings layout** (built, #64).
 2. **Native files on every route**, the read-only Agents view, the built-in worker shown read only, helpers per turn under Budgets.
 3. **Usage ledger and dashboard.**
 4. **Context strategy for Studio's agent**, on ue-mcp's projections.
 5. **Custom endpoints and route order.**
-6. **Hosted agent management**, gateway and client, behind the flag.
 
 ---
 
-## 10. Settled decisions
+## 9. Settled decisions
 
 1. Studio invents no agent, skill or team file format and writes none: no `.ue-mcp/studio/agents/`, no `team.yml`, no `studio:` frontmatter.
 2. The convention follows the model's vendor, not the route, so an Anthropic key and the Claude sign-in read the same files.
@@ -244,18 +229,17 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 9. The chat's model picker sets the model new turns run on, as before; there is no separate per-session default.
 10. Prices ship with Studio as a dated, sourced table; Studio never fetches prices.
 11. Budgets are per machine and never written to the project.
-12. The hosted plan's management is invisible while `STUDIO_PLAN_AVAILABLE` is off: no preview, no upsell, no mention.
-13. Playtest runs uses ue-mcp's shared mode when the daemon offers it, with the shared badge; otherwise Studio's own setting, without it.
+12. Playtest runs uses ue-mcp's shared mode when the daemon offers it, with the shared badge; otherwise Studio's own setting, without it.
 
 ---
 
-## 11. Editor runs pending
+## 10. Editor runs pending
 
 No phase was run against a live editor: the user has not asked for editor use. Each phase's PR lists the exact commands that prove it live once asked.
 
 ---
 
-## 12. Decisions made while building
+## 11. Decisions made while building
 
 ### Phase 1
 
