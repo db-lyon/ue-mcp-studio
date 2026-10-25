@@ -1430,3 +1430,7 @@ button.qa-meta-session.link:hover:not(:disabled) { background: none; border: 0; 
 .qa-step { padding-right: 8px; }
 .qa-judge { min-width: 4.5em; text-align: right; }
 .qa-status { min-width: 5.5em; text-align: right; }
+/* Focus is drawn in the text colour, so it never reads as the warm Needs you edge; on a step it rings the bar, not its hit area. */
+.qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-color: var(--text); }
+button.qa-path-hit:focus-visible { outline: none; }
+button.qa-path-hit:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
