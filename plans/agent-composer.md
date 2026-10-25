@@ -17,12 +17,12 @@ This plan replaces that with a settings layout grouped by the decision the user 
 ## Decisions at a glance
 
 1. Settings has seven sections: **Agents, Models & accounts, Approvals & review, Project, Usage, General, Diagnostics.** Every existing setting has one home (section 1.4). A setting that ue-mcp stores for every MCP client carries a "Shared with other clients" badge wherever it appears.
-2. An **agent** is a named spec: instructions, model (any vendor, any route), effort, tool scope, context strategy, skills, instruction files, budget. The main agent is one of them. Helpers are the rest. Mixed vendors are in the first release of the composer, not a later phase.
+2. An **agent** is a named spec: instructions, model (any vendor, any route), effort, tool scope, context strategy, skills, instruction files. The main agent is one of them. Helpers are the rest. Mixed vendors are in the first release of the composer, not a later phase. Budgets are per machine and edited in one place, Usage > Budgets.
 3. **Skills** are SKILL.md folders, the format ue-mcp and its plugins already ship. Studio reads four sources (built in, user, project, plugin) and shows the owner of each. Attaching a skill to an agent either preloads it or offers it on demand.
 4. **Delegation** replaces off / when asked / automatic with a per-helper hand-off rule, team limits, and a table of which agent each entry point starts (quick ask, flow steps, assigned playtests).
 5. **Templates** seed the composer from what the user has connected, whatever the vendor. A new user never sees a blank page.
 6. Teams are **files**. Project agents live in `.ue-mcp/studio/agents/<id>.md` and are checked in. Export writes the same files; import shows a diff before it applies.
-7. **Helpers share context when they can, on every vendor.** A helper on the same vendor and route as the main agent starts from the main agent's context and reuses its prompt cache, on the Agent SDK and on Studio's loop alike. A helper on another vendor starts fresh with a brief. The UI labels every hand-off "shared context" or "fresh start" and lists any other difference in a compatibility strip.
+7. **Helpers share context when they can, on every vendor.** A prompt cache belongs to one model, so a helper on the same model and route as the main agent can start from the main agent's conversation and reuse its cache: a forked conversation on the Agent SDK, the same prefix on Studio's loop. Every other helper starts fresh with a brief, whatever its vendor. The UI labels every hand-off "shared context" or "fresh start" and lists any other difference in a compatibility strip.
 8. **Project instructions** are read from every common convention, shown as one list with sizes and precedence, and injected by Studio the same way on every route. AGENTS.md is the file Studio creates and the shared file that wins.
 9. **Context strategy uses ue-mcp's names everywhere: Micro, Lean, Full.** Project sets it for external clients. Each Studio agent has its own choice plus Auto, priced per vendor and per scope from measured data.
 10. **Usage** is a dashboard in neutral units: tokens by kind, estimated cost only where a price exists, plan meters for sign-ins, one place to edit every budget, and each vendor's caching explained under the same four headings.
@@ -89,7 +89,7 @@ Desktop: a left rail with the sections under two quiet labels (Work: Agents, Mod
 |---------|-------|
 | **Agents** | Team (main and helpers), agent editor, Skills, Delegation (with who handles what), Instructions, Context strategy for Studio's agents. Templates, import and export. |
 | **Models & accounts** | Sign-ins with plan status, API keys, custom endpoints, route order, the model catalog with every route that runs each model, Studio gateway URL under Advanced, Studio account when offered. |
-| **Approvals & review** | Before it acts: shell commands, file changes, editor restarts, destructive ue-mcp actions, starting playtests, filing feedback, editor dialogs. After it acts: per-turn review default. |
+| **Approvals & review** | Before it acts: shell commands, file changes, editor restarts, destructive ue-mcp actions, starting playtests (manual or automatic), filing feedback, editor dialogs. After it acts: per-turn review default. |
 | **Project** | Install, bridge plugin, MCP clients, context strategy for other clients, native Unreal tools, skills installed for other clients, ue-mcp.yml under Advanced. |
 | **Usage** | The dashboard: spend over time, per agent, per session, per model, vendor and route; plan meters; budgets (the only place they are edited); warnings; comparisons; how each vendor caches. |
 | **General** | Appearance, Updates. |
@@ -116,7 +116,7 @@ Desktop: a left rail with the sections under two quiet labels (Work: Agents, Mod
 | 17 | Per-session review | session Checkpoints panel | none |
 | 18 | Dialog mode | Approvals & review > Editor dialogs | shared badge |
 | 19 | Dialog policy | Approvals & review > Editor dialogs | none |
-| 20 | Playtest runs | Approvals & review > Starting playtests | Ask (manual) or Allow (automatic); shared badge if ue-mcp adopts it |
+| 20 | Playtest runs | Approvals & review > Starting playtests | Manual or Automatic, as today; shared badge if ue-mcp adopts it |
 | 21 | Assign to subagent budget | Usage > Budgets | the Playtest runner agent's per-run budget; "Assign to subagent" on the card becomes "Assign to a helper" |
 | 22, 23 | Feedback tool and mode | Approvals & review > Feedback reports | shared badge |
 | 24 | Account | Models & accounts > Studio account | its usage feeds the Usage dashboard |
@@ -147,6 +147,7 @@ export type VendorId = string; // "anthropic", "openai", "google" and any vendor
 /**
  * How a model is reached: a sign-in, the vendor's key, or a custom endpoint
  * the user added (an OpenAI-compatible base URL, a self-hosted server, a cloud platform).
+ * A custom endpoint is also its own vendor in the catalog, `endpoint:<id>`, listing the models it reports.
  */
 export type RouteId = SignInId | "key" | `endpoint:${string}`;
 
@@ -236,7 +237,7 @@ export interface HandoffRule {
   background: boolean;
   /**
    * What the helper starts from.
-   * shared: the main agent's conversation so far, then the brief. Only when vendor and route match the main agent's; reuses the prompt cache.
+   * shared: the main agent's conversation so far, then the brief. Only when model and route match the main agent's (a prompt cache belongs to one model); reuses the main agent's cache.
    * brief: the brief alone. brief-and-files: the brief and the files the main agent read this turn.
    */
   startWith: "shared" | "brief" | "brief-and-files";
@@ -291,7 +292,7 @@ export interface SkillSpec {
 }
 ```
 
-Budgets are per machine because spend is per machine and per account. A project can ship suggested budgets in `team.yml`; they apply until the user changes them.
+Budgets are per machine because spend is per machine and per account. They are never written to shared files.
 
 ### 2.3 Files and layers
 
@@ -353,7 +354,7 @@ The Delegation tab has four parts:
 3. **Limits**: helpers per turn and helpers at the same time.
 4. **Who handles what**: which agent each entry point starts. Quick ask in the editor, Flow agent steps, Assigned playtests. The chat always starts the main agent.
 
-Today's anonymous worker becomes a real helper called **Worker**: same model as the main agent, the main agent's tools, hand-off "when the work splits", starting from shared context. Users can rename, retarget or delete it.
+Today's anonymous worker becomes a real helper called **Worker**: the main agent's model (so it can share context), the main agent's tools, hand-off "when the work splits", starting from shared context. Users can rename, retarget or delete it.
 
 ### 2.6 Templates
 
@@ -367,7 +368,7 @@ Shown on first open of Agents and on "New team". Templates are shapes, not model
 | Thrifty | Main on the largest connected model; every helper on the smallest connected model at low effort | Spend control. |
 | Reviewer pair | Main, Reviewer (read only, another vendor when one is connected) | A second model checks the first's changes before the turn ends. |
 
-Filling rule: Main takes the strongest connected model; helpers take a mid-size model on the same vendor (so they share context) unless the template asks for another vendor. With only an OpenAI key, Specialists is five OpenAI agents; with a Claude sign-in and a Google key, the Level dresser suggests Gemini.
+Filling rule: the sheet asks for a main vendor, defaulting to the current main agent's. Each catalog model carries a size tier (large, mid, small) from Studio's model list, so "largest" and "smallest" are defined within a vendor. Main takes the vendor's large model; Worker takes Main's model, so it shares context; specialist helpers take the mid model on the same route; Thrifty's helpers take the small model. A role with a suggested vendor (the Level dresser suggests Gemini) uses it when that vendor is connected and says so when it is not. With only an OpenAI key, Specialists is five OpenAI agents.
 
 Applying a template asks where it goes: the project's team (written to `.ue-mcp/studio/`, for the user to commit) or only this machine (the local layer).
 
@@ -389,16 +390,17 @@ Applying a template asks where it goes: the project's team (written to `.ue-mcp/
 | model, effort | `model`, `effort` |
 | tools | `allowedTools` over Studio's in-process tools (`mcp__studio__*`), plus the SDK's web search when `web.search` |
 | on-demand skills | `plugins: [{ type: "local", path }]` pointing at a folder Studio generates with the attached skills, and `skills` naming them |
-| helpers on the Claude sign-in | `agents: { [id]: { description, prompt, model, effort, tools, skills, maxTurns, background } }`; they start from shared context |
-| helpers on another vendor or route | one Studio tool, `delegate(helper, brief)`, in the in-process server; Studio runs the helper on its own loop and returns the report |
+| a helper on the main agent's model, starting from shared context | a forked query of the main agent's session (`resume` with `forkSession: true`), started by Studio's `delegate` tool beside the turn; it reuses the main agent's cache |
+| other helpers on the Claude sign-in | `agents: { [id]: { description, prompt, model, effort, tools, skills, maxTurns, background } }`; a native subagent starts from its own prompt and the brief, so it is a fresh start on the same plan |
+| helpers on another vendor or route | the same `delegate(helper, brief)` tool in the in-process server; Studio runs the helper on its own loop and returns the report |
 | per-turn and parallel limits | the PreToolUse hook Studio already uses for the subagent limit, applied to `Agent` and `delegate` |
 | budgets | Studio's token counter on each message, as today; at a limit Studio stops the task (`stopTask`) or the turn |
 
-**B. Main agent on Studio's loop** (an API key, ChatGPT, a custom endpoint, the Studio plan). The `agent` tool takes a `helper` argument. A helper on the same vendor and route starts from shared context: Studio sends the main agent's conversation prefix unchanged, then the brief, so the vendor's prefix cache applies (OpenAI and Google cache repeated prefixes automatically; Anthropic keys use the cache marks Studio already sets). Any other helper starts fresh. A helper on the Claude sign-in runs as its own SDK conversation, the path assigned playtests already use.
+**B. Main agent on Studio's loop** (an API key, ChatGPT, a custom endpoint, the Studio plan). The `agent` tool takes a `helper` argument. A helper on the same model and route starts from shared context: Studio sends the main agent's conversation prefix unchanged, then the brief, so the vendor's prefix cache applies (OpenAI and Google cache repeated prefixes automatically; Anthropic keys use the cache marks Studio already sets). Any other helper starts fresh. A helper on the Claude sign-in runs as its own SDK conversation, the path assigned playtests already use.
 
 **C. Mixed vendors** follow from A and B. What differs, by hand-off kind:
 
-| Behaviour | Shared context (same vendor and route) | Fresh start (another vendor or route) |
+| Behaviour | Shared context (same model and route) | Fresh start (any other model or route) |
 |-----------|----------------------------------------|---------------------------------------|
 | Starts from | the main agent's conversation, then the brief | the brief (and files, if chosen) |
 | Prompt cache | reuses the main agent's prefix | its own, from zero |
@@ -432,7 +434,7 @@ In this order, each when present:
 | 4 | `GEMINI.md` | |
 | 5 | `CLAUDE.md`, `.claude/CLAUDE.md` | `@path` imports followed, one level |
 | 6 | `AGENTS.md` | the vendor-neutral file; last of the shared files, so it wins among them |
-| 7 | nested `AGENTS.md` (any of the above in a subfolder) | included when the agent works in that folder; more specific than the root files |
+| 7 | any of the files above in a subfolder, such as `Source/Hollowreach/AGENTS.md` | included when the agent works in that folder; more specific than the root files |
 | 8 | `AGENTS.local.md`, `CLAUDE.local.md` | per machine, usually git-ignored; last, so a person can override the team |
 
 "Add a file" adds any other path to the list (a design doc, a style guide); it is read at the position the user drags it to.
@@ -487,7 +489,7 @@ export interface ContextMeasurement {
   /** One run per vendor model, per scope bucket, per strategy. */
   runs: Array<{
     model: ModelRef;
-    scope: "1-3" | "4-8" | "all";
+    scope: "1-3" | "4-8" | "9+";
     strategy: ContextStrategy;
     seedTokens: number;
     tasks: Array<{ id: string; totalTokens: number; modelCalls: number; discoveryCalls: number; passed: boolean }>;
@@ -495,7 +497,7 @@ export interface ContextMeasurement {
 }
 ```
 
-**Auto's rule is a lookup, not a heuristic**: for the agent's vendor and scope bucket, the strategy with the lowest median tokens per task among those whose pass rate equals the best pass rate in that cell. The page shows the table it looked up and highlights the cell. A vendor without measurements falls back to the nearest measured model of another vendor, marked "estimated from <model>". Until any measurement ships, Auto is hidden and every agent uses Micro, today's behaviour.
+**Auto's rule is a lookup, not a heuristic**: for the agent's vendor and scope bucket, the strategy with the lowest median tokens per task among those within one task of the best pass rate in that cell. Twelve tasks a cell is thin, so one failure does not decide it; the page says how many tasks each cell has. The page shows the table it looked up and highlights the cell. A vendor without measurements falls back to the nearest measured model of another vendor, marked "estimated from <model>". Until any measurement ships, Auto is hidden and every agent uses Micro, today's behaviour.
 
 ---
 
@@ -580,7 +582,7 @@ All under `/v1/ext/studio`. Additive; existing routes keep working for one relea
 | GET, PUT | `/prices` | price table and user overrides |
 | GET, POST, DELETE | `/endpoints` | custom model endpoints |
 
-Daemon prerequisites, added to ue-mcp as general features first: `GET /v1/skills` with owners, and the lean and full projections for a category list.
+Daemon prerequisites, added to ue-mcp as general features first: `GET /v1/skills` with owners; the lean and full projections for a category list; and each action's read and destructive flags, for `ueMcpAccess: "read"` and the destructive-actions approval.
 
 ---
 
@@ -597,7 +599,7 @@ Runs once when the new agent starts, writes `schema: 2` into settings.json, keep
 | `usage.projectInstructions` true / false | instruction files: the CLAUDE.md files included / none |
 | `usage.imageSize` | team default image size |
 | `usage.turnTokenLimit` | main agent's `perRunTokens` in Budgets |
-| playtest runs | Approvals: Starting playtests, Ask (manual) or Allow (automatic) |
+| playtest runs | Approvals: Starting playtests, Manual or Automatic |
 | playtest budget | Playtest runner's `perRunMinutes`, `perRunTokens`; bound to assigned playtests |
 | everything else | unchanged, moved in the UI only |
 
@@ -609,9 +611,9 @@ The team migration creates is "Lead and workers" when subagents were on, "Solo" 
 
 Each phase ships on its own and leaves Studio coherent.
 
-1. **Settings layout.** The seven sections, every card moved, approvals split into rows, Instructions with every convention (still one agent), context strategy for other clients outside the editor, shared badges.
+1. **Settings layout.** The seven sections, every card moved, approvals split into rows, Instructions with every convention (still one agent), context strategy for other clients outside the editor, shared badges. Usage > Budgets ships here as the one place budgets are edited, with today's two limits as its first rows (the main agent's per-turn tokens, the assigned-playtest budget); agent rows join it in phase 2.
 2. **Agents, any vendor.** Team model, files and layers, main and helpers on any vendor and route, shared context and fresh start on both loops, the relay tool on the SDK route, compatibility strip, fallbacks, Worker, templates, delegation, bindings, per-agent tool scope. Migration runs here.
-3. **Usage ledger, dashboard and budgets.** Four token kinds, plan meters, price table, Budgets as the one editor, warnings. Depends on the token-usage work's counting.
+3. **Usage ledger and dashboard.** Four token kinds, plan meters, price table, per-day budgets and warnings. Depends on the token-usage work's counting.
 4. **Skills.** Library across four sources, preload and on demand on both routes, plugin skills grouped by plugin. Needs the daemon's skills listing.
 5. **Context strategy for Studio's agents.** Lean and Full, Auto from measured data. Needs the daemon's projections and the measurement file.
 6. **Export and import, custom endpoints.**
@@ -631,5 +633,5 @@ Each has a recommendation; the reviewer decides.
 7. **Context strategy default before measurement.** **Recommend Micro** (today's), Auto hidden until data ships.
 8. **What the chat picker changes.** **Recommend the session only**, with "Make default".
 9. **A teammate lacks a vendor.** **Recommend fallbacks in the agent file**, then the main agent's model, with a warning on the agent and in Usage.
-10. **Shared budgets.** **Recommend per machine**, with suggested budgets in `team.yml` as the starting values.
+10. **Shared budgets.** **Recommend per machine only.** Spend depends on each person's plan and keys; a team that wants a norm writes it in AGENTS.md.
 11. **Playtest runs as a shared ue-mcp mode.** Starting playtests is Studio's setting today. **Recommend proposing it to ue-mcp as a mode** like dialogs and feedback, so other clients follow it too; until then it has no shared badge.
