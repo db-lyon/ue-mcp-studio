@@ -1131,7 +1131,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .pill-suggestion:hover { border-color: var(--accent); }
 
 /* Per-turn review: the turn card, an item's diff, and the checkpoint timeline. */
-.conversation-tools { position: absolute; top: 8px; right: 12px; z-index: 2; display: flex; gap: 6px; }
+/* A row of its own above the transcript, so the first message never sits under it. */
+.conversation-tools { display: flex; justify-content: flex-end; gap: 6px; flex-shrink: 0; padding: 8px 12px 0; }
 /* Playtests beside Checkpoints: how many the session has, marked when one waits for the user. */
 .conversation-tools .count, .chat-playtests-button .count { margin-left: 4px; color: var(--muted); }
 .conversation-tools .needs-you, .chat-playtests-button.needs-you { border-color: var(--warn); color: var(--warn); }
