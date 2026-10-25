@@ -60,14 +60,14 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
       </Card>
 
       {native && (
-        <Card label="Studio's own worker">
+        <Card label="Studio's worker">
           <p className="muted small">The helper Studio adds for work that splits into independent parts, beside the project's own subagents. Per-turn limits are in <button className="link" onClick={() => onSection("usage")}>Usage</button>.</p>
           <dl className="grid">
             <dt>Model</dt><dd>{native.worker.model ?? SAME}</dd>
             <dt>Effort</dt><dd>{native.worker.effort ? EFFORT_NAMES[native.worker.effort as Effort] ?? native.worker.effort : SAME}</dd>
             <dt>Starts</dt><dd>{STARTS[native.worker.starts]}</dd>
           </dl>
-          {native.worker.fromSettings && <p className="cfg-note">These come from settings you made in an earlier Studio, which it still follows.</p>}
+          {native.worker.fromSettings && <p className="cfg-note">Set in an earlier Studio and kept. Not editable here.</p>}
         </Card>
       )}
 

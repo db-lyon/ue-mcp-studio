@@ -61,10 +61,10 @@ export function UsageSection() {
             </tbody>
           </table>
         </div>
-        <Row title="Helpers per turn" help="The most helpers one turn may start, the built-in worker and the project's own subagents together. Past it, the main agent is told to do the work itself.">
+        <Row title="Helpers per turn" help="The most helpers one turn may start, Studio's worker and the project's own subagents together. Past it, the main agent is told to do the work itself.">
           <NumberField label="Helpers per turn" value={body.helpersPerTurn} min={1} max={MAX_SUBAGENTS_PER_TURN} onSave={(n) => n !== null && void api.saveBudgets({ helpersPerTurn: n }).then(setBody, msg.fail)} />
         </Row>
-        <p className="cfg-note">Empty means no limit. Tokens from {BUDGET_LIMITS.minTokens.toLocaleString("en-US")} to {BUDGET_LIMITS.maxTokens.toLocaleString("en-US")}; minutes up to {BUDGET_LIMITS.maxMinutes}. Each turn ends with a line in the chat saying what it spent.</p>
+        <p className="cfg-note">The main agent's limits can be left empty for no limit. The playtest runner always has both, so its loop ends. Tokens from {BUDGET_LIMITS.minTokens.toLocaleString("en-US")} to {BUDGET_LIMITS.maxTokens.toLocaleString("en-US")}; minutes up to {BUDGET_LIMITS.maxMinutes}. Each turn ends with a line in the chat saying what it spent.</p>
       </Card>
     </>
   );

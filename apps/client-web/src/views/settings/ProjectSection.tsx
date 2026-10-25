@@ -6,7 +6,8 @@ import { inEditor, native } from "../../native";
 import { ProjectSetup } from "../ProjectSetup";
 import { ConfigView } from "../Config";
 import { Head, type SettingsSection } from "../SettingsHub";
-import { Card, Opt, Shared, tokens, useMessage } from "./controls";
+import { Card, Opt, tokens, useMessage } from "./controls";
+import { Path } from "./NativePanel";
 
 /**
  * Project: what ue-mcp gives every MCP client connected to this project. The
@@ -50,7 +51,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         ))}
       </section>
 
-      <Card label={<>Context strategy for other MCP clients <Shared /></>}>
+      <Card label="Context strategy for other MCP clients">
         <p className="muted small">What a client such as an editor extension or a terminal agent is given at the start of each session. Studio's own agents use Micro.</p>
         {context && (
           <>
@@ -96,7 +97,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
             <dt>Installed</dt><dd>{p.deployed ? `${p.installedVersion ?? "?"} (${p.installKind ?? "unknown"})` : "no"}</dd>
             <dt>Package</dt><dd>{p.packagedVersion ?? "?"}</dd>
             <dt>Enabled</dt><dd>{p.enabledInUproject ? "yes" : "no"}</dd>
-            <dt>Location</dt><dd className="mono">{p.pluginDir ?? "-"}</dd>
+            <dt>Location</dt><dd>{p.pluginDir ? <Path p={p.pluginDir} /> : "-"}</dd>
             <dt>Engine</dt><dd>{report!.project.engine ?? "?"}</dd>
             <dt>C++ toolchain</dt><dd>{report!.toolchain.present ? report!.toolchain.name : "none"}</dd>
             <dt>Node.js</dt><dd>{report!.node.version}</dd>

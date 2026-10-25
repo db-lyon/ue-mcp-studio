@@ -90,7 +90,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     await show({}, overview({ worker: { model: "Haiku 5.5", effort: "low", starts: "automatic", fromSettings: true } }));
     expect(screen.getByText("Haiku 5.5")).toBeTruthy();
     expect(screen.getByText("when the work splits into independent parts")).toBeTruthy();
-    expect(screen.getByText(/settings you made in an earlier Studio/)).toBeTruthy();
+    expect(screen.getByText("Set in an earlier Studio and kept. Not editable here.")).toBeTruthy();
   });
 
   it("follows the main agent when the worker has no model of its own", async () => {
@@ -98,21 +98,23 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.getAllByText("Same as the main agent")).toHaveLength(2);
   });
 
-  it("selects no vendor's files when nothing is connected, and lists what each has", async () => {
+  it("shows the same tabs when nothing is connected, each saying no route reads it", async () => {
     const none = overview({ main: null, conventions: overview().conventions.map((c) => ({ ...c, routes: [] })) });
     await show({}, none);
-    // No tab strip until one is chosen: the summary is the one way in.
-    expect(screen.queryByRole("navigation", { name: "Whose files" })).toBeNull();
-    expect(screen.getByText(/For OpenAI models: 2 instruction files, 1 subagent, 1 skill\./)).toBeTruthy();
-    await act(async () => void fireEvent.click(screen.getAllByRole("button", { name: "Show" })[1]));
     const tabs = screen.getByRole("navigation", { name: "Whose files" });
-    expect(tabs.querySelector("[aria-current=page]")?.textContent).toBe("Codex4");
+    expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Claude Code1", "Codex4", "Gemini CLI0", "AGENTS.md0"]);
+    expect(tabs.querySelector(".dot")).toBeNull();
+    expect(screen.getByText(/Not in use: no route for these models is connected\./)).toBeTruthy();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^AGENTS\.md/ })));
+    // Custom endpoints read AGENTS.md; nothing to connect until one is set up.
+    expect(screen.getByText(/Not in use: models from custom endpoints read these/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect one in Models & accounts" })).toBeNull();
   });
 
   it("titles the preview by who loads the files", async () => {
     m.nativePreview.mockResolvedValueOnce({ convention: "codex", text: "## CLAUDE.md", tokens: 3, files: 1, loadedBy: "sdk" } as never);
     await show();
-    expect(screen.getByText("What the Agent SDK loads, as Claude Code loads it (1 file)")).toBeTruthy();
+    expect(screen.getByText("Text on every call (1 file), loaded by the Agent SDK")).toBeTruthy();
   });
 
   it("saves the screenshot size", async () => {

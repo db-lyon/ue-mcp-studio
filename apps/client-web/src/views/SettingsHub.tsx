@@ -66,7 +66,7 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
     api.settings().then(setSettings, () => setSettings(null));
     if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: CONTEXT_STRATEGY_INFO[c.strategy].name })), () => undefined);
     if (typeof api.install === "function") api.install().then((r) => setExtra((e) => ({ ...e, ready: r.ok })), () => undefined);
-    if (typeof api.budgets === "function") api.budgets().then((b) => setExtra((e) => ({ ...e, budgets: Object.values(b.budgets.agents).reduce((n, x) => n + [x.perRunTokens, x.perRunMinutes, x.perDayTokens].filter((v) => v !== null).length, 0) })), () => undefined);
+    if (typeof api.budgets === "function") api.budgets().then((b) => setExtra((e) => ({ ...e, budgets: Object.values(b.budgets.agents).reduce((n, x) => n + [x.perRunTokens, x.perRunMinutes, x.perDayTokens].filter((v) => v !== null).length, 0) + [b.budgets.team.perDayTokens, b.budgets.team.perMonthTokens].filter((v) => v !== null).length })), () => undefined);
     if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
   }, []);
   const dots: Partial<Record<SettingsSection, string>> = {};

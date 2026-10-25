@@ -12,16 +12,17 @@ function scopeLine(f: NativeFile): string {
 const SOURCE: Record<string, string> = { user: "User", project: "Project", local: "This machine", plugin: "Plugin" };
 
 /** Where each convention keeps its subagents and skills, for the empty states. */
-const SUBAGENT_DIR: Record<Convention, string | null> = { claude: ".claude/agents", codex: ".codex/agents", gemini: ".gemini/agents", agents: null };
-const SKILL_DIR: Record<Convention, string> = { claude: ".claude/skills", codex: ".agents/skills", gemini: ".agents/skills and .gemini/skills", agents: ".agents/skills" };
+const SUBAGENT_DIR: Record<Convention, string | null> = { claude: ".claude/agents and ~/.claude/agents", codex: ".codex/agents and ~/.codex/agents", gemini: ".gemini/agents and ~/.gemini/agents", agents: null };
+const SKILL_DIR: Record<Convention, string> = { claude: ".claude/skills and ~/.claude/skills", codex: ".agents/skills and ~/.agents/skills", gemini: ".agents/skills, .gemini/skills, ~/.agents/skills and ~/.gemini/skills", agents: ".agents/skills and ~/.agents/skills" };
 const INSTRUCTION_FILE: Record<Convention, string> = { claude: "CLAUDE.md", codex: "AGENTS.md", gemini: "GEMINI.md", agents: "AGENTS.md" };
 
 /** A path that wraps only after its slashes, never inside a name. */
 export function Path({ p, className = "path" }: { p: string; className?: string }) {
-  const parts = p.split("/");
+  // Either separator, so a Windows path wraps at its backslashes too.
+  const parts = p.split(/(?<=[\\/])/);
   return (
     <div className={className} title={p}>
-      {parts.map((s, i) => <Fragment key={i}>{s}{i < parts.length - 1 && <>/<wbr /></>}</Fragment>)}
+      {parts.map((s, i) => <Fragment key={i}>{s}{i < parts.length - 1 && <wbr />}</Fragment>)}
     </div>
   );
 }
@@ -37,10 +38,11 @@ export function conventionOrder(o: NativeOverview): NativeView[] {
   return [...o.conventions].sort((a, b) => CONVENTIONS.indexOf(a.convention) - CONVENTIONS.indexOf(b.convention));
 }
 
-/** The tab open first: the main agent's convention, else one a route reads, else none. */
-export function firstTab(o: NativeOverview): Convention | null {
+/** The tab open first: the main agent's convention, else one a route reads, else the first in the fixed order. */
+export function firstTab(o: NativeOverview): Convention {
   if (o.main) return o.main;
-  return conventionOrder(o).find((v) => v.routes.length)?.convention ?? null;
+  const ordered = conventionOrder(o);
+  return (ordered.find((v) => v.routes.length) ?? ordered[0])?.convention ?? "claude";
 }
 
 /**
@@ -50,10 +52,10 @@ export function firstTab(o: NativeOverview): Convention | null {
  */
 export function NativePanel({ overview, onConnect }: { overview: NativeOverview; onConnect: () => void }) {
   const ordered = conventionOrder(overview);
-  const [tab, setTab] = useState<Convention | null>(() => firstTab(overview));
+  const [tab, setTab] = useState<Convention>(() => firstTab(overview));
   const [preview, setPreview] = useState<NativePreview | null>(null);
   const msg = useMessage();
-  const view = tab ? overview.conventions.find((c) => c.convention === tab) ?? null : null;
+  const view = overview.conventions.find((c) => c.convention === tab) ?? null;
   useEffect(() => {
     setPreview(null);
     if (view) api.nativePreview(view.convention).then(setPreview, () => setPreview(null));
@@ -78,26 +80,7 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
         </>
       )}
       {msg.node}
-      {view ? <ConventionView view={view} main={overview.main} preview={preview} onConnect={onConnect} onError={msg.fail} /> : (
-        <Card label="Found in this project">
-          <p className="muted small">Each vendor's tools read their own files. A route you connect reads the files of its models' vendor; until then no agent reads any of these.</p>
-          <ul className="ifiles plain">
-            {ordered.map((v) => {
-              const info = CONVENTION_INFO[v.convention];
-              return (
-                <li key={v.convention}>
-                  <div className="ifile-main">
-                    <strong>{info.tool}</strong>
-                    <div className="readers">For {info.vendor}: {v.instructions.length} instruction file{v.instructions.length === 1 ? "" : "s"}, {v.subagents.length} subagent{v.subagents.length === 1 ? "" : "s"}, {v.skills.length} skill{v.skills.length === 1 ? "" : "s"}.</div>
-                  </div>
-                  <button className="small-button" onClick={() => setTab(v.convention)}>Show</button>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="cfg-note"><button className="link" onClick={onConnect}>Connect a route in Models & accounts</button></p>
-        </Card>
-      )}
+      {view && <ConventionView view={view} main={overview.main} preview={preview} onConnect={onConnect} onError={msg.fail} />}
     </>
   );
 }
@@ -107,7 +90,8 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
   const sdk = preview?.loadedBy === "sdk";
   const inUse = view.routes.length > 0;
   const scoped = view.instructions.filter((f) => f.scope.kind !== "always").reduce((n, f) => n + f.tokens, 0);
-  const files = preview ? `${preview.files} file${preview.files === 1 ? "" : "s"}` : "";
+  const later = view.instructions.filter((f) => f.scope.kind !== "always").length;
+  const files = preview ? `${preview.files} file${preview.files === 1 ? "" : "s"}${later ? `; ${later} more join${later === 1 ? "s" : ""} when the agent works in ${later === 1 ? "its" : "their"} paths` : ""}` : "";
   return (
     <>
       <p className="muted small">
@@ -117,7 +101,9 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
         <span className={`dot ${inUse ? "ok" : ""}`} aria-hidden />
         {inUse
           ? <span>In use: {view.routes.join(", ")}{view.convention === main ? ", the main agent's route" : ""}. {sdk ? "The Agent SDK loads these files itself, as Claude Code does." : `Studio reads these files the way ${info.tool === "AGENTS.md" ? "agents that read AGENTS.md do" : `${info.tool} does`}.`}</span>
-          : <span>Not in use: no route for these models is connected. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></span>}
+          : view.convention === "agents"
+            ? <span>Not in use: models from custom endpoints read these, and none is set up on this machine.</span>
+            : <span>Not in use: no route for these models is connected. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></span>}
       </p>
       {view.notes.map((n) => <div key={n} className="banner warn small">{n}</div>)}
 
@@ -138,7 +124,7 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
         </ol>
         {preview?.text && (
           <details className="cfg-note">
-            <summary>{sdk ? `What the Agent SDK loads, as Claude Code loads it (${files})` : `What ${info.vendor} are given from these files (${files})`}</summary>
+            <summary>Text on every call ({files}){sdk ? ", loaded by the Agent SDK" : ""}</summary>
             <pre className="code">{preview.text}</pre>
           </details>
         )}

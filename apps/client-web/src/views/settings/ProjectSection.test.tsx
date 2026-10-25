@@ -40,7 +40,8 @@ describe("Project > context strategy for other clients", () => {
     expect((screen.getByRole("radio", { name: /^Micro/ }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("~19k tokens")).toBeTruthy();
     expect(screen.getByText(/Applies to Claude Code on this project/)).toBeTruthy();
-    expect(screen.getAllByText("Shared with other clients")).toHaveLength(1);
+    // The title says it is for other clients, so no badge repeats it.
+    expect(screen.queryByText("Shared with other clients")).toBeNull();
   });
 
   it("saves a strategy and says when clients get it", async () => {
