@@ -9,7 +9,7 @@ import { createSdkMcpServer, query, tool, type HookCallback, type SDKMessage, ty
 import type { Effort, SubagentMode } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
-import type { ToolExecution } from "./tools.js";
+import { OMIT_DESCRIPTION, SELECT_DESCRIPTION, UE_MCP_DESCRIPTION, type ToolExecution } from "./tools.js";
 import { messagesUsage, usageTokens } from "./usage.js";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
@@ -196,13 +196,15 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     tools: [
       tool(
         "ue_mcp",
-        "Unreal Editor actions through ue-mcp. action=search finds actions by intent (query); action=describe gives one action's parameters (category + method) or a category's actions (category alone); action=call runs one action (category, method, args). Describe before the first call of an action.",
+        UE_MCP_DESCRIPTION,
         {
           action: z.enum(["search", "describe", "call"]),
           query: z.string().optional(),
           category: z.string().optional(),
           method: z.string().optional(),
           args: z.record(z.string(), z.unknown()).optional(),
+          select: z.array(z.string()).optional().describe(SELECT_DESCRIPTION),
+          omit: z.array(z.string()).optional().describe(OMIT_DESCRIPTION),
         },
         handler("ue_mcp"),
       ),

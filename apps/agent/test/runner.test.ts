@@ -1082,3 +1082,20 @@ describe("Settings > Agent > Usage", () => {
     expect(off.requests[0].system[0].text).not.toContain("Blueprints live under");
   });
 });
+
+describe("select and omit on a call", () => {
+  it("go to ue-mcp beside the action's parameters, which takes them off before the action runs", async () => {
+    const model = new ScriptedModel([
+      () => ({ content: [{ type: "tool_use", id: "c", name: "ue_mcp", input: { action: "call", category: "level", method: "get_outliner", args: { filter: "Light" }, select: ["actors.label"], omit: ["actors.transform"] } } as never], stopReason: "tool_use" }),
+      () => ({ content: [{ type: "tool_use", id: "d", name: "ue_mcp", input: { action: "call", category: "level", method: "get_outliner", select: [] } } as never], stopReason: "tool_use" }),
+      () => text("ok"),
+    ]);
+    const s = store.create();
+    await runnerWith(model).send(s.id, "list the lights");
+    expect(host.calls).toEqual([
+      { category: "level", action: "get_outliner", args: { filter: "Light", select: ["actors.label"], omit: ["actors.transform"] } },
+      // An empty list selects nothing, so it is not sent.
+      { category: "level", action: "get_outliner", args: {} },
+    ]);
+  });
+});
