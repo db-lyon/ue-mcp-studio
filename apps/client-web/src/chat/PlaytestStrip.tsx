@@ -12,7 +12,7 @@
  * line. A run that just ended stays a few seconds, so its result is seen
  * where it was watched.
  */
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { qaActive, qaNeedsYou, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { QaCard, newerRun } from "./Qa";
@@ -182,10 +182,10 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
             <button className="small-button strip-more" onClick={() => setAll(true)} aria-label={`Show ${rest.length} more: ${rest.map((r) => r.scriptName).join(", ")}`}>
               Show {rest.length} more:{" "}
               {rest.map((r, i) => (
-                <span key={r.runId}>
+                <Fragment key={r.runId}>
                   {i > 0 && ", "}
-                  {r.scriptName} <span className={`strip-more-state ${qaNeedsYou(r) ? "warn" : ""}`}>({pinnedState(r).replace(/^is /, "")})</span>
-                </span>
+                  <span>{r.scriptName} <span className={`strip-more-state ${qaNeedsYou(r) ? "warn" : ""}`}>({pinnedState(r).replace(/^is /, "")})</span></span>
+                </Fragment>
               ))}
             </button>
           )}
