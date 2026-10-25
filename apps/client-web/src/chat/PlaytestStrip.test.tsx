@@ -72,7 +72,8 @@ describe("the strip of live playtests", () => {
   it("takes a verdict right on the strip", () => {
     render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "awaiting_verdict"]))} events={[]} />);
     const ask = within(stripEl()!).getByRole("group", { name: "Step 2 needs you" });
-    expect(within(ask).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip"]);
+    // The card's Stop sits in the same box, after the verdicts.
+    expect(within(ask).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip", "Stop"]);
     expect(stripEl()!.className).toContain("needs-you");
   });
 
@@ -181,6 +182,14 @@ describe("the strip of live playtests", () => {
     expect(within(box).getAllByRole("button").map((b) => b.textContent)).toEqual(["Review", "Cancel loop", "Hide from strip"]);
     fireEvent.click(within(box).getByRole("button", { name: "Cancel loop" }));
     expect(apiCalls.find((c) => c.name === "qaCancelAssign")?.args).toEqual(["a"]);
+  });
+
+  it("holds the place of the verdict buttons with the step a card is on", () => {
+    render(<Session transcript={entries(run("a", "Jump", "running", ["running", "pending"]))} events={[]} />);
+    const now = within(stripEl()!).getByRole("status", { name: "Observer checking: Jump step 1" });
+    const box = now.closest(".qa-now") as HTMLElement;
+    expect(box.textContent).toContain("Observer checking");
+    expect(within(box).getByRole("button", { name: "Stop playtest Jump" })).toBeTruthy();
   });
 
   it("sums up in words", () => {

@@ -1358,8 +1358,52 @@ button.strip-more { white-space: normal; text-align: left; }
   .playtest-strip { max-height: 48vh; }
   .playtest-strip .qa-card.open .qa-body { max-height: 26vh; }
 }
-.qa-card.offline .pill { opacity: 0.6; }
 button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 2px 8px; }
 /* Fourth review pass: a waiting bar stands taller than the rest; focus rings stand off the control. */
 .qa-path-step.warn .qa-path-hit::before { top: 4px; height: 14px; }
 .qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-offset: 2px; }
+/* Each card's actions where it is drawn. Outside the page's rows and the strip's box, these wrappers only group. */
+.qa-states, .qa-actions, .qa-slot { display: contents; }
+.qa-last-known { color: var(--muted); font: 500 11px/1 var(--sans); white-space: nowrap; }
+/* On the page every action has a slot of its own width, so the buttons stand in the same columns on every row. */
+.qa-card.slotted, .qa-card.slotted.open { padding: 10px 12px; }
+.qa-card.slotted .qa-head { flex-wrap: nowrap; }
+.qa-card.slotted .qa-states { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.qa-card.slotted .qa-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.qa-card.slotted .qa-slot { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+.qa-card.slotted .qa-slot-run { width: 9rem; }
+.qa-card.slotted .qa-slot-assign { width: 9.5rem; }
+.qa-card.slotted .qa-slot-extra { width: 7.75rem; justify-content: flex-end; }
+@media (max-width: 760px) {
+  .qa-card.slotted .qa-head { flex-wrap: wrap; }
+  .qa-card.slotted .qa-actions { order: 10; flex-basis: 100%; flex-wrap: wrap; row-gap: 6px; }
+  .qa-card.slotted .qa-slot-run { width: 9rem; }
+  .qa-card.slotted .qa-slot-assign { width: 9rem; }
+  .qa-card.slotted .qa-slot-extra { width: auto; }
+  .qa-card.slotted .qa-slot-extra:empty { display: none; }
+}
+/* On the strip a card always has one box under its head: the step it is on, or the one that needs you, with the card's own buttons at its end. */
+.qa-now { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
+.qa-now .qa-answer-step { flex: 1 1 200px; }
+.qa-now .qa-num { color: var(--muted); }
+.qa-now-row { display: flex; align-items: center; gap: 6px; min-height: 26px; }
+.qa-now-status { display: inline-flex; align-items: center; min-height: 26px; color: var(--muted); font: 500 11px/1 var(--mono); white-space: nowrap; }
+.qa-box-actions { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.qa-answer .qa-verdict { flex-wrap: nowrap; }
+.qa-card.dense .qa-answer-step, .qa-card.dense .qa-answer.needs .qa-answer-text { min-width: 0; }
+.qa-card.dense .qa-answer-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qa-card.dense .qa-verdict { min-height: 26px; }
+@media (min-width: 761px) {
+  .qa-now-row { margin-left: auto; }
+  /* Stop stands apart from a step's verdicts. */
+  .qa-answer .qa-box-actions { margin-left: 6px; padding-left: 10px; border-left: 1px solid var(--line-strong); }
+}
+@media (max-width: 760px) {
+  .qa-card.dense .qa-answer, .qa-card.dense .qa-now { flex-direction: column; align-items: stretch; flex-wrap: nowrap; }
+  .qa-card.dense .qa-answer-step, .qa-card.dense .qa-answer.needs .qa-answer-text { flex: 0 0 auto; }
+  .qa-card.dense .qa-verdict, .qa-card.dense .qa-now-row { width: 100%; }
+  /* Two lines of text in every box, so the card keeps its height as its run moves on. */
+  .qa-card.dense .qa-answer-step { align-items: center; min-height: 2.8em; }
+  .qa-card.dense .qa-answer-text { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.4; }
+  .qa-card.dense .qa-answer.needs .qa-answer-text { min-height: 2.8em; }
+}

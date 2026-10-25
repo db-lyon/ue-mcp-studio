@@ -175,7 +175,7 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
   ) : null;
   return (
     <div className={`playtests-row ${entry.deleted ? "deleted" : ""}`}>
-      <QaCard run={shown} actions={entry.deleted ? {} : actions} meta={metaOf(entry)} extra={open} offline={offline ? "The editor is not connected" : undefined} />
+      <QaCard run={shown} actions={entry.deleted ? {} : actions} meta={metaOf(entry)} extra={open} slotted offline={offline ? "The editor is not connected" : undefined} />
     </div>
   );
 }

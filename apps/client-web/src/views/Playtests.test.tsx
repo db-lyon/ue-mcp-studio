@@ -146,6 +146,27 @@ describe("the Playtests page", () => {
     expect(screen.getByText(/No playtest is failing/)).toBeTruthy();
   });
 
+  it("keeps every row's actions in the same slots, in the same order, whichever it offers", () => {
+    page();
+    fireEvent.click(screen.getByRole("button", { name: "All 4" }));
+    for (const name of ["Door", "Jump", "Walk", "Fresh"]) {
+      const card = row(name);
+      expect(card.className).toContain("slotted");
+      expect([...card.querySelectorAll(".qa-actions > .qa-slot")].map((el) => el.className.replace("qa-slot ", ""))).toEqual(["qa-slot-run", "qa-slot-assign", "qa-slot-extra"]);
+    }
+    expect(within(row("Walk").querySelector<HTMLElement>(".qa-slot-run")!).getByRole("button", { name: "Run again" })).toBeTruthy();
+    expect(within(row("Walk").querySelector<HTMLElement>(".qa-slot-extra")!).getByRole("button", { name: "Open in session" })).toBeTruthy();
+    expect(row("Jump").querySelector(".qa-slot-extra")!.children).toHaveLength(0);
+  });
+
+  it("says its states are the last known while the editor is away, at full strength", () => {
+    page({ playtests: [ENTRIES[0]], listed: false });
+    const card = row("Door");
+    expect(within(card).getByText("Last known")).toBeTruthy();
+    expect(within(card).getByRole("status").textContent).toBe("Needs you");
+    expect((within(card).getByRole("button", { name: "Pass step 2" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("offers no Start Playtest on a script that is gone", () => {
     page({ playtests: [{ ...ENTRIES[2], deleted: true }], listed: true });
     expect(within(row("Walk")).queryByRole("button", { name: "Run again" })).toBeNull();

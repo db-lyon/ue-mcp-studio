@@ -399,7 +399,7 @@ describe("the collapsed card", () => {
     const steps = two.map((s, i) => ({ ...s, status: i >= 2 ? "awaiting_verdict" : "passed" }));
     collapsed(runOf({ state: "awaiting_verdict", steps, awaiting: [2, 3] }));
     expect(screen.getByRole("group", { name: "Step 3 needs you" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "1 more" }));
+    fireEvent.click(screen.getByRole("button", { name: "1 more step needs you" }));
     expect(screen.getByText("The hinge sounds right")).toBeTruthy();
   });
 
