@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 const body = () => ({
   definition: "Budgets count input, cache writes and output. Cached reads are left out.",
   agents: [{ id: "main", name: "Main agent" }, { id: "playtest-runner", name: "Playtest runner" }],
+  helpersPerTurn: 4,
   budgets: {
     team: { perDayTokens: null, perMonthTokens: null, onLimit: "ask" },
     warnAt: 0.8,
@@ -56,5 +57,17 @@ describe("Usage > Budgets", () => {
     fireEvent.change(runner, { target: { value: "" } });
     await act(async () => void fireEvent.blur(runner));
     expect(m.saveBudgets).not.toHaveBeenCalled();
+  });
+
+  it("keeps the helpers-per-turn cap as a spend limit", async () => {
+    await show();
+    const input = screen.getByLabelText("Helpers per turn") as HTMLInputElement;
+    expect(input.value).toBe("4");
+    fireEvent.change(input, { target: { value: "2" } });
+    await act(async () => void fireEvent.blur(input));
+    expect(m.saveBudgets).toHaveBeenCalledWith({ helpersPerTurn: 2 });
+    fireEvent.change(input, { target: { value: "40" } });
+    await act(async () => void fireEvent.blur(input));
+    expect(m.saveBudgets).toHaveBeenCalledTimes(1);
   });
 });

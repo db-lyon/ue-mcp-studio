@@ -16,6 +16,7 @@ import { isMap, parseDocument } from "yaml";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import {
   BUDGET_DEFINITION,
+  MAX_SUBAGENTS_PER_TURN,
   CONTEXT_STRATEGIES,
   MAIN_AGENT_ID,
   PLAYTEST_RUNNER_ID,
@@ -107,11 +108,18 @@ export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRoute
     budgets: o.budgets.get(),
     definition: BUDGET_DEFINITION,
     agents: o.agents().map(({ id, name }) => ({ id, name })),
+    // A spend safety limit: kept where it always was, in usage.subagentsPerTurn, which the runner reads.
+    helpersPerTurn: o.settings.usage().subagentsPerTurn,
   });
   api.route("GET", "/budgets", () => ({ body: budgetsBody() }));
   api.route("PUT", "/budgets", (req) => {
+    const { helpersPerTurn, ...rest } = (req.body ?? {}) as BudgetsUpdate & { helpersPerTurn?: unknown };
     try {
-      o.budgets.update((req.body ?? {}) as BudgetsUpdate);
+      if (helpersPerTurn !== undefined) {
+        if (!Number.isInteger(helpersPerTurn) || (helpersPerTurn as number) < 1 || (helpersPerTurn as number) > MAX_SUBAGENTS_PER_TURN) throw new Error(`helpersPerTurn must be a whole number from 1 to ${MAX_SUBAGENTS_PER_TURN}`);
+        o.settings.update({ usage: { subagentsPerTurn: helpersPerTurn as number } });
+      }
+      o.budgets.update(rest);
     } catch (e) {
       return bad(e);
     }

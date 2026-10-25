@@ -142,3 +142,13 @@ describe("budget routes", () => {
     expect((await call("PUT /budgets", { agents: { main: { perRunTokens: 3 } } })).status).toBe(400);
   });
 });
+
+describe("helpers per turn", () => {
+  it("is a spend limit under Budgets, stored where the runner reads it", async () => {
+    const { call, settings } = setup();
+    expect(((await call("GET /budgets")).body as { helpersPerTurn: number }).helpersPerTurn).toBe(4);
+    await call("PUT /budgets", { helpersPerTurn: 2 });
+    expect(settings.usage().subagentsPerTurn).toBe(2);
+    expect((await call("PUT /budgets", { helpersPerTurn: 99 })).status).toBe(400);
+  });
+});

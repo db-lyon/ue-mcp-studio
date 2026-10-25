@@ -56,6 +56,8 @@ export interface BudgetsBody {
   budgets: Budgets;
   definition: string;
   agents: Array<{ id: string; name: string }>;
+  /** The most helpers one turn starts: a spend safety limit. */
+  helpersPerTurn: number;
 }
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
@@ -239,7 +241,7 @@ export const api = {
   instructionsPreview: (agent?: string) => call<InstructionsPreview>("GET", `/v1/ext/studio/instructions/preview${agent ? `?agent=${encodeURIComponent(agent)}` : ""}`),
   createAgentsMd: (point: string[]) => call<{ written: string; pointed: string[]; view: InstructionsView }>("POST", "/v1/ext/studio/instructions/agents-md", { point }),
   budgets: () => call<BudgetsBody>("GET", "/v1/ext/studio/budgets"),
-  saveBudgets: (u: { team?: Partial<Budgets["team"]>; agents?: Record<string, Partial<Budgets["agents"][string]> | null>; warnAt?: number }) => call<BudgetsBody>("PUT", "/v1/ext/studio/budgets", u),
+  saveBudgets: (u: { team?: Partial<Budgets["team"]>; agents?: Record<string, Partial<Budgets["agents"][string]> | null>; warnAt?: number; helpersPerTurn?: number }) => call<BudgetsBody>("PUT", "/v1/ext/studio/budgets", u),
   contextStrategy: () => call<ClientContextStrategy>("GET", "/v1/ext/studio/context-strategy"),
   saveContextStrategy: (strategy: ContextStrategy) => call<ClientContextStrategy>("PUT", "/v1/ext/studio/context-strategy", { strategy }),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),

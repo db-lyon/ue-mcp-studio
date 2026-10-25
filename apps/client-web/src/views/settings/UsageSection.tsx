@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import { BUDGET_LIMITS, MAIN_AGENT_ID, PLAYTEST_RUNNER_ID, type Budget } from "@ue-mcp-studio/shared";
+import { BUDGET_LIMITS, MAIN_AGENT_ID, MAX_SUBAGENTS_PER_TURN, PLAYTEST_RUNNER_ID, type Budget } from "@ue-mcp-studio/shared";
 import { api, type BudgetsBody } from "../../api";
 import { Head } from "../SettingsHub";
-import { Avatar, Card, NumberField, useMessage } from "./controls";
+import { Avatar, Card, NumberField, Row, useMessage } from "./controls";
 
 /** What each row does at its limit, as the runs enforce it today. */
 const AT_LIMIT: Record<string, string> = {
@@ -61,6 +61,9 @@ export function UsageSection() {
             </tbody>
           </table>
         </div>
+        <Row title="Helpers per turn" help="The most helpers one turn may start, the built-in worker and the project's own subagents together. Past it, the main agent is told to do the work itself.">
+          <NumberField label="Helpers per turn" value={body.helpersPerTurn} min={1} max={MAX_SUBAGENTS_PER_TURN} onSave={(n) => n !== null && void api.saveBudgets({ helpersPerTurn: n }).then(setBody, msg.fail)} />
+        </Row>
         <p className="cfg-note">Empty means no limit. Tokens from {BUDGET_LIMITS.minTokens.toLocaleString("en-US")} to {BUDGET_LIMITS.maxTokens.toLocaleString("en-US")}; minutes up to {BUDGET_LIMITS.maxMinutes}. Each turn ends with a line in the chat saying what it spent.</p>
       </Card>
     </>
