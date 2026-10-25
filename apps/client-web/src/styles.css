@@ -815,7 +815,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 
 /* Playtests: a PIE test script run as a card in the transcript, live while the run goes. */
 .qa-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; min-width: 0; }
-.qa-card.state-awaiting_verdict { border-color: var(--accent-line); background: var(--accent-wash); }
+.qa-card.state-awaiting_verdict { border-color: var(--warn); }
 .qa-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .qa-title { font-size: 14px; overflow-wrap: anywhere; }
 /* The title opens and closes the card; collapsed, the card is the path of its steps and one line. */
@@ -1196,7 +1196,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .usage-line { margin: 2px 0 10px; }
 
 /* The Assign to subagent loop on a playtest card. */
-.qa-card.needs-you { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.qa-card.needs-you { border-color: var(--warn); }
 .qa-card.attention { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.3s; }
 .qa-loop { display: flex; flex-direction: column; gap: 6px; }
 .qa-needs-you ul { margin: 4px 0 0; padding-left: 18px; }
@@ -1231,7 +1231,18 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .qa-card .qa-start > button.qa-start-options:hover:not(:disabled) { color: var(--text); }
 .qa-hide { font-size: 14px; line-height: 1; }
 .qa-compact { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.qa-compact-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
+.qa-compact-line .qa-meta::before { content: "\B7"; margin-right: 8px; }
 .qa-meta { overflow-wrap: anywhere; }
+/* Dense, on the strip: the path sits in the head row, between the title and the state. */
+.qa-head-path { flex: 1 1 160px; min-width: 120px; }
+@media (max-width: 760px) {
+  .qa-card.dense .qa-head-path { order: 10; flex-basis: 100%; }
+  .qa-compact-line { flex-direction: column; gap: 2px; }
+  .qa-compact-line .qa-meta::before { content: none; }
+}
+@media (min-width: 761px) { .qa-card.dense .qa-toggle { min-width: 220px; } }
+@keyframes qa-glow { 50% { opacity: 0.55; } }
 
 /* One bar per step. The button is the hit area; the bar is drawn inside it. A manual step's bar has a pip over it. */
 .qa-path { list-style: none; margin: 0; padding: 0; display: flex; gap: 3px; width: 100%; }
@@ -1243,9 +1254,9 @@ button.qa-path-hit:hover:not(:disabled) { background: transparent; border: 0; }
 .qa-path-step.manual .qa-path-hit::after { content: ""; position: absolute; left: 50%; top: 2px; width: 5px; height: 5px; margin-left: -2.5px; border-radius: 50%; background: var(--muted); }
 .qa-path-step.ok .qa-path-hit::before { background: var(--ok); }
 .qa-path-step.bad .qa-path-hit::before { background: var(--bad); }
-.qa-path-step.warn .qa-path-hit::before { background: var(--warn); animation: pulse 1.6s ease-in-out infinite; }
+.qa-path-step.warn .qa-path-hit::before { background: var(--warn); animation: qa-glow 1.6s ease-in-out infinite; }
 .qa-path-step.warn .qa-path-hit::after { background: var(--warn); }
-.qa-path-step.run .qa-path-hit::before { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+.qa-path-step.run .qa-path-hit::before { background: var(--accent); animation: qa-glow 1.2s ease-in-out infinite; }
 .qa-path-step.skipped .qa-path-hit::before { background: repeating-linear-gradient(135deg, var(--line-strong) 0 3px, transparent 3px 6px); box-shadow: inset 0 0 0 1px var(--line-strong); }
 button.qa-path-hit:hover::before, button.qa-path-hit:focus-visible::before { top: 7px; height: 10px; }
 .qa-compact-open { align-self: flex-start; max-width: 100%; height: auto; min-height: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; letter-spacing: 0; text-align: left; cursor: pointer; }

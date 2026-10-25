@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   playtestMatches,
   playtestShown,
-  qaActive,
+  qaEnded,
   type PlaytestEntry,
   type PlaytestFilter,
   type PlaytestIndexAnswer,
@@ -145,7 +145,7 @@ function metaOf(e: PlaytestEntry): string {
   const where = e.session ? `in ${e.session.title || "Untitled"}` : e.last ? "outside Studio" : "";
   const parts = [
     e.deleted ? "Script deleted" : null,
-    e.last ? `${qaActive(e.last) ? "Started" : "Ran"} ${ranAgo(e.last.seenAt)} ${where}`.trim() : e.card ? `Never run, drafted ${where}` : "Never run",
+    e.last ? `${qaEnded(e.last.state) ? "Ran" : "Started"} ${ranAgo(e.last.seenAt)} ${where}`.trim() : e.card ? `Never run, drafted ${where}` : "Never run",
   ].filter(Boolean);
   return parts.join(". ");
 }

@@ -150,7 +150,7 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
       {!folded && (
         <div className="strip-list">
           {runs.map((r) => (
-            <QaCard key={r.runId} run={r} onHide={r.assignment?.loop?.state === "needs_you" && !qaNeedsYouStep(r) ? () => onHide(r) : undefined} />
+            <QaCard key={r.runId} run={r} dense onHide={r.assignment?.loop?.state === "needs_you" && !qaNeedsYouStep(r) ? () => onHide(r) : undefined} />
           ))}
         </div>
       )}

@@ -81,7 +81,8 @@ describe("a draft Playtest card", () => {
   it("lists every step unrun, with its player, and auto with its check or manual", () => {
     mount(draft());
     expect(screen.getByText("Playtest draft")).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toBe("Draft");
+    // The eyebrow says Draft; no pill repeats it.
+    expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByText(PATH)).toBeTruthy();
     expect(within(step(0)).getByText("host")).toBeTruthy();
     expect(within(step(0)).getByText("auto")).toBeTruthy();
