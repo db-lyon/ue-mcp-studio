@@ -123,4 +123,23 @@ export interface ClientContextStrategy {
 }
 
 /** ue-mcp's published seed figures, until the daemon can project them. */
+/** Studio's own agent: a ue-mcp strategy, or auto, which picks one from a measurement. */
+export type AgentContextStrategy = ContextStrategy | "auto";
+export const AGENT_CONTEXT_STRATEGIES: readonly AgentContextStrategy[] = ["micro", "lean", "full", "auto"];
+
+/** GET /context-strategy/agent: Studio's own agent's choice and what each would cost. */
+export interface AgentContextView {
+  strategy: AgentContextStrategy;
+  /** The strategy turns run on now: auto resolved, or micro when the daemon cannot project ue-mcp's tools. */
+  effective: ContextStrategy;
+  /** Whether this daemon projects ue-mcp's surfaces (feature "context.projection"). Without it only Micro runs. */
+  projection: boolean;
+  /** Seed tokens per strategy for every category, as the daemon's projection measures them; null without a projection. */
+  seeds: Record<ContextStrategy, number> | null;
+  /** Auto is offered only when a measurement ships; null otherwise. */
+  measurement: { measuredAt: string; ueMcpVersion: string; runs: number } | null;
+  /** Why the effective strategy differs from the choice, when it does. */
+  note: string | null;
+}
+
 export const PUBLISHED_SEEDS: Record<ContextStrategy, number> = { micro: 2200, lean: 19000, full: 51000 };

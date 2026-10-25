@@ -20,6 +20,35 @@ import { subagentLimitText } from "./subagent-limit.js";
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
 export const STUDIO_TOOLS = ["ue_mcp", "editor_restart", ...LOCAL_TOOL_NAMES].map((n) => `${PREFIX}${n}`);
+
+/** A tool list with ue_mcp stood in for by the projected editor tools, when the turn has them. */
+export function withEditor(list: string[], editor: string[] | undefined): string[] {
+  if (!editor?.length) return list;
+  return list.flatMap((n) => (n === `${PREFIX}ue_mcp` ? editor.map((e) => `${PREFIX}${e}`) : [n]));
+}
+
+/**
+ * A projected tool's JSON Schema as the zod shape the SDK's tool registry
+ * takes: each property typed as far as its schema says, the rest unknown.
+ */
+export function zodShape(schema: Record<string, unknown>): Record<string, z.ZodType> {
+  const props = (schema.properties as Record<string, Record<string, unknown>> | undefined) ?? {};
+  const required = new Set(Array.isArray(schema.required) ? (schema.required as string[]) : []);
+  const of = (p: Record<string, unknown>): z.ZodType => {
+    if (Array.isArray(p.enum) && p.enum.length && p.enum.every((v) => typeof v === "string")) return z.enum(p.enum as [string, ...string[]]);
+    if (p.type === "string") return z.string();
+    if (p.type === "number" || p.type === "integer") return z.number();
+    if (p.type === "boolean") return z.boolean();
+    if (p.type === "array") return z.array(z.unknown());
+    if (p.type === "object") return z.record(z.string(), z.unknown());
+    return z.unknown();
+  };
+  return Object.fromEntries(Object.entries(props).map(([k, p]) => {
+    let t = of(p);
+    if (typeof p.description === "string") t = t.describe(p.description);
+    return [k, required.has(k) ? t : t.optional()];
+  }));
+}
 /** The SDK's subagent tool, and the subagent Studio defines for it. */
 const AGENT = "Agent";
 const WORKER = "editor-worker";
@@ -107,6 +136,14 @@ export interface SubscriptionTurn {
   onTokens?: (tokens: number, parent: string | null, detail?: { kinds: TokenKinds; model: string }) => void;
   /** A limit window the Claude sign-in reported, for Usage's plan meter. */
   onRateLimit?: (info: { type?: string; utilization?: number; resetsAt?: number; status: string }) => void;
+  /**
+   * ue-mcp's projected tools in place of ue_mcp, on Lean and Full, with how a
+   * call to one reads as the ue_mcp call it is. Absent on Micro.
+   */
+  editor?: {
+    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+    canon: (name: string, input: Record<string, unknown>) => { name: string; input: Record<string, unknown> };
+  };
 }
 
 /**
@@ -126,10 +163,11 @@ export interface NativeAgentDefinition {
   background?: boolean;
 }
 
-export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string, native?: SubscriptionTurn["native"]) {
-  const projectAgents = native ? native.agents : {};
+export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string, native?: SubscriptionTurn["native"], editor?: string[]) {
+  const studio = withEditor(STUDIO_TOOLS, editor);
+  const projectAgents = Object.fromEntries(Object.entries(native ? native.agents : {}).map(([n, a]) => [n, a.tools ? { ...a, tools: withEditor(a.tools, editor) } : a]));
   const skill = native?.skills ? [SKILL] : [];
-  if (s.mode === "off" && Object.keys(projectAgents).length === 0) return { tools: [SEARCH, ...skill], allowedTools: [...STUDIO_TOOLS, SEARCH, ...skill] };
+  if (s.mode === "off" && Object.keys(projectAgents).length === 0) return { tools: [SEARCH, ...skill], allowedTools: [...studio, SEARCH, ...skill] };
   let started = 0;
   const limit: HookCallback = async (input) => {
     if (input.hook_event_name !== "PreToolUse") return {};
@@ -147,13 +185,13 @@ export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem
           prompt: subagentSystem,
           model: s.model,
           effort: s.effort,
-          tools: [...STUDIO_TOOLS, SEARCH],
+          tools: [...studio, SEARCH],
         },
       }),
       // The project's own subagents, as their files say, each call still through Studio's tools.
       ...Object.fromEntries(Object.entries(projectAgents).map(([name, a]) => [name, { ...a, prompt: `${subagentSystem}\n\n${a.prompt}` }])),
     },
-    allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH, ...skill],
+    allowedTools: [...studio, AGENT, SEARCH, ...skill],
     hooks: { PreToolUse: [{ matcher: AGENT, hooks: [limit] }] },
   };
 }
@@ -227,7 +265,9 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
 
   // The SDK does not hand the tool_use id to a handler: match the call to the block the model sent.
   const calls = new CallMatcher();
-  const handler = (name: string) => async (args: Record<string, unknown>) => {
+  const handler = (registered: string) => async (raw: Record<string, unknown>) => {
+    // A projected category call is matched and run as the ue_mcp call it is.
+    const { name, input: args } = t.editor ? t.editor.canon(registered, raw) : { name: registered, input: raw };
     const exec = await t.runTool(await calls.take(name, args), name, studioArgs(args));
     // Images go as MCP image content, which the SDK hands the model as images.
     const images = (exec.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mediaType }));
@@ -238,7 +278,8 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     name: SERVER,
     alwaysLoad: true,
     tools: [
-      tool(
+      ...(t.editor ? t.editor.tools.map((p) => tool(p.name, p.description, zodShape(p.inputSchema), handler(p.name))) : []),
+      ...(t.editor ? [] : [tool(
         "ue_mcp",
         UE_MCP_DESCRIPTION,
         {
@@ -251,7 +292,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
           omit: z.array(z.string()).optional().describe(OMIT_DESCRIPTION),
         },
         handler("ue_mcp"),
-      ),
+      )]),
       tool(
         "editor_restart",
         "Restart the Unreal Editor, or stop it, rebuild the project's C++ and start it again (rebuild). Unsaved work is lost: save first.",
@@ -278,7 +319,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         model: t.model,
         effort: t.effort,
         systemPrompt: t.system,
-        ...subagentOptions(t.subagents, t.subagentSystem, t.native),
+        ...subagentOptions(t.subagents, t.subagentSystem, t.native, t.editor?.tools.map((p) => p.name)),
         mcpServers: { [SERVER]: server },
         // The project's own files load as Claude Code loads them; none while "Read the project's own files" is off.
         settingSources: t.native?.settingSources ?? [],
@@ -348,7 +389,12 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
             t.onTokens(tokens - before, m.parent_tool_use_id, { kinds: { input: delta("input"), cacheRead: delta("cacheRead"), cacheWrite: delta("cacheWrite"), output: delta("output") }, model: String((m.message as { model?: unknown }).model ?? "") });
           }
         }
-        const content = (m.message.content as ContentBlock[]).map((b) => (b.type === "tool_use" ? ({ ...b, name: studioName(b.name) } as ContentBlock) : b));
+        const content = (m.message.content as ContentBlock[]).map((b) => {
+          if (b.type !== "tool_use") return b;
+          const name = studioName(b.name);
+          const c = t.editor ? t.editor.canon(name, (b.input ?? {}) as Record<string, unknown>) : { name, input: b.input };
+          return { ...b, name: c.name, input: c.input } as ContentBlock;
+        });
         for (const b of content) if (b.type === "tool_use") calls.add(b.id, b.name, b.input);
         t.onAssistant(m.message.id, content, m.parent_tool_use_id);
       } else if (m.type === "user" && Array.isArray(m.message.content)) {

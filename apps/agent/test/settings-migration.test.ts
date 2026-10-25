@@ -68,7 +68,11 @@ describe("approvals from an older Studio", () => {
     const before = JSON.parse(fs.readFileSync(path.join(d, "settings.json"), "utf-8"));
     stores(d).settings.update({ approvals: { shell: "ask" } });
     const after = JSON.parse(fs.readFileSync(path.join(d, "settings.json"), "utf-8"));
-    for (const [k, v] of Object.entries(before)) if (k !== "askBeforeChanges") expect(after[k]).toEqual(v);
+    for (const [k, v] of Object.entries(before)) if (k !== "askBeforeChanges") {
+      // Nothing the old file held is lost; a field added since, such as contextStrategy, may join it at its default.
+      if (v && typeof v === "object" && !Array.isArray(v)) expect(after[k]).toMatchObject(v as object);
+      else expect(after[k]).toEqual(v);
+    }
   });
 
   it("keep fields a newer Studio wrote", () => {

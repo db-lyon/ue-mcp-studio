@@ -10,7 +10,7 @@ import type { PlaytestBudget, QaRun } from "./qa.js";
 import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
-import type { Approvals } from "./composer.js";
+import type { AgentContextStrategy, Approvals } from "./composer.js";
 import type { BudgetReached } from "./usage.js";
 
 /** GET /v1/ext/studio/about */
@@ -109,6 +109,8 @@ export interface UsageSettings {
   imageSize: ImageSize;
   /** Stop a turn once it has spent this many tokens, subagents included; null for no limit. */
   turnTokenLimit: number | null;
+  /** How ue-mcp's tools are put to Studio's own agent; auto picks from a measurement when one ships. */
+  contextStrategy: AgentContextStrategy;
 }
 
 export const DEFAULT_USAGE: UsageSettings = {
@@ -119,6 +121,7 @@ export const DEFAULT_USAGE: UsageSettings = {
   projectInstructions: true,
   imageSize: "standard",
   turnTokenLimit: null,
+  contextStrategy: "micro",
 };
 
 /** GET /v1/ext/studio/settings. Secrets are reported by presence only, never returned. */

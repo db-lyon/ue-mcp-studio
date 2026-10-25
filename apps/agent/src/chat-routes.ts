@@ -71,6 +71,7 @@ import { DaemonActionEffects } from "./approval-kind.js";
 import { BUDGET_ROWS, budgetRows, registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
 import { registerUsageRoutes } from "./usage-routes.js";
+import { ContextSurfaces, contextApiOf } from "./context-surface.js";
 import { Ledger } from "./ledger.js";
 import { PriceStore } from "./prices.js";
 import { PlanStore, chatgptWindows, claudeWindow } from "./plans.js";
@@ -108,8 +109,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   // ue-mcp's own word on which actions delete or overwrite, for that approval row.
   const actionsApi = (api as unknown as { actions?: { effects(categories?: string[]): Array<{ category: string; action: string; effect: string; destructive?: boolean }> } }).actions;
   const effects = new DaemonActionEffects(actionsApi?.effects ? () => actionsApi.effects() : null);
+  // How ue-mcp's tools are put to Studio's own agent: projected by the daemon when it can, else Micro.
+  const surfaces = new ContextSurfaces(contextApiOf(api), () => settings.usage().contextStrategy, () => settings.provider());
   const unwatchPlugins = api.events.subscribe((e) => {
-    if (e.type === "plugins.changed") effects.refresh();
+    if (e.type === "plugins.changed") {
+      effects.refresh();
+      surfaces.invalidate();
+    }
   });
 
   // The `ue-mcp login` account, kept fresh so a sign-in is picked up without a restart.
@@ -250,6 +256,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     effort: () => settings.effort(),
     usage: () => settings.usage(),
     ledger,
+    surfaces,
     budgets: () => budgets.get(),
     callRoute: () => ({ vendor: settings.provider(), route: route() ?? "unknown" }),
     onPlanWindow: (r, i) => plans.report(r, [claudeWindow(i)]),
@@ -405,6 +412,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     restartUeMcp: () => updates.request("restart", {}),
     // The project's own subagents get a per-day row beside Studio's, by the name their files give them.
     agents: () => budgetRows((nativeRun()?.helpers ?? []).map((h) => h.name)),
+    agentContext: surfaces,
   });
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));
