@@ -63,7 +63,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
         <Card label="Studio's worker">
           <p className="muted small">Studio's own helper, used beside the project's subagents; together they are the agent's helpers. How many helpers a turn may start is in <button className="link" onClick={() => onSection("usage")}>Usage</button>.</p>
           <dl className="grid">
-            <dt>Model</dt><dd>{native.worker.model ?? SAME}</dd>
+            <dt>Model</dt><dd>{native.worker.model ? `${native.worker.model} while the main agent runs on ${native.worker.model.split(" ")[0]}; otherwise the main agent's model` : SAME}</dd>
             <dt>Effort</dt><dd>{native.worker.effort ? EFFORT_NAMES[native.worker.effort as Effort] ?? native.worker.effort : SAME}</dd>
             <dt>Starts</dt><dd>{STARTS[native.worker.starts]}</dd>
           </dl>

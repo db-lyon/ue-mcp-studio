@@ -72,7 +72,7 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
             ))}
           </nav>
           <label className="tabs-narrow tab-select">
-            <span className="muted small">Files read by</span>
+            <span className="muted small">Convention</span>
             <select value={view.convention} onChange={(e) => setTab(e.target.value as Convention)} aria-label="Whose files">
               {ordered.map((v) => <option key={v.convention} value={v.convention}>{CONVENTION_INFO[v.convention].tool} ({count(v)}){v.routes.length ? ", read by a connected route" : ""}</option>)}
             </select>
@@ -101,6 +101,17 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
   const info = CONVENTION_INFO[view.convention];
   const sdk = preview?.loadedBy === "sdk";
   const inUse = view.routes.length > 0;
+  /** On a tab no route reads: where else the same file is read, on its own row. */
+  const also = (p: string) => (inUse ? [] : shared.filter((x) => x.paths.includes(p)));
+  const AlsoRead = ({ p }: { p: string }) => (
+    <>
+      {also(p).map((x) => (
+        <div key={x.convention} className="readers also">
+          Also read under <button className="link" onClick={() => onPick(x.convention)}>{CONVENTION_INFO[x.convention].tool}</button>, by {x.routes.join(", ")}.
+        </div>
+      ))}
+    </>
+  );
   const scoped = view.instructions.filter((f) => f.scope.kind !== "always").reduce((n, f) => n + f.tokens, 0);
   const later = view.instructions.filter((f) => f.scope.kind !== "always").length;
   const files = preview ? `${preview.files} file${preview.files === 1 ? "" : "s"}${later ? `; ${later} more join${later === 1 ? "s" : ""} when the agent works in ${later === 1 ? "its" : "their"} paths` : ""}` : "";
@@ -116,14 +127,9 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
         {inUse
           ? <span>Read by: {view.routes.join(", ")}.{view.convention === main ? " The main agent runs here." : ""} {sdk ? "The Agent SDK loads these files itself, as Claude Code does." : `Studio reads them the way ${info.tool === "AGENTS.md" ? "agents that read AGENTS.md do" : `${info.tool} does`}.`}</span>
           : view.convention === "agents"
-            ? <span>No custom endpoint is set up, so no route reads these as AGENTS.md files.</span>
+            ? <span>Custom endpoints read these files. No route on this machine reads them as AGENTS.md files yet.</span>
             : <span>No connected route reads these. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></span>}
       </p>
-      {!inUse && shared.map((x) => (
-        <p key={x.convention} className="cfg-note">
-          The same {x.paths.length === 1 ? x.paths[0] : `${x.paths.length} files`} {x.paths.length === 1 ? "is" : "are"} read under <button className="link" onClick={() => onPick(x.convention)}>{CONVENTION_INFO[x.convention].tool}</button> by {x.routes.join(", ")}.
-        </p>
-      ))}
       {view.notes.map((n) => <div key={n} className="banner warn small">{n}</div>)}
 
       <Card label={view.instructions.length ? `Instruction files · ${tokens(view.instructionTokens)} per call` : "Instruction files"}>
@@ -136,6 +142,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
               <div className="ifile-main">
                 <Path p={f.path} />
                 <div className="readers">{tokens(f.tokens)} tokens, {scopeLine(f)}{f.imports?.length ? `, imports ${f.imports.join(", ")}` : ""}</div>
+                <AlsoRead p={f.path} />
               </div>
               <OpenFile path={f.path} onError={onError} />
             </li>
@@ -197,6 +204,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
               <div className="ifile-main">
                 <div><strong className="mono">{s.name}</strong> <span className="tag">{s.owner ? `Plugin: ${s.owner}` : SOURCE[s.source]}</span></div>
                 <div className="readers">{s.description || "No description."} {tokens(s.tokens)} tokens when loaded.{s.implicit ? "" : " Used only when you name it."}</div>
+                <AlsoRead p={s.path} />
                 {s.problems.map((p) => <div key={p} className="cfg-note warn-text">{p}</div>)}
                 <Path p={`${s.path}/SKILL.md`} className="path dim" />
               </div>

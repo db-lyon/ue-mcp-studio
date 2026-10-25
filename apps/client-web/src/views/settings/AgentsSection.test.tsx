@@ -75,7 +75,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     o.conventions[3] = { ...o.conventions[3], instructions: [{ path: "AGENTS.md", source: "project", tokens: 300, scope: { kind: "always" } }] };
     await show({}, o);
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^AGENTS\.md/ })));
-    expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "The same AGENTS.md is read under Codex by ChatGPT sign-in, OpenAI key.")).toBeTruthy();
+    expect(document.querySelector(".readers.also")?.textContent).toBe("Also read under Codex, by ChatGPT sign-in, OpenAI key.");
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Codex" })));
     expect(screen.getByRole("navigation", { name: "Whose files" }).querySelector("[aria-current=page]")?.textContent).toBe("Codex4, read by a connected route");
   });
@@ -104,8 +104,8 @@ describe("Agents: what each vendor's own files give its models", () => {
   });
 
   it("shows Studio's own worker read only, and says when earlier settings set it", async () => {
-    await show({}, overview({ worker: { model: "Haiku 5.5", effort: "low", starts: "automatic", fromSettings: true } }));
-    expect(screen.getByText("Haiku 5.5")).toBeTruthy();
+    await show({}, overview({ worker: { model: "Anthropic Haiku 5.5", effort: "low", starts: "automatic", fromSettings: true } }));
+    expect(screen.getByText("Anthropic Haiku 5.5 while the main agent runs on Anthropic; otherwise the main agent's model")).toBeTruthy();
     expect(screen.getByText("when the work splits into independent parts")).toBeTruthy();
     expect(screen.getByText("Set in an earlier Studio and kept. Read only.")).toBeTruthy();
   });
@@ -124,7 +124,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.getByText(/No connected route reads these\./)).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^AGENTS\.md/ })));
     // Custom endpoints read AGENTS.md; nothing to connect until one is set up.
-    expect(screen.getByText(/No custom endpoint is set up, so no route reads these as AGENTS.md files./)).toBeTruthy();
+    expect(screen.getByText(/Custom endpoints read these files. No route on this machine reads them as AGENTS.md files yet./)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Connect one in Models & accounts" })).toBeNull();
   });
 
