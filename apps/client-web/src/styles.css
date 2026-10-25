@@ -1222,7 +1222,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
    Chrome 90: no color-mix, :has or container queries here. */
 .qa-card.collapsed { padding: 10px 12px; gap: 6px; }
 .qa-by { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pill.run { color: var(--accent); border-color: var(--accent-line); }
+/* Running is not a call to act: a neutral pill, so the warm Needs you stands alone. */
+.pill.run { color: var(--text); border-color: var(--line-strong); }
 .qa-card button.small-button, .playtest-strip button.small-button, .playtests-page button.small-button { min-height: 26px; padding: 0 9px; }
 .qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible, .composer-checkpoints:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .qa-start { display: inline-flex; align-items: stretch; flex-shrink: 0; }
