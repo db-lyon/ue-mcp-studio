@@ -1361,19 +1361,18 @@ button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 
 /* On the page every action has a slot of its own width, so the buttons stand in the same columns on every row. */
 .qa-card.slotted, .qa-card.slotted.open { padding: 10px 12px; }
 .qa-card.slotted .qa-head { flex-wrap: nowrap; }
-.qa-card.slotted .qa-states { display: flex; align-items: center; justify-content: flex-end; gap: 6px; flex-wrap: wrap; margin-left: auto; }
+.qa-card.slotted .qa-states { display: flex; align-items: center; justify-content: flex-start; gap: 6px; width: 12rem; margin-left: auto; }
 .qa-card.slotted .qa-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .qa-card.slotted .qa-slot { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
 .qa-card.slotted .qa-slot-run { width: 9rem; }
 .qa-card.slotted .qa-slot-assign { width: 9.5rem; }
-.qa-card.slotted .qa-slot-extra { width: 7.75rem; justify-content: flex-end; }
 @media (max-width: 760px) {
   .qa-card.slotted .qa-head { flex-wrap: wrap; }
   .qa-card.slotted .qa-actions { order: 10; flex-basis: 100%; flex-wrap: wrap; row-gap: 6px; }
-  .qa-card.slotted .qa-slot-run { width: 9rem; }
-  .qa-card.slotted .qa-slot-assign { width: 9rem; }
-  .qa-card.slotted .qa-slot-extra { width: auto; }
-  .qa-card.slotted .qa-slot-extra:empty { display: none; }
+  /* Narrow, the row's buttons pack from the left under its title. */
+  .qa-card.slotted .qa-states { width: auto; }
+  .qa-card.slotted .qa-slot-run, .qa-card.slotted .qa-slot-assign { width: auto; }
+  .qa-card.slotted .qa-slot:empty { display: none; }
 }
 /* On the strip a card always has one box under its head: the step it is on, or the one that needs you, with the card's own buttons at its end. */
 .qa-now { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
@@ -1434,3 +1433,6 @@ button.qa-meta-session.link:hover:not(:disabled) { background: none; border: 0; 
 .qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-color: var(--text); }
 button.qa-path-hit:focus-visible { outline: none; }
 button.qa-path-hit:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text); }
+/* A session's name in a row's line is the way to its card there. */
+@media (min-width: 761px) { .qa-meta-session-name { max-width: 30ch; } }
+@media (max-width: 760px) { .qa-meta-session-name { max-width: 16ch; } }

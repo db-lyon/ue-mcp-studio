@@ -76,10 +76,10 @@ describe("the Playtests page", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
     const meta = (name: string) => row(name).querySelector(".qa-meta")?.textContent;
-    expect(meta("Door")).toBe("Started 3 minutes ago in Doors");
-    expect(row("Door").querySelector(".qa-meta-session")?.getAttribute("title")).toBe("Doors");
+    expect(meta("Door")).toBe("Started 3 minutes ago in Doors↗");
+    expect(row("Door").querySelector(".qa-meta-session")?.getAttribute("title")).toBe("Open the card in Doors");
     expect(meta("Jump")).toBe("Ran 2 hours ago outside Studio");
-    expect(meta("Walk")).toMatch(/^Ran .* in Walking$/);
+    expect(meta("Walk")).toMatch(/^Ran .* in Walking↗$/);
     expect(meta("Fresh")).toBe("Never run");
     expect(within(row("Jump")).getAllByRole("listitem").map((li) => li.className.split(" ")[1])).toEqual(["bad", "ok"]);
   });
@@ -122,25 +122,13 @@ describe("the Playtests page", () => {
     expect(m.qaAssign).toHaveBeenCalledWith(card.runId, null);
   });
 
-  it("opens a playtest's card in its session", () => {
+  it("opens a playtest's card in its session from the session's name", () => {
     const { onOpenSession } = page();
-    fireEvent.click(within(row("Door")).getByRole("button", { name: "Open in session" }));
+    fireEvent.click(within(row("Door")).getByRole("button", { name: "Doors" }));
     expect(onOpenSession).toHaveBeenCalledWith("s1", "w1");
     fireEvent.click(screen.getByRole("button", { name: "Failing 1" }));
-    expect(within(row("Jump")).queryByRole("button", { name: "Open in session" })).toBeNull();
-  });
-
-  it("at 380 px opens the card from the session's name, with no room for Open in session", () => {
-    const real = window.matchMedia;
-    window.matchMedia = ((query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
-    try {
-      const { onOpenSession } = page();
-      expect(within(row("Door")).queryByRole("button", { name: "Open in session" })).toBeNull();
-      fireEvent.click(within(row("Door")).getByRole("button", { name: "Doors" }));
-      expect(onOpenSession).toHaveBeenCalledWith("s1", "w1");
-    } finally {
-      window.matchMedia = real;
-    }
+    // Run outside Studio, it has no session to open.
+    expect(within(row("Jump")).queryByRole("button", { name: /↗|session/ })).toBeNull();
   });
 
   it("opens the full card in place from a step's bar", () => {
@@ -166,10 +154,10 @@ describe("the Playtests page", () => {
       const card = row(name);
       expect(card.className).toContain("slotted");
       expect([...card.querySelectorAll(".qa-actions > .qa-slot")].map((el) => el.className.replace("qa-slot ", ""))).toEqual(["qa-slot-run", "qa-slot-assign", "qa-slot-extra"]);
+      expect(card.querySelector(".qa-states")).toBeTruthy();
     }
     expect(within(row("Walk").querySelector<HTMLElement>(".qa-slot-run")!).getByRole("button", { name: "Run again" })).toBeTruthy();
-    expect(within(row("Walk").querySelector<HTMLElement>(".qa-slot-extra")!).getByRole("button", { name: "Open in session" })).toBeTruthy();
-    expect(row("Jump").querySelector(".qa-slot-extra")!.children).toHaveLength(0);
+    expect(within(row("Jump").querySelector<HTMLElement>(".qa-slot-assign")!).getByRole("button", { name: "Assign to subagent" })).toBeTruthy();
   });
 
   it("says its states are the last known while the editor is away, at full strength", () => {
