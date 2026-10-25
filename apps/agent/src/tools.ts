@@ -16,6 +16,7 @@ import type { TouchedItem } from "@ue-mcp-studio/shared";
 import { CHANGING_TOOLS, isLocalTool, localToolDefinitions, runLocal, validateLocal, type LocalToolName } from "./local-tools.js";
 import { firstFailedStep, type OperationStep } from "./operation-result.js";
 import { IMAGE_EXTENSIONS, MAX_IMAGE_FILE_BYTES, prepareImage, sniffImage, type ToolImage } from "./images.js";
+import { compactDescribe, compactSearch } from "./discovery.js";
 
 /** The part of the daemon's extension API the agent uses, so tests can stand in for it. */
 export interface AgentHost {
@@ -215,14 +216,16 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
   const action = input.action as string;
   if (action === "search") {
     const r = await host.callAction("project", "search_tools", { query: input.query, limit: 15 });
-    return { text: resultText(r), isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
+    const text = r.isError ? resultText(r) : compactSearch(resultText(r));
+    return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
   if (action === "describe") {
     const args = typeof input.method === "string" && input.method
       ? { name: `${input.category}.${input.method}` }
       : { name: String(input.category), category: input.category };
     const r = await host.callAction("project", "describe_action", args);
-    return { text: resultText(r), isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
+    const text = r.isError ? resultText(r) : compactDescribe(resultText(r));
+    return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] };
   }
 
   const category = input.category as string;
