@@ -14,6 +14,7 @@ import { QaBroker, type QaAssigner, type QaHost } from "../src/qa.js";
 import { playtestBrief, playtestDescription } from "../src/playtest-brief.js";
 import type { ModelProvider, ModelRequest, ModelTurn } from "../src/providers.js";
 import type { AgentHost } from "../src/tools.js";
+import { fakeLoopSupport, type FakeLoopSupport } from "./loop-fakes.js";
 
 const RUN = "script_DoorOpens_20261023_100000";
 const STEPS = [
@@ -200,7 +201,7 @@ describe("a subagent the user assigns", () => {
 
 // ── The broker ───────────────────────────────────────────────────────
 
-function brokerWith(assigner?: QaAssigner) {
+function brokerWith(assigner?: QaAssigner, loop: FakeLoopSupport | null = fakeLoopSupport()) {
   const qaHost: QaHost = {
     callAction: async () => ({ isError: false, content: [{ type: "text", text: "{}" }] }),
     editors: () => [],
@@ -208,59 +209,72 @@ function brokerWith(assigner?: QaAssigner) {
     projectDir: host.projectDir,
     log: { warn() {} },
   };
-  return new QaBroker({ host: qaHost, store, assigner, now: () => "2026-10-23T15:01:00.000Z" });
+  return new QaBroker({ host: qaHost, store, assigner, ...(loop ? { loop } : {}), now: () => "2026-10-23T15:01:00.000Z" });
 }
 
 describe("the card's assignment", () => {
-  it("starts the subagent with the brief, shows it running, and records how it ended", async () => {
+  it("starts the loop's first attempt with the brief and shows it running on the card", async () => {
     const s = store.create();
     s.transcript.push({ kind: "qa", run: runOf({}, s.id) });
     store.save(s);
-    let finish!: (r: { isError: boolean; stopped?: boolean }) => void;
     const asked: Array<{ sessionId: string; description: string; prompt: string }> = [];
     const broker = brokerWith({
       assign: (sessionId, description, prompt) => {
         asked.push({ sessionId, description, prompt });
-        return { callId: "studio_1", done: new Promise((r) => (finish = r)) };
+        return { callId: "studio_1", done: new Promise(() => {}) };
       },
       stop: () => true,
     });
-    const r = broker.assign(RUN, {});
-    expect("run" in r && r.run.assignment).toEqual({ callId: "studio_1", sessionId: s.id, state: "running", at: "2026-10-23T15:01:00.000Z" });
-    expect(asked[0]).toMatchObject({ sessionId: s.id, description: "Playtest DoorOpens" });
+    const r = await broker.assign(RUN, {});
+    expect("run" in r && r.run.assignment).toMatchObject({ callId: "studio_1", sessionId: s.id, state: "running", loop: { state: "running", attempts: [{ n: 1, callId: "studio_1" }] } });
+    expect(asked[0]).toMatchObject({ sessionId: s.id, description: "Playtest DoorOpens, attempt 1" });
     expect(asked[0].prompt).toContain(RUN);
-    expect(broker.assign(RUN, {})).toMatchObject({ status: 409 });
-    finish({ isError: false });
-    await new Promise((r) => setTimeout(r, 0));
-    expect(broker.get(RUN)?.assignment?.state).toBe("done");
+    expect(asked[0].prompt).toMatch(/attempt 1 of a loop/);
+    expect(await broker.assign(RUN, {})).toMatchObject({ status: 409 });
     const saved = store.get(s.id)!.transcript.find((t) => t.kind === "qa");
-    expect(saved?.kind === "qa" && saved.run.assignment?.state).toBe("done");
+    expect(saved?.kind === "qa" && saved.run.assignment?.loop?.state).toBe("running");
   });
 
-  it("cancels through the runner's stop", () => {
+  it("cancels through the runner's stop", async () => {
     const s = store.create();
     s.transcript.push({ kind: "qa", run: runOf({}, s.id) });
     store.save(s);
     const stopped: string[] = [];
     const broker = brokerWith({ assign: () => ({ callId: "studio_2", done: new Promise(() => {}) }), stop: (_sid, id) => (stopped.push(id), true) });
-    broker.assign(RUN, {});
+    await broker.assign(RUN, {});
     expect("run" in broker.cancel(RUN)).toBe(true);
     expect(stopped).toEqual(["studio_2"]);
   });
 
-  it("runs a playtest started elsewhere in the session the user has open", () => {
+  it("runs a playtest started elsewhere in the session the user has open", async () => {
     const s = store.create();
     const broker = brokerWith({ assign: () => ({ callId: "studio_3", done: new Promise(() => {}) }), stop: () => true });
     (broker as unknown as { runs: Map<string, QaRun> }).runs.set(RUN, runOf({}, null));
-    expect(broker.assign(RUN, {})).toMatchObject({ status: 400 });
-    const r = broker.assign(RUN, { sessionId: s.id });
+    expect(await broker.assign(RUN, {})).toMatchObject({ status: 400 });
+    const r = await broker.assign(RUN, { sessionId: s.id });
     expect("run" in r && r.run.assignment?.sessionId).toBe(s.id);
   });
 
-  it("finds an assignment from an earlier daemon stopped", () => {
+  it("does not start without checkpoints, and says why", async () => {
     const s = store.create();
-    s.transcript.push({ kind: "qa", run: { ...runOf({}, s.id), assignment: { callId: "studio_4", sessionId: s.id, state: "running", at: "x" } } });
+    s.transcript.push({ kind: "qa", run: runOf({}, s.id) });
     store.save(s);
-    expect(brokerWith().get(RUN)?.assignment?.state).toBe("stopped");
+    const support = fakeLoopSupport();
+    support.missing = "This ue-mcp has no checkpoints, so turns cannot be reviewed. Update ue-mcp.";
+    const started: string[] = [];
+    const broker = brokerWith({ assign: () => (started.push("x"), { callId: "studio_5", done: new Promise(() => {}) }), stop: () => true }, support);
+    expect(await broker.assign(RUN, {})).toEqual({ status: 409, error: "The loop did not start. This ue-mcp has no checkpoints, so turns cannot be reviewed. Update ue-mcp." });
+    expect(await brokerWith({ assign: () => ({ callId: "x", done: new Promise(() => {}) }), stop: () => true }, null).assign(RUN, {})).toMatchObject({ status: 409, error: expect.stringMatching(/needs checkpoints/) });
+    expect(started).toEqual([]);
+  });
+
+  it("finds an assignment from an earlier daemon stopped, its loop too", () => {
+    const s = store.create();
+    const loop = { id: "l1", state: "running" as const, attempts: [], baseline: "b", budget: { minutes: 1, tokens: 1 }, tokens: 0, startedAt: "x" };
+    s.transcript.push({ kind: "qa", run: { ...runOf({}, s.id), assignment: { callId: "studio_4", sessionId: s.id, state: "running", at: "x", loop } } });
+    store.save(s);
+    const a = brokerWith().get(RUN)?.assignment;
+    expect(a?.state).toBe("stopped");
+    expect(a?.loop?.state).toBe("stopped");
   });
 });

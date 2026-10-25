@@ -15,6 +15,7 @@ import type {
   FeedbackReport,
   FeedbackResult,
   ModelCatalog,
+  FlowRunRequest,
   PlaytestRequest,
   QueuedMessage,
   SessionDetail,
@@ -35,8 +36,13 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
-  QaRun, QaScriptStep, PlaytestRunsMode,
+  QaRun, QaScriptStep, PlaytestRunsMode, PlaytestBudget,
   QaVerdict,
+  CheckpointChange,
+  RestoreOutcome,
+  ReviewStatus,
+  TimelineMark,
+  TurnReview,
 } from "@ue-mcp-studio/shared";
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
@@ -110,6 +116,9 @@ export interface FlowSummary {
   description?: string;
 }
 
+const reviewBase = (sessionId: string, reviewId: string): string =>
+  `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/reviews/${encodeURIComponent(reviewId)}`;
+
 export const api = {
   health: () => call<DaemonHealth>("GET", "/v1/health"),
   install: () => call<StatusReport>("GET", "/v1/install"),
@@ -146,6 +155,8 @@ export const api = {
   saveDraft: (id: string, draft: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/draft`, { draft }),
   send: (id: string, text: string, attachments: string[] = [], now = false) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),
+  flow: (id: string, request: FlowRunRequest) =>
+    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/flow`, request),
   playtest: (id: string, request: PlaytestRequest) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/playtest`, request),
   queue: (id: string, text: string, attachments: string[] = []) =>
@@ -164,7 +175,7 @@ export const api = {
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
   agentSettings: () => call<AgentSettings>("GET", "/v1/ext/studio/agent-settings"),
-  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>) => call<AgentSettings>("PUT", "/v1/ext/studio/agent-settings", u),
+  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode; playtestBudget: PlaytestBudget }>) => call<AgentSettings>("PUT", "/v1/ext/studio/agent-settings", u),
   forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
@@ -176,13 +187,27 @@ export const api = {
   qaAssign: (runId: string, sessionId?: string | null) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`, sessionId ? { sessionId } : {}),
   qaCancelAssign: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/assign`),
+  qaRevertLoop: (runId: string, attempt?: number) =>
+    call<{ run: QaRun; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/loop/revert`, attempt === undefined ? {} : { attempt }),
   qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
   qaSaveScript: (runId: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps }),
   qaDeleteScript: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`),
-  qaCreateScript: (sessionId: string, name: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/scripts", { sessionId, name, steps }),
   qaDismiss: (runId: string) => call<void>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}`),
   qaResultsUrl: (runId: string) => `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,
+  reviewStatus: () => call<ReviewStatus>("GET", "/v1/ext/studio/review/status"),
+  setSessionReview: (sessionId: string, on: boolean | null) => call<{ review: boolean | null }>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/review`, { on }),
+  reviewDiff: (sessionId: string, reviewId: string, path: string) =>
+    call<{ change: CheckpointChange; before?: string; after?: string }>("GET", `${reviewBase(sessionId, reviewId)}/diff?path=${encodeURIComponent(path)}`),
+  reviewKeep: (sessionId: string, reviewId: string, paths: string[]) => call<{ review: TurnReview }>("POST", `${reviewBase(sessionId, reviewId)}/keep`, { paths }),
+  reviewRevert: (sessionId: string, reviewId: string, paths: string[], force = false) =>
+    call<{ review: TurnReview; outcome: RestoreOutcome }>("POST", `${reviewBase(sessionId, reviewId)}/revert`, force ? { paths, force } : { paths }),
+  reviewUndo: (sessionId: string, reviewId: string, path: string) => call<{ review: TurnReview; outcome: RestoreOutcome }>("POST", `${reviewBase(sessionId, reviewId)}/undo`, { path }),
+  timelineRestore: (sessionId: string, checkpoint: string, force = false) =>
+    call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/restore`, force ? { checkpoint, force } : { checkpoint }),
+  timelineUndo: (sessionId: string, checkpoint: string) =>
+    call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/undo`, { checkpoint }),
+  reviewImageUrl: (name: string) => `/v1/ext/studio/review/images/${encodeURIComponent(name)}`,
   dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),
   answerDialog: (id: string, answer: DialogAnswer) => call<void>("POST", `/v1/ext/studio/dialogs/${encodeURIComponent(id)}`, answer),
   resolveAssets: (refs: AssetRef[], sessionId: string | null) =>

@@ -18,6 +18,11 @@ interface StudioBinding {
   runsetup?(options: string): Promise<boolean>;
   /** Flash the editor in the taskbar and show a toast; older host plugins do not have it. */
   drawattention?(message: string): Promise<boolean>;
+  /**
+   * Studio's own window only: a Windows notification, JSON of { title?, text, target? }. Clicking it
+   * brings Studio forward and dispatches a "studio-notification" event on the page with target as its detail.
+   */
+  notify?(json: string): Promise<boolean>;
   /** Open the ue-mcp docs in their own editor tab; older host plugins do not have it. */
   opendocs?(path: string): Promise<boolean>;
   /** Start the project's daemon (or install Studio first when it is missing). */

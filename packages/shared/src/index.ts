@@ -6,8 +6,10 @@
 /** Name the agent registers its routes under: /v1/ext/studio/... */
 export const EXTENSION_NAME = "studio";
 
-import type { QaRun } from "./qa.js";
+import type { PlaytestBudget, QaRun } from "./qa.js";
+import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
+import type { FlowRunState, FlowStepProgress } from "./flows.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -92,6 +94,8 @@ export interface StudioSettings {
   theme: StudioTheme;
   /** Ask the user before the agent runs a command or edits a file. */
   askBeforeChanges: boolean;
+  /** Checkpoint each turn and show what it changed, for sessions that have not set their own (per-turn review). */
+  reviewTurns: boolean;
   /** The height dragged on the chat composer's divider, in pixels, or null for the default. */
   composerHeight: number | null;
   /** When an editor dialog needs an answer. */
@@ -110,6 +114,7 @@ export interface StudioSettingsUpdate {
   gatewayUrl?: string;
   theme?: StudioTheme;
   askBeforeChanges?: boolean;
+  reviewTurns?: boolean;
   composerHeight?: number | null;
   dialogPolicy?: DialogPolicy;
   keys?: Partial<Record<KeyProviderId, string>>;
@@ -216,6 +221,13 @@ export type TranscriptEntry = (
    * request Retry sends again. `attempt` counts the flow's drafts.
    */
   | { kind: "playtest"; state: PlaytestStage | "failed"; request: PlaytestRequest; attempt: number; errors?: string[]; at: string }
+  /** What a turn changed in the project, with Keep or Revert per item: per-turn review. Main thread only. */
+  | { kind: "review"; review: TurnReview }
+  /**
+   * A /flow: the flow, the params it was run with, each step as the flow.*
+   * events report it, and the run's summary and errors once it has ended.
+   */
+  | { kind: "flow"; name: string; params: Record<string, unknown>; state: FlowRunState; steps: FlowStepProgress[]; summary?: string; errors?: string[]; duration?: number; at: string }
   /** A failed /playtest from an older Studio, which ran it as a forced turn. */
   | { kind: "playtest-failed"; reason: string; request: PlaytestRequest; at: string }
 ) & { parent?: string };
@@ -273,6 +285,10 @@ export interface SessionDetail extends SessionSummary {
   approvals: ApprovalRequest[];
   /** The latest turn, from its tool calls: what the composer's pills are made from. */
   turn?: TurnFacts;
+  /** This session's review switch; absent or null follows Settings > Agent. */
+  review?: boolean | null;
+  /** The session's checkpoints, oldest first: each reviewed turn, restore and playtest loop attempt. */
+  timeline?: TimelineMark[];
 }
 
 /**
@@ -633,17 +649,19 @@ export interface AgentSettings {
   dialogMode: { mode: DialogMode | null; project: boolean } | null;
   /** Playtest runs: who starts a playtest's run. Absent from an older agent. */
   playtestRuns?: PlaytestRunsMode;
+  /** What one Assign to subagent loop may spend before it stops. Absent from an older agent. */
+  playtestBudget?: PlaytestBudget;
   restarting?: boolean;
 }
 
 /** Playtest runs, a setting per project: manual (the default) or automatic. */
 export type PlaytestRunsMode = "manual" | "automatic";
 export const PLAYTEST_RUNS: ReadonlyArray<{ mode: PlaytestRunsMode; label: string; help: string }> = [
-  { mode: "manual", label: "Manual", help: "Playtests run only when you click Run or Assign to subagent." },
+  { mode: "manual", label: "Manual", help: "Playtests run only when you click Start Playtest or Assign to subagent." },
   { mode: "automatic", label: "Automatic", help: "The agent can start playtests itself." },
 ];
 /** What the agent hears when Manual refuses its run. */
-export const PLAYTEST_RUNS_REFUSAL = "Playtest runs is set to Manual in Settings > Agent. Click Run on the card to start it.";
+export const PLAYTEST_RUNS_REFUSAL = "Playtest runs is set to Manual in Settings > Agent. Click Start Playtest on the card to start it.";
 
 /** An actor or asset the editor's "Chat about this" hands to a quick ask. */
 export interface QuickContextItem {
@@ -719,4 +737,6 @@ export interface StudioPluginUpdate {
   fabUrl?: string;
 }
 export * from "./qa.js";
+export * from "./review.js";
 export * from "./commands.js";
+export * from "./flows.js";

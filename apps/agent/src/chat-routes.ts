@@ -15,6 +15,7 @@
  *   POST /sessions/:id/seen         a subagent thread the user opened, so it is no longer new
  *   POST /sessions/:id/messages     send a message; the turn runs in the background. "/playtest <text>" runs the playtest flow
  *   POST /sessions/:id/playtest     a /playtest: { text?, source?, turn? }, source an agent message's transcript index, turn the latest turn's (the Make playtest pill)
+ *   POST /sessions/:id/flow         a /flow: { name, params?, text? }, run through the daemon's /v1/flows/<name>/run
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *   POST /quick                     the editor's quick ask: a new session with its first message (quick.ts)
@@ -22,6 +23,7 @@
  *   POST /updates/{plugin,studio,restart}       run an update step, or keep it until no turn is in progress
  *   POST /updates/deferred/now      Restart now: end the turns in progress and run the waiting steps
  *
+ * Per-turn review (/review, /sessions/:id/review, /sessions/:id/reviews, /sessions/:id/timeline) is in review.ts.
  * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
  * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts.
  *
@@ -31,9 +33,10 @@
  */
 import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { PlaytestFlow } from "./playtest-flow.js";
+import { FlowCaller } from "./flow-run.js";
 import { registerFlowModel, type ModelHost } from "./flow-model.js";
 import { CLAUDE_SIGN_IN_AVAILABLE, PROVIDERS } from "@ue-mcp-studio/shared";
-import type { ApprovalDecision, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { SettingsStore } from "./settings.js";
@@ -42,7 +45,7 @@ import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverag
 import { StudioSignInFlow } from "./signin.js";
 import { AttachmentStore } from "./attachments.js";
 import { detectVcs, diffOf, listChanges } from "./vcs.js";
-import { Updater, writeChannel } from "./updates.js";
+import { Updater, readChannel, writeChannel } from "./updates.js";
 import { DEFERRED_STEPS, UpdateQueue, type DeferredStep } from "./update-queue.js";
 import { issueBody, submitFeedback, validate, type Environment } from "./feedback.js";
 import * as fs from "node:fs";
@@ -54,6 +57,7 @@ import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
+import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
@@ -151,8 +155,15 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const forms = registerForms(api);
   const dialogs = registerDialogs(api, store, settings, forms);
   const qa = registerQa(api, store, forms, playtests);
+  const review = registerReview(api, store, () => settings.reviewTurns());
+  /** The daemon's own address, for the flow routes. */
+  const endpoint = () => {
+    const d = readDiscovery(api.projectDir);
+    return d ? { port: d.port, token: d.token } : null;
+  };
   const runner = new AgentRunner({
     host: api,
+    review,
     busy,
     dialogs,
     qa,
@@ -165,13 +176,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     route: () => ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
     askBeforeChanges: () => settings.askBeforeChanges(),
     playtestRuns: () => playtests.runs(),
-    playtestFlow: new PlaytestFlow({
-      endpoint: () => {
-        const d = readDiscovery(api.projectDir);
-        return d ? { port: d.port, token: d.token } : null;
-      },
-      subscribe: (listener) => api.events.subscribe((e) => listener(e)),
-    }),
+    playtestFlow: new PlaytestFlow({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
+    flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
   });
   // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
   const unregisterModel = registerFlowModel(api as ModelHost, {
@@ -182,7 +188,25 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
   });
   // A playtest's card hands it to a subagent the runner starts beside the session's turns.
-  qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId) });
+  qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId), tokens: (callId) => runner.tokensOf(callId) });
+  // It loops until the playtest passes, each attempt between checkpoints, within the budget in Settings > Agent.
+  qa.setLoopSupport({
+    checkpoints: {
+      unavailable: () => review.unavailable(),
+      checkpoint: (label) => review.checkpoint(label),
+      changes: (from, to) => review.changes(from, to),
+      restore: (checkpoint, paths, force) => review.restore(checkpoint, paths, force),
+      mark: (sid, m) => {
+        const s = store.get(sid);
+        if (s) review.mark(s, m);
+      },
+    },
+    budget: () => playtests.budget(),
+    blocked: (sid) => {
+      const s = store.get(sid);
+      return s && !review.on(s) ? "Review is off in this session, so no checkpoints would let you undo its changes. Turn it on in the session's Checkpoints panel." : null;
+    },
+  });
 
   const bad = (error: string) => ({ status: 400, body: { error } });
   const missing = (id: string) => ({ status: 404, body: { error: `no session ${id}` } });
@@ -197,7 +221,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
 
   // Studio's own updates: the extension and the editor plugin, against the release channel.
-  const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data));
+  // A Studio update or restart that fails in the background stops the panel's run with what npm said.
+  const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data), fetch, () => readChannel(), (step, error) => updates.fail(step, error));
   // A step that restarts the daemon or closes the editor waits while any turn is in progress.
   const writeRestartCause = (cause: string) => {
     fs.mkdirSync(api.dataDir, { recursive: true });
@@ -472,6 +497,19 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress; wait for it to finish or stop it" } };
     const request: PlaytestRequest = { text: (b.text as string | undefined) ?? "", ...(source !== undefined ? { source } : {}), ...(b.turn !== undefined ? { turn: b.turn as number } : {}) };
     runner.playtest(s.id, request).catch((e) => api.log.warn(`playtest in session ${s.id} failed`, e));
+    return { status: 202, body: { sessionId: s.id } };
+  });
+  // A /flow from its form: the flow and the params the form gave.
+  api.route("POST", "/sessions/:id/flow", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const b = (req.body ?? {}) as { name?: unknown; params?: unknown; text?: unknown };
+    if (typeof b.name !== "string" || !b.name.trim()) return bad("body must be { name: string, params?: object, text?: string }");
+    if (b.params !== undefined && (typeof b.params !== "object" || b.params === null || Array.isArray(b.params))) return bad("params is an object of the flow's inputs");
+    if (b.text !== undefined && typeof b.text !== "string") return bad("text is the message the chat shows");
+    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress; wait for it to finish or stop it" } };
+    const request: FlowRunRequest = { name: b.name.trim(), params: (b.params as Record<string, unknown> | undefined) ?? {}, ...(b.text ? { text: b.text as string } : {}) };
+    runner.flow(s.id, request).catch((e) => api.log.warn(`flow in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });
   // A message written while a turn runs: it waits, and goes when the turns before it have ended.

@@ -218,7 +218,10 @@ nav { display: flex; align-items: stretch; height: 100%; gap: 2px; overflow-x: a
 }
 .tab:hover:not(:disabled) { background: transparent; color: var(--text); border-color: transparent; }
 .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+/* The page under the bar. The chat, kept while another tab is up, is parked over it unseen in the same box. */
+.stage { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
 main { flex: 1; overflow: auto; padding: 18px; min-height: 0; }
+main.parked { position: absolute; inset: 0; visibility: hidden; pointer-events: none; }
 .spacer { flex: 1; }
 
 .chip {
@@ -277,6 +280,8 @@ main { flex: 1; overflow: auto; padding: 18px; min-height: 0; }
 .editor-banner .elapsed { margin-left: 10px; font-variant-numeric: tabular-nums; }
 .update-waiting { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .app > .banner.update-waiting { margin: 0 18px 10px; }
+/* An update's error keeps npm's lines as it wrote them. */
+.banner.update-error { white-space: pre-wrap; overflow-wrap: anywhere; }
 .banner.ok { background: color-mix(in srgb, var(--ok) 10%, transparent); border-color: color-mix(in srgb, var(--ok) 30%, transparent); }
 .problem { border-left: 2px solid var(--warn); padding: 2px 12px; margin: 10px 0; }
 .problem p { margin: 2px 0 0; }
@@ -849,7 +854,6 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-override { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .qa-assignment { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
 .qa-assignment-live { color: var(--accent); }
-.prose-playtest { gap: 8px; margin: -2px 0 8px; align-items: center; flex-wrap: wrap; }
 .qa-player { flex-shrink: 0; color: var(--muted); border: 1px solid var(--line-strong); border-radius: 4px; padding: 0 5px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
 .qa-card.state-draft { border-style: dashed; }
 .qa-script-path { overflow-wrap: anywhere; margin-top: -4px; }
@@ -1111,3 +1115,58 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .pill-row { display: flex; gap: 6px; flex-wrap: nowrap; overflow-x: auto; padding: 4px 0 6px; }
 .pill-suggestion { border: 1px solid var(--line-strong); border-radius: 999px; padding: 2px 10px; background: var(--panel-2); color: var(--text); cursor: pointer; white-space: nowrap; }
 .pill-suggestion:hover { border-color: var(--accent); }
+
+/* Per-turn review: the turn card, an item's diff, and the checkpoint timeline. */
+.review-open { position: absolute; top: 8px; right: 12px; z-index: 2; }
+.review-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; min-width: 0; }
+.review-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.review-group { display: flex; flex-direction: column; gap: 4px; }
+.review-group-label { text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
+.review-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.review-item { border-left: 2px solid var(--line-strong); padding: 4px 0 4px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.review-item.state-kept { border-left-color: var(--ok); }
+.review-item.state-reverted { border-left-color: var(--dim); }
+.review-item.state-reverted .review-item-name { text-decoration: line-through; color: var(--muted); }
+.review-item-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.review-item-name { padding: 0; font-weight: 600; overflow-wrap: anywhere; text-align: left; }
+.review-item-path { overflow-wrap: anywhere; }
+.review-conflict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.review-diff { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.review-pictures { display: flex; gap: 10px; flex-wrap: wrap; }
+.review-pictures figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.review-pictures img { max-width: 220px; max-height: 220px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); }
+.review-nopicture { width: 160px; height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; border: 1px dashed var(--line-strong); border-radius: 4px; padding: 6px; box-sizing: border-box; }
+.blueprint-diff { list-style: none; margin: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; max-height: 320px; overflow: auto; }
+.review-panel { gap: 10px; }
+.timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.timeline-mark { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.timeline-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.timeline-mark.restore .timeline-dot { background: var(--warn); }
+.timeline-mark.attempt .timeline-dot { background: var(--ok); }
+.timeline-mark.undone { opacity: 0.6; }
+.timeline-label { min-width: 0; overflow-wrap: anywhere; }
+.playtest-budget input.tokens { width: 9em; }
+.playtest-budget input.minutes { width: 5em; }
+
+/* The Assign to subagent loop on a playtest card. */
+.qa-card.needs-you { border-color: color-mix(in srgb, var(--warn) 55%, transparent); }
+.qa-card.attention { box-shadow: 0 0 0 2px var(--accent); transition: box-shadow 0.3s; }
+.qa-loop { display: flex; flex-direction: column; gap: 6px; }
+.qa-needs-you ul { margin: 4px 0 0; padding-left: 18px; }
+.qa-attempts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.qa-attempt { border-left: 2px solid var(--line-strong); padding: 2px 0 2px 10px; }
+.qa-attempt.reverted { opacity: 0.65; }
+.qa-attempt details summary { cursor: pointer; color: var(--muted); }
+.qa-attempt ul { margin: 2px 0; padding-left: 16px; overflow-wrap: anywhere; }
+.qa-attempt-group { margin-top: 2px; }
+/* /flow: the form above the composer, and the run's card in the transcript. */
+.flow-names { flex-wrap: wrap; gap: 6px; }
+.flow-plan { margin: 4px 0; padding-left: 20px; overflow-wrap: anywhere; }
+.flow-card { border-color: var(--line); background: var(--panel-2); display: flex; flex-direction: column; gap: 6px; }
+.flow-card .row { gap: 10px; }
+.flow-steps { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
+.flow-steps li.done { color: var(--ok); }
+.flow-steps li.failed { color: var(--bad); }
+.flow-steps li.running { font-weight: 600; }
+.flow-steps li.skipped { opacity: 0.55; }
+.flow-summary { max-height: 30vh; margin: 0; white-space: pre-wrap; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { api } from "./api";
 import { applyTheme } from "./theme";
@@ -19,6 +19,7 @@ import { NavDrawer } from "./views/NavDrawer";
 import { NARROW, useMedia } from "./layout";
 import { readLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
+import { focusRun, useAttention } from "./attention";
 import { replaceStaleWindow } from "./window-version";
 
 const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
@@ -53,7 +54,16 @@ export function App() {
     setChatNav((c) => ({ session, n: c.n + 1 }));
   };
   const newSession = () => void api.newSession().then((d) => openChat(d.id), () => openChat(null));
+  // A playtest loop needs the user: a Windows notification, whose click opens the playtest's card.
+  useAttention(daemon.events, (t) => {
+    openChat(t.sessionId);
+    focusRun(t.runId);
+  });
   const updates = useUpdateCount();
+  // The chat stays mounted once shown, parked while another tab is up, so coming back to it
+  // finds the same session, scroll position and composer draft (#40).
+  const chatShown = useRef(tab === "Chat");
+  if (tab === "Chat") chatShown.current = true;
 
   useEffect(() => {
     api.settings().then((s) => void applyTheme(s.theme), () => void applyTheme("ue-mcp"));
@@ -110,7 +120,7 @@ export function App() {
           tab={tab}
           session={tab === "Chat" ? readLocation().session : null}
           updates={updates}
-          onTab={(t) => (t === "Chat" ? openChat(null) : setTab(t))}
+          onTab={setTab}
           onSession={openChat}
           onNewSession={newSession}
         >
@@ -120,12 +130,20 @@ export function App() {
       {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
       <DialogBanner daemon={daemon} />
       {!narrow && <EditorBanner daemon={daemon} />}
-      <main className={`view-${tab.toLowerCase()}`}>
-        {tab === "Flows" && <FlowsView daemon={daemon} />}
-        {tab === "Plugins" && <PluginsView daemon={daemon} />}
-        {tab === "Chat" && <ChatView daemon={daemon} nav={chatNav} />}
-        {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} />}
-      </main>
+      <div className="stage">
+        {chatShown.current && (
+          <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
+            <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} />
+          </main>
+        )}
+        {tab !== "Chat" && (
+          <main className={`view-${tab.toLowerCase()}`}>
+            {tab === "Flows" && <FlowsView daemon={daemon} />}
+            {tab === "Plugins" && <PluginsView daemon={daemon} />}
+            {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} />}
+          </main>
+        )}
+      </div>
       <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
       {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
     </div>

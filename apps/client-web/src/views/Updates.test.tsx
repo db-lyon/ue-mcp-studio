@@ -86,6 +86,25 @@ describe("updates", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("shows npm's error when the Studio update fails in the background, and keeps it on the card", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/v1/ext/studio/updates/run") return new Response(JSON.stringify({ run: null }));
+      if (!init?.method) return new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(true, false) : ueMcp(false)));
+      return new Response(JSON.stringify({ ok: true, started: true }), { status: 202 });
+    }));
+    const npm = "code ETARGET\nnotarget No matching version found for ue-mcp@1.4.11-beta.3 with a date before 10/17/2026.";
+    const view = render(<><UpdatesCard /><UpdateRunner streaming events={[]} /></>);
+    await waitFor(() => expect(screen.getByText("Update available")).toBeTruthy());
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Update" })));
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Updating" })).toBeTruthy());
+    // The agent marks the run failed with what npm said once the background install exits.
+    const failed = { id: 1, type: "studio.update.run", data: { run: { target: null, at: Date.now(), steps: [{ key: "studio", state: "failed" }], error: npm } } };
+    view.rerender(<><UpdatesCard /><UpdateRunner streaming events={[failed as never]} /></>);
+    await waitFor(() => expect(screen.getByRole("dialog", { name: "Update stopped" }).textContent).toContain("with a date before 10/17/2026"));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("alert").textContent).toBe(`The last update stopped: ${npm}`);
+  });
+
   it("sends a Fab install to the Fab Library instead of offering an Update", async () => {
     const fab = (fabUrl?: string) => ({ ...studio(false, false), plugin: { ...studio(false, false).plugin, location: "engine" as const, newer: true, required: true, source: "fab" as const, ...(fabUrl ? { fabUrl } : {}) } });
     expect(updateSteps({ studio: { ...fab(), plugin: { ...fab().plugin, available: true } }, ueMcp: ueMcp(false) })).toEqual([]);

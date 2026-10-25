@@ -1,8 +1,8 @@
 /**
  * The agent settings ue-mcp owns, under /v1/ext/studio:
  *
- *   GET /agent-settings   the feedback tool, the feedback mode, the editor dialog mode and Playtest runs
- *   PUT /agent-settings   change them: { feedbackTool?, feedbackMode?, dialogMode?, playtestRuns? }
+ *   GET /agent-settings   the feedback tool, the feedback mode, the editor dialog mode, Playtest runs and the playtest loop's budget
+ *   PUT /agent-settings   change them: { feedbackTool?, feedbackMode?, dialogMode?, playtestRuns?, playtestBudget? }
  *
  * The feedback tool is the `disable` list in ue-mcp.yml, which ue-mcp reads at
  * start, so changing it restarts ue-mcp (after the turn in progress). The modes
@@ -13,7 +13,7 @@ import * as path from "node:path";
 import { parseDocument, isSeq } from "yaml";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import type { AgentSettings, DialogMode, FeedbackMode, PlaytestRunsMode } from "@ue-mcp-studio/shared";
-import type { PlaytestStore } from "./playtest-store.js";
+import { budgetOf, type PlaytestStore } from "./playtest-store.js";
 
 const FEEDBACK_MODES: readonly FeedbackMode[] = ["interactive", "auto-approve", "defer"];
 const DIALOG_MODES: readonly DialogMode[] = ["interactive", "auto", "defer"];
@@ -49,13 +49,15 @@ export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () 
     feedbackTool: feedbackToolOn(read()),
     feedbackMode: modes?.get().feedback ?? null,
     dialogMode: modes?.get().dialog ?? null,
-    ...(playtests ? { playtestRuns: playtests.runs() } : {}),
+    ...(playtests ? { playtestRuns: playtests.runs(), playtestBudget: playtests.budget() } : {}),
   });
 
   api.route("GET", "/agent-settings", () => ({ body: view() }));
   api.route("PUT", "/agent-settings", async (req) => {
-    const b = (req.body ?? {}) as { feedbackTool?: unknown; feedbackMode?: unknown; dialogMode?: unknown; playtestRuns?: unknown };
+    const b = (req.body ?? {}) as { feedbackTool?: unknown; feedbackMode?: unknown; dialogMode?: unknown; playtestRuns?: unknown; playtestBudget?: unknown };
     if (b.playtestRuns !== undefined && b.playtestRuns !== "manual" && b.playtestRuns !== "automatic") return { status: 400, body: { error: "playtestRuns must be manual or automatic" } };
+    const budget = b.playtestBudget === undefined ? undefined : budgetOf(b.playtestBudget);
+    if (typeof budget === "string") return { status: 400, body: { error: budget } };
     if (b.feedbackTool !== undefined && typeof b.feedbackTool !== "boolean") return { status: 400, body: { error: "feedbackTool must be a boolean" } };
     if (b.feedbackMode !== undefined && b.feedbackMode !== null && !FEEDBACK_MODES.includes(b.feedbackMode as FeedbackMode)) return { status: 400, body: { error: "feedbackMode must be interactive, auto-approve, defer or null" } };
     if (b.dialogMode !== undefined && b.dialogMode !== null && !DIALOG_MODES.includes(b.dialogMode as DialogMode)) return { status: 400, body: { error: "dialogMode must be interactive, auto, defer or null" } };
@@ -63,6 +65,7 @@ export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () 
     if (b.feedbackMode !== undefined) modes!.setFeedback((b.feedbackMode as FeedbackMode | null) ?? undefined);
     if (b.dialogMode !== undefined) modes!.setDialog((b.dialogMode as DialogMode | null) ?? undefined);
     if (b.playtestRuns !== undefined) playtests?.setRuns(b.playtestRuns as PlaytestRunsMode);
+    if (budget) playtests?.setBudget(budget);
     let restarting = false;
     if (typeof b.feedbackTool === "boolean" && b.feedbackTool !== feedbackToolOn(read())) {
       fs.writeFileSync(yml, withFeedbackTool(read(), b.feedbackTool));

@@ -63,6 +63,8 @@ constexpr UINT_PTR kDockTimer = 4;
 constexpr UINT_PTR kRaiseTimer = 5;
 constexpr UINT_PTR kNotifyTimer = 6;
 constexpr UINT kNotifyId = 1;
+/** The tray icon's messages: a click on the notification opens what it is about. */
+constexpr UINT kTrayMessage = WM_APP + 2;
 /** How long a notification's tray icon stays after it was posted. */
 constexpr UINT kNotifyMs = 30000;
 constexpr ULONG_PTR kCopyArgs = 0x53545544;  // "STUD"
@@ -509,6 +511,10 @@ void saveState();
 void restack();
 void updateDock();
 bool drawAttention(const std::wstring& text);
+bool notify(const std::string& arg);
+void notificationClicked();
+void bringToFront();
+void removeNotification();
 
 /** Follow the editor: its exit, its minimize and restore, and the z-order while either is in front. */
 void trackEditor() {
@@ -964,7 +970,7 @@ const wchar_t* kShim = LR"JS((function () {
     }
   });
   var names = ["getstatus", "startdaemon", "installbridge", "startsetupplan", "getsetupplan", "runsetup", "restarteditor",
-    "enableplugin", "openprojectfolder", "geteditortheme", "opennodedownload", "drawattention", "opendocs",
+    "enableplugin", "openprojectfolder", "geteditortheme", "opennodedownload", "drawattention", "notify", "opendocs",
     "getwindowmode", "setwindowmode", "raiseeditor", "openlog", "setconnectionstate", "getconnectionstate", "retryconnection"];
   var studio = {};
   names.forEach(function (name) {
@@ -1038,6 +1044,7 @@ std::string dispatch(const std::string& method, const std::string& arg) {
     return b(true);
   }
   if (method == "drawattention") return b(drawAttention(widen(arg)));
+  if (method == "notify") return b(notify(arg));
   if (method == "opendocs") {
     std::string path = arg.empty() ? "/docs/" : arg;
     if (path.rfind("/docs", 0) != 0 || path.find("..") != std::string::npos || path.find("://") != std::string::npos) return b(false);
@@ -1104,6 +1111,58 @@ bool drawAttention(const std::wstring& text) {
   bool shown = Shell_NotifyIconW(NIM_MODIFY, &nid) || Shell_NotifyIconW(NIM_ADD, &nid);
   if (shown) SetTimer(gMain, kNotifyTimer, kNotifyMs, nullptr);
   return true;
+}
+
+/** What the notification showing now is about, as JSON the page reads when it is clicked; empty for none. */
+std::string gNotifyTarget;
+
+/**
+ * A notification the user can act on: { title?, text, target? }. It shows even
+ * while Studio has focus, since the user may be on another session. Clicking
+ * it brings Studio forward and hands target to the page, which opens it.
+ */
+bool notify(const std::string& arg) {
+  json::Value v;
+  if (!json::parse(arg, v) || !v.isObject()) return false;
+  const json::Value* text = v.get("text");
+  if (!text || !text->isString() || text->s.empty()) return false;
+  const json::Value* title = v.get("title");
+  const json::Value* target = v.get("target");
+  gNotifyTarget.clear();
+  if (target && target->isObject()) json::write(*target, gNotifyTarget, 0, false);
+  HWND fg = GetForegroundWindow();
+  HWND flash = gMain;
+  if (docked() && gHost && IsWindow(gHost)) flash = GetAncestor(gHost, GA_ROOTOWNER);
+  if (flash && fg != flash && fg != gMain) {
+    FLASHWINFO fi = {sizeof fi, flash, FLASHW_ALL | FLASHW_TIMERNOFG, 0, 0};
+    FlashWindowEx(&fi);
+  }
+  NOTIFYICONDATAW nid = {};
+  nid.cbSize = sizeof nid;
+  nid.hWnd = gMain;
+  nid.uID = kNotifyId;
+  nid.uFlags = NIF_ICON | NIF_TIP | NIF_INFO | NIF_MESSAGE;
+  nid.uCallbackMessage = kTrayMessage;
+  nid.hIcon = reinterpret_cast<HICON>(GetClassLongPtrW(gMain, GCLP_HICONSM));
+  if (!nid.hIcon) nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+  wcsncpy_s(nid.szTip, L"UE-MCP Studio", _TRUNCATE);
+  wcsncpy_s(nid.szInfoTitle, title && title->isString() && !title->s.empty() ? widen(title->s).c_str() : L"UE-MCP Studio", _TRUNCATE);
+  wcsncpy_s(nid.szInfo, widen(text->s).c_str(), _TRUNCATE);
+  nid.dwInfoFlags = NIIF_WARNING;
+  bool shown = Shell_NotifyIconW(NIM_MODIFY, &nid) || Shell_NotifyIconW(NIM_ADD, &nid);
+  if (shown) SetTimer(gMain, kNotifyTimer, kNotifyMs, nullptr);
+  return shown;
+}
+
+/** The notification or its tray icon was clicked: Studio comes forward, and the page opens what it was about. */
+void notificationClicked() {
+  bringToFront();
+  if (gWeb && !gNotifyTarget.empty()) {
+    gWeb->ExecuteScript(widen("window.dispatchEvent(new CustomEvent('studio-notification', { detail: " + gNotifyTarget + " }))").c_str(), nullptr);
+  }
+  gNotifyTarget.clear();
+  KillTimer(gMain, kNotifyTimer);
+  removeNotification();
 }
 
 void removeNotification() {
@@ -1654,6 +1713,10 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       return 0;
     case WM_EXITSIZEMOVE:
       saveState();
+      return 0;
+    case kTrayMessage:
+      if (LOWORD(lp) == NIN_BALLOONUSERCLICK || LOWORD(lp) == WM_LBUTTONUP) notificationClicked();
+      else if (LOWORD(lp) == NIN_BALLOONTIMEOUT) gNotifyTarget.clear();
       return 0;
     case WM_APP + 1:
       // The editor restart finished: follow the new editor.

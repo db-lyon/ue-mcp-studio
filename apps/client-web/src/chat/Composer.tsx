@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { formatBytes, type PendingFile } from "./attachments";
 import { useSlashMenu } from "./SlashMenu";
-import type { SlashCommand } from "@ue-mcp-studio/shared";
+import type { FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 
 /** The text box grows with what is written up to this many lines, then scrolls. */
 export const MAX_LINES = 15;
@@ -41,7 +41,7 @@ export function fitHeight({ content, line, chrome, floor, room }: { content: num
  * the dragged height is a minimum the content can still grow past. A double
  * click on the divider forgets it. `height` is the saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, flows, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -63,11 +63,13 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   onHeight?: (h: number | null) => void;
   /** The slash commands the menu offers; the registry's when not given. */
   commands?: readonly SlashCommand[];
+  /** The project's flows, for the names /flow completes. Fetched when the menu offers them; stable across renders. */
+  flows?: () => Promise<FlowListing[]>;
   children?: ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
-  const slash = useSlashMenu(draft, onDraft, commands);
+  const slash = useSlashMenu(draft, onDraft, commands, flows);
   /** A hidden copy of the box, out of the page flow, measured instead of the box so typing never lays out the conversation. */
   const mirror = useRef<HTMLTextAreaElement>(null);
   const [floor, setFloor] = useState<number | null>(height ?? null);
