@@ -1229,7 +1229,6 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .qa-start > button.primary { border-radius: var(--radius) 0 0 var(--radius); }
 .qa-card .qa-start > button.qa-start-options { display: inline-flex; align-items: center; padding: 0 7px; margin-left: -1px; border-radius: 0 var(--radius) var(--radius) 0; color: var(--muted); }
 .qa-card .qa-start > button.qa-start-options:hover:not(:disabled) { color: var(--text); }
-.qa-hide { font-size: 14px; line-height: 1; }
 .qa-compact { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .qa-compact-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
 .qa-compact-line .qa-meta::before { content: "\B7"; margin-right: 8px; }

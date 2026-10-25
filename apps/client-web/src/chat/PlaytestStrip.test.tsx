@@ -4,10 +4,22 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { qaRunFromAnswer, type QaLoop, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
 
-vi.mock("../api", () => ({ api: new Proxy({}, { get: () => () => new Promise(() => {}) }) }));
+const apiCalls = vi.hoisted(() => [] as Array<{ name: string; args: unknown[] }>);
+vi.mock("../api", () => ({
+  api: new Proxy({}, {
+    get: (_t, name) => (...args: unknown[]) => {
+      apiCalls.push({ name: String(name), args });
+      return new Promise(() => {});
+    },
+  }),
+}));
 import { ENDED_GRACE_MS, PinnedContext, PlaytestStrip, TranscriptPlaytest, stripSummary, usePinned, useSessionRuns } from "./PlaytestStrip";
 
-beforeEach(() => window.localStorage.clear());
+const realMatchMedia = window.matchMedia;
+beforeEach(() => {
+  window.localStorage.clear();
+  apiCalls.length = 0;
+});
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -160,6 +172,15 @@ describe("the strip of live playtests", () => {
     render(<Session transcript={transcript} events={[]} />);
     expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest WaitA", "Playtest WaitB", "Playtest WaitC"]);
     expect(within(stripEl()!).getByRole("button", { name: "Show 1 more: Running" }).textContent).toContain("Running (running)");
+  });
+
+  it("offers Review, Cancel loop and Hide from strip on a loop that needs the user", () => {
+    const r = run("a", "Gate", "finished", ["failed", "passed"], { assignment: { callId: "x", sessionId: "s1", state: "done", at, loop: loop("needs_you") } });
+    render(<Session transcript={entries(r)} events={[]} />);
+    const box = within(stripEl()!).getByRole("group", { name: "The loop needs you" });
+    expect(within(box).getAllByRole("button").map((b) => b.textContent)).toEqual(["Review", "Cancel loop", "Hide from strip"]);
+    fireEvent.click(within(box).getByRole("button", { name: "Cancel loop" }));
+    expect(apiCalls.find((c) => c.name === "qaCancelAssign")?.args).toEqual(["a"]);
   });
 
   it("sums up in words", () => {

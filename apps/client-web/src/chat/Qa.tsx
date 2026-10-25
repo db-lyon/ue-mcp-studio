@@ -358,6 +358,18 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       .finally(() => setAssigning(false));
   };
 
+  /** Cancel loop on a loop that stopped for the user: it is closed, and no longer needs them. */
+  const closeLoop = () => {
+    setAssigning(true);
+    setError(null);
+    api.qaCancelAssign(run.runId)
+      .then((r) => setRun((c) => (r.run.runId === c.runId ? newerRun(r.run, c) : r.run)), (e: Error) => setError(e.message))
+      .finally(() => setAssigning(false));
+  };
+  const cancelLoop = assignment?.loop?.state === "needs_you" && (
+    <button className="small-button" disabled={assigning || !!offline} title={offline ?? "Close the loop: it stops waiting for you, and its attempts stay to review and revert"} onClick={closeLoop}>Cancel loop</button>
+  );
+
   /** A draft's Start Playtest, Edit and Delete: each answers with the card's next state. */
   const act = (call: () => Promise<{ run: QaRun }>) => {
     setWorking(true);
@@ -447,6 +459,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
         ) : canAssign && (open || outside) && (
           <button className="small-button" disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "A subagent runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"}>{needsYouLoop ? "Assign again" : "Assign to subagent"}</button>
         )}
+        {needsYouLoop && open && cancelLoop}
         {open && draft && owned && !run.deleted && !assigned && (
           <>
             <button className="small-button" disabled={working} aria-expanded={panel === "edit"} onClick={() => setPanel(panel === "edit" ? null : "edit")}>Edit</button>
@@ -500,10 +513,11 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           )}
           {!ask && needsYouLoop && (
             <div className="qa-answer needs" role="group" aria-label="The loop needs you">
-              <span className="qa-answer-text">{needsYouLoop.blocker?.reason ?? "The loop stopped and needs you."}</span>
+              <span className="qa-answer-text" title={needsYouLoop.blocker?.reason}>{needsYouLoop.blocker?.reason ?? "The loop stopped and needs you."}</span>
               <span className="qa-verdict">
                 <button className="small-button" onClick={() => openAt(null)}>Review</button>
-                {onHide && <button className="small-button qa-hide" aria-label={`Hide ${run.scriptName} from the strip`} title="Hide from the strip; the card stays in the conversation" onClick={onHide}>Hide</button>}
+                {cancelLoop}
+                {onHide && <button className="small-button" aria-label={`Hide ${run.scriptName} from the strip`} title="Takes it off this strip for you; the card stays in the conversation and on the Playtests page" onClick={onHide}>Hide from strip</button>}
               </span>
             </div>
           )}
