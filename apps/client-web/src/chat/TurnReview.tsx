@@ -42,6 +42,8 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** What opening Unreal's view of an item did, shown under that item. */
+  const [opened, setOpened] = useState<{ path: string; text: string; bad?: boolean } | null>(null);
   /** A conflict whose Revert anyway waits for its second click. */
   const [confirming, setConfirming] = useState<string | null>(null);
 
@@ -61,11 +63,10 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
   const keep = (paths: string[]) => run(async () => api.reviewKeep(sessionId!, review.id, paths));
   const openNative = (path: string) => {
     if (!sessionId) return;
-    setError(null);
-    setNote(null);
+    setOpened(null);
     api.reviewNativeDiff(sessionId, review.id, path).then(
-      (r) => setNote(r.opened === "editor" ? `Opened ${fileName(path)} in its editor in Unreal.` : `Opened Unreal's diff of ${fileName(path)}${r.windowTitle ? `: ${r.windowTitle}` : ""}.`),
-      (e: Error) => setError(e.message),
+      (r) => setOpened({ path, text: r.opened === "editor" ? "Opened in Unreal, in its asset editor." : r.opened === "external" ? "Opened in your text diff tool." : `Opened in Unreal${r.windowTitle ? `: ${r.windowTitle}` : ""}.` }),
+      (e: Error) => setOpened({ path, text: e.message, bad: true }),
     );
   };
   const revert = (paths: string[], force = false) => run(() => api.reviewRevert(sessionId!, review.id, paths, force));
@@ -99,13 +100,14 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                     <span className={`pill small review-status ${it.status}`}>{STATUS[it.status]}</span>
                     {it.untracked && <span className="pill small warn" title="Written outside the agent's calls">Outside the agent</span>}
                     <span className="spacer" />
+                    <span className="review-actions">
                     <button
-                      className="ghost small-button"
+                      className="ghost small-button review-native"
                       disabled={!it.native?.available}
                       title={it.native?.available ? (it.status === "added" ? "Open the new asset in its editor in Unreal" : it.status === "deleted" ? "Open the deleted version in its editor in Unreal" : "Open Unreal's own diff of before and after") : it.native?.reason ?? "Unreal cannot open a diff of this item."}
                       onClick={() => openNative(it.path)}
                     >
-                      {it.status === "modified" ? "Open in Unreal diff" : "Open in Unreal"}
+                      Open in Unreal diff
                     </button>
                     {it.state === "kept" && <span className="pill small ok">Kept</span>}
                     {it.state === "reverted" ? (
@@ -119,9 +121,11 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                         {!it.conflict && <button className="small-button" disabled={busy} onClick={() => revert([it.path])}>Revert</button>}
                       </>
                     )}
+                    </span>
                   </div>
                   {it.summary && <div className={`review-item-summary small${it.diffError ? " bad" : ""}`}>{it.summary}</div>}
                   <div className="review-item-path dim small mono">{it.path}</div>
+                  {opened?.path === it.path && <div className={`small ${opened.bad ? "review-opened bad" : "review-opened dim"}`} role="status">{opened.text}</div>}
                   {it.conflict && it.state !== "reverted" && (
                     <div className="banner warn small review-conflict" role="alert">
                       You edited this file after the agent, so Revert left it alone.
@@ -135,7 +139,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                       )}
                     </div>
                   )}
-                  {open === it.path && sessionId && <ItemDiff sessionId={sessionId} reviewId={review.id} item={it} onNative={() => openNative(it.path)} />}
+                  {open === it.path && sessionId && <ItemDiff sessionId={sessionId} reviewId={review.id} item={it} />}
                 </li>
               ))}
             </ul>
@@ -152,7 +156,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
 }
 
 /** An item's diff, read when it is opened. */
-export function ItemDiff({ sessionId, reviewId, item, onNative }: { sessionId: string; reviewId: string; item: ReviewItem; onNative?: () => void }) {
+export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; reviewId: string; item: ReviewItem }) {
   const [diff, setDiff] = useState<{ change: CheckpointChange; before?: string; after?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -166,24 +170,24 @@ export function ItemDiff({ sessionId, reviewId, item, onNative }: { sessionId: s
   if (!diff) return <div className="dim small">Reading the diff.</div>;
   const c = diff.change;
   const name = fileName(item.path);
-  const native = item.native && !item.native.available ? <div className="dim small">{item.native.reason}</div> : null;
+  // A failed diff's reason is already the banner; the native view's reason would repeat it.
+  const native = item.native && !item.native.available && c.assetDiff?.state !== "error" ? <div className="dim small review-native-note">No Unreal diff view: {item.native.reason}</div> : null;
   if (c.assetDiff) {
     return (
       <div className="review-diff">
         <AssetDiffView
           diff={c.assetDiff}
           name={name}
+          status={item.status}
+          nativeNote={native}
           blueprintTree={c.assetDiff.blueprint ? <details className="small"><summary>Structure (blueprint diff)</summary><BlueprintDiff diff={c.assetDiff.blueprint} /></details> : undefined}
         />
-        {native}
-        {item.native?.available && onNative && (
-          <button className="small-button review-native" onClick={onNative}>{item.status === "modified" ? "Open in Unreal diff" : "Open in Unreal"}</button>
-        )}
       </div>
     );
   }
   return (
     <div className="review-diff">
+      {native}
       {c.diff !== undefined && <DiffView lines={unifiedLines(c.diff)} label={`Diff of ${item.path}`} />}
       {c.blueprintDiff && <BlueprintDiff diff={c.blueprintDiff} />}
       {item.visual && (
@@ -201,7 +205,6 @@ export function ItemDiff({ sessionId, reviewId, item, onNative }: { sessionId: s
       {c.diff === undefined && !c.blueprintDiff && !item.visual && (
         <div className="dim small">{item.summary ?? (c.large ? "A large file: no diff is kept for it." : "Not a text file, so there is no line diff.")}</div>
       )}
-      {native}
     </div>
   );
 }

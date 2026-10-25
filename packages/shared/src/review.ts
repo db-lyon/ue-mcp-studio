@@ -21,6 +21,11 @@ export interface AssetDiffRecord {
   toolTip?: string;
   /** The actor, component, variable or row a record belongs to. */
   group?: string;
+  /** A difference under a property the details panel does not show. */
+  hidden?: boolean;
+  /** The graph nodes a graph record names, by the title the graph shows. */
+  node1?: { guid: string; name: string; class: string; title: string };
+  node2?: { guid: string; name: string; class: string; title: string };
   /** The property path, as the details panel names it. */
   path?: string;
   property?: string;

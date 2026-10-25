@@ -38,11 +38,17 @@ const CHANGE_KIND: Record<string, string> = {
 const kindOf = (r: AssetDiffRecord): string => CHANGE_KIND[r.category ?? ""] ?? CHANGE_KIND[r.diffType] ?? "Changed";
 const kindClass = (k: string): string => (k === "Added" ? "add" : k === "Removed" ? "del" : k === "Minor" || k === "Moved" ? "minor" : "mod");
 
+/** Text that may break after a comma, a slash or a dot, so a long value wraps between its parts, never inside a number. */
+function Breakable({ text }: { text: string }) {
+  const parts = text.split(/(?<=[,/])/);
+  return <>{parts.map((x, i) => <span key={i}>{x}{i < parts.length - 1 && <wbr />}</span>)}</>;
+}
+
 /** A value as ExportText wrote it, or what its absence means. */
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
   if (v === null || v === undefined) return <span className="dim">{side === "before" ? "not there" : "gone"}</span>;
   if (v === "") return <span className="dim">empty</span>;
-  return <span className="mono">{v}</span>;
+  return <span className="mono diff-value"><Breakable text={v} /></span>;
 }
 
 /** One version's picture, or why there is none. */
@@ -57,10 +63,13 @@ function Picture({ version, missing, label, name }: { version: AssetVersion | nu
       ) : (
         <div className="review-nopicture dim small">No picture: {t && "error" in t ? t.error : "the editor kept none for this version."}</div>
       )}
-      <figcaption className="small dim">{label}{version?.class ? ` (${version.class})` : ""}</figcaption>
+      <figcaption className="small dim"><span className="picture-label">{label}</span>{version?.class && <span className="picture-class"><Breakable text={version.class} /></span>}</figcaption>
     </figure>
   );
 }
+
+/** The node a graph record is about, by the title the graph shows. */
+const nodeOf = (r: AssetDiffRecord): string | undefined => r.node2?.title ?? r.node1?.title;
 
 /** Property records as a table: the engine's path, then before and after. Graph and component records show the engine's message. */
 function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
@@ -69,10 +78,12 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
       {entries.map((r, i) => {
         const k = kindOf(r);
         const values = r.path !== undefined && (r.before !== undefined || r.after !== undefined);
+        const node = nodeOf(r);
         const head = (
           <>
             <span className={`diff-kind ${kindClass(k)}`}>{k}</span>
             {values ? <span className="diff-path" title={r.displayString}>{r.path}</span> : <span className="diff-message" title={r.toolTip}>{r.displayString}</span>}
+            {node && !r.displayString.includes(node) && <span className="dim"> on {node}</span>}
           </>
         );
         if (values) {
@@ -90,7 +101,7 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
               {head}
               {r.toolTip && r.toolTip !== r.displayString && <div className="dim small">{r.toolTip}</div>}
               {r.facts && r.facts.length > 0 && (
-                <div className="dim small">{r.facts.map((f) => `${f.name} ${f.value}`).join(", ")}</div>
+                <div className="dim small"><Breakable text={r.facts.map((f) => `${f.name} ${f.value}`).join(", ")} /></div>
               )}
               {r.properties && r.properties.length > 0 && (
                 <table className="diff-table nested"><tbody><RecordRows entries={r.properties} /></tbody></table>
@@ -103,30 +114,39 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
   );
 }
 
+function RecordTable({ entries, graph }: { entries: AssetDiffRecord[]; graph: boolean }) {
+  return (
+    <div className="diff-table-wrap">
+      <table className="diff-table">
+        <thead><tr><th>{graph ? "Change" : "Property"}</th><th>Before</th><th>After</th></tr></thead>
+        <tbody>
+          {recordsByGroup(entries).map((g) => (
+            <GroupRows key={g.group ?? ""} group={g.group} entries={g.entries} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Section({ s }: { s: AssetDiffSection }) {
-  const groups = recordsByGroup(s.entries);
+  const shown = s.entries.filter((e) => !e.hidden);
+  const hidden = s.entries.filter((e) => e.hidden);
+  const [openHidden, setOpenHidden] = useState(shown.length === 0);
   return (
     <section className="diff-section" aria-label={s.category}>
-      <div className="diff-section-head">
+      <div className="diff-section-head" title={`From Unreal's ${s.engineSource}`}>
         <span className="diff-section-title">{s.category}</span>
-        <span className="dim small">{s.entries.length === 1 ? "1 difference" : `${s.entries.length} differences`}</span>
-        <span className="spacer" />
-        <span className="dim small mono" title="The engine code these records came from">{s.engineSource}</span>
+        <span className="dim small">{shown.length === 1 ? "1 difference" : `${shown.length} differences`}</span>
       </div>
-      {s.entries.length > 0 && (
-        <div className="diff-table-wrap">
-          <table className="diff-table">
-            <thead><tr><th>{s.kind === "graph" ? "Change" : "Property"}</th><th>Before</th><th>After</th></tr></thead>
-            <tbody>
-              {groups.map((g) => (
-                <GroupRows key={g.group ?? ""} group={g.group} entries={g.entries} />
-              ))}
-            </tbody>
-          </table>
+      {shown.length > 0 && <RecordTable entries={shown} graph={s.kind === "graph"} />}
+      {hidden.length > 0 && (
+        <div className="diff-hidden">
+          <button className="ghost small-button diff-toggle" aria-expanded={openHidden} onClick={() => setOpenHidden(!openHidden)}>
+            {openHidden ? "Hide" : "Show"} {hidden.length === 1 ? "1 more difference" : `${hidden.length} more differences`} in properties the details panel does not show
+          </button>
+          {openHidden && <RecordTable entries={hidden} graph={false} />}
         </div>
-      )}
-      {(s.hiddenChanges ?? 0) > 0 && (
-        <div className="dim small">{s.hiddenChanges === 1 ? "1 more difference" : `${s.hiddenChanges} more differences`} in properties the details panel does not show.</div>
       )}
     </section>
   );
@@ -149,10 +169,11 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
   const [open, setOpen] = useState(!before || !after);
   if (rows.length === 0) return null;
   const changed = rows.filter((r) => r.changed).length;
+  const count = before && after ? (changed ? ` (${changed} differ)` : " (none differ)") : "";
   return (
     <div className="diff-facts">
-      <button className="ghost small-button" aria-expanded={open} onClick={() => setOpen(!open)}>
-        {open ? "Hide" : "Show"} details of {before && after ? "both versions" : "this version"}{changed ? ` (${changed} differ)` : ""}
+      <button className="ghost small-button diff-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {open ? "Hide" : "Show"} details of {before && after ? "both versions" : "this version"}{count}
       </button>
       {open && (
         <div className="diff-table-wrap">
@@ -175,20 +196,31 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
 }
 
 /** A package's diff from Unreal's diff code. */
-export function AssetDiffView({ diff, name, blueprintTree }: { diff: AssetDiff; name: string; blueprintTree?: React.ReactNode }) {
+export function AssetDiffView({ diff, name, status, blueprintTree, nativeNote }: { diff: AssetDiff; name: string; status: "added" | "modified" | "deleted"; blueprintTree?: React.ReactNode; nativeNote?: React.ReactNode }) {
   if (diff.state === "error") {
-    return <div className="banner bad small" role="alert">Unreal could not diff this asset: {diff.error ?? "no reason given"}</div>;
+    const consequence = status === "added"
+      ? "Revert deletes the file the agent added; Keep leaves it."
+      : status === "deleted"
+        ? "Revert puts the file back as it was before this turn; Keep leaves it deleted."
+        : "Revert puts the file back exactly as it was before this turn, byte for byte; Keep leaves it as the agent left it. Neither needs Unreal to load it.";
+    return (
+      <div className="banner bad small" role="alert">
+        <div>Unreal could not load this asset to diff it, so there is no before and after to show.</div>
+        <div className="mono small"><Breakable text={diff.error ?? "No reason was given."} /></div>
+        <div>{consequence}</div>
+      </div>
+    );
   }
   if (diff.state === "deferred") return <div className="dim small">Diffing in the editor.</div>;
   const sections = diff.sections ?? [];
   const records = sections.reduce((n, s) => n + s.entries.length, 0);
   return (
     <div className="asset-diff">
+      {nativeNote}
       <div className="review-pictures">
         <Picture version={diff.before} missing="Did not exist before this turn" label="Before" name={name} />
         <Picture version={diff.after} missing="Deleted in this turn" label="After" name={name} />
       </div>
-      {diff.engine && <div className="dim small engine-note" title={diff.engine.note}>Unreal's {diff.engine.tool}: {diff.engine.note}</div>}
       {diff.classChanged && <div className="banner warn small">The asset's class changed: {diff.classChanged}.</div>}
       {sections.map((s) => <Section key={s.category} s={s} />)}
       {diff.status === "modified" && records === 0 && !diff.textDiff && (
@@ -197,12 +229,18 @@ export function AssetDiffView({ diff, name, blueprintTree }: { diff: AssetDiff; 
       {(diff.recordsDropped ?? 0) > 0 && <div className="dim small">{diff.recordsDropped} more differences past the limit are not listed.</div>}
       {diff.textDiff?.diff && (
         <div className="diff-section">
-          <div className="diff-section-head"><span className="diff-section-title">{diff.textDiff.format.toUpperCase()} export</span><span className="dim small">the engine's own diff for this type</span></div>
+          <div className="diff-section-head"><span className="diff-section-title">{diff.textDiff.format.toUpperCase()} export</span><span className="dim small">the text Unreal's own diff compares for this type</span></div>
           <DiffView lines={unifiedLines(diff.textDiff.diff)} label={`${diff.textDiff.format} diff of ${name}`} />
         </div>
       )}
       <Facts before={diff.before} after={diff.after} />
       {blueprintTree}
+      {diff.engine && (
+        <details className="small dim engine-note">
+          <summary>How Unreal compared this</summary>
+          {diff.engine.note}
+        </details>
+      )}
     </div>
   );
 }

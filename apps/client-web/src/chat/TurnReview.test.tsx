@@ -105,18 +105,18 @@ describe("the turn card", () => {
     const ini = within(row("Config/DefaultGame.ini")).getByRole("button", { name: "Open in Unreal diff" }) as HTMLButtonElement;
     expect(ini.disabled).toBe(true);
     expect(ini.title).toMatch(/no diff view in Unreal/);
-    expect((within(row("Content/SM_Box.uasset")).getByRole("button", { name: "Open in Unreal" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((within(row("Content/SM_Box.uasset")).getByRole("button", { name: "Open in Unreal diff" }) as HTMLButtonElement).disabled).toBe(false);
     m.reviewNativeDiff.mockResolvedValue({ opened: "window", windowTitle: "Diff of BP_Door" });
     await act(async () => void fireEvent.click(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Open in Unreal diff" })));
     expect(m.reviewNativeDiff).toHaveBeenCalledWith("s1", "r1", "Content/BP_Door.uasset");
-    expect(screen.getByText("Opened Unreal's diff of BP_Door.uasset: Diff of BP_Door.")).toBeTruthy();
+    expect(within(row("Content/BP_Door.uasset")).getByRole("status").textContent).toBe("Opened in Unreal: Diff of BP_Door.");
   });
 
   it("shows why Unreal could not open its diff", async () => {
     m.reviewNativeDiff.mockRejectedValue(new Error("Unreal has no in-editor diff view for World"));
     card();
     await act(async () => void fireEvent.click(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Open in Unreal diff" })));
-    expect(screen.getByText("Unreal has no in-editor diff view for World")).toBeTruthy();
+    expect(within(row("Content/BP_Door.uasset")).getByRole("status").textContent).toBe("Unreal has no in-editor diff view for World");
   });
 
   it("says what a revert left alone", async () => {
@@ -162,6 +162,8 @@ describe("the diff view", () => {
       ] },
       { category: "Details", kind: "properties", engineSource: "DiffUtils::CompareUnrelatedObjects", entries: [
         { displayString: "Two Sided changed value in M", diffType: "PropertyValueChanged", path: "Two Sided", before: "False", after: "True" },
+        { displayString: "Lighting Guid changed value in M", diffType: "PropertyValueChanged", path: "Lighting Guid", before: "A1", after: "B2", hidden: true },
+        { displayString: "State Id changed value in M", diffType: "PropertyValueChanged", path: "State Id", before: "C3", after: "D4", hidden: true },
       ], hiddenChanges: 2 },
     ],
     summary: "3 changes",
@@ -181,7 +183,9 @@ describe("the diff view", () => {
     const two = within(details).getByText("Two Sided").closest("tr")!;
     expect(two.textContent).toContain("False");
     expect(two.textContent).toContain("True");
-    expect(within(details).getByText("2 more differences in properties the details panel does not show.")).toBeTruthy();
+    expect(within(details).queryByText("Lighting Guid")).toBeNull();
+    fireEvent.click(within(details).getByRole("button", { name: "Show 2 more differences in properties the details panel does not show" }));
+    expect(within(details).getByText("Lighting Guid").closest("tr")!.textContent).toContain("B2");
     fireEvent.click(screen.getByRole("button", { name: /details of both versions/ }));
     expect(screen.getByText("BLEND_Masked")).toBeTruthy();
   });
@@ -201,7 +205,10 @@ describe("the diff view", () => {
   it("shows why the engine could not diff a package", async () => {
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: { state: "error", error: "the package could not be loaded for diff: bad header", summary: "", nativeDiff: { available: false } } } });
     await diffOf(REVIEW.items[1]);
-    expect(screen.getByRole("alert").textContent).toBe("Unreal could not diff this asset: the package could not be loaded for diff: bad header");
+    const alert = screen.getByRole("alert").textContent!;
+    expect(alert).toContain("Unreal could not load this asset to diff it");
+    expect(alert).toContain("the package could not be loaded for diff: bad header");
+    expect(alert).toContain("Revert puts the file back exactly as it was before this turn");
   });
 
   it("keeps the pictures an older review captured", async () => {
