@@ -75,7 +75,7 @@ describe("the strip of live playtests", () => {
     expect(head.textContent).toContain("3 playtests: 1 needs you, 2 running");
     // Two cards, then the rest behind one button that names them.
     expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest Waiting", "Playtest Running"]);
-    fireEvent.click(within(stripEl()!).getByRole("button", { name: "1 more: Looping" }));
+    fireEvent.click(within(stripEl()!).getByRole("button", { name: "Show 1 more: Looping" }));
     expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest Waiting", "Playtest Running", "Playtest Looping"]);
     fireEvent.click(head);
     expect(within(stripEl()!).queryAllByRole("group", { name: /^Playtest / })).toHaveLength(0);
@@ -148,6 +148,18 @@ describe("the strip of live playtests", () => {
     });
     expect(within(stripEl()!).getByRole("group", { name: "Playtest Third" })).toBeTruthy();
     expect(within(transcriptEl()).getAllByRole("note").find((n) => n.textContent?.includes("Waiting"))!.textContent).toContain("Waiting needs you on the strip above");
+  });
+
+  it("never folds away one that needs the user", () => {
+    const transcript = entries(
+      run("a", "Running", "running", ["running", "pending"]),
+      run("b", "WaitA", "awaiting_verdict", ["passed", "awaiting_verdict"]),
+      run("c", "WaitB", "awaiting_verdict", ["passed", "awaiting_verdict"]),
+      run("d", "WaitC", "awaiting_verdict", ["passed", "awaiting_verdict"]),
+    );
+    render(<Session transcript={transcript} events={[]} />);
+    expect(within(stripEl()!).getAllByRole("group", { name: /^Playtest / }).map((g) => g.getAttribute("aria-label"))).toEqual(["Playtest WaitA", "Playtest WaitB", "Playtest WaitC"]);
+    expect(within(stripEl()!).getByRole("button", { name: "Show 1 more: Running" }).textContent).toContain("Running (running)");
   });
 
   it("sums up in words", () => {

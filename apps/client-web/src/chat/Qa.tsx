@@ -437,9 +437,9 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           return <span className={`pill ${p.tone}`} role="status" aria-label={`Loop: ${p.text}`} title="A subagent loop runs this playtest">{p.text}</span>;
         })()}
         {startButtons}
-        {stoppable && <button className="small-button" disabled={working} onClick={stop} aria-label={`Stop playtest ${run.scriptName}`}>Stop</button>}
+        {stoppable && <button className="ghost small-button qa-stop" disabled={working || !!offline} title={offline ?? "End the run now; steps not settled stay pending"} onClick={stop} aria-label={`Stop playtest ${run.scriptName}`}>Stop</button>}
         {assigned ? (
-          (open || outside || dense) && <button className="small-button" disabled={assigning} onClick={toggleAssign} aria-label={assignment?.loop ? "Cancel the loop" : "Cancel the subagent"}>Cancel</button>
+          (open || outside || dense) && <button className="small-button" disabled={assigning} onClick={toggleAssign} aria-label={assignment?.loop ? "Cancel the loop" : "Cancel the subagent"}>{assignment?.loop ? "Cancel loop" : "Cancel"}</button>
         ) : canAssign && (open || outside) && (
           <button className="small-button" disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "A subagent runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"}>Assign to subagent</button>
         )}

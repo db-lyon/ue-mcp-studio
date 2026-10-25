@@ -23,7 +23,7 @@ import { QaCard, QaContext, type QaCardActions, type QaLive } from "../chat/Qa";
 const FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [
   { id: "needs-you", label: "Needs you", empty: "Nothing needs you. A playtest that waits for a verdict, or a loop that stops for you, shows here." },
   { id: "failing", label: "Failing", empty: "No playtest is failing: every last run passed." },
-  { id: "all", label: "All", empty: "No playtests in this project yet. Ask the agent for one in a session, or type /playtest." },
+  { id: "all", label: "All", empty: "No playtests in this project yet. Ask the agent for one in a session, or type /playtest in the message box." },
 ];
 const FILTER_KEY = "studio.playtests.filter";
 /** Events after which the list is read again, once they have stopped for a moment. */
@@ -127,7 +127,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
       </div>
       {error && <div className="banner bad small" role="alert">{error}</div>}
       {index && !index.listed && (
-        <div className="banner warn small">The editor is not connected: scripts that have never run are missing, and starting a run or a subagent waits for it.</div>
+        <div className="banner warn small">The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.</div>
       )}
       {!index && !error && <p className="dim small">Loading playtests</p>}
       {index && rows.length === 0 && <p className="muted playtests-empty">{FILTERS.find((f) => f.id === filter)!.empty}</p>}

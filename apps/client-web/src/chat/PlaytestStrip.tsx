@@ -157,11 +157,12 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
   }, []);
   if (runs.length === 0) return null;
   const many = runs.length > 1;
-  const you = runs.some(qaNeedsYou);
-  const shown = all ? runs : runs.slice(0, first);
-  const rest = runs.slice(shown.length);
+  // Every one that needs the user is shown; the rest fill up to the first few.
+  const you = runs.filter(qaNeedsYou);
+  const shown = all ? runs : [...you, ...runs.filter((r) => !qaNeedsYou(r)).slice(0, Math.max(0, first - you.length))];
+  const rest = runs.filter((r) => !shown.includes(r));
   return (
-    <section className={`playtest-strip ${many ? "many" : ""} ${you ? "needs-you" : ""}`} aria-label="Live playtests">
+    <section className={`playtest-strip ${many ? "many" : ""} ${you.length ? "needs-you" : ""}`} aria-label="Live playtests">
       {many && (
         <button className="strip-head" aria-expanded={!folded} onClick={() => setFolded(!folded)}>
           <span className="qa-chevron" aria-hidden="true">{folded ? "▸" : "▾"}</span>
@@ -175,11 +176,17 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
             <QaCard key={r.runId} run={r} dense onHide={r.assignment?.loop?.state === "needs_you" && !qaNeedsYouStep(r) ? () => onHide(r) : undefined} />
           ))}
           {rest.length > 0 && (
-            <button className="small-button strip-more" onClick={() => setAll(true)} title={rest.map((r) => r.scriptName).join(", ")}>
-              {rest.length} more: {rest.map((r) => r.scriptName).join(", ")}
+            <button className="small-button strip-more" onClick={() => setAll(true)} aria-label={`Show ${rest.length} more: ${rest.map((r) => r.scriptName).join(", ")}`}>
+              Show {rest.length} more:{" "}
+              {rest.map((r, i) => (
+                <span key={r.runId}>
+                  {i > 0 && ", "}
+                  {r.scriptName} <span className="strip-more-state">({pinnedState(r).replace(/^is /, "")})</span>
+                </span>
+              ))}
             </button>
           )}
-          {all && runs.length > first && (
+          {all && runs.length > Math.max(first, you.length) && (
             <button className="ghost small-button strip-more" onClick={() => setAll(false)}>Show fewer</button>
           )}
         </div>
@@ -194,7 +201,7 @@ export function revealPinned(runId: string): void {
 }
 
 /** What a pinned run is doing, for its line in the transcript. */
-const pinnedState = (r: QaRun): string => (qaNeedsYou(r) ? "needs you" : qaActive(r) ? "is running" : "just ended");
+const pinnedState = (r: QaRun): string => (qaNeedsYou(r) ? "needs you" : r.state === "armed" ? "is starting" : qaActive(r) ? "is running" : "just ended");
 
 /** The runs on the strip: every id the transcript may hold for one, to the run its card there shows. */
 export const PinnedContext = createContext<ReadonlyMap<string, QaRun>>(new Map());
