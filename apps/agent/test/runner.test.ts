@@ -13,6 +13,7 @@ import { SettingsStore } from "../src/settings.js";
 import { GatewayProvider, type ModelProvider, type ModelRequest, type ModelTurn } from "../src/providers.js";
 import { validateInput, type AgentHost } from "../src/tools.js";
 import { pngBytes } from "./image-fixtures.js";
+import { DEFAULT_USAGE, type UsageSettings } from "@ue-mcp-studio/shared";
 
 class FakeHost implements AgentHost {
   connected = true;
@@ -971,5 +972,113 @@ describe("stopping a subagent with a call in flight", () => {
     await new Promise((r) => setTimeout(r, 20));
     const after = store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "c1");
     expect(after?.kind === "tool" && after.call.outcome).toBe("stopped");
+  });
+});
+
+describe("Settings > Agent > Usage", () => {
+  const isSub = (req: ModelRequest) => req.system.some((b) => b.text.includes("You are a subagent"));
+  const withUsage = (u: Partial<UsageSettings>) => ({ ...DEFAULT_USAGE, ...u });
+  const spent = (t: ModelTurn, input: number, output = 0): ModelTurn => ({ ...t, usage: { input, output } });
+
+  /** A main agent that starts `n` subagents in one message, then answers; each subagent reports at once. */
+  function fanOut(n: number, requests: ModelRequest[], tokens = 0): ModelProvider {
+    return {
+      async run(req) {
+        requests.push(JSON.parse(JSON.stringify(req)));
+        if (isSub(req)) return spent(text(`Report: ${req.messages[0].content as string}`), tokens);
+        if (req.messages.length === 1) {
+          const uses = Array.from({ length: n }, (_, i) => ({ type: "tool_use", id: `a${i}`, name: "agent", input: { description: `Part ${i}`, prompt: `part ${i}` } }));
+          return spent({ content: uses as never, stopReason: "tool_use" }, tokens);
+        }
+        return spent(text("Done."), tokens);
+      },
+    };
+  }
+
+  it("offers no agent tool and says nothing of subagents while they are off", async () => {
+    const model = new ScriptedModel([() => text("ok")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "off" }) });
+    const s = store.create();
+    await runner.send(s.id, "hi");
+    expect(model.requests[0].tools.map((t) => (t as { name: string }).name)).not.toContain("agent");
+    expect(model.requests[0].system[0].text).not.toContain("with the agent tool");
+  });
+
+  it("tells the agent to start subagents only when asked, by default", async () => {
+    const model = new ScriptedModel([() => text("ok")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", usage: () => DEFAULT_USAGE });
+    const s = store.create();
+    await runner.send(s.id, "hi");
+    const prompt = model.requests[0].system[0].text;
+    expect(prompt).toContain("only when the user asks for one");
+    expect(prompt).not.toContain("several in one message");
+    expect(prompt).toContain("A turn starts at most 4 subagents.");
+  });
+
+  it("runs only the turn's allowance of subagents and refuses the rest", async () => {
+    const requests: ModelRequest[] = [];
+    const runner = new AgentRunner({ host, store, provider: () => fanOut(3, requests), model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: 2 }) });
+    const s = store.create();
+    await runner.send(s.id, "three parts");
+    const fin = store.get(s.id)!;
+    expect(requests.filter(isSub)).toHaveLength(2);
+    const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string; is_error?: boolean }>;
+    expect(results.map((r) => r.tool_use_id)).toEqual(["a0", "a1", "a2"]);
+    expect(results[2]).toMatchObject({ is_error: true, content: expect.stringContaining("the most Settings > Agent > Usage allows") });
+    expect(fin.turn?.agents).toBe(2);
+  });
+
+  it("runs subagents on the chosen model and effort", async () => {
+    const requests: ModelRequest[] = [];
+    const runner = new AgentRunner({
+      host,
+      store,
+      provider: () => fanOut(1, requests),
+      model: () => "claude-opus-5-5",
+      effort: () => "high",
+      subagentModel: () => "claude-haiku-5-5",
+      usage: () => withUsage({ subagents: "automatic", subagentEffort: "low" }),
+    });
+    const s = store.create();
+    await runner.send(s.id, "one part");
+    const sub = requests.find(isSub)!;
+    expect([sub.model, sub.effort]).toEqual(["claude-haiku-5-5", "low"]);
+    const main = requests.find((r) => !isSub(r))!;
+    expect([main.model, main.effort]).toEqual(["claude-opus-5-5", "high"]);
+  });
+
+  it("ends a turn with what it spent, its subagents' share apart", async () => {
+    const requests: ModelRequest[] = [];
+    const runner = new AgentRunner({ host, store, provider: () => fanOut(2, requests, 1000), model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic" }) });
+    const s = store.create();
+    await runner.send(s.id, "two parts");
+    const last = store.get(s.id)!.transcript.at(-1)!;
+    expect(last).toMatchObject({ kind: "usage", main: 2000, subagents: 2000 });
+    expect(last).not.toHaveProperty("limit");
+  });
+
+  it("stops a turn once it passes the token limit, and says so", async () => {
+    const turns = [() => spent(call("c1", "level", "get_outliner"), 30_000), () => spent(call("c2", "level", "get_outliner"), 30_000), () => text("never")];
+    const model = new ScriptedModel(turns);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", usage: () => withUsage({ turnTokenLimit: 50_000 }) });
+    const s = store.create();
+    await runner.send(s.id, "look around");
+    await until(() => store.get(s.id)!.status === "error");
+    const fin = store.get(s.id)!;
+    expect(model.requests).toHaveLength(2);
+    expect(fin.error).toContain("past the turn token limit of 50000");
+    expect(fin.transcript.find((t) => t.kind === "usage")).toMatchObject({ main: 60_000, subagents: 0, limit: 50_000 });
+  });
+
+  it("puts the project's CLAUDE.md in both prompts unless turned off", async () => {
+    fs.writeFileSync(path.join(host.projectDir, "CLAUDE.md"), "Blueprints live under /Game/BP.");
+    const on = new ScriptedModel([() => text("ok")]);
+    const s = store.create();
+    await new AgentRunner({ host, store, provider: () => on, model: () => "claude-opus-5-5", usage: () => DEFAULT_USAGE }).send(s.id, "hi");
+    expect(on.requests[0].system[0].text).toContain("CLAUDE.md:\nBlueprints live under /Game/BP.");
+    const off = new ScriptedModel([() => text("ok")]);
+    const t = store.create();
+    await new AgentRunner({ host, store, provider: () => off, model: () => "claude-opus-5-5", usage: () => withUsage({ projectInstructions: false }) }).send(t.id, "hi");
+    expect(off.requests[0].system[0].text).not.toContain("Blueprints live under");
   });
 });

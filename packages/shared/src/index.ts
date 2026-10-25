@@ -82,6 +82,43 @@ export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
 export const EFFORT_NAMES: Record<Effort, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
 
+/** When the agent hands work to subagents: never, only when the user asks, or whenever the work splits. */
+export type SubagentMode = "off" | "asked" | "automatic";
+export const SUBAGENT_MODES: readonly SubagentMode[] = ["off", "asked", "automatic"];
+
+/** The longest side of an image the model is sent, by name. */
+export type ImageSize = "full" | "standard" | "small";
+export const IMAGE_EDGES: Record<ImageSize, number> = { full: 2000, standard: 1568, small: 1024 };
+
+/** The most subagents a turn may start. */
+export const MAX_SUBAGENTS_PER_TURN = 16;
+
+/** How much a turn may spend, and on what. Settings > Agent > Usage. */
+export interface UsageSettings {
+  subagents: SubagentMode;
+  /** The model subagents run on, of the main model's vendor; null runs them on the main model. */
+  subagentModel: { provider: KeyProviderId; model: string } | null;
+  /** How long subagents reason; null for the main effort. */
+  subagentEffort: Effort | null;
+  /** The most subagents one turn starts; more are refused and the agent does the work itself. */
+  subagentsPerTurn: number;
+  /** Put the project's CLAUDE.md in the agent's instructions, as a terminal client does. */
+  projectInstructions: boolean;
+  imageSize: ImageSize;
+  /** Stop a turn once it has spent this many tokens, subagents included; null for no limit. */
+  turnTokenLimit: number | null;
+}
+
+export const DEFAULT_USAGE: UsageSettings = {
+  subagents: "asked",
+  subagentModel: null,
+  subagentEffort: null,
+  subagentsPerTurn: 4,
+  projectInstructions: true,
+  imageSize: "standard",
+  turnTokenLimit: null,
+};
+
 /** GET /v1/ext/studio/settings. Secrets are reported by presence only, never returned. */
 export interface StudioSettings {
   /** The selected model and its vendor. */
@@ -100,6 +137,7 @@ export interface StudioSettings {
   composerHeight: number | null;
   /** When an editor dialog needs an answer. */
   dialogPolicy: DialogPolicy;
+  usage: UsageSettings;
   /** Which sign-ins are done and which vendor keys are saved. */
   connected: Record<ProviderId, boolean>;
   /** The Studio account's login, when signed in. */
@@ -117,6 +155,8 @@ export interface StudioSettingsUpdate {
   reviewTurns?: boolean;
   composerHeight?: number | null;
   dialogPolicy?: DialogPolicy;
+  /** The fields given change; the rest stay. */
+  usage?: Partial<UsageSettings>;
   keys?: Partial<Record<KeyProviderId, string>>;
   signOut?: SignInId;
 }
@@ -212,6 +252,12 @@ export type TranscriptEntry = (
   | { kind: "assistant"; text: string; at: string }
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }
+  /**
+   * What a turn spent, once it ended: input (cache writes included, cache
+   * reads left out) and output tokens, of the main agent and its subagents.
+   * `limit`: the turn token limit that ended it.
+   */
+  | { kind: "usage"; main: number; subagents: number; limit?: number; at: string }
   | { kind: "dialog"; dialog: EditorDialog }
   /** A PIE test script run, drawn as its checklist. Always on the main thread, whoever started it. */
   | { kind: "qa"; run: QaRun }
@@ -304,6 +350,10 @@ export interface TurnFacts {
   mutations: number;
   targets: TouchedItem[];
   playtest: boolean;
+  /** Tokens the turn has spent, as TurnUsage counts them, by the main agent and by its subagents. */
+  tokens?: { main: number; subagents: number };
+  /** Subagents the turn has started. */
+  agents?: number;
 }
 
 /** One line of a diff: kept, removed or added. A gap stands for unchanged lines left out. */

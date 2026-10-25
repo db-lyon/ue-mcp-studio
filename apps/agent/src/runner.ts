@@ -15,7 +15,8 @@
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
-import type { ApprovalDecision, ApprovalRequest, Effort, PlaytestRunsMode, TranscriptEntry } from "@ue-mcp-studio/shared";
+import * as path from "node:path";
+import { DEFAULT_USAGE, type ApprovalDecision, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { usageTokens } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
@@ -34,6 +35,7 @@ import { keptName, toolResultContent } from "./images.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
 import { flowCommandText, flowValue, parseFlowArgs, parseSlashCommand, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
+import { subagentLimitText } from "./subagent-limit.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 
 /**
@@ -77,14 +79,46 @@ const WORK = [
 const where = (projectDir: string): string =>
   `The project folder is ${projectDir}: commands run there and relative paths start there. The shell is ${shell().name}.`;
 
-const system = (projectDir: string, runs: PlaytestRunsMode): string => [
+/** What the main agent is told about subagents, by the Subagents setting; nothing when they are off. */
+export function subagentLine(usage: Pick<UsageSettings, "subagents" | "subagentsPerTurn">): string | null {
+  const most = `A turn starts at most ${usage.subagentsPerTurn} subagent${usage.subagentsPerTurn === 1 ? "" : "s"}.`;
+  if (usage.subagents === "off") return null;
+  if (usage.subagents === "asked") return `Start a subagent with the agent tool only when the user asks for one; otherwise do the work yourself. ${most}`;
+  return "For work that splits into independent parts, start a subagent per part with the agent tool, several in one message so they run at the same time. "
+    + `Give each one different assets and files, then check what they report. ${most}`;
+}
+
+/** The project's instruction files, in the order a terminal client reads them. */
+const INSTRUCTION_FILES = ["CLAUDE.md", path.join(".claude", "CLAUDE.md"), "CLAUDE.local.md"];
+/** The most of them that goes into the prompt. */
+export const MAX_INSTRUCTION_CHARS = 40_000;
+
+/** The project's CLAUDE.md files as a prompt section, or nothing when there are none. */
+export function projectInstructions(projectDir: string): string | null {
+  const parts: string[] = [];
+  for (const name of INSTRUCTION_FILES) {
+    try {
+      const text = fs.readFileSync(path.join(projectDir, name), "utf-8").trim();
+      if (text) parts.push(`${name}:\n${text}`);
+    } catch {
+      // Absent: a project need not have one.
+    }
+  }
+  if (parts.length === 0) return null;
+  let text = parts.join("\n\n");
+  if (text.length > MAX_INSTRUCTION_CHARS) text = `${text.slice(0, MAX_INSTRUCTION_CHARS)}\n(the rest is left out)`;
+  return `The project's own instructions for agents follow. Follow them where they apply to the task.\n\n${text}`;
+}
+
+const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE): string => [
   "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
   playtestRunsLine(runs),
   where(projectDir),
-  "For work that splits into independent parts, start a subagent per part with the agent tool, several in one message so they run at the same time. Give each one different assets and files, then check what they report.",
+  subagentLine(usage),
   "When the editor restarts or crashes during your work, a note tells you why and what was lost. Do not repeat a call whose outcome is unknown without reading the state first.",
-].join("\n");
+  usage.projectInstructions ? projectInstructions(projectDir) : null,
+].filter((l): l is string => !!l).join("\n");
 
 /** What a subagent is told: the same way of working, and to end with a report for the agent that started it. */
 export const SUBAGENT_SYSTEM = [
@@ -94,7 +128,9 @@ export const SUBAGENT_SYSTEM = [
   "Finish with a short report: what you created or changed (asset paths and files), what you saved, and anything that failed.",
 ].join("\n");
 
-const subagentSystem = (projectDir: string, runs: PlaytestRunsMode): string => `${SUBAGENT_SYSTEM}\n${playtestRunsLine(runs)}\n${where(projectDir)}`;
+const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE): string =>
+  [SUBAGENT_SYSTEM, playtestRunsLine(runs), where(projectDir), usage.projectInstructions ? projectInstructions(projectDir) : null]
+    .filter((l): l is string => !!l).join("\n");
 
 /** What the model is told when the user declines a call. */
 const declinedText = (name: string): string =>
@@ -131,6 +167,10 @@ export interface RunnerOptions {
   model: () => string;
   /** How long the model reasons; high when not given. */
   effort?: () => Effort;
+  /** Subagents, project instructions and the turn token limit; the defaults when not given. */
+  usage?: () => UsageSettings;
+  /** The model subagents run on; the main model when not given. */
+  subagentModel?: () => string;
   /** The turn runs on the Claude subscription through the Agent SDK. */
   subscription?: () => boolean;
   /** How the model is reached for this turn: a sign-in or a key, by name. */
@@ -256,6 +296,41 @@ export class AgentRunner {
   /** The Playtest runs setting the prompts state. */
   private runsMode(): PlaytestRunsMode {
     return this.o.playtestRuns?.() ?? "manual";
+  }
+
+  private usage(): UsageSettings {
+    return this.o.usage?.() ?? DEFAULT_USAGE;
+  }
+
+  private subagentModel(): string {
+    return this.o.subagentModel?.() ?? this.o.model();
+  }
+
+  private subagentEffort(): Effort {
+    return this.usage().subagentEffort ?? this.o.effort?.() ?? "high";
+  }
+
+  /**
+   * Count tokens a session's turn spent, the main agent's or a subagent's.
+   * Past the turn token limit the turn ends, as Studio's own stop.
+   */
+  private count(s: StoredSession, tokens: number, subagent: boolean): void {
+    if (!s.turn || tokens <= 0) return;
+    const t = (s.turn.tokens ??= { main: 0, subagents: 0 });
+    if (subagent) t.subagents += tokens;
+    else t.main += tokens;
+    const limit = this.usage().turnTokenLimit;
+    if (limit !== null && t.main + t.subagents >= limit && this.active.has(s.id)) {
+      this.interrupt(s.id, { by: "studio", why: `it spent ${t.main + t.subagents} tokens, past the turn token limit of ${limit} in Settings > Agent > Usage` });
+    }
+  }
+
+  /** The usage entry that closes a turn which spent tokens. */
+  private recordUsage(s: StoredSession): void {
+    const t = s.turn?.tokens;
+    if (!t || t.main + t.subagents === 0) return;
+    const limit = this.usage().turnTokenLimit;
+    this.addEntry(s, { kind: "usage", main: t.main, subagents: t.subagents, ...(limit !== null && t.main + t.subagents >= limit ? { limit } : {}), at: now() });
   }
 
   /** The daemon is going down: every turn on the SDK route ends here, saying so. An API turn resumes in the next daemon. */
@@ -536,15 +611,18 @@ export class AgentRunner {
       // A dynamic import the bundler drops when the sign-in is off, and the Agent SDK with it.
       const sdk = typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
       if (!sdk) throw new Error("This Studio build does not include the Claude sign-in.");
+      const usage = this.usage();
       const error = await sdk.runSubscriptionTurn({
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",
-        system: system(this.o.host.projectDir, this.runsMode()),
-        subagentSystem: subagentSystem(this.o.host.projectDir, this.runsMode()),
+        system: system(this.o.host.projectDir, this.runsMode(), usage),
+        subagentSystem: subagentSystem(this.o.host.projectDir, this.runsMode(), usage),
+        subagents: { mode: usage.subagents, perTurn: usage.subagentsPerTurn, model: this.subagentModel(), effort: this.subagentEffort() },
         prompt,
         resume: s.sdkSession ?? null,
         signal: controller.signal,
+        onTokens: (n, parent) => this.count(s, n, !!parent),
         onSession: (sid) => {
           s.sdkSession = sid;
           this.o.store.save(s);
@@ -826,13 +904,16 @@ export class AgentRunner {
     const sdk = typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
     if (!sdk) return { text: "This Studio build does not include the Claude sign-in.", isError: true };
     let report = "";
+    const usage = this.usage();
     const error = await sdk.runSubscriptionTurn({
       projectDir: this.o.host.projectDir,
-      model: this.o.model(),
-      effort: this.o.effort?.() ?? "high",
+      model: this.subagentModel(),
+      effort: this.subagentEffort(),
       // Its runs are the user's, from the card: the brief says to start one.
-      system: subagentSystem(this.o.host.projectDir, "automatic"),
-      subagentSystem: subagentSystem(this.o.host.projectDir, "automatic"),
+      system: subagentSystem(this.o.host.projectDir, "automatic", usage),
+      subagentSystem: subagentSystem(this.o.host.projectDir, "automatic", usage),
+      // A subagent starts none of its own.
+      subagents: { mode: "off", perTurn: 0, model: this.subagentModel(), effort: this.subagentEffort() },
       prompt: [{ type: "text", text: prompt }],
       resume: null,
       signal: own.signal,
@@ -992,6 +1073,7 @@ export class AgentRunner {
     if (status === "idle" && s.queue?.length) setTimeout(() => void this.sendQueued(s.id), 0);
     // A turn that ended, however it ended, gets its checkpoint after and its review.
     const ended = status !== "running" && status !== "waiting" && (was === "running" || was === "waiting");
+    if (ended) this.recordUsage(s);
     if (ended && s.reviewing) void this.o.review?.turnEnded(s).catch((e) => this.o.host.log.warn("the review checkpoint after the turn failed", e));
   }
 
@@ -1129,11 +1211,21 @@ export class AgentRunner {
         }
 
         if (s.status !== "running") this.setStatus(s, "running", null);
+        const usage = this.usage();
         const turn = await this.o.provider().run(
-          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: system(this.o.host.projectDir, this.runsMode()) }], tools: TOOLS, messages: s.messages },
+          {
+            sessionId: s.id,
+            model: this.o.model(),
+            effort: this.o.effort?.(),
+            system: [{ type: "text", text: system(this.o.host.projectDir, this.runsMode(), usage) }],
+            tools: usage.subagents === "off" ? WORK_TOOLS : TOOLS,
+            messages: s.messages,
+          },
           (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
           controller.signal,
         );
+        if (controller.signal.aborted) return;
+        this.count(s, usageTokens(turn.usage), false);
         if (controller.signal.aborted) return;
 
         s.messages.push({ role: "assistant", content: turn.content } as MessageParam);
@@ -1174,7 +1266,18 @@ export class AgentRunner {
   private async answerPending(s: StoredSession, signal: AbortSignal): Promise<boolean> {
     const pending = s.pending!;
     // Subagents run at the same time, before the calls the main agent makes itself.
-    const agents = pending.filter((p) => p.name === "agent" && p.state === "queued");
+    const queued = pending.filter((p) => p.name === "agent" && p.state === "queued");
+    // Past the turn's allowance an agent call is answered with the limit, and the model does that part itself.
+    const usage = this.usage();
+    const left = usage.subagents === "off" ? 0 : Math.max(0, usage.subagentsPerTurn - (s.turn?.agents ?? 0));
+    const agents = queued.slice(0, left);
+    for (const p of queued.slice(left)) {
+      p.state = "done";
+      p.result = usage.subagents === "off" ? "Subagents are off in Settings > Agent > Usage. Do this part yourself." : subagentLimitText(usage.subagentsPerTurn);
+      p.isError = true;
+      this.recordOutcome(s, p, "error");
+    }
+    if (s.turn && agents.length > 0) s.turn.agents = (s.turn.agents ?? 0) + agents.length;
     if (agents.length > 0) {
       for (const p of agents) p.state = "running";
       this.o.store.save(s);
@@ -1282,12 +1385,21 @@ export class AgentRunner {
       for (let step = 0; step < SUBAGENT_STEPS; step++) {
         if (signal.aborted) return stopped();
         const turn = await this.o.provider().run(
-          { sessionId: s.id, model: this.o.model(), effort: this.o.effort?.(), system: [{ type: "text", text: subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode()) }], tools: WORK_TOOLS, messages },
+          {
+            sessionId: s.id,
+            model: this.subagentModel(),
+            effort: this.subagentEffort(),
+            system: [{ type: "text", text: subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.usage()) }],
+            tools: WORK_TOOLS,
+            messages,
+          },
           () => {},
           signal,
         );
         messages.push({ role: "assistant", content: turn.content } as MessageParam);
         this.spend(parent, usageTokens(turn.usage));
+        // One the user assigned runs beside the session's turns, within its own budget.
+        if (!detached) this.count(s, usageTokens(turn.usage), true);
         this.recordSearches(s, turn.searches, parent);
         const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
         if (text) {

@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 const m = vi.hoisted(() => ({
-  settings: vi.fn(async () => ({ askBeforeChanges: true, dialogPolicy: { kind: "wait" } })),
+  settings: vi.fn(async () => ({ askBeforeChanges: true, dialogPolicy: { kind: "wait" }, provider: "anthropic", model: "claude-opus-5-5", usage: { subagents: "asked", subagentModel: null, subagentEffort: null, subagentsPerTurn: 4, projectInstructions: true, imageSize: "standard", turnTokenLimit: null } })),
+  models: vi.fn(async () => ({ signedIn: {}, providers: [] })),
   agentSettings: vi.fn(),
   saveAgentSettings: vi.fn(),
   saveSettings: vi.fn(),
@@ -74,7 +75,7 @@ describe("Settings > Agent: the Assign to subagent budget", () => {
 describe("Settings > Agent: Review each turn", () => {
   it("is on by default and saves off", async () => {
     m.agentSettings.mockResolvedValue(agent("manual"));
-    m.saveSettings.mockImplementation(async (u: { reviewTurns: boolean }) => ({ askBeforeChanges: true, dialogPolicy: { kind: "wait" }, reviewTurns: u.reviewTurns }));
+    m.saveSettings.mockImplementation(async (u: { reviewTurns: boolean }) => ({ ...(await m.settings()), reviewTurns: u.reviewTurns }));
     await act(async () => void render(<AgentView />));
     const box = screen.getByRole("checkbox", { name: "Review each turn" }) as HTMLInputElement;
     expect(box.checked).toBe(true);

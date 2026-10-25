@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SettingsStore } from "../src/settings.js";
+import { DEFAULT_USAGE } from "@ue-mcp-studio/shared";
 
 const store = () => ((d) => new SettingsStore(d, path.join(d, "keys")))(fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-")));
 
@@ -96,5 +97,48 @@ describe("the dialog policy", () => {
     expect(b.key("openai")).toBeNull();
     expect(a.key("openai")).toBeNull();
     expect(fs.existsSync(path.join(root, "b", "openai.key"))).toBe(false);
+  });
+});
+
+describe("usage settings", () => {
+  it("start with subagents only when asked, CLAUDE.md on, standard images and no turn limit", () => {
+    expect(store().view().usage).toEqual(DEFAULT_USAGE);
+    expect(DEFAULT_USAGE).toMatchObject({ subagents: "asked", subagentsPerTurn: 4, projectInstructions: true, imageSize: "standard", turnTokenLimit: null });
+  });
+
+  it("change only the fields given", () => {
+    const s = store();
+    s.update({ usage: { subagents: "off" } });
+    s.update({ usage: { turnTokenLimit: 200_000 } });
+    expect(s.usage()).toMatchObject({ subagents: "off", turnTokenLimit: 200_000, imageSize: "standard" });
+    s.update({ usage: { turnTokenLimit: null } });
+    expect(s.usage().turnTokenLimit).toBeNull();
+  });
+
+  it("refuse values out of range", () => {
+    const s = store();
+    expect(() => s.update({ usage: { subagents: "always" as never } })).toThrow(/usage.subagents/);
+    expect(() => s.update({ usage: { subagentsPerTurn: 0 } })).toThrow(/usage.subagentsPerTurn/);
+    expect(() => s.update({ usage: { subagentsPerTurn: 17 } })).toThrow(/usage.subagentsPerTurn/);
+    expect(() => s.update({ usage: { turnTokenLimit: 500 } })).toThrow(/usage.turnTokenLimit/);
+    expect(() => s.update({ usage: { imageSize: "huge" as never } })).toThrow(/usage.imageSize/);
+    expect(() => s.update({ usage: { subagentEffort: "extreme" as never } })).toThrow(/usage.subagentEffort/);
+    expect(s.usage()).toEqual(DEFAULT_USAGE);
+  });
+
+  it("read a bad stored field as its default and keep the rest", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
+    fs.writeFileSync(path.join(d, "settings.json"), JSON.stringify({ usage: { subagents: "nope", imageSize: "small", subagentsPerTurn: 99 } }));
+    expect(new SettingsStore(d, path.join(d, "keys")).usage()).toEqual({ ...DEFAULT_USAGE, imageSize: "small" });
+  });
+
+  it("run subagents on their own model only while it is of the chat model's vendor", () => {
+    const s = store();
+    s.update({ provider: "anthropic", model: "claude-opus-5-5", usage: { subagentModel: { provider: "anthropic", model: "claude-haiku-5-5" } } });
+    expect(s.subagentModel()).toBe("claude-haiku-5-5");
+    s.update({ provider: "openai", model: "gpt-6" });
+    expect(s.subagentModel()).toBe("gpt-6");
+    s.update({ usage: { subagentModel: null } });
+    expect(s.subagentModel()).toBe("gpt-6");
   });
 });

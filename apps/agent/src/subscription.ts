@@ -5,8 +5,8 @@
  * are an in-process MCP server whose handlers run the same executor as the API path.
  */
 import * as fs from "node:fs";
-import { createSdkMcpServer, query, tool, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { Effort } from "@ue-mcp-studio/shared";
+import { createSdkMcpServer, query, tool, type HookCallback, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import type { Effort, SubagentMode } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import type { ToolExecution } from "./tools.js";
@@ -14,6 +14,7 @@ import { messagesUsage, usageTokens } from "./usage.js";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
+import { subagentLimitText } from "./subagent-limit.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -57,6 +58,8 @@ export interface SubscriptionTurn {
   system: string;
   /** What each subagent the model starts is told. */
   subagentSystem: string;
+  /** Whether the model may start subagents, how many this turn, and what they run on. */
+  subagents: { mode: SubagentMode; perTurn: number; model: string; effort: Effort };
   /** The user's message as content blocks: text, and any images or documents attached. */
   prompt: unknown[];
   /** The SDK session to continue, from this Studio session's last turn. */
@@ -76,8 +79,39 @@ export interface SubscriptionTurn {
   onTask: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
-  /** Tokens the turn spent since the last report, subagents' included, as each model message arrives. */
-  onTokens?: (tokens: number) => void;
+  /** Tokens the turn spent since the last report, as each model message arrives; `parent` is the agent call of a subagent's message. */
+  onTokens?: (tokens: number, parent: string | null) => void;
+}
+
+/**
+ * The SDK options for subagents: none at all when they are off, else the
+ * subagent Studio defines, on its own model and effort, with a hook that
+ * refuses the agent calls past the turn's allowance.
+ */
+export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string) {
+  if (s.mode === "off") return { tools: [SEARCH], allowedTools: [...STUDIO_TOOLS, SEARCH] };
+  let started = 0;
+  const limit: HookCallback = async (input) => {
+    if (input.hook_event_name !== "PreToolUse") return {};
+    if (++started <= s.perTurn) return {};
+    return { hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "deny" as const, permissionDecisionReason: subagentLimitText(s.perTurn) } };
+  };
+  return {
+    // Built-ins: the subagent tool, and web search, which runs on Anthropic's side and touches nothing here.
+    // Everything else goes through Studio's tools, so one approval model and one transcript cover every route.
+    tools: [AGENT, SEARCH],
+    agents: {
+      [WORKER]: {
+        description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
+        prompt: subagentSystem,
+        model: s.model,
+        effort: s.effort,
+        tools: [...STUDIO_TOOLS, SEARCH],
+      },
+    },
+    allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH],
+    hooks: { PreToolUse: [{ matcher: AGENT, hooks: [limit] }] },
+  };
 }
 
 /** Text alone goes as a string; with an image or a document, as one user message of blocks. */
@@ -198,19 +232,8 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         model: t.model,
         effort: t.effort,
         systemPrompt: t.system,
-        // Built-ins: the subagent tool, and web search, which runs on Anthropic's side and touches nothing here.
-        // Everything else goes through Studio's tools, so one approval model and one transcript cover every route.
-        tools: [AGENT, SEARCH],
-        agents: {
-          [WORKER]: {
-            description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
-            prompt: t.subagentSystem,
-            effort: t.effort,
-            tools: [...STUDIO_TOOLS, SEARCH],
-          },
-        },
+        ...subagentOptions(t.subagents, t.subagentSystem),
         mcpServers: { [SERVER]: server },
-        allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH],
         settingSources: [],
         includePartialMessages: true,
         resume: t.resume ?? undefined,
@@ -262,7 +285,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
           const before = spent.get(m.message.id) ?? 0;
           if (tokens > before) {
             spent.set(m.message.id, tokens);
-            t.onTokens(tokens - before);
+            t.onTokens(tokens - before, m.parent_tool_use_id);
           }
         }
         const content = (m.message.content as ContentBlock[]).map((b) => (b.type === "tool_use" ? ({ ...b, name: studioName(b.name) } as ContentBlock) : b));

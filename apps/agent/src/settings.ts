@@ -10,15 +10,22 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   DEFAULT_DIALOG_POLICY,
+  DEFAULT_USAGE,
   EFFORTS,
+  IMAGE_EDGES,
   MAX_DIALOG_MINUTES,
+  MAX_SUBAGENTS_PER_TURN,
+  SUBAGENT_MODES,
   type DialogPolicy,
   KEY_PROVIDER_IDS,
   STUDIO_THEMES,
   type Effort,
+  type ImageSize,
   type KeyProviderId,
   type StudioSettingsUpdate,
   type StudioTheme,
+  type SubagentMode,
+  type UsageSettings,
 } from "@ue-mcp-studio/shared";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
@@ -35,6 +42,76 @@ interface StoredSettings {
   reviewTurns: boolean;
   composerHeight: number | null;
   dialogPolicy: DialogPolicy;
+  usage: UsageSettings;
+}
+
+/** The most tokens a turn token limit may be set to. */
+export const MAX_TURN_TOKEN_LIMIT = 1_000_000_000;
+/** The fewest: below this a turn could not finish one model call. */
+export const MIN_TURN_TOKEN_LIMIT = 10_000;
+
+const subagentModelOf = (v: unknown): UsageSettings["subagentModel"] | undefined => {
+  if (v === null) return null;
+  const m = v as { provider?: unknown; model?: unknown } | undefined;
+  return m && KEY_PROVIDER_IDS.includes(m.provider as KeyProviderId) && typeof m.model === "string" && m.model.trim()
+    ? { provider: m.provider as KeyProviderId, model: m.model.trim() }
+    : undefined;
+};
+const perTurnOf = (v: unknown): number | undefined =>
+  Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_SUBAGENTS_PER_TURN ? (v as number) : undefined;
+const limitOf = (v: unknown): number | null | undefined =>
+  v === null ? null : Number.isInteger(v) && (v as number) >= MIN_TURN_TOKEN_LIMIT && (v as number) <= MAX_TURN_TOKEN_LIMIT ? (v as number) : undefined;
+
+/** Stored usage settings, each field that is missing or not valid at its default. */
+export function usageOf(raw: unknown): UsageSettings {
+  const u = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    subagents: SUBAGENT_MODES.includes(u.subagents as SubagentMode) ? (u.subagents as SubagentMode) : DEFAULT_USAGE.subagents,
+    subagentModel: subagentModelOf(u.subagentModel) ?? DEFAULT_USAGE.subagentModel,
+    subagentEffort: EFFORTS.includes(u.subagentEffort as Effort) ? (u.subagentEffort as Effort) : DEFAULT_USAGE.subagentEffort,
+    subagentsPerTurn: perTurnOf(u.subagentsPerTurn) ?? DEFAULT_USAGE.subagentsPerTurn,
+    projectInstructions: typeof u.projectInstructions === "boolean" ? u.projectInstructions : DEFAULT_USAGE.projectInstructions,
+    imageSize: (u.imageSize as string) in IMAGE_EDGES ? (u.imageSize as ImageSize) : DEFAULT_USAGE.imageSize,
+    turnTokenLimit: limitOf(u.turnTokenLimit) ?? DEFAULT_USAGE.turnTokenLimit,
+  };
+}
+
+/** A usage update applied to the stored settings; throws on a field that is not valid. */
+export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): UsageSettings {
+  if (!u || typeof u !== "object") throw new Error("usage must be an object");
+  const next = { ...current };
+  if (u.subagents !== undefined) {
+    if (!SUBAGENT_MODES.includes(u.subagents)) throw new Error(`usage.subagents must be one of ${SUBAGENT_MODES.join(", ")}`);
+    next.subagents = u.subagents;
+  }
+  if (u.subagentModel !== undefined) {
+    const m = subagentModelOf(u.subagentModel);
+    if (m === undefined) throw new Error("usage.subagentModel must be null or { provider, model }");
+    next.subagentModel = m;
+  }
+  if (u.subagentEffort !== undefined) {
+    if (u.subagentEffort !== null && !EFFORTS.includes(u.subagentEffort)) throw new Error(`usage.subagentEffort must be null or one of ${EFFORTS.join(", ")}`);
+    next.subagentEffort = u.subagentEffort;
+  }
+  if (u.subagentsPerTurn !== undefined) {
+    const n = perTurnOf(u.subagentsPerTurn);
+    if (n === undefined) throw new Error(`usage.subagentsPerTurn must be a whole number from 1 to ${MAX_SUBAGENTS_PER_TURN}`);
+    next.subagentsPerTurn = n;
+  }
+  if (u.projectInstructions !== undefined) {
+    if (typeof u.projectInstructions !== "boolean") throw new Error("usage.projectInstructions must be a boolean");
+    next.projectInstructions = u.projectInstructions;
+  }
+  if (u.imageSize !== undefined) {
+    if (!(u.imageSize in IMAGE_EDGES)) throw new Error(`usage.imageSize must be one of ${Object.keys(IMAGE_EDGES).join(", ")}`);
+    next.imageSize = u.imageSize;
+  }
+  if (u.turnTokenLimit !== undefined) {
+    const n = limitOf(u.turnTokenLimit);
+    if (n === undefined) throw new Error(`usage.turnTokenLimit must be null or a whole number from ${MIN_TURN_TOKEN_LIMIT} to ${MAX_TURN_TOKEN_LIMIT}`);
+    next.turnTokenLimit = n;
+  }
+  return next;
 }
 
 /** A stored or requested dialog policy, or null when it is not one. */
@@ -101,9 +178,10 @@ export class SettingsStore {
         reviewTurns: raw.reviewTurns !== false,
         composerHeight: composerHeightOf(raw.composerHeight),
         dialogPolicy: dialogPolicyOf(raw.dialogPolicy) ?? DEFAULT_DIALOG_POLICY,
+        usage: usageOf(raw.usage),
       };
     } catch {
-      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY };
+      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE } };
     }
   }
 
@@ -181,6 +259,7 @@ export class SettingsStore {
       if (!policy) throw new Error(`dialogPolicy must be { kind: "wait" } or { kind: "agent" | "safe", minutes: 1 to ${MAX_DIALOG_MINUTES} }`);
       s.dialogPolicy = policy;
     }
+    if (u.usage !== undefined) s.usage = applyUsage(s.usage, u.usage);
     for (const [p, v] of Object.entries(u.keys ?? {})) {
       if (!KEY_PROVIDER_IDS.includes(p as KeyProviderId)) throw new Error(`no key provider ${p}`);
       if (typeof v !== "string") throw new Error(`the ${p} key must be a string`);
@@ -243,6 +322,20 @@ export class SettingsStore {
   /** Ask the user before a command runs or a file changes. On unless turned off. */
   askBeforeChanges(): boolean {
     return this.stored().askBeforeChanges;
+  }
+
+  /** How much a turn may spend, and on what. */
+  usage(): UsageSettings {
+    return this.stored().usage;
+  }
+
+  /**
+   * The model subagents run on: the one chosen in Usage while it is of the main
+   * model's vendor, so the same sign-in or key runs both; otherwise the main model.
+   */
+  subagentModel(): string {
+    const s = this.stored();
+    return s.usage.subagentModel?.provider === s.provider ? s.usage.subagentModel.model : s.model;
   }
 
   /** Review each turn's changes, for sessions that have not set their own. On unless turned off. */
