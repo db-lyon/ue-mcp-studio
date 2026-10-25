@@ -20,7 +20,7 @@ const RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [{ id: "ask", n
 
 export const DIALOG_MODES: { id: DialogMode; name: string; about: string }[] = [
   { id: "interactive", name: "Show them to me in Studio", about: "Each dialog is a card in the chat with its buttons." },
-  { id: "auto", name: "Let the agent answer", about: "An answer that discards work waits 10 seconds so you can override it." },
+  { id: "auto", name: "Let the agent answer", about: "Without showing you. An answer that discards work waits 10 seconds so you can override it." },
   { id: "defer", name: "Leave them in the editor", about: "Nothing is pressed; the turn waits until you answer in the editor." },
 ];
 
@@ -122,7 +122,7 @@ export function ApprovalsSection() {
 
 const POLICIES: ReadonlyArray<{ id: DialogPolicy["kind"]; name: string }> = [
   { id: "wait", name: "Keep waiting for me" },
-  { id: "agent", name: "Let the agent decide" },
+  { id: "agent", name: "Hand it to the agent" },
   { id: "safe", name: "Press the safe default, Cancel or Keep" },
 ];
 

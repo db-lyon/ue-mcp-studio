@@ -90,7 +90,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     await show({}, overview({ worker: { model: "Haiku 5.5", effort: "low", starts: "automatic", fromSettings: true } }));
     expect(screen.getByText("Haiku 5.5")).toBeTruthy();
     expect(screen.getByText("when the work splits into independent parts")).toBeTruthy();
-    expect(screen.getByText("Set in an earlier Studio and kept. Not editable here.")).toBeTruthy();
+    expect(screen.getByText("Set in an earlier Studio and kept. Read only.")).toBeTruthy();
   });
 
   it("follows the main agent when the worker has no model of its own", async () => {
@@ -107,7 +107,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.getByText(/No connected route reads these\./)).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^AGENTS\.md/ })));
     // Custom endpoints read AGENTS.md; nothing to connect until one is set up.
-    expect(screen.getByText(/No connected route reads these: models from custom endpoints do/)).toBeTruthy();
+    expect(screen.getByText(/Read by: custom endpoints. No route on this machine reads these./)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Connect one in Models & accounts" })).toBeNull();
   });
 

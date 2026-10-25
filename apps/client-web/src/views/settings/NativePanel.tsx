@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState } from "react";
-import { CONVENTIONS, CONVENTION_INFO, type Convention, type NativeFile, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
+import { CONVENTIONS, CONVENTION_INFO, EFFORT_NAMES, type Effort, type Convention, type NativeFile, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { Card, tokens, useMessage } from "./controls";
 
@@ -72,9 +72,9 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
             ))}
           </nav>
           <label className="tabs-narrow tab-select">
-            <span className="muted small">Whose files</span>
+            <span className="muted small">Vendor</span>
             <select value={view.convention} onChange={(e) => setTab(e.target.value as Convention)} aria-label="Whose files">
-              {ordered.map((v) => <option key={v.convention} value={v.convention}>{CONVENTION_INFO[v.convention].tool} ({count(v)}){v.routes.length ? ", in use" : ""}</option>)}
+              {ordered.map((v) => <option key={v.convention} value={v.convention}>{CONVENTION_INFO[v.convention].tool} ({count(v)}){v.routes.length ? ", read by a connected route" : ""}</option>)}
             </select>
           </label>
         </>
@@ -95,19 +95,21 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
   return (
     <>
       <p className="muted small">
-        {info.vendor[0].toUpperCase() + info.vendor.slice(1)} read the files {info.tool} reads: {info.reads} <a href={info.docs} target="_blank" rel="noreferrer">{info.tool} documentation</a>
+        {view.convention === "agents"
+          ? <>Custom endpoints read the vendor-neutral files: {info.reads} <a href={info.docs} target="_blank" rel="noreferrer">AGENTS.md documentation</a></>
+          : <>{info.vendor[0].toUpperCase() + info.vendor.slice(1)} read the files {info.tool} reads: {info.reads} <a href={info.docs} target="_blank" rel="noreferrer">{info.tool} documentation</a></>}
       </p>
       <p className="cfg-status">
         <span className={`dot ${inUse ? "ok" : ""}`} aria-hidden />
         {inUse
           ? <span>Read by: {view.routes.join(", ")}.{view.convention === main ? " The main agent runs here." : ""} {sdk ? "The Agent SDK loads these files itself, as Claude Code does." : `Studio reads them the way ${info.tool === "AGENTS.md" ? "agents that read AGENTS.md do" : `${info.tool} does`}.`}</span>
           : view.convention === "agents"
-            ? <span>No connected route reads these: models from custom endpoints do, and none is set up on this machine.</span>
+            ? <span>Read by: custom endpoints. No route on this machine reads these.</span>
             : <span>No connected route reads these. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></span>}
       </p>
       {view.notes.map((n) => <div key={n} className="banner warn small">{n}</div>)}
 
-      <Card label={view.instructions.length ? `Instruction files · ${tokens(view.instructionTokens)} tokens on every call` : "Instruction files"}>
+      <Card label={view.instructions.length ? `Instruction files · ${tokens(view.instructionTokens)} per call` : "Instruction files"}>
         {scoped > 0 && <p className="muted small">Up to {tokens(view.instructionTokens + scoped)} with the files that apply only to some paths or folders.</p>}
         {view.instructions.length === 0 && <p className="cfg-note">None found in any of those places. The usual one is a {INSTRUCTION_FILE[view.convention]} in the project folder.</p>}
         <ol className="ifiles">
@@ -131,7 +133,7 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
       </Card>
 
       <Card label="Subagents">
-        {view.subagents.length === 0 && <p className="cfg-note">{SUBAGENT_DIR[view.convention] ? `None found. ${info.tool} reads them from ${SUBAGENT_DIR[view.convention]}.` : "These models have no subagent files; Studio's own worker is their helper."}</p>}
+        {view.subagents.length === 0 && <p className="cfg-note">{SUBAGENT_DIR[view.convention] ? `None found in ${SUBAGENT_DIR[view.convention]!.replace(/ and /, " or ")}.` : "These models have no subagent files; Studio's worker is their helper."}</p>}
         <ul className="ifiles plain">
           {view.subagents.map((a) => (
             <li key={a.path}>
@@ -141,7 +143,7 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
                   <dt>Model</dt><dd>{a.runs.model}{a.model ? <> (file says <code>{a.model}</code>)</> : null}</dd>
                   <dt>Tools</dt><dd>{a.tools}</dd>
                   <dt>Turns</dt><dd>{a.maxTurns ? `at most ${a.maxTurns}` : "no limit set"}</dd>
-                  <dt>Effort</dt><dd>{a.effort ?? "the main agent's"}</dd>
+                  <dt>Effort</dt><dd>{a.effort ? EFFORT_NAMES[a.effort as Effort] ?? a.effort : "the main agent's"}</dd>
                   <dt>Size</dt><dd>{tokens(a.tokens)} tokens when started</dd>
                 </dl>
                 {a.runs.note && <div className="cfg-note warn-text">{a.runs.note}</div>}
@@ -155,7 +157,7 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
       </Card>
 
       <Card label="Skills">
-        {view.skills.length === 0 && <p className="cfg-note">None found. {info.tool} reads them from {SKILL_DIR[view.convention]}.</p>}
+        {view.skills.length === 0 && <p className="cfg-note">None found in {SKILL_DIR[view.convention].replace(/ and /, " or ")}.</p>}
         <ul className="ifiles plain">
           {view.skills.map((s) => (
             <li key={s.path}>

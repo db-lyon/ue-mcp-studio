@@ -22,7 +22,7 @@ export const APPROVAL_ROWS: ReadonlyArray<{ kind: ApprovalKind; label: string; h
   { kind: "shell", label: "Shell commands", help: "Each command waits in the chat for Allow or Deny." },
   { kind: "files", label: "File changes", help: "Writes and edits to files on this machine." },
   { kind: "editorRestart", label: "Restart or rebuild the editor", help: "Unsaved work in the editor is lost on a restart." },
-  { kind: "destructive", label: "ue-mcp actions that delete or overwrite", help: "Deleting assets or actors, clearing, reverting, overwriting. Read from ue-mcp's own action metadata." },
+  { kind: "destructive", label: "ue-mcp actions that delete or overwrite", help: "Deleting assets or actors, clearing, reverting, overwriting. ue-mcp says which actions these are." },
 ];
 
 /**

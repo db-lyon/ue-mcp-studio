@@ -61,18 +61,18 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
 
       {native && (
         <Card label="Studio's worker">
-          <p className="muted small">The helper Studio adds for work that splits into independent parts, beside the project's own subagents. Per-turn limits are in <button className="link" onClick={() => onSection("usage")}>Usage</button>.</p>
+          <p className="muted small">Studio's worker and the project's subagents are the agent's helpers. The worker is the one Studio adds for work that splits into independent parts. How many helpers a turn may start is in <button className="link" onClick={() => onSection("usage")}>Usage</button>.</p>
           <dl className="grid">
             <dt>Model</dt><dd>{native.worker.model ?? SAME}</dd>
             <dt>Effort</dt><dd>{native.worker.effort ? EFFORT_NAMES[native.worker.effort as Effort] ?? native.worker.effort : SAME}</dd>
             <dt>Starts</dt><dd>{STARTS[native.worker.starts]}</dd>
           </dl>
-          {native.worker.fromSettings && <p className="cfg-note">Set in an earlier Studio and kept. Not editable here.</p>}
+          {native.worker.fromSettings && <p className="cfg-note">Set in an earlier Studio and kept. Read only.</p>}
         </Card>
       )}
 
       <div className="cfg-block-head">
-        <Row inline title="The project's agent files" help="Instructions, subagents and skills from each vendor's own files in the project and your home folder, read as that vendor's tools read them. Off: no route reads any of them.">
+        <Row inline title="Read the project's own files" help="Instructions, subagents and skills from each vendor's own files in the project and your home folder, read as that vendor's tools read them. Off: no route reads any of them.">
           <Switch label="Read the project's agent files" on={settings.usage.projectInstructions} onChange={(v) => void saveUsage({ projectInstructions: v })} />
         </Row>
       </div>

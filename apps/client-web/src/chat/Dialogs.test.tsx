@@ -184,7 +184,7 @@ describe("the dialog policy setting", () => {
   it("saves each choice, with the minutes", () => {
     const onSave = vi.fn();
     const { rerender } = render(<DialogPolicyField policy={{ kind: "agent", minutes: 2 }} onSave={onSave} />);
-    expect((screen.getByRole("radio", { name: "Let the agent decide" }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: "Hand it to the agent" }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole("radio", { name: "Keep waiting for me" }));
     expect(onSave).toHaveBeenCalledWith({ kind: "wait" });
     fireEvent.click(screen.getByRole("radio", { name: /Press the safe default/ }));
