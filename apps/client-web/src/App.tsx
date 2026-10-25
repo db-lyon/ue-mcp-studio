@@ -10,7 +10,8 @@ import { useUpdateCount } from "./views/Updates";
 import { UpdateRunner } from "./views/UpdateOverlay";
 import { FeedbackDialog } from "./views/Feedback";
 import { ChatView } from "./views/Chat";
-import { SettingsHub, type SettingsSection } from "./views/SettingsHub";
+import { SettingsHub } from "./views/SettingsHub";
+import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { VcsChip } from "./chat/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
@@ -24,16 +25,13 @@ import { replaceStaleWindow } from "./window-version";
 
 const TABS = ["Chat", "Flows", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
-const SECTIONS: SettingsSection[] = ["general", "agent", "account", "project", "diagnostics"];
 
 export function App() {
   const daemon = useDaemon();
   // Where the panel was, from the URL's hash: a reload, or ue-mcp back on a new port, lands there.
   const [tab, setTab] = useState<Tab>(() => readLocation().tab);
-  const [section, setSection] = useState<SettingsSection>(() => {
-    const s = readLocation().section;
-    return s && (SECTIONS as string[]).includes(s) ? (s as SettingsSection) : "general";
-  });
+  // null: the section list, which only a narrow panel shows on its own.
+  const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
   useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
   // The editor's quick ask started a session: show it, from any tab.
   useSessionFocus(daemon.events, (session) => {
@@ -46,6 +44,10 @@ export function App() {
   useEffect(() => {
     if (!narrow) setDrawer(false);
   }, [narrow]);
+  // A wide panel always has a section open, Agents first; a narrow one starts on the section list.
+  useEffect(() => {
+    if (tab === "Settings" && section === null && !narrow) setSection("agents");
+  }, [tab, section, narrow]);
   /** A request for the chat to show a session, or its list (null); `n` tells requests apart. */
   const [chatNav, setChatNav] = useState<{ session: string | null; n: number }>({ session: null, n: 0 });
   const openChat = (session: string | null) => {
@@ -140,7 +142,7 @@ export function App() {
           <main className={`view-${tab.toLowerCase()}`}>
             {tab === "Flows" && <FlowsView daemon={daemon} />}
             {tab === "Plugins" && <PluginsView daemon={daemon} />}
-            {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} />}
+            {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
           </main>
         )}
       </div>

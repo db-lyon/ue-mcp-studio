@@ -11,12 +11,6 @@ interface SetupPlan {
   skills: boolean;
 }
 
-const CONTEXT: { id: SetupPlan["contextStrategy"]; name: string; about: string }[] = [
-  { id: "micro", name: "Micro", about: "One gateway tool fronts everything. Smallest context." },
-  { id: "lean", name: "Lean", about: "Category tools and action names visible, signatures on demand." },
-  { id: "full", name: "Full", about: "Every action's signature listed up front. Largest context, no discovery calls." },
-];
-
 const engineAtLeast = (v: string | null, major: number, minor: number): boolean => {
   const m = /^(\d+)\.(\d+)/.exec(v ?? "");
   return !!m && (+m[1] > major || (+m[1] === major && +m[2] >= minor));
@@ -33,7 +27,6 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
   const [failed, setFailed] = useState(false);
   const [clients, setClients] = useState<Set<string>>(new Set());
   const [nativeTools, setNativeTools] = useState(true);
-  const [context, setContext] = useState<SetupPlan["contextStrategy"]>("micro");
   const [feedback, setFeedback] = useState(false);
   const [skills, setSkills] = useState(false);
   const [status, setStatus] = useState<"idle" | "started" | "failed">("idle");
@@ -52,7 +45,6 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
         // A global client's config applies to every project, so it is never chosen for the user.
         setClients(new Set(p.clients.filter((c) => c.selected && c.projectScoped).map((c) => c.id)));
         setNativeTools(p.nativeTools.enabled);
-        setContext(p.contextStrategy);
         setFeedback(p.feedback);
         setSkills(p.skills);
       } else if (Date.now() - started > 90_000) {
@@ -70,15 +62,15 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
   if (!inEditor()) {
     return (
       <section className="card">
-        <h2>Project setup</h2>
-        <p className="muted">Open Studio in the editor to change which MCP clients and tools this project is set up with.</p>
+        <h2>Clients and tools setup</h2>
+        <p className="muted">Open Studio in the editor to change which MCP clients, native tools and skills this project is set up with. The context strategy above works from anywhere.</p>
       </section>
     );
   }
   if (failed) {
     return (
       <section className="card">
-        <h2>Project setup</h2>
+        <h2>Clients and tools setup</h2>
         <p className="muted">The current setup could not be read. The editor's Output Log has the reason.</p>
       </section>
     );
@@ -86,7 +78,7 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
   if (!plan) {
     return (
       <section className="card">
-        <h2>Project setup</h2>
+        <h2>Clients and tools setup</h2>
         <p className="muted">Reading this project's setup</p>
       </section>
     );
@@ -101,7 +93,8 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
     return next;
   });
   const apply = () => {
-    const options = { clients: [...clients], nativeTools, context, feedback, skills: claudeCode && skills };
+    // The context strategy is set on its own card above, in ue-mcp.yml, which init reads back: pass it through unchanged.
+    const options = { clients: [...clients], nativeTools, context: plan.contextStrategy, feedback, skills: claudeCode && skills };
     native().runsetup?.(JSON.stringify(options)).then((ok) => {
       setStatus(ok ? "started" : "failed");
       if (ok) setTimeout(onApplied, 20_000);
@@ -110,7 +103,7 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
 
   return (
     <section className="card">
-      <h2>Project setup</h2>
+      <h2>Clients and tools setup</h2>
       <p className="muted small">The choices <span className="mono">ue-mcp init</span> asks for on the command line. Applying runs it again for this project.</p>
 
       <h3 className="subhead">Also connect these MCP clients</h3>
@@ -132,14 +125,6 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
           </label>
         </>
       )}
-
-      <h3 className="subhead">Context strategy for other clients</h3>
-      {CONTEXT.map((t) => (
-        <label key={t.id} className="check">
-          <input type="radio" checked={context === t.id} onChange={() => setContext(t.id)} />
-          {t.name} <span className="dim small">{t.about}</span>
-        </label>
-      ))}
 
       {claudeCode && <h3 className="subhead">For Claude Code</h3>}
       {claudeCode && (
