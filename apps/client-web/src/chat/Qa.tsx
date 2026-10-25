@@ -14,7 +14,7 @@
  * Skip while one waits. A bar opens the full card on its step; the title or
  * the line opens it at the top.
  */
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import {
   qaAgentMayJudge,
@@ -232,6 +232,51 @@ function NowLine({ run, pill, actions }: { run: QaRun; pill: string | null; acti
   );
 }
 
+/**
+ * An open card's steps on the strip scroll inside it: how many steps are above
+ * and below what shows, measured as it scrolls. `overflow` is whether they
+ * scroll at all, so the rows that say so keep their place while they do.
+ */
+function useScrollCues(body: RefObject<HTMLDivElement>, on: boolean): { overflow: boolean; above: number; below: number; by: (dir: 1 | -1) => void } {
+  const [hidden, setHidden] = useState({ overflow: false, above: 0, below: 0 });
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (!on || !el) return;
+    const measure = () => {
+      const top = el.scrollTop;
+      const bottom = top + el.clientHeight;
+      let above = 0;
+      let below = 0;
+      el.querySelectorAll<HTMLElement>(".qa-step").forEach((li) => {
+        if (li.offsetTop < top - 2) above++;
+        else if (li.offsetTop + li.offsetHeight > bottom + 2) below++;
+      });
+      const overflow = el.scrollHeight > el.clientHeight + 2;
+      setHidden((cur) => (cur.overflow === overflow && cur.above === above && cur.below === below ? cur : { overflow, above, below }));
+    };
+    measure();
+    el.addEventListener("scroll", measure, { passive: true });
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
+    ro?.observe(el);
+    return () => {
+      el.removeEventListener("scroll", measure);
+      ro?.disconnect();
+    };
+  });
+  const by = (dir: 1 | -1) => body.current?.scrollBy?.({ top: dir * Math.max(40, body.current.clientHeight * 0.8), behavior: "smooth" });
+  return { ...hidden, by };
+}
+
+/** One of the rows over and under scrolled steps: how many are out of view that way, which scrolls to them. */
+function ScrollCue({ dir, count, onClick }: { dir: "above" | "below"; count: number; onClick: () => void }) {
+  const steps = `${count} step${count === 1 ? "" : "s"}`;
+  return (
+    <button type="button" className={`qa-scroll-cue ${dir}`} disabled={count === 0} aria-hidden={count === 0} tabIndex={count === 0 ? -1 : undefined} onClick={onClick}>
+      {count > 0 ? `${dir === "above" ? "▴" : "▾"} ${steps} ${dir}` : " "}
+    </button>
+  );
+}
+
 const VERDICTS: Array<{ verdict: QaVerdict; label: string }> = [
   { verdict: "pass", label: "Pass" },
   { verdict: "fail", label: "Fail" },
@@ -297,6 +342,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
   const [target, setTarget] = useState<number | null>(null);
   const body = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
+  const cues = useScrollCues(body, dense && open);
   /** Open the card on a step, or at its top (-1), and bring it into view. */
   const openAt = (index: number | null) => {
     setOpen(true);
@@ -577,7 +623,9 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
         </div>
       )}
       {open && meta && <div className="qa-meta small dim">{meta}</div>}
-      {open && <div className="qa-body" id={`qa-body-${run.runId}`} ref={body}>
+      {open && <div className="qa-body-wrap">
+      {cues.overflow && <ScrollCue dir="above" count={cues.above} onClick={() => cues.by(-1)} />}
+      <div className="qa-body" id={`qa-body-${run.runId}`} ref={body}>
       {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
       {panel === "run" && runnable && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
       {panel === "delete" && <div className="small dim">Deleting removes the script asset. <button className="ghost small-button" onClick={() => setPanel(null)}>Keep it</button></div>}
@@ -712,6 +760,8 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           )}
         </div>
       )}
+      </div>
+      {cues.overflow && <ScrollCue dir="below" count={cues.below} onClick={() => cues.by(1)} />}
       </div>}
     </div>
   );

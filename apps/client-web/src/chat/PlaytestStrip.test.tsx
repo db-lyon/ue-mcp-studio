@@ -192,6 +192,36 @@ describe("the strip of live playtests", () => {
     expect(within(box).getByRole("button", { name: "Stop playtest Jump" })).toBeTruthy();
   });
 
+  it("says how many steps of an open card on the strip are scrolled out of view, above and below", () => {
+    // jsdom lays nothing out: the card's steps are 60 px each in a 100 px window.
+    const geometry = (el: HTMLElement, key: string): number => {
+      if (el.classList.contains("qa-body")) return ({ clientHeight: 100, scrollHeight: 300 } as Record<string, number>)[key] ?? 0;
+      if (el.classList.contains("qa-step")) return key === "offsetTop" ? Number(el.dataset.index) * 60 : key === "offsetHeight" ? 60 : 0;
+      return 0;
+    };
+    const props = ["clientHeight", "scrollHeight", "offsetTop", "offsetHeight"] as const;
+    const saved = props.map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)] as const);
+    for (const k of props) Object.defineProperty(HTMLElement.prototype, k, { configurable: true, get(this: HTMLElement) { return geometry(this, k); } });
+    try {
+      render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "passed", "passed", "passed", "awaiting_verdict"]))} events={[]} />);
+      fireEvent.click(within(stripEl()!).getByRole("button", { name: /PT|Door/, expanded: false }));
+      expect(within(stripEl()!).getByRole("button", { name: /4 steps below/ })).toBeTruthy();
+      expect(within(stripEl()!).queryByRole("button", { name: /above/ })).toBeNull();
+      const body = stripEl()!.querySelector<HTMLElement>(".qa-body")!;
+      body.scrollTop = 130;
+      act(() => {
+        body.dispatchEvent(new Event("scroll"));
+      });
+      expect(within(stripEl()!).getByRole("button", { name: /3 steps above/ })).toBeTruthy();
+      expect(within(stripEl()!).getByRole("button", { name: /2 steps below/ })).toBeTruthy();
+    } finally {
+      for (const [k, d] of saved) {
+        if (d) Object.defineProperty(HTMLElement.prototype, k, d);
+        else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
+      }
+    }
+  });
+
   it("sums up in words", () => {
     expect(stripSummary([run("a", "A", "running", ["running"]), run("b", "B", "awaiting_verdict", ["awaiting_verdict"])])).toBe("2 playtests: 1 needs you, 1 running");
     expect(stripSummary([run("a", "A", "awaiting_verdict", ["awaiting_verdict"]), run("b", "B", "awaiting_verdict", ["awaiting_verdict"])])).toBe("2 playtests: 2 need you");

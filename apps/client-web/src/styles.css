@@ -1348,12 +1348,6 @@ button.strip-more { white-space: normal; text-align: left; }
 /* Third review pass. Running reads apart from waiting by more than a warm hue; skipped stays visible. */
 .qa-path-step.run .qa-path-hit::before { background: var(--text); opacity: 0.85; }
 .qa-path-step.skipped .qa-path-hit::before { box-shadow: inset 0 0 0 1.5px var(--muted); }
-/* Steps scrolled inside an open strip card show that more is below. */
-.playtest-strip .qa-card.open .qa-body {
-  background:
-    linear-gradient(var(--panel), var(--panel)) 0 100% / 100% 16px no-repeat local,
-    linear-gradient(transparent, rgba(255, 255, 255, 0.14)) 0 100% / 100% 16px no-repeat scroll;
-}
 @media (max-width: 760px) {
   .playtest-strip { max-height: 48vh; }
   .playtest-strip .qa-card.open .qa-body { max-height: 26vh; }
@@ -1407,3 +1401,9 @@ button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 
   .qa-card.dense .qa-answer-text { white-space: normal; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.4; }
   .qa-card.dense .qa-answer.needs .qa-answer-text { min-height: 2.8em; }
 }
+/* An open card's steps on the strip scroll inside it: a row over and under them says how many are out of view. */
+.qa-body-wrap { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.playtest-strip .qa-card.open .qa-body { position: relative; }
+button.qa-scroll-cue { align-self: stretch; min-height: 22px; padding: 0 8px; border: 1px dashed var(--line-strong); border-radius: var(--radius); background: var(--panel-2); color: var(--muted); font: 500 11px/1 var(--sans); letter-spacing: 0; text-align: center; }
+button.qa-scroll-cue:hover:not(:disabled) { border-color: var(--accent); color: var(--text); background: var(--panel-2); }
+button.qa-scroll-cue:disabled { visibility: hidden; }
