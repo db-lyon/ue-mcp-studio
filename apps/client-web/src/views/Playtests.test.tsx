@@ -176,6 +176,15 @@ describe("the Playtests page", () => {
     expect(legend.textContent).toContain("Judged by a person");
   });
 
+  it("with no playtests at all, says how to make one and goes to Chat", () => {
+    const onChat = vi.fn();
+    render(<PlaytestsView daemon={daemon} index={{ index: { playtests: [], listed: true }, error: null, reload: vi.fn() }} onOpenSession={vi.fn()} onChat={onChat} />);
+    expect(screen.getByText("No playtests yet")).toBeTruthy();
+    expect(screen.getByText("/playtest").tagName).toBe("CODE");
+    fireEvent.click(screen.getByRole("button", { name: "Go to Chat" }));
+    expect(onChat).toHaveBeenCalled();
+  });
+
   it("offers no Start Playtest on a script that is gone", () => {
     page({ playtests: [{ ...ENTRIES[2], deleted: true }], listed: true });
     expect(within(row("Walk")).queryByRole("button", { name: "Run again" })).toBeNull();

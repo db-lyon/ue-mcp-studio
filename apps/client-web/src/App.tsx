@@ -151,7 +151,7 @@ export function App() {
         )}
         {tab !== "Chat" && (
           <main className={`view-${tab.toLowerCase()}`}>
-            {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} />}
+            {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
             {tab === "Flows" && <FlowsView daemon={daemon} />}
             {tab === "Plugins" && <PluginsView daemon={daemon} />}
             {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}

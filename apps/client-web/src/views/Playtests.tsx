@@ -81,12 +81,14 @@ export function usePlaytestIndex(daemon: Pick<DaemonState, "events" | "streaming
   return { index, error, reload };
 }
 
-export function PlaytestsView({ daemon, index: source, onOpenSession }: {
+export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: {
   daemon: DaemonState;
   /** The index the app keeps, which also counts what needs the user on the tab. */
   index: ReturnType<typeof usePlaytestIndex>;
   /** Go to a session and open the playtest's card there. */
   onOpenSession: (sessionId: string, runId: string) => void;
+  /** Go to the Chat tab, where a playtest is asked for. */
+  onChat?: () => void;
 }) {
   const { index, error, reload } = source;
   const all = index?.playtests ?? [];
@@ -111,7 +113,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
         <h1 className="playtests-title">Playtests</h1>
         <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} known while the editor is away`) : ""}</span>
         <span className="spacer" />
-        <button className="ghost small-button" onClick={() => reload(true)} title="List the project's scripts again">Refresh</button>
+        <button className="small-button" onClick={() => reload(true)} title="List the project's scripts again">Refresh</button>
       </div>
       <div className="playtests-filters" role="group" aria-label="Show">
         {FILTERS.map((f) => (
@@ -131,7 +133,13 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
         <div className="banner warn small">The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.</div>
       )}
       {!index && !error && <p className="dim small">Loading playtests</p>}
-      {index && rows.length === 0 && <p className="muted playtests-empty">{FILTERS.find((f) => f.id === filter)!.empty}</p>}
+      {index && rows.length === 0 && (all.length === 0 ? (
+        <div className="playtests-empty card">
+          <strong>No playtests yet</strong>
+          <p className="muted">Ask the agent for one in a session, or type <code>/playtest</code> in the message box.</p>
+          {onChat && <button className="primary small-button" onClick={onChat}>Go to Chat</button>}
+        </div>
+      ) : <p className="muted playtests-empty">{FILTERS.find((f) => f.id === filter)!.empty}</p>)}
       <QaContext.Provider value={live}>
         <div className="playtests-list">
           {rows.map((e) => <PlaytestRow key={e.script} entry={e} offline={index?.listed === false} onOpenSession={onOpenSession} onChanged={() => reload()} />)}

@@ -1438,3 +1438,8 @@ button.qa-path-hit:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 
 @media (max-width: 760px) { .qa-meta-session-name { max-width: 16ch; } }
 /* A verdict that cannot be given now keeps no colour. */
 .qa-card button.verdict-pass:disabled, .qa-card button.verdict-fail:disabled { border-color: var(--line); }
+.filter-count { font-family: var(--sans); font-variant-numeric: tabular-nums; font-weight: 600; }
+.qa-compact-open { line-height: inherit; vertical-align: baseline; }
+.playtests-empty.card { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 18px 20px; }
+.playtests-empty.card p { margin: 0; }
+.playtests-empty code { font-family: var(--mono); color: var(--text); }
