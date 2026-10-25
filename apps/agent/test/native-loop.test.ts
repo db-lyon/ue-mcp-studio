@@ -75,7 +75,7 @@ function nativeFor(convention: "codex" | "gemini" | "claude", providers: Record<
     const helpers: NativeHelper[] = l.subagents.map((a) => {
       const wants = modelOf(convention, a.model);
       const p = wants ? providers[`${wants.vendor}:${wants.model}`] : undefined;
-      return { name: a.name, description: a.description, prompt: a.prompt, allowed: toolsFor(a).allowed, maxTurns: a.maxTurns, effort: a.effort, ...(p && wants ? { run: { provider: () => p, model: wants.model } } : {}) };
+      return { name: a.name, description: a.description, prompt: a.prompt, allowed: toolsFor(a).allowed, maxTurns: a.maxTurns, effort: a.effort, ...(p && wants ? { run: { provider: () => p, model: wants.model, vendor: wants.vendor, route: "key" } } : {}) };
     });
     return { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills, sdkLoads: false };
   };

@@ -5,6 +5,13 @@
  */
 import type { DaemonEvent, DaemonHealth, StatusReport } from "ue-mcp/daemon";
 import type {
+  CacheExplainer,
+  PlanMeter,
+  Price,
+  PriceTable,
+  UsageGroup,
+  UsageSummary,
+  UsageWarning,
   ApprovalDecision,
   AssetOpenResponse,
   AssetRef,
@@ -50,6 +57,20 @@ import type {
   NativePreview,
   Convention,
 } from "@ue-mcp-studio/shared";
+
+/** GET /usage/summary: a period, a grouping and optional filters. */
+export interface UsageQuery {
+  from: string;
+  to: string;
+  groupBy: UsageGroup;
+  agent?: string;
+  vendor?: string;
+  route?: string;
+  source?: string;
+}
+
+const query = (q: object): string =>
+  Object.entries(q).filter(([, v]) => v !== undefined && v !== "").map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`).join("&");
 
 /** GET and PUT /budgets */
 export interface BudgetsBody {
@@ -241,6 +262,12 @@ export const api = {
   openFile: (path: string) => call<void>("POST", "/v1/ext/studio/files/open", { path }),
   budgets: () => call<BudgetsBody>("GET", "/v1/ext/studio/budgets"),
   saveBudgets: (u: { team?: Partial<Budgets["team"]>; agents?: Record<string, Partial<Budgets["agents"][string]> | null>; warnAt?: number; helpersPerTurn?: number }) => call<BudgetsBody>("PUT", "/v1/ext/studio/budgets", u),
+  usageSummary: (q: UsageQuery) => call<UsageSummary>("GET", `/v1/ext/studio/usage/summary?${query(q)}`),
+  usagePlans: (q: { from: string; to: string }) => call<{ plans: PlanMeter[] }>("GET", `/v1/ext/studio/usage/plans?${query(q)}`),
+  usageWarnings: () => call<{ warnings: UsageWarning[] }>("GET", "/v1/ext/studio/usage/warnings"),
+  usageCache: () => call<{ explainers: CacheExplainer[] }>("GET", "/v1/ext/studio/usage/cache"),
+  prices: () => call<PriceTable>("GET", "/v1/ext/studio/prices"),
+  savePrices: (prices: Array<Pick<Price, "vendor" | "model" | "perMTok">>) => call<PriceTable>("PUT", "/v1/ext/studio/prices", { prices }),
   contextStrategy: () => call<ClientContextStrategy>("GET", "/v1/ext/studio/context-strategy"),
   saveContextStrategy: (strategy: ContextStrategy) => call<ClientContextStrategy>("PUT", "/v1/ext/studio/context-strategy", { strategy }),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),

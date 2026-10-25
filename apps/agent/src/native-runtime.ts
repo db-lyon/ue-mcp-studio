@@ -152,7 +152,7 @@ export interface NativeHelper {
   /** The level as written, sent when the model takes it. */
   effort: string | null;
   /** The provider and model it runs on; absent: the main agent's. */
-  run?: { provider: () => import("./providers.js").ModelProvider; model: string };
+  run?: { provider: () => import("./providers.js").ModelProvider; model: string; vendor: string; route: string };
   /** Why it runs on another model than its file names, for the view. */
   note?: string;
 }

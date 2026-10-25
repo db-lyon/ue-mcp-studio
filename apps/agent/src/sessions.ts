@@ -29,6 +29,8 @@ export interface PendingTool {
 
 export interface StoredSession {
   id: string;
+  /** Where the session started, for the usage ledger: the editor's quick ask; absent for the chat. */
+  source?: "quick";
   title: string;
   createdAt: string;
   updatedAt: string;

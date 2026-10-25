@@ -15,7 +15,15 @@ const body = () => ({
     },
   },
 });
-const m = vi.hoisted(() => ({ budgets: vi.fn(), saveBudgets: vi.fn() }));
+const m = vi.hoisted(() => ({
+  budgets: vi.fn(),
+  saveBudgets: vi.fn(),
+  usageSummary: vi.fn(async () => ({ from: "", to: "", groupBy: "agent", total: { key: "total", label: "All", tokens: { input: null, cacheRead: null, cacheWrite: null, output: null }, budgetTokens: 0, cachedShare: null, calls: 0, runs: 0, cost: null, costPartial: false }, rows: [], days: [], previous: null, ledgerStarts: null, sessions: [] })),
+  usagePlans: vi.fn(async () => ({ plans: [] })),
+  usageWarnings: vi.fn(async () => ({ warnings: [] })),
+  usageCache: vi.fn(async () => ({ explainers: [] })),
+  prices: vi.fn(async () => ({ prices: [], shippedAsOf: "2026-10-06" })),
+}));
 vi.mock("../../api", () => ({ api: m, ApiError: Error }));
 import { UsageSection } from "./UsageSection";
 
@@ -57,6 +65,25 @@ describe("Usage > Budgets", () => {
     fireEvent.change(runner, { target: { value: "" } });
     await act(async () => void fireEvent.blur(runner));
     expect(m.saveBudgets).not.toHaveBeenCalled();
+  });
+
+  it("sets per-day tokens per agent with ask or stop, and the team's day, month and warning share", async () => {
+    await show();
+    const day = screen.getByLabelText("Main agent tokens per day");
+    fireEvent.change(day, { target: { value: "2,000,000" } });
+    await act(async () => void fireEvent.blur(day));
+    expect(m.saveBudgets).toHaveBeenCalledWith({ agents: { main: { perDayTokens: 2000000 } } });
+    const month = screen.getByLabelText("All agents tokens per month");
+    fireEvent.change(month, { target: { value: "50000000" } });
+    await act(async () => void fireEvent.blur(month));
+    expect(m.saveBudgets).toHaveBeenCalledWith({ team: { perMonthTokens: 50000000 } });
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Stop" })));
+    expect(m.saveBudgets).toHaveBeenCalledWith({ team: { onLimit: "stop" } });
+    const warn = screen.getByLabelText("Warn at, percent");
+    fireEvent.change(warn, { target: { value: "90" } });
+    await act(async () => void fireEvent.blur(warn));
+    expect(m.saveBudgets).toHaveBeenCalledWith({ warnAt: 0.9 });
+    expect(screen.getByText(/A helper's tokens count toward the turn that started it/)).toBeTruthy();
   });
 
   it("keeps the helpers-per-turn cap as a spend limit", async () => {
