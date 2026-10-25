@@ -68,8 +68,17 @@ import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js"
 import type { AssetRef } from "@ue-mcp-studio/shared";
 import { BudgetStore } from "./budgets.js";
 import { DaemonActionEffects } from "./approval-kind.js";
-import { BUDGET_ROWS, registerComposerRoutes } from "./composer-routes.js";
+import { BUDGET_ROWS, budgetRows, registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
+import { registerUsageRoutes } from "./usage-routes.js";
+import { Ledger } from "./ledger.js";
+import { PriceStore } from "./prices.js";
+import { PlanStore, chatgptWindows, claudeWindow } from "./plans.js";
+import { kindsOf } from "./usage.js";
+
+/** Agents by the ids the ledger keeps. */
+const AGENT_NAMES: Record<string, string> = { main: "Main agent", worker: "Studio's worker", "playtest-runner": "Playtest runner", flow: "Flow steps" };
+const ROUTE_NAMES: Record<string, string> = { claude: "Claude sign-in", chatgpt: "ChatGPT sign-in", studio: "Studio plan" };
 import { fullModelName, modelName } from "./models.js";
 import { userHome } from "./instructions.js";
 import { loadout } from "./native.js";
@@ -85,6 +94,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const playtests = new PlaytestStore(api.dataDir);
   const attachments = new AttachmentStore(api.dataDir);
   // Every budget, per machine; the old turn token limit and playtest budget move into it on first read.
+  // One record per model call, the price table, and each sign-in's limit windows, for Usage.
+  const ledger = new Ledger(api.dataDir);
+  const prices = new PriceStore(api.dataDir);
+  const plans = new PlanStore(api.dataDir);
+  const onChatgptHeaders = (h: Headers) => plans.report("chatgpt", chatgptWindows(h));
   const budgets = new BudgetStore(api.dataDir, {
     turnTokenLimit: () => settings.usage().turnTokenLimit,
     setTurnTokenLimit: (n) => settings.update({ usage: { turnTokenLimit: n } }),
@@ -218,7 +232,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       // Studio's loop runs a model over the API; the Claude sign-in runs whole conversations, so it needs a key here.
       const viaKey = r === "claude" && settings.key(wants.vendor as KeyProviderId) ? "key" : r;
       if (!viaKey || viaKey === "claude") return { ...base, note: `Its file names ${a.model}, which nothing on this machine runs over the API; it runs on the main agent's model.` };
-      return { ...base, run: { model: wants.model, provider: () => providerFor(settings, viaKey, { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }, wants.vendor as KeyProviderId) } };
+      return { ...base, run: { model: wants.model, vendor: wants.vendor, route: viaKey, provider: () => providerFor(settings, viaKey, { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken(), onChatgptHeaders }, wants.vendor as KeyProviderId) } };
     });
     const run: NativeRun = { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills, sdkLoads: route() === "claude" };
     nativeCache = { at: Date.now(), key, run };
@@ -231,10 +245,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dialogs,
     qa,
     store,
-    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
+    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken(), onChatgptHeaders }),
     model: () => settings.model(),
     effort: () => settings.effort(),
     usage: () => settings.usage(),
+    ledger,
+    budgets: () => budgets.get(),
+    callRoute: () => ({ vendor: settings.provider(), route: route() ?? "unknown" }),
+    onPlanWindow: (r, i) => plans.report(r, [claudeWindow(i)]),
     subagentModel: () => settings.subagentModel(),
     subscription: () => route() === "claude",
     // A key names its vendor, since model names no longer do.
@@ -254,7 +272,15 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     model: () => settings.model(),
     effort: () => settings.effort(),
     subscription: () => route() === "claude",
-    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken() }),
+    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken(), onChatgptHeaders }),
+    record: (model, usage, durationMs) => {
+      if (!usage) return;
+      try {
+        ledger.append({ sessionId: null, turnId: null, agentId: "flow", parentAgentId: null, source: "flow", vendor: settings.provider(), model, route: route() ?? "unknown", tokens: kindsOf(usage), durationMs });
+      } catch (e) {
+        api.log.warn("could not write the usage ledger", e);
+      }
+    },
   });
   // A playtest's card hands it to a subagent the runner starts beside the session's turns.
   qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId), tokens: (callId) => runner.tokensOf(callId) });
@@ -317,6 +343,29 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [] };
   };
   registerAgentSettings(api, () => updates.request("restart", {}), playtests, budgets);
+  registerUsageRoutes(api, {
+    ledger,
+    prices,
+    plans,
+    budgets: () => budgets.get(),
+    agentName: (id) => AGENT_NAMES[id] ?? id,
+    modelName: (_vendor, model) => fullModelName(model),
+    vendorName: (v) => PROVIDERS[v as KeyProviderId]?.name ?? v,
+    routeName: (r) => ROUTE_NAMES[r] ?? (r === "key" ? "API key" : r.startsWith("endpoint:") ? r.slice(9) : r),
+    sessionTitle: (id) => store.get(id)?.title ?? null,
+    signedIn: () => {
+      const done = signedIn();
+      return [
+        ...(done.claude ? [{ route: "claude" as const, name: "Claude sign-in" }] : []),
+        ...(done.chatgpt ? [{ route: "chatgpt" as const, name: "ChatGPT sign-in" }] : []),
+        ...(done.studio && STUDIO_PLAN_AVAILABLE ? [{ route: "studio" as const, name: "Studio plan" }] : []),
+      ];
+    },
+    connectedVendors: () => {
+      const done = signedIn();
+      return KEY_PROVIDER_IDS.filter((v) => settings.key(v) || (v === "anthropic" && (done.claude || (done.studio && STUDIO_PLAN_AVAILABLE))) || (v === "openai" && done.chatgpt));
+    },
+  });
   registerNativeRoutes(api, {
     enabled: () => settings.usage().projectInstructions,
     main: () => ({ vendor: settings.provider(), model: settings.model(), route: route() }),
@@ -354,7 +403,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     settings,
     budgets,
     restartUeMcp: () => updates.request("restart", {}),
-    agents: () => BUDGET_ROWS,
+    // The project's own subagents get a per-day row beside Studio's, by the name their files give them.
+    agents: () => budgetRows((nativeRun()?.helpers ?? []).map((h) => h.name)),
   });
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));
@@ -735,7 +785,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   registerQuickRoute(api, {
     connected: () => route() !== null,
-    create: (title) => store.create(title),
+    create: (title) => {
+      // The ledger counts the quick ask apart from the chat.
+      const s = store.create(title);
+      s.source = "quick";
+      store.save(s);
+      return s;
+    },
     send: (id, text) => runner.send(id, text),
     detail: (id) => {
       const s = store.get(id);

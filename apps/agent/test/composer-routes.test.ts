@@ -7,7 +7,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { envStrategy, BUDGET_ROWS, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
+import { envStrategy, BUDGET_ROWS, budgetRows, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
 import { SettingsStore } from "../src/settings.js";
 import { BudgetStore } from "../src/budgets.js";
 import { PlaytestStore } from "../src/playtest-store.js";
@@ -50,6 +50,12 @@ function setup(extra: Record<string, unknown> = {}) {
   };
   return { call, settings, published };
 }
+
+describe("budget rows", () => {
+  it("lists Studio's runs, then each project subagent once, never shadowing Studio's", () => {
+    expect(budgetRows(["level-dresser", "scout", "level-dresser", "worker"]).map((r) => r.id)).toEqual(["main", "worker", "playtest-runner", "level-dresser", "scout"]);
+  });
+});
 
 describe("context strategy for other clients", () => {
   it("reads ue-mcp.yml, with micro when it names none", async () => {
@@ -101,7 +107,7 @@ describe("budget routes", () => {
     const { call, published } = setup();
     const g = (await call("GET /budgets")).body as { definition: string; agents: Array<{ id: string }>; budgets: { agents: Record<string, unknown> } };
     expect(g.definition).toMatch(/Cached reads are left out/);
-    expect(g.agents.map((a) => a.id)).toEqual(["main", "playtest-runner"]);
+    expect(g.agents.map((a) => a.id)).toEqual(["main", "worker", "playtest-runner"]);
     const r = await call("PUT /budgets", { agents: { main: { perRunTokens: 400_000 } } });
     expect((r.body as { budgets: { agents: { main: { perRunTokens: number } } } }).budgets.agents.main.perRunTokens).toBe(400_000);
     expect(published).toContain("budgets.changed");

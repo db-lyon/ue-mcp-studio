@@ -16,9 +16,10 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_USAGE, type ApprovalDecision, type Approvals, type Budget, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
+import { DEFAULT_USAGE, type BudgetReached, type Budgets, type UsageRecord, type ApprovalDecision, type Approvals, type Budget, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
-import { usageTokens } from "./usage.js";
+import { kindsOf, usageTokens, type TokenUsage } from "./usage.js";
+import { budgetStates, budgetText, overBudget } from "./ledger.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import type { QueuedMessage } from "@ue-mcp-studio/shared";
 import type { BusyTracker } from "./busy.js";
@@ -165,6 +166,14 @@ export interface RunnerOptions {
   effects?: ActionEffects;
   /** The main agent's budget: a turn stops at its per-run tokens. The old turn token limit when not given. */
   mainBudget?: () => Budget;
+  /** Writes one record per model call to the usage ledger. */
+  ledger?: { append(r: Omit<UsageRecord, "at">): unknown; today?(): { byAgent: Map<string, number>; total: number }; thisMonth?(): { total: number } };
+  /** Per-day and per-month budgets, checked against the ledger before each tool call. */
+  budgets?: () => Budgets;
+  /** The main model's vendor and its route's id (claude, chatgpt, studio, key, endpoint:<id>), for the ledger. */
+  callRoute?: () => { vendor: string; route: string };
+  /** A limit window a sign-in reported, for Usage's plan meters. */
+  onPlanWindow?: (route: "claude" | "chatgpt", info: { type?: string; utilization?: number; resetsAt?: number; status: string }) => void;
   /** The main agent's vendor's own files: instructions, subagents and skills. Null while "Read the project's own files" is off. */
   native?: () => NativeRun | null;
   /** Tracks each turn's editor calls, for the window's busy state. */
@@ -325,6 +334,56 @@ export class AgentRunner {
     const n = this.native();
     if (!n?.sdkLoads) return {};
     return { native: { settingSources: ["user", "project", "local"], agents: sdkAgents(n.loadout), skills: n.skills.length > 0 } };
+  }
+
+  /** One model call into the usage ledger. `at`: the vendor and route when not the main agent's. */
+  private record(s: StoredSession, agentId: string, parentAgentId: string | null, model: string, at: { vendor: string; route: string } | null, usage: TokenUsage | undefined, durationMs: number, source?: UsageRecord["source"]): void {
+    if (!this.o.ledger || !usage) return;
+    const r = at ?? this.o.callRoute?.() ?? { vendor: "unknown", route: "unknown" };
+    try {
+      this.o.ledger.append({
+        sessionId: s.id,
+        turnId: s.turn ? `${s.id}:${s.turn.start}` : null,
+        agentId,
+        parentAgentId,
+        source: source ?? (s.source === "quick" ? "quick" : "chat"),
+        vendor: r.vendor,
+        model,
+        route: r.route,
+        tokens: kindsOf(usage),
+        durationMs,
+      });
+    } catch (e) {
+      this.o.host.log.warn("could not write the usage ledger", e);
+    }
+  }
+
+  /** A model call on the Claude sign-in: the subagent, when it is one, by the type its agent call named. */
+  private recordSdk(s: StoredSession, parent: string | null, d: { kinds: import("@ue-mcp-studio/shared").TokenKinds; model: string }, agentId?: string): void {
+    if (!this.o.ledger) return;
+    const id = agentId ?? this.agentOf(s, parent);
+    const usage: TokenUsage = { input: (d.kinds.input ?? 0) + (d.kinds.cacheWrite ?? 0), output: d.kinds.output ?? 0, kinds: d.kinds };
+    this.record(s, id, parent || agentId ? "main" : null, d.model || this.o.model(), { vendor: "anthropic", route: "claude" }, usage, 0, agentId ? "playtest" : undefined);
+  }
+
+  /**
+   * The agent a call belongs to, by the agent call it runs under: the main
+   * agent's own, a project subagent named by the call (helper on Studio's
+   * loop, subagent_type on the Agent SDK's), or Studio's own worker.
+   */
+  private agentOf(s: StoredSession, parent: string | null): string {
+    if (!parent) return "main";
+    const call = s.transcript.find((t) => t.kind === "tool" && t.call.id === parent);
+    const input = (call?.kind === "tool" ? call.call.input : {}) as { helper?: unknown; subagent_type?: unknown };
+    const named = typeof input.helper === "string" ? input.helper : input.subagent_type;
+    return typeof named === "string" && named && named !== "editor-worker" ? named : "worker";
+  }
+
+  /** The per-day or per-month budget the agent's next call is past, if any. */
+  private reached(agentId: string): BudgetReached | null {
+    const l = this.o.ledger;
+    if (!this.o.budgets || !l?.today || !l.thisMonth) return null;
+    return overBudget(budgetStates(this.o.budgets(), l.today(), l.thisMonth(), new Date()), agentId);
   }
 
   /** The skills line of a prompt, when the project has skills. */
@@ -676,7 +735,11 @@ export class AgentRunner {
         prompt,
         resume: s.sdkSession ?? null,
         signal: controller.signal,
-        onTokens: (n, parent) => this.count(s, n, !!parent),
+        onTokens: (n, parent, d) => {
+          this.count(s, n, !!parent);
+          if (d) this.recordSdk(s, parent, d);
+        },
+        onRateLimit: (i) => this.o.onPlanWindow?.("claude", i),
         onSession: (sid) => {
           s.sdkSession = sid;
           this.o.store.save(s);
@@ -973,7 +1036,11 @@ export class AgentRunner {
       prompt: [{ type: "text", text: prompt }],
       resume: null,
       signal: own.signal,
-      onTokens: (n) => this.spend(callId, n),
+      onTokens: (n, _parent, d) => {
+        this.spend(callId, n);
+        if (d) this.recordSdk(s, null, d, "playtest-runner");
+      },
+      onRateLimit: (i) => this.o.onPlanWindow?.("claude", i),
       onSession: () => {},
       onDelta: () => {},
       onAssistant: (_mid, blocks, parent) => {
@@ -1047,6 +1114,8 @@ export class AgentRunner {
    * run it, or why it must not run: declined, or the turn was stopped.
    */
   private async gate(s: StoredSession, toolUseId: string, name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<GateResult> {
+    const budget = await this.budgetGate(s, toolUseId, signal);
+    if (budget) return budget;
     const kind = approvalKind(name, input, this.o.effects ?? NO_EFFECTS);
     if (!kind) return null;
     // A bad input fails in the executor without changing anything.
@@ -1065,7 +1134,46 @@ export class AgentRunner {
     const agent = parent ? s.transcript.find((t) => t.kind === "tool" && t.call.id === parent) : undefined;
     const subagent = agent?.kind === "tool" ? (agent.call.input as { description?: unknown }).description : undefined;
     const req: ApprovalRequest = { id: crypto.randomUUID(), toolUseId, parent, ...(typeof subagent === "string" ? { subagent } : {}), ...preview, at: now() };
+    const decision = await this.waitForAnswer(s, req, name, signal);
+    if (decision === "session") s.allowed = [...new Set([...(s.allowed ?? []), SESSION_KEY[kind]])];
+    this.o.store.save(s);
+    if (decision === "stopped") return { stopped: true };
+    if (decision === "deny") return { declined: declinedText(name) };
+    return null;
+  }
 
+  /**
+   * A per-day or per-month budget the call's agent is past: on stop the turn
+   * ends and says why; on ask the call waits for the user, and Allow for this
+   * session covers that budget until its day or month ends.
+   */
+  private async budgetGate(s: StoredSession, toolUseId: string, signal: AbortSignal): Promise<GateResult> {
+    const parent = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId)?.parent ?? null;
+    const r = this.reached(this.agentOf(s, parent));
+    if (!r) return null;
+    const key = `budget:${r.scope}:${r.agent ?? ""}:${r.period}`;
+    if (s.allowed?.includes(key)) return null;
+    const why = budgetText(r);
+    if (r.onLimit === "stop") {
+      if (s.turn && this.active.has(s.id)) this.interrupt(s.id, { by: "studio", why });
+      return { stopped: true };
+    }
+    if (signal.aborted) return { stopped: true };
+    const req: ApprovalRequest = { id: crypto.randomUUID(), toolUseId, parent, tool: "budget", budget: r, at: now() };
+    const decision = await this.waitForAnswer(s, req, "budget", signal);
+    if (decision === "session") s.allowed = [...new Set([...(s.allowed ?? []), key])];
+    this.o.store.save(s);
+    if (decision === "stopped") return { stopped: true };
+    if (decision === "deny") {
+      if (s.turn && this.active.has(s.id)) this.interrupt(s.id, { by: "studio", why: `you chose to stop: ${why}` });
+      return { stopped: true };
+    }
+    return null;
+  }
+
+  /** Hold a request until the user answers it or the turn stops. */
+  private async waitForAnswer(s: StoredSession, req: ApprovalRequest, name: string, signal: AbortSignal): Promise<ApprovalDecision | "stopped"> {
+    const parent = req.parent;
     const decision = await new Promise<ApprovalDecision | "stopped">((resolve) => {
       const onAbort = () => resolve("stopped");
       signal.addEventListener("abort", onAbort, { once: true });
@@ -1085,13 +1193,10 @@ export class AgentRunner {
 
     this.waitingApprovals.delete(req.id);
     s.approvals = (s.approvals ?? []).filter((a) => a.id !== req.id);
-    if (decision === "session") s.allowed = [...new Set([...(s.allowed ?? []), SESSION_KEY[kind]])];
     this.o.store.save(s);
     this.o.host.events.publish("approval.resolved", { sessionId: s.id, approvalId: req.id, decision });
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
-    if (decision === "stopped") return { stopped: true };
-    if (decision === "deny") return { declined: declinedText(name) };
-    return null;
+    return decision;
   }
 
   /** The user's answer to a waiting call. False when no such approval is waiting in that session. */
@@ -1271,6 +1376,7 @@ export class AgentRunner {
 
         if (s.status !== "running") this.setStatus(s, "running", null);
         const usage = this.usage();
+        const started = Date.now();
         const turn = await this.o.provider().run(
           {
             sessionId: s.id,
@@ -1284,6 +1390,7 @@ export class AgentRunner {
           controller.signal,
         );
         if (controller.signal.aborted) return;
+        this.record(s, "main", null, this.o.model(), null, turn.usage, Date.now() - started);
         this.count(s, usageTokens(turn.usage), false);
         if (controller.signal.aborted) return;
 
@@ -1477,6 +1584,7 @@ export class AgentRunner {
     try {
       for (let step = 0; step < steps; step++) {
         if (signal.aborted) return stopped();
+        const callStarted = Date.now();
         const turn = await provider().run(
           {
             sessionId: s.id,
@@ -1491,6 +1599,7 @@ export class AgentRunner {
         );
         messages.push({ role: "assistant", content: turn.content } as MessageParam);
         this.spend(parent, usageTokens(turn.usage));
+        this.record(s, helper?.name ?? (detached ? "playtest-runner" : "worker"), detached ? null : "main", model, helper?.run ? { vendor: helper.run.vendor, route: helper.run.route } : null, turn.usage, Date.now() - callStarted, detached ? "playtest" : undefined);
         // One the user assigned runs beside the session's turns, within its own budget.
         if (!detached) this.count(s, usageTokens(turn.usage), true);
         this.recordSearches(s, turn.searches, parent);

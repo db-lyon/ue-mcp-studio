@@ -450,6 +450,38 @@ describe("what a turn spends on the subscription route", () => {
     expect(store.get(s.id)!.transcript.at(-1)).toMatchObject({ kind: "usage", main: 4000, subagents: 5000 });
   });
 
+  it("writes each message's new tokens to the ledger by kind, a subagent under its type, and the plan windows the SDK reports", async () => {
+    const { Ledger } = await import("../src/ledger.js");
+    const ledger = new Ledger(host.dataDir);
+    const windows: Array<{ route: string; type?: string; utilization?: number }> = [];
+    const kinds = (id: string, parent: string | null, input: number, cacheRead: number, output: number) =>
+      ({ type: "assistant", parent_tool_use_id: parent, message: { id, model: "claude-opus-5-5", content: [{ type: "text", text: "..." }], usage: { input_tokens: input, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0, output_tokens: output } } });
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-ledger" });
+      b.emit({ type: "rate_limit_event", rate_limit_info: { status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.82, resetsAt: 1_790_000_000 } });
+      b.emit(assistant("m1", [{ type: "tool_use", id: "agent-call", name: "Agent", input: { subagent_type: "reviewer", description: "review", prompt: "look" } }]));
+      b.emit(kinds("m1", null, 100, 900, 20));
+      // The same message reported again with more output: only the new tokens count.
+      b.emit(kinds("m1", null, 100, 900, 50));
+      b.emit(kinds("s1", "agent-call", 40, 0, 10));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-ledger" });
+    };
+    const runner = new AgentRunner({
+      host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false,
+      ledger, onPlanWindow: (route, i) => void windows.push({ route, type: i.type, utilization: i.utilization }),
+    });
+    const s = store.create();
+    await runner.send(s.id, "go");
+    await until(() => store.get(s.id)!.status === "idle");
+    const recs = ledger.records(new Date(0), new Date(Date.now() + 86_400_000));
+    expect(recs.map((r) => [r.agentId, r.parentAgentId, r.vendor, r.route, r.tokens])).toEqual([
+      ["main", null, "anthropic", "claude", { input: 100, cacheRead: 900, cacheWrite: 0, output: 20 }],
+      ["main", null, "anthropic", "claude", { input: 0, cacheRead: 0, cacheWrite: 0, output: 30 }],
+      ["reviewer", "main", "anthropic", "claude", { input: 40, cacheRead: 0, cacheWrite: 0, output: 10 }],
+    ]);
+    expect(windows).toEqual([{ route: "claude", type: "five_hour", utilization: 0.82 }]);
+  });
+
   it("stops the turn at the token limit", async () => {
     let afterStop = false;
     sdk.script = async (b) => {
