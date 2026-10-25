@@ -74,15 +74,25 @@ interface ActionLine {
   params?: ParamLine[];
 }
 
+/** Options every call takes, which ue-mcp's signatures repeat on every action. */
+const PER_CALL = /(,\s*)?\b(?:select|omit|timeoutMs)\?(?::[^,()]+)?(?=\s*[,)])/g;
+
+/** A signature without the per-call options, which the category answer names once. */
+export function withoutPerCall(signature: string): string {
+  return signature.replace(PER_CALL, "").replace(/\(\s*,\s*/g, "(");
+}
+
 /** describe_action's answer for a whole category as one line per action; one action's answer as it came. */
 export function compactDescribe(text: string): string {
   const r = parse(text);
   if (!r) return text;
   const footer = "Describe one (category + method) for its full parameters.";
-  // ue-mcp from 1.4.11 answers a category with signature lines already: drop only the JSON around them.
+  // ue-mcp from 1.4.11 answers a category with signature lines already: drop only the JSON around them,
+  // and the per-call options each line repeats.
   if (Array.isArray(r.signatures) && r.signatures.every((x) => typeof x === "string")) {
-    const sigs = r.signatures as string[];
-    return [`${String(r.category ?? r.tool ?? "")}: ${sigs.length} actions${typeof r.count === "number" && r.count > sigs.length ? ` of ${r.count}` : ""}. ${footer}`, ...sigs].join("\n");
+    const sigs = (r.signatures as string[]).map(withoutPerCall);
+    const head = `${String(r.category ?? r.tool ?? "")}: ${sigs.length} actions${typeof r.count === "number" && r.count > sigs.length ? ` of ${r.count}` : ""}. ${footer}`;
+    return [head, "Every call also takes select?, omit? and timeoutMs?.", ...sigs].join("\n");
   }
   if (!Array.isArray(r.actions)) return text;
   const lines = (r.actions as ActionLine[]).map((a) => {
