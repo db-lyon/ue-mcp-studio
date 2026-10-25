@@ -92,7 +92,7 @@ describe("usage routes", () => {
     const w = (call("GET /usage/warnings").body as { warnings: UsageWarning[] }).warnings;
     expect(w.map((x) => [x.kind, x.severity, x.text])).toEqual([
       ["budget", "bad", "110% of the budget for all agents today"],
-      ["plan-limit", "warn", "ChatGPT sign-in: 90% of the 5-hour window used"],
+      ["plan-limit", "warn", "ChatGPT sign-in: 90% of the 5-hour window limit used"],
     ]);
   });
 

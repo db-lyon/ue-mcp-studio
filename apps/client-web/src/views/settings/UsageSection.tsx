@@ -60,18 +60,18 @@ export function UsageSection() {
                     <td data-label="Tokens per run">
                       {perRun
                         ? <NumberField label={`${a.name} tokens per run`} value={b.perRunTokens} nullable={!runner} min={BUDGET_LIMITS.minTokens} max={BUDGET_LIMITS.maxTokens} onSave={(n) => void save(a.id, { perRunTokens: n })} />
-                        : <input type="text" className="cfg-num" disabled value="" placeholder="Counts toward the turn" aria-label={`${a.name} tokens per run: counted in the turn that starts it`} title="Counted in the turn that starts it" />}
+                        : <span className="dim small">Counts toward the turn that started it</span>}
                     </td>
                     <td data-label="Minutes per run">
                       {runner
                         ? <NumberField label={`${a.name} minutes per run`} value={b.perRunMinutes} min={1} max={BUDGET_LIMITS.maxMinutes} onSave={(n) => void save(a.id, { perRunMinutes: n })} />
-                        : <input type="text" className="minutes" disabled value="" placeholder="None" aria-label={`${a.name} minutes per run: no time limit`} title="No time limit" />}
+                        : <span className="dim small">No time limit</span>}
                     </td>
                     <td data-label="Tokens per day">
                       <NumberField label={`${a.name} tokens per day`} value={b.perDayTokens} nullable min={BUDGET_LIMITS.minTokens} max={BUDGET_LIMITS.maxTokens} onSave={(n) => void save(a.id, { perDayTokens: n })} />
                     </td>
                     <td className="small" data-label="At the limit">
-                      <div>{AT_LIMIT[a.id] ?? "Per day only"}</div>
+                      <div>{AT_LIMIT[a.id] ?? (b.perDayTokens === null ? "No limit" : b.onLimit === "ask" ? "The next tool call asks you" : "The turn stops and says so")}</div>
                       {b.perDayTokens !== null && (
                         <Seg label={`${a.name}: at the daily limit`} value={b.onLimit === "ask" ? "ask" : "stop"} options={DAY_ACTIONS} onChange={(v) => void save(a.id, { onLimit: v === "ask" ? "ask" : "stop-and-report" })} />
                       )}

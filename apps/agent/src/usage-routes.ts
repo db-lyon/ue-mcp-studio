@@ -72,7 +72,7 @@ export function usageWarnings(o: UsageRouteOptions, now: Date): UsageWarning[] {
       out.push({
         kind: "plan-limit",
         severity: w.status === "rejected" ? "bad" : "warn",
-        text: `${name}: ${Math.round(w.used * 100)}% of the ${w.label.toLowerCase()} used`,
+        text: `${name}: ${Math.round(w.used * 100)}% of the ${w.label.toLowerCase()} limit used`,
         detail: w.resetsAt ? `It resets ${new Date(w.resetsAt).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}. Past it, ${name} refuses calls until then.` : `Past it, ${name} refuses calls until the window resets.`,
       });
     }

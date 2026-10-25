@@ -17,6 +17,13 @@ const GROUPS: ReadonlyArray<{ id: UsageGroup; name: string }> = [
   { id: "route", name: "Route" },
   { id: "source", name: "Source" },
 ];
+/** A round top for the scale: 1, 2 or 5 times a power of ten, at or above n. */
+export function niceCeil(n: number): number {
+  if (n <= 0) return 1;
+  const p = 10 ** Math.floor(Math.log10(n));
+  return ([1, 2, 2.5, 5, 10].map((m) => m * p).find((v) => v >= n) ?? 10 * p);
+}
+
 /** Series past this many fold into Other, so every colour stays tellable apart. */
 const MAX_SERIES = 7;
 
@@ -37,7 +44,7 @@ const since = (iso: string): string => new Date(iso).toLocaleDateString("en-US",
 
 /** The change against the period before, or why there is none. */
 function Change({ now, before }: { now: number; before: number | null | undefined }) {
-  if (before === null || before === undefined) return <span className="dim small">no earlier period recorded</span>;
+  if (before === null || before === undefined) return <span className="dim small">no comparison: the period before is not fully recorded</span>;
   if (before === 0) return <span className="dim small">none the period before</span>;
   const d = Math.round(((now - before) / before) * 100);
   return <span className="dim small">{d === 0 ? "same as" : `${d > 0 ? "+" : ""}${d}% against`} the period before</span>;
@@ -140,7 +147,7 @@ function PlanMeters({ plans }: { plans: PlanMeter[] }) {
   if (plans.length === 0) return null;
   return (
     <Card label="Plans">
-      <p className="muted small">What each sign-in's plan has left, as the plan last reported it. Studio never estimates a plan's limit.</p>
+      <p className="muted small">How much of each sign-in's plan is used, as the plan last reported it. Studio never estimates a plan's limit.</p>
       {plans.map((p) => (
         <div key={p.route} className="plan">
           <div className="plan-head"><strong>{p.name}</strong> <span className="dim small">{p.reportedAt ? `reported ${new Date(p.reportedAt).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}` : "has not reported its limits yet"}</span></div>
@@ -150,11 +157,13 @@ function PlanMeters({ plans }: { plans: PlanMeter[] }) {
               <div className="meter" role="meter" aria-label={`${p.name}, ${w.label}`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={w.used === null ? undefined : Math.round(w.used * 100)}>
                 <div className={`meter-fill ${w.status === "rejected" ? "bad" : w.status === "warning" || (w.used ?? 0) >= 0.8 ? "warn" : ""}`} style={{ width: `${Math.round((w.used ?? 0) * 100)}%` }} />
               </div>
-              <span className="meter-value num">{w.used === null ? "not reported" : `${Math.round(w.used * 100)}%`}</span>
+              <span className="meter-value num">{w.used === null ? "not reported" : `${Math.round(w.used * 100)}% used`}</span>
               <span className="dim small meter-reset">{w.status === "rejected" ? "limit reached" : w.resetsAt ? `resets ${new Date(w.resetsAt).toLocaleString("en-US", { weekday: "short", hour: "numeric", minute: "2-digit" })}` : ""}</span>
             </div>
           ))}
-          <div className="dim small">Studio sent {tokens(p.tokens.input ?? 0)} input, {kind(p.tokens.cacheRead)} cached-read, {kind(p.tokens.cacheWrite)} cache-write and {tokens(p.tokens.output ?? 0)} output tokens through it in this period.</div>
+          <div className="dim small">{(p.tokens.input ?? 0) + (p.tokens.output ?? 0) === 0
+            ? "No calls through it in this period."
+            : `Studio sent ${tokens(p.tokens.input ?? 0)} input, ${kind(p.tokens.cacheRead)} cached-read, ${kind(p.tokens.cacheWrite)} cache-write and ${tokens(p.tokens.output ?? 0)} output tokens through it in this period.`}</div>
         </div>
       ))}
     </Card>
@@ -184,7 +193,7 @@ function DayChart({ s, teamPerDay }: { s: UsageSummary; teamPerDay: number | nul
   const peak = Math.max(1, ...days.map((d) => d.total));
   // A budget far above every day would flatten the bars: then it is named instead of drawn.
   const drawLine = teamPerDay !== null && teamPerDay <= peak * 2;
-  const max = Math.max(peak, drawLine ? teamPerDay! : 0) * 1.08;
+  const max = niceCeil(Math.max(peak, drawLine ? teamPerDay! : 0) * 1.08);
   return (
     <Card label="Tokens per day">
       <div className="legend" aria-hidden>

@@ -271,7 +271,10 @@
 .cfg .daystack { width: 100%; max-width: 44px; margin: 0 auto; display: flex; flex-direction: column-reverse; gap: 2px; min-height: 0; }
 .cfg .daystack .seg { min-height: 2px; flex-basis: 0; }
 .cfg .daystack .seg:last-child { border-radius: 4px 4px 0 0; }
-.cfg .budget-line { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--text); opacity: 0.6; pointer-events: auto; }
+.cfg .budget-line { position: absolute; left: 0; right: 0; border-top: 2px dashed var(--text); opacity: 0.6; pointer-events: auto; z-index: 0; }
+.cfg .daycol { position: relative; z-index: 1; }
+.cfg .usage-table td a, .cfg .usage-table td { overflow-wrap: normal; }
+.cfg .usage-table td[data-label="Source"] a { white-space: nowrap; }
 .cfg .dayaxis { display: flex; gap: 4px; font-size: 11px; color: var(--dim); margin-top: 4px; }
 .cfg .dayaxis span { flex: 1 1 0; text-align: center; min-width: 0; white-space: nowrap; overflow: visible; }
 .cfg .cache-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 14px; }
