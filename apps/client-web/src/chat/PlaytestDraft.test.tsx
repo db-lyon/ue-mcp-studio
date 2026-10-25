@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { openCard } from "./qa-test-helpers";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { qaDraftFromScript, qaRunFromAnswer, type QaRun } from "@ue-mcp-studio/shared";
 
@@ -38,6 +39,7 @@ function mount(run: QaRun, extra: Partial<QaLive> = {}) {
   let cur: QaLive = { events: [], streaming: true, forms: [], sessionId: "s1", ...extra };
   const ui = (v: QaLive) => <QaContext.Provider value={v}><QaCard run={run} /></QaContext.Provider>;
   const r = render(ui(cur));
+  openCard(r.container);
   return { ...r, push: (...e: DaemonEvent[]) => { cur = { ...cur, events: [...cur.events, ...e] }; r.rerender(ui(cur)); } };
 }
 const step = (n: number) => screen.getAllByRole("listitem")[n];

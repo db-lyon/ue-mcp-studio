@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { openCard } from "./qa-test-helpers";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { qaRunFromAnswer, type PendingForm, type QaRun } from "@ue-mcp-studio/shared";
 
@@ -42,6 +43,7 @@ function mount(run: QaRun, live: Partial<QaLive> = {}) {
     </QaContext.Provider>
   );
   const r = render(ui(value));
+  openCard(r.container);
   let cur = value;
   const update = (next: Partial<QaLive>) => {
     cur = { ...cur, ...next };
@@ -311,5 +313,37 @@ describe("assigning the playtest to a subagent", () => {
     expect(within(step(2)).getByText("Failed")).toBeTruthy();
     expect(within(step(2)).queryByText("Agent")).toBeNull();
     expect(within(step(2)).queryByRole("button")).toBeNull();
+  });
+});
+
+describe("the collapsed card", () => {
+  const collapsed = (run: QaRun, live: Partial<QaLive> = {}) =>
+    render(<QaContext.Provider value={{ events: [], streaming: true, forms: [], ...live }}><QaCard run={run} /></QaContext.Provider>);
+
+  it("is the default: the title, a bar per step in its status's colour, and one line", () => {
+    const steps = STEPS.map((s, i) => ({ ...s, status: ["passed", "failed", "pending"][i] }));
+    collapsed(runOf({ state: "finished", steps }));
+    expect(screen.getByRole("button", { name: /DoorOpens/, expanded: false })).toBeTruthy();
+    const bars = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem");
+    expect(bars.map((b) => b.className.split(" ")[1])).toEqual(["ok", "bad", ""]);
+    expect(bars[1].getAttribute("aria-label")).toBe("Step 2, Auto fail");
+    expect(bars[1].getAttribute("title")).toBe("2. Open the door: Auto fail");
+    expect(screen.getByText("3 steps: 1 passed, 1 failed")).toBeTruthy();
+    expect(screen.queryByText("Walk up to the door")).toBeNull();
+  });
+
+  it("opens to the full card on a click, and closes again from its title", () => {
+    collapsed(runOf());
+    fireEvent.click(screen.getByRole("button", { name: "Open playtest DoorOpens" }));
+    expect(screen.getByText("Walk up to the door")).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Steps" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /DoorOpens/, expanded: true }));
+    expect(screen.queryByText("Walk up to the door")).toBeNull();
+  });
+
+  it("opens by itself when a step waits for the user's verdict", () => {
+    const steps = STEPS.map((s, i) => ({ ...s, status: i === 2 ? "awaiting_verdict" : "passed" }));
+    collapsed(runOf({ state: "awaiting_verdict", steps, awaiting: [2] }));
+    expect(screen.getByRole("button", { name: "Pass step 3" })).toBeTruthy();
   });
 });
