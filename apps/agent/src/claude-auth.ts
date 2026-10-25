@@ -17,9 +17,15 @@ export const studioClaudeHome = (): string => process.env.STUDIO_CLAUDE_HOME || 
 /** How Studio names itself to the Agent SDK. */
 export const CLIENT_APP = "ue-mcp-studio";
 
-/** The binary's environment: the user's own, untouched, plus Studio's client name. */
+/**
+ * The binary's environment: the user's own, plus Studio's client name, and the
+ * account's claude.ai connectors left out. Studio's turns allow only its own
+ * tools, so a connector could never be called, yet its definitions went out
+ * with every model call: 21 tools and three quarters of the tool text on an
+ * account with Drive and Docs connected.
+ */
 export function claudeEnv(extra: Record<string, string> = {}): Record<string, string | undefined> {
-  return { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP, ...extra };
+  return { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP, ENABLE_CLAUDEAI_MCP_SERVERS: "false", ...extra };
 }
 
 /** Who the binary says is signed in: its method (claude.ai, api_key, ...) and plan. */

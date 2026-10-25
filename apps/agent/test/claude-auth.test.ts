@@ -96,6 +96,8 @@ describe("the binary's environment", () => {
     process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-user";
     const e = claudeEnv();
     expect(e).toMatchObject({ ANTHROPIC_API_KEY: "sk-user", CLAUDE_CODE_OAUTH_TOKEN: "oauth-user", CLAUDE_AGENT_SDK_CLIENT_APP: CLIENT_APP });
+    // The account's claude.ai connectors stay out: Studio's turns could never call them.
+    expect(e.ENABLE_CLAUDEAI_MCP_SERVERS).toBe("false");
     expect(e).not.toHaveProperty("CLAUDE_CONFIG_DIR");
     expect(claudeHome()).toBe(path.join(os.homedir(), ".claude"));
     expect(CLIENT_APP).toBe("ue-mcp-studio");
