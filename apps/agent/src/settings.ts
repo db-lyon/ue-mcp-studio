@@ -26,6 +26,12 @@ import {
   type StudioTheme,
   type SubagentMode,
   type UsageSettings,
+  APPROVAL_KINDS,
+  DEFAULT_APPROVALS,
+  DEFAULT_INSTRUCTION_SETTINGS,
+  migrateApprovals,
+  type Approvals,
+  type InstructionSettings,
 } from "@ue-mcp-studio/shared";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
@@ -43,6 +49,10 @@ interface StoredSettings {
   composerHeight: number | null;
   dialogPolicy: DialogPolicy;
   usage: UsageSettings;
+  /** What each kind of action does first: ask, or go ahead. Replaces askBeforeChanges, which is still written for an older Studio. */
+  approvals: Approvals;
+  /** Which project instruction files are off, and files the user added. */
+  instructions: InstructionSettings;
 }
 
 /** The most tokens a turn token limit may be set to. */
@@ -131,6 +141,30 @@ const MAX_COMPOSER_HEIGHT = 4000;
 const composerHeightOf = (v: unknown): number | null =>
   typeof v === "number" && Number.isFinite(v) && v > 0 && v <= MAX_COMPOSER_HEIGHT ? Math.round(v) : null;
 
+/** Stored approval rows; settings from before them keep what askBeforeChanges did. */
+export function approvalsOf(raw: Record<string, unknown>): Approvals {
+  const base = migrateApprovals(raw.askBeforeChanges !== false);
+  const a = raw.approvals && typeof raw.approvals === "object" ? (raw.approvals as Record<string, unknown>) : null;
+  if (!a) return base;
+  return Object.fromEntries(APPROVAL_KINDS.map((k) => [k, a[k] === "ask" || a[k] === "allow" ? a[k] : base[k]])) as Approvals;
+}
+
+/** Project paths are kept with forward slashes, relative to the project, or ~/ for the user's own. */
+const instructionPath = (v: unknown): string | null =>
+  typeof v === "string" && v.trim() && !v.includes("\u0000") ? v.trim().replace(/\\/g, "/") : null;
+
+export function instructionSettingsOf(raw: unknown): InstructionSettings {
+  const r = (raw && typeof raw === "object" ? raw : {}) as { off?: unknown; added?: unknown };
+  const off = Array.isArray(r.off) ? r.off.map(instructionPath).filter((x): x is string => !!x) : [];
+  const added = Array.isArray(r.added)
+    ? r.added.flatMap((x: { path?: unknown; after?: unknown }) => {
+      const p = instructionPath(x?.path);
+      return p ? [{ path: p, after: x.after === null || x.after === undefined ? null : instructionPath(x.after) }] : [];
+    })
+    : [];
+  return { off: [...new Set(off)], added };
+}
+
 /**
  * The selected model's vendor. Settings written before vendors were named said
  * byok, gateway or studio, all of which ran Claude models.
@@ -179,9 +213,12 @@ export class SettingsStore {
         composerHeight: composerHeightOf(raw.composerHeight),
         dialogPolicy: dialogPolicyOf(raw.dialogPolicy) ?? DEFAULT_DIALOG_POLICY,
         usage: usageOf(raw.usage),
+        approvals: approvalsOf(raw),
+        instructions: instructionSettingsOf(raw.instructions),
       };
     } catch {
-      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE } };
+      // No settings yet: a new install, which asks before every kind of change.
+      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS }, instructions: { ...DEFAULT_INSTRUCTION_SETTINGS } };
     }
   }
 
@@ -244,8 +281,20 @@ export class SettingsStore {
     }
     if (u.askBeforeChanges !== undefined) {
       if (typeof u.askBeforeChanges !== "boolean") throw new Error("askBeforeChanges must be a boolean");
-      s.askBeforeChanges = u.askBeforeChanges;
+      // The old switch, from an older panel: it covered commands and file changes.
+      const rule = u.askBeforeChanges ? "ask" : "allow";
+      s.approvals = { ...s.approvals, shell: rule, files: rule };
     }
+    if (u.approvals !== undefined) {
+      if (!u.approvals || typeof u.approvals !== "object") throw new Error("approvals must be an object");
+      for (const [k, v] of Object.entries(u.approvals)) {
+        if (!(APPROVAL_KINDS as readonly string[]).includes(k)) throw new Error(`no approval ${k}; one of ${APPROVAL_KINDS.join(", ")}`);
+        if (v !== "ask" && v !== "allow") throw new Error(`approvals.${k} must be ask or allow`);
+      }
+      s.approvals = { ...s.approvals, ...u.approvals };
+    }
+    // Kept for a Studio from before the rows: it asks before changes when either of its two kinds asks.
+    s.askBeforeChanges = s.approvals.shell === "ask" || s.approvals.files === "ask";
     if (u.reviewTurns !== undefined) {
       if (typeof u.reviewTurns !== "boolean") throw new Error("reviewTurns must be a boolean");
       s.reviewTurns = u.reviewTurns;
@@ -264,7 +313,7 @@ export class SettingsStore {
       if (!KEY_PROVIDER_IDS.includes(p as KeyProviderId)) throw new Error(`no key provider ${p}`);
       if (typeof v !== "string") throw new Error(`the ${p} key must be a string`);
     }
-    fs.writeFileSync(this.file("settings.json"), JSON.stringify(s, null, 2));
+    this.write(s);
     for (const [p, v] of Object.entries(u.keys ?? {})) this.writeKey(p as KeyProviderId, (v as string).trim());
     if (u.signOut === "studio") {
       this.writeSecret("account.token", "");
@@ -272,6 +321,17 @@ export class SettingsStore {
     } else if (u.signOut !== undefined) {
       throw new Error("signOut must be studio");
     }
+  }
+
+  /** The whole file, keeping fields this Studio does not know (a newer one's, or the next phase's). */
+  private write(s: StoredSettings): void {
+    let extra: Record<string, unknown> = {};
+    try {
+      extra = JSON.parse(fs.readFileSync(this.file("settings.json"), "utf-8")) as Record<string, unknown>;
+    } catch {
+      // None yet.
+    }
+    fs.writeFileSync(this.file("settings.json"), JSON.stringify({ ...extra, ...s }, null, 2));
   }
 
   /** After an in-panel sign-in: the account token, and the login to show beside it. */
@@ -319,9 +379,27 @@ export class SettingsStore {
     return this.stored().dialogPolicy;
   }
 
-  /** Ask the user before a command runs or a file changes. On unless turned off. */
+  /** Ask the user before a command runs or a file changes, by either row. */
   askBeforeChanges(): boolean {
-    return this.stored().askBeforeChanges;
+    const a = this.stored().approvals;
+    return a.shell === "ask" || a.files === "ask";
+  }
+
+  /** What each kind of action does first. */
+  approvals(): Approvals {
+    return this.stored().approvals;
+  }
+
+  instructions(): InstructionSettings {
+    return this.stored().instructions;
+  }
+
+  /** Replace the instruction settings: which files are off, and the added ones. */
+  setInstructions(next: InstructionSettings): InstructionSettings {
+    const s = this.stored();
+    s.instructions = instructionSettingsOf(next);
+    this.write(s);
+    return s.instructions;
   }
 
   /** How much a turn may spend, and on what. */

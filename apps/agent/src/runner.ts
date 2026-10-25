@@ -16,7 +16,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_USAGE, type ApprovalDecision, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
+import { DEFAULT_INSTRUCTION_SETTINGS, DEFAULT_USAGE, type ApprovalDecision, type Approvals, type Budget, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
 import { usageTokens } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
@@ -25,7 +25,7 @@ import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import type { QaBroker } from "./qa.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
-import { CHANGING_TOOLS, approvalFor, shell } from "./local-tools.js";
+import { approvalFor, shell } from "./local-tools.js";
 
 /** Set by the release bundle: false leaves the Agent SDK out of it. Unset in development and tests. */
 declare const __CLAUDE_SIGN_IN__: boolean | undefined;
@@ -37,6 +37,8 @@ import { flowCommandText, flowValue, parseFlowArgs, parseSlashCommand, type Atta
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { subagentLimitText } from "./subagent-limit.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
+import { compose, conditionalFor, pathsOf, type Composed } from "./instructions.js";
+import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, type ActionEffects } from "./approval-kind.js";
 
 /**
  * Testing gameplay with the user: a playtest, which is a test script the agent
@@ -59,8 +61,8 @@ export const QA = [
 /** What the agent is told about starting runs, by the Playtest runs setting. */
 export function playtestRunsLine(mode: PlaytestRunsMode): string {
   return mode === "automatic"
-    ? "Playtest runs is set to Automatic in Settings > Agent: you may start a playtest yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
-    : "Playtest runs is set to Manual in Settings > Agent: only the user starts a playtest, with Start Playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Playtest runs to Automatic.";
+    ? "Starting playtests is set to Automatic in Settings > Approvals & review: you may start a playtest yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
+    : "Starting playtests is set to Manual in Settings > Approvals & review: only the user starts a playtest, with Start Playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Starting playtests to Automatic.";
 }
 
 const WORK = [
@@ -88,36 +90,19 @@ export function subagentLine(usage: Pick<UsageSettings, "subagents" | "subagents
     + `Give each one different assets and files, then check what they report. ${most}`;
 }
 
-/** The project's instruction files, in the order a terminal client reads them. */
-const INSTRUCTION_FILES = ["CLAUDE.md", path.join(".claude", "CLAUDE.md"), "CLAUDE.local.md"];
-/** The most of them that goes into the prompt. */
-export const MAX_INSTRUCTION_CHARS = 40_000;
-
-/** The project's CLAUDE.md files as a prompt section, or nothing when there are none. */
-export function projectInstructions(projectDir: string): string | null {
-  const parts: string[] = [];
-  for (const name of INSTRUCTION_FILES) {
-    try {
-      const text = fs.readFileSync(path.join(projectDir, name), "utf-8").trim();
-      if (text) parts.push(`${name}:\n${text}`);
-    } catch {
-      // Absent: a project need not have one.
-    }
-  }
-  if (parts.length === 0) return null;
-  let text = parts.join("\n\n");
-  if (text.length > MAX_INSTRUCTION_CHARS) text = `${text.slice(0, MAX_INSTRUCTION_CHARS)}\n(the rest is left out)`;
-  return `The project's own instructions for agents follow. Follow them where they apply to the task.\n\n${text}`;
+/** The project's instruction files as a prompt section, by the old switch, when the runner is given nothing composed. */
+function defaultInstructions(projectDir: string, usage: UsageSettings): Composed {
+  return compose(projectDir, DEFAULT_INSTRUCTION_SETTINGS, usage.projectInstructions ? "all" : "none");
 }
 
-const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE): string => [
+const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = defaultInstructions(projectDir, usage)): string => [
   "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
   playtestRunsLine(runs),
   where(projectDir),
   subagentLine(usage),
   "When the editor restarts or crashes during your work, a note tells you why and what was lost. Do not repeat a call whose outcome is unknown without reading the state first.",
-  usage.projectInstructions ? projectInstructions(projectDir) : null,
+  instructions.text,
 ].filter((l): l is string => !!l).join("\n");
 
 /** What a subagent is told: the same way of working, and to end with a report for the agent that started it. */
@@ -128,8 +113,8 @@ export const SUBAGENT_SYSTEM = [
   "Finish with a short report: what you created or changed (asset paths and files), what you saved, and anything that failed.",
 ].join("\n");
 
-const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE): string =>
-  [SUBAGENT_SYSTEM, playtestRunsLine(runs), where(projectDir), usage.projectInstructions ? projectInstructions(projectDir) : null]
+const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = defaultInstructions(projectDir, usage)): string =>
+  [SUBAGENT_SYSTEM, playtestRunsLine(runs), where(projectDir), instructions.text]
     .filter((l): l is string => !!l).join("\n");
 
 /** What the model is told when the user declines a call. */
@@ -175,8 +160,16 @@ export interface RunnerOptions {
   subscription?: () => boolean;
   /** How the model is reached for this turn: a sign-in or a key, by name. */
   route?: () => string | null;
-  /** Ask the user before a command runs or a file changes; on when not given. */
+  /** Ask the user before a command runs or a file changes; on when not given. Approvals, when given, decide instead. */
   askBeforeChanges?: () => boolean;
+  /** What each kind of action does first: ask or go ahead. */
+  approvals?: () => Approvals;
+  /** ue-mcp's effects per action, for the destructive-actions row. */
+  effects?: ActionEffects;
+  /** The main agent's budget: a turn stops at its per-run tokens. The old turn token limit when not given. */
+  mainBudget?: () => Budget;
+  /** The project's instruction files as composed for the agent; the old CLAUDE.md switch when not given. */
+  instructions?: () => Composed;
   /** Tracks each turn's editor calls, for the window's busy state. */
   busy?: BusyTracker;
   /** Puts the editor dialogs a session's calls meet in the chat. */
@@ -302,6 +295,27 @@ export class AgentRunner {
     return this.o.usage?.() ?? DEFAULT_USAGE;
   }
 
+  /** Conditional instruction files each conversation has been given, by session id or helper call id. */
+  private readonly instructionsSent = new Map<string, Set<string>>();
+
+  private composed(): Composed {
+    return this.o.instructions?.() ?? defaultInstructions(this.o.host.projectDir, this.usage());
+  }
+
+  /**
+   * A call's result with the instruction files that apply to what it touched:
+   * a subfolder's AGENTS.md once the agent works there, a rule whose globs
+   * match a file it read or changed. Each once per conversation.
+   */
+  private withInstructions(conversation: string, name: string, input: Record<string, unknown>, text: string): string {
+    const c = this.composed();
+    if (c.conditional.length === 0) return text;
+    let sent = this.instructionsSent.get(conversation);
+    if (!sent) this.instructionsSent.set(conversation, (sent = new Set()));
+    const extra = conditionalFor(c, pathsOf(this.o.host.projectDir, name, input), sent);
+    return extra ? `${text}\n\n${extra}` : text;
+  }
+
   private subagentModel(): string {
     return this.o.subagentModel?.() ?? this.o.model();
   }
@@ -319,17 +333,22 @@ export class AgentRunner {
     const t = (s.turn.tokens ??= { main: 0, subagents: 0 });
     if (subagent) t.subagents += tokens;
     else t.main += tokens;
-    const limit = this.usage().turnTokenLimit;
+    const limit = this.turnLimit();
     if (limit !== null && t.main + t.subagents >= limit && this.active.has(s.id)) {
-      this.interrupt(s.id, { by: "studio", why: `it spent ${t.main + t.subagents} tokens, past the turn token limit of ${limit} in Settings > Agent > Usage` });
+      this.interrupt(s.id, { by: "studio", why: `it spent ${t.main + t.subagents} tokens, past the main agent's per-run budget of ${limit} tokens in Usage > Budgets` });
     }
+  }
+
+  /** Tokens a turn may spend before it stops, or null for no limit. */
+  private turnLimit(): number | null {
+    return this.o.mainBudget ? this.o.mainBudget().perRunTokens : this.usage().turnTokenLimit;
   }
 
   /** The usage entry that closes a turn which spent tokens. */
   private recordUsage(s: StoredSession): void {
     const t = s.turn?.tokens;
     if (!t || t.main + t.subagents === 0) return;
-    const limit = this.usage().turnTokenLimit;
+    const limit = this.turnLimit();
     this.addEntry(s, { kind: "usage", main: t.main, subagents: t.subagents, ...(limit !== null && t.main + t.subagents >= limit ? { limit } : {}), at: now() });
   }
 
@@ -616,8 +635,8 @@ export class AgentRunner {
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",
-        system: system(this.o.host.projectDir, this.runsMode(), usage),
-        subagentSystem: subagentSystem(this.o.host.projectDir, this.runsMode(), usage),
+        system: system(this.o.host.projectDir, this.runsMode(), usage, this.composed()),
+        subagentSystem: subagentSystem(this.o.host.projectDir, this.runsMode(), usage, this.composed()),
         subagents: { mode: usage.subagents, perTurn: usage.subagentsPerTurn, model: this.subagentModel(), effort: this.subagentEffort() },
         prompt,
         resume: s.sdkSession ?? null,
@@ -722,6 +741,7 @@ export class AgentRunner {
     if (name === "editor_restart" && !exec.isError) exec = await this.editorBack(s, exec, controller.signal);
     if (controller.signal.aborted) return exec;
     this.markSaved(s, exec.saved);
+    if (!exec.isError) exec = { ...exec, text: this.withInstructions(owner ?? s.id, name, input, exec.text) };
     const p: PendingTool = { id: toolId, name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) };
     this.recordOutcome(s, p, exec.outcome);
     // A subagent the user assigned runs beside the session's turns, not as one.
@@ -910,8 +930,8 @@ export class AgentRunner {
       model: this.subagentModel(),
       effort: this.subagentEffort(),
       // Its runs are the user's, from the card: the brief says to start one.
-      system: subagentSystem(this.o.host.projectDir, "automatic", usage),
-      subagentSystem: subagentSystem(this.o.host.projectDir, "automatic", usage),
+      system: subagentSystem(this.o.host.projectDir, "automatic", usage, this.composed()),
+      subagentSystem: subagentSystem(this.o.host.projectDir, "automatic", usage, this.composed()),
       // A subagent starts none of its own.
       subagents: { mode: "off", perTurn: 0, model: this.subagentModel(), effort: this.subagentEffort() },
       prompt: [{ type: "text", text: prompt }],
@@ -991,13 +1011,16 @@ export class AgentRunner {
    * run it, or why it must not run: declined, or the turn was stopped.
    */
   private async gate(s: StoredSession, toolUseId: string, name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<GateResult> {
-    if (!(CHANGING_TOOLS as readonly string[]).includes(name)) return null;
+    const kind = approvalKind(name, input, this.o.effects ?? NO_EFFECTS);
+    if (!kind) return null;
     // A bad input fails in the executor without changing anything.
     if (validateInput(name, input)) return null;
-    if (!(this.o.askBeforeChanges?.() ?? true)) return null;
-    const kind = name === "shell" ? "shell" : "edit";
-    if (s.allowed?.includes(kind)) return null;
-    const preview = approvalFor(this.o.host.projectDir, name, input);
+    const asks = this.o.approvals
+      ? this.o.approvals()[kind] === "ask"
+      : (kind === "shell" || kind === "files") && (this.o.askBeforeChanges?.() ?? true);
+    if (!asks) return null;
+    if (s.allowed?.includes(SESSION_KEY[kind])) return null;
+    const preview = kind === "shell" || kind === "files" ? approvalFor(this.o.host.projectDir, name, input) : editorPreview(name, input);
     if (!preview) return null;
     if (signal.aborted) return { stopped: true };
 
@@ -1026,7 +1049,7 @@ export class AgentRunner {
 
     this.waitingApprovals.delete(req.id);
     s.approvals = (s.approvals ?? []).filter((a) => a.id !== req.id);
-    if (decision === "session") s.allowed = [...new Set([...(s.allowed ?? []), kind])];
+    if (decision === "session") s.allowed = [...new Set([...(s.allowed ?? []), SESSION_KEY[kind]])];
     this.o.store.save(s);
     this.o.host.events.publish("approval.resolved", { sessionId: s.id, approvalId: req.id, decision });
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
@@ -1217,7 +1240,7 @@ export class AgentRunner {
             sessionId: s.id,
             model: this.o.model(),
             effort: this.o.effort?.(),
-            system: [{ type: "text", text: system(this.o.host.projectDir, this.runsMode(), usage) }],
+            system: [{ type: "text", text: system(this.o.host.projectDir, this.runsMode(), usage, this.composed()) }],
             tools: usage.subagents === "off" ? WORK_TOOLS : TOOLS,
             messages: s.messages,
           },
@@ -1273,7 +1296,7 @@ export class AgentRunner {
     const agents = queued.slice(0, left);
     for (const p of queued.slice(left)) {
       p.state = "done";
-      p.result = usage.subagents === "off" ? "Subagents are off in Settings > Agent > Usage. Do this part yourself." : subagentLimitText(usage.subagentsPerTurn);
+      p.result = usage.subagents === "off" ? "Helpers are off in Settings > Agents > Delegation. Do this part yourself." : subagentLimitText(usage.subagentsPerTurn);
       p.isError = true;
       this.recordOutcome(s, p, "error");
     }
@@ -1343,7 +1366,7 @@ export class AgentRunner {
         return this.pause(s);
       }
       p.state = "done";
-      p.result = exec.text;
+      p.result = exec.isError ? exec.text : this.withInstructions(s.id, p.name, p.input, exec.text);
       p.isError = exec.isError;
       if (exec.images) p.images = exec.images;
       this.mergeExec(s, exec, true);
@@ -1389,7 +1412,7 @@ export class AgentRunner {
             sessionId: s.id,
             model: this.subagentModel(),
             effort: this.subagentEffort(),
-            system: [{ type: "text", text: subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.usage()) }],
+            system: [{ type: "text", text: subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.usage(), this.composed()) }],
             tools: WORK_TOOLS,
             messages,
           },
@@ -1430,8 +1453,9 @@ export class AgentRunner {
           if (!exec || signal.aborted) return stopped();
           this.mergeExec(s, exec, exec.outcome !== "unknown");
           this.markSaved(s, exec.saved);
-          this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
-          results.push({ type: "tool_result", tool_use_id: u.id, content: toolResultContent(exec.text, exec.images), is_error: exec.isError || undefined });
+          const resultText = exec.isError ? exec.text : this.withInstructions(parent, u.name, input, exec.text);
+          this.recordOutcome(s, { id: u.id, name: u.name, input, state: "done", result: resultText, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
+          results.push({ type: "tool_result", tool_use_id: u.id, content: toolResultContent(resultText, exec.images), is_error: exec.isError || undefined });
         }
         messages.push({ role: "user", content: results } as MessageParam);
       }

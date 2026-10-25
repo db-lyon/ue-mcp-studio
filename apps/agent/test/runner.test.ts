@@ -1024,7 +1024,7 @@ describe("Settings > Agent > Usage", () => {
     expect(requests.filter(isSub)).toHaveLength(2);
     const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string; is_error?: boolean }>;
     expect(results.map((r) => r.tool_use_id)).toEqual(["a0", "a1", "a2"]);
-    expect(results[2]).toMatchObject({ is_error: true, content: expect.stringContaining("the most Settings > Agent > Usage allows") });
+    expect(results[2]).toMatchObject({ is_error: true, content: expect.stringContaining("the most Settings > Agents > Delegation allows") });
     expect(fin.turn?.agents).toBe(2);
   });
 
@@ -1066,7 +1066,7 @@ describe("Settings > Agent > Usage", () => {
     await until(() => store.get(s.id)!.status === "error");
     const fin = store.get(s.id)!;
     expect(model.requests).toHaveLength(2);
-    expect(fin.error).toContain("past the turn token limit of 50000");
+    expect(fin.error).toContain("past the main agent's per-run budget of 50000 tokens");
     expect(fin.transcript.find((t) => t.kind === "usage")).toMatchObject({ main: 60_000, subagents: 0, limit: 50_000 });
   });
 
@@ -1075,7 +1075,7 @@ describe("Settings > Agent > Usage", () => {
     const on = new ScriptedModel([() => text("ok")]);
     const s = store.create();
     await new AgentRunner({ host, store, provider: () => on, model: () => "claude-opus-5-5", usage: () => DEFAULT_USAGE }).send(s.id, "hi");
-    expect(on.requests[0].system[0].text).toContain("CLAUDE.md:\nBlueprints live under /Game/BP.");
+    expect(on.requests[0].system[0].text).toContain("## From CLAUDE.md\nBlueprints live under /Game/BP.");
     const off = new ScriptedModel([() => text("ok")]);
     const t = store.create();
     await new AgentRunner({ host, store, provider: () => off, model: () => "claude-opus-5-5", usage: () => withUsage({ projectInstructions: false }) }).send(t.id, "hi");
@@ -1097,5 +1097,95 @@ describe("select and omit on a call", () => {
       // An empty list selects nothing, so it is not sent.
       { category: "level", action: "get_outliner", args: {} },
     ]);
+  });
+});
+
+describe("approval rows: editor restarts and ue-mcp actions that delete or overwrite", () => {
+  const use = (id: string, name: string, input: Record<string, unknown>): ModelTurn => ({ content: [{ type: "tool_use", id, name, input } as never], stopReason: "tool_use" });
+  const effects = {
+    destructive: (c: string, m: string) => (c === "asset" && m === "delete" ? true : c === "asset" || c === "level" ? false : null),
+    readOnly: () => null,
+    available: () => true,
+  };
+  const rows = (over: Partial<Record<"shell" | "files" | "editorRestart" | "destructive", "ask" | "allow">>) => () =>
+    ({ shell: "allow", files: "allow", editorRestart: "allow", destructive: "allow", ...over } as const);
+  const waiting = (sid: string) => () => (store.get(sid)!.approvals ?? []).length > 0;
+
+  it("asks before a destructive ue-mcp action, from ue-mcp's metadata, and runs the rest without asking", async () => {
+    const model = new ScriptedModel([
+      () => call("r1", "asset", "list", { path: "/Game" }),
+      () => call("d1", "asset", "delete", { assetPath: "/Game/Old" }),
+      () => text("Deleted."),
+    ]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", approvals: rows({ destructive: "ask" }), effects });
+    const s = store.create();
+    const turn = runner.send(s.id, "clean up");
+    await until(waiting(s.id));
+    const a = store.get(s.id)!.approvals![0];
+    expect(a).toMatchObject({ tool: "ue_mcp", toolUseId: "d1", call: { category: "asset", method: "delete", args: { assetPath: "/Game/Old" } } });
+    expect(host.calls.map((c) => c.action)).toEqual(["list"]);
+    runner.answerApproval(s.id, a.id, "allow");
+    await turn;
+    expect(host.calls.map((c) => c.action)).toEqual(["list", "delete"]);
+  });
+
+  it("asks before an editor restart, by the tool or by the editor action, and keeps a session allowance apart from commands", async () => {
+    const model = new ScriptedModel([
+      () => use("e1", "editor_restart", { operation: "rebuild", reason: "new C++ class" }),
+      () => call("e2", "editor", "restart_editor"),
+      () => text("Back."),
+    ]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", approvals: rows({ editorRestart: "ask" }), effects });
+    const s = store.create();
+    const turn = runner.send(s.id, "rebuild");
+    await until(waiting(s.id));
+    const a = store.get(s.id)!.approvals![0];
+    expect(a).toMatchObject({ tool: "editor_restart", operation: "rebuild", reason: "new C++ class" });
+    runner.answerApproval(s.id, a.id, "session");
+    await turn;
+    // The second restart was allowed for the session: asked once.
+    expect(host.published.filter((e) => e.type === "approval.requested")).toHaveLength(1);
+    expect(store.get(s.id)!.allowed).toEqual(["restart"]);
+  });
+
+  it("does not ask about a kind set to allow, and cannot ask about destructive actions without ue-mcp's metadata", async () => {
+    const model = new ScriptedModel([() => call("d1", "asset", "delete", { assetPath: "/Game/Old" }), () => use("e1", "editor_restart", { operation: "restart", reason: "r" }), () => text("ok")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", approvals: rows({ destructive: "ask", editorRestart: "allow" }) });
+    const s = store.create();
+    await runner.send(s.id, "go");
+    await until(() => store.get(s.id)!.status === "idle");
+    expect(host.published.some((e) => e.type === "approval.requested")).toBe(false);
+  });
+
+  it("follows the shell and file rows separately", async () => {
+    const model = new ScriptedModel([() => use("w1", "write_file", { path: "a.txt", content: "x" }), () => use("c1", "shell", { command: "echo hi" }), () => text("ok")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", approvals: rows({ shell: "ask" }) });
+    const s = store.create();
+    const turn = runner.send(s.id, "go");
+    await until(waiting(s.id));
+    expect(fs.readFileSync(path.join(host.projectDir, "a.txt"), "utf-8")).toBe("x");
+    expect(store.get(s.id)!.approvals![0]).toMatchObject({ tool: "shell", command: "echo hi" });
+    runner.answerApproval(s.id, store.get(s.id)!.approvals![0].id, "deny");
+    await turn;
+  });
+});
+
+describe("instruction files that join as the agent works", () => {
+  it("adds a subfolder's AGENTS.md to the first result that touches the folder, once", async () => {
+    fs.mkdirSync(path.join(host.projectDir, "Source", "Game"), { recursive: true });
+    fs.writeFileSync(path.join(host.projectDir, "Source", "Game", "AGENTS.md"), "Use the Game module's logging category.");
+    fs.writeFileSync(path.join(host.projectDir, "Source", "Game", "A.cpp"), "int a;");
+    fs.writeFileSync(path.join(host.projectDir, "AGENTS.md"), "Root rules.");
+    const read = (id: string, file: string): ModelTurn => ({ content: [{ type: "tool_use", id, name: "read_file", input: { path: file } } as never], stopReason: "tool_use" });
+    const model = new ScriptedModel([() => read("r1", "Source/Game/A.cpp"), () => read("r2", "Source/Game/A.cpp"), () => text("ok")]);
+    const s = store.create();
+    await new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5" }).send(s.id, "read it");
+    await until(() => store.get(s.id)!.status === "idle");
+    expect(model.requests[0].system[0].text).toContain("## From AGENTS.md\nRoot rules.");
+    expect(model.requests[0].system[0].text).not.toContain("logging category");
+    const results = store.get(s.id)!.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((b) => (b as { type: string }).type === "tool_result") as Array<{ content: unknown }>;
+    const texts = results.map((r) => JSON.stringify(r.content));
+    expect(texts[0]).toContain("Instructions from Source/Game/AGENTS.md apply to this work in Source/Game");
+    expect(texts[1]).not.toContain("Instructions from Source/Game/AGENTS.md");
   });
 });

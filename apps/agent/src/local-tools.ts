@@ -716,7 +716,7 @@ const APPROVAL_DIFF_MAX = 400;
 const capDiff = (d: DiffLine[]): DiffLine[] =>
   d.length > APPROVAL_DIFF_MAX ? [...d.slice(0, APPROVAL_DIFF_MAX), { op: "gap", count: d.length - APPROVAL_DIFF_MAX }] : d;
 
-export type ApprovalPreview = Pick<ApprovalRequest, "tool" | "command" | "cwd" | "path" | "diff" | "creates">;
+export type ApprovalPreview = Pick<ApprovalRequest, "tool" | "command" | "cwd" | "path" | "diff" | "creates" | "operation" | "reason" | "call">;
 
 /**
  * What the user is asked to allow for a changing call, or null when the call
