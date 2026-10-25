@@ -124,3 +124,7 @@
 }
 @media (pointer: coarse) { .cfg button { min-height: 34px; } .cfg button.switch { min-height: 20px; } }
 @media (prefers-reduced-motion: reduce) { .cfg button.switch::after { transition: none; } }
+
+/* Links inside settings copy read as text, not as buttons. */
+.cfg button.link { background: none; border: 0; padding: 0; min-height: 0; color: var(--accent-hi); font: inherit; letter-spacing: 0; text-transform: none; cursor: pointer; }
+.cfg button.link:hover:not(:disabled) { background: none; border: 0; text-decoration: underline; color: var(--accent-hi); }
