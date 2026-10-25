@@ -24,24 +24,40 @@ const AGENT = "Agent";
 const WORKER = "editor-worker";
 /** The SDK's web search, which runs on Anthropic's side: the one built-in tool besides Agent. */
 const SEARCH = "WebSearch";
+/** The SDK's skill tool, which an explicit tool list must name for the project's skills to load. */
+const SKILL = "Skill";
 
-/** Tool names as Studio's transcript writes them: its own tools unprefixed, the SDK's subagent tool as agent. */
+/** Claude Code's built-in names a skill or subagent may use, each run by Studio's own tool through the SDK's toolAliases. */
+export const BUILTIN_TO_STUDIO: Record<string, string> = { Bash: "shell", Read: "read_file", Write: "write_file", Edit: "edit_file", Glob: "glob", Grep: "grep", WebFetch: "web_fetch" };
+
+/** Tool names as Studio's transcript writes them: its own tools unprefixed, aliased built-ins as the tool that runs them, the SDK's subagent tool as agent. */
 export const studioName = (name: string): string =>
   name.startsWith(PREFIX) ? name.slice(PREFIX.length)
     : name === AGENT || name === "Task" ? "agent"
     : name === SEARCH ? "web_search"
-    : name;
+    : BUILTIN_TO_STUDIO[name] ?? name;
+
+/** A built-in's arguments in the shape Studio's tool takes: file_path as path, -i as ignore_case. */
+export function studioArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...args };
+  if (out.path === undefined && typeof out.file_path === "string") out.path = out.file_path;
+  delete out.file_path;
+  if (out.ignore_case === undefined && typeof out["-i"] === "boolean") out.ignore_case = out["-i"];
+  delete out["-i"];
+  return out;
+}
 
 /** Studio's machine tools in the SDK's form: the same names and descriptions as the API path, checked by zod. */
 function localSdkTools(handler: (name: string) => (args: Record<string, unknown>) => Promise<{ content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }>; isError: boolean }>) {
   const desc = Object.fromEntries(localToolDefinitions().map((t) => [(t as { name: string }).name, (t as { description?: string }).description ?? ""]));
   return [
     tool("shell", desc.shell, { command: z.string(), timeout: z.number().optional(), description: z.string().optional() }, handler("shell")),
-    tool("read_file", desc.read_file, { path: z.string(), offset: z.number().optional(), limit: z.number().optional() }, handler("read_file")),
-    tool("write_file", desc.write_file, { path: z.string(), content: z.string() }, handler("write_file")),
-    tool("edit_file", desc.edit_file, { path: z.string(), old_string: z.string(), new_string: z.string(), replace_all: z.boolean().optional() }, handler("edit_file")),
+    // file_path and -i: the built-in names a skill or subagent may use reach these through toolAliases with their own argument names.
+    tool("read_file", desc.read_file, { path: z.string().optional(), file_path: z.string().optional(), offset: z.number().optional(), limit: z.number().optional() }, handler("read_file")),
+    tool("write_file", desc.write_file, { path: z.string().optional(), file_path: z.string().optional(), content: z.string() }, handler("write_file")),
+    tool("edit_file", desc.edit_file, { path: z.string().optional(), file_path: z.string().optional(), old_string: z.string(), new_string: z.string(), replace_all: z.boolean().optional() }, handler("edit_file")),
     tool("glob", desc.glob, { pattern: z.string(), path: z.string().optional() }, handler("glob")),
-    tool("grep", desc.grep, { pattern: z.string(), path: z.string().optional(), glob: z.string().optional(), ignore_case: z.boolean().optional() }, handler("grep")),
+    tool("grep", desc.grep, { pattern: z.string(), path: z.string().optional(), glob: z.string().optional(), ignore_case: z.boolean().optional(), "-i": z.boolean().optional() }, handler("grep")),
     tool("web_fetch", desc.web_fetch, { url: z.string(), max_length: z.number().optional() }, handler("web_fetch")),
   ];
 }
@@ -60,6 +76,13 @@ export interface SubscriptionTurn {
   subagentSystem: string;
   /** Whether the model may start subagents, how many this turn, and what they run on. */
   subagents: { mode: SubagentMode; perTurn: number; model: string; effort: Effort };
+  /**
+   * The project's own Claude Code files: the setting sources the SDK reads
+   * them from, the project's and the user's subagents (passed programmatically
+   * so their tools map onto Studio's), and whether there are skills. Absent:
+   * the SDK reads no files, as while "Read the project's own files" is off.
+   */
+  native?: { settingSources: Array<"user" | "project" | "local">; agents: Record<string, NativeAgentDefinition>; skills: boolean };
   /** The user's message as content blocks: text, and any images or documents attached. */
   prompt: unknown[];
   /** The SDK session to continue, from this Studio session's last turn. */
@@ -88,8 +111,22 @@ export interface SubscriptionTurn {
  * subagent Studio defines, on its own model and effort, with a hook that
  * refuses the agent calls past the turn's allowance.
  */
-export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string) {
-  if (s.mode === "off") return { tools: [SEARCH], allowedTools: [...STUDIO_TOOLS, SEARCH] };
+/** A project subagent as the SDK takes it, its tools already in Studio's names. */
+export interface NativeAgentDefinition {
+  description: string;
+  prompt: string;
+  tools?: string[];
+  model?: string;
+  effort?: Effort;
+  maxTurns?: number;
+  skills?: string[];
+  background?: boolean;
+}
+
+export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string, native?: SubscriptionTurn["native"]) {
+  const projectAgents = native ? native.agents : {};
+  const skill = native?.skills ? [SKILL] : [];
+  if (s.mode === "off" && Object.keys(projectAgents).length === 0) return { tools: [SEARCH, ...skill], allowedTools: [...STUDIO_TOOLS, SEARCH, ...skill] };
   let started = 0;
   const limit: HookCallback = async (input) => {
     if (input.hook_event_name !== "PreToolUse") return {};
@@ -99,17 +136,21 @@ export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem
   return {
     // Built-ins: the subagent tool, and web search, which runs on Anthropic's side and touches nothing here.
     // Everything else goes through Studio's tools, so one approval model and one transcript cover every route.
-    tools: [AGENT, SEARCH],
+    tools: [AGENT, SEARCH, ...skill],
     agents: {
-      [WORKER]: {
-        description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
-        prompt: subagentSystem,
-        model: s.model,
-        effort: s.effort,
-        tools: [...STUDIO_TOOLS, SEARCH],
-      },
+      ...(s.mode === "off" ? {} : {
+        [WORKER]: {
+          description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
+          prompt: subagentSystem,
+          model: s.model,
+          effort: s.effort,
+          tools: [...STUDIO_TOOLS, SEARCH],
+        },
+      }),
+      // The project's own subagents, as their files say, each call still through Studio's tools.
+      ...Object.fromEntries(Object.entries(projectAgents).map(([name, a]) => [name, { ...a, prompt: `${subagentSystem}\n\n${a.prompt}` }])),
     },
-    allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH],
+    allowedTools: [...STUDIO_TOOLS, AGENT, SEARCH, ...skill],
     hooks: { PreToolUse: [{ matcher: AGENT, hooks: [limit] }] },
   };
 }
@@ -184,7 +225,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   // The SDK does not hand the tool_use id to a handler: match the call to the block the model sent.
   const calls = new CallMatcher();
   const handler = (name: string) => async (args: Record<string, unknown>) => {
-    const exec = await t.runTool(await calls.take(name, args), name, args);
+    const exec = await t.runTool(await calls.take(name, args), name, studioArgs(args));
     // Images go as MCP image content, which the SDK hands the model as images.
     const images = (exec.images ?? []).map((i) => ({ type: "image" as const, data: i.data, mimeType: i.mediaType }));
     return { content: [{ type: "text" as const, text: forModel(exec) }, ...images], isError: exec.isError };
@@ -234,9 +275,11 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         model: t.model,
         effort: t.effort,
         systemPrompt: t.system,
-        ...subagentOptions(t.subagents, t.subagentSystem),
+        ...subagentOptions(t.subagents, t.subagentSystem, t.native),
         mcpServers: { [SERVER]: server },
-        settingSources: [],
+        // The project's own files load as Claude Code loads them; none while "Read the project's own files" is off.
+        settingSources: t.native?.settingSources ?? [],
+        ...(t.native ? { toolAliases: Object.fromEntries(Object.entries(BUILTIN_TO_STUDIO).map(([b, s]) => [b, `${PREFIX}${s}`])) } : {}),
         includePartialMessages: true,
         resume: t.resume ?? undefined,
         cwd: t.projectDir,
