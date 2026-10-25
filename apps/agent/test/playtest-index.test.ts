@@ -32,6 +32,10 @@ let connected: boolean;
 let listed: string[];
 let clock: number;
 let next: Record<string, unknown> | null;
+/** How the bridge answers pie(script_runs); null answers as a bridge with no such action does not, with an empty success. */
+let scriptRuns: ActionResult | null;
+/** The daemon's actions.effects list, or undefined for a daemon without the feature. */
+let effects: Array<{ category: string; action: string }> | undefined;
 
 const host = (): QaHost & AgentHost => ({
   projectDir: path.join(root, "project"),
@@ -44,8 +48,10 @@ const host = (): QaHost & AgentHost => ({
       return listed.includes(p) ? ok({ path: p, name: p.split("/").pop(), default_within_ms: 5000, steps: [{ instruction: "Look", judge: "manual" }, { instruction: "Move", judge: "auto", expect: { value: "Speed", op: "gt", target: 0 } }] }) : fail(`no script at ${p}`);
     }
     if (action === "script_run" && next) return ok(next);
+    if (action === "script_runs" && scriptRuns) return scriptRuns;
     return ok({});
   },
+  ...(effects ? { actions: { effects: () => effects! } } : {}),
   editors: () => [{ connected, name: "P", port: 1, pid: 1, lastDisconnect: null }],
   editorOperation: async (op: string) => ({ op, steps: [] }),
   events: { publish: (type: string, data?: Record<string, unknown>) => void published.push({ type, data }), subscribe: () => () => {} },
@@ -82,6 +88,8 @@ beforeEach(() => {
   listed = [DOOR, JUMP, NEW];
   clock = 1;
   next = null;
+  scriptRuns = null;
+  effects = undefined;
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -136,6 +144,49 @@ describe("the project's playtests", () => {
     const jump = entry(r.playtests, JUMP)!;
     expect(jump).toMatchObject({ last: { runId: "jump_outside", sessionId: null, seenAt: "2026-10-25T01:00:00.000Z" }, card: null, session: null });
     expect(r.playtests.some((e) => e.script === "inline")).toBe(false);
+  });
+
+  it("takes the runs ue-mcp lists with pie(script_runs) when the bridge has it, over the results files", async () => {
+    const { index } = setup();
+    results("jump_file", JUMP, "finished", ["failed", "failed"], "2026-10-25T00:00:00.000Z");
+    scriptRuns = ok({ runs: [
+      { ...runAnswer("jump_listed", JUMP, "finished", ["passed", "failed"]), started_at: "2026-10-25T03:00:00.000Z", results_path: "C:/P/Saved/MCPObservations/jump_listed/results.json", live: false },
+      { ...runAnswer("door_live", `${DOOR}.DoorOpens`, "awaiting_verdict", ["passed", "passed", "awaiting_verdict"], [2]), started_at: "2026-10-25T04:00:00.000Z", live: true },
+      { run_id: "inline_1", state: "finished", steps: [], started_at: "2026-10-25T05:00:00.000Z" },
+    ], count: 3, total: 3 });
+    const r = await index.index();
+    expect(calls.find((c) => c.action === "script_runs")?.args).toEqual({ limit: 300 });
+    expect(entry(r.playtests, JUMP)!.last).toMatchObject({ runId: "jump_listed", seenAt: "2026-10-25T03:00:00.000Z", resultsPath: "C:/P/Saved/MCPObservations/jump_listed/results.json", sessionId: null });
+    expect(entry(r.playtests, DOOR)!.last).toMatchObject({ runId: "door_live", state: "awaiting_verdict" });
+    expect(r.playtests.map((e) => e.name)[0]).toBe("DoorOpens");
+    expect(r.playtests.some((e) => e.script === "inline")).toBe(false);
+    // The file's run is not listed: the action is the record.
+    expect(JSON.stringify(r)).not.toContain("jump_file");
+  });
+
+  it("reads the results files when the bridge has no pie(script_runs), and leaves it alone for a while", async () => {
+    const { index } = setup();
+    results("jump_file", JUMP, "finished", ["passed", "failed"], "2026-10-25T01:00:00.000Z");
+    scriptRuns = { isError: true, content: [{ type: "text", text: "Unknown action 'script_runs' for pie" }] };
+    expect(entry((await index.index()).playtests, JUMP)!.last!.runId).toBe("jump_file");
+    await index.index();
+    expect(calls.filter((c) => c.action === "script_runs")).toHaveLength(1);
+    clock += 6;
+    await index.index();
+    expect(calls.filter((c) => c.action === "script_runs")).toHaveLength(2);
+  });
+
+  it("does not call pie(script_runs) on a daemon whose actions lack it, nor without an editor", async () => {
+    effects = [{ category: "pie", action: "script_list" }];
+    const { index } = setup();
+    results("jump_file", JUMP, "finished", ["passed", "failed"], "2026-10-25T01:00:00.000Z");
+    expect(entry((await index.index()).playtests, JUMP)!.last!.runId).toBe("jump_file");
+    expect(calls.some((c) => c.action === "script_runs")).toBe(false);
+    effects = undefined;
+    const fresh = setup().index;
+    connected = false;
+    expect(entry((await fresh.index()).playtests, JUMP)!.last!.runId).toBe("jump_file");
+    expect(calls.some((c) => c.action === "script_runs")).toBe(false);
   });
 
   it("keeps a script the editor no longer lists while it has runs, marked deleted, and drops a deleted draft alone", async () => {

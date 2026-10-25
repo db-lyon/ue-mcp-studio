@@ -6,9 +6,12 @@
  *
  * Three sources make the list. The scripts are pie(script_list), which needs
  * the editor. The runs are every run Studio holds, in every session and none,
- * and each results.json under Saved/MCPObservations, which also covers runs
- * started outside Studio before this daemon saw them. ue-mcp has no listing of
- * script runs, so the results files are read here as the run's own record.
+ * and every run ue-mcp has a record of, which also covers runs started outside
+ * Studio before this daemon saw them. Those come from pie(script_runs) when the
+ * daemon and the editor's bridge have it (ue-mcp 1.4.11-beta.5 and later);
+ * without it, or without an editor, each results.json under
+ * Saved/MCPObservations is read here instead. Once that ue-mcp is released,
+ * apps/agent pins it, and the files stay only as the fallback with no editor.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -32,6 +35,8 @@ export interface PlaytestIndexHost {
   editors(): Array<{ connected: boolean }>;
   projectDir: string;
   events?: { publish(type: string, data?: Record<string, unknown>): unknown };
+  /** The daemon's actions (feature "actions.effects"): says whether pie(script_runs) exists before it is called. */
+  actions?: { effects(categories?: string[]): Array<{ category: string; action: string }> };
 }
 
 /** How long the editor's script list is reused before it is asked again. */
@@ -40,6 +45,8 @@ const LIST_TTL_MS = 15_000;
 const MAX_RESULTS = 300;
 /** The most never-run scripts whose steps are read for the page. */
 const MAX_READS = 60;
+/** How long a bridge without pie(script_runs) is left alone before it is asked again, as after an update. */
+const NO_RUNS_ACTION_MS = 5 * 60_000;
 
 const text = (r: ActionResult): string => r.content.map((c) => c.text ?? "").join("\n");
 function answerBody(r: ActionResult): Record<string, unknown> | null {
@@ -57,6 +64,8 @@ export class PlaytestIndex {
   private list: { at: number; scripts: Array<{ path: string; name: string }> } | null = null;
   private readonly results = new Map<string, { mtime: number; run: QaRun | null }>();
   private readonly reads = new Map<string, { at: number; draft: QaRun | null }>();
+  /** When the bridge last answered that it has no pie(script_runs). */
+  private noRunsAction = -Infinity;
   private readonly now: () => number;
 
   constructor(private readonly o: { host: PlaytestIndexHost; broker: Pick<QaBroker, "all" | "drafted">; store: SessionStore; now?: () => number }) {
@@ -75,6 +84,39 @@ export class PlaytestIndex {
       .map((s) => ({ path: qaScriptKey(s.path as string), name: typeof s.name === "string" ? s.name : qaScriptKey(s.path as string).split("/").pop()! }));
     this.list = { at: this.now(), scripts };
     return scripts;
+  }
+
+  /**
+   * The runs ue-mcp lists with pie(script_runs), newest first, or null when
+   * there is no editor, or the daemon or the bridge has no such action.
+   */
+  private async listedRuns(): Promise<QaRun[] | null> {
+    if (this.now() - this.noRunsAction < NO_RUNS_ACTION_MS) return null;
+    if (!this.o.host.editors().some((e) => e.connected)) return null;
+    let known: boolean | null = null;
+    try {
+      known = this.o.host.actions ? this.o.host.actions.effects(["pie"]).some((a) => a.action === "script_runs") : null;
+    } catch {
+      known = null;
+    }
+    if (known === false) {
+      this.noRunsAction = this.now();
+      return null;
+    }
+    const r = await this.o.host.callAction("pie", "script_runs", { limit: MAX_RESULTS }).catch(() => null);
+    const b = r ? answerBody(r) : null;
+    if (!b || !Array.isArray(b.runs)) {
+      // An editor built before the action answers that it does not know it.
+      if (r && /unknown (action|method)|not a valid action|no handler/i.test(text(r))) this.noRunsAction = this.now();
+      return null;
+    }
+    const at = new Date(this.now()).toISOString();
+    return (b.runs as unknown[]).flatMap((row) => {
+      const o = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+      const seenAt = typeof o.started_at === "string" && o.started_at ? o.started_at : typeof o.ended_at === "string" && o.ended_at ? o.ended_at : at;
+      const run = qaRunFromAnswer(o, { seenAt });
+      return run ? [run] : [];
+    });
   }
 
   /** The runs results.json files record, newest first, each read again only when its file changed. */
@@ -137,7 +179,8 @@ export class PlaytestIndex {
     const listed = await this.scripts(!!opts.fresh);
     const studio = this.o.broker.all().filter((r) => r.script !== "inline");
     const known = new Set(studio.map((r) => r.runId));
-    const runs = [...studio, ...this.disk().filter((r) => r.script !== "inline" && !known.has(r.runId))];
+    const recorded = (await this.listedRuns()) ?? this.disk();
+    const runs = [...studio, ...recorded.filter((r) => r.script !== "inline" && !known.has(r.runId))];
 
     const byScript = new Map<string, QaRun[]>();
     for (const r of runs) {
