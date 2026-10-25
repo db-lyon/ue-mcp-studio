@@ -5,8 +5,8 @@
  * pretty-printed JSON with every action's full description and parameter
  * schema. The model needs where an action lives and what it does to choose
  * one, and reads one action's parameters with describe before calling it, so
- * those two answers go out as one line per action. Every later model call
- * reads them again from the conversation.
+ * a search goes out as one line per hit and a category as its action names.
+ * Every later model call reads them again from the conversation.
  */
 
 import { compactJson } from "./model-text.js";
@@ -63,54 +63,29 @@ export function compactSearch(text: string): string {
   return [...lines, "Describe one (category + method) for its parameters before calling it."].join("\n");
 }
 
-interface ParamLine {
-  name: string;
-  required?: boolean;
-}
-
 interface ActionLine {
-  tool: string;
   action: string;
-  description?: string;
-  class?: string;
-  params?: ParamLine[];
 }
 
-/** Options every call takes, which ue-mcp's signatures repeat on every action. */
-const PER_CALL = /(,\s*)?\b(?:select|omit|timeoutMs)\?(?::[^,()]+)?(?=\s*[,)])/g;
-const PER_CALL_NAMES = new Set(["select", "omit", "timeoutMs"]);
-const PER_CALL_LINE = "Every call also takes select?, omit? and timeoutMs?.";
-
-/** A signature without the per-call options, which the category answer names once. */
-export function withoutPerCall(signature: string): string {
-  return signature.replace(PER_CALL, "").replace(/\(\s*,\s*/g, "(");
-}
-
-/** describe_action's answer for a whole category as one line per action; one action's answer as unindented JSON. */
+/**
+ * describe_action's answer for a whole category as its action names on one
+ * line; one action's answer as unindented JSON. A category holds up to a few
+ * hundred actions, and a line each with its parameters and purpose ran to
+ * 19k to 27k characters for level and asset, carried through every later
+ * call. The names say what there is; describe of one action says how to call
+ * it, and the model describes an action before its first call anyway.
+ */
 export function compactDescribe(text: string): string {
   const r = parse(text);
   if (!r) return text;
-  const signatureForm = Array.isArray(r.signatures) && r.signatures.every((x) => typeof x === "string");
-  if (!signatureForm && !Array.isArray(r.actions)) return compactJson(text);
-  const footer = "Describe one (category + method) for its full parameters.";
-  // ue-mcp from 1.4.11 answers a category with signature lines already: drop only the JSON around them,
-  // and the per-call options each line repeats.
-  if (signatureForm) {
-    const sigs = (r.signatures as string[]).map(withoutPerCall);
-    const head = `${String(r.category ?? r.tool ?? "")}: ${sigs.length} actions${typeof r.count === "number" && r.count > sigs.length ? ` of ${r.count}` : ""}. ${footer}`;
-    return [head, PER_CALL_LINE, ...sigs].join("\n");
-  }
-  // The params form lists the per-call options as params of every action: drop them there too.
-  let perCall = false;
-  const lines = (r.actions as ActionLine[]).map((a) => {
-    const own = (a.params ?? []).filter((p) => {
-      const shared = !p.required && PER_CALL_NAMES.has(p.name);
-      if (shared) perCall = true;
-      return !shared;
-    });
-    const params = own.map((p) => `${p.name}${p.required ? "" : "?"}`).join(", ");
-    const kind = a.class === "read" ? "" : ` [${a.class ?? "mutate"}]`;
-    return `${a.action}(${params})${kind}: ${summary(a.description ?? "", 100)}`;
-  });
-  return [`${String(r.tool)}: ${lines.length} actions. ${footer}`, ...(perCall ? [PER_CALL_LINE] : []), ...lines].join("\n");
+  // ue-mcp from 1.4.11 answers a category with signature lines, earlier ones with a schema per action.
+  const names = Array.isArray(r.signatures) && r.signatures.every((x) => typeof x === "string")
+    ? (r.signatures as string[]).map((s) => s.replace(/\(.*$/s, "").trim())
+    : Array.isArray(r.actions)
+      ? (r.actions as ActionLine[]).map((a) => a.action).filter((a) => typeof a === "string")
+      : null;
+  if (!names) return compactJson(text);
+  const category = String(r.category ?? r.tool ?? "");
+  const total = typeof r.count === "number" && r.count > names.length ? ` of ${r.count}` : "";
+  return `${category}: ${names.length} actions${total}. Describe one (category + method) for its parameters, or search by intent.\n${names.join(", ")}`;
 }
