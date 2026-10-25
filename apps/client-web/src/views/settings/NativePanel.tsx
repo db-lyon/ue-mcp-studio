@@ -80,12 +80,24 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
         </>
       )}
       {msg.node}
-      {view && <ConventionView view={view} main={overview.main} preview={preview} onConnect={onConnect} onError={msg.fail} />}
+      {view && <ConventionView view={view} main={overview.main} preview={preview} shared={sharedWith(view, overview)} onPick={setTab} onConnect={onConnect} onError={msg.fail} />}
     </>
   );
 }
 
-function ConventionView({ view, main, preview, onConnect, onError }: { view: NativeView; main: Convention | null; preview: NativePreview | null; onConnect: () => void; onError: (e: Error) => void }) {
+/**
+ * The same files read under another tab by a connected route: an AGENTS.md or
+ * a skill folder can belong to several vendors' conventions at once.
+ */
+export function sharedWith(view: NativeView, o: NativeOverview): Array<{ convention: Convention; paths: string[]; routes: string[] }> {
+  const mine = new Set([...view.instructions.map((f) => f.path), ...view.skills.map((s) => s.path)]);
+  return conventionOrder(o)
+    .filter((v) => v.convention !== view.convention && v.routes.length)
+    .map((v) => ({ convention: v.convention, paths: [...v.instructions.map((f) => f.path), ...v.skills.map((s) => s.path)].filter((p) => mine.has(p)), routes: v.routes }))
+    .filter((x) => x.paths.length);
+}
+
+function ConventionView({ view, main, preview, shared, onPick, onConnect, onError }: { view: NativeView; main: Convention | null; preview: NativePreview | null; shared: ReturnType<typeof sharedWith>; onPick: (c: Convention) => void; onConnect: () => void; onError: (e: Error) => void }) {
   const info = CONVENTION_INFO[view.convention];
   const sdk = preview?.loadedBy === "sdk";
   const inUse = view.routes.length > 0;
@@ -104,9 +116,14 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
         {inUse
           ? <span>Read by: {view.routes.join(", ")}.{view.convention === main ? " The main agent runs here." : ""} {sdk ? "The Agent SDK loads these files itself, as Claude Code does." : `Studio reads them the way ${info.tool === "AGENTS.md" ? "agents that read AGENTS.md do" : `${info.tool} does`}.`}</span>
           : view.convention === "agents"
-            ? <span>Read by: custom endpoints. No route on this machine reads these.</span>
+            ? <span>No custom endpoint is set up, so no route reads these as AGENTS.md files.</span>
             : <span>No connected route reads these. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></span>}
       </p>
+      {!inUse && shared.map((x) => (
+        <p key={x.convention} className="cfg-note">
+          The same {x.paths.length === 1 ? x.paths[0] : `${x.paths.length} files`} {x.paths.length === 1 ? "is" : "are"} read under <button className="link" onClick={() => onPick(x.convention)}>{CONVENTION_INFO[x.convention].tool}</button> by {x.routes.join(", ")}.
+        </p>
+      ))}
       {view.notes.map((n) => <div key={n} className="banner warn small">{n}</div>)}
 
       <Card label={view.instructions.length ? `Instruction files · ${tokens(view.instructionTokens)} per call` : "Instruction files"}>

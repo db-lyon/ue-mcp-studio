@@ -70,6 +70,16 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.getAllByRole("button", { name: "Open AGENTS.md" })).toHaveLength(1);
   });
 
+  it("says when a tab no route reads shares its files with one a route does", async () => {
+    const o = overview();
+    o.conventions[3] = { ...o.conventions[3], instructions: [{ path: "AGENTS.md", source: "project", tokens: 300, scope: { kind: "always" } }] };
+    await show({}, o);
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^AGENTS\.md/ })));
+    expect(screen.getByText((_, el) => el?.tagName === "P" && el.textContent === "The same AGENTS.md is read under Codex by ChatGPT sign-in, OpenAI key.")).toBeTruthy();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Codex" })));
+    expect(screen.getByRole("navigation", { name: "Whose files" }).querySelector("[aria-current=page]")?.textContent).toBe("Codex4, read by a connected route");
+  });
+
   it("opens a listed file in the system's editor", async () => {
     await show();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Open .codex/agents/scout.toml" })));
@@ -114,7 +124,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.getByText(/No connected route reads these\./)).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^AGENTS\.md/ })));
     // Custom endpoints read AGENTS.md; nothing to connect until one is set up.
-    expect(screen.getByText(/Read by: custom endpoints. No route on this machine reads these./)).toBeTruthy();
+    expect(screen.getByText(/No custom endpoint is set up, so no route reads these as AGENTS.md files./)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Connect one in Models & accounts" })).toBeNull();
   });
 

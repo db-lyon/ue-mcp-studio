@@ -33,6 +33,28 @@ describe("Settings sections", () => {
     expect(screen.getByText("UsageSection body")).toBeTruthy();
   });
 
+  it("reports the context strategy in effect, and marks Project when the environment overrides the saved one", async () => {
+    const withStrategy = m as unknown as { contextStrategy?: () => Promise<unknown> };
+    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "micro", fromFile: true, envOverride: "full", seeds: {}, seedSource: "" }));
+    try {
+      await act(async () => void render(<SettingsHub daemon={daemon} section={null} onSection={vi.fn()} onTheme={vi.fn()} narrow />));
+      expect(screen.getByLabelText("An environment variable overrides the saved context strategy")).toBeTruthy();
+    } finally {
+      delete withStrategy.contextStrategy;
+    }
+  });
+
+  it("names the strategy the environment sets when it matches the saved one", async () => {
+    const withStrategy = m as unknown as { contextStrategy?: () => Promise<unknown> };
+    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "full", fromFile: true, envOverride: "full", seeds: {}, seedSource: "" }));
+    try {
+      await act(async () => void render(<SettingsHub daemon={daemon} section={null} onSection={vi.fn()} onTheme={vi.fn()} narrow />));
+      expect(screen.getByText("Full for other clients, set by the environment")).toBeTruthy();
+    } finally {
+      delete withStrategy.contextStrategy;
+    }
+  });
+
   it("marks a section that needs attention", async () => {
     await act(async () => void render(<SettingsHub daemon={daemon} section="agents" onSection={vi.fn()} onTheme={vi.fn()} updates={2} />));
     expect(screen.getByLabelText("Connect a sign-in or an API key")).toBeTruthy();

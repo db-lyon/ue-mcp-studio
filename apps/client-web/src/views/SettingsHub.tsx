@@ -61,10 +61,11 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  */
 export function useSectionStatus(updates: number, daemon: DaemonState): { dots: Partial<Record<SettingsSection, string>>; lines: Partial<Record<SettingsSection, string>> } {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
-  const [extra, setExtra] = useState<{ approvalsOff?: number; strategy?: string; ready?: boolean; budgets?: number; models?: ModelCatalog } >({});
+  const [extra, setExtra] = useState<{ approvalsOff?: number; strategy?: string; overridden?: boolean; ready?: boolean; budgets?: number; models?: ModelCatalog } >({});
   useEffect(() => {
     api.settings().then(setSettings, () => setSettings(null));
-    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: CONTEXT_STRATEGY_INFO[c.strategy].name })), () => undefined);
+    // The strategy in effect: an environment override beats the saved one.
+    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: c.envOverride ? `${CONTEXT_STRATEGY_INFO[c.envOverride].name} for other clients, set by the environment` : `${CONTEXT_STRATEGY_INFO[c.strategy].name} for other clients`, overridden: !!c.envOverride && c.envOverride !== c.strategy })), () => undefined);
     if (typeof api.install === "function") api.install().then((r) => setExtra((e) => ({ ...e, ready: r.ok })), () => undefined);
     if (typeof api.budgets === "function") api.budgets().then((b) => setExtra((e) => ({ ...e, budgets: Object.values(b.budgets.agents).reduce((n, x) => n + [x.perRunTokens, x.perRunMinutes, x.perDayTokens].filter((v) => v !== null).length, 0) + [b.budgets.team.perDayTokens, b.budgets.team.perMonthTokens].filter((v) => v !== null).length })), () => undefined);
     if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
@@ -75,6 +76,7 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   if (settings && settings.route === null) dots.agents = "No model can run the main agent yet";
   else if (settings && settings.route === null) dots.models = "Nothing connected can run the main agent's model";
   if (settings && settings.destructiveKnown === false) dots.approvals = "One kind cannot ask first until ue-mcp is updated";
+  if (extra.overridden) dots.project = "An environment variable overrides the saved context strategy";
   if (updates > 0) dots.general = `${updates} ${updates === 1 ? "update" : "updates"} available`;
   const lines: Partial<Record<SettingsSection, string>> = {};
   if (settings) {
@@ -89,7 +91,7 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
     const usable = settings.approvals ? (Object.entries(settings.approvals) as Array<[string, string]>).filter(([k]) => k !== "destructive" || settings.destructiveKnown !== false) : [];
     if (rules.length) lines.approvals = `${usable.filter(([, r]) => r === "ask").length} kinds ask first${usable.length < rules.length ? `, ${rules.length - usable.length} unavailable` : ""}, review ${settings.reviewTurns === false ? "off" : "on"}`;
   }
-  if (extra.ready !== undefined || extra.strategy) lines.project = [extra.ready === undefined ? null : extra.ready ? "Ready" : "Needs attention", extra.strategy ? `${extra.strategy} for other clients` : null].filter(Boolean).join(", ");
+  if (extra.ready !== undefined || extra.strategy) lines.project = [extra.ready === undefined ? null : extra.ready ? "Ready" : "Needs attention", extra.strategy ?? null].filter(Boolean).join(", ");
   if (extra.budgets !== undefined) lines.usage = extra.budgets ? `${plural(extra.budgets, "limit")} set` : "No limits set";
   lines.general = updates > 0 ? dots.general : "Up to date";
   const editor = daemon?.health?.editors?.find((e) => e.connected);
