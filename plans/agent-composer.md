@@ -623,18 +623,16 @@ Each phase ships on its own and leaves Studio coherent.
 
 ---
 
-## 9. Open questions
+## 9. Settled decisions
 
-Each has a recommendation; the reviewer decides.
-
-1. **Where project team files live.** Options: `.ue-mcp/studio/`, keys in ue-mcp.yml, a top-level folder. **Recommend `.ue-mcp/studio/`**: beside ue-mcp's own project state, out of ue-mcp.yml, which ue-mcp owns and every client reads.
-2. **Project skills folder.** ue-mcp and plugins install into `.claude/skills/`. A vendor-neutral `.agents/skills/` would read better. **Recommend reading both and writing to `.claude/skills/`** for now, so ue-mcp, plugins and Studio agree on one place; propose a neutral alias to ue-mcp separately.
-3. **Should helpers hand work to helpers?** **Recommend no** (2.9).
-4. **Currency for sign-in routes.** **Recommend none by default**: plan meters and tokens, with the opt-in key-equivalent column.
-5. **Price table source.** **Recommend shipped with Studio, dated, sourced, user-editable.** No live price fetch.
-6. **Per-agent approvals.** **Recommend global only**; per-agent scope already removes tools.
-7. **Context strategy default before measurement.** **Recommend Micro** (today's), Auto hidden until data ships.
-8. **What the chat picker changes.** **Recommend the session only**, with "Make default".
-9. **A teammate lacks a vendor.** **Recommend fallbacks in the agent file**, then the main agent's model, with a warning on the agent and in Usage.
-10. **Shared budgets.** **Recommend per machine only.** Spend depends on each person's plan and keys; a team that wants a norm writes it in AGENTS.md.
-11. **Playtest runs as a shared ue-mcp mode.** Starting playtests is Studio's setting today. **Recommend proposing it to ue-mcp as a mode** like dialogs and feedback, so other clients follow it too; until then it has no shared badge.
+1. **Project team files live in `.ue-mcp/studio/`**, beside ue-mcp's own project state and out of ue-mcp.yml, which ue-mcp owns and every client reads.
+2. **Project skills are read from `.claude/skills/` and `.agents/skills/`, and written to `.claude/skills/`**, the folder ue-mcp and its plugins already install into. A vendor-neutral alias is proposed to ue-mcp as its own change.
+3. **Helpers do not hand work to other helpers** (2.9). Delegation is one level deep.
+4. **Sign-in routes show no currency by default**, only plan meters and tokens. A key-equivalent cost column is opt-in.
+5. **Prices ship with Studio** as a dated, sourced table the user can edit. Studio never fetches prices live.
+6. **Approvals are global.** Per-agent tool scope already removes what an agent may not use.
+7. **Context strategy defaults to Micro**, today's behaviour. Auto stays hidden until the measurement file ships.
+8. **The chat's model picker changes the current session only**, with a Make default action.
+9. **A teammate who lacks an agent's vendor gets that agent's fallbacks**, then the main agent's model, with a warning on the agent and in Usage.
+10. **Budgets are per machine.** Spend depends on each person's plan and keys; a team that wants a norm writes it in AGENTS.md.
+11. **Playtest runs is proposed to ue-mcp as a shared mode**, like dialogs and feedback, so other clients follow it. Until ue-mcp has it, the setting stays Studio's own and carries no shared badge.
