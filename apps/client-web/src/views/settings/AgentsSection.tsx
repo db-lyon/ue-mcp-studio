@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { EFFORT_NAMES, IMAGE_EDGES, type Effort, type ImageSize, type NativeOverview, type StudioSettings, type UsageSettings } from "@ue-mcp-studio/shared";
+import { AGENT_CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO, EFFORT_NAMES, IMAGE_EDGES, type AgentContextView, type Effort, type ImageSize, type NativeOverview, type StudioSettings, type UsageSettings } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { EffortPicker, ModelPicker } from "../ModelPicker";
 import { Head, type SettingsSection } from "../SettingsHub";
 import { NativePanel } from "./NativePanel";
-import { Card, Row, Seg, Switch, useMessage } from "./controls";
+import { Card, Row, Seg, Switch, tokens, useMessage } from "./controls";
 
 export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
   { id: "small", name: `Small ${IMAGE_EDGES.small} px` },
@@ -13,6 +13,13 @@ export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
 ];
 
 const SAME = "Same as the main agent";
+
+/** What the ue-mcp tools row says: what the choice does, and why the strategy in effect differs when it does. */
+function contextHelp(v: AgentContextView): string {
+  const base = "How ue-mcp's actions are put to the agent: one tool to search and call them (Micro), a tool per category (Lean) or every signature up front (Full). More up front costs tokens on every call and saves discovery calls. Other MCP clients are set in Project.";
+  if (!v.projection) return `${base} This ue-mcp cannot project its tools for Studio, so only Micro runs; update ue-mcp to choose another.`;
+  return v.note ? `${base} ${v.note}` : base;
+}
 const STARTS: Record<string, string> = { never: "never: earlier settings turned it off", asked: "when you ask for a helper", automatic: "when the work splits into independent parts" };
 
 /**
@@ -22,11 +29,13 @@ const STARTS: Record<string, string> = { never: "never: earlier settings turned 
 export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) => void }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const [native, setNative] = useState<NativeOverview | null>(null);
+  const [agentContext, setAgentContext] = useState<AgentContextView | null>(null);
   const msg = useMessage();
   const loadNative = () => api.native().then(setNative, msg.fail);
   useEffect(() => {
     api.settings().then(setSettings, msg.fail);
     void loadNative();
+    if (typeof api.agentContext === "function") api.agentContext().then(setAgentContext, () => setAgentContext(null));
   }, []);
   const saveUsage = (u: Partial<UsageSettings>) => api.saveSettings({ usage: u }).then((s) => {
     setSettings(s);
@@ -53,6 +62,21 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
           <p className="banner warn small" style={{ marginTop: 10 }}>
             Nothing on this machine can run this model yet. <button className="link" onClick={() => onSection("models")}>Connect it in Models & accounts</button>, or pick a model that runs.
           </p>
+        )}
+        {agentContext && (
+          <Row title="ue-mcp tools" help={contextHelp(agentContext)}>
+            <Seg
+              label="ue-mcp tools"
+              value={agentContext.strategy}
+              options={AGENT_CONTEXT_STRATEGIES.filter((s) => s !== "auto" || agentContext.measurement).map((s) => ({
+                id: s,
+                name: s === "auto" ? "Auto" : `${CONTEXT_STRATEGY_INFO[s].name}${agentContext.seeds ? ` ~${tokens(agentContext.seeds[s])}` : ""}`,
+                title: s === "auto" ? "Picks the strategy with the fewest tokens among those that pass as many tasks, from a measurement" : `${CONTEXT_STRATEGY_INFO[s].sees} ${CONTEXT_STRATEGY_INFO[s].discovery}`,
+                disabled: !agentContext.projection && s !== "micro",
+              }))}
+              onChange={(v) => void api.saveAgentContext(v).then(setAgentContext, msg.fail)}
+            />
+          </Row>
         )}
         <Row title="Screenshot size" help="The longest side of a screenshot or picture an agent is shown. A larger image costs more every time the conversation is read again.">
           <Seg label="Screenshot size" value={settings.usage.imageSize} options={IMAGE_SIZES} onChange={(v) => void saveUsage({ imageSize: v })} />
