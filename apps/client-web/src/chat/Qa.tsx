@@ -646,7 +646,6 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       {cues.overflow && <ScrollCue dir="above" count={cues.above} more={cues.moreAbove} onClick={() => cues.by(-1)} />}
       <div className="qa-body" id={`qa-body-${run.runId}`} ref={body}>
       {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
-      {run.steps.length > 0 && <PathLegend />}
       {panel === "run" && runnable && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
       {panel === "delete" && <div className="small dim">Deleting removes the script asset. <button className="ghost small-button" onClick={() => setPanel(null)}>Keep it</button></div>}
       {assignment?.loop && (
@@ -665,6 +664,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           {live?.onThread && <button className="ghost small-button" onClick={() => live.onThread!(assignment.callId)}>Open its thread</button>}
         </div>
       )}
+      {panel !== "edit" && run.steps.length > 0 && <PathLegend />}
       {panel === "edit" && draft ? (
         <DraftEditor run={run} busy={working} onSave={(steps) => act(() => api.qaSaveScript(run.runId, steps))} onCancel={() => setPanel(null)} />
       ) : (
