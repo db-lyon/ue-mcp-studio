@@ -1329,6 +1329,8 @@ button.qa-path-hit:hover::before, button.qa-path-hit:focus-visible::before { top
 button.strip-more { align-self: flex-start; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 :root[data-theme="editor"] .qa-card:not(.needs-you):not(.state-awaiting_verdict),
 :root[data-theme="editor-orange"] .qa-card:not(.needs-you):not(.state-awaiting_verdict) { border-color: var(--line-strong); }
+:root[data-theme="editor"] .qa-card.needs-you, :root[data-theme="editor"] .qa-card.state-awaiting_verdict,
+:root[data-theme="editor-orange"] .qa-card.needs-you, :root[data-theme="editor-orange"] .qa-card.state-awaiting_verdict { border-color: var(--warn); }
 :root[data-theme="editor"] .qa-card .pill, :root[data-theme="editor-orange"] .qa-card .pill,
 :root[data-theme="editor"] .playtests-page .pill, :root[data-theme="editor-orange"] .playtests-page .pill { font: 400 11px/1.6 var(--sans); }
 /* The strip draws over the transcript's top edge, so a clipped transcript card never reads as part of it. */
