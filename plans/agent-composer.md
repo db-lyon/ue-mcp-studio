@@ -253,6 +253,9 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 
 No phase was run against a live editor: the user has not asked for editor use. Each phase's PR lists the exact commands that prove it live once asked.
 
+- **Context measurement for Auto**: `node scripts/usage-parity/measure.mjs --project <tests/ue_mcp .uproject> --no-cc --rounds 3 --strategies micro,lean,full --measurement apps/agent/src/context-costs.json`, then commit the file. Until it exists Auto stays hidden and Micro is the default.
+- **Lean and Full on the daemon**: with the daemon offering `context.projection` (ue-mcp after 1.4.11-beta.4), choose Lean in Settings > Agents and run a turn on each route; the transcript shows each category call as `ue_mcp` category.method, and a destructive action still asks first.
+
 ---
 
 ## 12. Decisions made while building
@@ -283,3 +286,10 @@ No phase was run against a live editor: the user has not asked for editor use. E
 4. **Plan meters show what the plan last reported** (the Agent SDK's rate-limit events, ChatGPT's limit headers) and say when a sign-in has never reported; a window past its reset shows as reset. Studio never estimates a plan's limit.
 5. **Cost is estimated only on keys and custom endpoints**, from the shipped dated table or the user's own price, and a call with an unpriced kind gets no cost rather than a guess; a row with any such call says it is partial.
 6. **The day chart keeps seven series** in the fixed categorical order and folds the rest into Other, and draws the all-agents daily budget only when it is within twice the busiest day; otherwise it names it under the chart.
+
+### Phase 4
+
+1. **Lean and Full are ue-mcp's own projected tools**, offered as they are; Studio writes none of them. A category call is read back as the ue_mcp call it is (category, method, args), so approvals, action effects, checkpoints and the transcript see one shape on every strategy. A projected tool that is not a category, such as Lean's catalog, runs through `context.call`.
+2. **The Claude sign-in gets the same surface**: projected tools are registered with the Agent SDK from their JSON Schemas, and project subagents whose files allow ue_mcp get every projected editor tool in its place.
+3. **The choice is Studio's own setting** (`usage.contextStrategy`, Micro by default) and never touches ue-mcp.yml, so other clients keep theirs. A daemon without projections runs Micro whatever was chosen and says why; a projection that fails mid-session falls back to Micro for that turn.
+4. **Auto ships hidden.** It appears only once `context-costs.json` exists beside the agent; the usage-parity runner writes it from task-checked runs per strategy.
