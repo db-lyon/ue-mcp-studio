@@ -21,7 +21,8 @@ export function runsVia(catalog: Catalog, vendor: Vendor, m: ModelOption): SignI
   return m.signIns.find((s) => catalog.signedIn[s]) ?? (vendor.connected ? "key" : null);
 }
 
-const VIA_LABEL: Record<SignInId | "key", string> = { chatgpt: "ChatGPT plan", claude: "Claude plan", studio: "Studio plan", key: "your key" };
+/** One name per route, the same in the picker, the Models table and the sign-in rows. */
+export const VIA_LABEL: Record<SignInId | "key", string> = { chatgpt: "ChatGPT sign-in", claude: "Claude sign-in", studio: "Studio plan", key: "key" };
 
 function find(catalog: Catalog | null, vendor: KeyProviderId, model: string): { vendor: Vendor; model: ModelOption } | null {
   const v = catalog?.providers.find((p) => p.id === vendor);
@@ -118,7 +119,7 @@ export function ModelPicker({
                       onClick={() => (runs ? void select(p.id, m.id) : setConnecting({ vendor: p.id, model: m.id }))}
                     >
                       <span>{m.name}</span>
-                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs ? VIA_LABEL[runs] : m.signIns.length ? "sign in" : "connect"}</span>
+                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs === "key" ? `${p.name} key` : runs ? VIA_LABEL[runs] : m.signIns.length ? "sign in" : "connect"}</span>
                     </button>
                   );
                 })}
@@ -194,7 +195,7 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 
 const SIGN_IN_ABOUT: Record<SignInId, string> = {
   chatgpt: "With your ChatGPT account. OpenAI models run on your ChatGPT plan's limits.",
-  claude: "Runs Claude models on your Claude plan's limits through the Claude Agent SDK, with the login you made in Claude Code.",
+  claude: "Runs Claude models on your Claude plan, with the login you made in Claude Code.",
   studio: "With your GitHub account. Runs the models in your Studio plan.",
 };
 

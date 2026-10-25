@@ -7,6 +7,7 @@ import "@fontsource/instrument-serif/latin-400-italic.css";
 import "@fontsource/roboto/latin-400.css";
 import "@fontsource/roboto/latin-700.css";
 import "./styles.css";
+import "./settings.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

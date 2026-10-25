@@ -4,9 +4,9 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import type { StudioSettings } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({ signIn: vi.fn(), saveSettings: vi.fn() }));
-vi.mock("../api", () => ({ api: m }));
-import { ProviderRow } from "./Settings";
-import { CLAUDE_LOGIN_WHY } from "./ModelPicker";
+vi.mock("../../api", () => ({ api: m }));
+import { ProviderRow } from "./ModelsSection";
+import { CLAUDE_LOGIN_WHY } from "../ModelPicker";
 
 afterEach(() => {
   cleanup();

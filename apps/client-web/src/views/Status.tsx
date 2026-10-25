@@ -47,7 +47,7 @@ export function StatusView({ daemon }: { daemon: DaemonState }) {
         ))}
         <div className="actions">
           {(["start", "stop", "restart", "rebuild"] as const).map((op) => (
-            <button key={op} disabled={busy !== null} onClick={() => run(op)}>
+            <button key={op} disabled={busy !== null || (op === "start" ? h.editors.some((e) => e.connected) : !h.editors.some((e) => e.connected))} onClick={() => run(op)}>
               {busy === op ? `${op}...` : op[0].toUpperCase() + op.slice(1)}
             </button>
           ))}
@@ -59,7 +59,7 @@ export function StatusView({ daemon }: { daemon: DaemonState }) {
         <dl className="grid">
           <dt>Version</dt><dd>{h.version} (API {h.apiVersion})</dd>
           <dt>Process</dt><dd>pid {h.pid}, since {new Date(h.startedAt).toLocaleString()}</dd>
-          <dt>MCP clients</dt><dd>{h.clients}{h.inflight ? `, ${h.inflight} call(s) in flight` : ""}</dd>
+          <dt>MCP clients connected now</dt><dd>{h.clients}{h.inflight ? `, ${h.inflight} call(s) in flight` : ""}</dd>
           <dt>Extensions</dt><dd>{h.extensions.map((x) => `${x.name} ${x.version}`).join(", ") || "none"}</dd>
           <dt>UI</dt><dd>{h.ui ?? "development server"}</dd>
           <dt>Project</dt><dd className="mono">{h.projectRoot}</dd>

@@ -86,7 +86,7 @@ export function tokenCount(n: number): string {
 /** What a turn spent, under its last message, and the limit when that ended it. */
 function UsageLine({ entry }: { entry: Extract<TranscriptEntry, { kind: "usage" }> }) {
   return (
-    <div className="dim small usage-line" title="Input and output tokens. Cache writes are counted, cache reads are not. Settings > Agent > Usage sets the limits.">
+    <div className="dim small usage-line" title="Input and output tokens. Cache writes are counted, cache reads are not. Usage > Budgets in Settings sets the limits.">
       {tokenCount(entry.main + entry.subagents)} tokens this turn
       {entry.subagents > 0 && `, ${tokenCount(entry.subagents)} of them in subagents`}
       {entry.limit !== undefined && `. Stopped at the turn token limit of ${tokenCount(entry.limit)}.`}

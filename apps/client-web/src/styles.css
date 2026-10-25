@@ -454,7 +454,7 @@ button.subtab {
   padding: 8px 12px; color: var(--muted); font: 500 13px/1 var(--sans); letter-spacing: 0;
 }
 button.subtab:hover:not(:disabled) { background: transparent; color: var(--text); border-color: transparent; }
-button.subtab.active { color: var(--text); border-bottom-color: var(--accent); }
+button.subtab.active, button.subtab.active:hover:not(:disabled) { color: var(--text); border-bottom-color: var(--accent); }
 
 /* Flows: graph and JSON */
 .list .item { cursor: pointer; }

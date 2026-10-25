@@ -464,7 +464,7 @@ describe("what a turn spends on the subscription route", () => {
     await runner.send(s.id, "go");
     await until(() => store.get(s.id)!.status === "error");
     const fin = store.get(s.id)!;
-    expect(fin.error).toContain("past the turn token limit of 50000");
+    expect(fin.error).toContain("past the main agent's per-run budget of 50000 tokens");
     expect(fin.transcript.find((t) => t.kind === "usage")).toMatchObject({ main: 60_000, limit: 50_000 });
     expect(afterStop).toBe(false);
   });

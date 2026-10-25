@@ -1,0 +1,20 @@
+{
+  "provider": "openai",
+  "model": "gpt-6-sol",
+  "effort": "xhigh",
+  "gatewayUrl": "https://gateway.ue-mcp.com",
+  "theme": "editor-orange",
+  "askBeforeChanges": false,
+  "reviewTurns": false,
+  "composerHeight": 212,
+  "dialogPolicy": { "kind": "safe", "minutes": 5 },
+  "usage": {
+    "subagents": "automatic",
+    "subagentModel": { "provider": "openai", "model": "gpt-6-luna" },
+    "subagentEffort": "low",
+    "subagentsPerTurn": 6,
+    "projectInstructions": false,
+    "imageSize": "small",
+    "turnTokenLimit": 750000
+  }
+}
