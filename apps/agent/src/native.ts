@@ -60,6 +60,15 @@ export interface FoundSkill extends NativeSkill {
   /** Supporting files beside SKILL.md, relative to its folder. */
   files: string[];
   allowedTools: string[];
+  /** Each vendor's own way to ask that a skill be used only when named: Codex's agents/openai.yaml, Claude Code's disable-model-invocation. */
+  namedOnly: { codex: boolean; claude: boolean };
+}
+
+/** A file the convention's tool would see but does not read, and why. */
+export interface SkippedFile {
+  path: string;
+  abs: string;
+  why: string;
 }
 
 export interface Loadout {
@@ -68,6 +77,7 @@ export interface Loadout {
   subagents: FoundSubagent[];
   skills: FoundSkill[];
   notes: string[];
+  skipped: SkippedFile[];
 }
 
 const slash = (p: string): string => p.replace(/\\/g, "/");
@@ -225,7 +235,7 @@ function mdFilesUnder(dir: string): string[] {
   return out;
 }
 
-export function claudeInstructions(projectDir: string, home = userHome(), top?: string): FoundFile[] {
+export function claudeInstructions(projectDir: string, home = userHome(), top?: string, skipped: SkippedFile[] = []): FoundFile[] {
   const out: FoundFile[] = [];
   const push = (f: FoundFile | null) => f && out.push(f);
   const always: InstructionScope = { kind: "always" };
@@ -240,6 +250,10 @@ export function claudeInstructions(projectDir: string, home = userHome(), top?: 
     if (hasClaude) {
       push(file(projectDir, home, path.join(d, "CLAUDE.md"), "project", always, 4));
       if (!atHome(d)) push(file(projectDir, home, path.join(d, ".claude", "CLAUDE.md"), "project", always, 4));
+      // Present but passed over: said, so a reader comparing vendors sees why.
+      for (const f of [path.join(d, "AGENTS.md"), path.join(d, ".claude", "AGENTS.md")]) {
+        if (readText(f) !== null) skipped.push({ path: shown(projectDir, f, home), abs: f, why: "not read: Claude Code reads AGENTS.md only where there is no CLAUDE.md" });
+      }
     } else {
       // Claude Code's default: AGENTS.md only where no CLAUDE.md exists here or above.
       push(file(projectDir, home, path.join(d, "AGENTS.md"), "project", always, 4));
@@ -470,16 +484,18 @@ export function readSkill(projectDir: string, home: string, dir: string, source:
   const description = typeof front?.description === "string" ? front.description.trim() : "";
   if (!description) problems.push("description is required");
   // Codex's agents/openai.yaml can ask that a skill be used only when named.
-  let implicit = true;
+  let codexNamed = false;
   const yaml = readText(path.join(dir, "agents", "openai.yaml"));
   if (yaml) {
     try {
       const v = parseDocument(yaml).toJS() as { policy?: { allow_implicit_invocation?: unknown } } | null;
-      if (v?.policy?.allow_implicit_invocation === false) implicit = false;
+      if (v?.policy?.allow_implicit_invocation === false) codexNamed = true;
     } catch {
       // Not readable: the skill stays implicit, Codex's default.
     }
   }
+  // Claude Code's own: disable-model-invocation in the front matter.
+  const claudeNamed = front?.["disable-model-invocation"] === true;
   const allowed = front?.["allowed-tools"];
   return {
     name,
@@ -489,7 +505,9 @@ export function readSkill(projectDir: string, home: string, dir: string, source:
     source,
     ...(owner ? { owner } : {}),
     tokens: tokensOf(text),
-    implicit,
+    // Set per convention in loadout: each vendor reads only its own flag.
+    implicit: true,
+    namedOnly: { codex: codexNamed, claude: claudeNamed },
     problems,
     body: body.trim(),
     files: filesBeside(dir),
@@ -556,12 +574,15 @@ export function findSkills(convention: Convention, projectDir: string, home = us
 /** Everything a convention loads for this project. */
 export function loadout(convention: Convention, projectDir: string, home = userHome(), owners = new Map<string, string>(), top?: string): Loadout {
   const notes: string[] = [];
-  const instructions = convention === "claude" ? claudeInstructions(projectDir, home, top)
+  const skipped: SkippedFile[] = [];
+  const instructions = convention === "claude" ? claudeInstructions(projectDir, home, top, skipped)
     : convention === "codex" ? codexInstructions(projectDir, home, notes)
     : convention === "gemini" ? geminiInstructions(projectDir, home)
     : capBytes(agentsInstructions(projectDir, home), CODEX_MAX_BYTES, notes, "the AGENTS.md");
   const skills = findSkills(convention, projectDir, home, owners);
-  return { convention, instructions, subagents: findSubagents(convention, projectDir, home), skills: skills.skills, notes: [...notes, ...skills.notes] };
+  // Only Codex reads agents/openai.yaml and only Claude Code reads disable-model-invocation; the others use every skill freely.
+  const own = skills.skills.map((s) => ({ ...s, implicit: convention === "codex" ? !s.namedOnly.codex : convention === "claude" ? !s.namedOnly.claude : true }));
+  return { convention, instructions, subagents: findSubagents(convention, projectDir, home), skills: own, notes: [...notes, ...skills.notes], skipped };
 }
 
 /** Whether a scoped file applies to a project path (relative, forward slashes). */

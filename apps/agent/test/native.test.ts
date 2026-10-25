@@ -49,6 +49,8 @@ describe("Claude Code's files", () => {
     expect(files.find((f) => f.path === ".claude/rules/bp.md")!.scope).toEqual({ kind: "globs", globs: ["Content/Blueprints/**"] });
     expect(files.find((f) => f.path === "Source/Game/CLAUDE.md")!.scope).toEqual({ kind: "folder", folder: "Source/Game" });
     expect(files.some((f) => f.path === "AGENTS.md")).toBe(false);
+    // Passed over, and said so.
+    expect(loadout("claude", project, home, new Map(), top).skipped.map((f) => [f.path, f.why])).toEqual([["AGENTS.md", "not read: Claude Code reads AGENTS.md only where there is no CLAUDE.md"]]);
   });
 
   it("reads AGENTS.md only when there is no CLAUDE.md at all, as Claude Code does", () => {
@@ -100,10 +102,22 @@ describe("Codex's files", () => {
     write(repo, ".agents/skills/fmt/SKILL.md", "---\nname: fmt\ndescription: B\n---\nB");
     write(repo, ".agents/skills/quiet/SKILL.md", "---\nname: quiet\ndescription: Q\n---\nQ");
     write(repo, ".agents/skills/quiet/agents/openai.yaml", "policy:\n  allow_implicit_invocation: false\n");
-    const { skills, notes } = findSkills("codex", project, home);
+    const { skills, notes } = loadout("codex", project, home, new Map(), top);
     expect(skills.map((s) => [s.name, s.path, s.implicit])).toEqual([["fmt", ".agents/skills/fmt", true], ["fmt", "../.agents/skills/fmt", true], ["quiet", "../.agents/skills/quiet", false]]);
     expect(notes[0]).toMatch(/Two skills are named fmt/);
     expect(skills[2].files).toEqual(["agents/openai.yaml"]);
+    expect(findSkills("codex", project, home).skills[2].namedOnly).toEqual({ codex: true, claude: false });
+  });
+
+  it("applies each vendor's own named-only flag, and none of another vendor's", () => {
+    write(project, ".agents/skills/quiet/SKILL.md", "---\nname: quiet\ndescription: Q\n---\nQ");
+    write(project, ".agents/skills/quiet/agents/openai.yaml", "policy:\n  allow_implicit_invocation: false\n");
+    write(project, ".claude/skills/manual/SKILL.md", "---\nname: manual\ndescription: M\ndisable-model-invocation: true\n---\nM");
+    // Codex's openai.yaml binds Codex only.
+    expect(loadout("gemini", project, home, new Map(), top).skills.find((s) => s.name === "quiet")?.implicit).toBe(true);
+    expect(loadout("agents", project, home, new Map(), top).skills.find((s) => s.name === "quiet")?.implicit).toBe(true);
+    // Claude Code's own front matter binds Claude Code.
+    expect(loadout("claude", project, home, new Map(), top).skills.find((s) => s.name === "manual")?.implicit).toBe(false);
   });
 });
 

@@ -88,6 +88,7 @@ export function nativeView(l: Loadout, o: Pick<NativeRouteOptions, "routesFor" |
     }),
     skills: l.skills.map(({ name, description, path: p, source, owner, tokens, implicit, problems }) => ({ name, description, path: p, source, ...(owner ? { owner } : {}), tokens, implicit, problems })),
     notes: l.notes,
+    skipped: l.skipped.map(({ path: p, why }) => ({ path: p, why })),
   };
 }
 
@@ -98,7 +99,7 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
 
   api.route("GET", "/native", () => {
     const all = loadAll();
-    listed = new Set(all.flatMap((l) => [...l.instructions.map((f) => path.resolve(f.abs)), ...l.subagents.map((a) => path.resolve(a.abs)), ...l.skills.map((s) => path.resolve(s.abs, "SKILL.md"))]));
+    listed = new Set(all.flatMap((l) => [...l.instructions.map((f) => path.resolve(f.abs)), ...l.skipped.map((f) => path.resolve(f.abs)), ...l.subagents.map((a) => path.resolve(a.abs)), ...l.skills.map((s) => path.resolve(s.abs, "SKILL.md"))]));
     const main = o.main();
     const body: NativeOverview = {
       enabled: o.enabled(),

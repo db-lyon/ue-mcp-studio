@@ -67,12 +67,12 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
           <nav className="subtabs scroll-tabs tabs-wide" aria-label="Whose files">
             {ordered.map((v) => (
               <button key={v.convention} className={`subtab ${v.convention === tab ? "active" : ""}`} aria-current={v.convention === tab ? "page" : undefined} title={`The files ${CONVENTION_INFO[v.convention].vendor} read`} onClick={() => setTab(v.convention)}>
-                {v.routes.length > 0 && <span className="dot ok" aria-label="read by a connected route" />}{CONVENTION_INFO[v.convention].tool}<span className="count">{count(v)}</span>
+                {v.routes.length > 0 && <span className="dot ok" aria-hidden />}{CONVENTION_INFO[v.convention].tool}<span className="count">{count(v)}</span>{v.routes.length > 0 && <span className="sr-only">, read by a connected route</span>}
               </button>
             ))}
           </nav>
           <label className="tabs-narrow tab-select">
-            <span className="muted small">Vendor</span>
+            <span className="muted small">Files read by</span>
             <select value={view.convention} onChange={(e) => setTab(e.target.value as Convention)} aria-label="Whose files">
               {ordered.map((v) => <option key={v.convention} value={v.convention}>{CONVENTION_INFO[v.convention].tool} ({count(v)}){v.routes.length ? ", read by a connected route" : ""}</option>)}
             </select>
@@ -124,6 +124,15 @@ function ConventionView({ view, main, preview, onConnect, onError }: { view: Nat
             </li>
           ))}
         </ol>
+        {view.skipped.map((f) => (
+          <div key={f.path} className="ifile-skipped">
+            <div className="ifile-main">
+              <Path p={f.path} className="path dim" />
+              <div className="readers">{f.why}</div>
+            </div>
+            <OpenFile path={f.path} onError={onError} />
+          </div>
+        ))}
         {preview?.text && (
           <details className="cfg-note">
             <summary>Preview: the text on every call ({files})</summary>

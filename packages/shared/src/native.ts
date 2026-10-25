@@ -101,6 +101,8 @@ export interface NativeView {
   skills: NativeSkill[];
   /** What a reader should know: a file past the size cap, a name read twice. */
   notes: string[];
+  /** Files the tool sees but does not read, and why: an AGENTS.md beside a CLAUDE.md. */
+  skipped: Array<{ path: string; why: string }>;
 }
 
 /** Studio's own helper for work that splits, as earlier settings left it. */

@@ -8,14 +8,14 @@ const overview = (over: Partial<NativeOverview> = {}): NativeOverview => ({
   main: "codex",
   worker: { model: "6 Sol", effort: "high", starts: "asked", fromSettings: false },
   conventions: [
-    { convention: "claude", routes: ["Claude sign-in"], instructionTokens: 120, notes: [], subagents: [], skills: [],
+    { convention: "claude", routes: ["Claude sign-in"], instructionTokens: 120, notes: [], skipped: [{ path: "AGENTS.md", why: "not read: Claude Code reads AGENTS.md only where there is no CLAUDE.md" }], subagents: [], skills: [],
       instructions: [{ path: "CLAUDE.md", source: "project", tokens: 120, scope: { kind: "always" } }] },
-    { convention: "codex", routes: ["ChatGPT sign-in", "OpenAI key"], instructionTokens: 300, notes: ["AGENTS.md is past Codex's 32 KiB limit for instruction files, so it is not read."],
+    { convention: "codex", routes: ["ChatGPT sign-in", "OpenAI key"], instructionTokens: 300, notes: ["AGENTS.md is past Codex's 32 KiB limit for instruction files, so it is not read."], skipped: [],
       instructions: [{ path: "AGENTS.md", source: "project", tokens: 300, scope: { kind: "always" } }, { path: "~/.codex/AGENTS.md", source: "user", tokens: 40, scope: { kind: "always" } }],
       subagents: [{ name: "scout", description: "Finds assets", path: ".codex/agents/scout.toml", source: "project", tokens: 30, model: "gpt-6-luna", runs: { model: "6 Luna" }, tools: "every tool but shell", effort: "low", maxTurns: null, problems: [] }],
       skills: [{ name: "naming", description: "Zone naming", path: ".agents/skills/naming", source: "plugin", owner: "ue-mcp-meshy", tokens: 200, implicit: false, problems: [] }] },
-    { convention: "gemini", routes: [], instructionTokens: 0, notes: [], instructions: [], subagents: [], skills: [] },
-    { convention: "agents", routes: [], instructionTokens: 0, notes: [], instructions: [], subagents: [], skills: [] },
+    { convention: "gemini", routes: [], instructionTokens: 0, notes: [], skipped: [], instructions: [], subagents: [], skills: [] },
+    { convention: "agents", routes: [], instructionTokens: 0, notes: [], skipped: [], instructions: [], subagents: [], skills: [] },
   ],
   ...over,
 });
@@ -50,9 +50,9 @@ describe("Agents: what each vendor's own files give its models", () => {
     await show();
     const tabs = screen.getByRole("navigation", { name: "Whose files" });
     // One fixed order in every state; a dot, not the position, marks what a route reads.
-    expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Claude Code1", "Codex4", "Gemini CLI0", "AGENTS.md0"]);
+    expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Claude Code1, read by a connected route", "Codex4, read by a connected route", "Gemini CLI0", "AGENTS.md0"]);
     expect([...tabs.querySelectorAll("button")].map((b) => !!b.querySelector(".dot"))).toEqual([true, true, false, false]);
-    expect(tabs.querySelector("[aria-current=page]")?.textContent).toBe("Codex4");
+    expect(tabs.querySelector("[aria-current=page]")?.textContent).toBe("Codex4, read by a connected route");
     expect(screen.getByText(/Read by: ChatGPT sign-in, OpenAI key\. The main agent runs here\. Studio reads them the way Codex does\./)).toBeTruthy();
     expect(screen.getByText("Project")).toBeTruthy();
     expect(screen.getByText("AGENTS.md is past Codex's 32 KiB limit for instruction files, so it is not read.")).toBeTruthy();
@@ -61,6 +61,13 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.getByText("every tool but shell")).toBeTruthy();
     expect(screen.getByText("Plugin: ue-mcp-meshy")).toBeTruthy();
     expect(screen.getByText(/Used only when you name it\./)).toBeTruthy();
+  });
+
+  it("says on the Claude Code tab that an AGENTS.md beside a CLAUDE.md is passed over, and lets it be opened", async () => {
+    await show();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^Claude Code/ })));
+    expect(screen.getByText("not read: Claude Code reads AGENTS.md only where there is no CLAUDE.md")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Open AGENTS.md" })).toHaveLength(1);
   });
 
   it("opens a listed file in the system's editor", async () => {
