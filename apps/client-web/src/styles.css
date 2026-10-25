@@ -1357,7 +1357,7 @@ button.strip-more { font: 500 12px/1.4 var(--sans); letter-spacing: 0; padding: 
 .qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-offset: 2px; }
 /* Each card's actions where it is drawn. Outside the page's rows and the strip's box, these wrappers only group. */
 .qa-states, .qa-actions, .qa-slot { display: contents; }
-.qa-last-known { color: var(--muted); font: 500 11px/1 var(--sans); white-space: nowrap; }
+.qa-last-known { color: var(--text); font-weight: 600; }
 /* On the page every action has a slot of its own width, so the buttons stand in the same columns on every row. */
 .qa-card.slotted, .qa-card.slotted.open { padding: 10px 12px; }
 .qa-card.slotted .qa-head { flex-wrap: nowrap; }
@@ -1436,3 +1436,5 @@ button.qa-path-hit:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 
 /* A session's name in a row's line is the way to its card there. */
 @media (min-width: 761px) { .qa-meta-session-name { max-width: 30ch; } }
 @media (max-width: 760px) { .qa-meta-session-name { max-width: 16ch; } }
+/* A verdict that cannot be given now keeps no colour. */
+.qa-card button.verdict-pass:disabled, .qa-card button.verdict-fail:disabled { border-color: var(--line); }

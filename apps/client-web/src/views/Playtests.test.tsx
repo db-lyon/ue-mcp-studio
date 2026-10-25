@@ -163,7 +163,7 @@ describe("the Playtests page", () => {
   it("says its states are the last known while the editor is away, at full strength", () => {
     page({ playtests: [ENTRIES[0]], listed: false });
     const card = row("Door");
-    expect(within(card).getByText("Last known")).toBeTruthy();
+    expect(card.querySelector(".qa-compact-summary")!.textContent).toMatch(/^Last known: /);
     expect(within(card).getByRole("status").textContent).toBe("Needs you");
     expect((within(card).getByRole("button", { name: "Pass step 2" }) as HTMLButtonElement).disabled).toBe(true);
   });

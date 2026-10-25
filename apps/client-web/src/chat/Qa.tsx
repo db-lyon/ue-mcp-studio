@@ -558,7 +558,6 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
         {run.subagent && <span className="dim small qa-by">run by {run.subagent}</span>}
         <span className="spacer" />
         <span className="qa-states">
-          {offline && (pill || assignment?.loop) && <span className="qa-last-known small" title={offline}>Last known</span>}
           {pill && <span className={`pill ${pill.tone}`} role="status" title={offline ? `Last known: ${offline}` : undefined}>{pill.text}</span>}
           {assignment?.loop && (() => {
             const p = loopPill(assignment.loop);
@@ -595,7 +594,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           {!dense && (
             <div className="qa-compact-line small">
               <button className="qa-compact-open" aria-label={`Open playtest ${run.scriptName}`} onClick={() => openAt(null)}>
-                <span className="dim qa-compact-summary">{run.steps.length ? pathSummary(run, sum) : "No steps read yet"}</span>
+                <span className="dim qa-compact-summary">{offline && (pill || assignment?.loop) && <span className="qa-last-known" title={offline}>Last known: </span>}{run.steps.length ? pathSummary(run, sum) : "No steps read yet"}</span>
               </button>
               {meta && <span className="qa-meta dim">{meta}</span>}
             </div>
