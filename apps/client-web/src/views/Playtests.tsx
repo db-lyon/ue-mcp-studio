@@ -18,7 +18,7 @@ import {
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
-import { QaCard, QaContext, type QaCardActions, type QaLive } from "../chat/Qa";
+import { PathLegend, QaCard, QaContext, type QaCardActions, type QaLive } from "../chat/Qa";
 import { NARROW, useMedia } from "../layout";
 
 const FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [
@@ -126,6 +126,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
           </button>
         ))}
       </div>
+      {all.length > 0 && <PathLegend />}
       {error && <div className="banner bad small" role="alert">{error}</div>}
       {index && !index.listed && (
         <div className="banner warn small">The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.</div>

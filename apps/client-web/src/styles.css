@@ -1414,3 +1414,15 @@ button.qa-meta-session.link:hover:not(:disabled) { background: none; border: 0; 
 .qa-meta-session-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-underline-offset: 3px; }
 /* On the strip an open card's other action sits under its steps, not in its head. */
 .qa-more-actions { display: flex; gap: 6px; padding-top: 2px; }
+/* The step path's marks: what each means, and a step a run that ended never reached. */
+.qa-path-step.unrun .qa-path-hit::before { background: repeating-linear-gradient(90deg, var(--line-strong) 0 3px, transparent 3px 6px); box-shadow: none; }
+.qa-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); }
+.qa-legend-item { display: inline-flex; align-items: center; gap: 6px; }
+.qa-legend-mark { display: inline-block; width: 18px; height: 8px; border-radius: 3px; background: var(--line-strong); }
+.qa-legend-mark.ok { background: var(--ok); }
+.qa-legend-mark.bad { background: repeating-linear-gradient(135deg, var(--bad) 0 3px, transparent 3px 5px); box-shadow: inset 0 0 0 1.5px var(--bad); }
+.qa-legend-mark.warn { background: var(--warn); }
+.qa-legend-mark.run { background: var(--text); opacity: 0.85; }
+.qa-legend-mark.skipped { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.qa-legend-mark.unrun { background: repeating-linear-gradient(90deg, var(--line-strong) 0 3px, transparent 3px 6px); }
+.qa-legend-pip { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--text); opacity: 0.75; }

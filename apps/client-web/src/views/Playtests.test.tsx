@@ -180,6 +180,14 @@ describe("the Playtests page", () => {
     expect((within(card).getByRole("button", { name: "Pass step 2" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("says what each mark on a step path means", () => {
+    page();
+    const legend = screen.getByRole("note", { name: "What the step marks mean" });
+    expect(legend.textContent).toContain("Passed");
+    expect(legend.textContent).toContain("Not run");
+    expect(legend.textContent).toContain("Judged by a person");
+  });
+
   it("offers no Start Playtest on a script that is gone", () => {
     page({ playtests: [{ ...ENTRIES[2], deleted: true }], listed: true });
     expect(within(row("Walk")).queryByRole("button", { name: "Run again" })).toBeNull();

@@ -170,6 +170,7 @@ export function pathSummary(run: QaRun, sum: ReturnType<typeof qaSummaryOf>): st
     sum.failed && `${sum.failed} failed`,
     sum.skipped && `${sum.skipped} skipped`,
     waiting && `${waiting} need${waiting === 1 ? "s" : ""} you`,
+    qaEnded(run.state) && sum.pending - waiting > 0 && `${sum.pending - waiting} not run`,
   ].filter(Boolean);
   return parts.length ? `${steps}: ${parts.join(", ")}` : steps;
 }
@@ -182,12 +183,14 @@ export const stepBarLabel = (s: QaStep): string => `Step ${s.index + 1}, ${s.jud
  * in the full card. A manual step's bar carries a notch, so the two kinds read
  * apart without colour. With `onStep`, each bar is a button that opens the card on its step.
  */
-export function StepPath({ steps, onStep }: { steps: QaStep[]; onStep?: (index: number) => void }) {
+export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; onStep?: (index: number) => void; ended?: boolean }) {
   return (
     <ol className="qa-path" aria-label="Steps">
       {steps.map((s) => {
-        const cls = `qa-path-step ${tone(s)} ${s.judge} ${s.status === "skipped" ? "skipped" : ""}`;
-        const title = `${s.index + 1}. ${s.instruction} (${s.judge}): ${statusLabel(s)}`;
+        // A step a run that ended never reached reads apart from one still to come.
+        const unrun = ended && s.status === "pending";
+        const cls = `qa-path-step ${tone(s)} ${s.judge} ${s.status === "skipped" ? "skipped" : ""} ${unrun ? "unrun" : ""}`;
+        const title = `${s.index + 1}. ${s.instruction} (${s.judge}): ${unrun ? "Not run" : statusLabel(s)}`;
         return (
           <li key={s.index} className={cls} data-status={s.status}>
             {onStep
@@ -277,6 +280,19 @@ function ScrollCue({ dir, count, more, onClick }: { dir: "above" | "below"; coun
     <button type="button" className={`qa-scroll-cue ${dir}`} disabled={!shown} aria-hidden={!shown} tabIndex={shown ? undefined : -1} onClick={onClick}>
       {shown ? `${dir === "above" ? "▴" : "▾"} ${what}` : " "}
     </button>
+  );
+}
+
+/** What the step path's marks mean, beside a list of paths. */
+export function PathLegend() {
+  const marks: Array<[string, string]> = [["ok", "Passed"], ["bad", "Failed"], ["warn", "Needs you"], ["run", "Running"], ["", "To come"], ["skipped", "Skipped"], ["unrun", "Not run"]];
+  return (
+    <div className="qa-legend small" role="note" aria-label="What the step marks mean">
+      {marks.map(([cls, label]) => (
+        <span key={label} className="qa-legend-item"><span className={`qa-legend-mark ${cls}`} aria-hidden="true" />{label}</span>
+      ))}
+      <span className="qa-legend-item"><span className="qa-legend-pip" aria-hidden="true" />Judged by a person</span>
+    </div>
   );
 }
 
@@ -577,7 +593,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       </div>
       {(!open || dense) && (
         <div className="qa-compact">
-          {run.steps.length > 0 && <StepPath steps={run.steps} onStep={(i) => openAt(i)} />}
+          {run.steps.length > 0 && <StepPath steps={run.steps} onStep={(i) => openAt(i)} ended={ended} />}
           {!dense && (
             <div className="qa-compact-line small">
               <button className="qa-compact-open" aria-label={`Open playtest ${run.scriptName}`} onClick={() => openAt(null)}>
@@ -633,6 +649,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       {cues.overflow && <ScrollCue dir="above" count={cues.above} more={cues.moreAbove} onClick={() => cues.by(-1)} />}
       <div className="qa-body" id={`qa-body-${run.runId}`} ref={body}>
       {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
+      {run.steps.length > 0 && <PathLegend />}
       {panel === "run" && runnable && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
       {panel === "delete" && <div className="small dim">Deleting removes the script asset. <button className="ghost small-button" onClick={() => setPanel(null)}>Keep it</button></div>}
       {assignment?.loop && (

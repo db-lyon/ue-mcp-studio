@@ -331,7 +331,10 @@ describe("the collapsed card", () => {
     const bar = within(bars[1]).getByRole("button");
     expect(bar.getAttribute("aria-label")).toBe("Step 2, auto, Failed");
     expect(bar.getAttribute("title")).toBe("2. Open the door (auto): Auto fail");
-    expect(screen.getByText("3 steps: 1 passed, 1 failed")).toBeTruthy();
+    // The step the finished run never reached is marked so, apart from one still to come.
+    expect(bars[2].className).toContain("unrun");
+    expect(within(bars[2]).getByRole("button").getAttribute("title")).toBe("3. " + STEPS[2].instruction + " (" + STEPS[2].judge + "): Not run");
+    expect(screen.getByText("3 steps: 1 passed, 1 failed, 1 not run")).toBeTruthy();
     expect(screen.queryByText("Walk up to the door")).toBeNull();
     // The pill says how it ended in words, not only in colour.
     expect(screen.getAllByRole("status")[0].textContent).toBe("1 failed");
