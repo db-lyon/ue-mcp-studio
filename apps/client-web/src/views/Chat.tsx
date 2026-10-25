@@ -27,8 +27,7 @@ import { chatPane } from "../chat/pane";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../chat/TurnReview";
-import { PlaytestsPanel, needsYou, sessionPlaytests } from "../chat/PlaytestsPanel";
-import { focusRun } from "../attention";
+import { PinnedContext, PlaytestStrip, usePinned, useSessionRuns } from "../chat/PlaytestStrip";
 import { NARROW, useMedia } from "../layout";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
@@ -81,7 +80,6 @@ export function ChatView({ daemon, nav, active = true }: {
   const narrow = useMedia(NARROW);
   const [sheet, setSheet] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const [playtestsOpen, setPlaytestsOpen] = useState(false);
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -302,12 +300,16 @@ export function ChatView({ daemon, nav, active = true }: {
   const dialogs = useDialogs(daemon);
   const forms = useForms(daemon, detail?.id ?? null);
   const outside = useOutsideRuns(daemon.events, daemon.streaming);
+  // The session's live playtests, pinned under its header while they run or wait for the user.
+  const sessionRuns = useSessionRuns(detail?.id ?? null, detail?.transcript, daemon.events);
+  const strip = usePinned(sessionRuns.runs, sessionRuns.alias);
   const qaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms, sessionId: detail?.id ?? null, onThread: openThreadId }), [daemon.events, daemon.streaming, forms, detail?.id, openThreadId]);
   /** The runs with a card on screen, so their verdict forms are answered there. */
   const qaRuns = useMemo(() => new Set([
     ...(detail?.transcript ?? []).flatMap((t) => (t.kind === "qa" ? [t.run.runId] : [])),
     ...outside.runs.map((r) => r.runId),
-  ]), [detail?.transcript, outside.runs]);
+    ...sessionRuns.runs.map((r) => r.runId),
+  ]), [detail?.transcript, outside.runs, sessionRuns.runs]);
   const assetLinks = useAssetLinks(detail?.id ?? null);
   const live = sessions.filter((s) => !s.archived);
   const archived = sessions.filter((s) => s.archived);
@@ -320,8 +322,6 @@ export function ChatView({ daemon, nav, active = true }: {
     void loadList();
   };
   const openThread = (thread && detail && agentCalls(detail.transcript).find((c) => c.id === thread)) || null;
-  const playtests = useMemo(() => (detail ? sessionPlaytests(detail.transcript) : []), [detail?.transcript]);
-  const playtestsWaiting = playtests.some(needsYou);
   const drawerCall = (drawerId && detail && agentCalls(detail.transcript).find((c) => c.id === drawerId)) || null;
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
@@ -390,20 +390,7 @@ export function ChatView({ daemon, nav, active = true }: {
             onStop={stopSubagent}
             onAgents={narrow ? () => setSheet(true) : undefined}
             onReview={() => setReviewOpen(true)}
-            playtests={playtests.length}
-            playtestsWaiting={playtestsWaiting}
-            onPlaytests={() => setPlaytestsOpen(true)}
           />
-        )}
-        {detail && !narrow && !openThread && (
-          <div className="conversation-tools">
-            {playtests.length > 0 && (
-              <button className={`ghost small-button ${playtestsWaiting ? "needs-you" : ""}`} onClick={() => setPlaytestsOpen(true)} title="This session's playtests">
-                Playtests <span className="count">{playtests.length}</span>
-              </button>
-            )}
-            <button className="ghost small-button" onClick={() => setReviewOpen(true)} title="Review and checkpoints">Checkpoints</button>
-          </div>
         )}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
         {!detail && (
@@ -427,6 +414,8 @@ export function ChatView({ daemon, nav, active = true }: {
           <AssetTranscriptContext.Provider value={detail.transcript}>
           <EditMessageContext.Provider value={disconnected ? null : editMessage}>
           <PlaytestCommandContext.Provider value={playtest}>
+          <PinnedContext.Provider value={strip.ids}>
+            <PlaytestStrip runs={strip.pinned} onHide={strip.hide} />
             <div className="thread-stage" ref={stage}>
               <MainTranscript
                 transcript={detail.transcript}
@@ -482,26 +471,19 @@ export function ChatView({ daemon, nav, active = true }: {
               stage={stage}
               height={settings?.composerHeight ?? null}
               onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
-              picker={settings && <><ModelPicker settings={settings} onSettings={setSettings} up /><EffortPicker settings={settings} onSettings={setSettings} /></>}
+              picker={<>
+                {settings && <><ModelPicker settings={settings} onSettings={setSettings} up /><EffortPicker settings={settings} onSettings={setSettings} /></>}
+                {/* Narrow, Checkpoints is in the header. */}
+                {!narrow && <button className="ghost composer-checkpoints" onClick={() => setReviewOpen(true)} title="Review this session's changes and its checkpoints">Checkpoints</button>}
+              </>}
             >
               {!narrow && threads}
             </Composer>
             {narrow && <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{threads}</Sheet>}
-            <Sheet open={playtestsOpen} title="Playtests" onClose={() => setPlaytestsOpen(false)}>
-              {playtestsOpen && (
-                <PlaytestsPanel
-                  runs={playtests}
-                  onShow={(runId) => {
-                    setPlaytestsOpen(false);
-                    setThread(null);
-                    focusRun(runId);
-                  }}
-                />
-              )}
-            </Sheet>
             <Sheet open={reviewOpen} title="Checkpoints" onClose={() => setReviewOpen(false)}>
               {reviewOpen && <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />}
             </Sheet>
+          </PinnedContext.Provider>
           </PlaytestCommandContext.Provider>
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>

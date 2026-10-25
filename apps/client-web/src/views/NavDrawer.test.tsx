@@ -15,11 +15,11 @@ const session = (id: string, title: string, archived = false) => ({
   id, title, archived, status: "idle", createdAt: "", updatedAt: "", waitingCause: null, agents: { total: 0, running: 0 }, awaiting: 0,
 });
 
-function setup(open = true, tab: NavTab = "Chat", updates = 0) {
+function setup(open = true, tab: NavTab = "Chat", updates = 0, playtestsWaiting = 0) {
   m.sessions.mockResolvedValue({ sessions: [session("a", "Glowing material"), session("b", "Old work", true), session("c", "Niagara fire")] });
   const props = { onClose: vi.fn(), onTab: vi.fn(), onSession: vi.fn(), onNewSession: vi.fn() };
   const { container } = render(
-    <NavDrawer open={open} tab={tab} session="c" updates={updates} {...props}>
+    <NavDrawer open={open} tab={tab} session="c" updates={updates} playtestsWaiting={playtestsWaiting} {...props}>
       <button>Docs</button>
     </NavDrawer>,
   );
@@ -33,6 +33,20 @@ describe("the navigation drawer", () => {
     expect(screen.getByText("Chat").closest("button")?.getAttribute("aria-current")).toBeNull();
     expect(screen.getByText("Settings").closest("button")?.querySelector(".tab-dot")).not.toBeNull();
     expect(screen.getByText("Docs")).toBeTruthy();
+  });
+
+  it("has a Playtests page, counting the playtests that need the user", () => {
+    const p = setup(true, "Chat", 0, 2);
+    const item = screen.getByText("Playtests").closest("button")!;
+    expect(item.querySelector(".tab-count")?.textContent).toBe("2");
+    expect(item.querySelector(".tab-count")?.getAttribute("aria-label")).toBe("2 need you");
+    fireEvent.click(item);
+    expect(p.onTab).toHaveBeenCalledWith("Playtests");
+  });
+
+  it("puts no count on Playtests while nothing needs the user", () => {
+    setup();
+    expect(screen.getByText("Playtests").closest("button")!.querySelector(".tab-count")).toBeNull();
   });
 
   it("lists the recent sessions when it opens, leaving archived ones out, and marks the open one", async () => {

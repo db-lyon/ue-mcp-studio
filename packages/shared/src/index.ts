@@ -799,6 +799,7 @@ export interface StudioPluginUpdate {
   fabUrl?: string;
 }
 export * from "./qa.js";
+export * from "./playtests.js";
 export * from "./review.js";
 export * from "./commands.js";
 export * from "./flows.js";

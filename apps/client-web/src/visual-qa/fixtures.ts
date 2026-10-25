@@ -1,0 +1,165 @@
+/**
+ * Playtest states for the visual QA harness (visual-qa.html): each scenario is
+ * what the daemon would answer for one open session or the Playtests page.
+ * The runs are built with the same shared helpers the agent uses, so the UI
+ * draws them exactly as it would draw a live run in that state.
+ */
+import {
+  qaActive,
+  qaDraftFromScript,
+  qaRunFromAnswer,
+  type PlaytestEntry,
+  type PlaytestIndexAnswer,
+  type QaLoop,
+  type QaRun,
+  type SessionDetail,
+  type SessionSummary,
+  type TranscriptEntry,
+} from "@ue-mcp-studio/shared";
+
+const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString();
+const SCRIPTS = "/Game/PIEStudio/Scripts";
+
+/** Steps as a PIE test script has them: an auto check or a person's judgement. */
+const STEPS: Array<{ instruction: string; judge: "auto" | "manual"; expect?: { value: string; op: string; target?: number } }> = [
+  { instruction: "Press jump and the character leaves the ground", judge: "auto", expect: { value: "JumpCurrentCount", op: "gt", target: 0 } },
+  { instruction: "The jump arc looks right and lands cleanly", judge: "manual" },
+  { instruction: "Walk into the door trigger and the door opens", judge: "auto", expect: { value: "BP_Door.OpenAngle", op: "gt", target: 80 } },
+  { instruction: "The door opens without a visible pop", judge: "manual" },
+  { instruction: "Sprint speed stays above 600 while running", judge: "auto", expect: { value: "CharacterMovement.Velocity.Size", op: "gt", target: 600 } },
+];
+
+export function run(id: string, name: string, state: string, statuses: string[], over: Partial<QaRun> = {}): QaRun {
+  const r = qaRunFromAnswer({
+    success: true,
+    run_id: id,
+    script: `${SCRIPTS}/${name}`,
+    script_name: name,
+    state,
+    results_path: `C:/Projects/StudioE2E/Saved/MCPObservations/${id}/results.json`,
+    steps: statuses.map((status, index) => {
+      const s = STEPS[index % STEPS.length];
+      return {
+        index,
+        ...s,
+        status,
+        ...(s.judge === "auto" && status === "failed" ? { evidence: { value: s.expect?.value, at_start: 0, at_end: 0, samples: 120, observed: true, reason: "The value never changed in the window" } } : {}),
+        ...(s.judge === "manual" && status === "failed" ? { note: "The door snaps open on the first frame", verdict_source: "action" } : {}),
+      };
+    }),
+    awaiting: statuses.flatMap((s, i) => (s === "awaiting_verdict" ? [i] : [])),
+    last_seq: 4,
+  }, { sessionId: "qa-session", seenAt: ago(4) })!;
+  return { ...r, ...over };
+}
+
+function loop(state: QaLoop["state"]): QaLoop {
+  const first = { n: 1, callId: "agent-1", before: "cp-0", after: "cp-1", changes: [{ path: "Content/Blueprints/BP_Door.uasset", status: "modified" as const }], failing: ["Step 3: the door never opened"], startedAt: ago(9), endedAt: ago(6), tokens: 48_200 };
+  const second = { n: 2, callId: "agent-2", before: "cp-1", ...(state === "running" ? {} : { after: "cp-2", endedAt: ago(2) }), changes: [], failing: state === "running" ? [] : ["Step 3: the door never opened"], startedAt: ago(5), tokens: state === "running" ? 9_100 : 39_800 };
+  return {
+    id: `loop-${state}`,
+    state,
+    attempts: [first, second],
+    baseline: "cp-0",
+    budget: { minutes: 60, tokens: 2_000_000 },
+    tokens: first.tokens + second.tokens,
+    startedAt: ago(9),
+    ...(state === "needs_you" ? { endedAt: ago(2), blocker: { kind: "no_progress" as const, reason: "Two attempts changed nothing about step 3: the door trigger never fires in PIE.", evidence: ["Step 3: the door never opened"], step: 2 } } : {}),
+  };
+}
+
+const assigned = (state: QaLoop["state"]) => ({ callId: "agent-2", sessionId: "qa-session", state: state === "running" ? "running" as const : "done" as const, at: ago(9), loop: loop(state) });
+
+export const RUNS = {
+  draft: { ...qaDraftFromScript({ path: `${SCRIPTS}/PT_DoorOpens`, name: "PT_DoorOpens", steps: STEPS }, { sessionId: "qa-session", seenAt: ago(6) })! },
+  armed: run("script_PT_DoorOpens_armed", "PT_DoorOpens", "armed", ["pending", "pending", "pending", "pending", "pending"]),
+  running: run("script_PT_JumpCheck_running", "PT_JumpCheck", "running", ["passed", "running", "pending", "pending", "pending"]),
+  waiting: run("script_PT_DoorOpens_waiting", "PT_DoorOpens", "awaiting_verdict", ["passed", "passed", "passed", "awaiting_verdict", "pending"]),
+  failed: run("script_PT_LandingCheck_done", "PT_LandingCheck", "finished", ["passed", "failed", "passed", "failed", "skipped"]),
+  stopped: run("script_PT_Sprint_stopped", "PT_Sprint", "stopped", ["passed", "passed", "pending", "pending", "pending"]),
+  loopRunning: run("script_PT_LedgeGrab_loop", "PT_LedgeGrab", "running", ["passed", "passed", "running", "pending", "pending"], { assignment: assigned("running") }),
+  loopNeedsYou: run("script_PT_GateTrigger_blocked", "PT_GateTrigger", "finished", ["passed", "passed", "failed", "skipped", "passed"], { assignment: assigned("needs_you") }),
+};
+
+const SESSION_ID = "qa-session";
+const summary = (title: string, minutes: number): SessionSummary => ({
+  id: SESSION_ID,
+  title,
+  status: "idle",
+  createdAt: ago(minutes + 20),
+  updatedAt: ago(minutes),
+  waitingCause: null,
+  archived: false,
+  agents: { total: 0, running: 0 },
+  awaiting: 0,
+});
+
+/** A conversation that leads up to the playtests it holds. */
+function transcript(runs: QaRun[]): TranscriptEntry[] {
+  const entries: TranscriptEntry[] = [
+    { kind: "user", text: "Make a playtest for the door in L_Playtest: walk into the trigger, check it opens, and let me judge how it looks.", at: ago(12) },
+    { kind: "assistant", text: "I saved the playtest as a script. The observer checks the jump, the door angle and the sprint speed, and you judge the jump arc and how the door opens.", at: ago(11) },
+  ];
+  for (const r of runs) entries.push({ kind: "qa", run: r });
+  const live = runs.some(qaActive);
+  const ended = runs.some((r) => r.state === "finished" || r.state === "stopped");
+  if (live) entries.push({ kind: "assistant", text: "It is running now. I will read the results when it ends.", at: ago(3) });
+  else if (ended) entries.push({ kind: "assistant", text: "The run ended. Its card has each step's result.", at: ago(3) });
+  return entries;
+}
+
+function detail(title: string, runs: QaRun[]): SessionDetail {
+  return { ...summary(title, 3), transcript: transcript(runs), touched: [], draft: "", seen: [], dismissed: [], queue: [], error: null, approvals: [], review: null, timeline: [] };
+}
+
+const entry = (r: QaRun | null, over: Partial<PlaytestEntry> & { script: string; name: string }): PlaytestEntry =>
+  ({ last: r, card: r?.sessionId ? r : null, draft: null, session: r?.sessionId ? { id: SESSION_ID, title: "Door playtest" } : null, ...over });
+
+const PROJECT: PlaytestEntry[] = [
+  entry(RUNS.waiting, { script: RUNS.waiting.script, name: "PT_DoorOpens" }),
+  entry(RUNS.loopNeedsYou, { script: RUNS.loopNeedsYou.script, name: "PT_GateTrigger", session: { id: SESSION_ID, title: "Fix the gate trigger so the playtest passes on every attempt" } }),
+  entry(RUNS.running, { script: RUNS.running.script, name: "PT_JumpCheck", session: { id: "s-jump", title: "Jump feel" } }),
+  entry({ ...RUNS.failed, sessionId: null, seenAt: ago(130) }, { script: RUNS.failed.script, name: "PT_LandingCheck" }),
+  entry({ ...run("script_PT_Walk_done", "PT_Walk", "finished", ["passed", "passed", "passed"]), seenAt: ago(60 * 26) }, { script: `${SCRIPTS}/PT_Walk`, name: "PT_Walk", session: { id: "s-walk", title: "Walking" } }),
+  { script: `${SCRIPTS}/PT_Crouch`, name: "PT_Crouch", last: null, card: null, draft: { ...qaDraftFromScript({ path: `${SCRIPTS}/PT_Crouch`, name: "PT_Crouch", steps: STEPS.slice(0, 3) }, { seenAt: ago(1) })! }, session: null },
+];
+
+export interface Scenario {
+  /** What the shot shows, for the index. */
+  title: string;
+  hash: string;
+  session?: SessionDetail;
+  index: PlaytestIndexAnswer;
+  /** The Playtests page's filter, as the viewer last picked it. */
+  filter?: "needs-you" | "failing" | "all";
+  /** Clicked after the page settles: a CSS selector. */
+  click?: string;
+  /** Focused from the keyboard after the page settles, to show the focus ring: a CSS selector. */
+  focus?: string;
+}
+
+const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
+  ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
+
+export const SCENARIOS: Record<string, Scenario> = {
+  "session-empty": inSession("A session with no playtest: no strip, no row of buttons, Checkpoints in the composer bar", "Door playtest", []),
+  "draft": inSession("A draft: collapsed card in the transcript with Start Playtest on it", "Door playtest", [RUNS.draft]),
+  "armed": inSession("Armed: pinned on the strip, its transcript place a one-line pointer", "Door playtest", [RUNS.armed]),
+  "running": inSession("Running: live card on the strip", "Jump check", [RUNS.running]),
+  "waiting": inSession("Waiting for a verdict: Pass, Fail and Skip on the strip", "Door playtest", [RUNS.waiting]),
+  "waiting-open": inSession("Waiting, opened in place from the waiting step's bar", "Door playtest", [RUNS.waiting], ".playtest-strip .qa-path-step[data-status='awaiting_verdict'] button"),
+  "focus-step-bar": inSession("Keyboard focus on a step bar of a waiting card on the strip", "Door playtest", [RUNS.waiting], undefined, ".playtest-strip .qa-path-step:nth-child(2) button"),
+  "focus-verdict": inSession("Keyboard focus on Pass in the strip", "Door playtest", [RUNS.waiting], undefined, ".playtest-strip .qa-answer button"),
+  "finished-failures": inSession("Finished with failures: back in the transcript, not on the strip", "Landing check", [RUNS.failed]),
+  "finished-failures-open": inSession("Finished with failures, opened from a failed step's bar", "Landing check", [RUNS.failed], ".qa-path-step[data-status='failed'] button"),
+  "stopped": inSession("Stopped: in the transcript, a neutral pill", "Sprint", [RUNS.stopped]),
+  "loop-running": inSession("Assigned loop running: on the strip with its attempt", "Gate trigger", [RUNS.loopRunning]),
+  "loop-needs-you": inSession("Loop that needs you: on the strip with its reason and Review", "Gate trigger", [RUNS.loopNeedsYou]),
+  "strip-several": inSession("Several live: summary line, needs-you first, bounded height", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
+  "page-needs-you": { title: "Playtests page, Needs you", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "needs-you" },
+  "page-failing": { title: "Playtests page, Failing", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "failing" },
+  "page-all": { title: "Playtests page, All", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all" },
+  "page-row-open": { title: "Playtests page, a row's full card opened in place", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
+  "page-empty": { title: "Playtests page with no playtests in the project", hash: "#/playtests", index: { playtests: [], listed: true }, filter: "all" },
+  "page-editor-offline": { title: "Playtests page while the editor cannot list scripts", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all" },
+};

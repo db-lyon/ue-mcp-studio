@@ -9,7 +9,7 @@ import { useNow } from "./hooks";
  * screen, with the session above it in small type while a subagent's thread
  * is open. `onAgents`, when given, adds a button for the session's subagents.
  */
-export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, onSessions, onMain, onStop, onAgents, onReview, playtests = 0, playtestsWaiting = false, onPlaytests }: {
+export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, onSessions, onMain, onStop, onAgents, onReview }: {
   title: string;
   thread: Call | null;
   transcript: TranscriptEntry[];
@@ -22,10 +22,6 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
   onAgents?: () => void;
   /** Opens the session's review switch and checkpoint timeline. */
   onReview?: () => void;
-  /** How many playtests the session has, whether one waits for the user, and what opens them. */
-  playtests?: number;
-  playtestsWaiting?: boolean;
-  onPlaytests?: () => void;
 }) {
   const now = useNow(thread?.outcome === "pending");
   const st = thread ? agentStatus(thread, transcript, sessionWaiting, now) : null;
@@ -50,11 +46,6 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
         </span>
       )}
       {st && thread && isActive(st.state) && <button className="thread-stop" onClick={() => onStop(thread.id)}>Stop</button>}
-      {onPlaytests && playtests > 0 && !thread && (
-        <button className={`ghost chat-playtests-button ${playtestsWaiting ? "needs-you" : ""}`} onClick={onPlaytests} aria-label={`Playtests (${playtests})`} title="This session's playtests">
-          Playtests <span className="count">{playtests}</span>
-        </button>
-      )}
       {onReview && !thread && (
         <button className="ghost chat-review-button" onClick={onReview} title="Review and checkpoints">Checkpoints</button>
       )}

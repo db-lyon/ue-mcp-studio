@@ -58,6 +58,7 @@ import { BusyTracker } from "./busy.js";
 import { registerDialogs } from "./dialog-routes.js";
 import { registerForms } from "./forms.js";
 import { registerQa } from "./qa.js";
+import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./playtest-index.js";
 import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
@@ -177,6 +178,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const forms = registerForms(api);
   const dialogs = registerDialogs(api, store, settings, forms);
   const qa = registerQa(api, store, forms, playtests);
+  registerPlaytestIndex(api, new PlaytestIndex({ host: api as unknown as PlaytestIndexHost, broker: qa, store }));
   const review = registerReview(api, store, () => settings.reviewTurns());
   /** The daemon's own address, for the flow routes. */
   const endpoint = () => {

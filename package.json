@@ -14,6 +14,8 @@
     "dev": "npm run dev -w @ue-mcp-studio/client-web",
     "keys:dev": "node scripts/dev-keys.mjs",
     "install:dev": "node scripts/install-dev.mjs",
+    "visual-qa": "node scripts/visual-qa.mjs",
+    "visual-qa:live": "node scripts/visual-qa-live.mjs",
     "release": "node scripts/release.mjs"
   },
   "devDependencies": {
