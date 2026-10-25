@@ -55,12 +55,12 @@ export function UsageSection() {
                   <tr key={a.id}>
                     <td>
                       <strong>{a.name}</strong>
-                      <div className="cfg-note">{runner ? "One assigned playtest, every attempt included" : a.id === MAIN_AGENT_ID ? "One turn, its helpers' calls included" : "Every helper run it makes in a day"}</div>
+                      <div className="cfg-note">{runner ? "One assigned playtest, every attempt included" : a.id === MAIN_AGENT_ID ? "One turn, its helpers' calls included" : a.id === "worker" ? "Every helper run it makes in a day" : "A project subagent, every run it makes in a day"}</div>
                     </td>
                     <td data-label="Tokens per run">
                       {perRun
                         ? <NumberField label={`${a.name} tokens per run`} value={b.perRunTokens} nullable={!runner} min={BUDGET_LIMITS.minTokens} max={BUDGET_LIMITS.maxTokens} onSave={(n) => void save(a.id, { perRunTokens: n })} />
-                        : <input type="text" className="cfg-num" disabled value="" placeholder="The turn's" aria-label={`${a.name} tokens per run: counted in the turn that starts it`} title="Counted in the turn that starts it" />}
+                        : <input type="text" className="cfg-num" disabled value="" placeholder="Counts toward the turn" aria-label={`${a.name} tokens per run: counted in the turn that starts it`} title="Counted in the turn that starts it" />}
                     </td>
                     <td data-label="Minutes per run">
                       {runner

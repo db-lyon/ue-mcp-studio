@@ -210,7 +210,7 @@ function DayChart({ s, teamPerDay }: { s: UsageSummary; teamPerDay: number | nul
       </div>
       <div className="dayaxis" aria-hidden>
         {/* Labelled from the newest day back, so today always has its label. */}
-        {days.map((d, i) => <span key={d.day}>{days.length <= 8 || (days.length - 1 - i) % Math.ceil(days.length / 8) === 0 ? dayLabel(d.day) : ""}</span>)}
+        {days.map((d, i) => <span key={d.day}>{days.length <= 7 || (days.length - 1 - i) % Math.ceil(days.length / 5) === 0 ? dayLabel(d.day) : ""}</span>)}
       </div>
       {teamPerDay !== null && !drawLine && <p className="cfg-note">The daily budget for all agents, {tokens(teamPerDay)} tokens, is more than twice the busiest day here.</p>}
     </Card>

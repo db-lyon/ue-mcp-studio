@@ -68,7 +68,7 @@ import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js"
 import type { AssetRef } from "@ue-mcp-studio/shared";
 import { BudgetStore } from "./budgets.js";
 import { DaemonActionEffects } from "./approval-kind.js";
-import { BUDGET_ROWS, registerComposerRoutes } from "./composer-routes.js";
+import { BUDGET_ROWS, budgetRows, registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
 import { registerUsageRoutes } from "./usage-routes.js";
 import { Ledger } from "./ledger.js";
@@ -403,7 +403,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     settings,
     budgets,
     restartUeMcp: () => updates.request("restart", {}),
-    agents: () => BUDGET_ROWS,
+    // The project's own subagents get a per-day row beside Studio's, by the name their files give them.
+    agents: () => budgetRows((nativeRun()?.helpers ?? []).map((h) => h.name)),
   });
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));

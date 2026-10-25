@@ -279,3 +279,5 @@
 .cfg .price-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 .cfg .price-form input { width: 110px; }
 .cfg .usage-table td.num, .cfg .usage-table th.r { white-space: nowrap; }
+/* The newest day's label stays inside the card. */
+.cfg .dayaxis span:last-child { text-align: right; }
