@@ -126,5 +126,7 @@ export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRoute
 /** The runs Studio budgets: the main agent's turn, and an assigned playtest's loop. */
 export const BUDGET_ROWS: Array<{ id: string; name: string }> = [
   { id: MAIN_AGENT_ID, name: "Main agent" },
+  // Per day only: a helper's run is bounded by the turn that started it.
+  { id: "worker", name: "Studio's worker" },
   { id: PLAYTEST_RUNNER_ID, name: "Playtest runner" },
 ];

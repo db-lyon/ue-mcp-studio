@@ -101,7 +101,7 @@ describe("budget routes", () => {
     const { call, published } = setup();
     const g = (await call("GET /budgets")).body as { definition: string; agents: Array<{ id: string }>; budgets: { agents: Record<string, unknown> } };
     expect(g.definition).toMatch(/Cached reads are left out/);
-    expect(g.agents.map((a) => a.id)).toEqual(["main", "playtest-runner"]);
+    expect(g.agents.map((a) => a.id)).toEqual(["main", "worker", "playtest-runner"]);
     const r = await call("PUT /budgets", { agents: { main: { perRunTokens: 400_000 } } });
     expect((r.body as { budgets: { agents: { main: { perRunTokens: number } } } }).budgets.agents.main.perRunTokens).toBe(400_000);
     expect(published).toContain("budgets.changed");
