@@ -65,6 +65,11 @@ import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 import { registerQuickRoute } from "./quick.js";
 import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js";
 import type { AssetRef } from "@ue-mcp-studio/shared";
+import { BudgetStore } from "./budgets.js";
+import { DaemonActionEffects } from "./approval-kind.js";
+import { PHASE1_AGENTS, registerComposerRoutes } from "./composer-routes.js";
+import { compose } from "./instructions.js";
+import { MAIN_AGENT_ID } from "@ue-mcp-studio/shared";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
@@ -73,6 +78,19 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const store = new SessionStore(api.dataDir);
   const playtests = new PlaytestStore(api.dataDir);
   const attachments = new AttachmentStore(api.dataDir);
+  // Every budget, per machine; the old turn token limit and playtest budget move into it on first read.
+  const budgets = new BudgetStore(api.dataDir, {
+    turnTokenLimit: () => settings.usage().turnTokenLimit,
+    setTurnTokenLimit: (n) => settings.update({ usage: { turnTokenLimit: n } }),
+    playtestBudget: () => playtests.budget(),
+    setPlaytestBudget: (b) => playtests.setBudget(b),
+  });
+  // ue-mcp's own word on which actions delete or overwrite, for that approval row.
+  const actionsApi = (api as unknown as { actions?: { effects(categories?: string[]): Array<{ category: string; action: string; effect: string; destructive?: boolean }> } }).actions;
+  const effects = new DaemonActionEffects(actionsApi?.effects ? () => actionsApi.effects() : null);
+  const unwatchPlugins = api.events.subscribe((e) => {
+    if (e.type === "plugins.changed") effects.refresh();
+  });
 
   // The `ue-mcp login` account, kept fresh so a sign-in is picked up without a restart.
   // Older daemons have no registryAccount; the Settings token is the only source then.
@@ -180,6 +198,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     // A key names its vendor, since model names no longer do.
     route: () => ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
     askBeforeChanges: () => settings.askBeforeChanges(),
+    approvals: () => settings.approvals(),
+    effects,
+    mainBudget: () => budgets.agent(MAIN_AGENT_ID),
+    instructions: () => compose(api.projectDir, settings.instructions(), settings.usage().projectInstructions ? "all" : "none"),
     playtestRuns: () => playtests.runs(),
     playtestFlow: new PlaytestFlow({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
@@ -206,7 +228,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
         if (s) review.mark(s, m);
       },
     },
-    budget: () => playtests.budget(),
+    budget: () => budgets.playtestBudget(),
     blocked: (sid) => {
       const s = store.get(sid);
       return s && !review.on(s) ? "Review is off in this session, so no checkpoints would let you undo its changes. Turn it on in the session's Checkpoints panel." : null;
@@ -252,7 +274,13 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const b = (body ?? {}) as { now?: unknown; then?: unknown };
     return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [] };
   };
-  registerAgentSettings(api, () => updates.request("restart", {}), playtests);
+  registerAgentSettings(api, () => updates.request("restart", {}), playtests, budgets);
+  registerComposerRoutes(api, {
+    settings,
+    budgets,
+    restartUeMcp: () => updates.request("restart", {}),
+    agents: () => PHASE1_AGENTS(settings.usage().projectInstructions),
+  });
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));
     if (r.deferred) return { status: 202, body: { ok: true, deferred: r.deferred } };
@@ -370,6 +398,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
         delete u.signOut;
       }
       settings.update(u);
+      // The turn token limit from an older panel is the main agent's per-run budget now.
+      if (u.usage?.turnTokenLimit !== undefined) budgets.update({ agents: { [MAIN_AGENT_ID]: { perRunTokens: u.usage.turnTokenLimit } } });
       return { body: view() };
     } catch (e) {
       return bad(e instanceof Error ? e.message : String(e));
@@ -646,6 +676,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dispose: () => {
       unobserve();
       unwatchAssets();
+      unwatchPlugins();
       updates.stop();
       unregisterModel();
       dialogs.dispose();
