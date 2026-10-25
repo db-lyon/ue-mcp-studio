@@ -109,7 +109,7 @@ describe("the turn card", () => {
     m.reviewNativeDiff.mockResolvedValue({ opened: "window", windowTitle: "Diff of BP_Door" });
     await act(async () => void fireEvent.click(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Open in Unreal diff" })));
     expect(m.reviewNativeDiff).toHaveBeenCalledWith("s1", "r1", "Content/BP_Door.uasset");
-    expect(within(row("Content/BP_Door.uasset")).getByRole("status").textContent).toBe("Opened in Unreal: Diff of BP_Door.");
+    expect(within(row("Content/BP_Door.uasset")).getByRole("status").textContent).toBe("Unreal's diff window is open (Diff of BP_Door).");
   });
 
   it("shows why Unreal could not open its diff", async () => {

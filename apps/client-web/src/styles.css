@@ -1146,7 +1146,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .review-group { display: flex; flex-direction: column; gap: 4px; }
 .review-group-label { text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
 .review-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
-.review-item { border-left: 2px solid var(--line-strong); padding: 4px 0 4px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.review-item { border-left: 2px solid var(--line-strong); padding: 4px 4px 4px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .review-item.state-kept { border-left-color: var(--ok); }
 .review-item.state-reverted { border-left-color: var(--dim); }
 .review-item.state-reverted .review-item-name { text-decoration: line-through; color: var(--muted); }
@@ -1172,7 +1172,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-toggle { text-align: left; white-space: normal; }
 .diff-hidden { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .diff-hidden .diff-table-wrap { width: 100%; }
-.diff-value { overflow-wrap: break-word; }
+.diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }
 .engine-note summary { cursor: pointer; }
 .asset-diff .review-nopicture { width: 100%; aspect-ratio: 1; height: auto; }
 .asset-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; }

@@ -40,7 +40,7 @@ const kindClass = (k: string): string => (k === "Added" ? "add" : k === "Removed
 
 /** Text that may break after a comma, a slash or a dot, so a long value wraps between its parts, never inside a number. */
 function Breakable({ text }: { text: string }) {
-  const parts = text.split(/(?<=[,/])/);
+  const parts = text.split(/(?<=[,/=(])/);
   return <>{parts.map((x, i) => <span key={i}>{x}{i < parts.length - 1 && <wbr />}</span>)}</>;
 }
 
@@ -63,7 +63,7 @@ function Picture({ version, missing, label, name }: { version: AssetVersion | nu
       ) : (
         <div className="review-nopicture dim small">No picture: {t && "error" in t ? t.error : "the editor kept none for this version."}</div>
       )}
-      <figcaption className="small dim"><span className="picture-label">{label}</span>{version?.class && <span className="picture-class"><Breakable text={version.class} /></span>}</figcaption>
+      <figcaption className="small dim"><span className="picture-label">{label}</span><span className="picture-class">{version?.class ? <Breakable text={version.class} /> : "no version"}</span></figcaption>
     </figure>
   );
 }

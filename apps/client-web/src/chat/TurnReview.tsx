@@ -65,7 +65,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
     if (!sessionId) return;
     setOpened(null);
     api.reviewNativeDiff(sessionId, review.id, path).then(
-      (r) => setOpened({ path, text: r.opened === "editor" ? "Opened in Unreal, in its asset editor." : r.opened === "external" ? "Opened in your text diff tool." : `Opened in Unreal${r.windowTitle ? `: ${r.windowTitle}` : ""}.` }),
+      (r) => setOpened({ path, text: r.opened === "editor" ? "Opened in Unreal, in its asset editor." : r.opened === "external" ? "Opened in your text diff tool." : `Unreal's diff window is open${r.windowTitle ? ` (${r.windowTitle})` : ""}.` }),
       (e: Error) => setOpened({ path, text: e.message, bad: true }),
     );
   };
