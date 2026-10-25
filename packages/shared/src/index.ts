@@ -134,6 +134,8 @@ export interface StudioSettings {
   askBeforeChanges: boolean;
   /** What each kind of action does first, in Approvals & review. */
   approvals: Approvals;
+  /** The daemon reports which ue-mcp actions delete or overwrite, so that row can ask. */
+  destructiveKnown?: boolean;
   /** Checkpoint each turn and show what it changed, for sessions that have not set their own (per-turn review). */
   reviewTurns: boolean;
   /** The height dragged on the chat composer's divider, in pixels, or null for the default. */
