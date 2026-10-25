@@ -132,7 +132,7 @@ export function DialogPolicyField({ policy, onSave }: { policy: DialogPolicy; on
         {policy.kind !== "wait" && (
           <>
             <span className="muted">after</span>
-            <NumberField label="Minutes" value={policy.minutes} min={1} max={MAX_DIALOG_MINUTES} onSave={(n) => n !== null && onSave({ kind: policy.kind as "agent" | "safe", minutes: n })} className="minutes" />
+            <NumberField label="Minutes" value={policy.minutes} min={1} max={MAX_DIALOG_MINUTES} onSave={(n) => n !== null && onSave({ kind: policy.kind as "agent" | "safe", minutes: n })} className="cfg-num minutes" />
             <span className="muted">minutes</span>
           </>
         )}

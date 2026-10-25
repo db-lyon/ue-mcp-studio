@@ -32,7 +32,7 @@ export function UsageSection() {
       <Card label="Budgets">
         <p className="muted small">{body.definition}</p>
         <div className="scroll-x">
-          <table className="cfg-table">
+          <table className="cfg-table blocks">
             <thead>
               <tr><th>Who</th><th className="r">Tokens per run</th><th className="r">Minutes per run</th><th>At the limit</th></tr>
             </thead>
@@ -46,15 +46,15 @@ export function UsageSection() {
                       <div className="cfg-inline"><Avatar id={a.id} name={a.name} small /><strong>{a.name}</strong></div>
                       <div className="cfg-note">{runner ? "One assigned playtest, every attempt included" : "One turn of its own calls"}</div>
                     </td>
-                    <td className="r">
+                    <td className="r" data-label="Tokens per run">
                       <NumberField label={`${a.name} tokens per run`} value={b.perRunTokens} nullable={!runner} min={BUDGET_LIMITS.minTokens} max={BUDGET_LIMITS.maxTokens} onSave={(n) => void save(a.id, { perRunTokens: n })} />
                     </td>
-                    <td className="r">
+                    <td className="r" data-label="Minutes per run">
                       {runner
                         ? <NumberField label={`${a.name} minutes per run`} value={b.perRunMinutes} min={1} max={BUDGET_LIMITS.maxMinutes} onSave={(n) => void save(a.id, { perRunMinutes: n })} />
                         : <span className="dim">none</span>}
                     </td>
-                    <td className="small">{AT_LIMIT[a.id] ?? "Stops and reports"}</td>
+                    <td className="small" data-label="At the limit">{AT_LIMIT[a.id] ?? "Stops and reports"}</td>
                   </tr>
                 );
               })}
