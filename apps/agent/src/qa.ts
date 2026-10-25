@@ -621,10 +621,16 @@ export class QaBroker {
     return { run: (read && "run" in read && read.run) || this.runs.get(runId) || run };
   }
 
-  /** Stop the loop, or the subagent, a playtest is assigned to. */
+  /** Stop the loop, or the subagent, a playtest is assigned to; a loop that stopped for the user is closed, so it no longer waits for them. */
   cancel(runId: string): { run: QaRun } | { error: string; status: number } {
     const run = this.runs.get(runId);
     const a = run?.assignment;
+    if (run && a?.state !== "running" && a?.loop?.state === "needs_you") {
+      const holder = this.loopHolder(a.loop.id) ?? run;
+      const loop = holder.assignment?.loop ?? a.loop;
+      this.save({ ...holder, assignment: { ...(holder.assignment ?? a), loop: { ...loop, state: "stopped", endedAt: this.now() } } });
+      return { run: this.runs.get(holder.runId) ?? holder };
+    }
     if (!run || !a || a.state !== "running") return { error: "no subagent is running this playtest", status: 404 };
     const loop = a.loop ? this.loops.get(a.loop.id) : undefined;
     if (loop) {
