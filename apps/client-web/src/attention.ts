@@ -26,12 +26,13 @@ export async function notifyUser(title: string, text: string, target: AttentionT
   if (!shown) await n.drawattention?.(text).catch(() => false);
 }
 
-/** Scroll a playtest's card into view once the session has drawn it, and mark it for a moment. */
+/** Open a playtest's card once the session has drawn it, scroll it into view, and mark it for a moment. */
 export function focusRun(runId: string, waitMs = 5000): void {
   const end = Date.now() + waitMs;
   const look = () => {
     const el = document.querySelector(`[data-run-id="${runId.replace(/["\\]/g, "\\$&")}"]`);
     if (el) {
+      el.querySelector<HTMLButtonElement>(".qa-toggle[aria-expanded='false']")?.click();
       el.scrollIntoView?.({ block: "center", behavior: "smooth" });
       el.classList.add("attention");
       setTimeout(() => el.classList.remove("attention"), 2400);

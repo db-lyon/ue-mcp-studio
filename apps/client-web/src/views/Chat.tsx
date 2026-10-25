@@ -27,6 +27,8 @@ import { chatPane } from "../chat/pane";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../chat/TurnReview";
+import { PlaytestsPanel, needsYou, sessionPlaytests } from "../chat/PlaytestsPanel";
+import { focusRun } from "../attention";
 import { NARROW, useMedia } from "../layout";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
@@ -79,6 +81,7 @@ export function ChatView({ daemon, nav, active = true }: {
   const narrow = useMedia(NARROW);
   const [sheet, setSheet] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  const [playtestsOpen, setPlaytestsOpen] = useState(false);
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -317,6 +320,8 @@ export function ChatView({ daemon, nav, active = true }: {
     void loadList();
   };
   const openThread = (thread && detail && agentCalls(detail.transcript).find((c) => c.id === thread)) || null;
+  const playtests = useMemo(() => (detail ? sessionPlaytests(detail.transcript) : []), [detail?.transcript]);
+  const playtestsWaiting = playtests.some(needsYou);
   const drawerCall = (drawerId && detail && agentCalls(detail.transcript).find((c) => c.id === drawerId)) || null;
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
@@ -385,9 +390,21 @@ export function ChatView({ daemon, nav, active = true }: {
             onStop={stopSubagent}
             onAgents={narrow ? () => setSheet(true) : undefined}
             onReview={() => setReviewOpen(true)}
+            playtests={playtests.length}
+            playtestsWaiting={playtestsWaiting}
+            onPlaytests={() => setPlaytestsOpen(true)}
           />
         )}
-        {detail && !narrow && !openThread && <button className="ghost small-button review-open" onClick={() => setReviewOpen(true)} title="Review and checkpoints">Checkpoints</button>}
+        {detail && !narrow && !openThread && (
+          <div className="conversation-tools">
+            {playtests.length > 0 && (
+              <button className={`ghost small-button ${playtestsWaiting ? "needs-you" : ""}`} onClick={() => setPlaytestsOpen(true)} title="This session's playtests">
+                Playtests <span className="count">{playtests.length}</span>
+              </button>
+            )}
+            <button className="ghost small-button" onClick={() => setReviewOpen(true)} title="Review and checkpoints">Checkpoints</button>
+          </div>
+        )}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
         {!detail && (
           <div className="empty">
@@ -470,6 +487,18 @@ export function ChatView({ daemon, nav, active = true }: {
               {!narrow && threads}
             </Composer>
             {narrow && <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{threads}</Sheet>}
+            <Sheet open={playtestsOpen} title="Playtests" onClose={() => setPlaytestsOpen(false)}>
+              {playtestsOpen && (
+                <PlaytestsPanel
+                  runs={playtests}
+                  onShow={(runId) => {
+                    setPlaytestsOpen(false);
+                    setThread(null);
+                    focusRun(runId);
+                  }}
+                />
+              )}
+            </Sheet>
             <Sheet open={reviewOpen} title="Checkpoints" onClose={() => setReviewOpen(false)}>
               {reviewOpen && <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />}
             </Sheet>
