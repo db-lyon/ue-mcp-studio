@@ -75,6 +75,14 @@ try {
           await page.waitForTimeout(700);
         }
       }
+      const focus = await page.evaluate(() => window.__visualQa.focus);
+      if (focus) {
+        // A key press first, so the browser draws focus as it does for the keyboard.
+        await page.keyboard.press("Shift");
+        if (!(await page.$(focus))) errors.push(`nothing matched ${focus}`);
+        else await page.focus(focus);
+        await page.waitForTimeout(200);
+      }
       const file = `${scenario}-${theme}-${label}.png`;
       await page.screenshot({ path: path.join(out, file), animations: "disabled" });
       lines.push(`- [${theme}, ${label} (${width}px)](${file})${errors.length ? ` errors: ${errors.join("; ")}` : ""}`);

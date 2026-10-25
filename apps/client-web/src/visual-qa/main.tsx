@@ -92,6 +92,7 @@ history.replaceState(null, "", `${location.pathname}${location.search}${scenario
 (window as unknown as { __visualQa: unknown }).__visualQa = {
   scenarios: Object.fromEntries(Object.entries(SCENARIOS).map(([name, s]) => [name, s.title])),
   click: scenario.click ?? null,
+  focus: scenario.focus ?? null,
 };
 
 void import("../App").then(({ App }) => {

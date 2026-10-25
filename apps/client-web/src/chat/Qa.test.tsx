@@ -436,6 +436,41 @@ describe("the collapsed card", () => {
     expect(pass.title).toBe("The editor is not connected");
   });
 
+  it("offers Review on a loop that stopped for the user, and Assign again only in the open card", () => {
+    const loop = { id: "l1", state: "needs_you", attempts: [], baseline: "c0", budget: { minutes: 60, tokens: 1 }, tokens: 0, startedAt: "", blocker: { kind: "no_progress", reason: "Nothing changed", evidence: [] } };
+    collapsed({ ...runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }), assignment: { callId: "c", sessionId: "s1", state: "done", at: "", loop } as QaRun["assignment"] }, { sessionId: "s1" });
+    expect(screen.queryByRole("button", { name: /Assign/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Run again" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review" }));
+    expect(screen.getByRole("button", { name: "Assign again" })).toBeTruthy();
+  });
+
+  it("brings the card into view when it opens, and clears a step's mark after a moment", () => {
+    vi.useFakeTimers();
+    const scrolled: string[] = [];
+    const proto = HTMLElement.prototype as unknown as { scrollIntoView?: (o?: unknown) => void };
+    const had = proto.scrollIntoView;
+    proto.scrollIntoView = function (this: HTMLElement) {
+      scrolled.push(this.getAttribute("data-run-id") ?? this.getAttribute("data-index") ?? "");
+    };
+    try {
+      collapsed(runOf());
+      fireEvent.click(screen.getByRole("button", { name: "Open playtest DoorOpens" }));
+      expect(scrolled).toEqual([RUN]);
+      fireEvent.click(screen.getByRole("button", { name: /DoorOpens/, expanded: true }));
+      fireEvent.click(screen.getByRole("button", { name: "Step 2, auto, Pending" }));
+      const li = document.querySelector(".qa-step[data-index='1']")!;
+      expect(li.classList.contains("flash")).toBe(true);
+      act(() => {
+        vi.advanceTimersByTime(1700);
+      });
+      expect(li.classList.contains("flash")).toBe(false);
+    } finally {
+      proto.scrollIntoView = had;
+      vi.useRealTimers();
+    }
+  });
+
   it("says what a loop that stopped needs, and opens on Review", () => {
     const loop = { id: "l1", state: "needs_you", attempts: [], baseline: "c0", budget: { minutes: 60, tokens: 1 }, tokens: 0, startedAt: "", blocker: { kind: "no_progress", reason: "Two attempts changed nothing", evidence: [] } };
     collapsed({ ...runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }), assignment: { callId: "c", sessionId: "s1", state: "done", at: "", loop } as QaRun["assignment"] });

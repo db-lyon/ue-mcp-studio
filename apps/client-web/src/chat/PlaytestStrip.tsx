@@ -176,7 +176,7 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
             <QaCard key={r.runId} run={r} dense onHide={r.assignment?.loop?.state === "needs_you" && !qaNeedsYouStep(r) ? () => onHide(r) : undefined} />
           ))}
           {rest.length > 0 && (
-            <button className="small-button strip-more" onClick={() => setAll(true)} aria-label={`Show ${rest.length} more: ${rest.map((r) => r.scriptName).join(", ")}`}>
+            <button className="ghost small-button strip-more" onClick={() => setAll(true)} aria-label={`Show ${rest.length} more: ${rest.map((r) => r.scriptName).join(", ")}`}>
               Show {rest.length} more:{" "}
               {rest.map((r, i) => (
                 <span key={r.runId}>

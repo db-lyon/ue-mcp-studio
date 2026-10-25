@@ -134,10 +134,12 @@ export interface Scenario {
   filter?: "needs-you" | "failing" | "all";
   /** Clicked after the page settles: a CSS selector. */
   click?: string;
+  /** Focused from the keyboard after the page settles, to show the focus ring: a CSS selector. */
+  focus?: string;
 }
 
-const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string): Scenario =>
-  ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}) });
+const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
+  ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
 
 export const SCENARIOS: Record<string, Scenario> = {
   "session-empty": inSession("A session with no playtest: no strip, no row of buttons, Checkpoints in the composer bar", "Door playtest", []),
@@ -146,6 +148,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   "running": inSession("Running: live card on the strip", "Jump check", [RUNS.running]),
   "waiting": inSession("Waiting for a verdict: Pass, Fail and Skip on the strip", "Door playtest", [RUNS.waiting]),
   "waiting-open": inSession("Waiting, opened in place from the waiting step's bar", "Door playtest", [RUNS.waiting], ".playtest-strip .qa-path-step[data-status='awaiting_verdict'] button"),
+  "focus-step-bar": inSession("Keyboard focus on a step bar of a waiting card on the strip", "Door playtest", [RUNS.waiting], undefined, ".playtest-strip .qa-path-step:nth-child(2) button"),
+  "focus-verdict": inSession("Keyboard focus on Pass in the strip", "Door playtest", [RUNS.waiting], undefined, ".playtest-strip .qa-answer button"),
   "finished-failures": inSession("Finished with failures: back in the transcript, not on the strip", "Landing check", [RUNS.failed]),
   "finished-failures-open": inSession("Finished with failures, opened from a failed step's bar", "Landing check", [RUNS.failed], ".qa-path-step[data-status='failed'] button"),
   "stopped": inSession("Stopped: in the transcript, a neutral pill", "Sprint", [RUNS.stopped]),
