@@ -84,7 +84,8 @@ export function ModelPicker({
   return (
     <div className="picker" ref={box}>
       <button className="picker-button" onClick={() => setOpen(!open)} title="Model">
-        <span>{current?.model.name ?? settings.model}</span>
+        {/* Nothing connected yet: no vendor is chosen for the user. */}
+        <span>{Object.values(settings.connected ?? {}).some(Boolean) ? current?.model.name ?? settings.model : "Choose a model"}</span>
         {via && <span className="picker-via">{via === "key" ? `${PROVIDERS[settings.provider].name} key` : VIA_LABEL[via]}</span>}
         <span className="picker-caret" aria-hidden>{"▾"}</span>
       </button>

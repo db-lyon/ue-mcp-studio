@@ -4,9 +4,9 @@ import { api } from "../../api";
 import { Card, tokens, useMessage } from "./controls";
 
 function scopeLine(f: NativeFile): string {
-  if (f.scope.kind === "globs") return `When the agent touches ${f.scope.globs.join(", ")}`;
-  if (f.scope.kind === "folder") return `When the agent works in ${f.scope.folder}`;
-  return f.source === "user" ? "Yours, every project" : f.source === "local" ? "This machine only" : "Every call";
+  if (f.scope.kind === "globs") return `when the agent touches ${f.scope.globs.join(", ")}`;
+  if (f.scope.kind === "folder") return `when the agent works in ${f.scope.folder}`;
+  return f.source === "user" ? "yours, every project" : f.source === "local" ? "this machine only" : "every call";
 }
 
 const SOURCE: Record<string, string> = { user: "Yours", project: "Project", local: "This machine", plugin: "Plugin" };
@@ -18,7 +18,8 @@ function OpenFile({ path, onError }: { path: string; onError: (e: Error) => void
 /** Tabs by convention: the main agent's first, then those a connected route reads, then the rest. */
 export function conventionOrder(o: NativeOverview): NativeView[] {
   const rank = (v: NativeView) => (v.convention === o.main ? 0 : v.routes.length ? 1 : 2);
-  return [...o.conventions].sort((a, b) => rank(a) - rank(b));
+  // Ties by name, so no vendor leads by default.
+  return [...o.conventions].sort((a, b) => rank(a) - rank(b) || CONVENTION_INFO[a.convention].name.localeCompare(CONVENTION_INFO[b.convention].name));
 }
 
 /**
@@ -66,7 +67,7 @@ export function NativePanel({ overview }: { overview: NativeOverview }) {
               <span className="ifile-n dim num">{i + 1}</span>
               <div className="ifile-main">
                 <div className="path">{f.path}</div>
-                <div className="readers">{tokens(f.tokens)} tokens, {scopeLine(f).toLowerCase()}{f.imports?.length ? `, imports ${f.imports.join(", ")}` : ""}</div>
+                <div className="readers">{tokens(f.tokens)} tokens, {scopeLine(f)}{f.imports?.length ? `, imports ${f.imports.join(", ")}` : ""}</div>
               </div>
               <OpenFile path={f.path} onError={msg.fail} />
             </li>
