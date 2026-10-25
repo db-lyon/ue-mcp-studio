@@ -4,7 +4,7 @@
  * snapshots, and restore with the daemon's refusals and its before and after
  * checkpoints.
  */
-import type { CheckpointChange } from "@ue-mcp-studio/shared";
+import type { AssetDiff, CheckpointChange } from "@ue-mcp-studio/shared";
 import type { CheckpointApi, CheckpointResult, CheckpointState, ChangesResult, RestoreResult } from "../src/review.js";
 
 const kindOf = (p: string): CheckpointChange["kind"] => (/\.(uasset|umap)$/i.test(p) ? "package" : /\.ini$/i.test(p) ? "config" : /\.(cpp|h|cs)$/i.test(p) ? "source" : "other");
@@ -23,6 +23,30 @@ export class FakeCheckpoints implements CheckpointApi {
   readonly snapshots = new Map<string, { label: string; files: Map<string, string>; trigger: CheckpointResult["trigger"] }>();
   readonly log: string[] = [];
   private n = 0;
+  /** Packages changes() diffs before it defers the rest (feature "checkpoints.assetDiff"). */
+  assetDiffLimit = 25;
+  /** Pictures thumbnail() finds, by id. */
+  thumbnails = new Map<string, string>();
+  /** Paths whose diff the editor cannot load. */
+  unloadable = new Set<string>();
+
+  /** What the daemon's asset diff gives a package: the version contents as a property record, and its summary. */
+  assetDiffOf(p: string, a: string | undefined, b: string | undefined): AssetDiff {
+    if (this.unloadable.has(p)) return { state: "error", error: "the package could not be loaded for diff: bad header", summary: "Could not diff: the package could not be loaded for diff: bad header", nativeDiff: { available: false, reason: "the package could not be loaded for diff: bad header" } };
+    const status = a === undefined ? "added" : b === undefined ? "deleted" : "modified";
+    const version = (v: string | undefined, id: string) => (v === undefined ? null : { class: "StaticMesh", facts: [{ name: "Content", value: v }], thumbnail: { id, url: "", source: "rendered" as const } });
+    return {
+      state: "ready",
+      status,
+      assetClass: "StaticMesh",
+      engine: { tool: "DiffUtils::CompareUnrelatedObjects", note: "details", native: "details", nativeAvailable: true },
+      before: version(a, "a".repeat(40)),
+      after: version(b, "b".repeat(40)),
+      sections: status === "modified" ? [{ category: "Details", kind: "properties", engineSource: "DiffUtils::CompareUnrelatedObjects", entries: [{ displayString: "Content changed value", diffType: "PropertyValueChanged", path: "Content", before: a, after: b }] }] : [],
+      summary: status === "modified" ? `1 change: Content ${a} to ${b}` : status === "added" ? "New StaticMesh" : "Deleted StaticMesh",
+      nativeDiff: { available: true },
+    };
+  }
 
   private id(): string {
     this.n++;
@@ -75,7 +99,31 @@ export class FakeCheckpoints implements CheckpointApi {
     if (!a) throw new Error(`unknown checkpoint ${from}`);
     const b = to ? this.snapshots.get(to)?.files : this.files;
     if (!b) throw new Error(`unknown checkpoint ${to}`);
-    return { editor: "P", from, to: to ?? null, changes: this.diff(a.files, b) };
+    const changes = this.diff(a.files, b);
+    const packages = changes.filter((c) => c.kind === "package");
+    for (const [i, c] of packages.entries()) {
+      c.assetDiff = i < this.assetDiffLimit
+        ? this.assetDiffOf(c.path, a.files.get(c.path), b.get(c.path))
+        : { state: "deferred", summary: "Not diffed yet: over the per-turn limit, diffed when opened.", nativeDiff: { available: false, reason: "Diff it first." } };
+    }
+    return { editor: "P", from, to: to ?? null, changes, assetDiffs: { limit: this.assetDiffLimit, diffed: Math.min(packages.length, this.assetDiffLimit), deferred: packages.slice(this.assetDiffLimit).map((c) => c.path) } };
+  }
+
+  async assetDiff(from: string, to: string | undefined, p: string): Promise<AssetDiff> {
+    this.log.push(`assetDiff ${p}`);
+    const a = this.snapshots.get(from)!.files;
+    const b = to ? this.snapshots.get(to)!.files : this.files;
+    return this.assetDiffOf(p, a.get(p), b.get(p));
+  }
+
+  thumbnail(id: string): { file: string; type: string } | null {
+    const file = this.thumbnails.get(id);
+    return file ? { file, type: "image/png" } : null;
+  }
+
+  async openNativeDiff(p: string, from: string, to?: string): Promise<{ opened: string; windowTitle?: string }> {
+    this.log.push(`openNativeDiff ${p} ${from.replace(/^0+/, "")} ${to ? to.replace(/^0+/, "") : "current"}`);
+    return to ? { opened: "window", windowTitle: `Diff of ${p}` } : { opened: "editor" };
   }
 
   async restore(checkpoint: string, opts: { paths?: string[]; force?: boolean } = {}): Promise<RestoreResult> {
