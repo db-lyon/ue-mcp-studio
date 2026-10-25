@@ -87,4 +87,20 @@ describe("per-call options", () => {
       "save(force?:b)",
     ]);
   });
+
+  it("are named once in a category answer that lists each action's params", () => {
+    const raw = JSON.stringify({
+      tool: "level",
+      actions: [
+        { tool: "level", action: "get_outliner", class: "read", description: "List actors.", params: [{ name: "filter" }, { name: "omit" }, { name: "select" }, { name: "timeoutMs" }] },
+        { tool: "level", action: "save", class: "mutate", description: "Save.", params: [{ name: "force", required: true }, { name: "omit" }, { name: "select" }, { name: "timeoutMs" }] },
+      ],
+    });
+    expect(compactDescribe(raw).split("\n")).toEqual([
+      "level: 2 actions. Describe one (category + method) for its full parameters.",
+      "Every call also takes select?, omit? and timeoutMs?.",
+      "get_outliner(filter?): List actors.",
+      "save(force) [mutate]: Save.",
+    ]);
+  });
 });
