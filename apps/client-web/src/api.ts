@@ -208,6 +208,9 @@ export const api = {
   timelineUndo: (sessionId: string, checkpoint: string) =>
     call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/undo`, { checkpoint }),
   reviewImageUrl: (name: string) => `/v1/ext/studio/review/images/${encodeURIComponent(name)}`,
+  reviewThumbnailUrl: (id: string) => `/v1/ext/studio/review/thumbnails/${encodeURIComponent(id)}`,
+  reviewNativeDiff: (sessionId: string, reviewId: string, path: string) =>
+    call<{ opened: string; windowTitle?: string }>("POST", `${reviewBase(sessionId, reviewId)}/native-diff`, { path }),
   dialogs: () => call<DialogsState>("GET", "/v1/ext/studio/dialogs"),
   answerDialog: (id: string, answer: DialogAnswer) => call<void>("POST", `/v1/ext/studio/dialogs/${encodeURIComponent(id)}`, answer),
   resolveAssets: (refs: AssetRef[], sessionId: string | null) =>

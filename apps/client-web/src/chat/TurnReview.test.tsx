@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type { TimelineMark, TurnReview } from "@ue-mcp-studio/shared";
+import type { AssetDiff, TimelineMark, TurnReview } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({
   reviewKeep: vi.fn(),
@@ -12,7 +12,9 @@ const m = vi.hoisted(() => ({
   setSessionReview: vi.fn(),
   timelineRestore: vi.fn(),
   timelineUndo: vi.fn(),
+  reviewNativeDiff: vi.fn(),
   reviewImageUrl: (name: string) => `/v1/ext/studio/review/images/${name}`,
+  reviewThumbnailUrl: (id: string) => `/v1/ext/studio/review/thumbnails/${id}`,
 }));
 vi.mock("../api", () => ({ api: m }));
 import { ItemDiff, ReviewPanel, TurnReviewCard } from "./TurnReview";
@@ -30,9 +32,9 @@ const REVIEW: TurnReview = {
   after: "b".repeat(40),
   at: "2026-10-24T10:00:00.000Z",
   items: [
-    { path: "Config/DefaultGame.ini", status: "modified", kind: "config", group: "config", state: "pending" },
-    { path: "Content/BP_Door.uasset", status: "modified", kind: "package", group: "blueprint", state: "pending", asset: "/Game/BP_Door.BP_Door" },
-    { path: "Content/SM_Box.uasset", status: "added", kind: "package", group: "asset", state: "pending", asset: "/Game/SM_Box.SM_Box", visual: true },
+    { path: "Config/DefaultGame.ini", status: "modified", kind: "config", group: "config", state: "pending", summary: "1 line added, 1 removed", native: { available: false, reason: "Config and source files have no diff view in Unreal; the text diff here is the whole change." } },
+    { path: "Content/BP_Door.uasset", status: "modified", kind: "package", group: "blueprint", state: "pending", asset: "/Game/BP_Door.BP_Door", summary: "2 changes: Open Angle 0.0 to 90.0; Added Node Branch", native: { available: true } },
+    { path: "Content/SM_Box.uasset", status: "added", kind: "package", group: "asset", state: "pending", asset: "/Game/SM_Box.SM_Box", summary: "New StaticMesh", native: { available: true } },
   ],
 };
 const none = { restored: [], conflicts: [], missing: [] };
@@ -96,6 +98,27 @@ describe("the turn card", () => {
     expect(m.reviewRevert).toHaveBeenCalledWith("s1", "r1", ["Config/DefaultGame.ini"], true);
   });
 
+  it("gives every item its one-line summary, and opens Unreal's diff where the engine has one", async () => {
+    card();
+    expect(within(row("Content/BP_Door.uasset")).getByText("2 changes: Open Angle 0.0 to 90.0; Added Node Branch")).toBeTruthy();
+    expect(within(row("Config/DefaultGame.ini")).getByText("1 line added, 1 removed")).toBeTruthy();
+    const ini = within(row("Config/DefaultGame.ini")).getByRole("button", { name: "Open in Unreal diff" }) as HTMLButtonElement;
+    expect(ini.disabled).toBe(true);
+    expect(ini.title).toMatch(/no diff view in Unreal/);
+    expect((within(row("Content/SM_Box.uasset")).getByRole("button", { name: "Open in Unreal" }) as HTMLButtonElement).disabled).toBe(false);
+    m.reviewNativeDiff.mockResolvedValue({ opened: "window", windowTitle: "Diff of BP_Door" });
+    await act(async () => void fireEvent.click(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Open in Unreal diff" })));
+    expect(m.reviewNativeDiff).toHaveBeenCalledWith("s1", "r1", "Content/BP_Door.uasset");
+    expect(screen.getByText("Opened Unreal's diff of BP_Door.uasset: Diff of BP_Door.")).toBeTruthy();
+  });
+
+  it("shows why Unreal could not open its diff", async () => {
+    m.reviewNativeDiff.mockRejectedValue(new Error("Unreal has no in-editor diff view for World"));
+    card();
+    await act(async () => void fireEvent.click(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Open in Unreal diff" })));
+    expect(screen.getByText("Unreal has no in-editor diff view for World")).toBeTruthy();
+  });
+
   it("says what a revert left alone", async () => {
     m.reviewRevert.mockResolvedValue({ review: withItem("Config/DefaultGame.ini", { conflict: true }), outcome: { ...none, conflicts: ["Config/DefaultGame.ini"] } });
     card();
@@ -125,11 +148,67 @@ describe("the diff view", () => {
     expect(list.textContent).toContain("OpenAngle");
   });
 
-  it("shows before and after pictures for a mesh, and says when there is no earlier one", async () => {
-    m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package" }, after: "abc-def-1.png" });
+  const material: AssetDiff = {
+    state: "ready",
+    status: "modified",
+    assetClass: "Material",
+    engine: { tool: "SMaterialDiff", note: "the material graph through FGraphDiffControl::DiffGraphs", native: "window", nativeAvailable: true },
+    before: { class: "Material", facts: [{ name: "Blend mode", value: "BLEND_Opaque" }], thumbnail: { id: "a".repeat(40), url: "", source: "rendered" } },
+    after: { class: "Material", facts: [{ name: "Blend mode", value: "BLEND_Masked" }], thumbnail: { error: "Unreal has no thumbnail renderer for Material" } },
+    sections: [
+      { category: "Material Graph", kind: "graph", engineSource: "FGraphDiffControl::DiffGraphs", entries: [
+        { displayString: "Added Node Constant", diffType: "NODE_ADDED", category: "ADDITION" },
+        { displayString: "Property Changed: Default Value", diffType: "NODE_PROPERTY", category: "MODIFICATION", properties: [{ displayString: "Default Value changed value in Roughness", diffType: "PropertyValueChanged", path: "Default Value", before: "0.200000", after: "0.700000" }] },
+      ] },
+      { category: "Details", kind: "properties", engineSource: "DiffUtils::CompareUnrelatedObjects", entries: [
+        { displayString: "Two Sided changed value in M", diffType: "PropertyValueChanged", path: "Two Sided", before: "False", after: "True" },
+      ], hiddenChanges: 2 },
+    ],
+    summary: "3 changes",
+    nativeDiff: { available: true },
+  };
+
+  it("shows a package's engine diff: pictures, each category's records with before and after, and the facts", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: material } });
+    await diffOf(REVIEW.items[1]);
+    expect((screen.getByAltText("BP_Door.uasset before") as HTMLImageElement).src).toContain(`/v1/ext/studio/review/thumbnails/${"a".repeat(40)}`);
+    expect(screen.getByText(/No picture: Unreal has no thumbnail renderer for Material/)).toBeTruthy();
+    const graph = screen.getByRole("region", { name: "Material Graph" });
+    expect(within(graph).getByText("Added Node Constant")).toBeTruthy();
+    expect(within(graph).getByText("0.200000")).toBeTruthy();
+    expect(within(graph).getByText("0.700000")).toBeTruthy();
+    const details = screen.getByRole("region", { name: "Details" });
+    const two = within(details).getByText("Two Sided").closest("tr")!;
+    expect(two.textContent).toContain("False");
+    expect(two.textContent).toContain("True");
+    expect(within(details).getByText("2 more differences in properties the details panel does not show.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /details of both versions/ }));
+    expect(screen.getByText("BLEND_Masked")).toBeTruthy();
+  });
+
+  it("says an added asset did not exist before, and a deleted one is gone", async () => {
+    const added: AssetDiff = { ...material, status: "added", before: null, sections: [] };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package", assetDiff: added } });
     await diffOf(REVIEW.items[2]);
+    expect(screen.getByText("Did not exist before this turn")).toBeTruthy();
+    cleanup();
+    const deleted: AssetDiff = { ...material, status: "deleted", after: null, sections: [] };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "deleted", kind: "package", assetDiff: deleted } });
+    await diffOf({ ...REVIEW.items[2], status: "deleted" });
+    expect(screen.getByText("Deleted in this turn")).toBeTruthy();
+  });
+
+  it("shows why the engine could not diff a package", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: { state: "error", error: "the package could not be loaded for diff: bad header", summary: "", nativeDiff: { available: false } } } });
+    await diffOf(REVIEW.items[1]);
+    expect(screen.getByRole("alert").textContent).toBe("Unreal could not diff this asset: the package could not be loaded for diff: bad header");
+  });
+
+  it("keeps the pictures an older review captured", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package" }, after: "abc-def-1.png" });
+    await diffOf({ ...REVIEW.items[2], visual: true });
     expect((screen.getByAltText("SM_Box.uasset after the turn") as HTMLImageElement).src).toContain("/v1/ext/studio/review/images/abc-def-1.png");
-    expect(screen.getByText("No picture from before this turn.")).toBeTruthy();
+    expect(screen.getByText("Did not exist before this turn")).toBeTruthy();
   });
 });
 

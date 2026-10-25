@@ -1,9 +1,10 @@
 /**
  * Per-turn review in the chat: the turn card listing what a turn changed,
- * grouped by type, with Keep or Revert per item and Revert all; each item's
- * diff (text for config and source, the Blueprint diff for Blueprints, before
- * and after pictures for meshes, textures and materials); and the session's
- * checkpoint timeline with Restore to here and Undo.
+ * grouped by type, each with a one-line summary and Keep or Revert, and Revert
+ * all; each item's diff (text for config and source; for a package, Unreal's
+ * own diff records with before and after values and a picture of each
+ * version), a button that opens Unreal's own diff in the editor; and the
+ * session's checkpoint timeline with Restore to here and Undo.
  */
 import { useContext, useEffect, useState } from "react";
 import {
@@ -17,6 +18,7 @@ import {
   type TurnReview,
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import { AssetDiffView } from "./AssetDiff";
 import { DiffView } from "./Diff";
 import { SessionIdContext } from "./attachments";
 
@@ -57,6 +59,15 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
     });
   };
   const keep = (paths: string[]) => run(async () => api.reviewKeep(sessionId!, review.id, paths));
+  const openNative = (path: string) => {
+    if (!sessionId) return;
+    setError(null);
+    setNote(null);
+    api.reviewNativeDiff(sessionId, review.id, path).then(
+      (r) => setNote(r.opened === "editor" ? `Opened ${fileName(path)} in its editor in Unreal.` : `Opened Unreal's diff of ${fileName(path)}${r.windowTitle ? `: ${r.windowTitle}` : ""}.`),
+      (e: Error) => setError(e.message),
+    );
+  };
   const revert = (paths: string[], force = false) => run(() => api.reviewRevert(sessionId!, review.id, paths, force));
   const undo = (path: string) => run(() => api.reviewUndo(sessionId!, review.id, path));
 
@@ -88,6 +99,14 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                     <span className={`pill small review-status ${it.status}`}>{STATUS[it.status]}</span>
                     {it.untracked && <span className="pill small warn" title="Written outside the agent's calls">Outside the agent</span>}
                     <span className="spacer" />
+                    <button
+                      className="ghost small-button"
+                      disabled={!it.native?.available}
+                      title={it.native?.available ? (it.status === "added" ? "Open the new asset in its editor in Unreal" : it.status === "deleted" ? "Open the deleted version in its editor in Unreal" : "Open Unreal's own diff of before and after") : it.native?.reason ?? "Unreal cannot open a diff of this item."}
+                      onClick={() => openNative(it.path)}
+                    >
+                      {it.status === "modified" ? "Open in Unreal diff" : "Open in Unreal"}
+                    </button>
                     {it.state === "kept" && <span className="pill small ok">Kept</span>}
                     {it.state === "reverted" ? (
                       <>
@@ -101,6 +120,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                       </>
                     )}
                   </div>
+                  {it.summary && <div className={`review-item-summary small${it.diffError ? " bad" : ""}`}>{it.summary}</div>}
                   <div className="review-item-path dim small mono">{it.path}</div>
                   {it.conflict && it.state !== "reverted" && (
                     <div className="banner warn small review-conflict" role="alert">
@@ -115,7 +135,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                       )}
                     </div>
                   )}
-                  {open === it.path && sessionId && <ItemDiff sessionId={sessionId} reviewId={review.id} item={it} />}
+                  {open === it.path && sessionId && <ItemDiff sessionId={sessionId} reviewId={review.id} item={it} onNative={() => openNative(it.path)} />}
                 </li>
               ))}
             </ul>
@@ -132,7 +152,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
 }
 
 /** An item's diff, read when it is opened. */
-export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; reviewId: string; item: ReviewItem }) {
+export function ItemDiff({ sessionId, reviewId, item, onNative }: { sessionId: string; reviewId: string; item: ReviewItem; onNative?: () => void }) {
   const [diff, setDiff] = useState<{ change: CheckpointChange; before?: string; after?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -142,9 +162,26 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
       live = false;
     };
   }, [sessionId, reviewId, item.path]);
-  if (error) return <div className="banner bad small">{error}</div>;
+  if (error) return <div className="banner bad small" role="alert">Could not read the diff: {error}</div>;
   if (!diff) return <div className="dim small">Reading the diff.</div>;
   const c = diff.change;
+  const name = fileName(item.path);
+  const native = item.native && !item.native.available ? <div className="dim small">{item.native.reason}</div> : null;
+  if (c.assetDiff) {
+    return (
+      <div className="review-diff">
+        <AssetDiffView
+          diff={c.assetDiff}
+          name={name}
+          blueprintTree={c.assetDiff.blueprint ? <details className="small"><summary>Structure (blueprint diff)</summary><BlueprintDiff diff={c.assetDiff.blueprint} /></details> : undefined}
+        />
+        {native}
+        {item.native?.available && onNative && (
+          <button className="small-button review-native" onClick={onNative}>{item.status === "modified" ? "Open in Unreal diff" : "Open in Unreal"}</button>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="review-diff">
       {c.diff !== undefined && <DiffView lines={unifiedLines(c.diff)} label={`Diff of ${item.path}`} />}
@@ -152,18 +189,19 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
       {item.visual && (
         <div className="review-pictures">
           <figure>
-            {diff.before ? <img src={api.reviewImageUrl(diff.before)} alt={`${fileName(item.path)} before the turn`} /> : <div className="review-nopicture dim small">No picture from before this turn.</div>}
+            {diff.before ? <img src={api.reviewImageUrl(diff.before)} alt={`${name} before the turn`} /> : <div className="review-nopicture dim small">{item.status === "added" ? "Did not exist before this turn" : "No picture was captured before this turn."}</div>}
             <figcaption className="small dim">Before</figcaption>
           </figure>
           <figure>
-            {diff.after ? <img src={api.reviewImageUrl(diff.after)} alt={`${fileName(item.path)} after the turn`} /> : <div className="review-nopicture dim small">No picture.</div>}
+            {diff.after ? <img src={api.reviewImageUrl(diff.after)} alt={`${name} after the turn`} /> : <div className="review-nopicture dim small">{item.status === "deleted" ? "Deleted in this turn" : "No picture was captured after this turn."}</div>}
             <figcaption className="small dim">After</figcaption>
           </figure>
         </div>
       )}
       {c.diff === undefined && !c.blueprintDiff && !item.visual && (
-        <div className="dim small">{c.large ? "A large file: no diff is kept for it." : "A binary file: there is no text diff."}</div>
+        <div className="dim small">{item.summary ?? (c.large ? "A large file: no diff is kept for it." : "Not a text file, so there is no line diff.")}</div>
       )}
+      {native}
     </div>
   );
 }
