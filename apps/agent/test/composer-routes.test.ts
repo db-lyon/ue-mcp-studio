@@ -8,6 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { envStrategy, BUDGET_ROWS, budgetRows, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
+import { ContextSurfaces, contextApiOf } from "../src/context-surface.js";
 import { SettingsStore } from "../src/settings.js";
 import { BudgetStore } from "../src/budgets.js";
 import { PlaytestStore } from "../src/playtest-store.js";
@@ -42,7 +43,9 @@ function setup(extra: Record<string, unknown> = {}) {
     playtestBudget: () => playtests.budget(),
     setPlaytestBudget: (b) => playtests.setBudget(b),
   });
-  registerComposerRoutes(api, { settings, budgets, restartUeMcp: async () => void restarts++, agents: () => BUDGET_ROWS });
+  // Studio's own agent's strategy reads back through the same surfaces chat-routes builds; no projection here.
+  const surfaces = new ContextSurfaces((extra as { context?: unknown }).context ? contextApiOf(extra) : null, () => settings.usage().contextStrategy, () => settings.provider(), () => null);
+  registerComposerRoutes(api, { settings, budgets, restartUeMcp: async () => void restarts++, agents: () => BUDGET_ROWS, agentContext: surfaces });
   const call = async (key: string, body?: unknown, query: Record<string, string> = {}) => {
     const h = routes.get(key);
     if (!h) throw new Error(`no route ${key}`);
@@ -54,6 +57,33 @@ function setup(extra: Record<string, unknown> = {}) {
 describe("budget rows", () => {
   it("lists Studio's runs, then each project subagent once, never shadowing Studio's", () => {
     expect(budgetRows(["level-dresser", "scout", "level-dresser", "worker"]).map((r) => r.id)).toEqual(["main", "worker", "playtest-runner", "level-dresser", "scout"]);
+  });
+});
+
+describe("context strategy for Studio's own agent", () => {
+  it("is kept in Studio's settings, never in ue-mcp.yml, and runs Micro without a projection", async () => {
+    const { call, settings } = setup();
+    expect((await call("GET /context-strategy/agent")).body).toMatchObject({ strategy: "micro", effective: "micro", projection: false, measurement: null });
+    const r = await call("PUT /context-strategy/agent", { strategy: "lean" });
+    expect(r.body).toMatchObject({ strategy: "lean", effective: "micro" });
+    expect((r.body as { note: string }).note).toMatch(/cannot project its tools/);
+    expect(settings.usage().contextStrategy).toBe("lean");
+    expect(fs.existsSync(path.join(root, "ue-mcp.yml"))).toBe(false);
+  });
+
+  it("refuses an unknown strategy, and Auto while no measurement ships", async () => {
+    const { call } = setup();
+    expect((await call("PUT /context-strategy/agent", { strategy: "warp" })).status).toBe(400);
+    expect((await call("PUT /context-strategy/agent", { strategy: "auto" })).body).toEqual({ error: "auto needs a measurement, and none ships with this Studio" });
+  });
+
+  it("shows each strategy's seed tokens from the daemon's projection", async () => {
+    const context = {
+      project: (o: { strategy: "micro" | "lean" | "full" }) => ({ strategy: o.strategy, categories: [], instructions: "", tools: [], seedTokens: { micro: 1, lean: 2, full: 3 }[o.strategy] }),
+      call: async () => ({ isError: false, content: [] }),
+    };
+    const { call } = setup({ context });
+    expect((await call("PUT /context-strategy/agent", { strategy: "full" })).body).toMatchObject({ strategy: "full", effective: "full", projection: true, seeds: { micro: 1, lean: 2, full: 3 }, note: null });
   });
 });
 
