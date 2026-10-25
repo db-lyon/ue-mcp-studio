@@ -57,7 +57,8 @@ describe("Project > context strategy for other clients", () => {
     expect(screen.getByText(/so clients get Full whatever the file says/)).toBeTruthy();
     // The strategy in effect and the saved one are both named.
     expect(screen.getByText("in effect, from the environment")).toBeTruthy();
-    expect(screen.getByText("saved in ue-mcp.yml")).toBeTruthy();
-    expect((screen.getByRole("radio", { name: /^Full/ }) as HTMLInputElement).checked).toBe(true);
+    // The radio is the file's value, which a click changes; the environment's is marked, not selected.
+    expect((screen.getByRole("radio", { name: /^Micro/ }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("radio", { name: /^Full/ }) as HTMLInputElement).checked).toBe(false);
   });
 });

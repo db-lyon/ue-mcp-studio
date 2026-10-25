@@ -68,8 +68,8 @@ export function ApprovalsSection() {
         {APPROVAL_ROWS.map((r) => {
           const unknown = r.kind === "destructive" && settings.destructiveKnown === false;
           return (
-            <Row key={r.kind} title={r.label} help={unknown ? "This ue-mcp does not say which actions delete or overwrite, so none ask. Update ue-mcp to use this row." : r.help}>
-              <Seg label={r.label} value={rule(r.kind)} options={RULES} disabled={unknown} onChange={(v) => void save({ approvals: { [r.kind]: v } })} />
+            <Row key={r.kind} title={r.label} help={unknown ? <span className="warn-text">Unavailable: this ue-mcp does not say which of its actions delete or overwrite, so none can ask first. Update ue-mcp to use this row.</span> : r.help}>
+              <Seg label={r.label} value={unknown ? null : rule(r.kind)} options={RULES} disabled={unknown} onChange={(v) => void save({ approvals: { [r.kind]: v } })} />
             </Row>
           );
         })}

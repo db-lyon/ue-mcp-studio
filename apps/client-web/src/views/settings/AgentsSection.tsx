@@ -14,7 +14,7 @@ import { api } from "../../api";
 import { EffortPicker, ModelPicker, useCatalog } from "../ModelPicker";
 import { Head, type SettingsSection } from "../SettingsHub";
 import { InstructionsPanel } from "./InstructionsPanel";
-import { Card, Row, Seg, useMessage } from "./controls";
+import { Card, Row, Seg, Switch, useMessage } from "./controls";
 
 export const DELEGATION_MODES: ReadonlyArray<{ id: SubagentMode; name: string; about: string }> = [
   { id: "off", name: "Never", about: "The main agent does all the work itself." },
@@ -97,8 +97,8 @@ function MainAgent({ settings, onSettings, saveUsage, onSection, onInstructions,
         )}
       </Card>
       <Card label="What it reads and sees">
-        <Row title="Project instruction files" help={<>{files ? `${files.on} of ${files.all} files are on. ` : ""}Each agent that reads instruction files reads the ones that are on. <button className="link" onClick={onInstructions}>Turn files on or off in Instructions</button></>}>
-          <Seg label="Project instruction files" value={usage.projectInstructions ? "all" : "none"} options={[{ id: "all", name: "Files turned on in Instructions" }, { id: "none", name: "None" }]} onChange={(v) => saveUsage({ projectInstructions: v === "all" })} />
+        <Row inline title="Read the project's instruction files" help={<>{files ? `${files.on} of ${files.all} files are on. ` : ""}<button className="link" onClick={onInstructions}>Turn files on or off in Instructions</button></>}>
+          <Switch label="Read the project's instruction files" on={usage.projectInstructions} onChange={(v) => saveUsage({ projectInstructions: v })} />
         </Row>
         <Row title="Screenshot size" help="The longest side of a screenshot or picture an agent is shown. A larger image costs more every time the conversation is read again.">
           <Seg label="Screenshot size" value={usage.imageSize} options={IMAGE_SIZES} onChange={(v) => saveUsage({ imageSize: v })} />

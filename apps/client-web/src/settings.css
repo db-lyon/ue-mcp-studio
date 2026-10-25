@@ -186,5 +186,7 @@
   .cfg { padding: 0 10px; }
 }
 .cfg .nowrap { white-space: nowrap; }
+.cfg .warn-text { color: var(--warn); }
+.cfg button.cfg-back { padding-left: 0; }
 .cfg .dialog-policy { margin: 8px 0 4px 30px; padding-left: 12px; border-left: 2px solid var(--line-strong); gap: 6px; }
 .cfg table.cfg-table td.l, .cfg table.cfg-table th.l { text-align: left; }

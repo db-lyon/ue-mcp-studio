@@ -62,9 +62,9 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                 <Opt
                   key={s}
                   name="client-context"
-                  on={(context.envOverride ?? context.strategy) === s}
+                  on={context.strategy === s}
                   onPick={() => void pick(s)}
-                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from the environment</span></>}{context.envOverride && context.strategy === s && context.envOverride !== s && <> <span className="tag">saved in ue-mcp.yml</span></>}</>}
+                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from the environment</span></>}</>}
                   desc={<><br />{CONTEXT_STRATEGY_INFO[s].sees} {CONTEXT_STRATEGY_INFO[s].discovery}</>}
                 />
               ))}
@@ -79,6 +79,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
 
       <Card label="MCP clients">
         {clients.length === 0 && <p className="cfg-note">No other MCP client is configured for this project.</p>}
+        {!inEditor() && <p className="cfg-note">Which MCP clients, native Unreal tools and skills this project is set up with is changed from Studio inside the editor, because it runs ue-mcp init there.</p>}
         {clients.map((c) => (
           <div key={c.id} className="toggle-row inline">
             <span className="dot ok" style={{ marginTop: 6 }} />
@@ -87,7 +88,6 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         ))}
       </Card>
 
-      {!inEditor() && <p className="cfg-note">Which MCP clients, native Unreal tools and skills this project is set up with is changed from Studio inside the editor, where it runs ue-mcp init.</p>}
       <ProjectSetup onApplied={load} />
 
       {p && (
@@ -99,7 +99,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
             <dt>Location</dt><dd className="mono">{p.pluginDir ?? "-"}</dd>
             <dt>Engine</dt><dd>{report!.project.engine ?? "?"}</dd>
             <dt>C++ toolchain</dt><dd>{report!.toolchain.present ? report!.toolchain.name : "none"}</dd>
-            <dt>Runtime</dt><dd>{report!.node.version}</dd>
+            <dt>Node.js</dt><dd>{report!.node.version}</dd>
           </dl>
         </Card>
       )}

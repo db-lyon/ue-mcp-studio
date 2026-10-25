@@ -48,8 +48,11 @@ describe("Approvals & review: before it acts", () => {
 
   it("says why the destructive row cannot ask when ue-mcp does not report its actions", async () => {
     await show({ destructiveKnown: false });
-    expect(screen.getByText(/does not say which actions delete or overwrite/)).toBeTruthy();
-    for (const b of screen.getByRole("radiogroup", { name: "ue-mcp actions that delete or overwrite" }).querySelectorAll("button")) expect((b as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/Unavailable: this ue-mcp does not say which of its actions delete or overwrite/)).toBeTruthy();
+    for (const b of screen.getByRole("radiogroup", { name: "ue-mcp actions that delete or overwrite" }).querySelectorAll("button")) {
+      expect((b as HTMLButtonElement).disabled).toBe(true);
+      expect(b.getAttribute("aria-checked")).toBe("false");
+    }
   });
 
   it("starts playtests Manual by default, saves Automatic, and says to update an older Studio", async () => {

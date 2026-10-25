@@ -70,7 +70,10 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
     if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
   }, []);
   const dots: Partial<Record<SettingsSection, string>> = {};
-  if (settings && settings.route === null) dots.models = "Nothing connected can run the main agent's model";
+  const anythingConnected = !!settings && Object.values(settings.connected ?? {}).some(Boolean);
+  if (settings && !anythingConnected) dots.models = "Connect a sign-in or an API key";
+  else if (settings && settings.route === null) dots.models = "Nothing connected can run the main agent's model";
+  if (settings && settings.destructiveKnown === false) dots.approvals = "One kind cannot ask first until ue-mcp is updated";
   if (updates > 0) dots.general = `${updates} ${updates === 1 ? "update" : "updates"} available`;
   const lines: Partial<Record<SettingsSection, string>> = {};
   if (settings) {
@@ -82,7 +85,8 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
     const keys = (["anthropic", "openai", "google"] as const).filter((k) => settings.connected?.[k]).length;
     lines.models = signIns + keys === 0 ? "Nothing connected yet" : `${plural(signIns, "sign-in")}, ${plural(keys, "key")}`;
     const rules = settings.approvals ? Object.values(settings.approvals) : [];
-    if (rules.length) lines.approvals = `${rules.filter((r) => r === "ask").length} of ${rules.length} kinds ask first, review ${settings.reviewTurns === false ? "off" : "on"}`;
+    const usable = settings.approvals ? (Object.entries(settings.approvals) as Array<[string, string]>).filter(([k]) => k !== "destructive" || settings.destructiveKnown !== false) : [];
+    if (rules.length) lines.approvals = `${usable.filter(([, r]) => r === "ask").length} kinds ask first${usable.length < rules.length ? `, ${rules.length - usable.length} unavailable` : ""}, review ${settings.reviewTurns === false ? "off" : "on"}`;
   }
   if (extra.ready !== undefined || extra.strategy) lines.project = [extra.ready === undefined ? null : extra.ready ? "Ready" : "Needs attention", extra.strategy ? `${extra.strategy} for other clients` : null].filter(Boolean).join(", ");
   if (extra.budgets !== undefined) lines.usage = extra.budgets ? `${plural(extra.budgets, "limit")} set` : "No limits set";
