@@ -2,8 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import type { SessionSummary } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 
-export type NavTab = "Chat" | "Flows" | "Plugins" | "Settings";
-const TABS: NavTab[] = ["Chat", "Flows", "Plugins", "Settings"];
+export type NavTab = "Chat" | "Playtests" | "Flows" | "Plugins" | "Settings";
+const TABS: NavTab[] = ["Chat", "Playtests", "Flows", "Plugins", "Settings"];
 
 /**
  * Navigation at narrow widths: a panel that slides over the page from the
@@ -11,13 +11,15 @@ const TABS: NavTab[] = ["Chat", "Flows", "Plugins", "Settings"];
  * tabs, the recent sessions and, at the foot, the bar's tools. A pick, the
  * scrim, or Escape closes it. The recent sessions are read each time it opens.
  */
-export function NavDrawer({ open, onClose, tab, session, updates, onTab, onSession, onNewSession, children }: {
+export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, onTab, onSession, onNewSession, children }: {
   open: boolean;
   onClose: () => void;
   tab: NavTab;
   /** The open session, if the chat shows one. */
   session: string | null;
   updates: number;
+  /** Playtests across the project that wait for the user. */
+  playtestsWaiting?: number;
   onTab: (t: NavTab) => void;
   onSession: (id: string) => void;
   onNewSession: () => void;
@@ -63,6 +65,7 @@ export function NavDrawer({ open, onClose, tab, session, updates, onTab, onSessi
               <TabGlyph tab={t} />
               <span>{t}</span>
               {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
+              {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`}>{playtestsWaiting}</span>}
             </button>
           ))}
         </nav>
@@ -99,6 +102,7 @@ function PlusGlyph() {
 function TabGlyph({ tab }: { tab: NavTab }) {
   const path = {
     Chat: "M3 4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5a1.5 1.5 0 0 1-1.5 1.5H7l-3 2.5V11h0.5A1.5 1.5 0 0 1 3 9.5z",
+    Playtests: "M5 3.5h6M6 3.5v3.2L3.4 11.6A1.3 1.3 0 0 0 4.5 13.5h7a1.3 1.3 0 0 0 1.1-1.9L10 6.7V3.5M5 10h6",
     Flows: "M4 3.5h3v3H4zM9 9.5h3v3H9zM5.5 6.5v2.5a1.5 1.5 0 0 0 1.5 1.5h2",
     Plugins: "M6 2.5v3M10 2.5v3M4 5.5h8v2.5a4 4 0 0 1-8 0zM8 12v1.5",
     Settings: "M3 5h10M3 11h10M6 3.5v3M10 9.5v3",

@@ -36,7 +36,7 @@ import type {
   DialogMode,
   FeedbackMode,
   PendingForm,
-  QaRun, QaScriptStep, PlaytestRunsMode, PlaytestBudget,
+  QaRun, QaScriptStep, PlaytestRunsMode, PlaytestBudget, PlaytestIndexAnswer,
   QaVerdict,
   CheckpointChange,
   RestoreOutcome,
@@ -193,6 +193,8 @@ export const api = {
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
   qaRuns: () => call<{ runs: QaRun[] }>("GET", "/v1/ext/studio/qa/runs"),
+  qaPlaytests: (fresh = false) => call<PlaytestIndexAnswer>("GET", `/v1/ext/studio/qa/playtests${fresh ? "?fresh=1" : ""}`),
+  qaPlaytestCard: (script: string) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/playtests/card", { script }),
   qaStatus: (runId: string, sinceSeq?: number) =>
     call<{ answer: Record<string, unknown>; run: QaRun | null }>("GET", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/status${sinceSeq === undefined ? "" : `?since_seq=${sinceSeq}`}`),
   qaVerdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
