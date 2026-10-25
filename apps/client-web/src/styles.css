@@ -1315,3 +1315,9 @@ button.filter-chip.attention .filter-count { color: var(--warn); font-weight: 70
   .qa-path-hit::before { animation: none !important; transition: none; }
   .qa-step.flash { transition: none; }
 }
+.qa-meta-session { display: inline-block; max-width: 34ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; color: var(--muted); }
+@media (max-width: 760px) {
+  h1.playtests-title { display: none; }
+  .playtests-page { padding: 4px 4px 12px; }
+  .qa-meta-session { max-width: 100%; }
+}

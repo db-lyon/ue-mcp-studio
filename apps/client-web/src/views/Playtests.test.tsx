@@ -75,10 +75,12 @@ describe("the Playtests page", () => {
   it("shows each row's last run as its step path, when it ran and in which session", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
-    expect(within(row("Door")).getByText("Started 3 minutes ago in Doors")).toBeTruthy();
-    expect(within(row("Jump")).getByText("Ran 2 hours ago outside Studio")).toBeTruthy();
-    expect(within(row("Walk")).getByText(/^Ran .* in Walking$/)).toBeTruthy();
-    expect(within(row("Fresh")).getByText("Never run")).toBeTruthy();
+    const meta = (name: string) => row(name).querySelector(".qa-meta")?.textContent;
+    expect(meta("Door")).toBe("Started 3 minutes ago in Doors");
+    expect(row("Door").querySelector(".qa-meta-session")?.getAttribute("title")).toBe("Doors");
+    expect(meta("Jump")).toBe("Ran 2 hours ago outside Studio");
+    expect(meta("Walk")).toMatch(/^Ran .* in Walking$/);
+    expect(meta("Fresh")).toBe("Never run");
     expect(within(row("Jump")).getAllByRole("listitem").map((li) => li.className.split(" ")[1])).toEqual(["bad", "ok"]);
   });
 
@@ -147,7 +149,7 @@ describe("the Playtests page", () => {
   it("offers no Start Playtest on a script that is gone", () => {
     page({ playtests: [{ ...ENTRIES[2], deleted: true }], listed: true });
     expect(within(row("Walk")).queryByRole("button", { name: "Run again" })).toBeNull();
-    expect(within(row("Walk")).getByText(/Script deleted/)).toBeTruthy();
+    expect(row("Walk").querySelector(".qa-meta")?.textContent).toMatch(/^Script deleted. Ran /);
   });
 });
 

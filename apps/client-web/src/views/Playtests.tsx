@@ -6,7 +6,7 @@
  * card work as they do in a session, and Open in session goes to the card
  * there. A script no session has gets a session of its own on its first action.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   playtestMatches,
   playtestShown,
@@ -141,13 +141,13 @@ export function PlaytestsView({ daemon, index: source, onOpenSession }: {
 }
 
 /** Where and when the shown run ran. */
-function metaOf(e: PlaytestEntry): string {
-  const where = e.session ? `in ${e.session.title || "Untitled"}` : e.last ? "outside Studio" : "";
-  const parts = [
-    e.deleted ? "Script deleted" : null,
-    e.last ? `${qaEnded(e.last.state) ? "Ran" : "Started"} ${ranAgo(e.last.seenAt)} ${where}`.trim() : e.card ? `Never run, drafted ${where}` : "Never run",
-  ].filter(Boolean);
-  return parts.join(". ");
+function metaOf(e: PlaytestEntry): ReactNode {
+  const title = e.session?.title || "Untitled";
+  const where = e.session
+    ? <> in <span className="qa-meta-session" title={title}>{title}</span></>
+    : e.last ? " outside Studio" : "";
+  const when = e.last ? `${qaEnded(e.last.state) ? "Ran" : "Started"} ${ranAgo(e.last.seenAt)}` : e.card ? "Never run, drafted" : "Never run";
+  return <>{e.deleted && "Script deleted. "}{when}{where}</>;
 }
 
 export function PlaytestRow({ entry, onOpenSession, onChanged }: { entry: PlaytestEntry; onOpenSession: (sessionId: string, runId: string) => void; onChanged: () => void }) {
