@@ -6,6 +6,7 @@
 import { useState } from "react";
 import {
   factRows,
+  nodeValues,
   readableValue,
   recordsByGroup,
   unifiedLines,
@@ -68,6 +69,28 @@ function Picture({ version, missing, label, name }: { version: AssetVersion | nu
 /** The node a graph record is about, by the title the graph shows. */
 const nodeOf = (r: AssetDiffRecord): string | undefined => r.node2?.title ?? r.node1?.title;
 
+/** An added or removed node's values: what it was set to, so an added Constant shows its number. Nothing from an older daemon. */
+function NodeValues({ r }: { r: AssetDiffRecord }) {
+  if (r.diffType !== "NODE_ADDED" && r.diffType !== "NODE_REMOVED") return null;
+  const n = r.node1 ?? r.node2;
+  const values = nodeValues(n);
+  const title = n?.fullTitle && n.fullTitle !== n.title && !r.displayString.includes(n.fullTitle) ? n.fullTitle.replace(/\s*\n\s*/g, ", ") : null;
+  if (!values.length && !title) return null;
+  return (
+    <div className="diff-node-values small">
+      {title && <div className="dim"><EngineText text={title} /></div>}
+      {values.length > 0 && (
+        <dl className="diff-node-props">
+          {values.map((v) => (
+            <div key={v.name}><dt><EngineText text={v.name} /></dt><dd className="mono"><EngineText text={/^-?\d+\.\d+$/.test(v.value) ? String(Number(v.value)) : readableValue(v.value) ?? v.value} /></dd></div>
+          ))}
+        </dl>
+      )}
+      {(n?.propertiesDropped ?? 0) > 0 && <div className="dim">{n!.propertiesDropped} more properties not listed.</div>}
+    </div>
+  );
+}
+
 /** Property records as a table: the engine's path, then before and after. Graph and component records show the engine's message. */
 function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
   return (
@@ -97,6 +120,7 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
             <td colSpan={3}>
               {head}
               {r.toolTip && r.toolTip !== r.displayString && <div className="dim small"><EngineText text={r.toolTip} /></div>}
+              <NodeValues r={r} />
               {r.facts && r.facts.length > 0 && (
                 <div className="dim small"><EngineText text={r.facts.map((f) => `${f.name} ${f.value}`).join(", ")} /></div>
               )}
