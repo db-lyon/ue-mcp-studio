@@ -37,18 +37,6 @@ describe("category answers", () => {
     expect(out.length).toBeLessThan(signatures.length / 4);
   });
 
-  it("name an older ue-mcp's per-action schemas the same way", () => {
-    const raw = JSON.stringify({
-      tool: "level",
-      actionCount: 2,
-      actions: [
-        { tool: "level", action: "get_outliner", description: "List the level's actors. Params: filter? (#12)", class: "read", params: [{ name: "filter", required: false }] },
-        { tool: "level", action: "spawn_light", description: "Spawn a light.", class: "mutate", params: [{ name: "lightType", required: true }, { name: "location", required: false }] },
-      ],
-    }, null, 2);
-    expect(compactDescribe(raw)).toBe("level: 2 actions. Describe one (category + method) for its parameters, or search by intent.\nget_outliner, spawn_light");
-  });
-
   it("say how many there are when the answer holds only some", () => {
     const raw = JSON.stringify({ category: "animation", count: 341, signatures: ["play(a)", "stop()"], nextOffset: 2 });
     expect(compactDescribe(raw).split("\n")[0]).toMatch(/^animation: 2 actions of 341\./);

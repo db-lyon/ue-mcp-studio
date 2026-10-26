@@ -431,14 +431,13 @@ describe("the editor gone with nothing bringing it back (#1384)", () => {
   const busyOn = () => new BusyTracker((type, data) => host.emit(`studio.${type}`, data), Date.now, () => host.connected);
   const restart = (op: string): ModelTurn => ({ content: [{ type: "tool_use", id: "r", name: "editor_restart", input: { operation: op, reason: "C++ changed" } } as never], stopReason: "tool_use" });
 
-  it("a rebuild whose build failed is an error, not a wait, also from an older daemon that marked the step ok", async () => {
+  it("a rebuild whose build failed is an error, not a wait", async () => {
     const busy = busyOn();
     host.editorOperation = async (op: string) => {
       host.connected = false;
       return { op, steps: [
         { step: "editor.stop_editor", ok: true, result: JSON.stringify({ success: true }) },
-        { step: "project.build", ok: true, result: JSON.stringify({ success: false, exitCode: 6, message: "Build failed with exit code 6" }) },
-        { step: "editor.start_editor", ok: true, result: JSON.stringify({ success: false, message: "Editor launched but did not become ready: still not ready after 300s." }) },
+        { step: "project.build", ok: false, result: JSON.stringify({ success: false, exitCode: 6, message: "Build failed with exit code 6" }) },
       ] };
     };
     const model = new ScriptedModel([() => restart("rebuild"), () => text("The build failed.")]);
@@ -1118,7 +1117,6 @@ describe("approval rows: editor restarts and ue-mcp actions that delete or overw
   const effects = {
     destructive: (c: string, m: string) => (c === "asset" && m === "delete" ? true : c === "asset" || c === "level" ? false : null),
     readOnly: () => null,
-    available: () => true,
   };
   const rows = (over: Partial<Record<"shell" | "files" | "editorRestart" | "destructive", "ask" | "allow">>) => () =>
     ({ shell: "allow", files: "allow", editorRestart: "allow", destructive: "allow", ...over } as const);

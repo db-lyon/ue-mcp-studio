@@ -70,7 +70,6 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   if (settings && !anythingConnected(settings)) dots.models = "Nothing connected";
   if (settings && settings.route === null) dots.agents = "No model connected";
   else if (settings && settings.route === null) dots.models = "Main agent's model not connected";
-  if (settings && settings.destructiveKnown === false) dots.approvals = "Update ue-mcp to use every rule";
   if (extra.overridden) dots.project = "Context strategy overridden by environment";
   if (updates > 0) dots.general = `${updates} ${updates === 1 ? "update" : "updates"} available`;
   const lines: Partial<Record<SettingsSection, string>> = {};
@@ -86,8 +85,7 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
     const endpoints = settings.endpoints ?? 0;
     lines.models = signIns + keys + endpoints === 0 ? "Nothing connected" : `${plural(signIns, "sign-in")}, ${plural(keys, "key")}${endpoints ? `, ${plural(endpoints, "endpoint")}` : ""}`;
     const rules = settings.approvals ? Object.values(settings.approvals) : [];
-    const usable = settings.approvals ? (Object.entries(settings.approvals) as Array<[string, string]>).filter(([k]) => k !== "destructive" || settings.destructiveKnown !== false) : [];
-    if (rules.length) lines.approvals = `${usable.filter(([, r]) => r === "ask").length} ask first${usable.length < rules.length ? `, ${rules.length - usable.length} unavailable` : ""}, review ${settings.reviewTurns === false ? "off" : "on"}`;
+    if (rules.length) lines.approvals = `${rules.filter((r) => r === "ask").length} ask first, review ${settings.reviewTurns === false ? "off" : "on"}`;
   }
   if (extra.ready !== undefined || extra.strategy) lines.project = [extra.ready === undefined ? null : extra.ready ? "Ready" : "Needs attention", extra.strategy ?? null].filter(Boolean).join(", ");
   lines.general = updates > 0 ? dots.general : "Up to date";

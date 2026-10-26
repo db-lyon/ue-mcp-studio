@@ -18,8 +18,9 @@ import { DEFAULT_USAGE, type NativeOverview, type StudioSettings, type StudioThe
 import { SCENARIOS as PLAYTESTS } from "./fixtures";
 import { CONTEXT, INSTALL, SETTINGS_SCENARIOS } from "./settings-fixtures";
 import { REVIEW_SCENARIOS } from "./review-fixtures";
+import { REFUSED_SCENARIOS } from "./refused-fixtures";
 
-const SCENARIOS = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS };
+const SCENARIOS = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS, ...REFUSED_SCENARIOS };
 
 const params = new URLSearchParams(location.search);
 const scenario = SCENARIOS[params.get("scenario") ?? ""] ?? SCENARIOS["session-empty"];
@@ -34,7 +35,6 @@ const SETTINGS: StudioSettings = {
   theme,
   askBeforeChanges: true,
   approvals: { shell: "ask", files: "ask", editorRestart: "allow", destructive: "allow" },
-  destructiveKnown: true,
   reviewTurns: true,
   composerHeight: null,
   dialogPolicy: { kind: "wait" },
@@ -91,7 +91,7 @@ function answer(method: string, url: URL): unknown {
     }],
     [/^\/v1\/ext\/studio\/qa\/runs$/, () => ({ runs: [] })],
     [/^\/v1\/ext\/studio\/forms$/, () => ({ forms: [] })],
-    [/^\/v1\/ext\/studio\/dialogs$/, () => ({ dialogs: [], now: Date.now(), supported: true })],
+    [/^\/v1\/ext\/studio\/dialogs$/, () => ({ dialogs: [], now: Date.now() })],
     [/^\/v1\/ext\/studio\/busy$/, () => ({ now: Date.now(), calls: [] })],
     [/^\/v1\/ext\/studio\/vcs$/, () => ({ vcs: null })],
     [/^\/v1\/ext\/studio\/review\/status$/, () => ({ available: true, reason: null })],
@@ -145,6 +145,8 @@ data: ${data}
       },
     }), { status: 200, headers: { "content-type": "text/event-stream" } });
   }
+  const written = method === "GET" ? undefined : scenario.post?.(url.pathname);
+  if (written) return new Response(JSON.stringify(written.body), { status: written.status, headers: { "content-type": "application/json" } });
   const body = answer(method, url);
   if (body === undefined) {
     // The endpoints scenario that fails says what a broken agent would.

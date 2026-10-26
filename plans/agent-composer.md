@@ -237,7 +237,7 @@ No phase was run against a live editor: the user has not asked for editor use. E
 
 1. **Approval defaults.** A new install asks before all four kinds. Settings from before the rows keep what they did: askBeforeChanges sets shell and files, and editor restarts and destructive actions stay allowed, because they never asked before.
 2. **What counts as an editor restart.** The editor_restart tool, and ue-mcp's editor stop, start, restart and rebuild actions reached through ue_mcp. "Allow for this session" is per kind.
-3. **Destructive actions come only from ue-mcp.** Studio reads the daemon's action effects. A daemon without them cannot say, so that row is unavailable and says to update ue-mcp; Studio never guesses from action names.
+3. **Destructive actions come only from ue-mcp.** Studio reads the daemon's action effects. Studio runs only on a ue-mcp that reports them, and never guesses from action names.
 4. **Scoped files join through tool results**, once per conversation, on both routes; the main agent and each helper are separate conversations.
 5. **Context strategy for other clients** writes `context.strategy` in ue-mcp.yml (micro as no setting, as `ue-mcp init` does), then restarts ue-mcp after the turn in progress. The choice shown is the file's value, which a click changes; an environment override is marked beside it.
 6. **Narrow Settings** opens on the section list with a live status line per section; a wide panel always has a section open, Agents first. Old `#/settings/agent` and `#/settings/account` links land on Agents and Models & accounts.

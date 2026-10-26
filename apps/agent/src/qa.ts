@@ -57,7 +57,7 @@ import {
   type RestoreOutcome,
 } from "@ue-mcp-studio/shared";
 import { PlaytestLoop, attentionText, type LoopCheckpoints } from "./playtest-loop.js";
-import { ELICIT_FEATURE, type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
+import { type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import type { SessionStore } from "./sessions.js";
 import type { AgentHost } from "./tools.js";
 import type { PlaytestStore } from "./playtest-store.js";
@@ -74,7 +74,6 @@ export interface QaHost {
     publish(type: string, data?: Record<string, unknown>): unknown;
     subscribe(listener: (e: { type: string; data: Record<string, unknown> }) => void): () => void;
   };
-  features?: readonly string[];
   projectDir: string;
   log: { warn(message: string, detail?: unknown): void };
 }
@@ -87,7 +86,7 @@ export interface QaAssigner {
 
 /** What the playtest loop needs beside the assigner: checkpoints, and who to tell when it needs the user. */
 export interface QaLoopSupport {
-  checkpoints: LoopCheckpoints & { unavailable(): string | null };
+  checkpoints: LoopCheckpoints;
   /** Why a session cannot take checkpoints, such as its review switch being off; null when it can. */
   blocked?: (sessionId: string) => string | null;
   /** A loop needs the user: the Windows notification and anything else beside the card. */
@@ -296,7 +295,7 @@ export class QaBroker {
 
   /** The verdict form for a run's calls: the session's own, as the call that started it had. */
   private callOptions(sessionId: string | null | undefined): { elicit?: (p: ElicitParams) => Promise<ElicitResult> } {
-    if (!sessionId || !this.o.forms || !this.o.host.features?.includes(ELICIT_FEATURE)) return {};
+    if (!sessionId || !this.o.forms) return {};
     const forms = this.o.forms;
     return { elicit: (p) => forms.ask(sessionId, "pie(script_run)", p) };
   }
@@ -542,7 +541,7 @@ export class QaBroker {
     if (!assigner) return { error: "subagents are not available", status: 409 };
     if (run.assignment?.state === "running") return { error: "a subagent is already running this playtest", status: 409 };
     const support = this.o.loop;
-    const why = !support ? "Assign to subagent needs checkpoints, and this Studio has none to give it." : support.checkpoints.unavailable() ?? support.blocked?.(sessionId) ?? null;
+    const why = !support ? "Assign to subagent needs checkpoints, and this Studio has none to give it." : support.blocked?.(sessionId) ?? null;
     if (why) return { error: `The loop did not start. ${why}`, status: 409 };
     let baseline: string;
     try {

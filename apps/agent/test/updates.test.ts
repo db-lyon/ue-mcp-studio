@@ -86,6 +86,11 @@ describe("Studio updates", () => {
     expect((await new Updater(fakeHost(project("0.1.0-beta.27")), "0.1.0-beta.26", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ available: false, required: false });
   });
 
+  it("passes on the oldest ue-mcp the latest Studio runs on", async () => {
+    const m = { version: "0.1.0-beta.27", url: "s", sha256: "x", ueMcp: { min: "1.4.11-beta.6", package: "ue-mcp@beta" } };
+    expect((await new Updater(fakeHost(project("0.1.0-beta.26")), "0.1.0-beta.26", () => {}, manifestFetch(m)).check()).ueMcpMin).toBe("1.4.11-beta.6");
+  });
+
   it("offers no plugin update while the plugin's channel has no release", async () => {
     const status = await new Updater(fakeHost(project("0.1.0-beta.11")), "0.1.0-beta.26", () => {}, manifestFetch({ version: "0.1.0-beta.27", url: "s", sha256: "x" })).check();
     expect(status.error).toBeUndefined();

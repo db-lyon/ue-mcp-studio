@@ -216,11 +216,8 @@ export interface TimelineMark {
   undone?: boolean;
 }
 
-/** GET /review/status: whether review can run here, and the Settings default. */
+/** GET /review/status: the Settings default. */
 export interface ReviewStatus {
-  available: boolean;
-  /** Why it cannot run, when it cannot. */
-  reason?: string;
   /** Settings > Agent: Review each turn, for sessions that have not set their own. */
   default: boolean;
 }
@@ -283,7 +280,7 @@ export function changeSummary(c: CheckpointChange): string {
   if (c.assetDiff) return c.assetDiff.summary;
   if (c.diff !== undefined) return textChangeSummary(c.diff);
   if (c.large) return "A large file kept as a plain copy; it is not diffed.";
-  if (c.kind === "package") return "Not diffed: this ue-mcp has no asset diffs. Update ue-mcp.";
+  if (c.kind === "package") return "Changed package";
   return c.status === "added" ? "New file" : c.status === "deleted" ? "Deleted file" : "Changed file; not a text file, so there is no line diff.";
 }
 
@@ -292,7 +289,7 @@ export function reviewItemOf(c: CheckpointChange): ReviewItem {
   const group = reviewGroupOf(c);
   const asset = c.kind === "package" ? assetPathOf(c.path) : undefined;
   const native = c.kind === "package"
-    ? c.assetDiff?.nativeDiff ?? { available: false, reason: "This ue-mcp cannot open Unreal's diff. Update ue-mcp." }
+    ? c.assetDiff?.nativeDiff ?? { available: false, reason: "ue-mcp sent no diff for this package." }
     : { available: false, reason: NO_NATIVE_FOR_TEXT };
   return {
     path: c.path,

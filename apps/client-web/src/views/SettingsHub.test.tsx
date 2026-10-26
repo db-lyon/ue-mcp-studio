@@ -34,7 +34,7 @@ describe("Settings sections", () => {
 
   it("reports the context strategy in effect, and marks Project when the environment overrides the saved one", async () => {
     const withStrategy = m as unknown as { contextStrategy?: () => Promise<unknown> };
-    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "micro", fromFile: true, envOverride: "full", seeds: {}, seedSource: "" }));
+    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "micro", fromFile: true, envOverride: "full", seeds: {} }));
     try {
       await act(async () => void render(<SettingsHub daemon={daemon} section={null} onSection={vi.fn()} onTheme={vi.fn()} narrow />));
       expect(screen.getByLabelText("Context strategy overridden by environment")).toBeTruthy();
@@ -45,7 +45,7 @@ describe("Settings sections", () => {
 
   it("names the strategy the environment sets when it matches the saved one", async () => {
     const withStrategy = m as unknown as { contextStrategy?: () => Promise<unknown> };
-    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "full", fromFile: true, envOverride: "full", seeds: {}, seedSource: "" }));
+    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "full", fromFile: true, envOverride: "full", seeds: {} }));
     try {
       await act(async () => void render(<SettingsHub daemon={daemon} section={null} onSection={vi.fn()} onTheme={vi.fn()} narrow />));
       expect(screen.getByText("Full for other clients, from environment")).toBeTruthy();

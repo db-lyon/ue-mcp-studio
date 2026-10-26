@@ -16,14 +16,10 @@
  *   the agent      in auto mode the agent presses with respond_to_dialog; an
  *                  answer that discards work is held for a countdown the user
  *                  can override.
- *
- * ue-mcp before 1.4.1 has neither the prompt nor the events (no "features"),
- * and then calls go through untouched: the dialog is refused to the agent as
- * before, and only the countdown on a destructive press applies.
  */
 import * as crypto from "node:crypto";
 import type { ActionResult } from "ue-mcp/daemon";
-import { ELICIT_FEATURE, type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
+import { type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import {
   DESTRUCTIVE_HOLD_SECONDS,
   isDestructiveAnswer,
@@ -59,10 +55,6 @@ export interface CallOptions {
   elicit?: (params: ElicitParams) => Promise<ElicitResult>;
 }
 
-/** The daemon features this needs, as ue-mcp names them. */
-export const PROMPT_FEATURE = "callAction.dialogPrompt";
-export const EVENTS_FEATURE = "events.dialog";
-
 /** How long a call waits on a prompt under the wait policy before returning the refusal to the agent. */
 export const WAIT_POLICY_CALL_MS = 6 * 60 * 60 * 1000;
 
@@ -73,7 +65,6 @@ export interface DialogHost {
     publish(type: string, data?: Record<string, unknown>): unknown;
     subscribe(listener: (e: { type: string; data: Record<string, unknown> }) => void): () => void;
   };
-  features?: readonly string[];
 }
 
 type Timer = ReturnType<typeof setTimeout>;
@@ -155,16 +146,10 @@ export class DialogBroker {
     }
   }
 
-  /** The daemon puts a Studio call's dialogs to Studio. */
-  supported(): boolean {
-    return this.o.host.features?.includes(PROMPT_FEATURE) ?? false;
-  }
-
   state(): DialogsState {
     return {
       now: this.now(),
       dialogs: [...this.live.values()].filter((l) => isOpen(l.view)).map((l) => ({ ...l.view, steps: [...l.view.steps] })),
-      supported: this.supported(),
     };
   }
 
@@ -175,10 +160,7 @@ export class DialogBroker {
       this.inflight.set(id, { sessionId, category, action, startedAt: this.now() });
       try {
         if (category === "editor" && action === "respond_to_dialog") return await this.agentPress(host, sessionId, args);
-        const forms = this.o.forms && this.o.host.features?.includes(ELICIT_FEATURE)
-          ? { elicit: (p: ElicitParams) => this.o.forms!.ask(sessionId, `${category}(${action})`, p) }
-          : {};
-        if (!this.supported()) return await ("elicit" in forms ? host.callAction(category, action, args, forms) : host.callAction(category, action, args));
+        const forms = this.o.forms ? { elicit: (p: ElicitParams) => this.o.forms!.ask(sessionId, `${category}(${action})`, p) } : {};
         return await host.callAction(category, action, args, {
           dialogPrompt: (req) => this.prompt(sessionId, category, action, req),
           dialogWaitMs: this.waitMs(),

@@ -172,20 +172,20 @@ describe("waiting for a started editor to attach (#1384)", () => {
     expect(busy.state().operation).toBeUndefined();
   });
 
-  it("ends with the reason when an older daemon reported a failed launch as done", async () => {
+  it("ends with the reason when a launch failed", async () => {
     const busy = new BusyTracker();
     const { host } = slowHost();
     const launch = JSON.stringify({ success: false, message: "Editor launched but did not become ready: still not ready after 300s." }, null, 2);
-    const older: AgentHost = {
+    const failing: AgentHost = {
       ...host,
       editorOperation: async (o) => {
         busy.observe(op(o, "editor.start_editor", "started"));
         busy.observe(op(o, "editor.start_editor", "done"));
-        return { op: o, steps: [{ step: "editor.start_editor", ok: true, result: `${launch}
+        return { op: o, steps: [{ step: "editor.start_editor", ok: false, result: `${launch}
 served by editor P` }] };
       },
     };
-    await busy.wrap(older, "s1").editorOperation("start");
+    await busy.wrap(failing, "s1").editorOperation("start");
     expect(busy.state().operation).toBeUndefined();
     expect(busy.state().failure).toEqual({ op: "start", step: "editor.start_editor", reason: "Editor launched but did not become ready: still not ready after 300s.", at: expect.any(Number) });
   });

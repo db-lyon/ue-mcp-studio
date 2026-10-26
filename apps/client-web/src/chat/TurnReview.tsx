@@ -256,7 +256,7 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
   const [note, setNote] = useState<{ text: string; retry?: () => void } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    api.reviewStatus().then(setStatus, () => setStatus({ available: false, reason: "This Studio agent cannot review turns.", default: false }));
+    api.reviewStatus().then(setStatus, (e: Error) => setError(e.message));
   }, []);
   const on = typeof review === "boolean" ? review : !!status?.default;
 
@@ -283,14 +283,10 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
   const marks = [...timeline].reverse();
   return (
     <div className="review-panel stack">
-      {status && !status.available ? (
-        <div className="banner warn small">{status.reason}</div>
-      ) : (
-        <label className="row toggle">
-          <input type="checkbox" checked={on} disabled={busy || !status} onChange={(e) => toggle(e.target.checked)} />
-          <span>Review this session's turns <span className="dim small">A checkpoint before and after each turn, and a card to keep or revert its changes.{review === null ? " Following Settings." : ""}</span></span>
-        </label>
-      )}
+      <label className="row toggle">
+        <input type="checkbox" checked={on} disabled={busy || !status} onChange={(e) => toggle(e.target.checked)} />
+        <span>Review this session's turns <span className="dim small">A checkpoint before and after each turn, and a card to keep or revert its changes.{review === null ? " Following Settings." : ""}</span></span>
+      </label>
       {note && (
         <div className="banner warn small">
           {note.text}

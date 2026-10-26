@@ -160,8 +160,6 @@ export interface StudioSettings {
   askBeforeChanges: boolean;
   /** What each kind of action does first, in Approvals & review. */
   approvals: Approvals;
-  /** The daemon reports which ue-mcp actions delete or overwrite, so that row can ask. */
-  destructiveKnown?: boolean;
   /** Checkpoint each turn and show what it changed, for sessions that have not set their own (per-turn review). */
   reviewTurns: boolean;
   /** The height dragged on the chat composer's divider, in pixels, or null for the default. */
@@ -740,8 +738,6 @@ export interface DialogsState {
   now: number;
   /** The dialogs open now. */
   dialogs: EditorDialog[];
-  /** The daemon lets Studio answer its own calls' dialogs (ue-mcp 1.4.1 and later). */
-  supported: boolean;
 }
 
 /** POST /v1/ext/studio/dialogs/:id */
@@ -773,15 +769,15 @@ export type FeedbackMode = "interactive" | "auto-approve" | "defer";
 /** Who answers an editor dialog: the user, the agent, or nobody until the user does it in the editor. */
 export type DialogMode = "interactive" | "auto" | "defer";
 
-/** The agent settings ue-mcp owns. A mode is null when this ue-mcp cannot set it from Studio. */
+/** The agent settings ue-mcp owns. */
 export interface AgentSettings {
   feedbackTool: boolean;
   /** project: this project sets it, else it is the per-user one. */
-  feedbackMode: { mode: FeedbackMode; project: boolean } | null;
+  feedbackMode: { mode: FeedbackMode; project: boolean };
   /** mode null: left to each client. */
-  dialogMode: { mode: DialogMode | null; project: boolean } | null;
-  /** Playtest runs: who starts a playtest's run. Absent from an older agent. */
-  playtestRuns?: PlaytestRunsMode;
+  dialogMode: { mode: DialogMode | null; project: boolean };
+  /** Playtest runs: who starts a playtest's run. */
+  playtestRuns: PlaytestRunsMode;
   restarting?: boolean;
 }
 
@@ -874,3 +870,4 @@ export * from "./commands.js";
 export * from "./flows.js";
 export * from "./composer.js";
 export * from "./native.js";
+export * from "./version.js";

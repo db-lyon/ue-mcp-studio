@@ -5,7 +5,6 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 const base = {
   askBeforeChanges: true,
   approvals: { shell: "ask", files: "ask", editorRestart: "allow", destructive: "allow" },
-  destructiveKnown: true,
   dialogPolicy: { kind: "wait" },
   reviewTurns: true,
 };
@@ -46,24 +45,12 @@ describe("Approvals & review: before it acts", () => {
     expect(checked("Restart or rebuild the editor", "Ask")).toBe(true);
   });
 
-  it("says why the destructive row cannot ask when ue-mcp does not report its actions", async () => {
-    await show({ destructiveKnown: false });
-    expect(screen.getByText(/Unavailable. Update ue-mcp to use this rule./)).toBeTruthy();
-    for (const b of screen.getByRole("radiogroup", { name: "ue-mcp actions that delete or overwrite" }).querySelectorAll("button")) {
-      expect((b as HTMLButtonElement).disabled).toBe(true);
-      expect(b.getAttribute("aria-checked")).toBe("false");
-    }
-  });
-
-  it("starts playtests Manual by default, saves Automatic, and says to update an older Studio", async () => {
+  it("starts playtests Manual by default, and saves Automatic", async () => {
     await show();
     expect(checked("Starting playtests", "Manual")).toBe(true);
     expect(screen.getByText("Playtests run only when you start or assign them.")).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Automatic" })));
     expect(m.saveAgentSettings).toHaveBeenCalledWith({ playtestRuns: "automatic" });
-    cleanup();
-    await show({}, { playtestRuns: undefined });
-    expect(screen.getByText("Update Studio to set this.")).toBeTruthy();
   });
 });
 

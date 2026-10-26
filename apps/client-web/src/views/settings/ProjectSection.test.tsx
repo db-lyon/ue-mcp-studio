@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-const ctx = (over: Record<string, unknown> = {}) => ({ strategy: "micro", fromFile: false, envOverride: null, seeds: { micro: 2200, lean: 19000, full: 51000 }, seedSource: "published figures", ...over });
+const ctx = (over: Record<string, unknown> = {}) => ({ strategy: "micro", fromFile: false, envOverride: null, seeds: { micro: 2200, lean: 19000, full: 51000 }, ...over });
 const m = vi.hoisted(() => ({
   install: vi.fn(),
   contextStrategy: vi.fn(),

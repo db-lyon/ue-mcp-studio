@@ -8,12 +8,12 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { isMap, parseDocument } from "yaml";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
+import { required } from "./backend.js";
 import {
   CONTEXT_STRATEGIES,
   AGENT_CONTEXT_STRATEGIES,
   type AgentContextStrategy,
   type AgentContextView,
-  PUBLISHED_SEEDS,
   type ClientContextStrategy,
   type ContextStrategy,
 } from "@ue-mcp-studio/shared";
@@ -66,21 +66,12 @@ export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRoute
 
   const yml = path.join(projectDir, "ue-mcp.yml");
   const readYml = (): string => (fs.existsSync(yml) ? fs.readFileSync(yml, "utf-8") : "");
-  const projector = (api as unknown as { context?: Projector }).context;
-  const seeds = (): Pick<ClientContextStrategy, "seeds" | "seedSource"> => {
-    if (projector?.project) {
-      try {
-        const s = Object.fromEntries(CONTEXT_STRATEGIES.map((x) => [x, projector.project({ strategy: x }).seedTokens])) as Record<ContextStrategy, number>;
-        return { seeds: s, seedSource: "measured by this ue-mcp" };
-      } catch {
-        // Fall through to the published figures.
-      }
-    }
-    return { seeds: PUBLISHED_SEEDS, seedSource: "ue-mcp's published figures" };
-  };
+  const projector = required((api as unknown as { context?: Projector }).context, "context projection");
+  const seeds = (): Record<ContextStrategy, number> =>
+    Object.fromEntries(CONTEXT_STRATEGIES.map((x) => [x, projector.project({ strategy: x }).seedTokens])) as Record<ContextStrategy, number>;
   const contextView = (): ClientContextStrategy => {
     const named = ymlStrategy(readYml());
-    return { strategy: named ?? "micro", fromFile: named !== null, envOverride: envStrategy(), ...seeds() };
+    return { strategy: named ?? "micro", fromFile: named !== null, envOverride: envStrategy(), seeds: seeds() };
   };
   api.route("GET", "/context-strategy", () => ({ body: contextView() }));
   // Studio's own agent: kept in Studio's settings, never in ue-mcp.yml, so other clients are untouched.

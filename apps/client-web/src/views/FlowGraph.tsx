@@ -62,26 +62,21 @@ function detailOf(step: DeclaredStep): string {
  * Lay the steps out in run order: a flow runs one step at a time, top to
  * bottom, wrapped into columns.
  */
-function layout(definition: Record<string, DeclaredStep> | null, plan: PlannedStep[]): Node[] {
-  let nodes: Node[];
-  if (definition) {
-    const ids = Object.keys(definition).sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
-    const known = new Set(ids);
-    nodes = ids.map((id, i) => {
-      const s = definition[id];
-      return {
-        id,
-        number: i + 1,
-        title: s.task ?? (s.flow ? `flow: ${s.flow}` : "step"),
-        detail: detailOf(s),
-        refs: refsOf(s, known),
-        layer: 0,
-        row: 0,
-      };
-    });
-  } else {
-    nodes = plan.map((p) => ({ id: String(p.stepNumber), number: p.stepNumber, title: p.name, detail: "", refs: [], layer: 0, row: 0 }));
-  }
+function layout(definition: Record<string, DeclaredStep>): Node[] {
+  const ids = Object.keys(definition).sort((a, b) => Number(a) - Number(b) || a.localeCompare(b));
+  const known = new Set(ids);
+  const nodes: Node[] = ids.map((id, i) => {
+    const s = definition[id];
+    return {
+      id,
+      number: i + 1,
+      title: s.task ?? (s.flow ? `flow: ${s.flow}` : "step"),
+      detail: detailOf(s),
+      refs: refsOf(s, known),
+      layer: 0,
+      row: 0,
+    };
+  });
   nodes.forEach((n, i) => {
     n.layer = Math.floor(i / CHAIN_ROWS);
     n.row = i % CHAIN_ROWS;
@@ -96,18 +91,16 @@ function layout(definition: Record<string, DeclaredStep> | null, plan: PlannedSt
  */
 export function FlowGraph({
   definition,
-  plan,
   states,
   selected,
   onSelect,
 }: {
-  definition: Record<string, DeclaredStep> | null;
-  plan: PlannedStep[];
+  definition: Record<string, DeclaredStep>;
   states: Record<number, StepState>;
   selected: string | null;
   onSelect: (id: string) => void;
 }) {
-  const nodes = useMemo(() => layout(definition, plan), [definition, plan]);
+  const nodes = useMemo(() => layout(definition), [definition]);
   const numberOf = new Map(nodes.map((n) => [n.id, n.number]));
   const x = (n: Node) => PAD + n.layer * (W + GAP_X);
   const y = (n: Node) => PAD + n.row * (H + GAP_Y);

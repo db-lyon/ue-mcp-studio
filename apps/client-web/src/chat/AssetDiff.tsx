@@ -73,7 +73,7 @@ function Picture({ version, missing, label, name }: { version: AssetVersion | nu
 /** The node a graph record is about, by the title the graph shows. */
 const nodeOf = (r: AssetDiffRecord): string | undefined => r.node2?.title ?? r.node1?.title;
 
-/** An added or removed node's values: what it was set to, so an added Constant shows its number. Nothing from an older daemon. */
+/** An added or removed node's values: what it was set to, so an added Constant shows its number. */
 function NodeValues({ r }: { r: AssetDiffRecord }) {
   if (r.diffType !== "NODE_ADDED" && r.diffType !== "NODE_REMOVED") return null;
   const n = r.node1 ?? r.node2;

@@ -17,7 +17,8 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
 function setup() {
-  const api = { projectDir: root, route: (m: string, p: string, h: Handler) => void routes.set(`${m} ${p}`, h) } as unknown as DaemonExtensionApi;
+  const modes = { get: () => ({ feedback: { mode: "interactive", project: false }, dialog: { mode: null, project: false } }), setFeedback: () => {}, setDialog: () => {} };
+  const api = { projectDir: root, modes, route: (m: string, p: string, h: Handler) => void routes.set(`${m} ${p}`, h) } as unknown as DaemonExtensionApi;
   const store = new PlaytestStore(path.join(root, "data"));
   registerAgentSettings(api, async () => {}, store);
   return { get: () => routes.get("GET /agent-settings")!({}), put: (body: unknown) => routes.get("PUT /agent-settings")!({ body }) };

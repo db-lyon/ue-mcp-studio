@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FAB_LIBRARY_URL, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
+import { FAB_LIBRARY_URL, isNewer, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 
@@ -9,6 +9,8 @@ export interface StudioUpdates {
   channel?: "stable" | "beta";
   studio: { installed: string; latest: string | null; available: boolean };
   plugin: StudioPluginUpdate;
+  /** The oldest ue-mcp the latest Studio runs on. */
+  ueMcpMin?: string;
   /** The step the agent is running now (the plugin swap). */
   running?: string;
   error?: string;
@@ -59,10 +61,20 @@ async function get<T>(url: string): Promise<T | null> {
 /** Every read's count goes to the dot on Settings, so it never disagrees with the card. */
 const countListeners = new Set<(n: number) => void>();
 
+/**
+ * The ue-mcp check with its target raised to the latest Studio's floor while
+ * the daemon runs below it, whatever the channel: Studio never installs ahead
+ * of the ue-mcp it needs.
+ */
+export function withFloor(u: UeMcpUpdate | null, min: string | undefined): UeMcpUpdate | null {
+  if (!u || !min || !isNewer(min, u.server)) return u;
+  return { ...u, target: u.target && !isNewer(min, u.target) ? u.target : min };
+}
+
 /** The bridge check follows Studio's channel: beta takes ue-mcp prereleases, stable takes latest. */
 export async function readUpdates(): Promise<{ studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }> {
   const studio = await get<StudioUpdates>("/v1/ext/studio/updates");
-  const ueMcp = await get<UeMcpUpdate>(`/v1/update?channel=${studio?.channel === "beta" ? "beta" : "latest"}`);
+  const ueMcp = withFloor(await get<UeMcpUpdate>(`/v1/update?channel=${studio?.channel === "beta" ? "beta" : "latest"}`), studio?.ueMcpMin);
   const u = { studio, ueMcp };
   for (const l of countListeners) l(waiting(u));
   return u;

@@ -6,7 +6,7 @@
  * shared): the page that loads next settles the step that was running against
  * what the updates now say, then runs the rest.
  */
-import { daemonMoves, pluginStep, readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
+import { daemonMoves, pluginStep, readUpdates, withFloor, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 
 export type StepKey = "ueMcp" | "plugin" | "studio" | "restart";
 /** deferred: the agent keeps the step until no turn is in progress, then runs it. */
@@ -62,8 +62,12 @@ export const waitingSteps = (run: UpdateRun): StepKey[] => run.steps.filter((s) 
 /** The steps that restart the daemon or close the editor: they wait for the turns. */
 const WAITS: StepKey[] = ["plugin", "studio", "restart"];
 
-/** The steps one Update runs: the bridge plugin, the editor plugin, then Studio, which restarts ue-mcp; else a restart onto the new ue-mcp when the daemon runs another version. */
-export function planRun(u: Updates, now = Date.now()): UpdateRun | null {
+/**
+ * The steps one Update runs: the bridge plugin, the editor plugin, then Studio, which restarts ue-mcp; else a restart onto the new ue-mcp when the daemon runs another version.
+ * The ue-mcp step targets at least the latest Studio's floor, so Studio never lands on a ue-mcp that refuses it.
+ */
+export function planRun(read: Updates, now = Date.now()): UpdateRun | null {
+  const u = { ...read, ueMcp: withFloor(read.ueMcp, read.studio?.ueMcpMin) };
   const keys: StepKey[] = [];
   if (u.ueMcp?.target) keys.push("ueMcp");
   if (pluginStep(u.studio)) keys.push("plugin");

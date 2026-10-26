@@ -63,10 +63,6 @@ export function compactSearch(text: string): string {
   return [...lines, "Describe one (category + method) for its parameters before calling it."].join("\n");
 }
 
-interface ActionLine {
-  action: string;
-}
-
 /** One parameter, or one field of a parameter, as describe_action reports it. */
 interface Field {
   type?: string;
@@ -175,12 +171,10 @@ export function compactDescribe(text: string): string {
   if (Array.isArray(r.matches) && r.matches.every(isSchema)) {
     return [typeof r.hint === "string" ? r.hint : `${r.matches.length} actions match.`, ...(r.matches as ActionSchema[]).map(schemaText)].join("\n\n");
   }
-  // ue-mcp from 1.4.11 answers a category with signature lines, earlier ones with a schema per action.
+  // ue-mcp answers a category with signature lines.
   const names = Array.isArray(r.signatures) && r.signatures.every((x) => typeof x === "string")
     ? (r.signatures as string[]).map((s) => s.replace(/\(.*$/s, "").trim())
-    : Array.isArray(r.actions)
-      ? (r.actions as ActionLine[]).map((a) => a.action).filter((a) => typeof a === "string")
-      : null;
+    : null;
   if (!names) return compactJson(text);
   const category = String(r.category ?? r.tool ?? "");
   const total = typeof r.count === "number" && r.count > names.length ? ` of ${r.count}` : "";

@@ -1,6 +1,6 @@
 /**
  * Settings states for the visual QA harness: every section, and the states
- * each one has (connected or not, an older ue-mcp).
+ * each one has (connected or not).
  * Each answer is what the agent's own route would send; main.tsx answers the
  * rest of a section's reads from its defaults.
  */
@@ -42,10 +42,6 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-models": page("Models & accounts: Claude signed in, no keys", "models"),
   "settings-models-nothing": page("Models & accounts with nothing connected", "models", { settings: NOTHING_CONNECTED }),
   "settings-approvals": page("Approvals & review: shell and files ask, review on", "approvals"),
-  "settings-approvals-older": page("Approvals & review on an older ue-mcp: the destructive row and the shared rows unavailable", "approvals", {
-    settings: { destructiveKnown: false },
-    get: (p) => (p === "/v1/ext/studio/agent-settings" ? { feedbackTool: true, feedbackMode: null, dialogMode: null, playtestRuns: "manual" } : undefined),
-  }),
   "settings-project": page("Project: ready, Micro for other clients, one MCP client", "project"),
   "settings-project-attention": page("Project needing attention, with the context strategy set by the environment", "project", {
     get: (p) => p === "/v1/install"
@@ -66,4 +62,4 @@ export const INSTALL = {
   clients: [{ id: "claude-code", name: "Claude Code", detected: true, configured: true, pinned: null }, { id: "gemini", name: "Gemini CLI", detected: true, configured: false, pinned: null }],
 };
 
-export const CONTEXT = { strategy: "micro", fromFile: false, envOverride: null, seeds: { micro: 2180, lean: 18740, full: 50920 }, seedSource: "measured on this ue-mcp" };
+export const CONTEXT = { strategy: "micro", fromFile: false, envOverride: null, seeds: { micro: 2180, lean: 18740, full: 50920 }, };

@@ -7,8 +7,6 @@ export interface FakeLoopSupport extends QaLoopSupport {
   cp: FakeCheckpoints;
   marks: Array<{ sessionId: string; mark: TimelineMark }>;
   notified: Array<{ sessionId: string; loop: QaLoop; run: QaRun }>;
-  /** Set to make checkpoints unavailable, with this reason. */
-  missing: string | null;
 }
 
 export function fakeLoopSupport(cp = new FakeCheckpoints()): FakeLoopSupport {
@@ -17,9 +15,7 @@ export function fakeLoopSupport(cp = new FakeCheckpoints()): FakeLoopSupport {
     cp,
     marks: [],
     notified: [],
-    missing: null,
     checkpoints: {
-      unavailable: () => f.missing,
       checkpoint: async (label) => cp.create(label),
       changes: async (from, to) => (await cp.changes(from, to)).changes,
       restore: async (checkpoint, paths, force) => {
