@@ -202,6 +202,15 @@ describe("Edit and Delete on the page", () => {
     fireEvent.click(within(row(name)).getByRole("button", { name: `Open playtest ${name}` }));
   };
 
+  it("shows Edit and Delete on a collapsed card, in the same row as its other actions", () => {
+    page();
+    fireEvent.click(screen.getByRole("button", { name: /^All / }));
+    const line = row("Jump").querySelector(".qa-compact-line")!;
+    expect(within(line as HTMLElement).getByRole("button", { name: "Edit" })).toBeTruthy();
+    expect(within(line as HTMLElement).getByRole("button", { name: "Delete" })).toBeTruthy();
+    expect(row("Jump").querySelector(".qa-answer .qa-box-actions")).toBeNull();
+  });
+
   it("edits a script no session has in the session's step editor, read as saved", async () => {
     m.qaPlaytestScript.mockResolvedValue({ run: draftOf("Jump", null) });
     m.qaPlaytestSave.mockResolvedValue({ script: "/Game/T/Jump" });
