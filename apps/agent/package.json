@@ -10,7 +10,7 @@
       "min": 1,
       "max": 2
     },
-    "ueMcp": "1.4.11-beta.6"
+    "ueMcp": "1.4.11-beta.7"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit && node ../../scripts/bundle-agent.mjs && node ../../scripts/agent-keys.mjs",
