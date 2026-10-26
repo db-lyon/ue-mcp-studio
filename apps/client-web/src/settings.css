@@ -264,8 +264,8 @@
 }
 .cfg .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-bottom: 10px; }
 .cfg .legend-item { display: inline-flex; align-items: center; gap: 6px; }
-.cfg .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
-.cfg .swatch.line { height: 0; border-top: 2px dashed var(--text); width: 14px; border-radius: 0; }
+.cfg .legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; margin: 0; border: 0; }
+.cfg .legend .swatch.line { height: 0; border-top: 2px dashed var(--text); width: 14px; border-radius: 0; }
 .cfg .s1 { background: var(--series-1); } .cfg .s2 { background: var(--series-2); } .cfg .s3 { background: var(--series-3); }
 .cfg .s4 { background: var(--series-4); } .cfg .s5 { background: var(--series-5); } .cfg .s6 { background: var(--series-6); }
 .cfg .s7 { background: var(--series-7); } .cfg .so { background: var(--series-other); }
@@ -289,7 +289,7 @@
 .cfg .dayaxis span { flex: 1 1 0; text-align: center; min-width: 0; white-space: nowrap; overflow: visible; }
 .cfg .cache-priced { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .cfg .cache-priced > summary { cursor: pointer; margin-bottom: 8px; }
-.cfg .cache-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 14px; }
+.cfg .cache-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 14px; }
 .cfg .cache-col { display: flex; flex-direction: column; gap: 6px; }
 .cfg .price-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
 .cfg .price-form input { width: 110px; }

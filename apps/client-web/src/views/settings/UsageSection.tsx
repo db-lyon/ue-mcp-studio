@@ -73,7 +73,7 @@ export function UsageSection() {
                     <td className="small" data-label="At the limit">
                       <div>{AT_LIMIT[a.id] ?? (b.perDayTokens === null ? "No limit" : b.onLimit === "ask" ? "The next tool call asks you" : "The turn stops and says so")}</div>
                       {b.perDayTokens !== null && (
-                        <Seg label={`${a.name}: at the daily limit`} value={b.onLimit === "ask" ? "ask" : "stop"} options={DAY_ACTIONS} onChange={(v) => void save(a.id, { onLimit: v === "ask" ? "ask" : "stop-and-report" })} />
+                        <Seg compact label={`${a.name}: at the daily limit`} value={b.onLimit === "ask" ? "ask" : "stop"} options={DAY_ACTIONS} onChange={(v) => void save(a.id, { onLimit: v === "ask" ? "ask" : "stop-and-report" })} />
                       )}
                     </td>
                   </tr>
