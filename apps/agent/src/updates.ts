@@ -17,7 +17,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { StudioPluginSource, StudioPluginUpdate } from "@ue-mcp-studio/shared";
+import { isNewer, type StudioPluginSource, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
 
 export const MANIFEST_URL = process.env.UE_MCP_STUDIO_CHANNEL || "https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/latest.json";
 /** The editor plugin's own channel, when a Studio manifest does not name one. */
@@ -76,6 +76,8 @@ export interface ReleaseManifest {
   pluginChannel?: string;
   /** The oldest editor plugin this Studio works with. */
   pluginMin?: string;
+  /** The oldest ue-mcp this Studio runs on, and the npm spec the host plugin runs. */
+  ueMcp?: { min?: string; package?: string };
 }
 
 /** plugin.json on the editor plugin's channel: its version and a zip per engine. */
@@ -88,6 +90,8 @@ export interface UpdateStatus {
   channel: UpdateChannel;
   studio: { installed: string; latest: string | null; available: boolean };
   plugin: StudioPluginUpdate & { newer: boolean; required: boolean; source: StudioPluginSource };
+  /** The oldest ue-mcp the latest Studio runs on: Update installs at least this before Studio. */
+  ueMcpMin?: string;
   /** The step this daemon is running now, so a page that loads meanwhile waits for it. */
   running?: string;
   error?: string;
@@ -141,29 +145,7 @@ function readProjectPlugin(dir: string): InstalledPlugin | null {
   }
 }
 
-/** 0.1.0-beta.10 is newer than 0.1.0-beta.9: numbers compare as numbers, a release beats its prereleases. */
-export function isNewer(a: string, b: string): boolean {
-  const split = (v: string) => {
-    const [core, pre] = v.split("-", 2);
-    return { core: core.split(".").map(Number), pre: pre ? pre.split(".") : [] };
-  };
-  const x = split(a);
-  const y = split(b);
-  for (let i = 0; i < 3; i++) if ((x.core[i] ?? 0) !== (y.core[i] ?? 0)) return (x.core[i] ?? 0) > (y.core[i] ?? 0);
-  if (!x.pre.length || !y.pre.length) return !x.pre.length && y.pre.length > 0;
-  for (let i = 0; i < Math.max(x.pre.length, y.pre.length); i++) {
-    const p = x.pre[i];
-    const q = y.pre[i];
-    if (p === undefined) return false;
-    if (q === undefined) return true;
-    const pn = /^\d+$/.test(p);
-    const qn = /^\d+$/.test(q);
-    if (pn && qn && Number(p) !== Number(q)) return Number(p) > Number(q);
-    if (pn !== qn) return !pn;
-    if (p !== q) return p > q;
-  }
-  return false;
-}
+export { isNewer };
 
 /** npx-cli.js beside the Node running this daemon (UE_MCP_STUDIO_NPX names another), or null when there is none. */
 function npxCli(): string | null {
@@ -220,7 +202,7 @@ export class Updater {
 
   /** The ue-mcp package the manifest names, else the beta channel. */
   private async ueMcpPackage(): Promise<string> {
-    return this.manifest().then((m) => (m as ReleaseManifest & { ueMcp?: { package?: string } }).ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
+    return this.manifest().then((m) => m.ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
   }
 
   /** Studio's latest.json on the chosen channel; UE_MCP_STUDIO_CHANNEL, when set, outranks the choice. */
@@ -297,6 +279,7 @@ export class Updater {
       const m = await this.manifest();
       status.studio.latest = m.version;
       status.studio.available = isNewer(m.version, this.installedVersion);
+      if (m.ueMcp?.min) status.ueMcpMin = m.ueMcp.min;
       status.plugin.required = !!installedPlugin && !!m.pluginMin && isNewer(m.pluginMin, installedPlugin);
       const p = await this.pluginManifest(m);
       if (p) {
