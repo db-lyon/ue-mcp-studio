@@ -840,7 +840,13 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
                   <summary>What the agent saw</summary>
                   {(s.evidence?.note ?? s.note) && <p>{s.evidence?.note ?? s.note}</p>}
                   {(s.evidence?.captures ?? []).length > 0 && (
-                    <ul className="mono">{s.evidence!.captures!.map((c) => <li key={c}>{c}</li>)}</ul>
+                    <div className="qa-captures">
+                      {s.evidence!.captures!.map((c, n) => (
+                        <a key={c} href={api.qaCaptureUrl(run.runId, s.index, n)} target="_blank" rel="noreferrer" title={c}>
+                          <img src={api.qaCaptureUrl(run.runId, s.index, n)} alt={c.split(/[\/]/).pop()} loading="lazy" />
+                        </a>
+                      ))}
+                    </div>
                   )}
                 </details>
               )}

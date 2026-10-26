@@ -212,3 +212,29 @@ describe("results.json", () => {
     expect(t.calls.at(-1)).toMatchObject({ action: "script_results", args: { run_id: "other" } });
   });
 });
+
+describe("step captures", () => {
+  it("serves a step's picture from under Saved, and nothing outside it or of another type", async () => {
+    const t = setup();
+    const dir = path.join(t.projectDir, "Saved", "MCPObservations", RUN);
+    fs.mkdirSync(dir, { recursive: true });
+    const shot = path.join(dir, "step1.png");
+    fs.writeFileSync(shot, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const outside = path.join(os.tmpdir(), `studio-capture-${process.pid}.png`);
+    fs.writeFileSync(outside, "x");
+    fs.writeFileSync(path.join(dir, "notes.txt"), "x");
+    const base = runAnswer();
+    const steps = (base.steps as Array<Record<string, unknown>>).map((st, i) =>
+      i === 0 ? { ...st, evidence: { note: "seen", captures: [shot, outside, path.join(dir, "notes.txt"), path.join(dir, "missing.png")] } } : st);
+    t.setAnswer(async () => ok({ ...base, steps }));
+    await t.broker.wrap(t.host, t.s.id).callAction("pie", "script_run", {});
+
+    expect(t.broker.capture(RUN, 0, 0)).toEqual({ type: "image/png", bytes: Buffer.from([0x89, 0x50, 0x4e, 0x47]) });
+    expect(t.broker.capture(RUN, 0, 1)).toBeNull();
+    expect(t.broker.capture(RUN, 0, 2)).toBeNull();
+    expect(t.broker.capture(RUN, 0, 3)).toBeNull();
+    expect(t.broker.capture(RUN, 0, 9)).toBeNull();
+    expect(t.broker.capture("nope", 0, 0)).toBeNull();
+    fs.rmSync(outside, { force: true });
+  });
+});

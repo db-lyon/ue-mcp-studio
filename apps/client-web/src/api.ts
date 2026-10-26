@@ -256,6 +256,8 @@ export const api = {
     call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/restore`, force ? { checkpoint, force } : { checkpoint }),
   timelineUndo: (sessionId: string, checkpoint: string) =>
     call<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/timeline/undo`, { checkpoint }),
+  qaCaptureUrl: (runId: string, step: number, n: number) =>
+    `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/steps/${step}/captures/${n}`,
   reviewImageUrl: (name: string) => `/v1/ext/studio/review/images/${encodeURIComponent(name)}`,
   reviewThumbnailUrl: (id: string) => `/v1/ext/studio/review/thumbnails/${encodeURIComponent(id)}`,
   reviewNativeDiff: (sessionId: string, reviewId: string, path: string) =>
