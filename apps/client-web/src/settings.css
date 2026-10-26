@@ -285,6 +285,8 @@
 .cfg .usage-table td[data-label="Source"] a { white-space: nowrap; }
 .cfg .dayaxis { display: flex; gap: 4px; font-size: 11px; color: var(--dim); margin-top: 4px; }
 .cfg .dayaxis span { flex: 1 1 0; text-align: center; min-width: 0; white-space: nowrap; overflow: visible; }
+.cfg .cache-priced { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.cfg .cache-priced > summary { cursor: pointer; margin-bottom: 8px; }
 .cfg .cache-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 14px; }
 .cfg .cache-col { display: flex; flex-direction: column; gap: 6px; }
 .cfg .price-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }

@@ -67,7 +67,7 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [plans, setPlans] = useState<PlanMeter[] | null>(null);
   const [warnings, setWarnings] = useState<UsageWarning[]>([]);
-  const [cache, setCache] = useState<CacheExplainer[]>([]);
+  const [cache, setCache] = useState<{ connected: CacheExplainer[]; priced: CacheExplainer[] }>({ connected: [], priced: [] });
   const [prices, setPrices] = useState<PriceTable | null>(null);
   const msg = useMessage();
 
@@ -79,7 +79,7 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
   }, [period, group]);
   useEffect(() => {
     api.usageWarnings().then((x) => setWarnings(x.warnings), () => undefined);
-    api.usageCache().then((x) => setCache(x.explainers), () => undefined);
+    api.usageCache().then((x) => setCache({ connected: x.explainers, priced: x.others ?? [] }), () => undefined);
     api.prices().then(setPrices, () => undefined);
   }, []);
 
@@ -107,7 +107,7 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
       {summary && summary.rows.length > 0 && <DayChart s={summary} teamPerDay={period === "today" ? null : teamPerDay} />}
       {summary && summary.rows.length > 0 && <Breakdown s={summary} group={GROUPS.find((g) => g.id === group)!.name} />}
       {summary && summary.sessions.length > 0 && <Sessions s={summary} />}
-      {cache.length > 0 && <CacheCard explainers={cache} />}
+      {cache.connected.length + cache.priced.length > 0 && <CacheCard connected={cache.connected} priced={cache.priced} />}
       {prices && <PricesCard table={prices} onSaved={setPrices} onError={msg.fail} />}
     </>
   );
@@ -281,24 +281,38 @@ function Sessions({ s }: { s: UsageSummary }) {
   );
 }
 
-function CacheCard({ explainers }: { explainers: CacheExplainer[] }) {
+function CacheGrid({ explainers }: { explainers: CacheExplainer[] }) {
+  return (
+    <div className="cache-grid">
+      {explainers.map((c) => (
+        <div key={c.vendor} className="cache-col">
+          <strong>{c.name}</strong>
+          <dl className="fields">
+            <dt>What</dt><dd>{c.what}</dd>
+            <dt>Who decides</dt><dd>{c.whoDecides}</dd>
+            <dt>Cost</dt><dd>{c.cachedReadCost}</dd>
+            <dt>How long</dt><dd>{c.howLong}</dd>
+          </dl>
+          <a className="small" href={c.source} target="_blank" rel="noreferrer">{c.name}'s documentation</a>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** How each connected vendor caches, then, folded, the vendors the price table lists that nothing here connects to yet. */
+function CacheCard({ connected, priced }: { connected: CacheExplainer[]; priced: CacheExplainer[] }) {
+  const names = priced.map((c) => c.name).join(" and ");
   return (
     <Card label="How each vendor caches">
       <p className="muted small">Cached reads cost far less than fresh input. A prompt that stays the same from the start keeps hitting the cache.</p>
-      <div className="cache-grid">
-        {explainers.map((c) => (
-          <div key={c.vendor} className="cache-col">
-            <strong>{c.name}</strong>
-            <dl className="fields">
-              <dt>What</dt><dd>{c.what}</dd>
-              <dt>Who decides</dt><dd>{c.whoDecides}</dd>
-              <dt>Cost</dt><dd>{c.cachedReadCost}</dd>
-              <dt>How long</dt><dd>{c.howLong}</dd>
-            </dl>
-            <a className="small" href={c.source} target="_blank" rel="noreferrer">{c.name}'s documentation</a>
-          </div>
-        ))}
-      </div>
+      {connected.length > 0 ? <CacheGrid explainers={connected} /> : <p className="cfg-note">Nothing on this machine connects to a vendor yet.</p>}
+      {priced.length > 0 && (
+        <details className="cache-priced">
+          <summary className="muted small">{names}: priced below, not connected</summary>
+          <CacheGrid explainers={priced} />
+        </details>
+      )}
     </Card>
   );
 }

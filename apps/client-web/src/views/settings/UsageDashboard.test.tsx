@@ -74,6 +74,18 @@ describe("Usage dashboard", () => {
     expect(again[3]).toContain("same as the period before");
   });
 
+  it("explains caching for a vendor that is priced but not connected, folded under the connected ones", async () => {
+    await show();
+    m.usageCache.mockResolvedValue({
+      explainers: [{ vendor: "openai", name: "OpenAI", what: "Prefixes", whoDecides: "The vendor", cachedReadCost: "Less", howLong: "Minutes", asOf: "", source: "https://example.invalid" }],
+      others: [{ vendor: "google", name: "Google", what: "Implicit", whoDecides: "The vendor", cachedReadCost: "Less", howLong: "Unstated", asOf: "", source: "https://example.invalid/g" }],
+    });
+    await act(async () => void cleanup());
+    await act(async () => void render(<UsageDashboard teamPerDay={null} />));
+    expect(screen.getByText("Google: priced below, not connected")).toBeTruthy();
+    expect(screen.getByText("Google's documentation")).toBeTruthy();
+  });
+
   it("never shows a kind the vendor did not report as zero", async () => {
     await show();
     expect(screen.getAllByText("not reported").length).toBeGreaterThan(0);
