@@ -302,6 +302,7 @@
 .cfg .endpoint-warn { color: var(--warn); margin-top: 4px; overflow-wrap: anywhere; }
 .cfg .endpoint-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .cfg .endpoint-actions button { white-space: nowrap; }
+.cfg .endpoints-card .banner.row { margin: 0 0 8px; flex-wrap: nowrap; }
 .cfg .endpoint-form { display: flex; flex-direction: column; gap: 12px; padding: 12px; margin: 8px 0; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); }
 .cfg .endpoint-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; }
 .cfg .endpoint-fields input:not([type="checkbox"]) { width: 100%; }
