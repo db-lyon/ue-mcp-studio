@@ -111,14 +111,14 @@ function answer(method: string, url: URL): unknown {
     [/^\/v1\/ext\/studio\/vcs$/, () => ({ vcs: null })],
     [/^\/v1\/ext\/studio\/review\/status$/, () => ({ available: true, reason: null })],
     [/^\/v1\/ext\/studio\/models$/, () => ({
-      signedIn: { claude: true, chatgpt: false, studio: false },
+      signedIn: { claude: !!SETTINGS.connected.claude, chatgpt: !!SETTINGS.connected.chatgpt, studio: false },
       routeOrder: "signins-first",
       providers: [
         { id: "anthropic", name: "Anthropic", connected: false, source: "default", models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5", signIns: ["claude"] }] },
         ...(Array.isArray(scenario.endpoints) ? scenario.endpoints : []).map((e) => ({ id: `endpoint:${e.id}`, name: e.name, connected: true, source: "live", endpoint: { id: e.id }, models: e.models.map((m) => ({ id: m.id, name: m.id, signIns: [] })) })),
       ],
     })],
-    [/^\/v1\/ext\/studio\/endpoints$/, () => (Array.isArray(scenario.endpoints) ? { endpoints: scenario.endpoints } : undefined)],
+    [/^\/v1\/ext\/studio\/endpoints$/, () => (scenario.endpoints === "error" ? undefined : { endpoints: scenario.endpoints ?? [] })],
     [/^\/v1\/flows$/, () => ({ flows: [] })],
     [/^\/v1\/ext\/studio\/context-strategy\/agent$/, () => scenario.agentContext],
     [/^\/v1\/ext\/studio\/native$/, () => NATIVE],

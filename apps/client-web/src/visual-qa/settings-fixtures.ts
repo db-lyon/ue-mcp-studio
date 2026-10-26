@@ -89,8 +89,8 @@ const PRICES: PriceTable = {
 
 /** The usage routes, with a summary and the extras a scenario picks. */
 function usage(summary: UsageSummary, o: { warnings?: UsageWarning[]; plans?: PlanMeter[]; cache?: typeof CACHE } = {}) {
-  return (p: string): unknown => {
-    if (p === "/v1/ext/studio/usage/summary") return summary;
+  return (p: string, url: URL): unknown => {
+    if (p === "/v1/ext/studio/usage/summary") return url.searchParams.get("groupBy") === "model" ? BY_MODEL(summary) : summary;
     if (p === "/v1/ext/studio/usage/plans") return { plans: o.plans ?? PLANS };
     if (p === "/v1/ext/studio/usage/warnings") return { warnings: o.warnings ?? [] };
     if (p === "/v1/ext/studio/usage/cache") return o.cache ?? CACHE;
@@ -98,6 +98,22 @@ function usage(summary: UsageSummary, o: { warnings?: UsageWarning[]; plans?: Pl
     return undefined;
   };
 }
+
+/** The same period grouped by model, as the ledger would group it. */
+const BY_MODEL = (s: UsageSummary): UsageSummary => {
+  const rows = [
+    row("anthropic:claude-sonnet-5-5", "Sonnet 5.5", 1_880_000, { lastModel: "claude-sonnet-5-5", runs: 24, cost: 3.1, costPartial: true }),
+    row("anthropic:claude-haiku-5-5", "Haiku 5.5", 540_000, { lastModel: "claude-haiku-5-5", runs: 6, cost: 1.72 }),
+    row("openai:gpt-6-luna", "GPT-6 Luna", 60_000, { lastModel: "gpt-6-luna", runs: 1, tokens: { input: 50_000, cacheRead: null, cacheWrite: null, output: 10_000 }, cachedShare: null, cost: null }),
+  ];
+  return {
+    ...s, groupBy: "model", rows,
+    days: s.days.map((d) => ({ day: d.day, byKey: { "anthropic:claude-sonnet-5-5": (d.byKey.main ?? 0) + (d.byKey["playtest-runner"] ?? 0), "anthropic:claude-haiku-5-5": d.byKey.worker ?? 0, "openai:gpt-6-luna": d.byKey.scout ?? 0 } })),
+  };
+};
+
+/** Settings > Agents with nothing connected: every convention's files found, none read by a route. */
+const NATIVE_NONE = (): NativeOverview => ({ ...NATIVE_FULL, main: null, conventions: NATIVE_FULL.conventions.map((c) => ({ ...c, routes: [] })) });
 
 /** Settings > Agents with Claude and Codex files, a subagent and a skill. */
 const NATIVE_FULL: NativeOverview = {
@@ -126,7 +142,7 @@ const page = (title: string, section: string, o: Partial<Scenario> = {}): Scenar
 export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-list": page("Settings at narrow width: the list of sections, each with its state; wide opens Agents", "", { hash: "#/settings" }),
   "settings-agents": page("Agents: main agent, worker, and the project's Claude files with a subagent and a skill", "agents", { get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_FULL : undefined) }),
-  "settings-agents-not-connected": page("Agents with nothing connected: the main agent cannot run yet", "agents", { settings: NOTHING_CONNECTED }),
+  "settings-agents-not-connected": page("Agents with nothing connected: the main agent cannot run yet, and no route reads the project's files", "agents", { settings: NOTHING_CONNECTED, get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_NONE() : undefined) }),
   "settings-agents-files-off": page("Agents with the project's own files switched off", "agents", { settings: { usage: { projectInstructions: false } } as Partial<StudioSettings> }),
   "settings-models": page("Models & accounts: Claude signed in, no keys", "models"),
   "settings-models-nothing": page("Models & accounts with nothing connected", "models", { settings: NOTHING_CONNECTED }),
@@ -147,7 +163,7 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-usage-fresh": page("Usage on a fresh machine: nothing recorded, no comparison", "usage", { get: usage(EMPTY_SUMMARY, { plans: [], cache: { explainers: CACHE.explainers, others: [] } }) }),
   "settings-usage-group-model": page("Usage grouped by model, after picking it", "usage", { get: usage({ ...SUMMARY, groupBy: "model" }), clicks: ["[aria-label='Group by'] button:nth-child(2)"] }),
   "settings-general": page("General: themes and updates", "general"),
-  "settings-diagnostics": page("Diagnostics: the editor and daemon, and the event log", "diagnostics"),
+  "settings-diagnostics": page("Diagnostics: the editor and daemon, and the event log, empty because the harness sends no events", "diagnostics"),
 };
 
 export const INSTALL = {

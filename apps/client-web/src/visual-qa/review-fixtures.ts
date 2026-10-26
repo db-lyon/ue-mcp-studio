@@ -81,7 +81,7 @@ const MATERIAL: AssetDiff = {
   ...MATERIAL_OLDER,
   summary: "3 differences: Removed Node Multiply; Added Node Constant; Roughness Default Value 0.2 to 0.7",
   sections: [{ ...MATERIAL_OLDER.sections![0], entries: [
-    { displayString: "Removed Node Multiply", diffType: "NODE_REMOVED", category: "SUBTRACTION", node1: { guid: "5", name: "MaterialGraphNode_9", class: "MaterialGraphNode", title: "Multiply", fullTitle: "Multiply(,0.5)", propertiesOf: "MaterialExpressionMultiply",
+    { displayString: "Removed Node Multiply", diffType: "NODE_REMOVED", category: "SUBTRACTION", node1: { guid: "5", name: "MaterialGraphNode_9", class: "MaterialGraphNode", title: "Multiply", propertiesOf: "MaterialExpressionMultiply",
       pins: [{ name: "A", displayName: "A", defaultValue: "", linked: true }, { name: "B", displayName: "B", defaultValue: "0.5", linked: false }],
       properties: [{ name: "ConstA", displayName: "Const A", value: "0.000000", isDefault: true }, { name: "ConstB", displayName: "Const B", value: "0.500000", isDefault: false }] } },
     { displayString: "Added Node Constant", diffType: "NODE_ADDED", category: "ADDITION", node1: { guid: "3", name: "MaterialGraphNode_15", class: "MaterialGraphNode", title: "Constant", fullTitle: "0.35", propertiesOf: "MaterialExpressionConstant",
@@ -137,8 +137,7 @@ const card = (title: string, open?: keyof typeof PATHS, scroll?: string): Scenar
   index: { playtests: [], listed: true },
   height: 1500,
   get: (p, url) => (/\/reviews\/[^/]+\/diff$/.test(p) ? diffAnswer(url) : undefined),
-  ...(open ? { clicks: [`[data-path='${PATHS[open]}'] .review-item-name`] } : {}),
-  ...(scroll ? { scroll } : {}),
+  ...(open ? { clicks: [`[data-path='${PATHS[open]}'] .review-item-name`], scroll: scroll ?? `[data-path='${PATHS[open]}']` } : {}),
 });
 
 export const REVIEW_SCENARIOS: Record<string, Scenario> = {
