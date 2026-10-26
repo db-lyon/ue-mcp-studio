@@ -150,13 +150,13 @@ describe("the Playtests page", () => {
     expect(screen.getByText(/No playtest is failing/)).toBeTruthy();
   });
 
-  it("keeps every row's actions in one place, the end of the row under its path, in one order", () => {
+  it("keeps every row's actions in one place, the card's top-right corner, in one order", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
     for (const name of ["Door", "Jump", "Walk", "Fresh"]) {
       const card = row(name);
-      expect(card.querySelector(".qa-head button.small-button")).toBeNull();
-      expect(card.querySelector(".qa-compact .qa-box-actions")).toBeTruthy();
+      expect(card.querySelector(".qa-head .qa-box-actions")).toBeTruthy();
+      expect(card.querySelector(".qa-compact .qa-box-actions")).toBeNull();
     }
     const order = (name: string) => [...row(name).querySelectorAll(".qa-box-actions button")].map((b) => b.textContent);
     expect(order("Walk")[0]).toBe("Run again");
@@ -202,10 +202,10 @@ describe("Edit and Delete on the page", () => {
     fireEvent.click(within(row(name)).getByRole("button", { name: `Open playtest ${name}` }));
   };
 
-  it("shows Edit and Delete on a collapsed card, in the same row as its other actions", () => {
+  it("shows Edit and Delete on a collapsed card, with its other actions in the top-right corner", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: /^All / }));
-    const line = row("Jump").querySelector(".qa-compact-line")!;
+    const line = row("Jump").querySelector(".qa-head")!;
     expect(within(line as HTMLElement).getByRole("button", { name: "Edit" })).toBeTruthy();
     expect(within(line as HTMLElement).getByRole("button", { name: "Delete" })).toBeTruthy();
     expect(row("Jump").querySelector(".qa-answer .qa-box-actions")).toBeNull();
