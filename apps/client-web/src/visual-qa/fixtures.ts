@@ -158,6 +158,8 @@ export interface Scenario {
   settings?: Partial<StudioSettings>;
   /** GETs the scenario answers itself, before the harness's defaults; undefined falls through. */
   get?: (path: string, url: URL) => unknown;
+  /** Writes the scenario answers itself, with their status; undefined is the harness's 409. */
+  post?: (path: string) => { status: number; body: unknown } | undefined;
   /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */
   endpoints?: CustomEndpoint[] | "error";
   /** Shoot the whole page, for a settings section taller than the window. */

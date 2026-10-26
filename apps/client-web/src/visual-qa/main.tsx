@@ -18,8 +18,9 @@ import { DEFAULT_USAGE, type NativeOverview, type StudioSettings, type StudioThe
 import { SCENARIOS as PLAYTESTS } from "./fixtures";
 import { CONTEXT, INSTALL, SETTINGS_SCENARIOS } from "./settings-fixtures";
 import { REVIEW_SCENARIOS } from "./review-fixtures";
+import { REFUSED_SCENARIOS } from "./refused-fixtures";
 
-const SCENARIOS = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS };
+const SCENARIOS = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS, ...REFUSED_SCENARIOS };
 
 const params = new URLSearchParams(location.search);
 const scenario = SCENARIOS[params.get("scenario") ?? ""] ?? SCENARIOS["session-empty"];
@@ -145,6 +146,8 @@ data: ${data}
       },
     }), { status: 200, headers: { "content-type": "text/event-stream" } });
   }
+  const written = method === "GET" ? undefined : scenario.post?.(url.pathname);
+  if (written) return new Response(JSON.stringify(written.body), { status: written.status, headers: { "content-type": "application/json" } });
   const body = answer(method, url);
   if (body === undefined) {
     // The endpoints scenario that fails says what a broken agent would.
