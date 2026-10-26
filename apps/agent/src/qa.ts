@@ -441,6 +441,45 @@ export class QaBroker {
     return { run: this.runs.get(runId)! };
   }
 
+  /** Edit on the Playtests page: a saved script's steps as saved, with its players, read with pie(script_read). */
+  async readScriptAt(script: string): Promise<{ run: QaRun } | { error: string; status: number }> {
+    const r = await this.o.host.callAction("pie", "script_read", { path: script });
+    const body = json(r);
+    const error = failure(r, body);
+    if (error) return { error, status: 409 };
+    const run = qaDraftFromScript(body, { players: this.o.playtests?.players(script), seenAt: this.now() });
+    return run ? { run } : { error: "the script has no steps to edit", status: 409 };
+  }
+
+  /**
+   * Edit on the Playtests page: any saved script, by its path, saved with
+   * pie(script_update). A session's draft card of it is saved through the card,
+   * so the card shows the change; a script with none gets no card.
+   */
+  async saveScriptAt(script: string, steps: unknown): Promise<{ script: string } | { error: string; status: number }> {
+    if (!Array.isArray(steps) || steps.length === 0) return { error: "body must be { script, steps: [...] } with at least one step", status: 400 };
+    const card = this.runs.get(qaDraftId(script));
+    if (card && qaIsDraft(card) && !card.deleted && card.sessionId) {
+      const r = await this.saveScript(card.runId, { steps });
+      return "error" in r ? r : { script };
+    }
+    const split = splitPlayers(steps)!;
+    const r = await this.o.host.callAction("pie", "script_update", { path: script, steps: split.steps });
+    const error = failure(r, json(r));
+    if (error) return { error, status: 409 };
+    this.o.playtests?.setPlayers(script, split.players);
+    return { script };
+  }
+
+  /** Delete on the Playtests page: any saved script, by its path, with pie(script_delete). Its draft cards say so. */
+  async deleteScriptAt(script: string): Promise<{ script: string } | { error: string; status: number }> {
+    const r = await this.o.host.callAction("pie", "script_delete", { path: script, confirm: true });
+    const error = failure(r, json(r));
+    if (error) return { error, status: 409 };
+    this.deleted(script);
+    return { script };
+  }
+
   /**
    * Start playtest on a draft's card: PIE set to the players asked for, then
    * pie(script_run) of its script. The run takes the draft's card, so the same
