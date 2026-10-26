@@ -234,7 +234,8 @@ export interface ModelCatalog {
     /** live: listed by the vendor for this key; default: a starting list until a key is saved; typed: a custom endpoint's models as the user typed them. */
     source: "live" | "default" | "typed";
     /** Set for a custom endpoint. */
-    endpoint?: { id: string };
+    /** A custom endpoint, and why its model list could not be read when it could not. */
+    endpoint?: { id: string; listError?: string };
     models: ModelOption[];
   }>;
 }

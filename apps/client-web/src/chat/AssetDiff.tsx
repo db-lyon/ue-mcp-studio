@@ -116,8 +116,8 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
           return (
             <tr key={i} className={`diff-row ${kindClass(k)}`}>
               <td>{head}</td>
-              <td><Value v={r.before} side="before" /></td>
-              <td><Value v={r.after} side="after" /></td>
+              <td data-label="Before"><Value v={r.before} side="before" /></td>
+              <td data-label="After"><Value v={r.after} side="after" /></td>
             </tr>
           );
         }
@@ -210,8 +210,8 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
               {rows.map((r) => (
                 <tr key={r.name} className={r.changed ? "diff-row mod" : "diff-row"}>
                   <td><EngineText text={r.name} /></td>
-                  {before && <td><Value v={r.before ?? null} side="before" /></td>}
-                  {after && <td><Value v={r.after ?? null} side="after" /></td>}
+                  {before && <td data-label="Before"><Value v={r.before ?? null} side="before" /></td>}
+                  {after && <td data-label="After"><Value v={r.after ?? null} side="after" /></td>}
                 </tr>
               ))}
             </tbody>

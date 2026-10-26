@@ -1156,6 +1156,17 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-toggle { text-align: left; white-space: normal; }
 .diff-hidden { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .diff-hidden .diff-table-wrap { width: 100%; }
+/* A narrow card: each record's property on its own line, Before and After side by side under it. */
+@media (max-width: 480px) {
+  .diff-table thead { display: none; }
+  .diff-table, .diff-table tbody { display: block; }
+  .diff-table tr.diff-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+  .diff-table tr.diff-row td { border-bottom: 0; width: auto; }
+  .diff-table tr.diff-row td:first-child { grid-column: 1 / -1; width: auto; }
+  .diff-table tr.diff-row td[data-label]::before { content: attr(data-label); display: block; color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diff-table tr.diff-group { display: block; }
+  .diff-table tr.diff-group th { display: block; width: auto; }
+}
 .diff-parts { display: flex; flex-direction: column; gap: 2px; }
 .review-diff .output.diff { white-space: pre-wrap; overflow-wrap: break-word; }
 .diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }

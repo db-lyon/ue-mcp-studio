@@ -78,18 +78,20 @@ export function ModelsSection() {
                   : routesInOrder(m.signIns, order).map((r) => ({ id: r, on: r === "key" ? v.connected : !!catalog!.signedIn[r] }));
                 const runs = routes.find((r) => r.on);
                 const routeName = (id: SignInId | "key" | "endpoint") => (id === "endpoint" ? v.name : id === "key" ? `${v.name} key` : ROUTE_NAME[id]);
+                // An endpoint whose model list failed still runs the models it had, in a warning state.
+                const failed = v.endpoint?.listError;
                 return (
                   <tr key={`${v.id}:${m.id}`}>
                     <td><div><strong>{v.name} {m.name}</strong>{v.endpoint && <div className="dim small">Custom endpoint</div>}</div></td>
                     <td data-label="Routes">
                       {routes.map((r) => (
                         <div key={r.id} className="cfg-inline small">
-                          <span className={`dot ${r.on ? "ok" : ""}`} />
+                          <span className={`dot ${r.on ? (r.id === "endpoint" && failed ? "warn" : "ok") : ""}`} />
                           <span className={r.on ? "" : "dim"}>{routeName(r.id)}</span>
                         </div>
                       ))}
                     </td>
-                    <td className="r small" data-label="On this machine">{runs ? <span className="tag ok">{routeName(runs.id)}</span> : <span className="dim">Not connected</span>}</td>
+                    <td className="r small" data-label="On this machine">{runs ? (runs.id === "endpoint" && failed ? <span className="tag warn" title={failed}>{routeName(runs.id)}: models not read</span> : <span className="tag ok">{routeName(runs.id)}</span>) : <span className="dim">Not connected</span>}</td>
                   </tr>
                 );
               }))}

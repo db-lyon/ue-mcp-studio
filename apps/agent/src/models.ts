@@ -118,7 +118,7 @@ export function endpointCatalog(e: CustomEndpoint): ModelCatalog["providers"][nu
     name: e.name,
     connected: true,
     source: e.models.some((m) => !m.typed) ? "live" : "typed",
-    endpoint: { id: e.id },
+    endpoint: { id: e.id, ...(e.listError ? { listError: e.listError } : {}) },
     models: e.models.map((m) => ({ id: m.id, name: m.id, signIns: [] })),
   };
 }
