@@ -416,9 +416,9 @@ export class QaBroker {
   async saveScript(runId: string, body: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
     const run = this.runs.get(runId);
     if (!run || !qaIsDraft(run) || run.deleted) return { error: "only a draft that still has its script can be edited", status: 409 };
-    const steps = (body as { steps?: unknown } | undefined)?.steps;
+    const { steps, map } = (body ?? {}) as { steps?: unknown; map?: unknown };
     if (!Array.isArray(steps) || steps.length === 0) return { error: "body must be { steps: [...] } with at least one step", status: 400 };
-    const r = await this.drafting(this.o.host, run.sessionId, "script_update", { path: run.script, steps });
+    const r = await this.drafting(this.o.host, run.sessionId, "script_update", { path: run.script, steps, ...(typeof map === "string" ? { map } : {}) });
     const error = failure(r, json(r));
     if (error) return { error, status: 409 };
     return { run: this.runs.get(runId) ?? run };
@@ -450,15 +450,15 @@ export class QaBroker {
    * pie(script_update). A session's draft card of it is saved through the card,
    * so the card shows the change; a script with none gets no card.
    */
-  async saveScriptAt(script: string, steps: unknown): Promise<{ script: string } | { error: string; status: number }> {
+  async saveScriptAt(script: string, steps: unknown, map?: unknown): Promise<{ script: string } | { error: string; status: number }> {
     if (!Array.isArray(steps) || steps.length === 0) return { error: "body must be { script, steps: [...] } with at least one step", status: 400 };
     const card = this.runs.get(qaDraftId(script));
     if (card && qaIsDraft(card) && !card.deleted && card.sessionId) {
-      const r = await this.saveScript(card.runId, { steps });
+      const r = await this.saveScript(card.runId, { steps, map });
       return "error" in r ? r : { script };
     }
     const split = splitPlayers(steps)!;
-    const r = await this.o.host.callAction("pie", "script_update", { path: script, steps: split.steps });
+    const r = await this.o.host.callAction("pie", "script_update", { path: script, steps: split.steps, ...(typeof map === "string" ? { map } : {}) });
     const error = failure(r, json(r));
     if (error) return { error, status: 409 };
     this.o.playtests?.setPlayers(script, split.players);

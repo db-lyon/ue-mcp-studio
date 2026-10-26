@@ -227,7 +227,7 @@ describe("Edit and Delete on the page", () => {
     await act(async () => {
       fireEvent.click(within(row("Jump")).getByRole("button", { name: "Save" }));
     });
-    expect(m.qaPlaytestSave).toHaveBeenCalledWith("/Game/T/Jump", [expect.objectContaining({ instruction: "Look up", judge: "manual" }), expect.objectContaining({ instruction: "Move", judge: "auto" })]);
+    expect(m.qaPlaytestSave).toHaveBeenCalledWith("/Game/T/Jump", [expect.objectContaining({ instruction: "Look up", judge: "manual" }), expect.objectContaining({ instruction: "Move", judge: "auto" })], "");
     expect(reload).toHaveBeenCalled();
     expect(within(row("Jump")).queryByRole("textbox", { name: "Step 1 instruction" })).toBeNull();
   });

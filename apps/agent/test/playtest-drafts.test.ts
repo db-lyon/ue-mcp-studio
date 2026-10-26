@@ -147,6 +147,14 @@ describe("the draft card's buttons", () => {
     expect(cards(s.id)).toHaveLength(1);
   });
 
+  it("Edit saves the level the script starts PIE in", async () => {
+    const { agent, broker } = setup();
+    await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
+    calls = [];
+    await broker.saveScript(qaDraftId(PATH), { steps: [{ instruction: "Look", judge: "manual" }], map: "/Game/Maps/L_WG_Meadow" });
+    expect(calls[0]).toMatchObject({ action: "script_update", args: { path: PATH, map: "/Game/Maps/L_WG_Meadow" } });
+  });
+
   it("Delete removes the script with pie(script_delete) and the card says so", async () => {
     const { agent, broker, s } = setup();
     await agent.callAction("pie", "script_create", { name: "SigilPickup", steps: STEPS });
