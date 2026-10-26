@@ -90,7 +90,7 @@ describe("a draft Playtest card", () => {
     expect(within(step(1)).getByText("client 1")).toBeTruthy();
     expect(within(step(1)).getByText("manual")).toBeTruthy();
     // Unrun: the auto step waits for Start Playtest, the manual step takes its verdict now.
-    expect(within(step(0)).queryByText("Pending")).toBeNull();
+    expect(within(step(0)).queryByText("To come")).toBeNull();
     expect(within(step(0)).getByText("Not checked: click Start Playtest")).toBeTruthy();
     expect(within(step(0)).queryByRole("button")).toBeNull();
     expect(within(step(1)).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip"]);
@@ -125,7 +125,7 @@ describe("a draft Playtest card", () => {
     expect(m.qaRun).toHaveBeenCalledWith(`draft:${PATH}`, { startPie: false, players: 2, listen: true, record: false });
     expect(screen.getByText("Playtest")).toBeTruthy();
     expect(screen.getAllByRole("status")[0].textContent).toBe("Starting");
-    expect(within(step(0)).getByText("Pending")).toBeTruthy();
+    expect(within(step(0)).getByText("To come")).toBeTruthy();
     // Live, with the run's events applied.
     page.push({ id: nextId++, type: "script.step_passed", at: "", data: { runId: RUN, seq: 3, step: { index: 0, status: "passed" } } });
     expect(within(step(0)).getByText("Passed")).toBeTruthy();
@@ -135,7 +135,7 @@ describe("a draft Playtest card", () => {
     const page = mount(draft());
     page.push({ id: nextId++, type: "studio.qa.changed", at: "", data: { runId: RUN, run: live() as unknown as Record<string, unknown>, replaces: `draft:${PATH}` } });
     expect(screen.getByText("Playtest")).toBeTruthy();
-    expect(within(step(0)).getByText("Pending")).toBeTruthy();
+    expect(within(step(0)).getByText("To come")).toBeTruthy();
   });
 
   it("Edit changes steps in place and saves them, players included", async () => {

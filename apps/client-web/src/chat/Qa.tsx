@@ -105,7 +105,7 @@ export function useLiveRun(run: QaRun, live: Pick<QaLive, "events" | "streaming"
 }
 
 const LABEL: Record<QaStep["status"], string> = {
-  pending: "Pending",
+  pending: "To come",
   running: "Running",
   passed: "Passed",
   failed: "Failed",
@@ -113,10 +113,13 @@ const LABEL: Record<QaStep["status"], string> = {
   skipped: "Skipped",
 };
 
-/** A step's status in words; its auto or manual tag says who judged it. */
-export function statusLabel(s: QaStep): string {
-  return LABEL[s.status];
+/** A step's status in words, as the legend names it: a step a run that ended never reached is Not run. */
+export function statusLabel(s: QaStep, ended = false): string {
+  return ended && s.status === "pending" ? "Not run" : LABEL[s.status];
 }
+
+/** Who judges a step, in the words the legend and the draft's summary use. */
+export const judgeLabel = (s: Pick<QaStep, "judge">): string => (s.judge === "auto" ? "Observer" : "Person");
 
 const shown = (v: unknown): string => (v === null || v === undefined ? "never read" : String(v));
 
@@ -174,30 +177,49 @@ export function pathSummary(run: QaRun, sum: ReturnType<typeof qaSummaryOf>): st
 }
 
 /** What a step's bar says to a screen reader: its number, who judges it, and its status. */
-export const stepBarLabel = (s: QaStep): string => `Step ${s.index + 1}, ${s.judge}, ${LABEL[s.status]}`;
+export const stepBarLabel = (s: QaStep, ended = false): string => `Step ${s.index + 1}, ${judgeLabel(s).toLowerCase()}, ${statusLabel(s, ended)}`;
+
+/** The legend's mark for a step: the class its bar carries. */
+export function markOf(s: QaStep, ended: boolean): PathMark {
+  if (ended && s.status === "pending") return "unrun";
+  if (s.status === "skipped") return "skipped";
+  return (tone(s) || "pending") as PathMark;
+}
 
 /**
  * The collapsed card's path: a bar per step, coloured as the step's border is
- * in the full card. A manual step's bar carries a notch, so the two kinds read
- * apart without colour. With `onStep`, each bar is a button that opens the card on its step.
+ * in the full card. A step a person judges carries a dot inside its bar, so
+ * the two kinds read apart without colour. With `onStep`, each bar is a button
+ * that opens the card on its step, and the bar with keyboard focus names its
+ * step under the path.
  */
 export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; onStep?: (index: number) => void; ended?: boolean }) {
+  const [focused, setFocused] = useState<number | null>(null);
+  const on = focused === null ? null : steps.find((s) => s.index === focused) ?? null;
   return (
-    <ol className="qa-path" aria-label="Steps">
-      {steps.map((s) => {
-        // A step a run that ended never reached reads apart from one still to come.
-        const unrun = ended && s.status === "pending";
-        const cls = `qa-path-step ${tone(s)} ${s.judge} ${s.status === "skipped" ? "skipped" : ""} ${unrun ? "unrun" : ""}`;
-        const title = `${s.index + 1}. ${s.instruction} (${s.judge}): ${unrun ? "Not run" : statusLabel(s)}`;
-        return (
-          <li key={s.index} className={cls} data-status={s.status}>
-            {onStep
-              ? <button type="button" className="qa-path-hit" title={title} aria-label={stepBarLabel(s)} onClick={() => onStep(s.index)} />
-              : <span className="qa-path-hit" role="img" title={title} aria-label={stepBarLabel(s)} />}
-          </li>
-        );
-      })}
-    </ol>
+    <div className="qa-path-wrap">
+      <ol className="qa-path" aria-label="Steps">
+        {steps.map((s) => {
+          const mark = markOf(s, ended);
+          const cls = `qa-path-step ${tone(s)} ${s.judge} ${mark === "skipped" || mark === "unrun" ? mark : ""}`;
+          const title = `${s.index + 1}. ${s.instruction} (${judgeLabel(s)}): ${statusLabel(s, ended)}`;
+          return (
+            <li key={s.index} className={cls} data-status={s.status}>
+              {onStep
+                ? <button type="button" className="qa-path-hit" title={title} aria-label={stepBarLabel(s, ended)} onClick={() => onStep(s.index)} onFocus={(e) => setFocused(e.currentTarget.matches(":focus-visible") ? s.index : null)} onBlur={() => setFocused(null)} />
+                : <span className="qa-path-hit" role="img" title={title} aria-label={stepBarLabel(s, ended)} />}
+            </li>
+          );
+        })}
+      </ol>
+      {on && (
+        <div className="qa-path-caption small" aria-hidden="true">
+          <span className="qa-num mono">{on.index + 1}</span>
+          <span className="qa-path-caption-text">{on.instruction}</span>
+          <span className="qa-path-caption-state">{judgeLabel(on)}, {statusLabel(on, ended)}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -281,15 +303,42 @@ function ScrollCue({ dir, count, more, onClick }: { dir: "above" | "below"; coun
   );
 }
 
-/** What the step path's marks mean, beside a list of paths. */
-export function PathLegend() {
-  const marks: Array<[string, string]> = [["ok", "Passed"], ["bad", "Failed"], ["warn", "Needs you"], ["run", "Running"], ["", "To come"], ["skipped", "Skipped"], ["unrun", "Not run"]];
+export type PathMark = "ok" | "bad" | "warn" | "run" | "pending" | "skipped" | "unrun";
+/** Every mark a path can carry, in the legend's order, with what it means. */
+const MARKS: Array<[PathMark, string]> = [
+  ["ok", "Passed"],
+  ["bad", "Failed"],
+  ["warn", "Needs you"],
+  ["run", "Running"],
+  ["pending", "To come"],
+  ["skipped", "Skipped: a verdict passed over it"],
+  ["unrun", "Not run: the run ended first"],
+];
+
+/** The marks a set of runs' paths carry, and whether any step is a person's to judge. */
+export function marksOf(runs: QaRun[]): { marks: Set<PathMark>; person: boolean } {
+  const marks = new Set<PathMark>();
+  let person = false;
+  for (const r of runs) {
+    const ended = qaEnded(r.state);
+    for (const s of r.steps) {
+      marks.add(markOf(s, ended));
+      if (s.judge === "manual") person = true;
+    }
+  }
+  return { marks, person };
+}
+
+/** What the step path's marks mean: only the ones on screen. */
+export function PathLegend({ runs }: { runs: QaRun[] }) {
+  const { marks, person } = marksOf(runs);
+  if (marks.size === 0) return null;
   return (
     <div className="qa-legend small" role="note" aria-label="What the step marks mean">
-      {marks.map(([cls, label]) => (
-        <span key={label} className="qa-legend-item"><span className={`qa-legend-mark ${cls}`} aria-hidden="true" />{label}</span>
+      {MARKS.filter(([m]) => marks.has(m)).map(([m, label]) => (
+        <span key={m} className="qa-legend-item"><span className={`qa-legend-mark ${m}`} aria-hidden="true" />{label}</span>
       ))}
-      <span className="qa-legend-item"><span className="qa-legend-pip" aria-hidden="true" />Judged by a person</span>
+      {person && <span className="qa-legend-item"><span className="qa-legend-mark pending person" aria-hidden="true" />Judged by a person</span>}
     </div>
   );
 }
@@ -664,7 +713,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           {live?.onThread && <button className="ghost small-button" onClick={() => live.onThread!(assignment.callId)}>Open its thread</button>}
         </div>
       )}
-      {panel !== "edit" && run.steps.length > 0 && <PathLegend />}
+      {panel !== "edit" && run.steps.length > 0 && !slotted && <PathLegend runs={[run]} />}
       {panel === "edit" && draft ? (
         <DraftEditor run={run} busy={working} onSave={(steps) => act(() => api.qaSaveScript(run.runId, steps))} onCancel={() => setPanel(null)} />
       ) : (

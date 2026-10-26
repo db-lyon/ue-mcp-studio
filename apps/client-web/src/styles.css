@@ -1460,3 +1460,12 @@ button.qa-path-hit:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 
 @media (max-width: 760px) {
   .qa-card:not(.dense):not(.slotted) .qa-actions { display: flex; order: 10; flex-basis: 100%; flex-wrap: wrap; gap: 6px; }
 }
+/* Second design review (#72): a focused bar names its step, the legend shows only the marks present. */
+.qa-path-wrap { position: relative; min-width: 0; }
+.qa-path-caption { position: absolute; left: 0; right: 0; top: 100%; z-index: 4; display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-3); color: var(--text); }
+.qa-path-caption-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.qa-path-caption-state { flex-shrink: 0; color: var(--muted); }
+.qa-legend-item { white-space: nowrap; }
+.qa-legend-mark.pending { background: var(--line-strong); }
+.qa-legend-mark.person { position: relative; }
+.qa-legend-mark.person::after { content: ""; position: absolute; left: 50%; top: -6px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--text); opacity: 0.75; }
