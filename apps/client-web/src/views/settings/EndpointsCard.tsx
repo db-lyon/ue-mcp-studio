@@ -61,7 +61,7 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
     api.removeEndpoint(e.id).then(changed, (x: Error) => setError(x.message));
   };
   return (
-    <Card label="Custom endpoints" actions={list && editing !== "new" ? <button className="small-button" onClick={() => setEditing("new")}>Add endpoint</button> : undefined}>
+    <Card className="endpoints-card" label="Custom endpoints" actions={list && editing !== "new" ? <button onClick={() => setEditing("new")}>Add endpoint</button> : undefined}>
       <p className="cfg-note">Any server that speaks OpenAI's Chat Completions API, on this machine or hosted. Its models run on it directly and read AGENTS.md and .agents/skills. Endpoints and their keys serve every project.</p>
       {error && <div className="banner bad small" role="alert">{error}</div>}
       {!list && !error && <p className="muted small">Loading endpoints</p>}
@@ -75,12 +75,12 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
             <div className="t"><strong>{e.name}</strong> <span className="muted small">{e.models.length === 1 ? "1 model" : `${e.models.length} models`}, {e.hasKey ? "key saved" : "no key"}</span></div>
             <div className="path dim">{e.baseUrl}</div>
             {e.listError && <div className="small endpoint-warn">Could not read its models: {e.listError}. {e.models.length ? "The ones below stay." : "Type them in Edit instead."}</div>}
-            {e.models.length > 0 && <div className="endpoint-models">{e.models.map((m) => <span key={m.id} className="tag" title={m.perMTok ? "Priced by you" : "No price: Usage shows no cost for it"}>{m.id}{m.perMTok ? " $" : ""}</span>)}</div>}
+            {e.models.length > 0 && <div className="endpoint-models">{e.models.map((m) => <span key={m.id} className="tag" title={m.perMTok ? "Your price, dollars per million input and output tokens" : "No price: Usage shows no cost for it"}>{m.id}{m.perMTok && <span className="dim">&nbsp;${m.perMTok.input ?? "-"} / ${m.perMTok.output ?? "-"}</span>}</span>)}</div>}
           </div>
           <div className="endpoint-actions">
-            <button className="small-button" disabled={busy === e.id} onClick={() => refresh(e.id)}>{busy === e.id ? "Reading" : "Read models"}</button>
-            <button className="small-button" onClick={() => setEditing(e.id)}>Edit</button>
-            <button className="small-button" onClick={() => remove(e)}>Remove</button>
+            <button disabled={busy === e.id} onClick={() => refresh(e.id)}>{busy === e.id ? "Reading" : "Read models"}</button>
+            <button onClick={() => setEditing(e.id)}>Edit</button>
+            <button onClick={() => remove(e)}>Remove</button>
           </div>
         </div>
       ))}
@@ -155,7 +155,7 @@ export function EndpointForm({ endpoint, onSaved, onCancel }: { endpoint?: Custo
                         <input className="num" inputMode="decimal" aria-label={`${m.id} ${r.name.toLowerCase()} per million tokens`} placeholder="none" value={m.rates[r.id]} onChange={(e) => setRate(i, r.id, e.target.value)} />
                       </td>
                     ))}
-                    <td className="r">{m.typed && <button className="small-button" onClick={() => setModels(models.filter((_, j) => j !== i))}>Remove</button>}</td>
+                    <td className="r">{m.typed && <button onClick={() => setModels(models.filter((_, j) => j !== i))}>Remove</button>}</td>
                   </tr>
                 ))}
               </tbody>

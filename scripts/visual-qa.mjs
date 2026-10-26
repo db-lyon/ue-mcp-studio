@@ -65,6 +65,11 @@ try {
     lines.push(`## ${scenario}`, "", title, "");
     for (const theme of THEMES) for (const [label, width] of WIDTHS) {
       const { page, errors } = await open(scenario, theme, width);
+      // The app scrolls inside its own panel, so a tall section is shot in a tall window instead.
+      if (await page.evaluate(() => window.__visualQa.fullPage)) {
+        await page.setViewportSize({ width, height: 2600 });
+        await page.waitForTimeout(400);
+      }
       const click = await page.evaluate(() => window.__visualQa.click);
       if (click) {
         const el = await page.$(click);

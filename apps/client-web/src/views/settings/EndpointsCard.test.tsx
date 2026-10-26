@@ -115,7 +115,7 @@ describe("Models & accounts", () => {
     m.saveSettings.mockResolvedValue({ ...settings, routeOrder: "keys-first" });
     await act(async () => render(<ModelsSection />));
     expect(screen.getAllByText("Local box").length).toBeGreaterThan(1);
-    expect(screen.getByText("custom endpoint")).toBeTruthy();
+    expect(screen.getAllByText("Custom endpoint")).toBeTruthy();
     await act(async () => fireEvent.click(screen.getByRole("radio", { name: "Keys first" })));
     expect(m.saveSettings).toHaveBeenCalledWith({ routeOrder: "keys-first" });
   });
