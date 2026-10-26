@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AGENT_CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO, EFFORT_NAMES, IMAGE_EDGES, type AgentContextView, type Effort, type ImageSize, type NativeOverview, type StudioSettings, type UsageSettings } from "@ue-mcp-studio/shared";
+import { AGENT_CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO, EFFORT_NAMES, IMAGE_EDGES, anythingConnected, type AgentContextView, type Effort, type ImageSize, type NativeOverview, type StudioSettings, type UsageSettings } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { EffortPicker, ModelPicker } from "../ModelPicker";
 import { Head, type SettingsSection } from "../SettingsHub";
@@ -42,7 +42,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
     void loadNative();
   }, msg.fail);
   if (!settings) return <>{msg.node ?? <p className="muted">Loading</p>}</>;
-  const anything = Object.values(settings.connected ?? {}).some(Boolean);
+  const anything = anythingConnected(settings);
   return (
     <>
       <Head title="Agents" lead="The model every chat runs on, and what the project's own agent files give it. Studio reads each vendor's files as that vendor's tools read them, and writes none of them." />

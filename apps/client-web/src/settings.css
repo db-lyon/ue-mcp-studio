@@ -284,3 +284,25 @@
 .cfg .usage-table td.num, .cfg .usage-table th.r { white-space: nowrap; }
 /* The newest day's label stays inside the card. */
 .cfg .dayaxis span:last-child { text-align: right; }
+
+/* Custom endpoints: one row each, and the form that adds or changes one. */
+.cfg .endpoint-row .path { margin-top: 2px; }
+.cfg .endpoint-models { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.cfg .endpoint-models .tag { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.cfg .endpoint-warn { color: var(--warn); margin-top: 4px; overflow-wrap: anywhere; }
+.cfg .endpoint-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.cfg .endpoint-actions button.small-button, .cfg .endpoint-form button.small-button, .cfg h2.cfg-label button.small-button { font: 500 12px/1.4 var(--sans); padding: 3px 10px; white-space: nowrap; text-transform: none; letter-spacing: 0; }
+.cfg .endpoint-form { display: flex; flex-direction: column; gap: 12px; padding: 12px; margin: 8px 0; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); }
+.cfg .endpoint-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; }
+.cfg .endpoint-fields input { width: 100%; }
+.cfg .endpoint-check { display: inline-flex; align-items: center; gap: 6px; font-weight: 400; }
+.cfg .endpoint-prices input { max-width: 110px; }
+.cfg .endpoint-add-model input { flex: 1; min-width: 0; }
+.cfg .endpoint-add-model, .cfg .endpoint-buttons { flex-wrap: nowrap; margin: 4px 0 0; }
+.cfg .route-order { padding-top: 0; }
+@media (max-width: 760px) {
+  .cfg .endpoint-fields { grid-template-columns: minmax(0, 1fr); }
+  .cfg .endpoint-row { flex-wrap: wrap; }
+  .cfg .endpoint-actions { width: 100%; justify-content: flex-start; padding-left: 22px; }
+  .cfg .endpoint-prices input { max-width: 120px; }
+}

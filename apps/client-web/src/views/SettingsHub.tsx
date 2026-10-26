@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CONTEXT_STRATEGY_INFO, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { CONTEXT_STRATEGY_INFO, anythingConnected, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import type { DaemonState } from "../state";
 import { api } from "../api";
 import { AgentsSection } from "./settings/AgentsSection";
@@ -71,8 +71,7 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
     if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
   }, []);
   const dots: Partial<Record<SettingsSection, string>> = {};
-  const anythingConnected = !!settings && Object.values(settings.connected ?? {}).some(Boolean);
-  if (settings && !anythingConnected) dots.models = "Connect a sign-in or an API key";
+  if (settings && !anythingConnected(settings)) dots.models = "Connect a sign-in, an API key or an endpoint";
   if (settings && settings.route === null) dots.agents = "No model can run the main agent yet";
   else if (settings && settings.route === null) dots.models = "Nothing connected can run the main agent's model";
   if (settings && settings.destructiveKnown === false) dots.approvals = "One kind cannot ask first until ue-mcp is updated";
@@ -82,11 +81,14 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   if (settings) {
     const model = extra.models?.providers.flatMap((p) => p.models).find((m) => m.id === settings.model)?.name ?? settings.model;
     const helpers = settings.usage?.projectInstructions === false ? "project files off" : "reads the project's own files";
-    const anything = Object.values(settings.connected ?? {}).some(Boolean);
-    lines.agents = !anything ? "No model connected yet" : `${model}${settings.route ? ` on ${ROUTE_LABEL[settings.route] ?? settings.route}` : ", not connected"}, ${helpers}`;
+    const anything = anythingConnected(settings);
+    // An endpoint route is named by the endpoint.
+    const via = settings.route === "endpoint" ? extra.models?.providers.find((p) => p.id === settings.provider)?.name ?? "a custom endpoint" : settings.route ? ROUTE_LABEL[settings.route] ?? settings.route : null;
+    lines.agents = !anything ? "No model connected yet" : `${model}${via ? ` on ${via}` : ", not connected"}, ${helpers}`;
     const signIns = (["claude", "chatgpt", "studio"] as const).filter((s) => settings.connected?.[s]).length;
     const keys = (["anthropic", "openai", "google"] as const).filter((k) => settings.connected?.[k]).length;
-    lines.models = signIns + keys === 0 ? "Nothing connected yet" : `${plural(signIns, "sign-in")}, ${plural(keys, "key")}`;
+    const endpoints = settings.endpoints ?? 0;
+    lines.models = signIns + keys + endpoints === 0 ? "Nothing connected yet" : `${plural(signIns, "sign-in")}, ${plural(keys, "key")}${endpoints ? `, ${plural(endpoints, "endpoint")}` : ""}`;
     const rules = settings.approvals ? Object.values(settings.approvals) : [];
     const usable = settings.approvals ? (Object.entries(settings.approvals) as Array<[string, string]>).filter(([k]) => k !== "destructive" || settings.destructiveKnown !== false) : [];
     if (rules.length) lines.approvals = `${usable.filter(([, r]) => r === "ask").length} kinds ask first${usable.length < rules.length ? `, ${rules.length - usable.length} unavailable` : ""}, review ${settings.reviewTurns === false ? "off" : "on"}`;

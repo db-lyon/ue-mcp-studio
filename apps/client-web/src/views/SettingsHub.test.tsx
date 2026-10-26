@@ -57,7 +57,7 @@ describe("Settings sections", () => {
 
   it("marks a section that needs attention", async () => {
     await act(async () => void render(<SettingsHub daemon={daemon} section="agents" onSection={vi.fn()} onTheme={vi.fn()} updates={2} />));
-    expect(screen.getByLabelText("Connect a sign-in or an API key")).toBeTruthy();
+    expect(screen.getByLabelText("Connect a sign-in, an API key or an endpoint")).toBeTruthy();
     expect(screen.getByLabelText("2 updates available")).toBeTruthy();
   });
 

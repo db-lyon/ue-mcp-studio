@@ -175,9 +175,15 @@ export interface StudioSettings {
   usage: UsageSettings;
   /** Which sign-ins are done and which vendor keys are saved. */
   connected: Record<ProviderId, boolean>;
+  /** How many custom endpoints are set up. Absent from an older agent. */
+  endpoints?: number;
   /** The Studio account's login, when signed in. */
   account: { login: string; via: "studio" | "ue-mcp-login" } | null;
 }
+
+/** Whether anything on this machine can run a model: a sign-in, a key or a custom endpoint. */
+export const anythingConnected = (s: Pick<StudioSettings, "connected" | "endpoints">): boolean =>
+  Object.values(s.connected ?? {}).some(Boolean) || (s.endpoints ?? 0) > 0;
 
 /** PUT /v1/ext/studio/settings. An absent secret is left as it is; an empty string clears it. */
 export interface StudioSettingsUpdate {

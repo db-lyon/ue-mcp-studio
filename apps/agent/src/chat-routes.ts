@@ -205,6 +205,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       route: route(),
       destructiveKnown: effects.available(),
       connected: { ...signedIn(), ...keys },
+      endpoints: endpoints.list().length,
       account: login ? { login, via: "studio" } : registry ? { login: registry.login, via: "ue-mcp-login" } : null,
     };
   };

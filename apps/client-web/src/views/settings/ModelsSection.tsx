@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
-import { KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, type ModelCatalog, type ProviderId, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
+import { DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, routesInOrder, type ModelCatalog, type ProviderId, type RouteOrder, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { ClaudeLoginWhy, KeyForm, SignInForm } from "../ModelPicker";
 import { AccountView } from "../Account";
 import { Head } from "../SettingsHub";
-import { Card, useMessage } from "./controls";
+import { Card, Row, Seg, useMessage } from "./controls";
+import { EndpointsCard } from "./EndpointsCard";
+
+const ROUTE_ORDER_OPTIONS: ReadonlyArray<{ id: RouteOrder; name: string; title: string }> = [
+  { id: "signins-first", name: "Sign-ins first", title: "A model a sign-in runs uses your plan; its vendor's key is the fallback." },
+  { id: "keys-first", name: "Keys first", title: "A model your key runs uses the key; a sign-in is the fallback." },
+];
 
 /** The vendor whose models each sign-in runs. */
 const SIGN_IN_VENDOR: Record<SignInId, string> = { claude: "anthropic", chatgpt: "openai", studio: "anthropic" };
@@ -30,12 +36,14 @@ export function ModelsSection() {
   useEffect(refresh, []);
   if (!settings) return <>{msg.node ?? <p className="muted">Loading</p>}</>;
   /** One vendor order on every card and every state; the dot, not the position, says what is connected. */
-  const vendorRank = (id: ProviderId): number => {
+  const vendorRank = (id: string): number => {
     const v = (KEY_PROVIDER_IDS as readonly string[]).includes(id) ? id : SIGN_IN_VENDOR[id as SignInId];
     const i = (KEY_PROVIDER_IDS as readonly string[]).indexOf(v ?? "");
     return i < 0 ? KEY_PROVIDER_IDS.length : i;
   };
   const byVendor = <T extends ProviderId>(ids: readonly T[]): T[] => [...ids].sort((a, b) => vendorRank(a) - vendorRank(b));
+  const order = settings.routeOrder ?? DEFAULT_ROUTE_ORDER;
+  const setOrder = (routeOrder: RouteOrder) => api.saveSettings({ routeOrder }).then(refresh, msg.fail);
   const keyOnly = KEY_PROVIDER_IDS.filter((v) => !OFFERED_SIGN_INS.some((s) => SIGN_IN_VENDOR[s] === v)).map((v) => PROVIDERS[v].name);
   return (
     <>
@@ -43,16 +51,20 @@ export function ModelsSection() {
       {msg.node}
       <div className="cfg-cols">
         <Card label="Sign-ins">
-          <p className="cfg-note">A sign-in runs its vendor's models on your plan, and is used before a key.</p>
+          <p className="cfg-note">A sign-in runs its vendor's models on your plan{order === "signins-first" ? ", and is used before a key" : "; with keys first, only where no key is saved"}.</p>
           {byVendor(OFFERED_SIGN_INS).map((p) => <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={msg.fail} />)}
           {keyOnly.length > 0 && <p className="cfg-note">{keyOnly.join(" and ")} {keyOnly.length === 1 ? "has" : "have"} no sign-in: {keyOnly.length === 1 ? "its" : "their"} models run on a key.</p>}
         </Card>
         <Card label="API keys">
-          <p className="cfg-note">Optional. A model runs on your key only when no sign-in runs it. Keys stay on this machine and serve every project.</p>
+          <p className="cfg-note">Optional. {order === "signins-first" ? "A model runs on your key only when no sign-in runs it." : "A model runs on your key before any sign-in."} Keys stay on this machine and serve every project.</p>
           {byVendor(KEY_PROVIDER_IDS).map((p) => <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={msg.fail} />)}
         </Card>
       </div>
+      <EndpointsCard onChange={refresh} />
       <Card label="Models">
+        <Row title="Route order" help="Which route runs a model that a sign-in and a key can both run.">
+          <Seg label="Route order" value={order} options={ROUTE_ORDER_OPTIONS} onChange={(o) => void setOrder(o)} />
+        </Row>
         <div className="scroll-x">
           <table className="cfg-table blocks">
             <thead>
@@ -60,20 +72,24 @@ export function ModelsSection() {
             </thead>
             <tbody>
               {[...(catalog?.providers ?? [])].sort((a, b) => vendorRank(a.id) - vendorRank(b.id)).flatMap((v) => v.models.map((m) => {
-                const routes: Array<{ id: SignInId | "key"; on: boolean }> = [...m.signIns.map((s) => ({ id: s, on: !!catalog!.signedIn[s] })), { id: "key" as const, on: v.connected }];
+                // A custom endpoint runs its own models: it is their one route.
+                const routes: Array<{ id: SignInId | "key" | "endpoint"; on: boolean }> = v.endpoint
+                  ? [{ id: "endpoint", on: true }]
+                  : routesInOrder(m.signIns, order).map((r) => ({ id: r, on: r === "key" ? v.connected : !!catalog!.signedIn[r] }));
                 const runs = routes.find((r) => r.on);
+                const routeName = (id: SignInId | "key" | "endpoint") => (id === "endpoint" ? v.name : id === "key" ? `${v.name} key` : ROUTE_NAME[id]);
                 return (
                   <tr key={`${v.id}:${m.id}`}>
-                    <td><strong>{v.name} {m.name}</strong></td>
+                    <td><strong>{v.name} {m.name}</strong>{v.endpoint && <span className="dim small"> custom endpoint</span>}</td>
                     <td data-label="Routes">
                       {routes.map((r) => (
                         <div key={r.id} className="cfg-inline small">
                           <span className={`dot ${r.on ? "ok" : ""}`} />
-                          <span className={r.on ? "" : "dim"}>{r.id === "key" ? `${v.name} key` : ROUTE_NAME[r.id]}</span>
+                          <span className={r.on ? "" : "dim"}>{routeName(r.id)}</span>
                         </div>
                       ))}
                     </td>
-                    <td className="r small" data-label="On this machine">{runs ? <span className="tag ok">{runs.id === "key" ? `${v.name} key` : ROUTE_NAME[runs.id]}</span> : <span className="dim">Not connected</span>}</td>
+                    <td className="r small" data-label="On this machine">{runs ? <span className="tag ok">{routeName(runs.id)}</span> : <span className="dim">Not connected</span>}</td>
                   </tr>
                 );
               }))}
