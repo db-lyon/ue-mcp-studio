@@ -3,7 +3,8 @@
  *
  * On activation it trusts the UI signing keys built into this package,
  * installs the UI bundle it ships with when that is newer than what the daemon
- * serves, and registers Studio's routes under /v1/ext/studio/.
+ * serves, and registers Studio's routes under /v1/ext/studio/. On a ue-mcp
+ * below its floor it registers only the refusal route (floor.ts).
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -13,6 +14,7 @@ import type { DaemonExtension, DaemonExtensionApi } from "ue-mcp/daemon";
 import type { StudioAbout, StudioConfigFile } from "@ue-mcp-studio/shared";
 import { registerChat } from "./chat-routes.js";
 import { isNewer } from "./updates.js";
+import { floorRefusal, registerRefusal } from "./floor.js";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -24,7 +26,8 @@ function readJson<T>(file: string): T | null {
   }
 }
 
-const agentVersion = readJson<{ version: string }>(path.join(packageDir, "package.json"))?.version ?? "0.0.0";
+const agentPackage = readJson<{ version: string; ueMcpExtension?: { ueMcp?: string } }>(path.join(packageDir, "package.json"));
+const agentVersion = agentPackage?.version ?? "0.0.0";
 
 /** Public keys written at build time from the repo's keys/ directory. */
 function trustedKeys(): string[] {
@@ -66,6 +69,12 @@ const extension: DaemonExtension = {
       }
     }
     installShippedUi(api);
+
+    const refusal = floorRefusal(agentPackage?.ueMcpExtension?.ueMcp, api.version);
+    if (refusal) {
+      registerRefusal(api, refusal);
+      return { dispose: () => {} };
+    }
 
     api.route("GET", "/about", () => {
       const about: StudioAbout = {
