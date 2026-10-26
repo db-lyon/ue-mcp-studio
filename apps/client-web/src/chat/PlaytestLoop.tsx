@@ -54,7 +54,6 @@ export function LoopPanel({ loop, busy, onRevert, onThread, showReason = false }
           {loop.blocker.evidence.length > 0 && <ul>{loop.blocker.evidence.map((e, i) => <li key={i}><span className="dim">What it saw: </span>{e}</li>)}</ul>}
         </div>
       )}
-      <div className="muted small">Budget: {loop.tokens.toLocaleString("en-US")} of {loop.budget.tokens.toLocaleString("en-US")} tokens used, and it stops after {loop.budget.minutes} minutes.</div>
       {loop.attempts.length > 0 && (
         <ol className="qa-attempts">
           {loop.attempts.map((a) => (

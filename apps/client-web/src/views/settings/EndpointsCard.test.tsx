@@ -29,13 +29,13 @@ const box: CustomEndpoint = {
   name: "Local box",
   baseUrl: "http://localhost:11434/v1",
   hasKey: false,
-  models: [{ id: "llama", perMTok: { input: 1, cacheRead: null, cacheWrite: null, output: 2 } }, { id: "mine", typed: true }],
+  models: [{ id: "llama" }, { id: "mine", typed: true }],
   listedAt: "2026-10-26T00:00:00Z",
   listError: null,
 };
 
 describe("the custom endpoints card", () => {
-  it("says there are none, and adds one with a typed model and its price", async () => {
+  it("says there are none, and adds one with a typed model", async () => {
     m.endpoints.mockResolvedValue({ endpoints: [] });
     m.addEndpoint.mockResolvedValue(box);
     const onChange = vi.fn();
@@ -46,13 +46,12 @@ describe("the custom endpoints card", () => {
     fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "http://localhost:11434/v1" } });
     fireEvent.change(screen.getByLabelText("Model id"), { target: { value: "qwen" } });
     fireEvent.click(screen.getByRole("button", { name: "Add model" }));
-    fireEvent.change(screen.getByLabelText("qwen input per million tokens"), { target: { value: "0.5" } });
     const form = screen.getByRole("group", { name: "Add an endpoint" });
     await act(async () => fireEvent.click(form.querySelector("button.primary")!));
     expect(m.addEndpoint).toHaveBeenCalledWith({
       name: "Local box",
       baseUrl: "http://localhost:11434/v1",
-      models: [{ id: "qwen", typed: true, perMTok: { input: 0.5, cacheRead: null, cacheWrite: null, output: null } }],
+      models: [{ id: "qwen", typed: true }],
     });
     expect(onChange).toHaveBeenCalled();
   });
