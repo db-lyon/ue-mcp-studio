@@ -242,6 +242,8 @@
   .cfg .seg.compact button { padding: 5px 8px; }
 }
 .cfg .usage-warnings { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.cfg .usage-warnings .banner { margin-bottom: 0; }
+.cfg .usage-warnings .banner.info { background: var(--panel-2); border-color: var(--line-strong); }
 .cfg .usage-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
 .cfg .tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; background: var(--panel, transparent); min-width: 0; }
 .cfg .tile-label { color: var(--muted); font-size: 12px; }
