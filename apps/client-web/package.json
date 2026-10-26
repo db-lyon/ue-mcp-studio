@@ -31,11 +31,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^25.0.1",
     "playwright-core": "^1.49.1",
-<<<<<<< HEAD
     "ue-mcp": "1.4.11-beta.7",
-=======
-    "ue-mcp": "1.4.11-beta.6",
->>>>>>> origin/main
     "vite": "^5.4.11"
   }
 }
