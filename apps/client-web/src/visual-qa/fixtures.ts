@@ -146,6 +146,8 @@ export interface Scenario {
   click?: string;
   /** Focused from the keyboard after the page settles, to show the focus ring: a CSS selector. */
   focus?: string;
+  /** A line that arrives after the reader has scrolled the conversation up: the session is read again with it. */
+  arrives?: TranscriptEntry;
   /** Settings > Agents: what GET /context-strategy/agent answers. */
   agentContext?: AgentContextView;
   /** Clicked one after another after the page settles, each a CSS selector; after click, when both are given. */
@@ -214,6 +216,11 @@ export const SCENARIOS: Record<string, Scenario> = {
   "loop-needs-you-open": { ...inSession("Loop that needs you, opened from the strip: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".playtest-strip .qa-toggle"), scroll: ".playtest-strip button[title^='A subagent runs']" },
   "strip-two-need-you": inSession("Two that need you and one running: both that need you are shown at every width", "Door playtest", [RUNS.running, RUNS.waiting, RUNS.loopNeedsYou]),
   "strip-several": inSession("Several live: summary line, needs-you first, bounded height", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
+  "new-messages": (() => {
+    const s = inSession("New messages arrive while the reader is scrolled up: the pill takes its own row, over no line", "Door playtest", [RUNS.armed]);
+    const talk: TranscriptEntry[] = Array.from({ length: 6 }, (_, i) => ({ kind: i % 2 ? "assistant" as const : "user" as const, text: i % 2 ? "The observer reads the door angle every frame; the run ends when every step has a result." : "How does it decide the door opened?", at: ago(20 - i) }));
+    return { ...s, session: { ...s.session!, transcript: [...talk, ...s.session!.transcript] }, arrives: { kind: "assistant", text: "PIE is up; the first step is running.", at: ago(0) } };
+  })(),
   "page-needs-you": { title: "Playtests page, Needs you", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "needs-you" },
   "page-failing": { title: "Playtests page, Failing", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "failing" },
   "page-all": { title: "Playtests page, All", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all" },
