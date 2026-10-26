@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ActionResult } from "ue-mcp/daemon";
 import type { AgentContextStrategy, AgentContextView, ContextStrategy } from "@ue-mcp-studio/shared";
-import { CONTEXT_STRATEGIES } from "@ue-mcp-studio/shared";
+import { CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO } from "@ue-mcp-studio/shared";
 import { EDITOR_TOOLS } from "./tools.js";
 
 export interface ProjectedTool {
@@ -213,7 +213,7 @@ export class ContextSurfaces {
     const m = this.measurement();
     const pick = m ? autoPick(m, this.vendor(), "9+") : null;
     if (!pick) return { effective: "micro", note: m ? "The measurement has no runs for this model's vendor, so Auto uses Micro." : "No measurement ships with this Studio, so Auto uses Micro." };
-    return { effective: pick.strategy, note: `Auto chose ${pick.strategy}: ${pick.why}.` };
+    return { effective: pick.strategy, note: `Auto chose ${CONTEXT_STRATEGY_INFO[pick.strategy].name}: ${pick.why}.` };
   }
 
   current(): EditorSurface {

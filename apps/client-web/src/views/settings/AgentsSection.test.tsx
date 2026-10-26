@@ -153,7 +153,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect((screen.getByRole("radio", { name: /^Lean/ }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("radio", { name: "Auto" })).toBeNull();
     cleanup();
-    m.agentContext.mockResolvedValueOnce({ strategy: "auto", effective: "lean", projection: true, seeds: { micro: 1, lean: 2, full: 3 }, measurement: { measuredAt: "2026-10-20T00:00:00Z", ueMcpVersion: "1.4.11", runs: 6 }, note: "Auto chose lean: 100% of tasks passed at a median 40,000 tokens." } as never);
+    m.agentContext.mockResolvedValueOnce({ strategy: "auto", effective: "lean", projection: true, seeds: { micro: 1, lean: 2, full: 3 }, measurement: { measuredAt: "2026-10-20T00:00:00Z", ueMcpVersion: "1.4.11", runs: 6 }, note: "Auto chose Lean: 100% of tasks passed at a median 40,000 tokens." } as never);
     await show();
     expect(screen.getByRole("radio", { name: "Auto" })).toBeTruthy();
   });
