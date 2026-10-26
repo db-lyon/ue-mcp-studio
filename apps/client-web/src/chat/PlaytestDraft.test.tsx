@@ -156,7 +156,7 @@ describe("a draft Playtest card", () => {
       { instruction: "Pick up the sigil on the altar", judge: "auto", expect: { value: "PlayerState.SigilAttributes.Sigil.CurrentValue", op: "eq", target: 50, within_ms: 5000 }, player: "host" },
       { instruction: "The pickup plays on the client", judge: "auto", expect: { value: "BP_ShrineGate_C.bIsOpen", op: "eq" }, player: "host" },
       { instruction: "The gate looks right", judge: "manual" },
-    ]);
+    ], "");
     // The editor closes on the saved draft.
     expect(screen.queryByRole("group", { name: "Edit the playtest" })).toBeNull();
     expect(document.querySelectorAll(".qa-step")).toHaveLength(1);
