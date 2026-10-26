@@ -352,6 +352,7 @@ export function ChatView({ daemon, nav, active = true }: {
       seen={seen}
       dismissed={dismissed}
       onDismiss={dismiss}
+      tokens={detail.tokens}
     />
   );
 

@@ -600,6 +600,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agents-row .agents-state { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .agents-row .agents-activity { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); }
 .agents-row .agents-meta { margin-left: auto; white-space: nowrap; }
+.agents-row .agents-tokens { white-space: nowrap; }
 .state-working .agents-dot, .agent-link.state-working::before { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .state-waiting .agents-dot, .agent-link.state-waiting::before { background: var(--warn); animation: pulse 2s ease-in-out infinite; }
 .state-done .agents-dot, .agent-link.state-done::before { background: var(--ok); }

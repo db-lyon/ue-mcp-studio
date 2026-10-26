@@ -192,7 +192,30 @@ const ENDPOINTS: CustomEndpoint[] = [
 const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
   ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
 
+/** A session whose main agent started two subagents, both running: the thread list with each agent's tokens. */
+function withAgents(): SessionDetail {
+  const d = detail("Dress the cave", []);
+  const call = (id: string, description: string, outcome: "pending" | "done", minutes: number): TranscriptEntry =>
+    ({ kind: "tool", call: { id, name: "agent", input: { description, prompt: description }, outcome, startedAt: ago(minutes), ...(outcome === "done" ? { endedAt: ago(1), result: "Done." } : {}) } });
+  const step = (id: string, parent: string, method: string, minutes: number): TranscriptEntry =>
+    ({ kind: "tool", call: { id, name: "ue_mcp", input: { action: "call", category: "level", method }, outcome: "done", startedAt: ago(minutes), endedAt: ago(minutes), result: "{}" }, parent });
+  return {
+    ...d,
+    status: "running",
+    transcript: [
+      { kind: "user", text: "Dress the cave with rocks and fog, and check the lighting.", at: ago(8) },
+      call("agent-rocks", "Place rocks along the cave floor", "pending", 6),
+      step("rocks-1", "agent-rocks", "spawn_actor", 5),
+      call("agent-light", "Check the cave lighting", "pending", 6),
+      step("light-1", "agent-light", "get_outliner", 5),
+    ],
+    agents: { total: 2, running: 2 },
+    tokens: { main: 48_200, "agent-rocks": 12_950, "agent-light": 6_400 },
+  };
+}
+
 export const SCENARIOS: Record<string, Scenario> = {
+  "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
   "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], fullPage: true },
   "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, fullPage: true },
   "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },
