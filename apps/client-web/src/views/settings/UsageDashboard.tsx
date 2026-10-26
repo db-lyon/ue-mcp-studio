@@ -50,6 +50,12 @@ function Change({ now, before }: { now: number; before: number | null | undefine
   return <span className="dim small">{d === 0 ? "same as" : `${d > 0 ? "+" : ""}${d}% against`} the period before</span>;
 }
 
+/** The cost against the period before; a period billed only by plan has no cost to compare with. */
+function CostChange({ now, previous }: { now: number; previous: UsageSummary["previous"] }) {
+  if (previous && previous.cost === null) return <span className="dim small">no cost the period before: every call ran on a plan</span>;
+  return <Change now={now} before={previous ? previous.cost : null} />;
+}
+
 /**
  * Usage's dashboard: what the ledger recorded for a period, by agent, model,
  * vendor, route or source, with each sign-in's plan meter beside it. Every
@@ -61,7 +67,7 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
   const [summary, setSummary] = useState<UsageSummary | null>(null);
   const [plans, setPlans] = useState<PlanMeter[] | null>(null);
   const [warnings, setWarnings] = useState<UsageWarning[]>([]);
-  const [cache, setCache] = useState<CacheExplainer[]>([]);
+  const [cache, setCache] = useState<{ connected: CacheExplainer[]; priced: CacheExplainer[] }>({ connected: [], priced: [] });
   const [prices, setPrices] = useState<PriceTable | null>(null);
   const msg = useMessage();
 
@@ -73,7 +79,7 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
   }, [period, group]);
   useEffect(() => {
     api.usageWarnings().then((x) => setWarnings(x.warnings), () => undefined);
-    api.usageCache().then((x) => setCache(x.explainers), () => undefined);
+    api.usageCache().then((x) => setCache({ connected: x.explainers, priced: x.others ?? [] }), () => undefined);
     api.prices().then(setPrices, () => undefined);
   }, []);
 
@@ -90,8 +96,8 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
         </div>
       )}
       <div className="usage-filters">
-        <Seg label="Period" value={period} options={PERIODS} onChange={setPeriod} />
-        <Seg label="Group by" value={group} options={GROUPS} onChange={setGroup} />
+        <div className="usage-filter"><span className="usage-filter-label">Period</span><Seg compact label="Period" value={period} options={PERIODS} onChange={setPeriod} /></div>
+        <div className="usage-filter"><span className="usage-filter-label">Group by</span><Seg compact label="Group by" value={group} options={GROUPS} onChange={setGroup} /></div>
       </div>
       {summary && <Tiles s={summary} />}
       {summary?.ledgerStarts
@@ -101,7 +107,7 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
       {summary && summary.rows.length > 0 && <DayChart s={summary} teamPerDay={period === "today" ? null : teamPerDay} />}
       {summary && summary.rows.length > 0 && <Breakdown s={summary} group={GROUPS.find((g) => g.id === group)!.name} />}
       {summary && summary.sessions.length > 0 && <Sessions s={summary} />}
-      {cache.length > 0 && <CacheCard explainers={cache} />}
+      {cache.connected.length + cache.priced.length > 0 && <CacheCard connected={cache.connected} priced={cache.priced} />}
       {prices && <PricesCard table={prices} onSaved={setPrices} onError={msg.fail} />}
     </>
   );
@@ -132,11 +138,13 @@ function Tiles({ s }: { s: UsageSummary }) {
       <div className="tile">
         <div className="tile-label">Estimated cost</div>
         <div className="tile-value num">{none ? "-" : t.cost === null ? "None" : usd(t.cost)}</div>
+        {!none && t.cost !== null && <CostChange now={t.cost} previous={s.previous} />}
         <span className="dim small">{none ? "No calls yet" : t.cost === null ? "Every call ran on a sign-in, billed by plan" : t.costPartial ? "Keys and endpoints only; some calls had no price or ran on a plan" : "On keys and endpoints, from the price table"}</span>
       </div>
       <div className="tile">
         <div className="tile-label">Runs</div>
         <div className="tile-value num">{t.runs.toLocaleString("en-US")}</div>
+        <Change now={t.runs} before={s.previous ? s.previous.runs : null} />
         <span className="dim small">{t.calls.toLocaleString("en-US")} model calls</span>
       </div>
     </div>
@@ -273,24 +281,38 @@ function Sessions({ s }: { s: UsageSummary }) {
   );
 }
 
-function CacheCard({ explainers }: { explainers: CacheExplainer[] }) {
+function CacheGrid({ explainers }: { explainers: CacheExplainer[] }) {
+  return (
+    <div className="cache-grid">
+      {explainers.map((c) => (
+        <div key={c.vendor} className="cache-col">
+          <strong>{c.name}</strong>
+          <dl className="fields">
+            <dt>What</dt><dd>{c.what}</dd>
+            <dt>Who decides</dt><dd>{c.whoDecides}</dd>
+            <dt>Cost</dt><dd>{c.cachedReadCost}</dd>
+            <dt>How long</dt><dd>{c.howLong}</dd>
+          </dl>
+          <a className="small" href={c.source} target="_blank" rel="noreferrer">{c.name}'s documentation</a>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** How each connected vendor caches, then, folded, the vendors the price table lists that nothing here connects to yet. */
+function CacheCard({ connected, priced }: { connected: CacheExplainer[]; priced: CacheExplainer[] }) {
+  const names = priced.map((c) => c.name).join(" and ");
   return (
     <Card label="How each vendor caches">
       <p className="muted small">Cached reads cost far less than fresh input. A prompt that stays the same from the start keeps hitting the cache.</p>
-      <div className="cache-grid">
-        {explainers.map((c) => (
-          <div key={c.vendor} className="cache-col">
-            <strong>{c.name}</strong>
-            <dl className="fields">
-              <dt>What</dt><dd>{c.what}</dd>
-              <dt>Who decides</dt><dd>{c.whoDecides}</dd>
-              <dt>Cost</dt><dd>{c.cachedReadCost}</dd>
-              <dt>How long</dt><dd>{c.howLong}</dd>
-            </dl>
-            <a className="small" href={c.source} target="_blank" rel="noreferrer">{c.name}'s documentation</a>
-          </div>
-        ))}
-      </div>
+      {connected.length > 0 ? <CacheGrid explainers={connected} /> : <p className="cfg-note">Nothing on this machine connects to a vendor yet.</p>}
+      {priced.length > 0 && (
+        <details className="cache-priced">
+          <summary className="muted small">{names}: priced below, not connected</summary>
+          <CacheGrid explainers={priced} />
+        </details>
+      )}
     </Card>
   );
 }

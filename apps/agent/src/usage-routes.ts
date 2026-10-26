@@ -5,7 +5,7 @@
  *   GET /usage/records?from&to&...&limit                           the ledger's records, newest first
  *   GET /usage/plans?from&to                                       one meter per signed-in plan route
  *   GET /usage/warnings                                            budgets near or past their limit, plan windows, cache drops
- *   GET /usage/cache                                               how each connected vendor caches
+ *   GET /usage/cache                                               how each vendor caches: connected, then priced only
  *   GET /prices, PUT /prices { prices }                            the price table and the user's own prices
  *
  * Every figure comes from the ledger's records; a period before the ledger
@@ -149,7 +149,14 @@ export function registerUsageRoutes(api: DaemonExtensionApi, o: UsageRouteOption
 
   api.route("GET", "/usage/cache", () => {
     const vendors = new Set(o.connectedVendors());
-    return { body: { explainers: CACHE_EXPLAINERS.filter((c) => vendors.has(c.vendor)) } };
+    const priced = new Set(o.prices.all().map((p) => p.vendor));
+    return {
+      body: {
+        explainers: CACHE_EXPLAINERS.filter((c) => vendors.has(c.vendor)),
+        // The price table lists these vendors too, so how each caches is explained beside them.
+        others: CACHE_EXPLAINERS.filter((c) => !vendors.has(c.vendor) && priced.has(c.vendor)),
+      },
+    };
   });
 
   api.route("GET", "/prices", () => ({ body: o.prices.table() }));

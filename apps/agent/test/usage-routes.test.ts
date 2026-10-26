@@ -102,6 +102,11 @@ describe("usage routes", () => {
     for (const x of e) expect([x.what, x.whoDecides, x.cachedReadCost, x.howLong].every(Boolean)).toBe(true);
   });
 
+  it("explains caching apart for a vendor the price table lists but nothing connects", () => {
+    const body = call("GET /usage/cache").body as { explainers: Array<{ vendor: string }>; others: Array<{ vendor: string }> };
+    expect(body.others.map((x) => x.vendor)).toEqual(["google"]);
+  });
+
   it("saves the user's own prices and refuses a bad one", () => {
     const put = call("PUT /prices", {}, { prices: [{ vendor: "google", model: "gemini-3.8-flash", perMTok: { input: 0.3, output: 2.5 } }] });
     expect((put.body as { prices: Array<{ vendor: string; user?: boolean }> }).prices[0]).toMatchObject({ vendor: "google", user: true });

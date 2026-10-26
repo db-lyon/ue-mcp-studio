@@ -31,6 +31,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
 import {
+  refineAssetDiff,
   reviewItemOf,
   reviewOn,
   type AssetDiff,
@@ -207,7 +208,7 @@ export class ReviewBroker {
   async changes(from: string, to?: string): Promise<CheckpointChange[]> {
     const cp = this.cp;
     if (!cp) throw new Error(NO_CHECKPOINTS);
-    return (await cp.changes(from, to)).changes;
+    return (await cp.changes(from, to)).changes.map((c) => (c.assetDiff ? { ...c, assetDiff: refineAssetDiff(c.assetDiff) } : c));
   }
 
   /** Restore paths (all of them when none are given) to a checkpoint, as the card reports it. */
@@ -407,7 +408,7 @@ export class ReviewBroker {
     const later = review.items.filter((it) => it.kind === "package" && /^Not diffed yet/.test(it.summary ?? ""));
     for (const it of later) {
       try {
-        const d = await cp.assetDiff(review.before, review.after, it.path);
+        const d = refineAssetDiff(await cp.assetDiff(review.before, review.after, it.path));
         this.applyDiff(it, d);
       } catch (e) {
         it.summary = `Could not diff: ${messageOf(e)}`;
@@ -440,7 +441,7 @@ export class ReviewBroker {
     const cp = this.cp;
     if (change.assetDiff?.state === "deferred" && cp?.assetDiff) {
       try {
-        change.assetDiff = await cp.assetDiff(f.review.before, f.review.after, file);
+        change.assetDiff = refineAssetDiff(await cp.assetDiff(f.review.before, f.review.after, file));
       } catch (e) {
         return { error: messageOf(e), status: 409 };
       }

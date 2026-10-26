@@ -62,6 +62,30 @@ describe("Usage dashboard", () => {
     expect(screen.getByText(/Studio has recorded usage since September 1, 2026/)).toBeTruthy();
   });
 
+  it("compares cost and runs with the period before, and says when the period before had no cost", async () => {
+    await show(summary({ previous: { budgetTokens: 2000, cachedShare: 0.5, cost: 1, costPartial: false, runs: 5, calls: 10 } }));
+    const tiles = [...document.querySelectorAll(".tile")].map((t) => t.textContent ?? "");
+    expect(tiles[2]).toContain("+50% against the period before");
+    expect(tiles[3]).toContain("-20% against the period before");
+    await act(async () => void cleanup());
+    await show(summary({ previous: { budgetTokens: 2000, cachedShare: 0.5, cost: null, costPartial: false, runs: 4, calls: 10 } }));
+    const again = [...document.querySelectorAll(".tile")].map((t) => t.textContent ?? "");
+    expect(again[2]).toContain("no cost the period before: every call ran on a plan");
+    expect(again[3]).toContain("same as the period before");
+  });
+
+  it("explains caching for a vendor that is priced but not connected, folded under the connected ones", async () => {
+    await show();
+    m.usageCache.mockResolvedValue({
+      explainers: [{ vendor: "openai", name: "OpenAI", what: "Prefixes", whoDecides: "The vendor", cachedReadCost: "Less", howLong: "Minutes", asOf: "", source: "https://example.invalid" }],
+      others: [{ vendor: "google", name: "Google", what: "Implicit", whoDecides: "The vendor", cachedReadCost: "Less", howLong: "Unstated", asOf: "", source: "https://example.invalid/g" }],
+    });
+    await act(async () => void cleanup());
+    await act(async () => void render(<UsageDashboard teamPerDay={null} />));
+    expect(screen.getByText("Google: priced below, not connected")).toBeTruthy();
+    expect(screen.getByText("Google's documentation")).toBeTruthy();
+  });
+
   it("never shows a kind the vendor did not report as zero", async () => {
     await show();
     expect(screen.getAllByText("not reported").length).toBeGreaterThan(0);

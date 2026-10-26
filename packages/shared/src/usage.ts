@@ -92,8 +92,12 @@ export interface UsageSummary {
   rows: UsageRow[];
   /** Budget tokens per local calendar day, per group key, for the stacked bars. */
   days: Array<{ day: string; byKey: Record<string, number> }>;
-  /** The same totals for the period of equal length before, for the comparison under each tile. */
-  previous: { budgetTokens: number; cachedShare: number | null } | null;
+  /**
+   * The same totals for the period of equal length before, for the comparison
+   * under each tile; null when the ledger did not see all of that period.
+   * cost is null when nothing then was billed per token.
+   */
+  previous: { budgetTokens: number; cachedShare: number | null; cost?: number | null; costPartial?: boolean; runs?: number; calls?: number } | null;
   /** The first record the ledger holds, so the page never implies data from before it. */
   ledgerStarts: string | null;
   /** Sessions in the period with their totals. */

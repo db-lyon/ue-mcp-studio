@@ -170,6 +170,22 @@ describe("the diff view", () => {
     nativeDiff: { available: true },
   };
 
+  it("shows a material instance's parameters in words, the engine's text on hover", async () => {
+    const raw = (v: string) => `((ParameterInfo=(Name="Roughness",Association=GlobalParameter,Index=-1),ParameterValue=${v},ExpressionGUID=00000000000000000000000000000000))`;
+    const mi: AssetDiff = { ...material, assetClass: "MaterialInstanceConstant", sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [{ displayString: "", diffType: "PropertyValueChanged", path: "Scalar Parameter Values", before: raw("0.500000"), after: raw("0.800000") }] }] };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: mi } });
+    await diffOf(REVIEW.items[1]);
+    const after = screen.getByText((_, el) => el?.classList.contains("diff-value") === true && el.textContent === "Roughness = 0.8");
+    expect(after.getAttribute("title")).toBe(raw("0.800000"));
+  });
+
+  it("lets a long engine name wrap only between its parts", () => {
+    card(withItem("Content/BP_Door.uasset", { path: "Content/Characters/BP_PlayerCharacterMovementComponent.uasset" }));
+    const name = document.querySelector(".review-item-name")!;
+    expect(name.textContent).toBe("BP_PlayerCharacterMovementComponent.uasset");
+    expect(name.querySelectorAll("wbr").length).toBeGreaterThanOrEqual(4);
+  });
+
   it("shows a package's engine diff: pictures, each category's records with before and after, and the facts", async () => {
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: material } });
     await diffOf(REVIEW.items[1]);

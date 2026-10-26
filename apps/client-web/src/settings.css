@@ -233,6 +233,14 @@
   --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-other: #6f6e69;
 }
 .cfg .usage-filters { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 4px 0 14px; }
+.cfg .usage-filter { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.cfg .usage-filter-label { color: var(--muted); font-size: 12px; white-space: nowrap; }
+/* Narrow: each filter on one line, its label above, the options side by side and tighter. */
+@media (max-width: 760px) {
+  .cfg .usage-filters { gap: 8px; }
+  .cfg .usage-filter { flex-direction: column; align-items: flex-start; gap: 3px; }
+  .cfg .seg.compact button { padding: 5px 8px; }
+}
 .cfg .usage-warnings { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
 .cfg .usage-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 8px; }
 .cfg .tile { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; background: var(--panel, transparent); min-width: 0; }
@@ -277,6 +285,8 @@
 .cfg .usage-table td[data-label="Source"] a { white-space: nowrap; }
 .cfg .dayaxis { display: flex; gap: 4px; font-size: 11px; color: var(--dim); margin-top: 4px; }
 .cfg .dayaxis span { flex: 1 1 0; text-align: center; min-width: 0; white-space: nowrap; overflow: visible; }
+.cfg .cache-priced { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.cfg .cache-priced > summary { cursor: pointer; margin-bottom: 8px; }
 .cfg .cache-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 14px; }
 .cfg .cache-col { display: flex; flex-direction: column; gap: 6px; }
 .cfg .price-form { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }

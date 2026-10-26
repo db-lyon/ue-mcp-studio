@@ -93,7 +93,7 @@ describe("rows and the summary", () => {
     expect(s.rows.map((r) => [r.key, r.label, r.budgetTokens])).toEqual([["main", "MAIN", 1700], ["scout", "SCOUT", 1700]]);
     expect(s.days).toHaveLength(7);
     expect(s.days.find((d) => d.day === "2026-10-25")?.byKey).toEqual({ scout: 1700 });
-    expect(s.previous).toEqual({ budgetTokens: 1700, cachedShare: 3000 / 4200 });
+    expect(s.previous).toEqual({ budgetTokens: 1700, cachedShare: 3000 / 4200, cost: s.total.cost === null ? null : expect.any(Number), costPartial: false, runs: 1, calls: 1 });
     expect(s.sessions).toEqual([expect.objectContaining({ id: "s1", title: "Dress the cave", agents: ["main", "scout"], budgetTokens: 3400, turns: 1 })]);
   });
 
