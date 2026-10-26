@@ -59,11 +59,12 @@ export interface PlaytestIndexAnswer {
 /** The run a page row shows: the newest run, else the card, else the saved script. */
 export const playtestShown = (e: PlaytestEntry): QaRun | null => e.last ?? e.card ?? e.draft;
 
-export type PlaytestFilter = "needs-you" | "failing" | "all";
+export type PlaytestFilter = "active" | "needs-you" | "failing" | "all";
 
 export function playtestMatches(e: PlaytestEntry, filter: PlaytestFilter): boolean {
   if (filter === "all") return true;
   const runs = [e.last, e.card].filter((r): r is QaRun => !!r);
+  if (filter === "active") return runs.some(qaActive);
   if (filter === "needs-you") return runs.some(qaNeedsYou);
   return !!e.last && qaFailing(e.last);
 }

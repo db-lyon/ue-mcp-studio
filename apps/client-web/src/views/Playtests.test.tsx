@@ -54,9 +54,10 @@ const rows = () => screen.queryAllByRole("group", { name: /^Playtest / }).map((g
 const row = (name: string) => screen.getByRole("group", { name: `Playtest ${name}` });
 
 describe("the Playtests page", () => {
-  it("opens on what needs the user when something does, with each filter's count", () => {
+  it("opens on what is active when something is, with each filter's count", () => {
     page();
-    expect(screen.getByRole("button", { name: "Needs you 1", pressed: true })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Active 1", pressed: true })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Needs you 1" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Failing 1" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "All 4" })).toBeTruthy();
     expect(rows()).toEqual(["Playtest Door"]);
@@ -158,7 +159,7 @@ describe("the Playtests page", () => {
       expect(card.querySelector(".qa-head .qa-box-actions")).toBeTruthy();
       expect(card.querySelector(".qa-compact .qa-box-actions")).toBeNull();
     }
-    const order = (name: string) => [...row(name).querySelectorAll(".qa-box-actions button")].map((b) => b.textContent);
+    const order = (name: string) => [...row(name).querySelectorAll(".qa-box-actions button")].map((b) => b.getAttribute("aria-label"));
     expect(order("Walk")[0]).toBe("Run again");
     expect(order("Jump")).toContain("Assign to subagent");
   });
@@ -189,10 +190,10 @@ describe("the Playtests page", () => {
     expect(onChat).toHaveBeenCalled();
   });
 
-  it("offers no Start playtest on a script that is gone", () => {
-    page({ playtests: [{ ...ENTRIES[2], deleted: true }], listed: true });
-    expect(within(row("Walk")).queryByRole("button", { name: "Run again" })).toBeNull();
-    expect(row("Walk").querySelector(".qa-meta")?.textContent).toMatch(/^Script deleted. Ran /);
+  it("leaves a deleted script off the page", () => {
+    page({ playtests: [ENTRIES[1], { ...ENTRIES[2], deleted: true }], listed: true });
+    fireEvent.click(screen.getByRole("button", { name: /^All / }));
+    expect(rows()).toEqual(["Playtest Jump"]);
   });
 });
 
@@ -256,15 +257,13 @@ describe("Edit and Delete on the page", () => {
     expect(within(row("Fresh")).queryByRole("textbox", { name: "Step 1 instruction" })).toBeNull();
   });
 
-  it("draws them disabled while the editor is away, and not at all on a script that is gone", () => {
+  it("draws them disabled while the editor is away", () => {
     page({ playtests: [ENTRIES[1], { ...ENTRIES[2], deleted: true }], listed: false });
     openCard("Jump");
     const edit = within(row("Jump")).getByRole("button", { name: "Edit" }) as HTMLButtonElement;
     expect(edit.disabled).toBe(true);
     expect(edit.title).toBe("The editor is not connected");
-    fireEvent.click(within(row("Walk")).getByRole("button", { name: "Open playtest Walk" }));
-    expect(within(row("Walk")).queryByRole("button", { name: "Edit" })).toBeNull();
-    expect(within(row("Walk")).queryByRole("button", { name: "Delete" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Playtest Walk" })).toBeNull();
   });
 });
 

@@ -8,7 +8,7 @@ describe("the panel's location", () => {
   it("parses the hash", () => {
     expect(parseLocation("#/chat/614e0ba1-1942")).toEqual({ tab: "Chat", session: "614e0ba1-1942", section: null });
     expect(parseLocation("#/settings/diagnostics")).toEqual({ tab: "Settings", session: null, section: "diagnostics" });
-    expect(parseLocation("#/flows")).toEqual({ tab: "Flows", session: null, section: null });
+    expect(parseLocation("#/plugins")).toEqual({ tab: "Plugins", session: null, section: null });
     expect(parseLocation("#/playtests")).toEqual({ tab: "Playtests", session: null, section: null });
     expect(parseLocation("")).toEqual({ tab: "Chat", session: null, section: null });
   });
@@ -21,7 +21,7 @@ describe("the panel's location", () => {
 
   it("formats what it parses", () => {
     for (const h of ["#/chat/abc-1", "#/chat", "#/settings/project", "#/plugins", "#/playtests"]) expect(formatLocation(parseLocation(h))).toBe(h);
-    expect(formatLocation({ tab: "Flows", session: "abc", section: "x" })).toBe("#/flows");
+    expect(formatLocation({ tab: "Plugins", session: "abc", section: "x" })).toBe("#/plugins");
   });
 
   it("keeps the session while another tab is open, and writes without a history entry", () => {
