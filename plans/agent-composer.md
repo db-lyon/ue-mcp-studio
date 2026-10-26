@@ -1,6 +1,6 @@
 # Agents, settings and usage
 
-Status: the plan in force. Phase 1 is built (section 8). Every decision is settled; there are no open questions.
+Status: the plan in force. Phases 1 to 4 are built (section 8); phase 4's measurement for Auto waits on an editor run (section 10). Every decision is settled; there are no open questions.
 
 ## Why
 
@@ -209,9 +209,9 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 ## 8. Phasing
 
 1. **Settings layout** (built, #64).
-2. **Native files on every route**, the read-only Agents view, the built-in worker shown read only, helpers per turn under Budgets.
-3. **Usage ledger and dashboard.**
-4. **Context strategy for Studio's agent**, on ue-mcp's projections.
+2. **Native files on every route**, the read-only Agents view, the built-in worker shown read only, helpers per turn under Budgets. (Built, #67.)
+3. **Usage ledger and dashboard.** (Built, #68.)
+4. **Context strategy for Studio's agent**, on ue-mcp's projections. (Built, #70; Auto stays hidden until its measurement is committed.)
 5. **Custom endpoints and route order.**
 
 ---
