@@ -2,7 +2,7 @@
  * The project's playtests, for the Playtests page. Under /v1/ext/studio:
  *
  *   GET  /qa/playtests        every playtest script with its newest run: { playtests, listed }
- *   POST /qa/playtests/card   { script }: the card Start Playtest and Assign act on, made in a new session when none has one
+ *   POST /qa/playtests/card   { script }: the card Start playtest and Assign act on, made in a new session when none has one
  *
  * Three sources make the list. The scripts are pie(script_list), which needs
  * the editor. The runs are every run Studio holds, in every session and none,

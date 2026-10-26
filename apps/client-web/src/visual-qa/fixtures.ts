@@ -112,7 +112,7 @@ function transcript(runs: QaRun[]): TranscriptEntry[] {
   const text = runs.some(qaNeedsYou) ? "It needs you now: the strip above has what it is waiting on."
     : runs.some(qaActive) ? "It is running. I will read the results when it ends."
     : runs.some((r) => r.state === "finished" || r.state === "stopped") ? "The run ended; its card has each step's result."
-    : "Start Playtest on its card runs it.";
+    : "It is ready. Press Start playtest on its card to run it.";
   entries.push({ kind: "assistant", text, at: ago(3) });
   return entries;
 }
@@ -198,7 +198,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
   "endpoints-edit": { title: "Editing a custom endpoint: its models and their prices", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
   "session-empty": inSession("A session with no playtest: no strip, no row of buttons, Checkpoints in the composer bar", "Door playtest", []),
-  "draft": inSession("A draft: collapsed card in the transcript with Start Playtest on it", "Door playtest", [RUNS.draft]),
+  "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
   "armed": inSession("Armed: pinned on the strip, its transcript place a one-line pointer", "Door playtest", [RUNS.armed]),
   "running": inSession("Running: live card on the strip", "Jump check", [RUNS.running]),
   "waiting": inSession("Waiting for a verdict: Pass, Fail and Skip on the strip", "Door playtest", [RUNS.waiting]),

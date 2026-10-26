@@ -67,7 +67,7 @@ export const QA = [
 export function playtestRunsLine(mode: PlaytestRunsMode): string {
   return mode === "automatic"
     ? "Starting playtests is set to Automatic in Settings > Approvals & review: you may start a playtest yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
-    : "Starting playtests is set to Manual in Settings > Approvals & review: only the user starts a playtest, with Start Playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Starting playtests to Automatic.";
+    : "Starting playtests is set to Manual in Settings > Approvals & review: only the user starts a playtest, with Start playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Starting playtests to Automatic.";
 }
 
 /** The SDK's options for the surface: ue-mcp's projected tools in place of ue_mcp, on Lean and Full. */

@@ -42,15 +42,15 @@ function mount(run: QaRun, extra: Partial<QaLive> = {}) {
   openCard(r.container);
   return { ...r, push: (...e: DaemonEvent[]) => { cur = { ...cur, events: [...cur.events, ...e] }; r.rerender(ui(cur)); } };
 }
-const step = (n: number) => screen.getAllByRole("listitem")[n];
+const step = (n: number) => document.querySelectorAll<HTMLElement>(".qa-step")[n];
 
-describe("a manual step's verdict before Start Playtest", () => {
+describe("a manual step's verdict before Start playtest", () => {
   const MANUAL = "script_SigilPickup_manual";
   const manual = (status: "awaiting_verdict" | "passed" | "failed", note?: string): QaRun => ({
     ...qaRunFromAnswer({ run_id: MANUAL, mode: "manual", script: PATH, script_name: "SigilPickup", state: "awaiting_verdict", steps: STEPS.map((s, index) => ({ ...s, index, status: index === 1 ? status : "pending", ...(index === 1 && note ? { note } : {}) })), awaiting: status === "awaiting_verdict" ? [1] : [], last_seq: 1 }, { sessionId: "s1" })!,
   });
 
-  it("is sent from the draft, and the card stays in place as the manual run, with Start Playtest still there", async () => {
+  it("is sent from the draft, and the card stays in place as the manual run, with Start playtest still there", async () => {
     m.qaVerdict.mockResolvedValue({ run: manual("passed") });
     mount(draft());
     await act(async () => {
@@ -59,8 +59,8 @@ describe("a manual step's verdict before Start Playtest", () => {
     expect(m.qaVerdict).toHaveBeenCalledWith(`draft:${PATH}`, 1, "pass", undefined);
     expect(screen.getAllByRole("group", { name: "Playtest SigilPickup" })).toHaveLength(1);
     expect(within(step(1)).getByText("Passed")).toBeTruthy();
-    expect(within(step(0)).getByText("Not checked: click Start Playtest")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Start Playtest" })).toBeTruthy();
+    expect(within(step(0)).getByText("Checked when the playtest runs")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Start playtest" })).toBeTruthy();
   });
 
   it("Fail asks what went wrong first, and sends the note", async () => {
@@ -85,35 +85,35 @@ describe("a draft Playtest card", () => {
     expect(screen.queryByRole("status")).toBeNull();
     expect(screen.getByText(PATH)).toBeTruthy();
     expect(within(step(0)).getByText("host")).toBeTruthy();
-    expect(within(step(0)).getByText("auto")).toBeTruthy();
+    expect(within(step(0)).getByText("Observer")).toBeTruthy();
     expect(step(0).textContent).toContain("PlayerState.SigilAttributes.Sigil.CurrentValue eq 100, within 5000 ms");
     expect(within(step(1)).getByText("client 1")).toBeTruthy();
-    expect(within(step(1)).getByText("manual")).toBeTruthy();
-    // Unrun: the auto step waits for Start Playtest, the manual step takes its verdict now.
+    expect(within(step(1)).getByText("Person")).toBeTruthy();
+    // Unrun: the auto step waits for Start playtest, the manual step takes its verdict now.
     expect(within(step(0)).queryByText("To come")).toBeNull();
-    expect(within(step(0)).getByText("Not checked: click Start Playtest")).toBeTruthy();
+    expect(within(step(0)).getByText("Checked when the playtest runs")).toBeTruthy();
     expect(within(step(0)).queryByRole("button")).toBeNull();
     expect(within(step(1)).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip"]);
-    for (const name of ["Start Playtest", "Assign to subagent", "Edit", "Delete"]) expect(screen.getByRole("button", { name })).toBeTruthy();
+    for (const name of ["Start playtest", "Assign to subagent", "Edit", "Delete"]) expect(screen.getByRole("button", { name })).toBeTruthy();
   });
 
-  it("Start Playtest starts in one click, even collapsed, with the players its steps name, and the same card goes live", async () => {
+  it("Start playtest starts in one click, even collapsed, with the players its steps name, and the same card goes live", async () => {
     m.qaRun.mockResolvedValue({ run: live() });
     render(<QaContext.Provider value={{ events: [], streaming: true, forms: [], sessionId: "s1" }}><QaCard run={draft()} /></QaContext.Provider>);
     expect(screen.getByRole("button", { name: /SigilPickup/, expanded: false })).toBeTruthy();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Start Playtest" }));
+      fireEvent.click(screen.getByRole("button", { name: "Start playtest" }));
     });
     expect(m.qaRun).toHaveBeenCalledWith(`draft:${PATH}`, { startPie: true, players: 2, listen: true, record: true });
     expect(screen.getByText("Playtest")).toBeTruthy();
     expect(screen.getAllByRole("status")[0].textContent).toBe("Starting");
   });
 
-  it("Start Playtest's options open its panel, start with what was picked, and the same card goes live", async () => {
+  it("Start playtest's options open its panel, start with what was picked, and the same card goes live", async () => {
     m.qaRun.mockResolvedValue({ run: live() });
     const page = mount(draft());
-    fireEvent.click(screen.getByRole("button", { name: "Start Playtest options" }));
-    const options = screen.getByRole("group", { name: "Start Playtest options" });
+    fireEvent.click(screen.getByRole("button", { name: "Start playtest options" }));
+    const options = screen.getByRole("group", { name: "Start playtest options" });
     // Two players named: two players and a listen server, to start with.
     expect((within(options).getByLabelText("Players") as HTMLInputElement).value).toBe("2");
     expect((within(options).getByRole("checkbox", { name: "Listen server" }) as HTMLInputElement).checked).toBe(true);
@@ -159,7 +159,7 @@ describe("a draft Playtest card", () => {
     ]);
     // The editor closes on the saved draft.
     expect(screen.queryByRole("group", { name: "Edit the playtest" })).toBeNull();
-    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(document.querySelectorAll(".qa-step")).toHaveLength(1);
   });
 
   it("Delete asks once more, then deletes the script", async () => {
@@ -172,7 +172,7 @@ describe("a draft Playtest card", () => {
     });
     expect(m.qaDeleteScript).toHaveBeenCalledWith(`draft:${PATH}`);
     expect(screen.getByRole("status").textContent).toBe("Deleted");
-    expect(screen.queryByRole("button", { name: "Start Playtest" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start playtest" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Assign to subagent" })).toBeNull();
   });
 
@@ -184,15 +184,15 @@ describe("a draft Playtest card", () => {
     });
     expect(m.qaAssign).toHaveBeenCalledWith(`draft:${PATH}`, null);
     expect(screen.getByRole("button", { name: "Cancel the subagent" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Start Playtest" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Start playtest" })).toBeNull();
     expect(screen.getByRole("button", { name: "Open its thread" })).toBeTruthy();
   });
 
-  it("shows ue-mcp's refusal of a Start Playtest", async () => {
+  it("shows ue-mcp's refusal of a Start playtest", async () => {
     m.qaRun.mockRejectedValue(new Error("PIE could not be set to 2 players: no editor"));
     mount(draft());
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Start Playtest" }));
+      fireEvent.click(screen.getByRole("button", { name: "Start playtest" }));
     });
     expect(screen.getByText("PIE could not be set to 2 players: no editor")).toBeTruthy();
     expect(screen.getByText("Playtest draft")).toBeTruthy();
