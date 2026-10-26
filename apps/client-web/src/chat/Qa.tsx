@@ -728,6 +728,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
         </button>
         {run.subagent && <span className="dim small qa-by">run by {run.subagent}</span>}
         <span className="spacer" />
+        {!dense && actions}
         <span className="qa-states">
           {headPill && <span className={`pill ${headPill.tone}`} role="status" title={offline ? `Last known: ${offline}` : undefined}>{headPill.text}</span>}
           {loopShown && <span className={`pill ${loopShown.tone}`} role="status" aria-label={`Loop: ${loopShown.text}`} title="A subagent loop runs this playtest">{loopShown.text}</span>}
@@ -741,7 +742,6 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
               <span className="dim qa-compact-summary">{offline && (pill || assignment?.loop) && <span className="qa-last-known" title={offline}>Last known: </span>}{summaryText}</span>
             </button>
             {meta && <span className="qa-meta dim">{meta}</span>}
-            {actions}
           </div>
         )}
         {/* In the transcript the legend sits under the summary, open or not; the page draws one over all its rows. */}
