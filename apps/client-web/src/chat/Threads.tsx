@@ -31,7 +31,12 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
   const [showFinished, setShowFinished] = useState(false);
   // The open thread keeps its row until it is closed, so a dismissal never pulls the list out from under it.
   const listed = agents.filter((a) => !dismissed.has(a.id) || a.outcome === "pending" || a.id === thread);
-  if (listed.length === 0) return null;
+  // With no subagents, the main agent's tokens still show.
+  if (listed.length === 0) {
+    return (tokens.main ?? 0) > 0
+      ? <div className="agents-bar agents-solo dim small">tokens: {tokenCount(tokens.main ?? 0)}</div>
+      : null;
+  }
   const rows = listed.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now) }));
   const active = rows.filter((r) => isActive(r.state));
   const finished = rows.filter((r) => !isActive(r.state));
