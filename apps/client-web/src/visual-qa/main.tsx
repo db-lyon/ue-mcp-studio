@@ -92,10 +92,13 @@ const emptyUsage = (url: URL) => ({
 });
 
 /** What each GET answers; anything else is a 404, and every write a 409. */
+/** Set once a scenario's arriving line has been sent: the session is then read with it. */
+let arrived = false;
+
 function answer(method: string, url: URL): unknown {
   const p = url.pathname;
   if (method !== "GET") return undefined;
-  const s = scenario.session;
+  const s = scenario.session && arrived && scenario.arrives ? { ...scenario.session, transcript: [...scenario.session.transcript, scenario.arrives] } : scenario.session;
   const own = scenario.get?.(p, url);
   if (own !== undefined) return own;
   const routes: Array<[RegExp, () => unknown]> = [
@@ -146,7 +149,26 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   if (!url.pathname.startsWith("/v1/")) return realFetch(input, init);
   const method = (init?.method ?? "GET").toUpperCase();
   // The event stream stays open and quiet: the page is streaming, and nothing changes under it.
-  if (url.pathname === "/v1/events") return new Response(new ReadableStream({ start() {} }), { status: 200, headers: { "content-type": "text/event-stream" } });
+  if (url.pathname === "/v1/events") {
+    return new Response(new ReadableStream({
+      start(controller) {
+        if (!scenario.arrives || !scenario.session) return;
+        // The reader scrolls up, then a line arrives below them.
+        setTimeout(() => {
+          document.querySelector(".thread-stage .transcript")?.scrollTo({ top: 0 });
+          setTimeout(() => {
+            arrived = true;
+            const data = JSON.stringify({ sessionId: scenario.session!.id, at: new Date().toISOString() });
+            controller.enqueue(new TextEncoder().encode(`id: 1
+event: studio.transcript.added
+data: ${data}
+
+`));
+          }, 150);
+        }, 700);
+      },
+    }), { status: 200, headers: { "content-type": "text/event-stream" } });
+  }
   const body = answer(method, url);
   if (body === undefined) {
     // The endpoints scenario that fails says what a broken agent would.

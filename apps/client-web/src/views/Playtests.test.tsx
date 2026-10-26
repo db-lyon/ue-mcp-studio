@@ -171,7 +171,7 @@ describe("the Playtests page", () => {
 
   it("names only the marks the shown paths carry", () => {
     page();
-    const legend = screen.getByRole("note", { name: "What the step marks mean" });
+    const legend = screen.getByRole("group", { name: "What the step marks mean" });
     expect(legend.textContent).toContain("Passed");
     expect(legend.textContent).not.toContain("Not run");
     expect(legend.textContent).toContain("Judged by a person");

@@ -155,7 +155,7 @@ const tone = (s: QaStep): string =>
 /** A running run's pill: the step it is on, or how far it got when none is running. */
 export function runningText(run: QaRun, settled: number, total: number): string {
   const on = run.steps.find((s) => s.status === "running");
-  return on ? `Running step ${on.index + 1} of ${total}` : `Running, ${settled} of ${total} done`;
+  return on ? `Step ${on.index + 1} of ${total}: ${stepDoing(on).toLowerCase()}` : `Running, ${settled} of ${total} done`;
 }
 
 /** One line for the collapsed card: how many steps, and where they stand. */
@@ -280,8 +280,8 @@ function rowBox(el: HTMLElement, row: HTMLElement): { top: number; bottom: numbe
   return { top: t, bottom: t + row.offsetHeight };
 }
 
-/** The height of the row of cues under a scrolling body, with its gap. */
-const CUES_PX = 22 + 4;
+/** The height of the cue rows over and under a scrolling body, with their gaps. */
+const CUES_PX = 2 * (22 + 4);
 
 /**
  * An open card's body on the strip: sized so the strip takes at most half of
@@ -388,7 +388,7 @@ export function PathLegend({ runs }: { runs: QaRun[] }) {
   const { marks, person } = marksOf(runs);
   if (marks.size === 0) return null;
   return (
-    <div className="qa-legend small" role="note" aria-label="What the step marks mean">
+    <div className="qa-legend small" role="group" aria-label="What the step marks mean">
       {MARKS.filter(([m]) => marks.has(m)).map(([m, label]) => (
         <span key={m} className="qa-legend-item"><span className={`qa-legend-mark ${m}`} aria-hidden="true" />{label}</span>
       ))}
@@ -413,7 +413,7 @@ export interface QaCardActions {
 
 /** A pill's words while the editor is away: what the run last did, not what it is doing. */
 const offlinePill = (text: string): string =>
-  text === "Needs you" ? "Was waiting" : text === STARTING ? "Was starting" : /^Running/.test(text) || /^Attempt/.test(text) ? "Was running" : text;
+  text === "Needs you" ? "Was waiting" : text === STARTING ? "Was starting" : /^Running/.test(text) || /^Step \d/.test(text) || /^Attempt/.test(text) ? "Was running" : text;
 
 /**
  * A run's card, wherever it is drawn: the transcript, the session's strip of
@@ -690,7 +690,9 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
   const ownActions = [startButtons, stopButton, cancelAssigned, assignButton, endLoop, draftButtons, extra, dismiss].filter(Boolean);
   const actions = ownActions.length > 0 ? <span className="qa-box-actions">{ownActions.map((a, i) => <Fragment key={i}>{a}</Fragment>)}</span> : null;
 
-  const failInBox = !!ask && failing?.via === "box" && failing.index === ask.index;
+  /** The box that asks: collapsed, or on the strip. An open card elsewhere asks on the step's own row instead, so it is not shown twice. */
+  const askBox = ask && (!open || dense) ? ask : null;
+  const failInBox = !!askBox && failing?.via === "box" && failing.index === askBox.index;
   const summaryText = run.steps.length ? pathSummary(run, sum) : "No steps read yet";
 
   return (
@@ -716,29 +718,25 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
               <span className="dim qa-compact-summary">{offline && (pill || assignment?.loop) && <span className="qa-last-known" title={offline}>Last known: </span>}{summaryText}</span>
             </button>
             {meta && <span className="qa-meta dim">{meta}</span>}
-            {!open && !slotted && manualSteps > 0 && !draft && (
-              <span className="qa-pip-key dim"><span className="qa-legend-mark pending person" aria-hidden="true" />Judged by a person</span>
-            )}
-            {!open && !slotted && ended && sum.pending > 0 && (
-              <span className="qa-pip-key dim"><span className="qa-legend-mark unrun" aria-hidden="true" />Not run</span>
-            )}
-            {!ask && !needsYouLoop && actions}
+            {!askBox && !needsYouLoop && actions}
           </div>
         )}
-        {ask && (
-          <div className={`qa-answer ${failInBox ? "failing" : ""}`} role="group" aria-label={`Step ${ask.index + 1} needs you`}>
+        {/* In the transcript the legend sits under the summary, open or not; the page draws one over all its rows. */}
+        {!dense && !slotted && run.steps.length > 0 && panel !== "edit" && <PathLegend runs={[run]} />}
+        {askBox && (
+          <div className={`qa-answer ${failInBox ? "failing" : ""}`} role="group" aria-label={`Step ${askBox.index + 1} needs you`}>
             <span className="qa-answer-step">
-              <span className="qa-num mono">{ask.index + 1}</span>
-              <span className="qa-answer-text"><span className="qa-answer-lead">Check in PIE: </span>{ask.instruction}</span>
+              <span className="qa-num mono">{askBox.index + 1}</span>
+              <span className="qa-answer-text"><span className="qa-answer-lead">Check in PIE: </span>{askBox.instruction}</span>
             </span>
             {failInBox ? (
               <FailNote
-                step={ask.index}
-                initial={notes[ask.index] ?? ""}
+                step={askBox.index}
+                initial={notes[askBox.index] ?? ""}
                 onCancel={closeFail}
                 onSubmit={(note) => {
                   closeFail();
-                  decide(ask, "fail", note);
+                  decide(askBox, "fail", note);
                 }}
               />
             ) : (
@@ -747,21 +745,21 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
                   <button
                     key={v.verdict}
                     className={`small-button verdict-${v.verdict}`}
-                    aria-label={`${v.label} step ${ask.index + 1}`}
+                    aria-label={`${v.label} step ${askBox.index + 1}`}
                     disabled={!!offline}
                     title={offline ?? (v.verdict === "fail" ? "Fail it, with a note on what went wrong" : undefined)}
-                    onClick={() => (v.verdict === "fail" ? setFailing({ index: ask.index, via: "box" }) : decide(ask, v.verdict))}
+                    onClick={() => (v.verdict === "fail" ? setFailing({ index: askBox.index, via: "box" }) : decide(askBox, v.verdict))}
                   >
                     {v.label}
                   </button>
                 ))}
-                {waiting.length > 1 && <button className="small-button" onClick={() => openAt(ask.index)} aria-label={waiting.length === 2 ? "1 more step needs you" : `${waiting.length - 1} more steps need you`}>+{waiting.length - 1} more</button>}
+                {waiting.length > 1 && <button className="small-button" onClick={() => openAt(askBox.index)} aria-label={waiting.length === 2 ? "1 more step needs you" : `${waiting.length - 1} more steps need you`}>+{waiting.length - 1} more</button>}
                 {actions}
               </span>
             )}
           </div>
         )}
-        {!ask && needsYouLoop && (
+        {!askBox && needsYouLoop && (
           <div className="qa-answer needs" role="group" aria-label="The loop needs you">
             <span className="qa-answer-text">{needsYouLoop.blocker?.reason ?? "The loop is waiting for you."}</span>
             <span className="qa-verdict">
@@ -775,6 +773,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
         {error && <div className="banner bad small">{error}</div>}
       </div>
       {open && <div className="qa-body-wrap">
+      {dense && cues.moreAbove && <div className="qa-scroll-cues"><ScrollCue dir="above" more onClick={() => cues.by(-1)} /></div>}
       <div className="qa-body" id={`qa-body-${run.runId}`} ref={body}>
       {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
       {panel === "run" && runnable && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
@@ -785,7 +784,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           busy={working}
           onRevert={(n) => act(() => api.qaRevertLoop(run.runId, n))}
           onThread={live?.onThread}
-          showReason={!!ask}
+          showReason={!!askBox}
         />
       )}
       {assignment && !assignment.loop && (
@@ -796,7 +795,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
           {live?.onThread && <button className="ghost small-button" onClick={() => live.onThread!(assignment.callId)}>Open its thread</button>}
         </div>
       )}
-      {panel !== "edit" && run.steps.length > 0 && !slotted && <PathLegend runs={[run]} />}
+      {dense && panel !== "edit" && run.steps.length > 0 && <PathLegend runs={[run]} />}
       {panel === "edit" && draft ? (
         <DraftEditor run={run} busy={working} onSave={(steps) => act(() => api.qaSaveScript(run.runId, steps))} onCancel={() => setPanel(null)} />
       ) : (
@@ -861,7 +860,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
                   ))}
                 </div>
               )}
-              {verdictable && !failBox && ask?.index !== s.index && (
+              {verdictable && !failBox && askBox?.index !== s.index && (
                 <div className="qa-verdict">
                   {VERDICTS.map((v) => (
                     <button
@@ -914,12 +913,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
         </div>
       )}
       </div>
-      {dense && cues.overflow && (
-        <div className="qa-scroll-cues">
-          <ScrollCue dir="above" more={cues.moreAbove} onClick={() => cues.by(-1)} />
-          <ScrollCue dir="below" more={cues.moreBelow} onClick={() => cues.by(1)} />
-        </div>
-      )}
+      {dense && cues.moreBelow && <div className="qa-scroll-cues"><ScrollCue dir="below" more onClick={() => cues.by(1)} /></div>}
       </div>}
     </div>
   );

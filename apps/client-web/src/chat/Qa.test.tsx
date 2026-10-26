@@ -416,7 +416,7 @@ describe("the collapsed card", () => {
 
   it("names the step a running run is on", () => {
     collapsed(runOf({ state: "running", steps: STEPS.map((s, i) => ({ ...s, status: ["passed", "running", "pending"][i] })) }));
-    expect(screen.getAllByRole("status")[0].textContent).toBe("Running step 2 of 3");
+    expect(screen.getAllByRole("status")[0].textContent).toBe("Step 2 of 3: observer checking");
   });
 
   it("stops a live run from its collapsed card", async () => {

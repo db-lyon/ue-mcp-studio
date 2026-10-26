@@ -1577,7 +1577,12 @@ button.qa-meta-session.link > span[aria-hidden="true"] { flex-shrink: 0; }
 .qa-scroll-cues > button.qa-scroll-cue { flex: 1 1 0; }
 .qa-scroll-cues > button.qa-scroll-cue:disabled { display: none; }
 .qa-needs-you ul { margin: 0; padding-left: 0; list-style: none; }
-.playtest-strip.many.needs-you { max-height: 66%; }
+/* Several on a 380 px strip: each collapsed card is a compact row (no path, text to one or two lines), so two that need you fit in half the panel. */
+@media (max-width: 760px) {
+  .playtest-strip.many .qa-card.dense.collapsed .qa-path-wrap { display: none; }
+  .playtest-strip.many .qa-card.dense.collapsed { padding: 8px 10px; gap: 4px; }
+  .playtest-strip.many .qa-card.dense.collapsed .qa-answer.needs .qa-answer-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+}
 /* The focused bar's name takes its own line under the path, so it covers nothing. */
 .qa-path-caption { position: static; margin-top: 4px; }
 /* Review of the after shots (#72). */
@@ -1596,3 +1601,10 @@ button.qa-meta-session.link > span[aria-hidden="true"] { flex-shrink: 0; }
 /* Labels in a card are sans in every theme, as their words are. */
 .qa-card .eyebrow, .playtest-strip .eyebrow { font: 600 11px/1.3 var(--sans); text-transform: none; letter-spacing: 0; }
 button.strip-more { margin-bottom: 2px; }
+/* Second review pass (#72). */
+.qa-card .qa-start > button.qa-start-options { color: var(--text); }
+:root[data-theme] .qa-card button.primary:disabled { background: transparent; border-color: var(--line-strong); color: var(--dim); font-weight: 400; }
+.qa-card.offline .qa-path-step.run .qa-path-hit::before { box-shadow: none; }
+.qa-path-step.run .qa-path-hit::before, .qa-legend-mark.run { background: color-mix(in srgb, var(--text), #fff 35%); }
+.jump-latest { font-family: var(--sans); letter-spacing: 0; }
+.qa-compact > .qa-legend { margin-top: 2px; }
