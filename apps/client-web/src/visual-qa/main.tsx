@@ -34,6 +34,8 @@ const SETTINGS: StudioSettings = {
   dialogPolicy: "ask",
   usage: { turnTokens: null, sessionTokens: null, warnAt: null, imageSize: "standard" },
   connected: { claude: true },
+  routeOrder: "signins-first",
+  endpoints: Array.isArray(scenario.endpoints) ? scenario.endpoints.length : 0,
   account: null,
 } as unknown as StudioSettings;
 
@@ -73,7 +75,15 @@ function answer(method: string, url: URL): unknown {
     [/^\/v1\/ext\/studio\/busy$/, () => ({ now: Date.now(), calls: [] })],
     [/^\/v1\/ext\/studio\/vcs$/, () => ({ vcs: null })],
     [/^\/v1\/ext\/studio\/review\/status$/, () => ({ available: true, reason: null })],
-    [/^\/v1\/ext\/studio\/models$/, () => ({ signedIn: { claude: true, chatgpt: false, studio: false }, providers: [{ id: "anthropic", name: "Anthropic", connected: false, models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5", signIns: ["claude"] }] }] })],
+    [/^\/v1\/ext\/studio\/models$/, () => ({
+      signedIn: { claude: true, chatgpt: false, studio: false },
+      routeOrder: "signins-first",
+      providers: [
+        { id: "anthropic", name: "Anthropic", connected: false, source: "default", models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5", signIns: ["claude"] }] },
+        ...(Array.isArray(scenario.endpoints) ? scenario.endpoints : []).map((e) => ({ id: `endpoint:${e.id}`, name: e.name, connected: true, source: "live", endpoint: { id: e.id }, models: e.models.map((m) => ({ id: m.id, name: m.id, signIns: [] })) })),
+      ],
+    })],
+    [/^\/v1\/ext\/studio\/endpoints$/, () => (Array.isArray(scenario.endpoints) ? { endpoints: scenario.endpoints } : undefined)],
     [/^\/v1\/flows$/, () => ({ flows: [] })],
     [/^\/v1\/ext\/studio\/context-strategy\/agent$/, () => scenario.agentContext],
     [/^\/v1\/ext\/studio\/native$/, () => NATIVE],
@@ -91,6 +101,8 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   if (url.pathname === "/v1/events") return new Response(new ReadableStream({ start() {} }), { status: 200, headers: { "content-type": "text/event-stream" } });
   const body = answer(method, url);
   if (body === undefined) {
+    // The endpoints scenario that fails says what a broken agent would.
+    if (url.pathname === "/v1/ext/studio/endpoints" && scenario.endpoints === "error") return new Response(JSON.stringify({ error: "could not read ~/.ue-mcp/studio/endpoints.json: permission denied" }), { status: 500, headers: { "content-type": "application/json" } });
     const status = method === "GET" ? 404 : 409;
     return new Response(JSON.stringify({ error: `visual QA harness: ${method} ${url.pathname} is not answered` }), { status, headers: { "content-type": "application/json" } });
   }

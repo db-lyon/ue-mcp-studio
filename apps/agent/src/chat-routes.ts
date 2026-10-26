@@ -4,6 +4,7 @@
  *   GET  /settings                  the selected model, theme, which providers are connected
  *   PUT  /settings                  change them; keys are written, never returned
  *   GET  /models                    every provider and its models, for the picker
+ *   /endpoints                      custom OpenAI-compatible endpoints (endpoints.ts)
  *   GET  /signin/:id                a sign-in's progress
  *   POST /signin/:id                start it
  *   DELETE /signin/:id              cancel it
@@ -40,9 +41,10 @@ import { setImageEdge } from "./images.js";
 import type { ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
-import { SettingsStore } from "./settings.js";
+import { DEFAULT_MODEL, SettingsStore } from "./settings.js";
+import { EndpointStore, endpointPrices, registerEndpointRoutes } from "./endpoints.js";
 import { providerFor } from "./providers.js";
-import { DEFAULT_PLAN_MODELS, ModelCatalogSource, signInsFor, type SignInCoverage } from "./models.js";
+import { DEFAULT_PLAN_MODELS, ModelCatalogSource, pickRoute, type SignInCoverage } from "./models.js";
 import { StudioSignInFlow } from "./signin.js";
 import { AttachmentStore } from "./attachments.js";
 import { detectVcs, diffOf, listChanges } from "./vcs.js";
@@ -84,7 +86,7 @@ import { fullModelName, modelName } from "./models.js";
 import { userHome } from "./instructions.js";
 import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
-import { DEFAULT_USAGE, KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, type KeyProviderId } from "@ue-mcp-studio/shared";
+import { DEFAULT_USAGE, KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, endpointVendor, type KeyProviderId, type VendorId } from "@ue-mcp-studio/shared";
 import { MAIN_AGENT_ID } from "@ue-mcp-studio/shared";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
@@ -97,7 +99,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   // Every budget, per machine; the old turn token limit and playtest budget move into it on first read.
   // One record per model call, the price table, and each sign-in's limit windows, for Usage.
   const ledger = new Ledger(api.dataDir);
-  const prices = new PriceStore(api.dataDir);
+  // Custom OpenAI-compatible endpoints, for every project like the vendor keys; their models' prices count as the user's own.
+  const endpoints = new EndpointStore();
+  const prices = new PriceStore(api.dataDir, () => endpointPrices(endpoints.list()));
   const plans = new PlanStore(api.dataDir);
   const onChatgptHeaders = (h: Headers) => plans.report("chatgpt", chatgptWindows(h));
   const budgets = new BudgetStore(api.dataDir, {
@@ -148,15 +152,36 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   };
   const signedIn = (): Record<SignInId, boolean> => ({ chatgpt: chatgpt.signedIn() !== null, claude: CLAUDE_SIGN_IN_AVAILABLE && claudeLogin() !== null, studio: accountToken() !== null });
 
-  /** A sign-in that runs the model comes first; the vendor key is the fallback. */
-  /** How a model runs now: a sign-in that runs it first, else the vendor's key, else nothing. */
-  const routeOf = (vendor: KeyProviderId, model: string): ModelRoute => {
-    const done = signedIn();
-    const via = signInsFor(vendor, model, coverage()).find((s) => done[s]);
-    if (via) return via;
-    return settings.key(vendor) ? "key" : null;
-  };
+  /** How a model runs now: its endpoint, or the first connected sign-in or key by the route order, else nothing. */
+  const routeOf = (vendor: VendorId, model: string): ModelRoute =>
+    pickRoute(vendor, model, {
+      signedIn: signedIn(),
+      coverage: coverage(),
+      hasKey: (v) => settings.key(v) !== null,
+      hasEndpoint: (id) => endpoints.get(id) !== null,
+      order: settings.routeOrder(),
+    });
   const route = (): ModelRoute => routeOf(settings.provider(), settings.model());
+  /** The route as the ledger keeps it: an endpoint by its own id, so each is counted apart. */
+  const ledgerRoute = (): string => {
+    const r = route();
+    return r === "endpoint" ? settings.provider() : r ?? "unknown";
+  };
+  const endpointName = (vendor: string): string | null => {
+    const id = endpointIdOf(vendor);
+    return id === null ? null : endpoints.get(id)?.name ?? id;
+  };
+  /** What every provider is made with: the sign-ins' tokens and each endpoint's address and key. */
+  const providerContext = () => ({
+    accountToken: accountToken(),
+    agentVersion,
+    chatgptToken: () => chatgpt.accessToken(),
+    onChatgptHeaders,
+    endpoint: (id: string) => {
+      const e = endpoints.get(id);
+      return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
+    },
+  });
   // Who is signed in to Claude comes from the runtime's own `auth status`.
   const refreshClaude = async (): Promise<void> => {
     if (!CLAUDE_SIGN_IN_AVAILABLE) return;
@@ -180,6 +205,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       route: route(),
       destructiveKnown: effects.available(),
       connected: { ...signedIn(), ...keys },
+      endpoints: endpoints.list().length,
       account: login ? { login, via: "studio" } : registry ? { login: registry.login, via: "ue-mcp-login" } : null,
     };
   };
@@ -238,7 +264,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       // Studio's loop runs a model over the API; the Claude sign-in runs whole conversations, so it needs a key here.
       const viaKey = r === "claude" && settings.key(wants.vendor as KeyProviderId) ? "key" : r;
       if (!viaKey || viaKey === "claude") return { ...base, note: `Its file names ${a.model}, which nothing on this machine runs over the API; it runs on the main agent's model.` };
-      return { ...base, run: { model: wants.model, vendor: wants.vendor, route: viaKey, provider: () => providerFor(settings, viaKey, { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken(), onChatgptHeaders }, wants.vendor as KeyProviderId) } };
+      return { ...base, run: { model: wants.model, vendor: wants.vendor, route: viaKey, provider: () => providerFor(settings, viaKey, providerContext(), wants.vendor as KeyProviderId) } };
     });
     const run: NativeRun = { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills, sdkLoads: route() === "claude" };
     nativeCache = { at: Date.now(), key, run };
@@ -251,19 +277,24 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     dialogs,
     qa,
     store,
-    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken(), onChatgptHeaders }),
+    provider: () => providerFor(settings, route(), providerContext()),
     model: () => settings.model(),
     effort: () => settings.effort(),
     usage: () => settings.usage(),
     ledger,
     surfaces,
     budgets: () => budgets.get(),
-    callRoute: () => ({ vendor: settings.provider(), route: route() ?? "unknown" }),
+    callRoute: () => ({ vendor: settings.provider(), route: ledgerRoute() }),
     onPlanWindow: (r, i) => plans.report(r, [claudeWindow(i)]),
     subagentModel: () => settings.subagentModel(),
     subscription: () => route() === "claude",
     // A key names its vendor, since model names no longer do.
-    route: () => ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account", key: `${PROVIDERS[settings.provider()].name} key` } as Record<string, string>)[route() ?? ""] ?? null,
+    route: () => {
+      const r = route();
+      if (r === "endpoint") return endpointName(settings.provider());
+      if (r === "key") return `${PROVIDERS[settings.provider() as KeyProviderId].name} key`;
+      return ({ claude: "Claude Code login", chatgpt: "ChatGPT sign-in", studio: "UE-MCP account" } as Record<string, string>)[r ?? ""] ?? null;
+    },
     askBeforeChanges: () => settings.askBeforeChanges(),
     approvals: () => settings.approvals(),
     effects,
@@ -279,11 +310,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     model: () => settings.model(),
     effort: () => settings.effort(),
     subscription: () => route() === "claude",
-    provider: () => providerFor(settings, route(), { accountToken: accountToken(), agentVersion, chatgptToken: () => chatgpt.accessToken(), onChatgptHeaders }),
+    provider: () => providerFor(settings, route(), providerContext()),
     record: (model, usage, durationMs) => {
       if (!usage) return;
       try {
-        ledger.append({ sessionId: null, turnId: null, agentId: "flow", parentAgentId: null, source: "flow", vendor: settings.provider(), model, route: route() ?? "unknown", tokens: kindsOf(usage), durationMs });
+        ledger.append({ sessionId: null, turnId: null, agentId: "flow", parentAgentId: null, source: "flow", vendor: settings.provider(), model, route: ledgerRoute(), tokens: kindsOf(usage), durationMs });
       } catch (e) {
         api.log.warn("could not write the usage ledger", e);
       }
@@ -356,9 +387,12 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     plans,
     budgets: () => budgets.get(),
     agentName: (id) => AGENT_NAMES[id] ?? id,
-    modelName: (_vendor, model) => fullModelName(model),
-    vendorName: (v) => PROVIDERS[v as KeyProviderId]?.name ?? v,
-    routeName: (r) => ROUTE_NAMES[r] ?? (r === "key" ? "API key" : r.startsWith("endpoint:") ? r.slice(9) : r),
+    modelName: (vendor, model) => {
+      const e = endpointName(vendor);
+      return e === null ? fullModelName(model) : `${e} ${model}`;
+    },
+    vendorName: (v) => endpointName(v) ?? PROVIDERS[v as KeyProviderId]?.name ?? v,
+    routeName: (r) => ROUTE_NAMES[r] ?? (r === "key" ? "API key" : endpointName(r) ?? r),
     sessionTitle: (id) => store.get(id)?.title ?? null,
     signedIn: () => {
       const done = signedIn();
@@ -373,10 +407,23 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       return KEY_PROVIDER_IDS.filter((v) => settings.key(v) || (v === "anthropic" && (done.claude || (done.studio && STUDIO_PLAN_AVAILABLE))) || (v === "openai" && done.chatgpt));
     },
   });
+  registerEndpointRoutes(api, {
+    store: endpoints,
+    changed: () => {
+      nativeCache = null;
+      api.events.publish("settings.changed", {});
+    },
+    // A model selected on a removed endpoint has nothing to run it: go back to the default model.
+    removed: (id) => {
+      if (settings.provider() === endpointVendor(id)) settings.update({ provider: "anthropic", model: DEFAULT_MODEL });
+    },
+  });
   registerNativeRoutes(api, {
     enabled: () => settings.usage().projectInstructions,
     main: () => ({ vendor: settings.provider(), model: settings.model(), route: route() }),
     routesFor: (vendor) => {
+      // AGENTS.md is what every custom endpoint reads.
+      if (vendor === "endpoint") return endpoints.list().map((e) => e.name);
       if (!KEY_PROVIDER_IDS.includes(vendor as KeyProviderId)) return [];
       const done = signedIn();
       const names: string[] = [];
@@ -387,6 +434,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       return names;
     },
     runsOverApi: (vendor, model) => {
+      if (endpointIdOf(vendor) !== null) return routeOf(vendor as VendorId, model) !== null;
       if (!KEY_PROVIDER_IDS.includes(vendor as KeyProviderId)) return false;
       const r = routeOf(vendor as KeyProviderId, model);
       return r !== null && (r !== "claude" || !!settings.key(vendor as KeyProviderId));
@@ -484,7 +532,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   api.route("GET", "/models", async () => {
     await Promise.all([refreshChatgptModels(), refreshClaude()]);
-    return { body: await catalog.catalog(signedIn(), coverage()) };
+    return { body: await catalog.catalog(signedIn(), coverage(), { endpoints: endpoints.list(), routeOrder: settings.routeOrder() }) };
   });
 
   const noSignIn = (id: string) => ({ status: 404, body: { error: `no sign-in ${id}` } });

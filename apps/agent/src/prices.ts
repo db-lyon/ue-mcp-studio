@@ -97,7 +97,8 @@ export function costOf(price: Price | null, t: TokenKinds): number | null {
 export class PriceStore {
   private readonly file: string;
 
-  constructor(dataDir: string) {
+  /** extra: prices set elsewhere, such as on a custom endpoint's models; the Usage table's own prices still win. */
+  constructor(dataDir: string, private readonly extra: () => Price[] = () => []) {
     this.file = path.join(dataDir, "prices.json");
   }
 
@@ -114,8 +115,9 @@ export class PriceStore {
     return { prices: [...this.own(), ...SHIPPED_PRICES], shippedAsOf: PRICES_AS_OF };
   }
 
+  /** Every price cost is estimated from: the user's own, those set on endpoints, then the shipped table. */
   all(): Price[] {
-    return this.table().prices;
+    return [...this.own(), ...this.extra(), ...SHIPPED_PRICES];
   }
 
   /** Replace the user's own prices; each must name a vendor, a model and at least one rate. */

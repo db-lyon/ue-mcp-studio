@@ -55,6 +55,30 @@ export const CLAUDE_SIGN_IN_AVAILABLE = true;
 /** The sign-ins the panel offers now. */
 export const OFFERED_SIGN_INS: readonly SignInId[] = SIGN_IN_IDS.filter((s) => (s !== "studio" || STUDIO_PLAN_AVAILABLE) && (s !== "claude" || CLAUDE_SIGN_IN_AVAILABLE));
 
+/**
+ * A model's vendor: one of the named vendors, or a custom OpenAI-compatible
+ * endpoint the user added, as `endpoint:<id>`.
+ */
+export type EndpointVendorId = `endpoint:${string}`;
+export type VendorId = KeyProviderId | EndpointVendorId;
+
+/** The vendor id a custom endpoint's models carry. */
+export const endpointVendor = (id: string): EndpointVendorId => `endpoint:${id}`;
+/** A custom endpoint's id from its vendor id, or null for a named vendor. */
+export const endpointIdOf = (vendor: string): string | null => (vendor.startsWith("endpoint:") && vendor.length > 9 ? vendor.slice(9) : null);
+/** What an endpoint id may be: lowercase letters, digits and hyphens, so it never holds the vendor separator. */
+export const ENDPOINT_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const isVendorId = (v: unknown): v is VendorId =>
+  typeof v === "string" && (KEY_PROVIDER_IDS.includes(v as KeyProviderId) || ENDPOINT_ID.test(endpointIdOf(v) ?? ""));
+
+/**
+ * Which route runs a model several can run: a sign-in before the vendor's
+ * key (the plan is already paid for), or the key first.
+ */
+export type RouteOrder = "signins-first" | "keys-first";
+export const ROUTE_ORDERS: readonly RouteOrder[] = ["signins-first", "keys-first"];
+export const DEFAULT_ROUTE_ORDER: RouteOrder = "signins-first";
+
 export type ProviderId = SignInId | KeyProviderId;
 export const PROVIDER_IDS: readonly ProviderId[] = [...SIGN_IN_IDS, ...KEY_PROVIDER_IDS];
 
@@ -127,10 +151,12 @@ export const DEFAULT_USAGE: UsageSettings = {
 /** GET /v1/ext/studio/settings. Secrets are reported by presence only, never returned. */
 export interface StudioSettings {
   /** The selected model and its vendor. */
-  provider: KeyProviderId;
+  provider: VendorId;
   model: string;
   /** How the selected model runs now, or null when nothing that can run it is connected. */
   route: ModelRoute;
+  /** Which route runs a model that a sign-in and a key can both run. */
+  routeOrder: RouteOrder;
   effort: Effort;
   gatewayUrl: string;
   theme: StudioTheme;
@@ -149,14 +175,21 @@ export interface StudioSettings {
   usage: UsageSettings;
   /** Which sign-ins are done and which vendor keys are saved. */
   connected: Record<ProviderId, boolean>;
+  /** How many custom endpoints are set up. Absent from an older agent. */
+  endpoints?: number;
   /** The Studio account's login, when signed in. */
   account: { login: string; via: "studio" | "ue-mcp-login" } | null;
 }
 
+/** Whether anything on this machine can run a model: a sign-in, a key or a custom endpoint. */
+export const anythingConnected = (s: Pick<StudioSettings, "connected" | "endpoints">): boolean =>
+  Object.values(s.connected ?? {}).some(Boolean) || (s.endpoints ?? 0) > 0;
+
 /** PUT /v1/ext/studio/settings. An absent secret is left as it is; an empty string clears it. */
 export interface StudioSettingsUpdate {
-  provider?: KeyProviderId;
+  provider?: VendorId;
   model?: string;
+  routeOrder?: RouteOrder;
   effort?: Effort;
   gatewayUrl?: string;
   theme?: StudioTheme;
@@ -172,8 +205,8 @@ export interface StudioSettingsUpdate {
   signOut?: SignInId;
 }
 
-/** How a model runs: a sign-in, or the vendor key. Sign-ins come first. */
-export type ModelRoute = SignInId | "key" | null;
+/** How a model runs: a sign-in, the vendor key, or the custom endpoint that serves it. */
+export type ModelRoute = SignInId | "key" | "endpoint" | null;
 
 export interface ModelOption {
   id: string;
@@ -182,19 +215,64 @@ export interface ModelOption {
   signIns: SignInId[];
 }
 
+/** The routes that can run a vendor's model, in the order they are tried: its sign-ins and its key, by the route order. */
+export function routesInOrder(signIns: readonly SignInId[], order: RouteOrder = DEFAULT_ROUTE_ORDER): Array<SignInId | "key"> {
+  return order === "keys-first" ? ["key", ...signIns] : [...signIns, "key"];
+}
+
 /** GET /v1/ext/studio/models: every vendor's models, each listed once, for the picker. */
 export interface ModelCatalog {
   /** Which sign-ins are done. */
   signedIn: Record<SignInId, boolean>;
+  /** Which route runs a model a sign-in and a key can both run. Absent from an older agent: sign-ins first. */
+  routeOrder?: RouteOrder;
   providers: Array<{
-    id: KeyProviderId;
+    id: VendorId;
     name: string;
-    /** The user's own key is saved. */
+    /** The user's own key is saved; for a custom endpoint, always true, since it runs its models itself. */
     connected: boolean;
-    /** live: listed by the vendor for this key; default: a starting list until a key is saved. */
-    source: "live" | "default";
+    /** live: listed by the vendor for this key; default: a starting list until a key is saved; typed: a custom endpoint's models as the user typed them. */
+    source: "live" | "default" | "typed";
+    /** Set for a custom endpoint. */
+    endpoint?: { id: string };
     models: ModelOption[];
   }>;
+}
+
+/** A custom endpoint's model: listed by its /models or typed, with the user's own optional price. */
+export interface EndpointModel {
+  id: string;
+  /** Typed by the user rather than listed by the endpoint; kept when the list is read again. */
+  typed?: boolean;
+  /** Dollars per million tokens of each kind; null for a kind with no price. Absent: no cost is estimated. */
+  perMTok?: { input: number | null; cacheRead: number | null; cacheWrite: number | null; output: number | null };
+}
+
+/** GET /v1/ext/studio/endpoints: a custom OpenAI-compatible endpoint, its key by presence only. */
+export interface CustomEndpoint {
+  id: string;
+  name: string;
+  /** The base URL its /chat/completions and /models hang off, without a trailing slash. */
+  baseUrl: string;
+  hasKey: boolean;
+  models: EndpointModel[];
+  /** When its /models was last read, and why that failed when it did. */
+  listedAt: string | null;
+  listError: string | null;
+}
+
+/** POST /endpoints and PUT /endpoints/:id. An absent field stays; an empty key clears it. */
+export interface CustomEndpointInput {
+  name?: string;
+  baseUrl?: string;
+  key?: string;
+  /** Replaces the typed models and every price; listed models stay listed. */
+  models?: EndpointModel[];
+}
+
+/** GET /v1/ext/studio/endpoints */
+export interface CustomEndpointList {
+  endpoints: CustomEndpoint[];
 }
 
 /** GET and POST /v1/ext/studio/signin/:id: signing in to Studio from the panel. */

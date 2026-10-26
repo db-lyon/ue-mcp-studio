@@ -10,6 +10,7 @@ import {
   qaNeedsYou,
   qaRunFromAnswer,
   type AgentContextView,
+  type CustomEndpoint,
   type PlaytestEntry,
   type PlaytestIndexAnswer,
   type QaLoop,
@@ -145,12 +146,44 @@ export interface Scenario {
   focus?: string;
   /** Settings > Agents: what GET /context-strategy/agent answers. */
   agentContext?: AgentContextView;
+  /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */
+  endpoints?: CustomEndpoint[] | "error";
 }
+
+const ENDPOINTS: CustomEndpoint[] = [
+  {
+    id: "local-ollama",
+    name: "Local Ollama",
+    baseUrl: "http://localhost:11434/v1",
+    hasKey: false,
+    models: [
+      { id: "qwen3-coder:30b" },
+      { id: "llama-3.3-70b-instruct", perMTok: { input: 0, cacheRead: null, cacheWrite: null, output: 0 } },
+      { id: "my-finetune", typed: true },
+    ],
+    listedAt: ago(5),
+    listError: null,
+  },
+  {
+    id: "team-vllm",
+    name: "Team vLLM",
+    baseUrl: "https://llm.internal.example.com/v1",
+    hasKey: true,
+    models: [{ id: "deepseek-v4", typed: true, perMTok: { input: 0.27, cacheRead: 0.07, cacheWrite: null, output: 1.1 } }],
+    listedAt: ago(2),
+    listError: "its /models answered 401",
+  },
+];
 
 const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
   ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
 
 export const SCENARIOS: Record<string, Scenario> = {
+  "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [] },
+  "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS },
+  "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error" },
+  "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".cfg h2.cfg-label button.small-button" },
+  "endpoints-edit": { title: "Editing a custom endpoint: its models and their prices", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)" },
   "session-empty": inSession("A session with no playtest: no strip, no row of buttons, Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start Playtest on it", "Door playtest", [RUNS.draft]),
   "armed": inSession("Armed: pinned on the strip, its transcript place a one-line pointer", "Door playtest", [RUNS.armed]),

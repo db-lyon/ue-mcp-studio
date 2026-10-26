@@ -32,6 +32,11 @@ import {
   DEFAULT_APPROVALS,
   migrateApprovals,
   type Approvals,
+  DEFAULT_ROUTE_ORDER,
+  ROUTE_ORDERS,
+  isVendorId,
+  type RouteOrder,
+  type VendorId,
 } from "@ue-mcp-studio/shared";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
@@ -39,8 +44,9 @@ export const DEFAULT_EFFORT: Effort = "high";
 export const DEFAULT_GATEWAY_URL = "https://gateway.ue-mcp.com";
 
 interface StoredSettings {
-  provider: KeyProviderId;
+  provider: VendorId;
   model: string;
+  routeOrder: RouteOrder;
   effort: Effort;
   gatewayUrl: string;
   theme: StudioTheme;
@@ -153,17 +159,41 @@ export function approvalsOf(raw: Record<string, unknown>): Approvals {
 }
 
 /**
- * The selected model's vendor. Settings written before vendors were named said
- * byok, gateway or studio, all of which ran Claude models.
+ * The selected model's vendor: a named vendor or a custom endpoint. Settings
+ * written before vendors were named said byok, gateway or studio, all of which
+ * ran Claude models.
  */
-function vendorOf(raw: unknown): KeyProviderId {
-  return KEY_PROVIDER_IDS.includes(raw as KeyProviderId) ? (raw as KeyProviderId) : "anthropic";
+function vendorOf(raw: unknown): VendorId {
+  return isVendorId(raw) ? raw : "anthropic";
 }
 
 const keyFile = (p: KeyProviderId) => `${p}.key`;
 
 /** Vendor keys every project uses, like the sign-ins: enter a key once. */
 export const globalKeysDir = (): string => process.env.STUDIO_KEYS_HOME || path.join(os.homedir(), ".ue-mcp", "studio", "keys");
+
+/** A secret file's value, or null when it is missing or empty. */
+export function readSecretFile(file: string): string | null {
+  try {
+    const v = fs.readFileSync(file, "utf-8").trim();
+    return v || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Write a secret with mode 600; an empty value removes the file. */
+export function writeSecretFile(target: string, value: string): void {
+  if (value === "") {
+    fs.rmSync(target, { force: true });
+    return;
+  }
+  const tmp = `${target}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, value, { mode: 0o600 });
+  fs.renameSync(tmp, target);
+  // A rename keeps the temp file's mode; set it again in case the file pre-existed with another.
+  fs.chmodSync(target, 0o600);
+}
 
 export class SettingsStore {
   constructor(private readonly dir: string, private readonly keysDir = globalKeysDir()) {
@@ -192,6 +222,7 @@ export class SettingsStore {
       return {
         provider: vendorOf(raw.provider),
         model: typeof raw.model === "string" && raw.model ? raw.model : DEFAULT_MODEL,
+        routeOrder: ROUTE_ORDERS.includes(raw.routeOrder as RouteOrder) ? (raw.routeOrder as RouteOrder) : DEFAULT_ROUTE_ORDER,
         effort: EFFORTS.includes(raw.effort as Effort) ? (raw.effort as Effort) : DEFAULT_EFFORT,
         gatewayUrl: typeof raw.gatewayUrl === "string" && raw.gatewayUrl ? raw.gatewayUrl : DEFAULT_GATEWAY_URL,
         theme: STUDIO_THEMES.includes(raw.theme as StudioTheme) ? (raw.theme as StudioTheme) : "ue-mcp",
@@ -204,7 +235,7 @@ export class SettingsStore {
       };
     } catch {
       // No settings yet: a new install, which asks before every kind of change.
-      return { provider: "anthropic", model: DEFAULT_MODEL, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS } };
+      return { provider: "anthropic", model: DEFAULT_MODEL, routeOrder: DEFAULT_ROUTE_ORDER, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS } };
     }
   }
 
@@ -213,12 +244,7 @@ export class SettingsStore {
   }
 
   private readSecretAt(file: string): string | null {
-    try {
-      const v = fs.readFileSync(file, "utf-8").trim();
-      return v || null;
-    } catch {
-      return null;
-    }
+    return readSecretFile(file);
   }
 
   private writeSecret(name: string, value: string): void {
@@ -226,15 +252,7 @@ export class SettingsStore {
   }
 
   private writeSecretAt(target: string, value: string): void {
-    if (value === "") {
-      fs.rmSync(target, { force: true });
-      return;
-    }
-    const tmp = `${target}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, value, { mode: 0o600 });
-    fs.renameSync(tmp, target);
-    // A rename keeps the temp file's mode; set it again in case the file pre-existed with another.
-    fs.chmodSync(target, 0o600);
+    writeSecretFile(target, value);
   }
 
   /** The stored choices, without secrets. The route adds which providers are connected. */
@@ -246,8 +264,12 @@ export class SettingsStore {
   update(u: StudioSettingsUpdate): void {
     const s = this.stored();
     if (u.provider !== undefined) {
-      if (!KEY_PROVIDER_IDS.includes(u.provider)) throw new Error(`provider must be one of ${KEY_PROVIDER_IDS.join(", ")}`);
+      if (!isVendorId(u.provider)) throw new Error(`provider must be one of ${KEY_PROVIDER_IDS.join(", ")} or endpoint:<id>`);
       s.provider = u.provider;
+    }
+    if (u.routeOrder !== undefined) {
+      if (!ROUTE_ORDERS.includes(u.routeOrder)) throw new Error(`routeOrder must be one of ${ROUTE_ORDERS.join(", ")}`);
+      s.routeOrder = u.routeOrder;
     }
     if (u.model !== undefined) {
       if (typeof u.model !== "string" || !u.model.trim()) throw new Error("model must be a non-empty string");
@@ -348,8 +370,13 @@ export class SettingsStore {
     return this.stored().model;
   }
 
-  provider(): KeyProviderId {
+  provider(): VendorId {
     return this.stored().provider;
+  }
+
+  /** Which route runs a model a sign-in and a key can both run. */
+  routeOrder(): RouteOrder {
+    return this.stored().routeOrder;
   }
 
   effort(): Effort {
