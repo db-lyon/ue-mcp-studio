@@ -23,12 +23,12 @@ afterEach(() => {
 const daemon = {} as never;
 
 describe("Settings sections", () => {
-  it("groups the seven sections under Work and Project and Studio", async () => {
+  it("puts General first, then groups the rest under Work and Project", async () => {
     await act(async () => void render(<SettingsHub daemon={daemon} section="usage" onSection={vi.fn()} onTheme={vi.fn()} />));
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
-    expect([...nav.querySelectorAll(".cfg-rail-label")].map((e) => e.textContent)).toEqual(["Work", "Project and Studio"]);
+    expect([...nav.querySelectorAll(".cfg-rail-label")].map((e) => e.textContent)).toEqual(["Studio", "Work", "Project"]);
     expect([...nav.querySelectorAll(".cfg-rail-text > span:first-child")].map((e) => e.textContent)).toEqual([
-      "Agents", "Models & accounts", "Approvals & review", "Project", "Usage", "General", "Diagnostics",
+      "General", "Agents", "Models & accounts", "Approvals & review", "Project", "Usage", "Diagnostics",
     ]);
     expect(screen.getByText("UsageSection body")).toBeTruthy();
   });

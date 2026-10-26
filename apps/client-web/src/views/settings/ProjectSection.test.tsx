@@ -41,7 +41,7 @@ describe("Project > context strategy for other clients", () => {
     expect(screen.getByText("~19k tokens")).toBeTruthy();
     expect(screen.getByText(/Applies to Claude Code on this project/)).toBeTruthy();
     // ue-mcp.yml serves every client: the shared badge says so.
-    expect(screen.getAllByText("Shared with other clients")).toHaveLength(1);
+    expect(screen.queryByText("Shared with other clients")).toBeNull();
   });
 
   it("saves a strategy and says when clients get it", async () => {

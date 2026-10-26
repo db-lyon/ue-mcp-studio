@@ -13,7 +13,7 @@ import {
 } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { Head } from "../SettingsHub";
-import { Card, NumberField, Opt, Row, Seg, Shared, Switch, useMessage } from "./controls";
+import { Card, NumberField, Opt, Row, Seg, Switch, useMessage } from "./controls";
 
 
 const RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [{ id: "ask", name: "Ask" }, { id: "allow", name: "Allow" }];
@@ -78,22 +78,22 @@ export function ApprovalsSection() {
             ? <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
             : <span className="dim small">Update Studio to choose this.</span>}
         </Row>
-        <p className="cfg-note">Reading files, searching the web and every other ue-mcp action never ask.</p>
+        <p className="cfg-note">All other actions run without asking.</p>
       </Card>
 
       <Card label="Feedback reports">
-        <Row inline title="Agents can report gaps in ue-mcp's tools" badge={<Shared />} help="Filed as GitHub issues on ue-mcp. Changing this restarts ue-mcp after the turn in progress.">
+        <Row inline title="Agents can report gaps in ue-mcp's tools" help="Filed as GitHub issues on ue-mcp. Changing this restarts ue-mcp after the turn in progress.">
           <Switch label="Agents can report gaps in ue-mcp's tools" on={agent.feedbackTool} onChange={(v) => void saveAgent({ feedbackTool: v })} />
         </Row>
         {agent.feedbackTool && (
-          <Row title="Before a report is filed" badge={<Shared />} help={agent.feedbackMode ? FEEDBACK_MODES.find((f) => f.id === agent.feedbackMode!.mode)?.about : "Update ue-mcp to choose this from Studio."}>
+          <Row title="Before a report is filed" help={agent.feedbackMode ? FEEDBACK_MODES.find((f) => f.id === agent.feedbackMode!.mode)?.about : "Update ue-mcp to choose this from Studio."}>
             {agent.feedbackMode && <Seg label="Before a report is filed" value={agent.feedbackMode.mode} options={FEEDBACK_MODES} onChange={(v) => void saveAgent({ feedbackMode: v })} />}
           </Row>
         )}
       </Card>
 
       <Card label="Editor dialogs">
-        <Row title="Who answers a dialog an agent's call opens" badge={<Shared />} help="A dialog in the editor stops every call until it is answered." />
+        <Row title="Who answers a dialog an agent's call opens" help="A dialog in the editor stops every call until it is answered." />
         {agent.dialogMode ? (
           <div className="opts">
             {DIALOG_MODES.map((d) => (
@@ -111,8 +111,8 @@ export function ApprovalsSection() {
         )}
       </Card>
 
-      <Card label="After it acts">
-        <Row inline title="Review each turn" help="Studio takes a checkpoint before and after each turn and lists what it changed, so you can keep or revert each file. A session's Checkpoints panel can turn it off for that session. Assigning a playtest to a helper needs it on.">
+      <Card label="Turn review">
+        <Row inline title="Review each turn" help="Keep or revert each file a turn changed. Turn it off for one session in its Checkpoints panel. Assigning a playtest to a helper requires it.">
           <Switch label="Review each turn" on={settings.reviewTurns !== false} onChange={(v) => void save({ reviewTurns: v })} />
         </Row>
       </Card>
