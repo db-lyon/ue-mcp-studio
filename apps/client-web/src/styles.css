@@ -1577,7 +1577,13 @@ button.qa-meta-session.link > span[aria-hidden="true"] { flex-shrink: 0; }
 .qa-scroll-cues > button.qa-scroll-cue { flex: 1 1 0; }
 .qa-scroll-cues > button.qa-scroll-cue:disabled { display: none; }
 .qa-needs-you ul { margin: 0; padding-left: 0; list-style: none; }
-.playtest-strip.many.needs-you { max-height: 66%; }
+/* Several on a 380 px strip: each collapsed card is a compact row (no path, text to one or two lines), so two that need you fit in half the panel. */
+@media (max-width: 760px) {
+  .playtest-strip.many .qa-card.dense.collapsed .qa-path-wrap { display: none; }
+  .playtest-strip.many .qa-card.dense.collapsed { padding: 8px 10px; gap: 4px; }
+  .playtest-strip.many .qa-card.dense.collapsed .qa-answer.needs .qa-answer-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+  .playtest-strip.many .qa-card.dense.collapsed .qa-answer:not(.needs) .qa-answer-text { -webkit-line-clamp: 1; }
+}
 /* The focused bar's name takes its own line under the path, so it covers nothing. */
 .qa-path-caption { position: static; margin-top: 4px; }
 /* Review of the after shots (#72). */
