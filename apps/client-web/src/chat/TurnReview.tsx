@@ -93,7 +93,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
             <div className="review-group-label small dim">{label}</div>
             <ul className="review-items">
               {items.map((it) => (
-                <li key={it.path} className={`review-item state-${it.state}`} data-path={it.path}>
+                <li key={it.path} className={`review-item state-${it.state}${open === it.path ? " open" : ""}`} data-path={it.path}>
                   <div className="review-item-row">
                     <button className="ghost review-item-name" aria-expanded={open === it.path} onClick={() => setOpen(open === it.path ? null : it.path)} title={it.path}>
                       <EngineText text={fileName(it.path)} />

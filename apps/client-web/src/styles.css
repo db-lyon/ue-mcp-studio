@@ -1128,11 +1128,15 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .review-group-label { text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
 .review-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .review-item { border-left: 2px solid var(--line-strong); padding: 4px 4px 4px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.review-item.state-pending { border-left-color: var(--accent-line); }
 .review-item.state-kept { border-left-color: var(--ok); }
 .review-item.state-reverted { border-left-color: var(--dim); }
 .review-item.state-reverted .review-item-name { text-decoration: line-through; color: var(--muted); }
 .review-item-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .review-item-name { padding: 0; font-weight: 600; overflow-wrap: break-word; text-align: left; min-width: 0; }
+/* The theme's accent marks what still waits for a decision and the item open now, so each theme reads as its own. */
+.review-item-name[aria-expanded="true"] { color: var(--accent); }
+.review-item.open { background: var(--accent-wash); }
 .review-item-path { overflow-wrap: break-word; }
 .review-conflict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .review-diff { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
