@@ -283,7 +283,7 @@ export interface QaCardActions {
   /** Assign to subagent, for a run whose card is in no session yet. */
   assign?: () => Promise<{ run: QaRun }>;
   /** Edit and Delete for any saved script: its steps as saved, then pie(script_update) or pie(script_delete). */
-  script?: { read: () => Promise<QaRun>; save: (steps: QaScriptStep[]) => Promise<void>; remove: () => Promise<void> };
+  script?: { read: () => Promise<QaRun>; save: (steps: QaScriptStep[], map?: string) => Promise<void>; remove: () => Promise<void> };
 }
 
 /** A pill's words while the editor is away: what the run last did, not what it is doing. */
@@ -659,7 +659,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
         </div>
       )}
       {editRun ? (
-        <DraftEditor run={editRun} busy={working} onSave={(steps) => act(() => (scripted ? scripted.save(steps) : api.qaSaveScript(run.runId, steps)))} onCancel={() => setPanel(null)} />
+        <DraftEditor run={editRun} busy={working} onSave={(steps, map) => act(() => (scripted ? scripted.save(steps, map) : api.qaSaveScript(run.runId, steps, map)))} onCancel={() => setPanel(null)} />
       ) : (
       <ol className="qa-steps">
         {run.steps.map((s) => {
@@ -789,8 +789,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
 /** Edit and Delete for a saved script, by its path: the one implementation, in a session's chat and on the Playtests page. */
 export const savedScriptActions = (script: string, after: () => void = () => {}): NonNullable<QaCardActions["script"]> => ({
   read: async () => (await api.qaPlaytestScript(script)).run,
-  save: async (steps) => {
-    await api.qaPlaytestSave(script, steps);
+  save: async (steps, map) => {
+    await api.qaPlaytestSave(script, steps, map);
     after();
   },
   remove: async () => {

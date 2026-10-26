@@ -88,6 +88,8 @@ export interface QaRun {
   /** The script's asset path, or "inline". */
   script: string;
   scriptName: string;
+  /** The level the script starts PIE in, as an asset path; absent when it plays in whatever level is open. */
+  map?: string;
   state: QaRunState;
   steps: QaStep[];
   /** Manual steps waiting for a verdict, by index. */
@@ -545,6 +547,7 @@ export function qaDraftFromScript(answer: unknown, where: { sessionId?: string |
   const path = str(a?.path);
   if (!a || !path || !Array.isArray(a.steps)) return null;
   const within = int(a.default_within_ms) ?? 5000;
+  const map = str(a.map);
   const steps: QaStep[] = (a.steps as unknown[]).map((x, index) => {
     const s = obj(x) ?? {};
     const expect = (obj(s.expect) ?? undefined) as QaExpect | undefined;
@@ -564,6 +567,7 @@ export function qaDraftFromScript(answer: unknown, where: { sessionId?: string |
     };
   });
   return {
+    ...(map ? { map } : {}),
     runId: qaDraftId(path),
     script: qaScriptKey(path),
     scriptName: str(a.name) ?? qaScriptKey(path).split("/").pop() ?? path,

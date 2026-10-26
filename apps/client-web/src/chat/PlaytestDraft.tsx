@@ -111,12 +111,17 @@ export function stepsOf(rows: Row[]): QaScriptStep[] {
   });
 }
 
-export function DraftEditor({ run, busy, onSave, onCancel }: { run: QaRun; busy: boolean; onSave: (steps: QaScriptStep[]) => void; onCancel: () => void }) {
+export function DraftEditor({ run, busy, onSave, onCancel }: { run: QaRun; busy: boolean; onSave: (steps: QaScriptStep[], map: string) => void; onCancel: () => void }) {
   const [rows, setRows] = useState<Row[]>(() => qaScriptSteps(run).map(rowOf));
+  const [map, setMap] = useState(run.map ?? "");
   const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const valid = rows.length > 0 && rows.every((r) => r.instruction.trim());
   return (
     <div className="qa-edit" role="group" aria-label="Edit the playtest">
+      <label className="qa-edit-map small">
+        <span className="dim">Level</span>
+        <input className="mono" value={map} placeholder="/Game/Maps/L_Example (empty: the level that is open)" onChange={(e) => setMap(e.target.value)} />
+      </label>
       <ol className="qa-edit-steps">
         {rows.map((r, i) => (
           <li key={i} className="qa-edit-step">
@@ -158,7 +163,7 @@ export function DraftEditor({ run, busy, onSave, onCancel }: { run: QaRun; busy:
         <button className="ghost small-button" onClick={() => setRows([...rows, { instruction: "", judge: "manual", player: "", value: "", op: "eq", target: "", withinMs: "", personOnly: false }])}>Add a step</button>
         <span className="spacer" />
         <button className="ghost small-button" onClick={onCancel}>Cancel</button>
-        <button className="primary small-button" disabled={busy || !valid} onClick={() => onSave(stepsOf(rows))}>Save</button>
+        <button className="primary small-button" disabled={busy || !valid} onClick={() => onSave(stepsOf(rows), map.trim())}>Save</button>
       </div>
     </div>
   );

@@ -1531,3 +1531,5 @@ button.icon-button[aria-expanded="true"] { color: var(--accent-hi); border-color
   .qa-head .qa-toggle { flex: 1 1 100%; min-width: 0; }
   .qa-head .qa-box-actions { margin-left: auto; }
 }
+.qa-edit-map { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.qa-edit-map input { flex: 1; min-width: 0; }

@@ -197,7 +197,7 @@ export const api = {
   qaPlaytests: (fresh = false) => call<PlaytestIndexAnswer>("GET", `/v1/ext/studio/qa/playtests${fresh ? "?fresh=1" : ""}`),
   qaPlaytestCard: (script: string) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/playtests/card", { script }),
   qaPlaytestScript: (script: string) => call<{ run: QaRun }>("GET", `/v1/ext/studio/qa/playtests/script?script=${encodeURIComponent(script)}`),
-  qaPlaytestSave: (script: string, steps: QaScriptStep[]) => call<{ script: string }>("PUT", "/v1/ext/studio/qa/playtests/script", { script, steps }),
+  qaPlaytestSave: (script: string, steps: QaScriptStep[], map?: string) => call<{ script: string }>("PUT", "/v1/ext/studio/qa/playtests/script", { script, steps, ...(map !== undefined ? { map } : {}) }),
   qaPlaytestDelete: (script: string) => call<{ script: string }>("DELETE", `/v1/ext/studio/qa/playtests/script?script=${encodeURIComponent(script)}`),
   qaStatus: (runId: string, sinceSeq?: number) =>
     call<{ answer: Record<string, unknown>; run: QaRun | null }>("GET", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/status${sinceSeq === undefined ? "" : `?since_seq=${sinceSeq}`}`),
@@ -211,7 +211,7 @@ export const api = {
   qaStop: (runId: string) => call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/stop`),
   qaRun: (runId: string, options: { startPie: boolean; players: number; listen: boolean; record: boolean }) =>
     call<{ run: QaRun }>("POST", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/run`, options),
-  qaSaveScript: (runId: string, steps: QaScriptStep[]) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps }),
+  qaSaveScript: (runId: string, steps: QaScriptStep[], map?: string) => call<{ run: QaRun }>("PUT", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`, { steps, ...(map !== undefined ? { map } : {}) }),
   qaDeleteScript: (runId: string) => call<{ run: QaRun }>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/script`),
   qaDismiss: (runId: string) => call<void>("DELETE", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}`),
   qaResultsUrl: (runId: string) => `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/results`,

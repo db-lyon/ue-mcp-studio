@@ -4,7 +4,7 @@
  *   GET    /qa/playtests                 every playtest script with its newest run: { playtests, listed }
  *   POST   /qa/playtests/card            { script }: the card Start playtest and Assign act on, made in a new session when none has one
  *   GET    /qa/playtests/script?script=  Edit: the script's steps as saved
- *   PUT    /qa/playtests/script          Edit saved: { script, steps }, with pie(script_update)
+ *   PUT    /qa/playtests/script          Edit saved: { script, steps, map? }, with pie(script_update)
  *   DELETE /qa/playtests/script?script=  Delete: pie(script_delete)
  *
  * Three sources make the list. The scripts are pie(script_list), which needs
@@ -255,11 +255,11 @@ export class PlaytestIndex {
 
   /** Edit saved on any script: the next list reads it again. */
   async saveScript(req: unknown): Promise<{ script: string } | { error: string; status: number }> {
-    const b = (req ?? {}) as { script?: unknown; steps?: unknown };
+    const b = (req ?? {}) as { script?: unknown; steps?: unknown; map?: unknown };
     const script = scriptOf(b.script);
     if (!script) return { error: "body must be { script: <asset path>, steps: [...] }", status: 400 };
     if (!this.o.host.editors().some((e) => e.connected)) return { error: "the editor is not connected, so the script cannot be saved", status: 409 };
-    const r = await this.o.broker.saveScriptAt(script, b.steps);
+    const r = await this.o.broker.saveScriptAt(script, b.steps, b.map);
     this.reads.delete(script);
     return r;
   }
