@@ -25,6 +25,7 @@ const ICONS: Record<SettingsSection, string> = {
 };
 
 const GROUPS: Array<{ label: string; items: Array<{ id: SettingsSection; name: string; sub: string }> }> = [
+  { label: "Studio", items: [{ id: "general", name: "General", sub: "Appearance and updates" }] },
   {
     label: "Work",
     items: [
@@ -34,11 +35,10 @@ const GROUPS: Array<{ label: string; items: Array<{ id: SettingsSection; name: s
     ],
   },
   {
-    label: "Project and Studio",
+    label: "Project",
     items: [
       { id: "project", name: "Project", sub: "ue-mcp for every client on this project" },
       { id: "usage", name: "Usage", sub: "Budgets and what agents spend" },
-      { id: "general", name: "General", sub: "Appearance and updates" },
       { id: "diagnostics", name: "Diagnostics", sub: "Editor and daemon status, logs" },
     ],
   },
@@ -116,7 +116,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
 }) {
   const { dots, lines } = useSectionStatus(updates, daemon);
   // Wide always shows a section; narrow starts on the list.
-  const open: SettingsSection | null = section ?? (narrow ? null : "agents");
+  const open: SettingsSection | null = section ?? (narrow ? null : "general");
   let body: ReactNode = null;
   if (open === "agents") body = <AgentsSection onSection={onSection} />;
   else if (open === "models") body = <ModelsSection />;
