@@ -54,7 +54,7 @@ function mount(run: QaRun, live: Partial<QaLive> = {}) {
   return { ...r, update, push: (...e: DaemonEvent[]) => update({ events: [...cur.events, ...e] }) };
 }
 
-const step = (n: number) => screen.getAllByRole("listitem")[n];
+const step = (n: number) => document.querySelectorAll<HTMLElement>(".qa-step")[n];
 
 describe("the checklist card", () => {
   it("is titled Playtest and lists each step's instruction, judge and status", () => {
@@ -63,9 +63,9 @@ describe("the checklist card", () => {
     expect(screen.getByText("Playtest")).toBeTruthy();
     expect(screen.getByRole("group", { name: "Playtest DoorOpens" })).toBeTruthy();
     expect(step(0).textContent).toContain("Walk up to the door");
-    expect(within(step(0)).getByText("auto")).toBeTruthy();
-    expect(within(step(2)).getByText("manual")).toBeTruthy();
-    expect(screen.getAllByRole("listitem").map((li) => li.getAttribute("data-status"))).toEqual(["pending", "pending", "pending"]);
+    expect(within(step(0)).getByText("Observer")).toBeTruthy();
+    expect(within(step(2)).getByText("Person")).toBeTruthy();
+    expect([...document.querySelectorAll(".qa-step")].map((li) => li.getAttribute("data-status"))).toEqual(["pending", "pending", "pending"]);
     expect(within(step(0)).getByText("To come")).toBeTruthy();
     expect(step(1).textContent).toContain("Door.OpenAngle gt 80, within 5000 ms");
   });
@@ -281,7 +281,7 @@ describe("assigning the playtest to a subagent", () => {
     const steps = [{ ...STEPS[0], status: "passed" }, { ...STEPS[1], status: "passed" }, { ...STEPS[2], agent_judgeable: false, status: "awaiting_verdict" }];
     mount(runOf({ state: "awaiting_verdict", steps }));
     expect(screen.queryByRole("button", { name: "Assign to subagent" })).toBeNull();
-    expect(within(step(2)).getByText("yours")).toBeTruthy();
+    expect(within(step(2)).getByText("Person only")).toBeTruthy();
   });
 
   it("badges the agent's verdict, shows its evidence on hover and expanded, and overrides it with one click", async () => {
@@ -347,11 +347,12 @@ describe("the collapsed card", () => {
     expect(within(bars[2]).getByRole("button").getAttribute("aria-label")).toBe("Step 3, person, To come");
   });
 
-  it("opens to the full card on a click, and closes again from its title", () => {
+  it("opens to the full card on a click, keeping its path and summary, and closes again from its title", () => {
     collapsed(runOf());
     fireEvent.click(screen.getByRole("button", { name: "Open playtest DoorOpens" }));
     expect(screen.getByText("Walk up to the door")).toBeTruthy();
-    expect(screen.queryByRole("list", { name: "Steps" })).toBeNull();
+    expect(screen.getByRole("list", { name: "Steps" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open playtest DoorOpens" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /DoorOpens/, expanded: true }));
     expect(screen.queryByText("Walk up to the door")).toBeNull();
   });
@@ -388,13 +389,20 @@ describe("the collapsed card", () => {
     expect(m.qaVerdict).toHaveBeenCalledWith(RUN, 2, "pass", undefined);
   });
 
-  it("opens on the waiting step with its note box when the verdict is Fail", () => {
+  it("asks what went wrong in the box itself when the verdict is Fail, and sends the note with it", async () => {
+    m.qaVerdict.mockResolvedValue({ run: runOf({ state: "running" }) });
     const steps = STEPS.map((s, i) => ({ ...s, status: i === 2 ? "awaiting_verdict" : "passed" }));
     collapsed(runOf({ state: "awaiting_verdict", steps, awaiting: [2] }));
     fireEvent.click(screen.getByRole("button", { name: "Fail step 3" }));
-    expect(screen.getByRole("button", { name: /DoorOpens/, expanded: true })).toBeTruthy();
-    expect(screen.getByLabelText("What went wrong?")).toBe(document.activeElement);
+    expect(screen.getByRole("button", { name: /DoorOpens/, expanded: false })).toBeTruthy();
+    const ask = screen.getByRole("group", { name: "Step 3 needs you" });
+    expect(within(ask).getByLabelText("What went wrong?")).toBe(document.activeElement);
     expect(m.qaVerdict).not.toHaveBeenCalled();
+    fireEvent.change(within(ask).getByLabelText("What went wrong?"), { target: { value: "It pops" } });
+    await act(async () => {
+      fireEvent.click(within(ask).getByRole("button", { name: "Submit" }));
+    });
+    expect(m.qaVerdict).toHaveBeenCalledWith(RUN, 2, "fail", "It pops");
   });
 
   it("asks about the next waiting step, and offers the rest in the full card", () => {

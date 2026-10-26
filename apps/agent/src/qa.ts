@@ -9,13 +9,13 @@
  *   DELETE /qa/runs/:id/assign          cancel the loop
  *   POST   /qa/runs/:id/loop/revert     revert the loop's changes: { attempt? }, every attempt's when none is named
  *   POST   /qa/runs/:id/stop            Stop on a live card: pie(script_stop)
- *   POST   /qa/runs/:id/run             Start Playtest on a draft's card: { startPie?, players?, listen?, record? }
+ *   POST   /qa/runs/:id/run             Start playtest on a draft's card: { startPie?, players?, listen?, record? }
  *   PUT    /qa/runs/:id/script          Edit on a draft's card: { steps }, saved with pie(script_update)
  *   DELETE /qa/runs/:id/script          Delete on a draft's card: pie(script_delete)
  *   DELETE /qa/runs/:id                 take a finished run started elsewhere off the chat
  *
  * A script a session's pie(script_create) or pie(script_update) saves is a
- * draft card in that session: its steps, unrun. Start Playtest, or a run of that script
+ * draft card in that session: its steps, unrun. Start playtest, or a run of that script
  * the session starts any other way, turns the same card live. Each step may
  * carry a player (host or client <n>); Studio keeps it, since ue-mcp's steps
  * have none, and takes it out before the call. Under the Manual Playtest runs
@@ -111,7 +111,7 @@ export interface QaBrokerOptions {
   now?: () => string;
 }
 
-/** How a draft's Start Playtest starts it. */
+/** How a draft's Start playtest starts it. */
 export interface QaRunOptions {
   /** Start PIE, or use the one running. */
   startPie?: boolean;
@@ -237,7 +237,7 @@ export class QaBroker {
         return r;
       }
       if (category !== "pie" || !STARTS.has(action)) return host.callAction(category, action, args);
-      // Manual: the agent's own run is refused; the card's Start Playtest and an assigned subagent are the user's.
+      // Manual: the agent's own run is refused; the card's Start playtest and an assigned subagent are the user's.
       if (!opts.assigned && this.o.playtests?.runs() === "manual") return refusedRun();
       const call: Inflight = { sessionId, action };
       this.inflight.push(call);
@@ -357,7 +357,7 @@ export class QaBroker {
     let had = this.runs.get(runId);
     // A verdict on a draft's manual step starts its manual run first, which takes the card.
     if (had && qaIsDraft(had)) {
-      if (had.steps.find((s) => s.index === b.step)?.judge !== "manual") return { error: "only a manual step takes a verdict before Start Playtest", status: 409 };
+      if (had.steps.find((s) => s.index === b.step)?.judge !== "manual") return { error: "only a manual step takes a verdict before Start playtest", status: 409 };
       const started = await this.startManual(had);
       if ("error" in started) return started;
       had = started.run;
@@ -439,7 +439,7 @@ export class QaBroker {
   }
 
   /**
-   * Start Playtest on a draft's card: PIE set to the players asked for, then
+   * Start playtest on a draft's card: PIE set to the players asked for, then
    * pie(script_run) of its script. The run takes the draft's card, so the same
    * card goes live. Auto steps watch the player the first of them is for.
    */
@@ -449,9 +449,9 @@ export class QaBroker {
     if (!qaIsDraft(run) && !qaEnded(run.state) && !run.manual) return { error: "the playtest is running", status: 409 };
     const sessionId = run.sessionId;
     if (!sessionId) return { error: "the playtest has no session", status: 409 };
-    // Start Playtest on a manual run's card: that run ends, with the verdicts it has, and a full run with PIE takes the card.
+    // Start playtest on a manual run's card: that run ends, with the verdicts it has, and a full run with PIE takes the card.
     if (run.manual && !qaEnded(run.state)) {
-      const stop = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Start Playtest started a full run" });
+      const stop = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Start playtest started a full run" });
       const error = failure(stop, json(stop));
       if (error) return { error: `the manual run could not be ended: ${error}`, status: 409 };
     }

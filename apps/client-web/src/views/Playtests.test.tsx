@@ -91,7 +91,7 @@ describe("the Playtests page", () => {
     const { reload } = page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
     await act(async () => {
-      fireEvent.click(within(row("Fresh")).getByRole("button", { name: "Start Playtest" }));
+      fireEvent.click(within(row("Fresh")).getByRole("button", { name: "Start playtest" }));
     });
     expect(m.qaPlaytestCard).toHaveBeenCalledWith("/Game/T/Fresh");
     expect(m.qaRun).toHaveBeenCalledWith(card.runId, { startPie: true, players: 1, listen: false, record: true });
@@ -147,24 +147,25 @@ describe("the Playtests page", () => {
     expect(screen.getByText(/No playtest is failing/)).toBeTruthy();
   });
 
-  it("keeps every row's actions in the same slots, in the same order, whichever it offers", () => {
+  it("keeps every row's actions in one place, the end of the row under its path, in one order", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
     for (const name of ["Door", "Jump", "Walk", "Fresh"]) {
       const card = row(name);
-      expect(card.className).toContain("slotted");
-      expect([...card.querySelectorAll(".qa-actions > .qa-slot")].map((el) => el.className.replace("qa-slot ", ""))).toEqual(["qa-slot-run", "qa-slot-assign", "qa-slot-extra"]);
-      expect(card.querySelector(".qa-states")).toBeTruthy();
+      expect(card.querySelector(".qa-head button.small-button")).toBeNull();
+      expect(card.querySelector(".qa-compact .qa-box-actions")).toBeTruthy();
     }
-    expect(within(row("Walk").querySelector<HTMLElement>(".qa-slot-run")!).getByRole("button", { name: "Run again" })).toBeTruthy();
-    expect(within(row("Jump").querySelector<HTMLElement>(".qa-slot-assign")!).getByRole("button", { name: "Assign to subagent" })).toBeTruthy();
+    const order = (name: string) => [...row(name).querySelectorAll(".qa-box-actions button")].map((b) => b.textContent);
+    expect(order("Walk")[0]).toBe("Run again");
+    expect(order("Jump")).toContain("Assign to subagent");
   });
 
   it("says its states are the last known while the editor is away, at full strength", () => {
     page({ playtests: [ENTRIES[0]], listed: false });
     const card = row("Door");
     expect(card.querySelector(".qa-compact-summary")!.textContent).toMatch(/^Last known: /);
-    expect(within(card).getByRole("status").textContent).toBe("Needs you");
+    // What it last did, in neutral words: nothing on the page reads as live.
+    expect(within(card).getByRole("status").textContent).toBe("Was waiting");
     expect((within(card).getByRole("button", { name: "Pass step 2" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -185,7 +186,7 @@ describe("the Playtests page", () => {
     expect(onChat).toHaveBeenCalled();
   });
 
-  it("offers no Start Playtest on a script that is gone", () => {
+  it("offers no Start playtest on a script that is gone", () => {
     page({ playtests: [{ ...ENTRIES[2], deleted: true }], listed: true });
     expect(within(row("Walk")).queryByRole("button", { name: "Run again" })).toBeNull();
     expect(row("Walk").querySelector(".qa-meta")?.textContent).toMatch(/^Script deleted. Ran /);

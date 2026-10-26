@@ -38,7 +38,7 @@ describe("the Playtest runs line", () => {
     expect(line).toMatch(/Starting playtests is set to Manual in Settings > Approvals & review/);
     expect(line).toMatch(/Never call pie\.script_run or pie\.script_replay; Studio refuses them/);
     expect(line).toMatch(/set Starting playtests to Automatic/);
-    expect(PLAYTEST_RUNS_REFUSAL).toBe("Starting playtests is set to Manual in Settings > Approvals & review. Click Start Playtest on the card to start it.");
+    expect(PLAYTEST_RUNS_REFUSAL).toBe("Starting playtests is set to Manual in Settings > Approvals & review. Click Start playtest on the card to start it.");
   });
 
   it("under Automatic, may run it with pie.script_run", () => {

@@ -180,13 +180,15 @@ export function PlaytestStrip({ runs, onHide }: { runs: QaRun[]; onHide: (r: QaR
           ))}
           {rest.length > 0 && (
             <button className="small-button strip-more" onClick={() => setAll(true)} aria-label={`Show ${rest.length} more: ${rest.map((r) => r.scriptName).join(", ")}`}>
-              Show {rest.length} more:{" "}
-              {rest.map((r, i) => (
-                <Fragment key={r.runId}>
-                  {i > 0 && ", "}
-                  <span>{r.scriptName} <span className={`strip-more-state ${qaNeedsYou(r) ? "warn" : ""}`}>({pinnedState(r).replace(/^is /, "")})</span></span>
-                </Fragment>
-              ))}
+              <span className="strip-more-label">Show {rest.length} more</span>
+              <span className="strip-more-names">
+                {rest.map((r, i) => (
+                  <Fragment key={r.runId}>
+                    {i > 0 && ", "}
+                    {r.scriptName} <span className={`strip-more-state ${qaNeedsYou(r) ? "warn" : ""}`}>({pinnedState(r).replace(/^is /, "")})</span>
+                  </Fragment>
+                ))}
+              </span>
             </button>
           )}
           {all && runs.length > Math.max(first, you.length) && (

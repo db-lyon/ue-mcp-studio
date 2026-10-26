@@ -2,7 +2,7 @@
  * The project's playtests in one place: every PIE test script, each with its
  * newest run as a step path, when it ran and in which session (or outside
  * Studio). Filters narrow it to what needs the user and what is failing. Each
- * row is the playtest's card: Start Playtest, Assign to subagent and the full
+ * row is the playtest's card: Start playtest, Assign to subagent and the full
  * card work as they do in a session, and Open in session goes to the card
  * there. A script no session has gets a session of its own on its first action.
  */
@@ -111,7 +111,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
     <div className="playtests-page">
       <div className="playtests-head">
         <h1 className="playtests-title">Playtests</h1>
-        <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} known while the editor is away`) : ""}</span>
+        <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} known`) : ""}{index?.listed !== false && counts["needs-you"] > 0 && <span className="playtests-waiting" title="The number on the Playtests tab"> · {counts["needs-you"]} need{counts["needs-you"] === 1 ? "s" : ""} you</span>}</span>
         <span className="spacer" />
         <button className="small-button" onClick={() => reload(true)} title="List the project's scripts again">Refresh</button>
       </div>

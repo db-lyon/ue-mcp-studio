@@ -51,9 +51,10 @@ describe("the loop on the playtest card", () => {
       blocker: { kind: "no_progress", step: 0, reason: "No progress: Step 1 fails the same way on two attempts in a row after a change.", evidence: ["Step 1 (Open the door) failed. Door.OpenAngle never went above 80."] },
     })));
     expect(screen.getByRole("status", { name: "Loop: Needs you" }).textContent).toBe("Needs you");
-    const alert = screen.getByRole("alert");
-    expect(alert.textContent).toMatch(/Needs you\. No progress: Step 1 fails the same way/);
-    expect(within(alert).getByText(/Door\.OpenAngle never went above 80/)).toBeTruthy();
+    // The reason once, in the box under the path; what it saw in the loop's panel.
+    expect(screen.getAllByText(/No progress: Step 1 fails the same way/)).toHaveLength(1);
+    expect(screen.getByText(/Door\.OpenAngle never went above 80/)).toBeTruthy();
+    expect(screen.getByText(/paused after 2 attempts, waiting for you/)).toBeTruthy();
     expect(document.querySelector(".qa-card.needs-you")).toBeTruthy();
     expect(document.querySelector(`[data-run-id="${RUN}"]`)).toBeTruthy();
   });
@@ -69,13 +70,13 @@ describe("the loop on the playtest card", () => {
     expect(screen.queryByRole("button", { name: "Assign to subagent" })).toBeNull();
   });
 
-  it("reverts one attempt, or every attempt with Revert all", async () => {
+  it("reverts one attempt, or every attempt with Revert every attempt", async () => {
     const loop = loopOf({ state: "stopped", attempts: [attempt(1, [{ path: "Content/A.uasset", status: "modified" }]), attempt(2, [{ path: "Content/B.uasset", status: "added" }])] });
     m.qaRevertLoop.mockResolvedValue({ run: runOf(loop), outcome: { restored: [], conflicts: [], missing: [] } });
     mount(runOf(loop));
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Revert attempt 2" })));
     expect(m.qaRevertLoop).toHaveBeenCalledWith(RUN, 2);
-    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Revert all" })));
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Revert every attempt" })));
     expect(m.qaRevertLoop).toHaveBeenLastCalledWith(RUN, undefined);
   });
 
@@ -85,14 +86,14 @@ describe("the loop on the playtest card", () => {
     mount(runOf(loop));
     expect(screen.getByRole("status", { name: "Loop: Attempt 2" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /^Revert/ })).toBeNull();
-    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Cancel the loop" })));
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "End the loop" })));
     expect(m.qaCancelAssign).toHaveBeenCalledWith(RUN);
   });
 
   it("opens each attempt's thread", () => {
     const onThread = vi.fn();
     mount(runOf(loopOf({ state: "passed", attempts: [attempt(1, [])] })), { onThread });
-    fireEvent.click(screen.getByRole("button", { name: "Thread" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open attempt 1's thread" }));
     expect(onThread).toHaveBeenCalledWith("studio_1");
   });
 
