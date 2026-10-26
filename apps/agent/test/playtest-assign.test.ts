@@ -270,7 +270,7 @@ describe("the card's assignment", () => {
 
   it("finds an assignment from an earlier daemon stopped, its loop too", () => {
     const s = store.create();
-    const loop = { id: "l1", state: "running" as const, attempts: [], baseline: "b", budget: { minutes: 1, tokens: 1 }, tokens: 0, startedAt: "x" };
+    const loop = { id: "l1", state: "running" as const, attempts: [], baseline: "b", startedAt: "x" };
     s.transcript.push({ kind: "qa", run: { ...runOf({}, s.id), assignment: { callId: "studio_4", sessionId: s.id, state: "running", at: "x", loop } } });
     store.save(s);
     const a = brokerWith().get(RUN)?.assignment;

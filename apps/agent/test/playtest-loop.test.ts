@@ -12,7 +12,7 @@ import type { ActionResult } from "ue-mcp/daemon";
 import { PLAYTEST_RUNS_REFUSAL, qaNeedsYou, qaRunFromAnswer, type QaLoop, type QaRun, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { SessionStore } from "../src/sessions.js";
 import { QaBroker, type QaAssigner, type QaHost } from "../src/qa.js";
-import { decide, failingSteps, firstBrief, fixBrief, reportedBlocker } from "../src/playtest-loop.js";
+import { decide, failingSteps, firstBrief, fixBrief, MAX_ATTEMPTS, reportedBlocker } from "../src/playtest-loop.js";
 import { fakeLoopSupport, until, type FakeLoopSupport } from "./loop-fakes.js";
 import type { AgentHost } from "../src/tools.js";
 
@@ -104,7 +104,6 @@ interface Harness {
   sessionId: string;
   prompts: string[];
   stops: string[];
-  tokens: Map<string, number>;
   card(): QaRun;
   loop(): QaLoop;
 }
@@ -125,7 +124,6 @@ function setup(plan: Attempt[], opts: { steps?: Array<Record<string, unknown>>; 
   const assigned = broker.wrap(h, s.id, { assigned: true });
   const prompts: string[] = [];
   const stops: string[] = [];
-  const tokens = new Map<string, number>();
   const stoppers = new Map<string, () => void>();
   let n = 0;
   const assigner: QaAssigner = {
@@ -165,11 +163,10 @@ function setup(plan: Attempt[], opts: { steps?: Array<Record<string, unknown>>; 
       stoppers.get(callId)?.();
       return true;
     },
-    tokens: (callId) => tokens.get(callId) ?? 0,
   };
   broker.setAssigner(assigner);
   const card = () => store.get(s.id)!.transcript.flatMap((t) => (t.kind === "qa" ? [t.run] : [])).pop()!;
-  return { broker, sessionId: s.id, prompts, stops, tokens, card, loop: () => card().assignment!.loop! };
+  return { broker, sessionId: s.id, prompts, stops, card, loop: () => card().assignment!.loop! };
 }
 
 const ended = (h: Harness) => until(() => !!h.card().assignment?.loop && h.loop().state !== "running");
@@ -220,12 +217,12 @@ describe("the loop", () => {
     steps = [{ ...STEPS[0], act: [{ goto: "Door" }, { inject_input: "IA_Interact" }] }];
     const run = qaRunFromAnswer(answerOf("r", [OPEN_FAIL]), { sessionId: "s", seenAt: "x" })!;
     expect(run.steps[0].act).toBeTruthy();
-    const brief = firstBrief(run, { minutes: 5, tokens: 10 });
+    const brief = firstBrief(run);
     expect(brief).toMatch(/the engine acts/);
     expect(brief).toMatch(/Steps 0 carry their own act/);
     expect(brief).toMatch(/No auto step needs you to drive the pawn/);
     steps = STEPS;
-    expect(firstBrief(qaRunFromAnswer(answerOf("r", [OPEN_FAIL]), { sessionId: "s", seenAt: "x" })!, { minutes: 5, tokens: 10 })).toMatch(/pie\.inject_input/);
+    expect(firstBrief(qaRunFromAnswer(answerOf("r", [OPEN_FAIL]), { sessionId: "s", seenAt: "x" })!)).toMatch(/pie\.inject_input/);
   });
 });
 
@@ -354,27 +351,13 @@ describe("the hard blockers", () => {
     expect(h.stops).toEqual(["studio_2"]);
   });
 
-  it("the token budget is spent: the running attempt stops", async () => {
-    support.budgetNow = { minutes: 60, tokens: 1000 };
-    const h = setup([{ hang: true }]);
+  it("it still fails after the most attempts a loop makes", async () => {
+    const plan: Attempt[] = Array.from({ length: MAX_ATTEMPTS }, (_, i) => ({ run: [{ status: "failed", evidence: { at_end: 10, reason: `x${i}` } } as StepState, PASS], files: { a: String(i) } }));
+    const h = setup(plan);
     await assign(h);
-    h.tokens.set("studio_1", 1500);
     await ended(h);
-    expect(h.loop()).toMatchObject({ state: "needs_you", blocker: { kind: "budget" } });
-    expect(h.loop().blocker!.reason).toBe("The loop's token budget is spent: 1500 of 1000 tokens.");
-    expect(h.stops).toEqual(["studio_1"]);
-    expect(h.loop().tokens).toBe(1500);
-  });
-
-  it("the time budget is spent", async () => {
-    let t = Date.parse("2026-10-24T10:00:00.000Z");
-    support.now = () => t;
-    support.budgetNow = { minutes: 30, tokens: 1_000_000 };
-    const h = setup([{ hang: true }]);
-    await assign(h);
-    t += 31 * 60_000;
-    await ended(h);
-    expect(h.loop()).toMatchObject({ state: "needs_you", blocker: { kind: "budget", reason: "The loop's time budget is spent: 30 minutes." } });
+    expect(h.loop()).toMatchObject({ state: "needs_you", blocker: { kind: "attempts", reason: `The playtest still fails after ${MAX_ATTEMPTS} attempts.` } });
+    expect(h.loop().attempts).toHaveLength(MAX_ATTEMPTS);
   });
 });
 
@@ -485,7 +468,7 @@ describe("judging an attempt", () => {
 
   it("tells a later attempt why each step failed, and to run again", () => {
     const r = run([OPEN_FAIL, { status: "failed", note: "It popped", verdict_source: "agent", evidence: { note: "It popped", captures: ["C:/P/Saved/a.png"] } }]);
-    const b = fixBrief(r, 3, failingSteps(r), { minutes: 5, tokens: 10 });
+    const b = fixBrief(r, 3, failingSteps(r));
     expect(b).toMatch(/attempt 3 of a loop/);
     expect(b).toMatch(/Step 2 \(The door opens smoothly\) failed\. Note: It popped Captures: C:\/P\/Saved\/a\.png/);
     expect(b).toMatch(/editor_restart \(operation rebuild\)/);

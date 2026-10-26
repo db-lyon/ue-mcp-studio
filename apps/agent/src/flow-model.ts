@@ -9,7 +9,6 @@
  */
 import type { Effort } from "@ue-mcp-studio/shared";
 import type { MessageParam, ModelProvider } from "./providers.js";
-import type { TokenUsage } from "./usage.js";
 
 /** Set by the release bundle: false leaves the Agent SDK out of it. Unset in development and tests. */
 declare const __CLAUDE_SIGN_IN__: boolean | undefined;
@@ -42,8 +41,6 @@ export interface FlowModelOptions {
   subscription: () => boolean;
   /** The provider for every other route. Throws with how to connect one when none can run the model. */
   provider: () => ModelProvider;
-  /** One flow step's call, for the usage ledger. */
-  record?: (model: string, usage: TokenUsage | undefined, durationMs: number) => void;
 }
 
 /** The system prompt's line that asks for JSON matching the schema. */
@@ -127,7 +124,6 @@ export function studioFlowModel(o: FlowModelOptions): { complete(req: FlowComple
       const model = o.model();
       const system = systemOf(req);
       const signal = req.signal ?? new AbortController().signal;
-      const started = Date.now();
       let text: string;
       if (o.subscription()) {
         // A dynamic import the bundler drops when the sign-in is off, and the Agent SDK with it.
@@ -136,14 +132,12 @@ export function studioFlowModel(o: FlowModelOptions): { complete(req: FlowComple
         const r = await sdk.runSubscriptionCompletion({ projectDir: o.projectDir, model, effort: o.effort(), system, prompt: promptOf(req), signal });
         if ("error" in r) throw new Error(r.error);
         text = r.text;
-        o.record?.(model, r.usage, Date.now() - started);
       } else {
         const turn = await o.provider().run(
           { sessionId: "flow", model, effort: o.effort(), system: [{ type: "text", text: system }], tools: [], search: false, messages: messagesOf(req) },
           () => {},
           signal,
         );
-        o.record?.(model, turn.usage, Date.now() - started);
         if (turn.stopReason === "refusal") throw new Error(`The model declined: ${turn.refusal ?? "no reason given"}`);
         text = turn.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
       }

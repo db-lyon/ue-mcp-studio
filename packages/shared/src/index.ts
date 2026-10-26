@@ -6,12 +6,11 @@
 /** Name the agent registers its routes under: /v1/ext/studio/... */
 export const EXTENSION_NAME = "studio";
 
-import type { PlaytestBudget, QaRun } from "./qa.js";
+import type { QaRun } from "./qa.js";
 import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
 import type { AgentContextStrategy, Approvals } from "./composer.js";
-import type { BudgetReached } from "./usage.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -131,8 +130,6 @@ export interface UsageSettings {
   /** Put the project's CLAUDE.md in the agent's instructions, as a terminal client does. */
   projectInstructions: boolean;
   imageSize: ImageSize;
-  /** Stop a turn once it has spent this many tokens, subagents included; null for no limit. */
-  turnTokenLimit: number | null;
   /** How ue-mcp's tools are put to Studio's own agent; auto picks from a measurement when one ships. */
   contextStrategy: AgentContextStrategy;
 }
@@ -144,7 +141,6 @@ export const DEFAULT_USAGE: UsageSettings = {
   subagentsPerTurn: 4,
   projectInstructions: true,
   imageSize: "standard",
-  turnTokenLimit: null,
   contextStrategy: "micro",
 };
 
@@ -240,13 +236,11 @@ export interface ModelCatalog {
   }>;
 }
 
-/** A custom endpoint's model: listed by its /models or typed, with the user's own optional price. */
+/** A custom endpoint's model: listed by its /models or typed. */
 export interface EndpointModel {
   id: string;
   /** Typed by the user rather than listed by the endpoint; kept when the list is read again. */
   typed?: boolean;
-  /** Dollars per million tokens of each kind; null for a kind with no price. Absent: no cost is estimated. */
-  perMTok?: { input: number | null; cacheRead: number | null; cacheWrite: number | null; output: number | null };
 }
 
 /** GET /v1/ext/studio/endpoints: a custom OpenAI-compatible endpoint, its key by presence only. */
@@ -267,7 +261,7 @@ export interface CustomEndpointInput {
   name?: string;
   baseUrl?: string;
   key?: string;
-  /** Replaces the typed models and every price; listed models stay listed. */
+  /** Replaces the typed models; listed models stay listed. */
   models?: EndpointModel[];
 }
 
@@ -342,12 +336,6 @@ export type TranscriptEntry = (
   | { kind: "assistant"; text: string; at: string }
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }
-  /**
-   * What a turn spent, once it ended: input (cache writes included, cache
-   * reads left out) and output tokens, of the main agent and its subagents.
-   * `limit`: the turn token limit that ended it.
-   */
-  | { kind: "usage"; main: number; subagents: number; limit?: number; at: string }
   | { kind: "dialog"; dialog: EditorDialog }
   /** A PIE test script run, drawn as its checklist. Always on the main thread, whoever started it. */
   | { kind: "qa"; run: QaRun }
@@ -425,6 +413,8 @@ export interface SessionDetail extends SessionSummary {
   review?: boolean | null;
   /** The session's checkpoints, oldest first: each reviewed turn, restore and playtest loop attempt. */
   timeline?: TimelineMark[];
+  /** Input and output tokens each agent spent this session: "main", or a subagent's agent call id. */
+  tokens?: Record<string, number>;
 }
 
 /**
@@ -440,8 +430,6 @@ export interface TurnFacts {
   mutations: number;
   targets: TouchedItem[];
   playtest: boolean;
-  /** Tokens the turn has spent, as TurnUsage counts them, by the main agent and by its subagents. */
-  tokens?: { main: number; subagents: number };
   /** Subagents the turn has started. */
   agents?: number;
 }
@@ -454,10 +442,7 @@ export interface ApprovalRequest {
   id: string;
   /** The tool call it belongs to. */
   toolUseId: string;
-  /** budget: a budget in Usage was reached and asks before the next call goes on. */
-  tool: "shell" | "write_file" | "edit_file" | "editor_restart" | "ue_mcp" | "budget";
-  /** budget: which one, what was spent and its limit, in budget tokens. */
-  budget?: BudgetReached;
+  tool: "shell" | "write_file" | "edit_file" | "editor_restart" | "ue_mcp";
   /** The agent call of the subagent that asked, when a subagent did. */
   parent: string | null;
   /** That subagent's short task name. */
@@ -797,8 +782,6 @@ export interface AgentSettings {
   dialogMode: { mode: DialogMode | null; project: boolean } | null;
   /** Playtest runs: who starts a playtest's run. Absent from an older agent. */
   playtestRuns?: PlaytestRunsMode;
-  /** What one Assign to subagent loop may spend before it stops. Absent from an older agent. */
-  playtestBudget?: PlaytestBudget;
   restarting?: boolean;
 }
 
@@ -891,4 +874,3 @@ export * from "./commands.js";
 export * from "./flows.js";
 export * from "./composer.js";
 export * from "./native.js";
-export * from "./usage.js";

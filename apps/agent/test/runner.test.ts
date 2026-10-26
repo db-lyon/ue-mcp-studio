@@ -1055,27 +1055,18 @@ describe("Settings > Agent > Usage", () => {
     expect([main.model, main.effort]).toEqual(["claude-opus-5-5", "high"]);
   });
 
-  it("ends a turn with what it spent, its subagents' share apart", async () => {
+  it("keeps what each agent spent in the session: the main agent and each subagent apart", async () => {
     const requests: ModelRequest[] = [];
     const runner = new AgentRunner({ host, store, provider: () => fanOut(2, requests, 1000), model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic" }) });
     const s = store.create();
     await runner.send(s.id, "two parts");
-    const last = store.get(s.id)!.transcript.at(-1)!;
-    expect(last).toMatchObject({ kind: "usage", main: 2000, subagents: 2000 });
-    expect(last).not.toHaveProperty("limit");
-  });
-
-  it("stops a turn once it passes the token limit, and says so", async () => {
-    const turns = [() => spent(call("c1", "level", "get_outliner"), 30_000), () => spent(call("c2", "level", "get_outliner"), 30_000), () => text("never")];
-    const model = new ScriptedModel(turns);
-    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", usage: () => withUsage({ turnTokenLimit: 50_000 }) });
-    const s = store.create();
-    await runner.send(s.id, "look around");
-    await until(() => store.get(s.id)!.status === "error");
     const fin = store.get(s.id)!;
-    expect(model.requests).toHaveLength(2);
-    expect(fin.error).toContain("past the main agent's per-run budget of 50000 tokens");
-    expect(fin.transcript.find((t) => t.kind === "usage")).toMatchObject({ main: 60_000, subagents: 0, limit: 50_000 });
+    const { main, ...subs } = SessionStore.detail(fin).tokens!;
+    expect(main).toBe(2000);
+    expect(Object.values(subs)).toEqual([1000, 1000]);
+    const agentCalls = fin.transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call.id] : []));
+    expect(Object.keys(subs).sort()).toEqual(agentCalls.sort());
+    expect(fin.transcript.some((t) => (t as { kind: string }).kind === "usage")).toBe(false);
   });
 
   it("puts the project's CLAUDE.md in the prompt as Claude Code reads it, and nothing while the project's own files are off", async () => {

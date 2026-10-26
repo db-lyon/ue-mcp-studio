@@ -1,6 +1,6 @@
 /**
  * Settings grouped by the decision the user makes: approvals, the project's
- * instruction files, budgets, and the context strategy other MCP clients get.
+ * instruction files and the context strategy other MCP clients get.
  * Routes under /v1/ext/studio; plans/agent-composer.md is the design.
  */
 
@@ -44,56 +44,6 @@ export type InstructionScope =
   | { kind: "globs"; globs: string[] }
   /** A file in a subfolder: only once the agent works in that folder. */
   | { kind: "folder"; folder: string };
-
-/* ── Budgets ──────────────────────────────────────────────────────── */
-
-/**
- * What a budget counts, everywhere: input + cache writes + output. Cached
- * reads are excluded (vendors that cache bill them well below fresh input) and
- * reported separately in Usage.
- */
-export const BUDGET_DEFINITION =
-  "Budgets count input, cache writes and output. Cached reads are left out, because they cost far less than fresh input. A run is one turn of the main agent's own calls, or one assigned playtest with every attempt in it.";
-
-export type BudgetLimitAction = "stop-and-report" | "ask" | "fallback-model";
-
-export interface Budget {
-  /** One run: a main agent's turn (its own calls, not its helpers'), or one hand-off to a helper. */
-  perRunTokens: number | null;
-  perRunMinutes: number | null;
-  /** The local calendar day, this machine. */
-  perDayTokens: number | null;
-  onLimit: BudgetLimitAction;
-}
-
-export const NO_BUDGET: Budget = { perRunTokens: null, perRunMinutes: null, perDayTokens: null, onLimit: "stop-and-report" };
-
-/** Every budget, edited in Usage > Budgets only. Per machine, never in a shared file. */
-export interface Budgets {
-  team: { perDayTokens: number | null; perMonthTokens: number | null; onLimit: "ask" | "stop" };
-  agents: Record<string, Budget>;
-  /** The share of any budget at which Studio warns: 0.5 to 0.95. */
-  warnAt: number;
-}
-
-/** The ids budgets use for the two runs Studio had limits for before agents had names. */
-export const MAIN_AGENT_ID = "main";
-export const PLAYTEST_RUNNER_ID = "playtest-runner";
-
-export const DEFAULT_BUDGETS: Budgets = {
-  team: { perDayTokens: null, perMonthTokens: null, onLimit: "ask" },
-  agents: {},
-  warnAt: 0.8,
-};
-
-/** Bounds every budget field is checked against. */
-export const BUDGET_LIMITS = {
-  minTokens: 10_000,
-  maxTokens: 1_000_000_000,
-  maxMinutes: 1440,
-  minWarn: 0.5,
-  maxWarn: 0.95,
-} as const;
 
 /* ── Context strategy for other MCP clients ───────────────────────── */
 

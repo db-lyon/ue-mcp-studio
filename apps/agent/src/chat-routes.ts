@@ -42,7 +42,7 @@ import type { ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport,
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { DEFAULT_MODEL, SettingsStore } from "./settings.js";
-import { EndpointStore, endpointPrices, registerEndpointRoutes } from "./endpoints.js";
+import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
 import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, pickRoute, type SignInCoverage } from "./models.js";
 import { StudioSignInFlow } from "./signin.js";
@@ -68,26 +68,15 @@ import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 import { registerQuickRoute } from "./quick.js";
 import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js";
 import type { AssetRef } from "@ue-mcp-studio/shared";
-import { BudgetStore } from "./budgets.js";
 import { DaemonActionEffects } from "./approval-kind.js";
-import { BUDGET_ROWS, budgetRows, registerComposerRoutes } from "./composer-routes.js";
+import { registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
-import { registerUsageRoutes } from "./usage-routes.js";
 import { ContextSurfaces, contextApiOf } from "./context-surface.js";
-import { Ledger } from "./ledger.js";
-import { PriceStore } from "./prices.js";
-import { PlanStore, chatgptWindows, claudeWindow } from "./plans.js";
-import { kindsOf } from "./usage.js";
-
-/** Agents by the ids the ledger keeps. */
-const AGENT_NAMES: Record<string, string> = { main: "Main agent", worker: "Studio's worker", "playtest-runner": "Playtest runner", flow: "Flow steps" };
-const ROUTE_NAMES: Record<string, string> = { claude: "Claude sign-in", chatgpt: "ChatGPT sign-in", studio: "Studio plan" };
 import { fullModelName, modelName } from "./models.js";
 import { userHome } from "./instructions.js";
 import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { DEFAULT_USAGE, KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, endpointVendor, type KeyProviderId, type VendorId } from "@ue-mcp-studio/shared";
-import { MAIN_AGENT_ID } from "@ue-mcp-studio/shared";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
@@ -96,20 +85,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const store = new SessionStore(api.dataDir);
   const playtests = new PlaytestStore(api.dataDir);
   const attachments = new AttachmentStore(api.dataDir);
-  // Every budget, per machine; the old turn token limit and playtest budget move into it on first read.
-  // One record per model call, the price table, and each sign-in's limit windows, for Usage.
-  const ledger = new Ledger(api.dataDir);
-  // Custom OpenAI-compatible endpoints, for every project like the vendor keys; their models' prices count as the user's own.
+  // Custom OpenAI-compatible endpoints, for every project like the vendor keys.
   const endpoints = new EndpointStore();
-  const prices = new PriceStore(api.dataDir, () => endpointPrices(endpoints.list()));
-  const plans = new PlanStore(api.dataDir);
-  const onChatgptHeaders = (h: Headers) => plans.report("chatgpt", chatgptWindows(h));
-  const budgets = new BudgetStore(api.dataDir, {
-    turnTokenLimit: () => settings.usage().turnTokenLimit,
-    setTurnTokenLimit: (n) => settings.update({ usage: { turnTokenLimit: n } }),
-    playtestBudget: () => playtests.budget(),
-    setPlaytestBudget: (b) => playtests.setBudget(b),
-  });
   // ue-mcp's own word on which actions delete or overwrite, for that approval row.
   const actionsApi = (api as unknown as { actions?: { effects(categories?: string[]): Array<{ category: string; action: string; effect: string; destructive?: boolean }> } }).actions;
   const effects = new DaemonActionEffects(actionsApi?.effects ? () => actionsApi.effects() : null);
@@ -162,11 +139,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       order: settings.routeOrder(),
     });
   const route = (): ModelRoute => routeOf(settings.provider(), settings.model());
-  /** The route as the ledger keeps it: an endpoint by its own id, so each is counted apart. */
-  const ledgerRoute = (): string => {
-    const r = route();
-    return r === "endpoint" ? settings.provider() : r ?? "unknown";
-  };
   const endpointName = (vendor: string): string | null => {
     const id = endpointIdOf(vendor);
     return id === null ? null : endpoints.get(id)?.name ?? id;
@@ -176,7 +148,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     accountToken: accountToken(),
     agentVersion,
     chatgptToken: () => chatgpt.accessToken(),
-    onChatgptHeaders,
     endpoint: (id: string) => {
       const e = endpoints.get(id);
       return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
@@ -281,11 +252,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     model: () => settings.model(),
     effort: () => settings.effort(),
     usage: () => settings.usage(),
-    ledger,
     surfaces,
-    budgets: () => budgets.get(),
-    callRoute: () => ({ vendor: settings.provider(), route: ledgerRoute() }),
-    onPlanWindow: (r, i) => plans.report(r, [claudeWindow(i)]),
     subagentModel: () => settings.subagentModel(),
     subscription: () => route() === "claude",
     // A key names its vendor, since model names no longer do.
@@ -298,7 +265,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     askBeforeChanges: () => settings.askBeforeChanges(),
     approvals: () => settings.approvals(),
     effects,
-    mainBudget: () => budgets.agent(MAIN_AGENT_ID),
     native: nativeRun,
     playtestRuns: () => playtests.runs(),
     playtestFlow: new PlaytestFlow({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
@@ -311,18 +277,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     effort: () => settings.effort(),
     subscription: () => route() === "claude",
     provider: () => providerFor(settings, route(), providerContext()),
-    record: (model, usage, durationMs) => {
-      if (!usage) return;
-      try {
-        ledger.append({ sessionId: null, turnId: null, agentId: "flow", parentAgentId: null, source: "flow", vendor: settings.provider(), model, route: ledgerRoute(), tokens: kindsOf(usage), durationMs });
-      } catch (e) {
-        api.log.warn("could not write the usage ledger", e);
-      }
-    },
   });
   // A playtest's card hands it to a subagent the runner starts beside the session's turns.
-  qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId), tokens: (callId) => runner.tokensOf(callId) });
-  // It loops until the playtest passes, each attempt between checkpoints, within the budget in Settings > Agent.
+  qa.setAssigner({ assign: (sid, description, prompt) => runner.assignSubagent(sid, description, prompt), stop: (sid, callId) => runner.stopSubagent(sid, callId) });
+  // It loops until the playtest passes, each attempt between checkpoints.
   qa.setLoopSupport({
     checkpoints: {
       unavailable: () => review.unavailable(),
@@ -334,7 +292,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
         if (s) review.mark(s, m);
       },
     },
-    budget: () => budgets.playtestBudget(),
     blocked: (sid) => {
       const s = store.get(sid);
       return s && !review.on(s) ? "Review is off in this session, so no checkpoints would let you undo its changes. Turn it on in the session's Checkpoints panel." : null;
@@ -380,33 +337,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const b = (body ?? {}) as { now?: unknown; then?: unknown };
     return { now: b.now === true, then: Array.isArray(b.then) ? b.then.filter((s): s is DeferredStep => (DEFERRED_STEPS as readonly unknown[]).includes(s)) : [] };
   };
-  registerAgentSettings(api, () => updates.request("restart", {}), playtests, budgets);
-  registerUsageRoutes(api, {
-    ledger,
-    prices,
-    plans,
-    budgets: () => budgets.get(),
-    agentName: (id) => AGENT_NAMES[id] ?? id,
-    modelName: (vendor, model) => {
-      const e = endpointName(vendor);
-      return e === null ? fullModelName(model) : `${e} ${model}`;
-    },
-    vendorName: (v) => endpointName(v) ?? PROVIDERS[v as KeyProviderId]?.name ?? v,
-    routeName: (r) => ROUTE_NAMES[r] ?? (r === "key" ? "API key" : endpointName(r) ?? r),
-    sessionTitle: (id) => store.get(id)?.title ?? null,
-    signedIn: () => {
-      const done = signedIn();
-      return [
-        ...(done.claude ? [{ route: "claude" as const, name: "Claude sign-in" }] : []),
-        ...(done.chatgpt ? [{ route: "chatgpt" as const, name: "ChatGPT sign-in" }] : []),
-        ...(done.studio && STUDIO_PLAN_AVAILABLE ? [{ route: "studio" as const, name: "Studio plan" }] : []),
-      ];
-    },
-    connectedVendors: () => {
-      const done = signedIn();
-      return KEY_PROVIDER_IDS.filter((v) => settings.key(v) || (v === "anthropic" && (done.claude || (done.studio && STUDIO_PLAN_AVAILABLE))) || (v === "openai" && done.chatgpt));
-    },
-  });
+  registerAgentSettings(api, () => updates.request("restart", {}), playtests);
   registerEndpointRoutes(api, {
     store: endpoints,
     changed: () => {
@@ -456,10 +387,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
   registerComposerRoutes(api, {
     settings,
-    budgets,
     restartUeMcp: () => updates.request("restart", {}),
-    // The project's own subagents get a per-day row beside Studio's, by the name their files give them.
-    agents: () => budgetRows((nativeRun()?.helpers ?? []).map((h) => h.name)),
     agentContext: surfaces,
   });
   const stepRoute = async (step: DeferredStep, body: unknown) => {
@@ -579,8 +507,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
         delete u.signOut;
       }
       settings.update(u);
-      // The turn token limit from an older panel is the main agent's per-run budget now.
-      if (u.usage?.turnTokenLimit !== undefined) budgets.update({ agents: { [MAIN_AGENT_ID]: { perRunTokens: u.usage.turnTokenLimit } } });
       return { body: view() };
     } catch (e) {
       return bad(e instanceof Error ? e.message : String(e));
@@ -841,13 +767,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   registerQuickRoute(api, {
     connected: () => route() !== null,
-    create: (title) => {
-      // The ledger counts the quick ask apart from the chat.
-      const s = store.create(title);
-      s.source = "quick";
-      store.save(s);
-      return s;
-    },
+    create: (title) => store.create(title),
     send: (id, text) => runner.send(id, text),
     detail: (id) => {
       const s = store.get(id);

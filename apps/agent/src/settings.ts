@@ -59,11 +59,6 @@ interface StoredSettings {
   approvals: Approvals;
 }
 
-/** The most tokens a turn token limit may be set to. */
-export const MAX_TURN_TOKEN_LIMIT = 1_000_000_000;
-/** The fewest: below this a turn could not finish one model call. */
-export const MIN_TURN_TOKEN_LIMIT = 10_000;
-
 const subagentModelOf = (v: unknown): UsageSettings["subagentModel"] | undefined => {
   if (v === null) return null;
   const m = v as { provider?: unknown; model?: unknown } | undefined;
@@ -73,8 +68,6 @@ const subagentModelOf = (v: unknown): UsageSettings["subagentModel"] | undefined
 };
 const perTurnOf = (v: unknown): number | undefined =>
   Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_SUBAGENTS_PER_TURN ? (v as number) : undefined;
-const limitOf = (v: unknown): number | null | undefined =>
-  v === null ? null : Number.isInteger(v) && (v as number) >= MIN_TURN_TOKEN_LIMIT && (v as number) <= MAX_TURN_TOKEN_LIMIT ? (v as number) : undefined;
 
 /** Stored usage settings, each field that is missing or not valid at its default. */
 export function usageOf(raw: unknown): UsageSettings {
@@ -86,7 +79,6 @@ export function usageOf(raw: unknown): UsageSettings {
     subagentsPerTurn: perTurnOf(u.subagentsPerTurn) ?? DEFAULT_USAGE.subagentsPerTurn,
     projectInstructions: typeof u.projectInstructions === "boolean" ? u.projectInstructions : DEFAULT_USAGE.projectInstructions,
     imageSize: (u.imageSize as string) in IMAGE_EDGES ? (u.imageSize as ImageSize) : DEFAULT_USAGE.imageSize,
-    turnTokenLimit: limitOf(u.turnTokenLimit) ?? DEFAULT_USAGE.turnTokenLimit,
     contextStrategy: AGENT_CONTEXT_STRATEGIES.includes(u.contextStrategy as AgentContextStrategy) ? (u.contextStrategy as AgentContextStrategy) : DEFAULT_USAGE.contextStrategy,
   };
 }
@@ -124,11 +116,6 @@ export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): U
   if (u.contextStrategy !== undefined) {
     if (!AGENT_CONTEXT_STRATEGIES.includes(u.contextStrategy)) throw new Error(`usage.contextStrategy must be one of ${AGENT_CONTEXT_STRATEGIES.join(", ")}`);
     next.contextStrategy = u.contextStrategy;
-  }
-  if (u.turnTokenLimit !== undefined) {
-    const n = limitOf(u.turnTokenLimit);
-    if (n === undefined) throw new Error(`usage.turnTokenLimit must be null or a whole number from ${MIN_TURN_TOKEN_LIMIT} to ${MAX_TURN_TOKEN_LIMIT}`);
-    next.turnTokenLimit = n;
   }
   return next;
 }

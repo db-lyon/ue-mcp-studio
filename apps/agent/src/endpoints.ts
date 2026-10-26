@@ -1,7 +1,7 @@
 /**
  * Custom OpenAI-compatible endpoints: a name, a base URL, an optional key, and
- * the models it serves (read from its /models, or typed), each with the
- * user's own optional price. Its models belong to the vendor `endpoint:<id>`.
+ * the models it serves (read from its /models, or typed). Its models belong
+ * to the vendor `endpoint:<id>`.
  *
  * Like the vendor keys, endpoints serve every project: the list is kept beside
  * the keys folder and each key in it, as `endpoint-<id>.key`, mode 600, never
@@ -16,7 +16,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { ENDPOINT_ID, endpointVendor, type CustomEndpoint, type CustomEndpointInput, type EndpointModel, type Price } from "@ue-mcp-studio/shared";
+import { ENDPOINT_ID, type CustomEndpoint, type CustomEndpointInput, type EndpointModel } from "@ue-mcp-studio/shared";
 import { globalKeysDir, readSecretFile, writeSecretFile } from "./settings.js";
 
 interface Stored {
@@ -30,7 +30,6 @@ interface Stored {
 
 /** Models an endpoint lists that cannot hold a conversation. */
 const NOT_CHAT = /(embed|whisper|tts|transcribe|moderation|rerank)/i;
-const KINDS = ["input", "cacheRead", "cacheWrite", "output"] as const;
 
 /** The base URL as stored: http(s), no trailing slash. Throws when it is not one. */
 export function baseUrlOf(v: unknown): string {
@@ -45,7 +44,7 @@ export function baseUrlOf(v: unknown): string {
   return u.toString().replace(/\/+$/, "");
 }
 
-/** A model list from the user: ids trimmed and unique, prices zero or more. Throws on one that is not valid. */
+/** A model list from the user: ids trimmed and unique. Throws on one that is not valid. */
 export function modelsOf(v: unknown): EndpointModel[] {
   if (!Array.isArray(v)) throw new Error("models must be a list");
   const out: EndpointModel[] = [];
@@ -55,13 +54,6 @@ export function modelsOf(v: unknown): EndpointModel[] {
     if (!id) throw new Error(`model ${i + 1} needs an id`);
     if (out.some((o) => o.id === id)) return;
     const model: EndpointModel = { id, ...(x.typed === true ? { typed: true } : {}) };
-    if (x.perMTok !== undefined && x.perMTok !== null) {
-      const t = x.perMTok as Record<string, unknown>;
-      const rate = (r: unknown) => (r === null || r === undefined || r === "" ? null : typeof r === "number" && Number.isFinite(r) && r >= 0 ? r : NaN);
-      const perMTok = { input: rate(t.input), cacheRead: rate(t.cacheRead), cacheWrite: rate(t.cacheWrite), output: rate(t.output) };
-      if (Object.values(perMTok).some((r) => Number.isNaN(r))) throw new Error(`${id}: prices are dollars per million tokens, zero or more`);
-      if (Object.values(perMTok).some((r) => r !== null)) model.perMTok = perMTok;
-    }
     out.push(model);
   });
   return out;
@@ -79,13 +71,9 @@ export async function listEndpointModels(baseUrl: string, key: string | null, fe
   return [...new Set(body.data.map((m) => (typeof m.id === "string" ? m.id : "")).filter((id) => id && !NOT_CHAT.test(id)))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
-/** The listed models with the typed ones kept, and each id's price carried over. */
+/** The listed models with the typed ones kept. */
 export function mergeListed(current: EndpointModel[], listed: string[]): EndpointModel[] {
-  const byId = new Map(current.map((m) => [m.id, m]));
-  const out: EndpointModel[] = listed.map((id) => {
-    const had = byId.get(id);
-    return { id, ...(had?.perMTok ? { perMTok: had.perMTok } : {}) };
-  });
+  const out: EndpointModel[] = listed.map((id) => ({ id }));
   for (const m of current) if (m.typed && !listed.includes(m.id)) out.push(m);
   return out;
 }
@@ -204,7 +192,7 @@ export class EndpointStore {
     if (input.models !== undefined) {
       const given = modelsOf(input.models);
       const listed = new Set(e.models.filter((m) => !m.typed).map((m) => m.id));
-      e.models = given.map((m) => (listed.has(m.id) ? { id: m.id, ...(m.perMTok ? { perMTok: m.perMTok } : {}) } : { ...m, typed: true }));
+      e.models = given.map((m) => (listed.has(m.id) ? { id: m.id } : { ...m, typed: true }));
     }
     if (input.key !== undefined && typeof input.key !== "string") throw new Error("key must be a string");
     this.write(list);
@@ -249,19 +237,6 @@ export class NotFound extends Error {
   }
 }
 
-/** Each priced endpoint model as the user's own price, for Usage's cost estimate. */
-export function endpointPrices(endpoints: CustomEndpoint[]): Price[] {
-  return endpoints.flatMap((e) =>
-    e.models.filter((m) => m.perMTok && KINDS.some((k) => m.perMTok![k] !== null)).map((m) => ({
-      vendor: endpointVendor(e.id),
-      model: m.id,
-      perMTok: m.perMTok!,
-      asOf: e.listedAt?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-      source: `your price for ${e.name}`,
-      user: true,
-    })),
-  );
-}
 
 export interface EndpointRouteOptions {
   store: EndpointStore;
