@@ -8,7 +8,6 @@ vi.mock("./settings/AgentsSection", () => ({ AgentsSection: () => <div>AgentsSec
 vi.mock("./settings/ModelsSection", () => ({ ModelsSection: () => <div>ModelsSection body</div> }));
 vi.mock("./settings/ApprovalsSection", () => ({ ApprovalsSection: () => <div>ApprovalsSection body</div> }));
 vi.mock("./settings/ProjectSection", () => ({ ProjectSection: () => <div>ProjectSection body</div> }));
-vi.mock("./settings/UsageSection", () => ({ UsageSection: () => <div>UsageSection body</div> }));
 vi.mock("./settings/GeneralSection", () => ({ GeneralSection: () => <div>GeneralSection body</div> }));
 vi.mock("./Status", () => ({ StatusView: () => <div>Status</div> }));
 vi.mock("./Logs", () => ({ LogsView: () => <div>Logs</div> }));
@@ -23,22 +22,22 @@ afterEach(() => {
 const daemon = {} as never;
 
 describe("Settings sections", () => {
-  it("groups the seven sections under Work and Project and Studio", async () => {
-    await act(async () => void render(<SettingsHub daemon={daemon} section="usage" onSection={vi.fn()} onTheme={vi.fn()} />));
+  it("puts General first, then groups the rest under Work and Project", async () => {
+    await act(async () => void render(<SettingsHub daemon={daemon} section="project" onSection={vi.fn()} onTheme={vi.fn()} />));
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
-    expect([...nav.querySelectorAll(".cfg-rail-label")].map((e) => e.textContent)).toEqual(["Work", "Project and Studio"]);
+    expect([...nav.querySelectorAll(".cfg-rail-label")].map((e) => e.textContent)).toEqual(["Studio", "Work", "Project"]);
     expect([...nav.querySelectorAll(".cfg-rail-text > span:first-child")].map((e) => e.textContent)).toEqual([
-      "Agents", "Models & accounts", "Approvals & review", "Project", "Usage", "General", "Diagnostics",
+      "General", "Agents", "Models & accounts", "Approvals & review", "Project", "Diagnostics",
     ]);
-    expect(screen.getByText("UsageSection body")).toBeTruthy();
+    expect(screen.getByText("ProjectSection body")).toBeTruthy();
   });
 
   it("reports the context strategy in effect, and marks Project when the environment overrides the saved one", async () => {
     const withStrategy = m as unknown as { contextStrategy?: () => Promise<unknown> };
-    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "micro", fromFile: true, envOverride: "full", seeds: {}, seedSource: "" }));
+    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "micro", fromFile: true, envOverride: "full", seeds: {} }));
     try {
       await act(async () => void render(<SettingsHub daemon={daemon} section={null} onSection={vi.fn()} onTheme={vi.fn()} narrow />));
-      expect(screen.getByLabelText("An environment variable overrides the saved context strategy")).toBeTruthy();
+      expect(screen.getByLabelText("Context strategy overridden by environment")).toBeTruthy();
     } finally {
       delete withStrategy.contextStrategy;
     }
@@ -46,10 +45,10 @@ describe("Settings sections", () => {
 
   it("names the strategy the environment sets when it matches the saved one", async () => {
     const withStrategy = m as unknown as { contextStrategy?: () => Promise<unknown> };
-    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "full", fromFile: true, envOverride: "full", seeds: {}, seedSource: "" }));
+    withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "full", fromFile: true, envOverride: "full", seeds: {} }));
     try {
       await act(async () => void render(<SettingsHub daemon={daemon} section={null} onSection={vi.fn()} onTheme={vi.fn()} narrow />));
-      expect(screen.getByText("Full for other clients, set by the environment")).toBeTruthy();
+      expect(screen.getByText("Full for other clients, from environment")).toBeTruthy();
     } finally {
       delete withStrategy.contextStrategy;
     }
@@ -57,7 +56,7 @@ describe("Settings sections", () => {
 
   it("marks a section that needs attention", async () => {
     await act(async () => void render(<SettingsHub daemon={daemon} section="agents" onSection={vi.fn()} onTheme={vi.fn()} updates={2} />));
-    expect(screen.getByLabelText("Connect a sign-in or an API key")).toBeTruthy();
+    expect(screen.getByLabelText("Nothing connected")).toBeTruthy();
     expect(screen.getByLabelText("2 updates available")).toBeTruthy();
   });
 
@@ -76,7 +75,7 @@ describe("Settings sections", () => {
   it("maps the old section names in links and hashes", () => {
     expect(sectionOf("agent")).toBe("agents");
     expect(sectionOf("account")).toBe("models");
-    expect(sectionOf("usage")).toBe("usage");
+    expect(sectionOf("usage")).toBe("agents");
     expect(sectionOf("nowhere")).toBeNull();
   });
 });

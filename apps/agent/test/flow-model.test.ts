@@ -66,8 +66,8 @@ describe("registering Studio's model for flow agent steps", () => {
     expect(unregister).toHaveBeenCalledTimes(1);
   });
 
-  it("leaves a daemon without the hook alone", () => {
-    expect(() => registerFlowModel({}, options())()).not.toThrow();
+  it("fails loudly on a daemon without the hook", () => {
+    expect(() => registerFlowModel({}, options())).toThrow(/ue-mcp has no models/);
   });
 });
 

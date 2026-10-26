@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { closestNames, flowCommandText, flowFormFields, flowValue, parseFlowArgs, parsePairs, type FlowInput, type TranscriptEntry } from "@ue-mcp-studio/shared";
+import { closestNames, flowCommandText, flowFormFields, flowValue, parseFlowArgs, type FlowInput, type TranscriptEntry } from "@ue-mcp-studio/shared";
 
 /** A daemon: the flows it lists, and the plan each answers with. */
 const m = vi.hoisted(() => ({
@@ -45,7 +45,6 @@ describe("reading /flow's text", () => {
   it("takes the name, then key=value pairs, quotes keeping spaces", () => {
     expect(parseFlowArgs('rebuild clean=true target="Editor Win64" extra')).toEqual({ name: "rebuild", values: { clean: "true", target: "Editor Win64" }, rest: ["extra"] });
     expect(parseFlowArgs("")).toEqual({ name: "", values: {}, rest: [] });
-    expect(parsePairs("a=1\nb='two words'")).toEqual({ a: "1", b: "two words" });
   });
 
   it("reads text as the input's type, JSON where the type is open", () => {
@@ -114,20 +113,6 @@ describe("the /flow form", () => {
     render(<FlowLauncher text="/flow playtest" run={run} onClose={onClose} />);
     await waitFor(() => expect(run).toHaveBeenCalledWith({ name: "playtest", params: {} }));
     await waitFor(() => expect(onClose).toHaveBeenCalled());
-  });
-
-  it("shows the plan and a key=value field before ue-mcp reports a flow's inputs", async () => {
-    daemon({ rebuild: { steps: [{ stepNumber: 1, name: "editor.stop" }, { stepNumber: 2, name: "project.build", options: { config: "Development" } }] } });
-    const run = vi.fn(async () => {});
-    render(<FlowLauncher text="/flow rebuild clean=true" run={run} onClose={() => {}} />);
-    const steps = await screen.findByRole("list", { name: "Its steps" });
-    expect(steps.textContent).toContain("editor.stop");
-    expect(steps.textContent).toContain('project.build {"config":"Development"}');
-    const pairs = screen.getByLabelText(/^Params/) as HTMLTextAreaElement;
-    expect(pairs.value).toBe("clean=true");
-    fireEvent.change(pairs, { target: { value: "clean=true\nlabel=hero" } });
-    fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    expect(run).toHaveBeenCalledWith({ name: "rebuild", params: { clean: true, label: "hero" } });
   });
 
   it("says when no flow has the name, with the closest, and a pick opens that one", async () => {

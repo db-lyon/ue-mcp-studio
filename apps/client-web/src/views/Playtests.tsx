@@ -2,9 +2,9 @@
  * The project's playtests in one place: every PIE test script, each with its
  * newest run as a step path, when it ran and in which session (or outside
  * Studio). Filters narrow it to what needs the user and what is failing. Each
- * row is the playtest's card: Start Playtest, Assign to subagent and the full
- * card work as they do in a session, and Open in session goes to the card
- * there. A script no session has gets a session of its own on its first action.
+ * row is the playtest's card: Start playtest, Assign to subagent and the full
+ * card work as they do in a session, Edit and Delete change any saved script,
+ * and Open in session goes to the card there. A script no session has gets a session of its own on its first action.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -111,11 +111,11 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
     <div className="playtests-page">
       <div className="playtests-head">
         <h1 className="playtests-title">Playtests</h1>
-        <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} known while the editor is away`) : ""}</span>
+        <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} last known`) : ""}{index?.listed !== false && counts["needs-you"] > 0 && <span className="playtests-waiting" title="The number on the Playtests tab"> · {counts["needs-you"]} need{counts["needs-you"] === 1 ? "s" : ""} you</span>}</span>
         <span className="spacer" />
         <button className="small-button" onClick={() => reload(true)} title="List the project's scripts again">Refresh</button>
       </div>
-      <div className="playtests-filters" role="group" aria-label="Show">
+      {all.length > 0 && <div className="playtests-filters" role="group" aria-label="Show">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -126,8 +126,8 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
             {f.label} <span className="filter-count">{counts[f.id]}</span>
           </button>
         ))}
-      </div>
-      {all.length > 0 && <PathLegend />}
+      </div>}
+      {rows.length > 0 && <PathLegend runs={rows.map(playtestShown).filter((r): r is QaRun => !!r)} />}
       {error && <div className="banner bad small" role="alert">{error}</div>}
       {index && !index.listed && (
         <div className="banner warn small">The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.</div>
@@ -177,6 +177,17 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
       const r = await api.qaAssign(c.runId, null);
       onChanged();
       return r;
+    },
+    script: {
+      read: async () => (await api.qaPlaytestScript(entry.script)).run,
+      save: async (steps) => {
+        await api.qaPlaytestSave(entry.script, steps);
+        onChanged();
+      },
+      remove: async () => {
+        await api.qaPlaytestDelete(entry.script);
+        onChanged();
+      },
     },
   };
   if (!shown) return null;

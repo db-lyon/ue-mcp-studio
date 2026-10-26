@@ -11,7 +11,7 @@
  *   change needed outside the project, or something only a person can do;
  * - a call refused by a guard or by Playtest runs, or a write outside the project;
  * - the editor crashed twice in a row, or a build failed twice in a row;
- * - the loop's time or token budget is spent.
+ * - it has made MAX_ATTEMPTS attempts.
  *
  * Steps whose script carries act (db-lyon/ue-mcp#1507) are driven by the
  * engine during the run; the brief tells the subagent not to drive them. Steps
@@ -23,7 +23,6 @@ import {
   qaEnded,
   qaSettled,
   type CheckpointChange,
-  type PlaytestBudget,
   type QaBlocker,
   type QaLoop,
   type QaLoopAttempt,
@@ -166,6 +165,9 @@ export function decide(f: AttemptFacts): Decision {
 
 // ── What the subagent is told ───────────────────────────────────────
 
+/** The most attempts one loop makes before it stops for the user. */
+export const MAX_ATTEMPTS = 8;
+
 const BLOCKED_LINES = [
   "If you reach something you cannot fix, stop and end your report with exactly one line:",
   "  BLOCKED: contradiction: <the step, and the design or other step it contradicts>",
@@ -174,20 +176,20 @@ const BLOCKED_LINES = [
 ];
 
 /** The first attempt: run the playtest as it is, so the loop sees what fails. */
-export function firstBrief(run: QaRun, budget: PlaytestBudget): string {
+export function firstBrief(run: QaRun): string {
   return [
     playtestBrief(run),
     "",
-    `This is attempt 1 of a loop that makes the playtest pass. Studio runs attempts until every step passes or it stops for the user, within ${budget.minutes} minutes and ${budget.tokens} tokens in all.`,
+    `This is attempt 1 of a loop that makes the playtest pass. Studio runs attempts until every step passes or it stops for the user, at most ${MAX_ATTEMPTS} attempts.`,
     "In this attempt, only run the playtest and report: do not change the project yet. A later attempt fixes what fails.",
     ...BLOCKED_LINES,
   ].join("\n");
 }
 
 /** A later attempt: why steps failed, what to change, then run it again. */
-export function fixBrief(run: QaRun, n: number, failing: FailingStep[], budget: PlaytestBudget): string {
+export function fixBrief(run: QaRun, n: number, failing: FailingStep[]): string {
   return [
-    `The user assigned you the playtest "${run.scriptName}" to make it pass. This is attempt ${n} of a loop: Studio runs attempts until every step passes or it stops for the user, within ${budget.minutes} minutes and ${budget.tokens} tokens in all.`,
+    `The user assigned you the playtest "${run.scriptName}" to make it pass. This is attempt ${n} of a loop: Studio runs attempts until every step passes or it stops for the user, at most ${MAX_ATTEMPTS} attempts.`,
     `The last attempt's run ${run.runId} did not pass:`,
     ...failing.map((f) => `- ${f.line}`),
     "",
@@ -294,8 +296,6 @@ export interface LoopCheckpoints {
 export interface LoopAgents {
   assign(sessionId: string, description: string, prompt: string): { callId: string; done: Promise<{ isError: boolean; stopped?: boolean; text?: string }> };
   stop(sessionId: string, callId: string): boolean;
-  /** Tokens an agent call has spent; 0 when the runner cannot tell. */
-  tokens(callId: string): number;
 }
 
 export interface LoopEvents {
@@ -311,8 +311,6 @@ export interface LoopOptions {
   /** A hard blocker: the card shows Needs you; this tells the user elsewhere. */
   notify: (sessionId: string, loop: QaLoop, run: QaRun) => void;
   now?: () => number;
-  /** How often the budget is checked while an attempt runs, in ms. */
-  tickMs?: number;
   log?: { warn(message: string, detail?: unknown): void };
 }
 
@@ -330,28 +328,12 @@ export class PlaytestLoop {
   private readonly now: () => number;
   done: Promise<void> = Promise.resolve();
 
-  constructor(private readonly o: LoopOptions, private readonly sessionId: string, baseline: string, budget: PlaytestBudget, id: string) {
+  constructor(private readonly o: LoopOptions, private readonly sessionId: string, baseline: string, id: string) {
     this.now = o.now ?? Date.now;
-    this.loop = { id, state: "running", attempts: [], baseline, budget, tokens: 0, startedAt: iso(this.now()) };
-  }
-
-  /** Tokens every attempt spent, the one running included. */
-  private spent(): number {
-    const past = this.loop.attempts.filter((a) => a.endedAt).reduce((n, a) => n + a.tokens, 0);
-    return past + (this.current ? this.o.agents.tokens(this.current.callId) : 0);
-  }
-
-  /** The budget's blocker, when time or tokens are spent. */
-  private overBudget(): QaBlocker | null {
-    const minutes = (this.now() - Date.parse(this.loop.startedAt)) / 60_000;
-    const tokens = this.spent();
-    if (minutes >= this.loop.budget.minutes) return { kind: "budget", reason: `The loop's time budget is spent: ${this.loop.budget.minutes} minutes.`, evidence: [`${this.loop.attempts.length} attempts, ${tokens} tokens.`] };
-    if (tokens >= this.loop.budget.tokens) return { kind: "budget", reason: `The loop's token budget is spent: ${tokens} of ${this.loop.budget.tokens} tokens.`, evidence: [`${this.loop.attempts.length} attempts in ${Math.round(minutes)} minutes.`] };
-    return null;
+    this.loop = { id, state: "running", attempts: [], baseline, startedAt: iso(this.now()) };
   }
 
   private save(state: "running" | "done" | "failed" | "stopped"): void {
-    this.loop.tokens = this.spent();
     this.o.card.save(this.loop.id, this.loop, state, this.current?.callId);
   }
 
@@ -396,29 +378,23 @@ export class PlaytestLoop {
         this.buildFailed(typeof f.reason === "string" ? f.reason : "the rebuild failed");
       }
     });
-    const tick = setInterval(() => {
-      const b = this.current ? this.overBudget() : null;
-      if (b) this.trip(b);
-    }, this.o.tickMs ?? 2000);
     try {
       for (let n = 1; ; n++) {
-        const over = this.overBudget();
-        if (over) return this.block(over, failing);
+        if (n > MAX_ATTEMPTS) return this.block({ kind: "attempts", reason: `The playtest still fails after ${MAX_ATTEMPTS} attempts.`, evidence: failing.map((f) => f.line) }, failing);
         if (this.cancelled) return this.stop();
         const run = this.o.card.holder(this.loop.id);
         if (!run) throw new Error("the playtest's card is gone");
         const before = n === 1 ? this.loop.baseline : this.loop.attempts[n - 2].after ?? this.loop.baseline;
-        const prompt = n === 1 ? firstBrief(run, this.loop.budget) : fixBrief(run, n, failing, this.loop.budget);
+        const prompt = n === 1 ? firstBrief(run) : fixBrief(run, n, failing);
         const startRun = run.runId;
         this.attemptCrashed = false;
         this.attemptBuildFailed = false;
         const { callId, done } = this.o.agents.assign(this.sessionId, `${playtestDescription(run)}, attempt ${n}`, prompt);
-        const attempt: QaLoopAttempt = { n, callId, before, changes: [], failing: [], startedAt: iso(this.now()), tokens: 0 };
+        const attempt: QaLoopAttempt = { n, callId, before, changes: [], failing: [], startedAt: iso(this.now()) };
         this.loop.attempts.push(attempt);
         this.current = { sessionId: this.sessionId, callId };
         this.save("running");
         const r = await done;
-        attempt.tokens = this.o.agents.tokens(callId);
         attempt.endedAt = iso(this.now());
         this.current = null;
         // Every attempt, a stopped one too, ends in a checkpoint, so its changes can be reverted.
@@ -451,7 +427,6 @@ export class PlaytestLoop {
         this.save("running");
       }
     } finally {
-      clearInterval(tick);
       unsubscribe();
     }
   }

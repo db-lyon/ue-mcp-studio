@@ -30,6 +30,20 @@ describe("an update run", () => {
     expect(planRun({ studio: studio(false, false), ueMcp: ueMcp("1.4.0-beta.4", null) })).toBeNull();
   });
 
+  it("installs at least the ue-mcp the latest Studio needs before Studio, whatever the channel", () => {
+    const needs = { ...studio(true, false), ueMcpMin: "1.4.11-beta.6" };
+    // Stable channel: nothing newer on latest, yet the floor is a beta.
+    const run = planRun({ studio: needs, ueMcp: ueMcp("1.4.10", null) })!;
+    expect(run.steps.map((s) => s.key)).toEqual(["ueMcp", "studio"]);
+    expect(run.target).toBe("1.4.11-beta.6");
+    // A channel target past the floor is kept.
+    expect(planRun({ studio: needs, ueMcp: ueMcp("1.4.10", "1.4.11") })!.target).toBe("1.4.11");
+    // A channel target below the floor is raised to it.
+    expect(planRun({ studio: needs, ueMcp: ueMcp("1.4.10", "1.4.11-beta.2") })!.target).toBe("1.4.11-beta.6");
+    // A daemon on the floor already: the channel decides.
+    expect(planRun({ studio: needs, ueMcp: ueMcp("1.4.11-beta.6", null) })!.steps.map((s) => s.key)).toEqual(["studio"]);
+  });
+
   it("updates only the bridge when the daemon already runs its target", () => {
     const behind = { installed: { version: "1.4.0-beta.1" }, server: "1.4.3", latest: "1.4.3", target: "1.4.3", binaries: null };
     const run = planRun({ studio: studio(false, false), ueMcp: behind })!;

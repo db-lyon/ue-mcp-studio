@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
-import { STATE_LABEL, agentCalls, agentStatus, callsIn, describe, formatDuration, isActive, summarize } from "./model";
+import { STATE_LABEL, agentCalls, agentStatus, callsIn, describe, formatDuration, isActive, summarize, tokenCount } from "./model";
 import { useNow } from "./hooks";
 
 const EMPTY: ReadonlySet<string> = new Set();
@@ -11,9 +11,10 @@ const EMPTY: ReadonlySet<string> = new Set();
  * a section that starts collapsed. Finished ones this viewer has not opened
  * are marked new. A row switches the conversation to that thread. A finished
  * row can be dismissed, one at a time or all at once; the session keeps the
- * dismissals, and the subagent's line in the conversation stays.
+ * dismissals, and the subagent's line in the conversation stays. Each row
+ * shows the input and output tokens that agent spent this session.
  */
-export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, seen, dismissed = EMPTY, onDismiss }: {
+export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, seen, dismissed = EMPTY, onDismiss, tokens = {} }: {
   transcript: TranscriptEntry[];
   thread: string | null;
   onThread: (id: string | null) => void;
@@ -22,13 +23,20 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
   seen: ReadonlySet<string>;
   dismissed?: ReadonlySet<string>;
   onDismiss?: (ids: string[]) => void;
+  /** Tokens each agent spent this session: "main", or a subagent's agent call id. */
+  tokens?: Record<string, number>;
 }) {
   const agents = agentCalls(transcript);
   const now = useNow(agents.some((a) => a.outcome === "pending"));
   const [showFinished, setShowFinished] = useState(false);
   // The open thread keeps its row until it is closed, so a dismissal never pulls the list out from under it.
   const listed = agents.filter((a) => !dismissed.has(a.id) || a.outcome === "pending" || a.id === thread);
-  if (listed.length === 0) return null;
+  // With no subagents, the main agent's tokens still show.
+  if (listed.length === 0) {
+    return (tokens.main ?? 0) > 0
+      ? <div className="agents-bar agents-solo dim small">tokens: {tokenCount(tokens.main ?? 0)}</div>
+      : null;
+  }
   const rows = listed.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now) }));
   const active = rows.filter((r) => isActive(r.state));
   const finished = rows.filter((r) => !isActive(r.state));
@@ -48,6 +56,7 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
           <span className="agents-state">{STATE_LABEL[r.state]}</span>
           {r.activity && <span className="agents-activity dim">{r.activity}</span>}
           <span className="agents-meta dim small">{calls} {calls === 1 ? "call" : "calls"}, {formatDuration(r.secs)}</span>
+          <span className="agents-tokens dim small">tokens: {tokenCount(tokens[r.call.id] ?? 0)}</span>
         </button>
         {isActive(r.state) && (
           <button className="agents-stop" aria-label={`Stop ${describe(r.call)}`} title="Stop this subagent" onClick={() => onStop(r.call.id)}>
@@ -70,6 +79,7 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
         <button role="tab" aria-selected={thread === null} className="agents-open" onClick={() => onThread(null)}>
           <span className="agents-dot" />
           <span className="agents-name">Main</span>
+          <span className="agents-meta dim small">tokens: {tokenCount(tokens.main ?? 0)}</span>
         </button>
       </div>
       {active.map(row)}

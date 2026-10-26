@@ -5,17 +5,18 @@
  *   GET    /qa/runs/:id/status          the run read again: pie(script_status), with since_seq when given
  *   POST   /qa/runs/:id/verdict         a manual step's verdict: { step, verdict: pass | fail | skip, note? }
  *   GET    /qa/runs/:id/results         the run's results.json
+ *   GET    /qa/runs/:id/steps/:step/captures/:n  a picture the agent captured for a step
  *   POST   /qa/runs/:id/assign          hand the playtest to a subagent loop: { sessionId? } for a run started elsewhere
  *   DELETE /qa/runs/:id/assign          cancel the loop
  *   POST   /qa/runs/:id/loop/revert     revert the loop's changes: { attempt? }, every attempt's when none is named
  *   POST   /qa/runs/:id/stop            Stop on a live card: pie(script_stop)
- *   POST   /qa/runs/:id/run             Start Playtest on a draft's card: { startPie?, players?, listen?, record? }
+ *   POST   /qa/runs/:id/run             Start playtest on a draft's card: { startPie?, players?, listen?, record? }
  *   PUT    /qa/runs/:id/script          Edit on a draft's card: { steps }, saved with pie(script_update)
  *   DELETE /qa/runs/:id/script          Delete on a draft's card: pie(script_delete)
  *   DELETE /qa/runs/:id                 take a finished run started elsewhere off the chat
  *
  * A script a session's pie(script_create) or pie(script_update) saves is a
- * draft card in that session: its steps, unrun. Start Playtest, or a run of that script
+ * draft card in that session: its steps, unrun. Start playtest, or a run of that script
  * the session starts any other way, turns the same card live. Each step may
  * carry a player (host or client <n>); Studio keeps it, since ue-mcp's steps
  * have none, and takes it out before the call. Under the Manual Playtest runs
@@ -50,17 +51,18 @@ import {
   qaScriptKey,
   PLAYTEST_RUNS_REFUSAL,
   QA_VERDICTS,
-  type PlaytestBudget,
   type QaLoop,
   type QaRun,
   type QaVerdict,
   type RestoreOutcome,
 } from "@ue-mcp-studio/shared";
 import { PlaytestLoop, attentionText, type LoopCheckpoints } from "./playtest-loop.js";
-import { ELICIT_FEATURE, type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
+import { type ElicitParams, type ElicitResult, type FormBroker } from "./forms.js";
 import type { SessionStore } from "./sessions.js";
 import type { AgentHost } from "./tools.js";
 import type { PlaytestStore } from "./playtest-store.js";
+
+const CAPTURE_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 
 /** The pie actions that start a run. */
 const STARTS = new Set(["script_run", "script_replay"]);
@@ -72,7 +74,6 @@ export interface QaHost {
     publish(type: string, data?: Record<string, unknown>): unknown;
     subscribe(listener: (e: { type: string; data: Record<string, unknown> }) => void): () => void;
   };
-  features?: readonly string[];
   projectDir: string;
   log: { warn(message: string, detail?: unknown): void };
 }
@@ -81,21 +82,16 @@ export interface QaHost {
 export interface QaAssigner {
   assign(sessionId: string, description: string, prompt: string): { callId: string; done: Promise<{ isError: boolean; stopped?: boolean; text?: string }> };
   stop(sessionId: string, callId: string): boolean;
-  /** Tokens an agent call has spent. */
-  tokens?(callId: string): number;
 }
 
-/** What the playtest loop needs beside the assigner: checkpoints, the budget, and who to tell when it needs the user. */
+/** What the playtest loop needs beside the assigner: checkpoints, and who to tell when it needs the user. */
 export interface QaLoopSupport {
-  checkpoints: LoopCheckpoints & { unavailable(): string | null };
-  budget: () => PlaytestBudget;
+  checkpoints: LoopCheckpoints;
   /** Why a session cannot take checkpoints, such as its review switch being off; null when it can. */
   blocked?: (sessionId: string) => string | null;
   /** A loop needs the user: the Windows notification and anything else beside the card. */
   notify?: (sessionId: string, loop: QaLoop, run: QaRun) => void;
-  /** How often a running attempt's budget is checked, in ms. */
-  tickMs?: number;
-  /** The clock the time budget is measured on. */
+  /** The loop's clock. */
   now?: () => number;
 }
 
@@ -106,12 +102,12 @@ export interface QaBrokerOptions {
   assigner?: QaAssigner;
   /** The Playtest runs setting and each script's players; without it agent runs are allowed and steps have no players. */
   playtests?: PlaytestStore;
-  /** The playtest loop's checkpoints and budget; without it Assign to subagent says why it cannot start. */
+  /** The playtest loop's checkpoints; without it Assign to subagent says why it cannot start. */
   loop?: QaLoopSupport;
   now?: () => string;
 }
 
-/** How a draft's Start Playtest starts it. */
+/** How a draft's Start playtest starts it. */
 export interface QaRunOptions {
   /** Start PIE, or use the one running. */
   startPie?: boolean;
@@ -237,7 +233,7 @@ export class QaBroker {
         return r;
       }
       if (category !== "pie" || !STARTS.has(action)) return host.callAction(category, action, args);
-      // Manual: the agent's own run is refused; the card's Start Playtest and an assigned subagent are the user's.
+      // Manual: the agent's own run is refused; the card's Start playtest and an assigned subagent are the user's.
       if (!opts.assigned && this.o.playtests?.runs() === "manual") return refusedRun();
       const call: Inflight = { sessionId, action };
       this.inflight.push(call);
@@ -299,7 +295,7 @@ export class QaBroker {
 
   /** The verdict form for a run's calls: the session's own, as the call that started it had. */
   private callOptions(sessionId: string | null | undefined): { elicit?: (p: ElicitParams) => Promise<ElicitResult> } {
-    if (!sessionId || !this.o.forms || !this.o.host.features?.includes(ELICIT_FEATURE)) return {};
+    if (!sessionId || !this.o.forms) return {};
     const forms = this.o.forms;
     return { elicit: (p) => forms.ask(sessionId, "pie(script_run)", p) };
   }
@@ -357,7 +353,7 @@ export class QaBroker {
     let had = this.runs.get(runId);
     // A verdict on a draft's manual step starts its manual run first, which takes the card.
     if (had && qaIsDraft(had)) {
-      if (had.steps.find((s) => s.index === b.step)?.judge !== "manual") return { error: "only a manual step takes a verdict before Start Playtest", status: 409 };
+      if (had.steps.find((s) => s.index === b.step)?.judge !== "manual") return { error: "only a manual step takes a verdict before Start playtest", status: 409 };
       const started = await this.startManual(had);
       if ("error" in started) return started;
       had = started.run;
@@ -438,8 +434,47 @@ export class QaBroker {
     return { run: this.runs.get(runId)! };
   }
 
+  /** Edit on the Playtests page: a saved script's steps as saved, with its players, read with pie(script_read). */
+  async readScriptAt(script: string): Promise<{ run: QaRun } | { error: string; status: number }> {
+    const r = await this.o.host.callAction("pie", "script_read", { path: script });
+    const body = json(r);
+    const error = failure(r, body);
+    if (error) return { error, status: 409 };
+    const run = qaDraftFromScript(body, { players: this.o.playtests?.players(script), seenAt: this.now() });
+    return run ? { run } : { error: "the script has no steps to edit", status: 409 };
+  }
+
   /**
-   * Start Playtest on a draft's card: PIE set to the players asked for, then
+   * Edit on the Playtests page: any saved script, by its path, saved with
+   * pie(script_update). A session's draft card of it is saved through the card,
+   * so the card shows the change; a script with none gets no card.
+   */
+  async saveScriptAt(script: string, steps: unknown): Promise<{ script: string } | { error: string; status: number }> {
+    if (!Array.isArray(steps) || steps.length === 0) return { error: "body must be { script, steps: [...] } with at least one step", status: 400 };
+    const card = this.runs.get(qaDraftId(script));
+    if (card && qaIsDraft(card) && !card.deleted && card.sessionId) {
+      const r = await this.saveScript(card.runId, { steps });
+      return "error" in r ? r : { script };
+    }
+    const split = splitPlayers(steps)!;
+    const r = await this.o.host.callAction("pie", "script_update", { path: script, steps: split.steps });
+    const error = failure(r, json(r));
+    if (error) return { error, status: 409 };
+    this.o.playtests?.setPlayers(script, split.players);
+    return { script };
+  }
+
+  /** Delete on the Playtests page: any saved script, by its path, with pie(script_delete). Its draft cards say so. */
+  async deleteScriptAt(script: string): Promise<{ script: string } | { error: string; status: number }> {
+    const r = await this.o.host.callAction("pie", "script_delete", { path: script, confirm: true });
+    const error = failure(r, json(r));
+    if (error) return { error, status: 409 };
+    this.deleted(script);
+    return { script };
+  }
+
+  /**
+   * Start playtest on a draft's card: PIE set to the players asked for, then
    * pie(script_run) of its script. The run takes the draft's card, so the same
    * card goes live. Auto steps watch the player the first of them is for.
    */
@@ -449,9 +484,9 @@ export class QaBroker {
     if (!qaIsDraft(run) && !qaEnded(run.state) && !run.manual) return { error: "the playtest is running", status: 409 };
     const sessionId = run.sessionId;
     if (!sessionId) return { error: "the playtest has no session", status: 409 };
-    // Start Playtest on a manual run's card: that run ends, with the verdicts it has, and a full run with PIE takes the card.
+    // Start playtest on a manual run's card: that run ends, with the verdicts it has, and a full run with PIE takes the card.
     if (run.manual && !qaEnded(run.state)) {
-      const stop = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Start Playtest started a full run" });
+      const stop = await this.o.host.callAction("pie", "script_stop", { run_id: run.runId, reason: "Start playtest started a full run" });
       const error = failure(stop, json(stop));
       if (error) return { error: `the manual run could not be ended: ${error}`, status: 409 };
     }
@@ -506,7 +541,7 @@ export class QaBroker {
     if (!assigner) return { error: "subagents are not available", status: 409 };
     if (run.assignment?.state === "running") return { error: "a subagent is already running this playtest", status: 409 };
     const support = this.o.loop;
-    const why = !support ? "Assign to subagent needs checkpoints, and this Studio has none to give it." : support.checkpoints.unavailable() ?? support.blocked?.(sessionId) ?? null;
+    const why = !support ? "Assign to subagent needs checkpoints, and this Studio has none to give it." : support.blocked?.(sessionId) ?? null;
     if (why) return { error: `The loop did not start. ${why}`, status: 409 };
     let baseline: string;
     try {
@@ -526,14 +561,13 @@ export class QaBroker {
         transcript: (sid) => this.o.store.get(sid)?.transcript ?? [],
       },
       checkpoints: support!.checkpoints,
-      agents: { assign: (sid, d, p) => assigner.assign(sid, d, p), stop: (sid, c) => assigner.stop(sid, c), tokens: (c) => assigner.tokens?.(c) ?? 0 },
+      agents: { assign: (sid, d, p) => assigner.assign(sid, d, p), stop: (sid, c) => assigner.stop(sid, c) },
       events: this.o.host.events,
       projectDir: this.o.host.projectDir,
       notify: (sid, l, r) => this.needsYou(sid, l, r),
-      ...(support!.tickMs ? { tickMs: support!.tickMs } : {}),
       ...(support!.now ? { now: support!.now } : {}),
       log: this.o.host.log,
-    }, sessionId, baseline, support!.budget(), crypto.randomUUID());
+    }, sessionId, baseline, crypto.randomUUID());
     this.loops.set(loop.loop.id, loop);
     this.save({ ...current, assignment: { callId: "", sessionId, state: "running", at: this.now(), loop: { ...loop.loop } } });
     void loop.start().finally(() => this.loops.delete(loop.loop.id));
@@ -651,6 +685,18 @@ export class QaBroker {
   }
 
   /** The run's results.json, from its file when it is the project's, otherwise as ue-mcp reads it. */
+  /** A picture the agent captured for a step, read only from under the project's Saved folder. */
+  capture(runId: string, step: number, n: number): { type: string; bytes: Buffer } | null {
+    const s = this.runs.get(runId)?.steps.find((x) => x.index === step);
+    const raw = s?.evidence?.captures?.[n];
+    if (!raw) return null;
+    const file = path.resolve(raw);
+    const root = path.resolve(this.o.host.projectDir, "Saved");
+    const type = CAPTURE_TYPES[path.extname(file).toLowerCase()];
+    if (!type || !file.toLowerCase().startsWith(root.toLowerCase() + path.sep) || !fs.existsSync(file)) return null;
+    return { type, bytes: fs.readFileSync(file) };
+  }
+
   async results(runId: string): Promise<Record<string, unknown> | { error: string }> {
     const run = this.runs.get(runId);
     const file = run?.resultsPath ? path.resolve(run.resultsPath) : null;
@@ -784,6 +830,10 @@ export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?:
   api.route("POST", "/qa/runs/:id/verdict", async (req) => {
     const r = await broker.verdict(id(req), req.body);
     return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("GET", "/qa/runs/:id/steps/:step/captures/:n", (req) => {
+    const p = broker.capture(id(req), Number(req.params.step), Number(req.params.n));
+    return p ? { headers: { "content-type": p.type, "cache-control": "private, max-age=86400" }, body: p.bytes } : { status: 404, body: { error: "no such capture" } };
   });
   api.route("GET", "/qa/runs/:id/results", async (req) => {
     const r = await broker.results(id(req));

@@ -1,8 +1,11 @@
 /**
  * The project's playtests, for the Playtests page. Under /v1/ext/studio:
  *
- *   GET  /qa/playtests        every playtest script with its newest run: { playtests, listed }
- *   POST /qa/playtests/card   { script }: the card Start Playtest and Assign act on, made in a new session when none has one
+ *   GET    /qa/playtests                 every playtest script with its newest run: { playtests, listed }
+ *   POST   /qa/playtests/card            { script }: the card Start playtest and Assign act on, made in a new session when none has one
+ *   GET    /qa/playtests/script?script=  Edit: the script's steps as saved
+ *   PUT    /qa/playtests/script          Edit saved: { script, steps }, with pie(script_update)
+ *   DELETE /qa/playtests/script?script=  Delete: pie(script_delete)
  *
  * Three sources make the list. The scripts are pie(script_list), which needs
  * the editor. The runs are every run Studio holds, in every session and none,
@@ -68,7 +71,7 @@ export class PlaytestIndex {
   private noRunsAction = -Infinity;
   private readonly now: () => number;
 
-  constructor(private readonly o: { host: PlaytestIndexHost; broker: Pick<QaBroker, "all" | "drafted">; store: SessionStore; now?: () => number }) {
+  constructor(private readonly o: { host: PlaytestIndexHost; broker: Pick<QaBroker, "all" | "drafted" | "readScriptAt" | "saveScriptAt" | "deleteScriptAt">; store: SessionStore; now?: () => number }) {
     this.now = o.now ?? Date.now;
   }
 
@@ -241,6 +244,41 @@ export class PlaytestIndex {
     const run = await this.o.broker.drafted(session.id, read);
     return run ? { run } : { error: "the script's card could not be made", status: 409 };
   }
+
+  /** Edit's steps, read fresh from the editor. */
+  async readScript(asked: unknown): Promise<{ run: QaRun } | { error: string; status: number }> {
+    const script = scriptOf(asked);
+    if (!script) return { error: "script must be an asset path", status: 400 };
+    if (!this.o.host.editors().some((e) => e.connected)) return { error: "the editor is not connected, so the script cannot be read", status: 409 };
+    return this.o.broker.readScriptAt(script);
+  }
+
+  /** Edit saved on any script: the next list reads it again. */
+  async saveScript(req: unknown): Promise<{ script: string } | { error: string; status: number }> {
+    const b = (req ?? {}) as { script?: unknown; steps?: unknown };
+    const script = scriptOf(b.script);
+    if (!script) return { error: "body must be { script: <asset path>, steps: [...] }", status: 400 };
+    if (!this.o.host.editors().some((e) => e.connected)) return { error: "the editor is not connected, so the script cannot be saved", status: 409 };
+    const r = await this.o.broker.saveScriptAt(script, b.steps);
+    this.reads.delete(script);
+    return r;
+  }
+
+  /** Delete on any script: the next list asks the editor for its scripts again. */
+  async deleteScript(asked: unknown): Promise<{ script: string } | { error: string; status: number }> {
+    const script = scriptOf(asked);
+    if (!script) return { error: "script must be an asset path", status: 400 };
+    if (!this.o.host.editors().some((e) => e.connected)) return { error: "the editor is not connected, so the script cannot be deleted", status: 409 };
+    const r = await this.o.broker.deleteScriptAt(script);
+    this.reads.delete(script);
+    this.list = null;
+    return r;
+  }
+}
+
+/** A script path a page route was given: an asset path, without its object name. */
+function scriptOf(v: unknown): string | null {
+  return typeof v === "string" && v.startsWith("/") ? qaScriptKey(v) : null;
 }
 
 export function registerPlaytestIndex(api: DaemonExtensionApi, index: PlaytestIndex): void {
@@ -250,6 +288,18 @@ export function registerPlaytestIndex(api: DaemonExtensionApi, index: PlaytestIn
   });
   api.route("POST", "/qa/playtests/card", async (req) => {
     const r = await index.card(req.body);
+    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("GET", "/qa/playtests/script", async (req) => {
+    const r = await index.readScript(((req.query ?? {}) as Record<string, unknown>).script);
+    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("PUT", "/qa/playtests/script", async (req) => {
+    const r = await index.saveScript(req.body);
+    return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("DELETE", "/qa/playtests/script", async (req) => {
+    const r = await index.deleteScript(((req.query ?? {}) as Record<string, unknown>).script);
     return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
   });
 }

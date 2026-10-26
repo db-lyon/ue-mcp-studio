@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { api } from "./api";
 import { applyTheme } from "./theme";
-import { useDaemon } from "./state";
+import { useDaemon, type DaemonState } from "./state";
 import { openDocs } from "./native";
 import { FlowsView } from "./views/Flows";
 import { PluginsView } from "./views/Plugins";
@@ -24,12 +24,24 @@ import { readLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
 import { focusRun, useAttention } from "./attention";
 import { replaceStaleWindow } from "./window-version";
+import { RefusedScreen, useRefusal } from "./views/Refused";
 
 const TABS = ["Chat", "Playtests", "Flows", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
+/** Studio, or the one screen that says it needs a newer ue-mcp. */
 export function App() {
   const daemon = useDaemon();
+  const refusal = useRefusal(daemon.health);
+  useEffect(() => {
+    api.settings().then((s) => void applyTheme(s.theme), () => void applyTheme("ue-mcp"));
+  }, []);
+  if (refusal === undefined) return <div className="app" />;
+  if (refusal) return <RefusedScreen refusal={refusal} />;
+  return <Studio daemon={daemon} />;
+}
+
+function Studio({ daemon }: { daemon: DaemonState }) {
   // Where the panel was, from the URL's hash: a reload, or ue-mcp back on a new port, lands there.
   const [tab, setTab] = useState<Tab>(() => readLocation().tab);
   // null: the section list, which only a narrow panel shows on its own.
@@ -77,7 +89,6 @@ export function App() {
   if (tab === "Chat") chatShown.current = true;
 
   useEffect(() => {
-    api.settings().then((s) => void applyTheme(s.theme), () => void applyTheme("ue-mcp"));
     replaceStaleWindow().catch(() => undefined);
   }, []);
 

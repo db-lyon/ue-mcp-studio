@@ -12,9 +12,6 @@ import * as crypto from "node:crypto";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import type { PendingForm } from "@ue-mcp-studio/shared";
 
-/** The feature a daemon advertises when callAction takes `elicit`. */
-export const ELICIT_FEATURE = "callAction.elicit";
-
 export interface ElicitParams {
   message: string;
   requestedSchema: { type: "object"; properties: Record<string, unknown>; required?: string[] };

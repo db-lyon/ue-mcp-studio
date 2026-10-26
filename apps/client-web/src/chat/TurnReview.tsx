@@ -21,6 +21,7 @@ import { api } from "../api";
 import { AssetDiffView } from "./AssetDiff";
 import { DiffView } from "./Diff";
 import { SessionIdContext } from "./attachments";
+import { EngineText } from "./breakable";
 
 const STATUS: Record<ReviewItem["status"], string> = { added: "Added", modified: "Modified", deleted: "Deleted" };
 const fileName = (p: string): string => p.split("/").pop() || p;
@@ -92,10 +93,10 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
             <div className="review-group-label small dim">{label}</div>
             <ul className="review-items">
               {items.map((it) => (
-                <li key={it.path} className={`review-item state-${it.state}`} data-path={it.path}>
+                <li key={it.path} className={`review-item state-${it.state}${open === it.path ? " open" : ""}`} data-path={it.path}>
                   <div className="review-item-row">
                     <button className="ghost review-item-name" aria-expanded={open === it.path} onClick={() => setOpen(open === it.path ? null : it.path)} title={it.path}>
-                      {fileName(it.path)}
+                      <EngineText text={fileName(it.path)} />
                     </button>
                     <span className={`pill small review-status ${it.status}`}>{STATUS[it.status]}</span>
                     {it.untracked && <span className="pill small warn" title="Written outside the agent's calls">Outside the agent</span>}
@@ -123,8 +124,8 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                     )}
                     </span>
                   </div>
-                  {it.summary && <div className={`review-item-summary small${it.diffError ? " bad" : ""}`}>{it.summary}</div>}
-                  <div className="review-item-path dim small mono">{it.path}</div>
+                  {it.summary && <div className={`review-item-summary small${it.diffError ? " bad" : ""}`}><EngineText text={it.summary} /></div>}
+                  <div className="review-item-path dim small mono"><EngineText text={it.path} /></div>
                   {opened?.path === it.path && <div className={`small ${opened.bad ? "review-opened bad" : "review-opened dim"}`} role="status">{opened.text}</div>}
                   {it.conflict && it.state !== "reverted" && (
                     <div className="banner warn small review-conflict" role="alert">
@@ -255,7 +256,7 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
   const [note, setNote] = useState<{ text: string; retry?: () => void } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    api.reviewStatus().then(setStatus, () => setStatus({ available: false, reason: "This Studio agent cannot review turns.", default: false }));
+    api.reviewStatus().then(setStatus, (e: Error) => setError(e.message));
   }, []);
   const on = typeof review === "boolean" ? review : !!status?.default;
 
@@ -282,14 +283,10 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
   const marks = [...timeline].reverse();
   return (
     <div className="review-panel stack">
-      {status && !status.available ? (
-        <div className="banner warn small">{status.reason}</div>
-      ) : (
-        <label className="row toggle">
-          <input type="checkbox" checked={on} disabled={busy || !status} onChange={(e) => toggle(e.target.checked)} />
-          <span>Review this session's turns <span className="dim small">A checkpoint before and after each turn, and a card to keep or revert its changes.{review === null ? " Following Settings." : ""}</span></span>
-        </label>
-      )}
+      <label className="row toggle">
+        <input type="checkbox" checked={on} disabled={busy || !status} onChange={(e) => toggle(e.target.checked)} />
+        <span>Review this session's turns <span className="dim small">A checkpoint before and after each turn, and a card to keep or revert its changes.{review === null ? " Following Settings." : ""}</span></span>
+      </label>
       {note && (
         <div className="banner warn small">
           {note.text}

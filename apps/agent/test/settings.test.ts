@@ -101,18 +101,16 @@ describe("the dialog policy", () => {
 });
 
 describe("usage settings", () => {
-  it("start with subagents only when asked, CLAUDE.md on, standard images and no turn limit", () => {
+  it("start with subagents only when asked, CLAUDE.md on, standard images", () => {
     expect(store().view().usage).toEqual(DEFAULT_USAGE);
-    expect(DEFAULT_USAGE).toMatchObject({ subagents: "asked", subagentsPerTurn: 4, projectInstructions: true, imageSize: "standard", turnTokenLimit: null });
+    expect(DEFAULT_USAGE).toMatchObject({ subagents: "asked", subagentsPerTurn: 4, projectInstructions: true, imageSize: "standard" });
   });
 
   it("change only the fields given", () => {
     const s = store();
     s.update({ usage: { subagents: "off" } });
-    s.update({ usage: { turnTokenLimit: 200_000 } });
-    expect(s.usage()).toMatchObject({ subagents: "off", turnTokenLimit: 200_000, imageSize: "standard" });
-    s.update({ usage: { turnTokenLimit: null } });
-    expect(s.usage().turnTokenLimit).toBeNull();
+    s.update({ usage: { imageSize: "small" } });
+    expect(s.usage()).toMatchObject({ subagents: "off", imageSize: "small", subagentsPerTurn: 4 });
   });
 
   it("refuse values out of range", () => {
@@ -120,7 +118,6 @@ describe("usage settings", () => {
     expect(() => s.update({ usage: { subagents: "always" as never } })).toThrow(/usage.subagents/);
     expect(() => s.update({ usage: { subagentsPerTurn: 0 } })).toThrow(/usage.subagentsPerTurn/);
     expect(() => s.update({ usage: { subagentsPerTurn: 17 } })).toThrow(/usage.subagentsPerTurn/);
-    expect(() => s.update({ usage: { turnTokenLimit: 500 } })).toThrow(/usage.turnTokenLimit/);
     expect(() => s.update({ usage: { imageSize: "huge" as never } })).toThrow(/usage.imageSize/);
     expect(() => s.update({ usage: { subagentEffort: "extreme" as never } })).toThrow(/usage.subagentEffort/);
     expect(s.usage()).toEqual(DEFAULT_USAGE);

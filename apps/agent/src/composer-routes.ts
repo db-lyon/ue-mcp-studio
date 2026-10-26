@@ -1,8 +1,6 @@
 /**
  * Settings routes grouped by decision, under /v1/ext/studio:
  *
- *   GET  /budgets                      every budget, the definition, and the agents that have rows
- *   PUT  /budgets                      { team?, agents?, warnAt? }
  *   GET  /context-strategy             what ue-mcp.yml gives other MCP clients, and what each strategy costs
  *   PUT  /context-strategy             { strategy }: writes context.strategy and restarts ue-mcp after the turn in progress
  */
@@ -10,26 +8,23 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { isMap, parseDocument } from "yaml";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
+import { required } from "./backend.js";
 import {
-  BUDGET_DEFINITION,
-  MAX_SUBAGENTS_PER_TURN,
   CONTEXT_STRATEGIES,
-  MAIN_AGENT_ID,
-  PLAYTEST_RUNNER_ID,
-  PUBLISHED_SEEDS,
+  AGENT_CONTEXT_STRATEGIES,
+  type AgentContextStrategy,
+  type AgentContextView,
   type ClientContextStrategy,
   type ContextStrategy,
 } from "@ue-mcp-studio/shared";
-import type { BudgetStore, BudgetsUpdate } from "./budgets.js";
 import type { SettingsStore } from "./settings.js";
 
 export interface ComposerRouteOptions {
   settings: SettingsStore;
-  budgets: BudgetStore;
   /** Restart ue-mcp once no turn is in progress, so a changed ue-mcp.yml is read. */
   restartUeMcp: () => Promise<unknown>;
-  /** The runs that have a budget row, by id and name: the main agent and the Playtest runner. */
-  agents: () => Array<{ id: string; name: string }>;
+  /** Studio's own agent's context strategy: what it is, and what each would cost. */
+  agentContext?: { view(): AgentContextView };
 }
 
 /** The context strategy ue-mcp.yml names, or null when it names none. */
@@ -69,48 +64,26 @@ export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRoute
   const bad = (e: unknown) => ({ status: 400, body: { error: e instanceof Error ? e.message : String(e) } });
   const projectDir = api.projectDir;
 
-  const budgetsBody = () => ({
-    budgets: o.budgets.get(),
-    definition: BUDGET_DEFINITION,
-    agents: o.agents().map(({ id, name }) => ({ id, name })),
-    // A spend safety limit: kept where it always was, in usage.subagentsPerTurn, which the runner reads.
-    helpersPerTurn: o.settings.usage().subagentsPerTurn,
-  });
-  api.route("GET", "/budgets", () => ({ body: budgetsBody() }));
-  api.route("PUT", "/budgets", (req) => {
-    const { helpersPerTurn, ...rest } = (req.body ?? {}) as BudgetsUpdate & { helpersPerTurn?: unknown };
-    try {
-      if (helpersPerTurn !== undefined) {
-        if (!Number.isInteger(helpersPerTurn) || (helpersPerTurn as number) < 1 || (helpersPerTurn as number) > MAX_SUBAGENTS_PER_TURN) throw new Error(`helpersPerTurn must be a whole number from 1 to ${MAX_SUBAGENTS_PER_TURN}`);
-        o.settings.update({ usage: { subagentsPerTurn: helpersPerTurn as number } });
-      }
-      o.budgets.update(rest);
-    } catch (e) {
-      return bad(e);
-    }
-    api.events.publish("budgets.changed", {});
-    return { body: budgetsBody() };
-  });
-
   const yml = path.join(projectDir, "ue-mcp.yml");
   const readYml = (): string => (fs.existsSync(yml) ? fs.readFileSync(yml, "utf-8") : "");
-  const projector = (api as unknown as { context?: Projector }).context;
-  const seeds = (): Pick<ClientContextStrategy, "seeds" | "seedSource"> => {
-    if (projector?.project) {
-      try {
-        const s = Object.fromEntries(CONTEXT_STRATEGIES.map((x) => [x, projector.project({ strategy: x }).seedTokens])) as Record<ContextStrategy, number>;
-        return { seeds: s, seedSource: "measured by this ue-mcp" };
-      } catch {
-        // Fall through to the published figures.
-      }
-    }
-    return { seeds: PUBLISHED_SEEDS, seedSource: "ue-mcp's published figures" };
-  };
+  const projector = required((api as unknown as { context?: Projector }).context, "context projection");
+  const seeds = (): Record<ContextStrategy, number> =>
+    Object.fromEntries(CONTEXT_STRATEGIES.map((x) => [x, projector.project({ strategy: x }).seedTokens])) as Record<ContextStrategy, number>;
   const contextView = (): ClientContextStrategy => {
     const named = ymlStrategy(readYml());
-    return { strategy: named ?? "micro", fromFile: named !== null, envOverride: envStrategy(), ...seeds() };
+    return { strategy: named ?? "micro", fromFile: named !== null, envOverride: envStrategy(), seeds: seeds() };
   };
   api.route("GET", "/context-strategy", () => ({ body: contextView() }));
+  // Studio's own agent: kept in Studio's settings, never in ue-mcp.yml, so other clients are untouched.
+  api.route("GET", "/context-strategy/agent", () => (o.agentContext ? { body: o.agentContext.view() } : { status: 404, body: { error: "not available" } }));
+  api.route("PUT", "/context-strategy/agent", (req) => {
+    const strategy = (req.body as { strategy?: unknown } | undefined)?.strategy;
+    if (!(AGENT_CONTEXT_STRATEGIES as readonly unknown[]).includes(strategy)) return bad(`strategy must be one of ${AGENT_CONTEXT_STRATEGIES.join(", ")}`);
+    if (strategy === "auto" && o.agentContext && !o.agentContext.view().measurement) return bad("auto needs a measurement, and none ships with this Studio");
+    o.settings.update({ usage: { contextStrategy: strategy as AgentContextStrategy } });
+    api.events.publish("settings.changed", {});
+    return o.agentContext ? { body: o.agentContext.view() } : { status: 204 };
+  });
   api.route("PUT", "/context-strategy", async (req) => {
     const strategy = (req.body as { strategy?: unknown } | undefined)?.strategy;
     if (!(CONTEXT_STRATEGIES as readonly unknown[]).includes(strategy)) return bad(`strategy must be one of ${CONTEXT_STRATEGIES.join(", ")}`);
@@ -123,16 +96,3 @@ export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRoute
   });
 }
 
-/** The runs Studio budgets: the main agent's turn, and an assigned playtest's loop. */
-export const BUDGET_ROWS: Array<{ id: string; name: string }> = [
-  { id: MAIN_AGENT_ID, name: "Main agent" },
-  // Per day only: a helper's run is bounded by the turn that started it.
-  { id: "worker", name: "Studio's worker" },
-  { id: PLAYTEST_RUNNER_ID, name: "Playtest runner" },
-];
-
-/** Studio's rows, then one per project subagent by the name its file gives it, for per-day budgets. */
-export function budgetRows(subagents: string[]): Array<{ id: string; name: string }> {
-  const own = new Set(BUDGET_ROWS.map((r) => r.id));
-  return [...BUDGET_ROWS, ...[...new Set(subagents)].filter((n) => !own.has(n)).map((n) => ({ id: n, name: n }))];
-}

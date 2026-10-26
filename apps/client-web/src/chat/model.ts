@@ -95,6 +95,13 @@ export function formatDuration(secs: number): string {
   return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
 }
 
+/** A token count, short: 950, 12.4k, 1.2M. */
+export function tokenCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
 const timeOf = (t: TranscriptEntry): number =>
   t.kind === "dialog" ? t.dialog.openedAt : t.kind === "qa" ? Date.parse(t.run.seenAt) : t.kind === "review" ? Date.parse(t.review.at) : Date.parse(t.kind === "tool" ? t.call.endedAt ?? t.call.startedAt : t.at);
 

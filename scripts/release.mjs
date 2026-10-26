@@ -57,9 +57,9 @@ for (const p of ["apps/agent/package.json", "apps/client-web/package.json", "app
   const v = JSON.parse(fs.readFileSync(path.join(ROOT, p), "utf-8")).version;
   if (v !== version) throw new Error(`${p} is ${v}, the root package.json is ${version}; keep them in step`);
 }
-// The oldest ue-mcp this release works with: the version the agent is built against.
-const ueMcpMin = String(agentPkg.dependencies?.["ue-mcp"] ?? agentPkg.devDependencies?.["ue-mcp"] ?? "").replace(/^[\^~]/, "");
-if (!/^\d+\.\d+\.\d+/.test(ueMcpMin)) throw new Error(`apps/agent/package.json pins no ue-mcp version (${ueMcpMin || "none"})`);
+// The oldest ue-mcp this release runs on: the floor ue-mcp checks at load, and Update installs before Studio.
+const ueMcpMin = String(agentPkg.ueMcpExtension?.ueMcp ?? "");
+if (!/^\d+\.\d+\.\d+/.test(ueMcpMin)) throw new Error(`apps/agent/package.json names no ueMcpExtension.ueMcp (${ueMcpMin || "none"})`);
 if (!fs.existsSync(RELEASE_KEY)) throw new Error(`no release signing key at ${RELEASE_KEY}`);
 
 fs.rmSync(OUT, { recursive: true, force: true });

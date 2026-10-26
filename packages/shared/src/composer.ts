@@ -1,6 +1,6 @@
 /**
  * Settings grouped by the decision the user makes: approvals, the project's
- * instruction files, budgets, and the context strategy other MCP clients get.
+ * instruction files and the context strategy other MCP clients get.
  * Routes under /v1/ext/studio; plans/agent-composer.md is the design.
  */
 
@@ -19,10 +19,10 @@ export type Approvals = Record<ApprovalKind, ApprovalRule>;
 export const DEFAULT_APPROVALS: Approvals = { shell: "ask", files: "ask", editorRestart: "ask", destructive: "ask" };
 
 export const APPROVAL_ROWS: ReadonlyArray<{ kind: ApprovalKind; label: string; help: string }> = [
-  { kind: "shell", label: "Shell commands", help: "Each command waits in the chat for Allow or Deny." },
-  { kind: "files", label: "File changes", help: "Writes and edits to files on this machine." },
-  { kind: "editorRestart", label: "Restart or rebuild the editor", help: "Unsaved work in the editor is lost on a restart." },
-  { kind: "destructive", label: "ue-mcp actions that delete or overwrite", help: "Deleting assets or actors, clearing, reverting, overwriting. ue-mcp says which actions these are." },
+  { kind: "shell", label: "Shell commands", help: "Waits in the chat for Allow or Deny." },
+  { kind: "files", label: "File changes", help: "Writes and edits on this machine." },
+  { kind: "editorRestart", label: "Restart or rebuild the editor", help: "Unsaved editor work is lost." },
+  { kind: "destructive", label: "ue-mcp actions that delete or overwrite", help: "Actions ue-mcp marks as destructive." },
 ];
 
 /**
@@ -45,56 +45,6 @@ export type InstructionScope =
   /** A file in a subfolder: only once the agent works in that folder. */
   | { kind: "folder"; folder: string };
 
-/* ── Budgets ──────────────────────────────────────────────────────── */
-
-/**
- * What a budget counts, everywhere: input + cache writes + output. Cached
- * reads are excluded (vendors that cache bill them well below fresh input) and
- * reported separately in Usage.
- */
-export const BUDGET_DEFINITION =
-  "Budgets count input, cache writes and output. Cached reads are left out, because they cost far less than fresh input. A run is one turn of the main agent's own calls, or one assigned playtest with every attempt in it.";
-
-export type BudgetLimitAction = "stop-and-report" | "ask" | "fallback-model";
-
-export interface Budget {
-  /** One run: a main agent's turn (its own calls, not its helpers'), or one hand-off to a helper. */
-  perRunTokens: number | null;
-  perRunMinutes: number | null;
-  /** The local calendar day, this machine. */
-  perDayTokens: number | null;
-  onLimit: BudgetLimitAction;
-}
-
-export const NO_BUDGET: Budget = { perRunTokens: null, perRunMinutes: null, perDayTokens: null, onLimit: "stop-and-report" };
-
-/** Every budget, edited in Usage > Budgets only. Per machine, never in a shared file. */
-export interface Budgets {
-  team: { perDayTokens: number | null; perMonthTokens: number | null; onLimit: "ask" | "stop" };
-  agents: Record<string, Budget>;
-  /** The share of any budget at which Studio warns: 0.5 to 0.95. */
-  warnAt: number;
-}
-
-/** The ids budgets use for the two runs Studio had limits for before agents had names. */
-export const MAIN_AGENT_ID = "main";
-export const PLAYTEST_RUNNER_ID = "playtest-runner";
-
-export const DEFAULT_BUDGETS: Budgets = {
-  team: { perDayTokens: null, perMonthTokens: null, onLimit: "ask" },
-  agents: {},
-  warnAt: 0.8,
-};
-
-/** Bounds every budget field is checked against. */
-export const BUDGET_LIMITS = {
-  minTokens: 10_000,
-  maxTokens: 1_000_000_000,
-  maxMinutes: 1440,
-  minWarn: 0.5,
-  maxWarn: 0.95,
-} as const;
-
 /* ── Context strategy for other MCP clients ───────────────────────── */
 
 /** ue-mcp's own names for what an MCP client is given at the start of a session. */
@@ -115,12 +65,26 @@ export interface ClientContextStrategy {
   fromFile: boolean;
   /** UE_MCP_CONTEXT_STRATEGY in the daemon's environment wins over the file. */
   envOverride: ContextStrategy | null;
-  /** Seed tokens per strategy for every category, and where the numbers come from. */
+  /** Seed tokens per strategy for every category, as the daemon's projection measures them. */
   seeds: Record<ContextStrategy, number>;
-  seedSource: "measured by this ue-mcp" | "ue-mcp's published figures";
   /** A change applies once ue-mcp restarts and the clients start a new session. */
   restarting?: boolean;
 }
 
-/** ue-mcp's published seed figures, until the daemon can project them. */
-export const PUBLISHED_SEEDS: Record<ContextStrategy, number> = { micro: 2200, lean: 19000, full: 51000 };
+/** Studio's own agent: a ue-mcp strategy, or auto, which picks one from a measurement. */
+export type AgentContextStrategy = ContextStrategy | "auto";
+export const AGENT_CONTEXT_STRATEGIES: readonly AgentContextStrategy[] = ["micro", "lean", "full", "auto"];
+
+/** GET /context-strategy/agent: Studio's own agent's choice and what each would cost. */
+export interface AgentContextView {
+  strategy: AgentContextStrategy;
+  /** The strategy turns run on now, auto resolved. */
+  effective: ContextStrategy;
+  /** Seed tokens per strategy for every category, as the daemon's projection measures them; null when it failed. */
+  seeds: Record<ContextStrategy, number> | null;
+  /** Auto is offered only when a measurement ships; null otherwise. */
+  measurement: { measuredAt: string; ueMcpVersion: string; runs: number } | null;
+  /** Why the effective strategy differs from the choice, when it does. */
+  note: string | null;
+}
+

@@ -183,7 +183,8 @@ export class OpenAICompatibleProvider implements ModelProvider {
     const res = await this.fetchImpl(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       signal,
-      headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
+      // A local endpoint may take no key: it then gets no authorization header at all.
+      headers: { "content-type": "application/json", ...(this.apiKey ? { authorization: `Bearer ${this.apiKey}` } : {}) },
       body: JSON.stringify(toChatRequest(req)),
     });
     if (!res.ok || !res.body) {

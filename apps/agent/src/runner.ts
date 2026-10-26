@@ -16,17 +16,18 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_USAGE, type BudgetReached, type Budgets, type UsageRecord, type ApprovalDecision, type Approvals, type Budget, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
+import { DEFAULT_USAGE, type ApprovalDecision, type Approvals, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
-import { kindsOf, usageTokens, type TokenUsage } from "./usage.js";
-import { budgetStates, budgetText, overBudget } from "./ledger.js";
+import { usageTokens } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import type { QueuedMessage } from "@ue-mcp-studio/shared";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import type { QaBroker } from "./qa.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, forModel, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
-import { approvalFor, shell } from "./local-tools.js";
+import type Anthropic from "@anthropic-ai/sdk";
+import { approvalFor, localToolDefinitions, shell } from "./local-tools.js";
+import { MICRO_LINE, microSurface, withSurface, type EditorSurface } from "./context-surface.js";
 
 /** Set by the release bundle: false leaves the Agent SDK out of it. Unset in development and tests. */
 declare const __CLAUDE_SIGN_IN__: boolean | undefined;
@@ -65,11 +66,15 @@ export const QA = [
 export function playtestRunsLine(mode: PlaytestRunsMode): string {
   return mode === "automatic"
     ? "Starting playtests is set to Automatic in Settings > Approvals & review: you may start a playtest yourself with pie.script_run (wait: true, start_pie: true when PIE is not running) when the user wants it run, then report the summary and the results_path. Its card goes live."
-    : "Starting playtests is set to Manual in Settings > Approvals & review: only the user starts a playtest, with Start Playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Starting playtests to Automatic.";
+    : "Starting playtests is set to Manual in Settings > Approvals & review: only the user starts a playtest, with Start playtest or Assign to subagent on its card. Never call pie.script_run or pie.script_replay; Studio refuses them. Create or update the script, tell the user it is on the card, and end your turn. If the user wants you to run playtests yourself, tell them to set Starting playtests to Automatic.";
 }
 
+/** The SDK's options for the surface: ue-mcp's projected tools in place of ue_mcp, on Lean and Full. */
+const sdkEditor = (s: EditorSurface) =>
+  s.strategy === "micro" ? {} : { editor: { tools: s.projected.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })), canon: s.canon } };
+
 const WORK = [
-  "Anything in the running editor (assets, levels, actors, Blueprints, materials, Niagara) goes through ue_mcp: find the action with ue_mcp search, check its parameters with ue_mcp describe, then call it.",
+  MICRO_LINE,
   "Prefer a dedicated action to editor.execute_python. Save what you change when the task is done, unless the user says otherwise.",
   "Results report what happened (created, existed, updated, saved): read them instead of assuming.",
   "When you name an Unreal asset in a reply, write it as a markdown link to its full object path, for example [SG_PlaceAssembly](/Game/Environment/PCG/Library/SG_PlaceAssembly.SG_PlaceAssembly).",
@@ -150,7 +155,7 @@ export interface RunnerOptions {
   model: () => string;
   /** How long the model reasons; high when not given. */
   effort?: () => Effort;
-  /** Subagents, project instructions and the turn token limit; the defaults when not given. */
+  /** Subagents and project instructions; the defaults when not given. */
   usage?: () => UsageSettings;
   /** The model subagents run on; the main model when not given. */
   subagentModel?: () => string;
@@ -164,16 +169,8 @@ export interface RunnerOptions {
   approvals?: () => Approvals;
   /** ue-mcp's effects per action, for the destructive-actions row. */
   effects?: ActionEffects;
-  /** The main agent's budget: a turn stops at its per-run tokens. The old turn token limit when not given. */
-  mainBudget?: () => Budget;
-  /** Writes one record per model call to the usage ledger. */
-  ledger?: { append(r: Omit<UsageRecord, "at">): unknown; today?(): { byAgent: Map<string, number>; total: number }; thisMonth?(): { total: number } };
-  /** Per-day and per-month budgets, checked against the ledger before each tool call. */
-  budgets?: () => Budgets;
-  /** The main model's vendor and its route's id (claude, chatgpt, studio, key, endpoint:<id>), for the ledger. */
-  callRoute?: () => { vendor: string; route: string };
-  /** A limit window a sign-in reported, for Usage's plan meters. */
-  onPlanWindow?: (route: "claude" | "chatgpt", info: { type?: string; utilization?: number; resetsAt?: number; status: string }) => void;
+  /** How ue-mcp's tools are put to the agent this turn: Micro unless given. */
+  surfaces?: { current(): EditorSurface };
   /** The main agent's vendor's own files: instructions, subagents and skills. Null while "Read the project's own files" is off. */
   native?: () => NativeRun | null;
   /** Tracks each turn's editor calls, for the window's busy state. */
@@ -246,8 +243,6 @@ export class AgentRunner {
   private readonly subagents = new Map<string, () => void>();
   /** Subagents the user started from the chat rather than the agent, by their agent call id. */
   private readonly assigned = new Set<string>();
-  /** Tokens each subagent has spent, by its agent call id, while this daemon runs it. */
-  private readonly spent = new Map<string, number>();
   /** Calls waiting for the user, by approval id, with how to answer each. */
   private readonly waitingApprovals = new Map<string, { sessionId: string; parent: string | null; answer: (d: ApprovalDecision | "stopped") => void }>();
   /** Why the editor last went away, for waiting turns and unknown outcomes. */
@@ -313,11 +308,34 @@ export class AgentRunner {
   }
 
   /** The main agent's tools: the work tools, the agent tool when a helper can run, and the skill tool when there are skills. */
-  private mainTools() {
+  /** The editor surface for this turn: Studio's ue_mcp on Micro, ue-mcp's projected tools on Lean and Full. */
+  private surface(): EditorSurface {
+    return this.o.surfaces?.current() ?? microSurface();
+  }
+
+  /** The editor tools of the surface, then the machine's. */
+  private workTools(surface = this.surface()): Anthropic.Beta.BetaToolUnion[] {
+    return surface.strategy === "micro" ? [...WORK_TOOLS] : [...surface.tools, ...localToolDefinitions()];
+  }
+
+  /** Run one call: a projected tool that is not a category through the daemon's context.call, everything else through Studio's executor. */
+  private execute(host: AgentHost, name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<ToolExecution> {
+    const pass = this.surface().passthrough(name);
+    if (!pass) return executeTool(host, name, input, signal);
+    return pass(input).then(
+      (r) => {
+        const text = r.content.map((c) => c.text ?? "").filter(Boolean).join("\n") || (r.isError ? "The call failed." : "Done.");
+        return { text, isError: r.isError, outcome: r.isError ? "error" : "done", touched: [], saved: [] } as ToolExecution;
+      },
+      (e: unknown) => ({ text: e instanceof Error ? e.message : String(e), isError: true, outcome: "error", touched: [], saved: [] }) as ToolExecution,
+    );
+  }
+
+  private mainTools(surface = this.surface()) {
     const n = this.native();
     const worker = this.usage().subagents !== "off";
     const helpers = n?.helpers ?? [];
-    const tools = [...WORK_TOOLS];
+    const tools = this.workTools(surface);
     if (worker || helpers.length) tools.push(agentTool(AGENT_TOOL, helpers.map((h) => ({ name: h.name, description: h.description }))));
     if (n?.skills.length) tools.push(SKILL_TOOL);
     return tools;
@@ -334,56 +352,6 @@ export class AgentRunner {
     const n = this.native();
     if (!n?.sdkLoads) return {};
     return { native: { settingSources: ["user", "project", "local"], agents: sdkAgents(n.loadout), skills: n.skills.length > 0 } };
-  }
-
-  /** One model call into the usage ledger. `at`: the vendor and route when not the main agent's. */
-  private record(s: StoredSession, agentId: string, parentAgentId: string | null, model: string, at: { vendor: string; route: string } | null, usage: TokenUsage | undefined, durationMs: number, source?: UsageRecord["source"]): void {
-    if (!this.o.ledger || !usage) return;
-    const r = at ?? this.o.callRoute?.() ?? { vendor: "unknown", route: "unknown" };
-    try {
-      this.o.ledger.append({
-        sessionId: s.id,
-        turnId: s.turn ? `${s.id}:${s.turn.start}` : null,
-        agentId,
-        parentAgentId,
-        source: source ?? (s.source === "quick" ? "quick" : "chat"),
-        vendor: r.vendor,
-        model,
-        route: r.route,
-        tokens: kindsOf(usage),
-        durationMs,
-      });
-    } catch (e) {
-      this.o.host.log.warn("could not write the usage ledger", e);
-    }
-  }
-
-  /** A model call on the Claude sign-in: the subagent, when it is one, by the type its agent call named. */
-  private recordSdk(s: StoredSession, parent: string | null, d: { kinds: import("@ue-mcp-studio/shared").TokenKinds; model: string }, agentId?: string): void {
-    if (!this.o.ledger) return;
-    const id = agentId ?? this.agentOf(s, parent);
-    const usage: TokenUsage = { input: (d.kinds.input ?? 0) + (d.kinds.cacheWrite ?? 0), output: d.kinds.output ?? 0, kinds: d.kinds };
-    this.record(s, id, parent || agentId ? "main" : null, d.model || this.o.model(), { vendor: "anthropic", route: "claude" }, usage, 0, agentId ? "playtest" : undefined);
-  }
-
-  /**
-   * The agent a call belongs to, by the agent call it runs under: the main
-   * agent's own, a project subagent named by the call (helper on Studio's
-   * loop, subagent_type on the Agent SDK's), or Studio's own worker.
-   */
-  private agentOf(s: StoredSession, parent: string | null): string {
-    if (!parent) return "main";
-    const call = s.transcript.find((t) => t.kind === "tool" && t.call.id === parent);
-    const input = (call?.kind === "tool" ? call.call.input : {}) as { helper?: unknown; subagent_type?: unknown };
-    const named = typeof input.helper === "string" ? input.helper : input.subagent_type;
-    return typeof named === "string" && named && named !== "editor-worker" ? named : "worker";
-  }
-
-  /** The per-day or per-month budget the agent's next call is past, if any. */
-  private reached(agentId: string): BudgetReached | null {
-    const l = this.o.ledger;
-    if (!this.o.budgets || !l?.today || !l.thisMonth) return null;
-    return overBudget(budgetStates(this.o.budgets(), l.today(), l.thisMonth(), new Date()), agentId);
   }
 
   /** The skills line of a prompt, when the project has skills. */
@@ -416,32 +384,12 @@ export class AgentRunner {
     return this.usage().subagentEffort ?? this.o.effort?.() ?? "high";
   }
 
-  /**
-   * Count tokens a session's turn spent, the main agent's or a subagent's.
-   * Past the turn token limit the turn ends, as Studio's own stop.
-   */
-  private count(s: StoredSession, tokens: number, subagent: boolean): void {
-    if (!s.turn || tokens <= 0) return;
-    const t = (s.turn.tokens ??= { main: 0, subagents: 0 });
-    if (subagent) t.subagents += tokens;
-    else t.main += tokens;
-    const limit = this.turnLimit();
-    if (limit !== null && t.main + t.subagents >= limit && this.active.has(s.id)) {
-      this.interrupt(s.id, { by: "studio", why: `it spent ${t.main + t.subagents} tokens, past the main agent's per-run budget of ${limit} tokens in Usage > Budgets` });
-    }
-  }
-
-  /** Tokens a turn may spend before it stops, or null for no limit. */
-  private turnLimit(): number | null {
-    return this.o.mainBudget ? this.o.mainBudget().perRunTokens : this.usage().turnTokenLimit;
-  }
-
-  /** The usage entry that closes a turn which spent tokens. */
-  private recordUsage(s: StoredSession): void {
-    const t = s.turn?.tokens;
-    if (!t || t.main + t.subagents === 0) return;
-    const limit = this.turnLimit();
-    this.addEntry(s, { kind: "usage", main: t.main, subagents: t.subagents, ...(limit !== null && t.main + t.subagents >= limit ? { limit } : {}), at: now() });
+  /** Add tokens an agent spent to the session's per-agent totals: "main", or the subagent's agent call id. */
+  private count(s: StoredSession, tokens: number, agent: string | null): void {
+    if (tokens <= 0) return;
+    const t = (s.tokens ??= {});
+    const key = agent ?? "main";
+    t[key] = (t[key] ?? 0) + tokens;
   }
 
   /** The daemon is going down: every turn on the SDK route ends here, saying so. An API turn resumes in the next daemon. */
@@ -723,23 +671,21 @@ export class AgentRunner {
       const sdk = typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
       if (!sdk) throw new Error("This Studio build does not include the Claude sign-in.");
       const usage = this.usage();
+      const surface = this.surface();
       const error = await sdk.runSubscriptionTurn({
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",
         // The SDK reads the project's own files itself: Studio adds none of their text.
-        system: system(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()),
-        subagentSystem: subagentSystem(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()),
+        system: withSurface(system(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()), surface),
+        subagentSystem: withSurface(subagentSystem(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()), surface),
         ...this.sdkNative(),
+        ...sdkEditor(surface),
         subagents: { mode: usage.subagents, perTurn: usage.subagentsPerTurn, model: this.subagentModel(), effort: this.subagentEffort() },
         prompt,
         resume: s.sdkSession ?? null,
         signal: controller.signal,
-        onTokens: (n, parent, d) => {
-          this.count(s, n, !!parent);
-          if (d) this.recordSdk(s, parent, d);
-        },
-        onRateLimit: (i) => this.o.onPlanWindow?.("claude", i),
+        onTokens: (n, parent) => this.count(s, n, parent),
         onSession: (sid) => {
           s.sdkSession = sid;
           this.o.store.save(s);
@@ -827,7 +773,7 @@ export class AgentRunner {
       this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
       return { text, isError: true, outcome: "error", touched: [], saved: [] };
     }
-    const running = executeTool(this.hostFor(s.id, detached), name, input, signal);
+    const running = this.execute(this.hostFor(s.id, detached), name, input, signal);
     // What a call does after its subagent was stopped is still tracked for the crash report.
     if (sub) void running.then((e) => sub.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
     const done = sub ? await unlessAborted(running, sub) : await running;
@@ -1023,24 +969,22 @@ export class AgentRunner {
     if (!sdk) return { text: "This Studio build does not include the Claude sign-in.", isError: true };
     let report = "";
     const usage = this.usage();
+    const surface = this.surface();
     const error = await sdk.runSubscriptionTurn({
       projectDir: this.o.host.projectDir,
       model: this.subagentModel(),
       effort: this.subagentEffort(),
       // Its runs are the user's, from the card: the brief says to start one.
-      system: subagentSystem(this.o.host.projectDir, "automatic", usage, this.sdkComposed()),
-      subagentSystem: subagentSystem(this.o.host.projectDir, "automatic", usage, this.sdkComposed()),
+      system: withSurface(subagentSystem(this.o.host.projectDir, "automatic", usage, this.sdkComposed()), surface),
+      subagentSystem: withSurface(subagentSystem(this.o.host.projectDir, "automatic", usage, this.sdkComposed()), surface),
       ...this.sdkNative(),
+      ...sdkEditor(surface),
       // A subagent starts none of its own.
       subagents: { mode: "off", perTurn: 0, model: this.subagentModel(), effort: this.subagentEffort() },
       prompt: [{ type: "text", text: prompt }],
       resume: null,
       signal: own.signal,
-      onTokens: (n, _parent, d) => {
-        this.spend(callId, n);
-        if (d) this.recordSdk(s, null, d, "playtest-runner");
-      },
-      onRateLimit: (i) => this.o.onPlanWindow?.("claude", i),
+      onTokens: (n) => this.count(s, n, callId),
       onSession: () => {},
       onDelta: () => {},
       onAssistant: (_mid, blocks, parent) => {
@@ -1076,15 +1020,6 @@ export class AgentRunner {
    * Stop one subagent and let the turn go on: the main agent is told the user
    * stopped it. Returns false when no subagent of that id is running.
    */
-  /** Tokens a subagent has spent so far, as its provider reported them. */
-  tokensOf(callId: string): number {
-    return this.spent.get(callId) ?? 0;
-  }
-
-  private spend(callId: string, tokens: number): void {
-    if (tokens > 0) this.spent.set(callId, (this.spent.get(callId) ?? 0) + tokens);
-  }
-
   stopSubagent(sessionId: string, callId: string): boolean {
     const s = this.require(sessionId);
     const stop = this.subagents.get(callId);
@@ -1114,8 +1049,6 @@ export class AgentRunner {
    * run it, or why it must not run: declined, or the turn was stopped.
    */
   private async gate(s: StoredSession, toolUseId: string, name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<GateResult> {
-    const budget = await this.budgetGate(s, toolUseId, signal);
-    if (budget) return budget;
     const kind = approvalKind(name, input, this.o.effects ?? NO_EFFECTS);
     if (!kind) return null;
     // A bad input fails in the executor without changing anything.
@@ -1139,35 +1072,6 @@ export class AgentRunner {
     this.o.store.save(s);
     if (decision === "stopped") return { stopped: true };
     if (decision === "deny") return { declined: declinedText(name) };
-    return null;
-  }
-
-  /**
-   * A per-day or per-month budget the call's agent is past: on stop the turn
-   * ends and says why; on ask the call waits for the user, and Allow for this
-   * session covers that budget until its day or month ends.
-   */
-  private async budgetGate(s: StoredSession, toolUseId: string, signal: AbortSignal): Promise<GateResult> {
-    const parent = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId)?.parent ?? null;
-    const r = this.reached(this.agentOf(s, parent));
-    if (!r) return null;
-    const key = `budget:${r.scope}:${r.agent ?? ""}:${r.period}`;
-    if (s.allowed?.includes(key)) return null;
-    const why = budgetText(r);
-    if (r.onLimit === "stop") {
-      if (s.turn && this.active.has(s.id)) this.interrupt(s.id, { by: "studio", why });
-      return { stopped: true };
-    }
-    if (signal.aborted) return { stopped: true };
-    const req: ApprovalRequest = { id: crypto.randomUUID(), toolUseId, parent, tool: "budget", budget: r, at: now() };
-    const decision = await this.waitForAnswer(s, req, "budget", signal);
-    if (decision === "session") s.allowed = [...new Set([...(s.allowed ?? []), key])];
-    this.o.store.save(s);
-    if (decision === "stopped") return { stopped: true };
-    if (decision === "deny") {
-      if (s.turn && this.active.has(s.id)) this.interrupt(s.id, { by: "studio", why: `you chose to stop: ${why}` });
-      return { stopped: true };
-    }
     return null;
   }
 
@@ -1237,7 +1141,6 @@ export class AgentRunner {
     if (status === "idle" && s.queue?.length) setTimeout(() => void this.sendQueued(s.id), 0);
     // A turn that ended, however it ended, gets its checkpoint after and its review.
     const ended = status !== "running" && status !== "waiting" && (was === "running" || was === "waiting");
-    if (ended) this.recordUsage(s);
     if (ended && s.reviewing) void this.o.review?.turnEnded(s).catch((e) => this.o.host.log.warn("the review checkpoint after the turn failed", e));
   }
 
@@ -1376,22 +1279,22 @@ export class AgentRunner {
 
         if (s.status !== "running") this.setStatus(s, "running", null);
         const usage = this.usage();
-        const started = Date.now();
+        // One surface for the whole request: its tools, its prompt line and how its calls read back.
+        const surf = this.surface();
         const turn = await this.o.provider().run(
           {
             sessionId: s.id,
             model: this.o.model(),
             effort: this.o.effort?.(),
-            system: [{ type: "text", text: [system(this.o.host.projectDir, this.runsMode(), usage, this.composed()), this.skillLines()].filter(Boolean).join("\n") }],
-            tools: this.mainTools(),
+            system: [{ type: "text", text: [withSurface(system(this.o.host.projectDir, this.runsMode(), usage, this.composed()), surf), this.skillLines()].filter(Boolean).join("\n") }],
+            tools: this.mainTools(surf),
             messages: s.messages,
           },
           (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
           controller.signal,
         );
         if (controller.signal.aborted) return;
-        this.record(s, "main", null, this.o.model(), null, turn.usage, Date.now() - started);
-        this.count(s, usageTokens(turn.usage), false);
+        this.count(s, usageTokens(turn.usage), null);
         if (controller.signal.aborted) return;
 
         s.messages.push({ role: "assistant", content: turn.content } as MessageParam);
@@ -1411,7 +1314,11 @@ export class AgentRunner {
           this.setStatus(s, "idle", null);
           return;
         }
-        s.pending = uses.map((u) => ({ id: u.id, name: u.name, input: (u.input ?? {}) as Record<string, unknown>, state: "queued" }));
+        // A projected category call is kept as the ue_mcp call it is; the model's own block stays in the conversation.
+        s.pending = uses.map((u) => {
+          const c = surf.canon(u.name, (u.input ?? {}) as Record<string, unknown>);
+          return { id: u.id, name: c.name, input: c.input, state: "queued" as const };
+        });
         for (const p of s.pending) {
           this.addEntry(s, { kind: "tool", call: { id: p.id, name: p.name, input: p.input, outcome: "pending", startedAt: now() } });
         }
@@ -1513,7 +1420,7 @@ export class AgentRunner {
       }
       p.state = "running";
       this.o.store.save(s);
-      const exec = await executeTool(this.hostFor(s.id), p.name, p.input, signal);
+      const exec = await this.execute(this.hostFor(s.id), p.name, p.input, signal);
       if (signal.aborted) {
         // Stopped while the editor worked: the stop already answered this call.
         this.mergeExec(s, exec, exec.outcome !== "unknown");
@@ -1560,10 +1467,14 @@ export class AgentRunner {
       helper = n?.helpers.find((h) => h.name === call.input.helper) ?? null;
       if (!helper) return { text: `No helper named ${call.input.helper}. The project's helpers are: ${(n?.helpers ?? []).map((h) => h.name).join(", ") || "none"}.`, isError: true };
     }
-    const tools = helper?.allowed ? WORK_TOOLS.filter((t) => helper!.allowed!.has((t as { name: string }).name as never)) : [...WORK_TOOLS];
+    const surf = this.surface();
+    const projected = new Set(surf.projected.map((p) => p.name));
+    // A helper whose file allows ue_mcp gets every projected editor tool in its place.
+    const allows = (name: string) => helper!.allowed!.has(name as never) || (projected.has(name) && helper!.allowed!.has("ue_mcp" as never));
+    const tools = helper?.allowed ? this.workTools(surf).filter((t) => allows((t as { name: string }).name)) : this.workTools(surf);
     if (n?.skills.length) tools.push(SKILL_TOOL);
     const steps = helper?.maxTurns ?? SUBAGENT_STEPS;
-    const base = subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.usage(), this.composed());
+    const base = withSurface(subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.usage(), this.composed()), surf);
     const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
     const provider = helper?.run ? helper.run.provider : this.o.provider;
     const model = helper?.run?.model ?? this.subagentModel();
@@ -1584,7 +1495,6 @@ export class AgentRunner {
     try {
       for (let step = 0; step < steps; step++) {
         if (signal.aborted) return stopped();
-        const callStarted = Date.now();
         const turn = await provider().run(
           {
             sessionId: s.id,
@@ -1598,10 +1508,7 @@ export class AgentRunner {
           signal,
         );
         messages.push({ role: "assistant", content: turn.content } as MessageParam);
-        this.spend(parent, usageTokens(turn.usage));
-        this.record(s, helper?.name ?? (detached ? "playtest-runner" : "worker"), detached ? null : "main", model, helper?.run ? { vendor: helper.run.vendor, route: helper.run.route } : null, turn.usage, Date.now() - callStarted, detached ? "playtest" : undefined);
-        // One the user assigned runs beside the session's turns, within its own budget.
-        if (!detached) this.count(s, usageTokens(turn.usage), true);
+        this.count(s, usageTokens(turn.usage), parent);
         this.recordSearches(s, turn.searches, parent);
         const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
         if (text) {
@@ -1613,8 +1520,10 @@ export class AgentRunner {
         const uses = turn.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
         if (turn.stopReason !== "tool_use" || uses.length === 0) return { text: report || "The subagent finished without a report.", isError: false };
         const results: Array<{ type: "tool_result"; tool_use_id: string; content: ReturnType<typeof toolResultContent>; is_error?: boolean }> = [];
-        for (const u of uses) {
-          const input = (u.input ?? {}) as Record<string, unknown>;
+        for (const raw of uses) {
+          const c = surf.canon(raw.name, (raw.input ?? {}) as Record<string, unknown>);
+          const u = { ...raw, name: c.name };
+          const input = c.input;
           this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() }, parent });
           if (u.name === "skill") {
             const r = skillResult(n?.skills ?? [], input.name);
@@ -1638,7 +1547,7 @@ export class AgentRunner {
             results.push({ type: "tool_result", tool_use_id: u.id, content: gate.declined, is_error: true });
             continue;
           }
-          const running = executeTool(this.hostFor(s.id, detached), u.name, input, signal);
+          const running = this.execute(this.hostFor(s.id, detached), u.name, input, signal);
           // A stop lets the call go at once; what it does after is still tracked for the crash report.
           void running.then((e) => signal.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
           const exec = await unlessAborted(running, signal);

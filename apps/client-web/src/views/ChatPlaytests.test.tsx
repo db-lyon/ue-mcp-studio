@@ -9,7 +9,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { qaRunFromAnswer, type QaRun, type SessionDetail } from "@ue-mcp-studio/shared";
 import { ChatView } from "./Chat";
 
-const OTHER = { dialogs: [], forms: [], approvals: [], providers: [], now: 0, supported: true, runs: [] };
+const OTHER = { dialogs: [], forms: [], approvals: [], providers: [], now: 0, runs: [] };
 const daemon = { health: null, error: null, streaming: true, events: [], refresh: () => {} };
 
 afterEach(() => {

@@ -140,7 +140,7 @@ export type QaBlockerKind =
   | "needs_person"
   | "crashes"
   | "builds"
-  | "budget";
+  | "attempts";
 
 export interface QaBlocker {
   kind: QaBlockerKind;
@@ -171,16 +171,8 @@ export interface QaLoopAttempt {
   failing: string[];
   startedAt: string;
   endedAt?: string;
-  tokens: number;
   reverted?: boolean;
 }
-
-/** Time and tokens a loop may spend, from Settings > Agent. */
-export interface PlaytestBudget {
-  minutes: number;
-  tokens: number;
-}
-export const DEFAULT_PLAYTEST_BUDGET: PlaytestBudget = { minutes: 60, tokens: 2_000_000 };
 
 export interface QaLoop {
   id: string;
@@ -192,9 +184,6 @@ export interface QaLoop {
   blocker?: QaBlocker;
   /** Why the loop broke, when it failed. */
   error?: string;
-  budget: PlaytestBudget;
-  /** Tokens every attempt spent so far. */
-  tokens: number;
   startedAt: string;
   endedAt?: string;
   /** Revert all ran. */

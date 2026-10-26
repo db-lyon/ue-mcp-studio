@@ -9,12 +9,15 @@ import {
   qaDraftFromScript,
   qaNeedsYou,
   qaRunFromAnswer,
+  type AgentContextView,
+  type CustomEndpoint,
   type PlaytestEntry,
   type PlaytestIndexAnswer,
   type QaLoop,
   type QaRun,
   type SessionDetail,
   type SessionSummary,
+  type StudioSettings,
   type TranscriptEntry,
 } from "@ue-mcp-studio/shared";
 
@@ -55,15 +58,13 @@ export function run(id: string, name: string, state: string, statuses: string[],
 }
 
 function loop(state: QaLoop["state"]): QaLoop {
-  const first = { n: 1, callId: "agent-1", before: "cp-0", after: "cp-1", changes: [{ path: "Content/Blueprints/BP_Door.uasset", status: "modified" as const }], failing: ["Step 3: the door never opened"], startedAt: ago(9), endedAt: ago(6), tokens: 48_200 };
-  const second = { n: 2, callId: "agent-2", before: "cp-1", ...(state === "running" ? {} : { after: "cp-2", endedAt: ago(2) }), changes: [], failing: state === "running" ? [] : ["Step 3: the door never opened"], startedAt: ago(5), tokens: state === "running" ? 9_100 : 39_800 };
+  const first = { n: 1, callId: "agent-1", before: "cp-0", after: "cp-1", changes: [{ path: "Content/Blueprints/BP_Door.uasset", status: "modified" as const }], failing: ["Step 3: the door never opened"], startedAt: ago(9), endedAt: ago(6) };
+  const second = { n: 2, callId: "agent-2", before: "cp-1", ...(state === "running" ? {} : { after: "cp-2", endedAt: ago(2) }), changes: [], failing: state === "running" ? [] : ["Step 3: the door never opened"], startedAt: ago(5) };
   return {
     id: `loop-${state}`,
     state,
     attempts: [first, second],
     baseline: "cp-0",
-    budget: { minutes: 60, tokens: 2_000_000 },
-    tokens: first.tokens + second.tokens,
     startedAt: ago(9),
     ...(state === "needs_you" ? { endedAt: ago(2), blocker: { kind: "no_progress" as const, reason: "Two attempts changed nothing about step 3: the door trigger never fires in PIE.", evidence: ["Step 3: the door never opened"], step: 2 } } : {}),
   };
@@ -107,9 +108,10 @@ function transcript(runs: QaRun[]): TranscriptEntry[] {
   entries.push({ kind: "assistant", text: "I saved it as a script. The observer checks the jump, the door angle and the sprint speed; you judge the jump arc and how the door opens.", at: ago(11) });
   for (const r of runs) entries.push({ kind: "qa", run: r });
   const text = runs.some(qaNeedsYou) ? "It needs you now: the strip above has what it is waiting on."
+    : runs.every((r) => r.state === "armed") ? "It is starting. I will read the results when it ends."
     : runs.some(qaActive) ? "It is running. I will read the results when it ends."
     : runs.some((r) => r.state === "finished" || r.state === "stopped") ? "The run ended; its card has each step's result."
-    : "Start Playtest on its card runs it.";
+    : "It is ready. Press Start playtest on its card to run it.";
   entries.push({ kind: "assistant", text, at: ago(3) });
   return entries;
 }
@@ -142,14 +144,87 @@ export interface Scenario {
   click?: string;
   /** Focused from the keyboard after the page settles, to show the focus ring: a CSS selector. */
   focus?: string;
+  /** A line that arrives after the reader has scrolled the conversation up: the session is read again with it. */
+  arrives?: TranscriptEntry;
+  /** Settings > Agents: what GET /context-strategy/agent answers. */
+  agentContext?: AgentContextView;
+  /** Clicked one after another after the page settles, each a CSS selector; after click, when both are given. */
+  clicks?: string[];
+  /** Scrolled to the top of its scroller after the clicks, to show what lies below the fold: a CSS selector. */
+  scroll?: string;
+  /** The window's height for the shot, for a page taller than the default 860 pixels. */
+  height?: number;
+  /** Settings the scenario changes from the harness's own. */
+  settings?: Partial<StudioSettings>;
+  /** GETs the scenario answers itself, before the harness's defaults; undefined falls through. */
+  get?: (path: string, url: URL) => unknown;
+  /** Writes the scenario answers itself, with their status; undefined is the harness's 409. */
+  post?: (path: string) => { status: number; body: unknown } | undefined;
+  /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */
+  endpoints?: CustomEndpoint[] | "error";
+  /** Shoot the whole page, for a settings section taller than the window. */
+  fullPage?: boolean;
 }
+
+const ENDPOINTS: CustomEndpoint[] = [
+  {
+    id: "local-ollama",
+    name: "Local Ollama",
+    baseUrl: "http://localhost:11434/v1",
+    hasKey: false,
+    models: [
+      { id: "qwen3-coder:30b" },
+      { id: "llama-3.3-70b-instruct" },
+      { id: "my-finetune", typed: true },
+    ],
+    listedAt: ago(5),
+    listError: null,
+  },
+  {
+    id: "team-vllm",
+    name: "Team vLLM",
+    baseUrl: "https://llm.internal.example.com/v1",
+    hasKey: true,
+    models: [{ id: "deepseek-v4", typed: true }],
+    listedAt: ago(2),
+    listError: "its /models answered 401",
+  },
+];
 
 const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
   ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
 
+/** A session whose main agent started two subagents, both running: the thread list with each agent's tokens. */
+function withAgents(): SessionDetail {
+  const d = detail("Dress the cave", []);
+  const call = (id: string, description: string, outcome: "pending" | "done", minutes: number): TranscriptEntry =>
+    ({ kind: "tool", call: { id, name: "agent", input: { description, prompt: description }, outcome, startedAt: ago(minutes), ...(outcome === "done" ? { endedAt: ago(1), result: "Done." } : {}) } });
+  const step = (id: string, parent: string, method: string, minutes: number): TranscriptEntry =>
+    ({ kind: "tool", call: { id, name: "ue_mcp", input: { action: "call", category: "level", method }, outcome: "done", startedAt: ago(minutes), endedAt: ago(minutes), result: "{}" }, parent });
+  return {
+    ...d,
+    status: "running",
+    transcript: [
+      { kind: "user", text: "Dress the cave with rocks and fog, and check the lighting.", at: ago(8) },
+      call("agent-rocks", "Place rocks along the cave floor", "pending", 6),
+      step("rocks-1", "agent-rocks", "spawn_actor", 5),
+      call("agent-light", "Check the cave lighting", "pending", 6),
+      step("light-1", "agent-light", "get_outliner", 5),
+    ],
+    agents: { total: 2, running: 2 },
+    tokens: { main: 48_200, "agent-rocks": 12_950, "agent-light": 6_400 },
+  };
+}
+
 export const SCENARIOS: Record<string, Scenario> = {
+  "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
+  "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], fullPage: true },
+  "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, fullPage: true },
+  "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },
+  "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
+  "endpoints-edit": { title: "Editing a custom endpoint: its models", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
   "session-empty": inSession("A session with no playtest: no strip, no row of buttons, Checkpoints in the composer bar", "Door playtest", []),
-  "draft": inSession("A draft: collapsed card in the transcript with Start Playtest on it", "Door playtest", [RUNS.draft]),
+  "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
   "armed": inSession("Armed: pinned on the strip, its transcript place a one-line pointer", "Door playtest", [RUNS.armed]),
   "running": inSession("Running: live card on the strip", "Jump check", [RUNS.running]),
   "waiting": inSession("Waiting for a verdict: Pass, Fail and Skip on the strip", "Door playtest", [RUNS.waiting]),
@@ -161,13 +236,23 @@ export const SCENARIOS: Record<string, Scenario> = {
   "stopped": inSession("Stopped: in the transcript, a neutral pill, with the steps it never reached marked", "Sprint", [RUNS.stopped]),
   "loop-running": inSession("Assigned loop running: on the strip with its attempt", "Ledge grab", [RUNS.loopRunning]),
   "loop-needs-you": inSession("Loop that needs you: on the strip with its reason and Review", "Gate trigger", [RUNS.loopNeedsYou]),
-  "loop-needs-you-open": inSession("Loop that needs you, opened from the strip: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".playtest-strip .qa-toggle"),
+  "loop-needs-you-open": { ...inSession("Loop that needs you, opened from the strip: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".playtest-strip .qa-toggle"), scroll: ".playtest-strip button[title^='A subagent runs']" },
   "strip-two-need-you": inSession("Two that need you and one running: both that need you are shown at every width", "Door playtest", [RUNS.running, RUNS.waiting, RUNS.loopNeedsYou]),
   "strip-several": inSession("Several live: summary line, needs-you first, bounded height", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
+  "new-messages": (() => {
+    const s = inSession("New messages arrive while the reader is scrolled up: the pill takes its own row, over no line", "Door playtest", [RUNS.armed]);
+    const talk: TranscriptEntry[] = Array.from({ length: 6 }, (_, i) => ({ kind: i % 2 ? "assistant" as const : "user" as const, text: i % 2 ? "The observer reads the door angle every frame; the run ends when every step has a result." : "How does it decide the door opened?", at: ago(20 - i) }));
+    return { ...s, session: { ...s.session!, transcript: [...talk, ...s.session!.transcript] }, arrives: { kind: "assistant", text: "PIE is up; the first step is running.", at: ago(0) } };
+  })(),
   "page-needs-you": { title: "Playtests page, Needs you", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "needs-you" },
   "page-failing": { title: "Playtests page, Failing", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "failing" },
   "page-all": { title: "Playtests page, All", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all" },
   "page-row-open": { title: "Playtests page, a row's full card opened in place", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
+  "page-row-edit": { title: "Playtests page, Edit on a script run outside Studio: the step editor in place", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-row:nth-child(4) .qa-toggle", ".playtests-row:nth-child(4) .qa-script-edit"] },
+  "page-row-delete": { title: "Playtests page, Delete waiting for its second click", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-row:nth-child(4) .qa-toggle", ".playtests-row:nth-child(4) .qa-script-delete"] },
+  "page-row-offline-open": { title: "Playtests page, an open row while the editor is away: Edit and Delete disabled", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
   "page-empty": { title: "Playtests page with no playtests in the project", hash: "#/playtests", index: { playtests: [], listed: true }, filter: "all" },
+  "agents-context": { title: "Settings > Agents, ue-mcp tools on Lean with each strategy's seed tokens", hash: "#/settings/agents", index: { playtests: [], listed: true }, agentContext: { strategy: "lean", effective: "lean", seeds: { micro: 2180, lean: 18740, full: 50920 }, measurement: null, note: null } },
+  "agents-context-auto": { title: "Settings > Agents, Auto offered from a measurement and chosen", hash: "#/settings/agents", index: { playtests: [], listed: true }, agentContext: { strategy: "auto", effective: "lean", seeds: { micro: 2180, lean: 18740, full: 50920 }, measurement: { measuredAt: "2026-10-20T12:00:00Z", ueMcpVersion: "1.4.11", runs: 9 }, note: "Auto chose Lean: 100% of tasks passed at a median 41,300 tokens." } },
   "page-editor-offline": { title: "Playtests page while the editor cannot list scripts", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all" },
 };

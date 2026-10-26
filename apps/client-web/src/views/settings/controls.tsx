@@ -2,15 +2,18 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 /** One choice of a few, shown side by side. */
-export function Seg<T extends string>({ value, options, onChange, label, disabled }: {
+export function Seg<T extends string>({ value, options, onChange, label, disabled, compact }: {
   value: T | null;
   options: ReadonlyArray<{ id: T; name: string; title?: string; disabled?: boolean }>;
   onChange: (v: T) => void;
   label: string;
   disabled?: boolean;
+  /** Short names that stay side by side on a narrow panel, wrapping, rather than one per line. */
+  compact?: boolean;
 }) {
+  const many = !compact && (options.length >= 3 || options.reduce((n, o) => n + o.name.length, 0) > 24);
   return (
-    <div className={`seg ${options.length >= 3 || options.reduce((n, o) => n + o.name.length, 0) > 24 ? "many" : ""}`} role="radiogroup" aria-label={label}>
+    <div className={`seg${many ? " many" : ""}${compact ? " compact" : ""}`} role="radiogroup" aria-label={label}>
       {options.map((o) => (
         <button
           key={o.id}
@@ -43,11 +46,6 @@ export function Row({ title, help, children, badge, inline }: { title: ReactNode
       {children}
     </div>
   );
-}
-
-/** "Shared with other clients": the value lives in ue-mcp, so every MCP client on the project follows it. */
-export function Shared() {
-  return <span className="shared" title="ue-mcp stores this for the project, so every MCP client connected to it follows the same setting.">Shared with other clients</span>;
 }
 
 /** A choice with a sentence under it. */

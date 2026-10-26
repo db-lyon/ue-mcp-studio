@@ -4,6 +4,10 @@
  *
  * node scripts/usage-parity/measure.mjs --project <path to .uproject> [--rounds 3] [--prompts A,B,C,D,E]
  *   [--base <git ref>] [--model claude-sonnet-5-5] [--effort medium] [--no-cc] [--no-warm] [--keep]
+ *   [--strategies micro,lean,full] [--measurement <file>]
+ *
+ * --strategies runs Studio once per ue-mcp context strategy; --measurement writes the runs in
+ * ue-mcp's ContextMeasurement format, which Studio's Auto reads (apps/agent/src/context-costs.json).
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -11,7 +15,7 @@ import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { cleanup, connect, ensureBaseline, preflight, reset, verify } from "./editor.mjs";
-import { report } from "./report.mjs";
+import { report, spend } from "./report.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..", "..");
@@ -23,7 +27,7 @@ const opt = (name, def) => {
 const flag = (name) => argv.includes(`--${name}`);
 const uproject = opt("project");
 if (!uproject || !fs.existsSync(uproject)) {
-  console.error("usage: node scripts/usage-parity/measure.mjs --project <path to .uproject> [--rounds 3] [--prompts A,B,C,D,E] [--base <git ref>] [--model m] [--effort e] [--no-cc] [--no-warm] [--keep]");
+  console.error("usage: node scripts/usage-parity/measure.mjs --project <path to .uproject> [--rounds 3] [--prompts A,B,C,D,E] [--base <git ref>] [--model m] [--effort e] [--no-cc] [--no-warm] [--keep] [--strategies micro,lean,full] [--measurement <file>]");
   process.exit(2);
 }
 const rounds = Number(opt("rounds", "3"));
@@ -31,6 +35,8 @@ const promptIds = opt("prompts", "A,B,C,D,E").split(",");
 const model = opt("model", "claude-sonnet-5-5");
 const effort = opt("effort", "medium");
 const baseRef = opt("base", null);
+const strategies = opt("strategies", null)?.split(",").filter((s) => ["micro", "lean", "full"].includes(s)) ?? null;
+const measurementFile = opt("measurement", null);
 const projectDir = path.dirname(path.resolve(uproject));
 const ueMcp = path.join(repo, "apps", "agent", "node_modules", "ue-mcp", "dist", "index.js");
 const promptsFile = path.join(here, "prompts.json");
@@ -75,7 +81,9 @@ async function buildHarness(srcRoot, out) {
 const clients = [];
 if (!flag("no-cc")) clients.push("cc");
 await buildHarness(repo, path.join(work, "studio.mjs"));
-clients.push("studio");
+// One Studio client per strategy when asked, all from the same bundle.
+if (strategies) clients.push(...strategies.map((s) => `studio:${s}`));
+else clients.push("studio");
 if (baseRef) {
   const src = path.join(work, "base-src");
   fs.rmSync(src, { recursive: true, force: true });
@@ -89,7 +97,7 @@ if (baseRef) {
 }
 
 if (flag("build-only")) {
-  log(`built ${clients.filter((c) => c !== "cc").map((c) => path.join(work, `${c}.mjs`)).join(", ")}`);
+  log(`built ${[...new Set(clients.filter((c) => c !== "cc").map((c) => c.replace(/:.*/, "")))].map((c) => path.join(work, `${c}.mjs`)).join(", ")}`);
   fs.rmSync(runDir, { recursive: true, force: true });
   process.exit(0);
 }
@@ -139,7 +147,8 @@ async function runOne(client, pid, label) {
     rec = { error, finalText: finals.join("\n---\n") };
   } else {
     const before2 = fs.existsSync(path.join(runDir, "harness.jsonl")) ? fs.readFileSync(path.join(runDir, "harness.jsonl"), "utf8").split("\n").filter(Boolean).length : 0;
-    const out = spawnSync(process.execPath, [path.join(work, `${client}.mjs`), promptsFile, pid, model, effort, label, path.resolve(uproject), ueMcp, path.join(runDir, "harness.jsonl"), path.join(runDir, "data"), nonce],
+    const [bundle, strategy] = client.startsWith("studio:") ? ["studio", client.slice(7)] : [client, "micro"];
+    const out = spawnSync(process.execPath, [path.join(work, `${bundle}.mjs`), promptsFile, pid, model, effort, label, path.resolve(uproject), ueMcp, path.join(runDir, "harness.jsonl"), path.join(runDir, "data"), nonce, strategy],
       { encoding: "utf8", maxBuffer: 1 << 26, timeout: 40 * 60_000 });
     const lines = fs.existsSync(path.join(runDir, "harness.jsonl")) ? fs.readFileSync(path.join(runDir, "harness.jsonl"), "utf8").split("\n").filter(Boolean) : [];
     rec = lines.length > before2 ? JSON.parse(lines.at(-1)) : { error: `harness failed: ${(out.stderr || out.stdout || "").slice(-500)}`, finalText: "" };
@@ -170,5 +179,30 @@ try {
 const runs = fs.readFileSync(resultsFile, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.label === "measured");
 const text = report(runs);
 fs.writeFileSync(path.join(runDir, "report.md"), text);
+if (measurementFile && strategies) {
+  // ue-mcp's ContextMeasurement: one run per strategy, every measured task with what it spent and whether its checks passed.
+  const pkg = JSON.parse(fs.readFileSync(path.join(repo, "apps", "agent", "node_modules", "ue-mcp", "package.json"), "utf8"));
+  const measurement = {
+    version: 1,
+    measuredAt: new Date().toISOString(),
+    ueMcpVersion: pkg.version,
+    client: { name: "ue-mcp-studio", version: JSON.parse(fs.readFileSync(path.join(repo, "apps", "agent", "package.json"), "utf8")).version },
+    runs: strategies.map((s) => {
+      const mine = runs.filter((r) => r.client === `studio:${s}`);
+      return {
+        model: { vendor: "anthropic", model },
+        scope: "9+",
+        strategy: s,
+        seedTokens: mine.find((r) => r.seedTokens)?.seedTokens ?? 0,
+        tasks: mine.map((r, i) => {
+          const sp = spend(r.files ?? []);
+          return { id: `${r.prompt}-${i}`, totalTokens: sp.input + sp.write5m + sp.write1h + sp.read + sp.output, modelCalls: sp.calls, discoveryCalls: sp.ue.search + sp.ue.describe + (sp.results.catalog?.n ?? 0), passed: !!r.verify?.ok };
+        }),
+      };
+    }),
+  };
+  fs.writeFileSync(measurementFile, `${JSON.stringify(measurement, null, 2)}\n`);
+  log(`measurement written to ${measurementFile}`);
+}
 console.log(`\n${text}\n\nWritten to ${path.join(runDir, "report.md")}`);
 process.exit(0);

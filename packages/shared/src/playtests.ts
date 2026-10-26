@@ -36,7 +36,7 @@ export interface PlaytestEntry {
   /** The newest run, wherever it started: a session's, one started elsewhere, or its results.json. Null when it never ran. */
   last: QaRun | null;
   /**
-   * The card Start Playtest and Assign to subagent act on: the newest run or
+   * The card Start playtest and Assign to subagent act on: the newest run or
    * draft that has a session. Null when no session has one yet; POST
    * /qa/playtests/card makes one.
    */

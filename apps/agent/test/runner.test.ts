@@ -431,14 +431,13 @@ describe("the editor gone with nothing bringing it back (#1384)", () => {
   const busyOn = () => new BusyTracker((type, data) => host.emit(`studio.${type}`, data), Date.now, () => host.connected);
   const restart = (op: string): ModelTurn => ({ content: [{ type: "tool_use", id: "r", name: "editor_restart", input: { operation: op, reason: "C++ changed" } } as never], stopReason: "tool_use" });
 
-  it("a rebuild whose build failed is an error, not a wait, also from an older daemon that marked the step ok", async () => {
+  it("a rebuild whose build failed is an error, not a wait", async () => {
     const busy = busyOn();
     host.editorOperation = async (op: string) => {
       host.connected = false;
       return { op, steps: [
         { step: "editor.stop_editor", ok: true, result: JSON.stringify({ success: true }) },
-        { step: "project.build", ok: true, result: JSON.stringify({ success: false, exitCode: 6, message: "Build failed with exit code 6" }) },
-        { step: "editor.start_editor", ok: true, result: JSON.stringify({ success: false, message: "Editor launched but did not become ready: still not ready after 300s." }) },
+        { step: "project.build", ok: false, result: JSON.stringify({ success: false, exitCode: 6, message: "Build failed with exit code 6" }) },
       ] };
     };
     const model = new ScriptedModel([() => restart("rebuild"), () => text("The build failed.")]);
@@ -1055,27 +1054,18 @@ describe("Settings > Agent > Usage", () => {
     expect([main.model, main.effort]).toEqual(["claude-opus-5-5", "high"]);
   });
 
-  it("ends a turn with what it spent, its subagents' share apart", async () => {
+  it("keeps what each agent spent in the session: the main agent and each subagent apart", async () => {
     const requests: ModelRequest[] = [];
     const runner = new AgentRunner({ host, store, provider: () => fanOut(2, requests, 1000), model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic" }) });
     const s = store.create();
     await runner.send(s.id, "two parts");
-    const last = store.get(s.id)!.transcript.at(-1)!;
-    expect(last).toMatchObject({ kind: "usage", main: 2000, subagents: 2000 });
-    expect(last).not.toHaveProperty("limit");
-  });
-
-  it("stops a turn once it passes the token limit, and says so", async () => {
-    const turns = [() => spent(call("c1", "level", "get_outliner"), 30_000), () => spent(call("c2", "level", "get_outliner"), 30_000), () => text("never")];
-    const model = new ScriptedModel(turns);
-    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", usage: () => withUsage({ turnTokenLimit: 50_000 }) });
-    const s = store.create();
-    await runner.send(s.id, "look around");
-    await until(() => store.get(s.id)!.status === "error");
     const fin = store.get(s.id)!;
-    expect(model.requests).toHaveLength(2);
-    expect(fin.error).toContain("past the main agent's per-run budget of 50000 tokens");
-    expect(fin.transcript.find((t) => t.kind === "usage")).toMatchObject({ main: 60_000, subagents: 0, limit: 50_000 });
+    const { main, ...subs } = SessionStore.detail(fin).tokens!;
+    expect(main).toBe(2000);
+    expect(Object.values(subs)).toEqual([1000, 1000]);
+    const agentCalls = fin.transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call.id] : []));
+    expect(Object.keys(subs).sort()).toEqual(agentCalls.sort());
+    expect(fin.transcript.some((t) => (t as { kind: string }).kind === "usage")).toBe(false);
   });
 
   it("puts the project's CLAUDE.md in the prompt as Claude Code reads it, and nothing while the project's own files are off", async () => {
@@ -1127,7 +1117,6 @@ describe("approval rows: editor restarts and ue-mcp actions that delete or overw
   const effects = {
     destructive: (c: string, m: string) => (c === "asset" && m === "delete" ? true : c === "asset" || c === "level" ? false : null),
     readOnly: () => null,
-    available: () => true,
   };
   const rows = (over: Partial<Record<"shell" | "files" | "editorRestart" | "destructive", "ask" | "allow">>) => () =>
     ({ shell: "allow", files: "allow", editorRestart: "allow", destructive: "allow", ...over } as const);

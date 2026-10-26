@@ -6,12 +6,11 @@
 /** Name the agent registers its routes under: /v1/ext/studio/... */
 export const EXTENSION_NAME = "studio";
 
-import type { PlaytestBudget, QaRun } from "./qa.js";
+import type { QaRun } from "./qa.js";
 import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
-import type { Approvals } from "./composer.js";
-import type { BudgetReached } from "./usage.js";
+import type { AgentContextStrategy, Approvals } from "./composer.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -54,6 +53,30 @@ export const CLAUDE_SIGN_IN_AVAILABLE = true;
 
 /** The sign-ins the panel offers now. */
 export const OFFERED_SIGN_INS: readonly SignInId[] = SIGN_IN_IDS.filter((s) => (s !== "studio" || STUDIO_PLAN_AVAILABLE) && (s !== "claude" || CLAUDE_SIGN_IN_AVAILABLE));
+
+/**
+ * A model's vendor: one of the named vendors, or a custom OpenAI-compatible
+ * endpoint the user added, as `endpoint:<id>`.
+ */
+export type EndpointVendorId = `endpoint:${string}`;
+export type VendorId = KeyProviderId | EndpointVendorId;
+
+/** The vendor id a custom endpoint's models carry. */
+export const endpointVendor = (id: string): EndpointVendorId => `endpoint:${id}`;
+/** A custom endpoint's id from its vendor id, or null for a named vendor. */
+export const endpointIdOf = (vendor: string): string | null => (vendor.startsWith("endpoint:") && vendor.length > 9 ? vendor.slice(9) : null);
+/** What an endpoint id may be: lowercase letters, digits and hyphens, so it never holds the vendor separator. */
+export const ENDPOINT_ID = /^[a-z0-9][a-z0-9-]{0,39}$/;
+export const isVendorId = (v: unknown): v is VendorId =>
+  typeof v === "string" && (KEY_PROVIDER_IDS.includes(v as KeyProviderId) || ENDPOINT_ID.test(endpointIdOf(v) ?? ""));
+
+/**
+ * Which route runs a model several can run: a sign-in before the vendor's
+ * key (the plan is already paid for), or the key first.
+ */
+export type RouteOrder = "signins-first" | "keys-first";
+export const ROUTE_ORDERS: readonly RouteOrder[] = ["signins-first", "keys-first"];
+export const DEFAULT_ROUTE_ORDER: RouteOrder = "signins-first";
 
 export type ProviderId = SignInId | KeyProviderId;
 export const PROVIDER_IDS: readonly ProviderId[] = [...SIGN_IN_IDS, ...KEY_PROVIDER_IDS];
@@ -107,8 +130,8 @@ export interface UsageSettings {
   /** Put the project's CLAUDE.md in the agent's instructions, as a terminal client does. */
   projectInstructions: boolean;
   imageSize: ImageSize;
-  /** Stop a turn once it has spent this many tokens, subagents included; null for no limit. */
-  turnTokenLimit: number | null;
+  /** How ue-mcp's tools are put to Studio's own agent; auto picks from a measurement when one ships. */
+  contextStrategy: AgentContextStrategy;
 }
 
 export const DEFAULT_USAGE: UsageSettings = {
@@ -118,16 +141,18 @@ export const DEFAULT_USAGE: UsageSettings = {
   subagentsPerTurn: 4,
   projectInstructions: true,
   imageSize: "standard",
-  turnTokenLimit: null,
+  contextStrategy: "micro",
 };
 
 /** GET /v1/ext/studio/settings. Secrets are reported by presence only, never returned. */
 export interface StudioSettings {
   /** The selected model and its vendor. */
-  provider: KeyProviderId;
+  provider: VendorId;
   model: string;
   /** How the selected model runs now, or null when nothing that can run it is connected. */
   route: ModelRoute;
+  /** Which route runs a model that a sign-in and a key can both run. */
+  routeOrder: RouteOrder;
   effort: Effort;
   gatewayUrl: string;
   theme: StudioTheme;
@@ -135,8 +160,6 @@ export interface StudioSettings {
   askBeforeChanges: boolean;
   /** What each kind of action does first, in Approvals & review. */
   approvals: Approvals;
-  /** The daemon reports which ue-mcp actions delete or overwrite, so that row can ask. */
-  destructiveKnown?: boolean;
   /** Checkpoint each turn and show what it changed, for sessions that have not set their own (per-turn review). */
   reviewTurns: boolean;
   /** The height dragged on the chat composer's divider, in pixels, or null for the default. */
@@ -146,14 +169,21 @@ export interface StudioSettings {
   usage: UsageSettings;
   /** Which sign-ins are done and which vendor keys are saved. */
   connected: Record<ProviderId, boolean>;
+  /** How many custom endpoints are set up. Absent from an older agent. */
+  endpoints?: number;
   /** The Studio account's login, when signed in. */
   account: { login: string; via: "studio" | "ue-mcp-login" } | null;
 }
 
+/** Whether anything on this machine can run a model: a sign-in, a key or a custom endpoint. */
+export const anythingConnected = (s: Pick<StudioSettings, "connected" | "endpoints">): boolean =>
+  Object.values(s.connected ?? {}).some(Boolean) || (s.endpoints ?? 0) > 0;
+
 /** PUT /v1/ext/studio/settings. An absent secret is left as it is; an empty string clears it. */
 export interface StudioSettingsUpdate {
-  provider?: KeyProviderId;
+  provider?: VendorId;
   model?: string;
+  routeOrder?: RouteOrder;
   effort?: Effort;
   gatewayUrl?: string;
   theme?: StudioTheme;
@@ -169,8 +199,8 @@ export interface StudioSettingsUpdate {
   signOut?: SignInId;
 }
 
-/** How a model runs: a sign-in, or the vendor key. Sign-ins come first. */
-export type ModelRoute = SignInId | "key" | null;
+/** How a model runs: a sign-in, the vendor key, or the custom endpoint that serves it. */
+export type ModelRoute = SignInId | "key" | "endpoint" | null;
 
 export interface ModelOption {
   id: string;
@@ -179,19 +209,63 @@ export interface ModelOption {
   signIns: SignInId[];
 }
 
+/** The routes that can run a vendor's model, in the order they are tried: its sign-ins and its key, by the route order. */
+export function routesInOrder(signIns: readonly SignInId[], order: RouteOrder = DEFAULT_ROUTE_ORDER): Array<SignInId | "key"> {
+  return order === "keys-first" ? ["key", ...signIns] : [...signIns, "key"];
+}
+
 /** GET /v1/ext/studio/models: every vendor's models, each listed once, for the picker. */
 export interface ModelCatalog {
   /** Which sign-ins are done. */
   signedIn: Record<SignInId, boolean>;
+  /** Which route runs a model a sign-in and a key can both run. Absent from an older agent: sign-ins first. */
+  routeOrder?: RouteOrder;
   providers: Array<{
-    id: KeyProviderId;
+    id: VendorId;
     name: string;
-    /** The user's own key is saved. */
+    /** The user's own key is saved; for a custom endpoint, always true, since it runs its models itself. */
     connected: boolean;
-    /** live: listed by the vendor for this key; default: a starting list until a key is saved. */
-    source: "live" | "default";
+    /** live: listed by the vendor for this key; default: a starting list until a key is saved; typed: a custom endpoint's models as the user typed them. */
+    source: "live" | "default" | "typed";
+    /** Set for a custom endpoint. */
+    /** A custom endpoint, and why its model list could not be read when it could not. */
+    endpoint?: { id: string; listError?: string };
     models: ModelOption[];
   }>;
+}
+
+/** A custom endpoint's model: listed by its /models or typed. */
+export interface EndpointModel {
+  id: string;
+  /** Typed by the user rather than listed by the endpoint; kept when the list is read again. */
+  typed?: boolean;
+}
+
+/** GET /v1/ext/studio/endpoints: a custom OpenAI-compatible endpoint, its key by presence only. */
+export interface CustomEndpoint {
+  id: string;
+  name: string;
+  /** The base URL its /chat/completions and /models hang off, without a trailing slash. */
+  baseUrl: string;
+  hasKey: boolean;
+  models: EndpointModel[];
+  /** When its /models was last read, and why that failed when it did. */
+  listedAt: string | null;
+  listError: string | null;
+}
+
+/** POST /endpoints and PUT /endpoints/:id. An absent field stays; an empty key clears it. */
+export interface CustomEndpointInput {
+  name?: string;
+  baseUrl?: string;
+  key?: string;
+  /** Replaces the typed models; listed models stay listed. */
+  models?: EndpointModel[];
+}
+
+/** GET /v1/ext/studio/endpoints */
+export interface CustomEndpointList {
+  endpoints: CustomEndpoint[];
 }
 
 /** GET and POST /v1/ext/studio/signin/:id: signing in to Studio from the panel. */
@@ -260,12 +334,6 @@ export type TranscriptEntry = (
   | { kind: "assistant"; text: string; at: string }
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }
-  /**
-   * What a turn spent, once it ended: input (cache writes included, cache
-   * reads left out) and output tokens, of the main agent and its subagents.
-   * `limit`: the turn token limit that ended it.
-   */
-  | { kind: "usage"; main: number; subagents: number; limit?: number; at: string }
   | { kind: "dialog"; dialog: EditorDialog }
   /** A PIE test script run, drawn as its checklist. Always on the main thread, whoever started it. */
   | { kind: "qa"; run: QaRun }
@@ -343,6 +411,8 @@ export interface SessionDetail extends SessionSummary {
   review?: boolean | null;
   /** The session's checkpoints, oldest first: each reviewed turn, restore and playtest loop attempt. */
   timeline?: TimelineMark[];
+  /** Input and output tokens each agent spent this session: "main", or a subagent's agent call id. */
+  tokens?: Record<string, number>;
 }
 
 /**
@@ -358,8 +428,6 @@ export interface TurnFacts {
   mutations: number;
   targets: TouchedItem[];
   playtest: boolean;
-  /** Tokens the turn has spent, as TurnUsage counts them, by the main agent and by its subagents. */
-  tokens?: { main: number; subagents: number };
   /** Subagents the turn has started. */
   agents?: number;
 }
@@ -372,10 +440,7 @@ export interface ApprovalRequest {
   id: string;
   /** The tool call it belongs to. */
   toolUseId: string;
-  /** budget: a budget in Usage was reached and asks before the next call goes on. */
-  tool: "shell" | "write_file" | "edit_file" | "editor_restart" | "ue_mcp" | "budget";
-  /** budget: which one, what was spent and its limit, in budget tokens. */
-  budget?: BudgetReached;
+  tool: "shell" | "write_file" | "edit_file" | "editor_restart" | "ue_mcp";
   /** The agent call of the subagent that asked, when a subagent did. */
   parent: string | null;
   /** That subagent's short task name. */
@@ -673,8 +738,6 @@ export interface DialogsState {
   now: number;
   /** The dialogs open now. */
   dialogs: EditorDialog[];
-  /** The daemon lets Studio answer its own calls' dialogs (ue-mcp 1.4.1 and later). */
-  supported: boolean;
 }
 
 /** POST /v1/ext/studio/dialogs/:id */
@@ -706,28 +769,26 @@ export type FeedbackMode = "interactive" | "auto-approve" | "defer";
 /** Who answers an editor dialog: the user, the agent, or nobody until the user does it in the editor. */
 export type DialogMode = "interactive" | "auto" | "defer";
 
-/** The agent settings ue-mcp owns. A mode is null when this ue-mcp cannot set it from Studio. */
+/** The agent settings ue-mcp owns. */
 export interface AgentSettings {
   feedbackTool: boolean;
   /** project: this project sets it, else it is the per-user one. */
-  feedbackMode: { mode: FeedbackMode; project: boolean } | null;
+  feedbackMode: { mode: FeedbackMode; project: boolean };
   /** mode null: left to each client. */
-  dialogMode: { mode: DialogMode | null; project: boolean } | null;
-  /** Playtest runs: who starts a playtest's run. Absent from an older agent. */
-  playtestRuns?: PlaytestRunsMode;
-  /** What one Assign to subagent loop may spend before it stops. Absent from an older agent. */
-  playtestBudget?: PlaytestBudget;
+  dialogMode: { mode: DialogMode | null; project: boolean };
+  /** Playtest runs: who starts a playtest's run. */
+  playtestRuns: PlaytestRunsMode;
   restarting?: boolean;
 }
 
 /** Playtest runs, a setting per project: manual (the default) or automatic. */
 export type PlaytestRunsMode = "manual" | "automatic";
 export const PLAYTEST_RUNS: ReadonlyArray<{ mode: PlaytestRunsMode; label: string; help: string }> = [
-  { mode: "manual", label: "Manual", help: "Playtests run only when you click Start Playtest or Assign to subagent." },
+  { mode: "manual", label: "Manual", help: "Playtests run only when you click Start playtest or Assign to subagent." },
   { mode: "automatic", label: "Automatic", help: "The agent can start playtests itself." },
 ];
 /** What the agent hears when Manual refuses its run. */
-export const PLAYTEST_RUNS_REFUSAL = "Starting playtests is set to Manual in Settings > Approvals & review. Click Start Playtest on the card to start it.";
+export const PLAYTEST_RUNS_REFUSAL = "Starting playtests is set to Manual in Settings > Approvals & review. Click Start playtest on the card to start it.";
 
 /** An actor or asset the editor's "Chat about this" hands to a quick ask. */
 export interface QuickContextItem {
@@ -809,4 +870,4 @@ export * from "./commands.js";
 export * from "./flows.js";
 export * from "./composer.js";
 export * from "./native.js";
-export * from "./usage.js";
+export * from "./version.js";

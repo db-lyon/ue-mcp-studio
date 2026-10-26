@@ -60,6 +60,20 @@ describe("the thread list", () => {
     expect(screen.getAllByText("new")).toHaveLength(2);
   });
 
+  it("shows the main agent's tokens when there are no subagents", () => {
+    renderThreads({ transcript: [], tokens: { main: 3_200 } });
+    expect(document.querySelector(".agents-solo")!.textContent).toMatch(/^tokens: 3(.2)?k$/);
+  });
+
+  it("shows the tokens each agent spent this session, the main agent's too", () => {
+    renderThreads({ tokens: { main: 12_400, a: 950 } });
+    const main = screen.getByText("Main").closest(".agents-row")!;
+    expect(main.textContent).toContain("tokens: 12k");
+    expect(screen.getByText("Task a").closest(".agents-row")!.textContent).toContain("tokens: 950");
+    fireEvent.click(screen.getByRole("button", { name: /Finished \(3\)/ }));
+    expect(screen.getByText("Task b").closest(".agents-row")!.textContent).toContain("tokens: 0");
+  });
+
   it("opens a thread from its row, and stops a running one without opening it", () => {
     const p = renderThreads();
     fireEvent.click(screen.getByRole("button", { name: "Stop Task a" }));

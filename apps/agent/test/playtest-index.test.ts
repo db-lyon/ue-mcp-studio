@@ -281,6 +281,65 @@ describe("the routes", () => {
   });
 });
 
+describe("Edit and Delete on the Playtests page", () => {
+  type Route = (req: { body?: unknown; query?: unknown; params: Record<string, string> }) => Promise<{ status?: number; body: Record<string, unknown> }>;
+  const routesOf = (index: PlaytestIndex) => {
+    const routes = new Map<string, Route>();
+    registerPlaytestIndex({ route: (method: string, p: string, h: never) => void routes.set(`${method} ${p}`, h) } as never, index);
+    return (key: string, req: { body?: unknown; query?: unknown }) => routes.get(key)!({ params: {}, ...req });
+  };
+
+  it("reads, saves and deletes a script no session has, by its path", async () => {
+    const { index, broker } = setup();
+    const call = routesOf(index);
+    const read = await call("GET /qa/playtests/script", { query: { script: `${NEW}.NeverRun` } });
+    expect((read.body.run as { steps: unknown[] }).steps).toHaveLength(2);
+    expect(calls.at(-1)).toEqual({ action: "script_read", args: { path: NEW } });
+
+    const saved = await call("PUT /qa/playtests/script", { body: { script: NEW, steps: [{ instruction: "Jump", judge: "manual", player: "Host" }] } });
+    expect(saved.body).toEqual({ script: NEW });
+    expect(calls.at(-1)).toEqual({ action: "script_update", args: { path: NEW, steps: [{ instruction: "Jump", judge: "manual" }] } });
+    expect(broker.all()).toHaveLength(0);
+
+    await index.index({});
+    const lists = calls.filter((c) => c.action === "script_list").length;
+    const gone = await call("DELETE /qa/playtests/script", { query: { script: NEW } });
+    expect(gone.body).toEqual({ script: NEW });
+    expect(calls.find((c) => c.action === "script_delete")?.args).toEqual({ path: NEW, confirm: true });
+    await index.index({});
+    expect(calls.filter((c) => c.action === "script_list").length).toBe(lists + 1);
+  });
+
+  it("saves and deletes through a session's draft card, which shows the change", async () => {
+    const { index, broker } = setup();
+    const call = routesOf(index);
+    await index.card({ script: DOOR });
+    const card = broker.get(qaDraftId(DOOR))!;
+    expect(card.sessionId).toBeTruthy();
+    await call("PUT /qa/playtests/script", { body: { script: DOOR, steps: [{ instruction: "Look", judge: "manual" }] } });
+    expect(calls.some((c) => c.action === "script_update" && c.args.path === DOOR)).toBe(true);
+    expect(broker.get(qaDraftId(DOOR))?.sessionId).toBe(card.sessionId);
+    await call("DELETE /qa/playtests/script", { query: { script: DOOR } });
+    expect(broker.get(qaDraftId(DOOR))?.deleted).toBe(true);
+  });
+
+  it("says why it cannot", async () => {
+    const { index } = setup();
+    const call = routesOf(index);
+    expect((await call("GET /qa/playtests/script", { query: {} })).status).toBe(400);
+    expect((await call("PUT /qa/playtests/script", { body: { script: DOOR, steps: [] } })).status).toBe(400);
+    expect((await call("PUT /qa/playtests/script", { body: { steps: [{ instruction: "x" }] } })).status).toBe(400);
+    expect((await call("GET /qa/playtests/script", { query: { script: "/Game/Tests/Missing" } })).status).toBe(409);
+    connected = false;
+    for (const [key, req] of [["GET /qa/playtests/script", { query: { script: DOOR } }], ["PUT /qa/playtests/script", { body: { script: DOOR, steps: [{ instruction: "x" }] } }], ["DELETE /qa/playtests/script", { query: { script: DOOR } }]] as const) {
+      const r = await call(key, req);
+      expect(r.status).toBe(409);
+      expect(String(r.body.error)).toMatch(/editor is not connected/);
+    }
+    expect(calls.some((c) => c.action === "script_update" || c.action === "script_delete")).toBe(false);
+  });
+});
+
 describe("Stop on a live card", () => {
   it("ends the run with pie(script_stop) and answers with the run read again", async () => {
     const { broker, run } = setup();

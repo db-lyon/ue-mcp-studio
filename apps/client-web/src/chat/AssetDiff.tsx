@@ -5,7 +5,11 @@
  */
 import { useState } from "react";
 import {
+  exportNumber,
   factRows,
+  nodeValues,
+  readableParts,
+  readableValue,
   recordsByGroup,
   unifiedLines,
   type AssetDiff,
@@ -16,6 +20,7 @@ import {
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { DiffView } from "./Diff";
+import { EngineText } from "./breakable";
 
 /** EDiffType::Category and the diff types, in words. */
 const CHANGE_KIND: Record<string, string> = {
@@ -38,17 +43,14 @@ const CHANGE_KIND: Record<string, string> = {
 const kindOf = (r: AssetDiffRecord): string => CHANGE_KIND[r.category ?? ""] ?? CHANGE_KIND[r.diffType] ?? "Changed";
 const kindClass = (k: string): string => (k === "Added" ? "add" : k === "Removed" ? "del" : k === "Minor" || k === "Moved" ? "minor" : "mod");
 
-/** Text that may break after a comma, a slash or a dot, so a long value wraps between its parts, never inside a number. */
-function Breakable({ text }: { text: string }) {
-  const parts = text.split(/(?<=[,/=(])/);
-  return <>{parts.map((x, i) => <span key={i}>{x}{i < parts.length - 1 && <wbr />}</span>)}</>;
-}
-
-/** A value as ExportText wrote it, or what its absence means. */
+/** A value as ExportText wrote it, a parameter struct in words, or what its absence means. */
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
   if (v === null || v === undefined) return <span className="dim">{side === "before" ? "not there" : "gone"}</span>;
   if (v === "") return <span className="dim">empty</span>;
-  return <span className="mono diff-value"><Breakable text={v} /></span>;
+  const parts = readableParts(v);
+  if (parts && parts.length > 1) return <span className="mono diff-value diff-parts" title={v}>{parts.map((x, i) => <span key={i}><EngineText text={x} /></span>)}</span>;
+  const words = parts?.[0] ?? (exportNumber(v) !== v ? exportNumber(v) : null);
+  return <span className="mono diff-value" title={words ? v : undefined}><EngineText text={words ?? v} /></span>;
 }
 
 /** One version's picture, or why there is none. */
@@ -63,13 +65,37 @@ function Picture({ version, missing, label, name }: { version: AssetVersion | nu
       ) : (
         <div className="review-nopicture dim small">No picture: {t && "error" in t ? t.error : "the editor kept none for this version."}</div>
       )}
-      <figcaption className="small dim"><span className="picture-label">{label}</span><span className="picture-class">{version?.class ? <Breakable text={version.class} /> : "no version"}</span></figcaption>
+      <figcaption className="small dim"><span className="picture-label">{label}</span><span className="picture-class">{version?.class ? <EngineText text={version.class} /> : "no version"}</span></figcaption>
     </figure>
   );
 }
 
 /** The node a graph record is about, by the title the graph shows. */
 const nodeOf = (r: AssetDiffRecord): string | undefined => r.node2?.title ?? r.node1?.title;
+
+/** An added or removed node's values: what it was set to, so an added Constant shows its number. */
+function NodeValues({ r }: { r: AssetDiffRecord }) {
+  if (r.diffType !== "NODE_ADDED" && r.diffType !== "NODE_REMOVED") return null;
+  const n = r.node1 ?? r.node2;
+  const values = nodeValues(n);
+  const full = n?.fullTitle?.replace(/\s*\n\s*/g, ", ");
+  // The full title only when it says more than the node's name and its values already do.
+  const title = full && full !== n!.title && !r.displayString.includes(full) && !values.some((v) => exportNumber(v.value) === full) ? full : null;
+  if (!values.length && !title) return null;
+  return (
+    <div className="diff-node-values small">
+      {title && <div className="dim"><EngineText text={title} /></div>}
+      {values.length > 0 && (
+        <dl className="diff-node-props">
+          {values.map((v) => (
+            <div key={v.name}><dt><EngineText text={v.name} /></dt><dd className="mono"><EngineText text={readableValue(v.value) ?? exportNumber(v.value)} /></dd></div>
+          ))}
+        </dl>
+      )}
+      {(n?.propertiesDropped ?? 0) > 0 && <div className="dim">{n!.propertiesDropped} more properties not listed.</div>}
+    </div>
+  );
+}
 
 /** Property records as a table: the engine's path, then before and after. Graph and component records show the engine's message. */
 function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
@@ -82,16 +108,16 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
         const head = (
           <>
             <span className={`diff-kind ${kindClass(k)}`}>{k}</span>
-            {values ? <span className="diff-path" title={r.displayString}>{r.path}</span> : <span className="diff-message" title={r.toolTip}>{r.displayString}</span>}
-            {node && !r.displayString.includes(node) && <span className="dim"> on {node}</span>}
+            {values ? <span className="diff-path" title={r.displayString}><EngineText text={r.path!} /></span> : <span className="diff-message" title={r.toolTip}><EngineText text={r.displayString} /></span>}
+            {node && !r.displayString.includes(node) && <span className="dim"> on <EngineText text={node} /></span>}
           </>
         );
         if (values) {
           return (
             <tr key={i} className={`diff-row ${kindClass(k)}`}>
               <td>{head}</td>
-              <td><Value v={r.before} side="before" /></td>
-              <td><Value v={r.after} side="after" /></td>
+              <td data-label="Before"><Value v={r.before} side="before" /></td>
+              <td data-label="After"><Value v={r.after} side="after" /></td>
             </tr>
           );
         }
@@ -99,9 +125,10 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
           <tr key={i} className={`diff-row ${kindClass(k)}`}>
             <td colSpan={3}>
               {head}
-              {r.toolTip && r.toolTip !== r.displayString && <div className="dim small">{r.toolTip}</div>}
+              {r.toolTip && r.toolTip !== r.displayString && <div className="dim small"><EngineText text={r.toolTip} /></div>}
+              <NodeValues r={r} />
               {r.facts && r.facts.length > 0 && (
-                <div className="dim small"><Breakable text={r.facts.map((f) => `${f.name} ${f.value}`).join(", ")} /></div>
+                <div className="dim small"><EngineText text={r.facts.map((f) => `${f.name} ${f.value}`).join(", ")} /></div>
               )}
               {r.properties && r.properties.length > 0 && (
                 <table className="diff-table nested"><tbody><RecordRows entries={r.properties} /></tbody></table>
@@ -136,7 +163,7 @@ function Section({ s }: { s: AssetDiffSection }) {
   return (
     <section className="diff-section" aria-label={s.category}>
       <div className="diff-section-head" title={`From Unreal's ${s.engineSource}`}>
-        <span className="diff-section-title">{s.category}</span>
+        <span className="diff-section-title"><EngineText text={s.category} /></span>
         <span className="dim small">{shown.length === 1 ? "1 difference" : `${shown.length} differences`}</span>
       </div>
       {shown.length > 0 && <RecordTable entries={shown} graph={s.kind === "graph"} />}
@@ -156,7 +183,7 @@ function GroupRows({ group, entries }: { group: string | null; entries: AssetDif
   return (
     <>
       {group !== null && (
-        <tr className="diff-group"><th colSpan={3}>{group}</th></tr>
+        <tr className="diff-group"><th colSpan={3}><EngineText text={group} /></th></tr>
       )}
       <RecordRows entries={entries} />
     </>
@@ -169,7 +196,7 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
   const [open, setOpen] = useState(!before || !after);
   if (rows.length === 0) return null;
   const changed = rows.filter((r) => r.changed).length;
-  const count = before && after ? (changed ? ` (${changed} differ)` : " (none differ)") : "";
+  const count = before && after ? (changed ? ` (${changed} ${changed === 1 ? "fact differs" : "facts differ"})` : " (no fact differs)") : "";
   return (
     <div className="diff-facts">
       <button className="ghost small-button diff-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -182,9 +209,9 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
             <tbody>
               {rows.map((r) => (
                 <tr key={r.name} className={r.changed ? "diff-row mod" : "diff-row"}>
-                  <td>{r.name}</td>
-                  {before && <td><Value v={r.before ?? null} side="before" /></td>}
-                  {after && <td><Value v={r.after ?? null} side="after" /></td>}
+                  <td><EngineText text={r.name} /></td>
+                  {before && <td data-label="Before"><Value v={r.before ?? null} side="before" /></td>}
+                  {after && <td data-label="After"><Value v={r.after ?? null} side="after" /></td>}
                 </tr>
               ))}
             </tbody>
@@ -206,7 +233,7 @@ export function AssetDiffView({ diff, name, status, blueprintTree, nativeNote }:
     return (
       <div className="banner bad small" role="alert">
         <div>Unreal could not load this asset to diff it, so there is no before and after to show.</div>
-        <div className="mono small"><Breakable text={diff.error ?? "No reason was given."} /></div>
+        <div className="mono small"><EngineText text={diff.error ?? "No reason was given."} /></div>
         <div>{consequence}</div>
       </div>
     );

@@ -2,7 +2,7 @@
  * The Assign to subagent loop on a playtest's card: which attempt is running,
  * Passed with the attempt count, or Needs you with the reason and the
  * evidence; each attempt's changes, grouped, with its own Revert, and Revert
- * all once the loop has stopped.
+ * every attempt once the loop is not running.
  */
 import { REVIEW_GROUPS, reviewGroupOf, type CheckpointChange, type QaLoop, type QaLoopChange } from "@ue-mcp-studio/shared";
 
@@ -21,7 +21,7 @@ export function loopHeadline(loop: QaLoop): string {
   if (loop.state === "passed") return `Passed after ${plural(n, "attempt")}.`;
   if (loop.state === "stopped") return `The loop was stopped after ${plural(n, "attempt")}. Each attempt's changes can still be reverted.`;
   if (loop.state === "failed") return `The loop stopped on an error: ${loop.error ?? "unknown"}`;
-  return `The loop stopped after ${plural(n, "attempt")}.`;
+  return `The loop is paused after ${plural(n, "attempt")}, waiting for you. Assign again to let it go on, or End loop.`;
 }
 
 /** The pill a loop puts beside the run's own status. */
@@ -33,8 +33,10 @@ export function loopPill(loop: QaLoop): { text: string; tone: string } {
   return { text: "Loop stopped", tone: "" };
 }
 
-export function LoopPanel({ loop, busy, onRevert, onThread }: {
+export function LoopPanel({ loop, busy, onRevert, onThread, showReason = false }: {
   loop: QaLoop;
+  /** Say why it waits here too: when a step's verdict holds the box under the card's path instead. */
+  showReason?: boolean;
   busy: boolean;
   /** Revert one attempt's changes, or every attempt's with no number. */
   onRevert: (attempt?: number) => void;
@@ -45,15 +47,13 @@ export function LoopPanel({ loop, busy, onRevert, onThread }: {
   return (
     <div className={`qa-loop state-${loop.state}`} role="status" aria-label="Playtest loop">
       <div className="small">{loopHeadline(loop)}</div>
-      {loop.state === "needs_you" && loop.blocker && (
-        <div className="banner warn qa-needs-you" role="alert">
-          <strong>Needs you.</strong> {loop.blocker.reason}
-          {loop.blocker.evidence.length > 0 && (
-            <ul className="small">{loop.blocker.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul>
-          )}
+      {/* The reason is in the box under the card's path unless a verdict holds it; here, what it is based on. */}
+      {loop.state === "needs_you" && loop.blocker && (showReason || loop.blocker.evidence.length > 0) && (
+        <div className="qa-needs-you small" role="note">
+          {showReason && <div>{loop.blocker.reason}</div>}
+          {loop.blocker.evidence.length > 0 && <ul>{loop.blocker.evidence.map((e, i) => <li key={i}><span className="dim">What it saw: </span>{e}</li>)}</ul>}
         </div>
       )}
-      <div className="muted small">{loop.tokens.toLocaleString("en-US")} of {loop.budget.tokens.toLocaleString("en-US")} tokens; up to {loop.budget.minutes} minutes.</div>
       {loop.attempts.length > 0 && (
         <ol className="qa-attempts">
           {loop.attempts.map((a) => (
@@ -64,13 +64,13 @@ export function LoopPanel({ loop, busy, onRevert, onThread }: {
                 {a.reverted && <span className="pill small">Reverted</span>}
                 <span className="spacer" />
                 {!running && !a.reverted && a.changes.length > 0 && (
-                  <button className="small-button" disabled={busy} onClick={() => onRevert(a.n)} aria-label={`Revert attempt ${a.n}`}>Revert</button>
+                  <button className="small-button" disabled={busy} onClick={() => onRevert(a.n)} aria-label={`Revert attempt ${a.n}`} title="Undo the changes this attempt made">Undo its changes</button>
                 )}
-                {onThread && <button className="small-button" onClick={() => onThread(a.callId)}>Thread</button>}
+                {onThread && <button className="small-button" onClick={() => onThread(a.callId)} aria-label={`Open attempt ${a.n}'s thread`} title="The subagent's messages and tool calls in this attempt">See what it did</button>}
               </div>
               {(a.changes.length > 0 || a.failing.length > 0) && (
                 <details className="small">
-                  <summary>{a.failing.length ? `${plural(a.failing.length, "step")} not passing` : "What it changed"}</summary>
+                  <summary>{a.failing.length ? `${plural(a.failing.length, "step")} failed` : "What it changed"}</summary>
                   {a.failing.length > 0 && <ul className="qa-attempt-failing">{a.failing.map((f, i) => <li key={i}>{f}</li>)}</ul>}
                   {REVIEW_GROUPS.map(({ group, label }) => {
                     const items = a.changes.filter((c) => groupOf(c) === group);
@@ -89,8 +89,9 @@ export function LoopPanel({ loop, busy, onRevert, onThread }: {
       )}
       {!running && open.length > 0 && !loop.reverted && (
         <div className="row">
+          <span className="dim small">Undo the changes of every attempt at once.</span>
           <span className="spacer" />
-          <button className="small-button" disabled={busy} onClick={() => onRevert()}>Revert all</button>
+          <button className="small-button" disabled={busy} onClick={() => onRevert()}>Revert every attempt</button>
         </div>
       )}
     </div>

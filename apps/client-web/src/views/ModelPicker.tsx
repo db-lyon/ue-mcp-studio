@@ -3,8 +3,12 @@ import {
   EFFORTS,
   EFFORT_NAMES,
   PROVIDERS,
+  anythingConnected,
+  endpointIdOf,
+  routesInOrder,
   type Effort,
   type KeyProviderId,
+  type VendorId,
   type ModelCatalog,
   type ModelOption,
   type SignInId,
@@ -16,15 +20,26 @@ import { api } from "../api";
 type Catalog = ModelCatalog;
 type Vendor = Catalog["providers"][number];
 
-/** How a model would run now: the first finished sign-in that runs it, else the vendor key, else nothing. */
-export function runsVia(catalog: Catalog, vendor: Vendor, m: ModelOption): SignInId | "key" | null {
-  return m.signIns.find((s) => catalog.signedIn[s]) ?? (vendor.connected ? "key" : null);
+type Via = SignInId | "key" | "endpoint";
+
+/**
+ * How a model would run now: a custom endpoint's on that endpoint; a named
+ * vendor's on the first connected sign-in or key by the route order; else nothing.
+ */
+export function runsVia(catalog: Catalog, vendor: Vendor, m: ModelOption): Via | null {
+  if (vendor.endpoint) return "endpoint";
+  return routesInOrder(m.signIns, catalog.routeOrder).find((r) => (r === "key" ? vendor.connected : catalog.signedIn[r])) ?? null;
 }
 
 /** One name per route, the same in the picker, the Models table and the sign-in rows. */
 export const VIA_LABEL: Record<SignInId | "key", string> = { chatgpt: "ChatGPT sign-in", claude: "Claude sign-in", studio: "Studio plan", key: "key" };
 
-function find(catalog: Catalog | null, vendor: KeyProviderId, model: string): { vendor: Vendor; model: ModelOption } | null {
+/** A route's name beside a model: a key and an endpoint by their vendor's name. */
+export function viaName(via: Via, vendorName: string): string {
+  return via === "endpoint" ? vendorName : via === "key" ? `${vendorName} key` : VIA_LABEL[via];
+}
+
+function find(catalog: Catalog | null, vendor: VendorId, model: string): { vendor: Vendor; model: ModelOption } | null {
   const v = catalog?.providers.find((p) => p.id === vendor);
   const m = v?.models.find((x) => x.id === model);
   return v && m ? { vendor: v, model: m } : null;
@@ -55,7 +70,7 @@ export function ModelPicker({
 }) {
   const [open, setOpen] = useState(false);
   const catalog = useCatalog(settings);
-  const [connecting, setConnecting] = useState<{ vendor: KeyProviderId; model: string } | null>(null);
+  const [connecting, setConnecting] = useState<{ vendor: VendorId; model: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
@@ -71,7 +86,7 @@ export function ModelPicker({
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
 
-  const select = (vendor: KeyProviderId, model: string) =>
+  const select = (vendor: VendorId, model: string) =>
     api.saveSettings({ provider: vendor, model }).then((s) => {
       onSettings(s);
       setOpen(false);
@@ -85,8 +100,8 @@ export function ModelPicker({
     <div className="picker" ref={box}>
       <button className="picker-button" onClick={() => setOpen(!open)} title="Model">
         {/* Nothing connected yet: no vendor is chosen for the user. */}
-        <span>{Object.values(settings.connected ?? {}).some(Boolean) ? current?.model.name ?? settings.model : "Choose a model"}</span>
-        {via && <span className="picker-via">{via === "key" ? `${PROVIDERS[settings.provider].name} key` : VIA_LABEL[via]}</span>}
+        <span>{anythingConnected(settings) ? current?.model.name ?? settings.model : "Choose a model"}</span>
+        {via && <span className="picker-via">{viaName(via, current?.vendor.name ?? (via === "key" ? PROVIDERS[settings.provider as KeyProviderId]?.name ?? settings.provider : settings.provider))}</span>}
         <span className="picker-caret" aria-hidden>{"▾"}</span>
       </button>
       {open && (
@@ -120,7 +135,7 @@ export function ModelPicker({
                       onClick={() => (runs ? void select(p.id, m.id) : setConnecting({ vendor: p.id, model: m.id }))}
                     >
                       <span>{m.name}</span>
-                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs === "key" ? `${p.name} key` : runs ? VIA_LABEL[runs] : m.signIns.length ? "sign in" : "connect"}</span>
+                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs ? viaName(runs, p.name) : m.signIns.length ? "sign in" : "connect"}</span>
                     </button>
                   );
                 })}
@@ -140,11 +155,28 @@ export function ModelPicker({
  */
 export function ConnectModel({ catalog, vendor, model, onConnected }: {
   catalog: Catalog;
-  vendor: KeyProviderId;
+  vendor: VendorId;
   model: string;
   onConnected: () => void;
 }) {
   const found = find(catalog, vendor, model);
+  // A custom endpoint has no sign-in or key to connect here: it is set up, or it is gone.
+  if (endpointIdOf(vendor) !== null) {
+    const endpoint = catalog.providers.find((p) => p.id === vendor);
+    return (
+      <div className="connect">
+        <p className="small"><strong>{model}</strong></p>
+        <p className="dim small">
+          {found
+            ? `${found.vendor.name} runs this model.`
+            : endpoint
+              ? `${endpoint.name} no longer lists this model. Add it in the endpoint's Edit, in Settings, Models & accounts, or choose another model.`
+              : "The custom endpoint that ran this model is no longer set up. Add it again in Settings, Models & accounts, or choose another model."}
+        </p>
+      </div>
+    );
+  }
+  const keyVendor = vendor as KeyProviderId;
   const signIns = found?.model.signIns ?? [];
   const name = found?.model.name ?? model;
   return (
@@ -153,13 +185,13 @@ export function ConnectModel({ catalog, vendor, model, onConnected }: {
       {signIns.map((s, i) => <SignInForm key={s} id={s} primary={i === 0} onDone={onConnected} />)}
       {signIns.length > 0 ? (
         <details className="key-fallback">
-          <summary className="dim small">Use your own {PROVIDERS[vendor].name} API key instead</summary>
-          <KeyForm provider={vendor} onSaved={onConnected} />
+          <summary className="dim small">Use your own {PROVIDERS[keyVendor].name} API key instead</summary>
+          <KeyForm provider={keyVendor} onSaved={onConnected} />
         </details>
       ) : (
         <>
-          <p className="dim small">Connect {PROVIDERS[vendor].name} with an API key.</p>
-          <KeyForm provider={vendor} onSaved={onConnected} />
+          <p className="dim small">Connect {PROVIDERS[keyVendor].name} with an API key.</p>
+          <KeyForm provider={keyVendor} onSaved={onConnected} />
         </>
       )}
     </div>
@@ -195,9 +227,9 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 }
 
 const SIGN_IN_ABOUT: Record<SignInId, string> = {
-  chatgpt: "With your ChatGPT account. OpenAI models run on your ChatGPT plan's limits.",
-  claude: "Runs Claude models on your Claude plan, with the login you made in Claude Code.",
-  studio: "With your GitHub account. Runs the models in your Studio plan.",
+  chatgpt: "Runs OpenAI models on your ChatGPT plan.",
+  claude: "Runs Claude models on your Claude plan, using your Claude Code login.",
+  studio: "Runs your Studio plan's models. Sign in with GitHub.",
 };
 
 export function SignInForm(props: { id: SignInId; primary?: boolean; onDone: () => void }) {

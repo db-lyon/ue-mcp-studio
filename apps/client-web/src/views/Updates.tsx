@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FAB_LIBRARY_URL, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
+import { FAB_LIBRARY_URL, isNewer, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 
@@ -9,6 +9,8 @@ export interface StudioUpdates {
   channel?: "stable" | "beta";
   studio: { installed: string; latest: string | null; available: boolean };
   plugin: StudioPluginUpdate;
+  /** The oldest ue-mcp the latest Studio runs on. */
+  ueMcpMin?: string;
   /** The step the agent is running now (the plugin swap). */
   running?: string;
   error?: string;
@@ -59,10 +61,20 @@ async function get<T>(url: string): Promise<T | null> {
 /** Every read's count goes to the dot on Settings, so it never disagrees with the card. */
 const countListeners = new Set<(n: number) => void>();
 
+/**
+ * The ue-mcp check with its target raised to the latest Studio's floor while
+ * the daemon runs below it, whatever the channel: Studio never installs ahead
+ * of the ue-mcp it needs.
+ */
+export function withFloor(u: UeMcpUpdate | null, min: string | undefined): UeMcpUpdate | null {
+  if (!u || !min || !isNewer(min, u.server)) return u;
+  return { ...u, target: u.target && !isNewer(min, u.target) ? u.target : min };
+}
+
 /** The bridge check follows Studio's channel: beta takes ue-mcp prereleases, stable takes latest. */
 export async function readUpdates(): Promise<{ studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }> {
   const studio = await get<StudioUpdates>("/v1/ext/studio/updates");
-  const ueMcp = await get<UeMcpUpdate>(`/v1/update?channel=${studio?.channel === "beta" ? "beta" : "latest"}`);
+  const ueMcp = withFloor(await get<UeMcpUpdate>(`/v1/update?channel=${studio?.channel === "beta" ? "beta" : "latest"}`), studio?.ueMcpMin);
   const u = { studio, ueMcp };
   for (const l of countListeners) l(waiting(u));
   return u;
@@ -159,7 +171,7 @@ export function UpdatesCard() {
       {u && (
         <div className="row update-status">
           <span className={`pill ${steps.length ? "warn" : "ok"}`}>{steps.length ? "Update available" : "Up to date"}</span>
-          <span className="muted">{waiting ? "Update ready, restarts when the current turn finishes." : working ? "Updating" : steps.length ? ready : "Everything is up to date."}</span>
+          <span className="muted">{waiting ? "Update ready. Restarts after the current turn." : working ? "Updating" : steps.length ? ready : "Up to date."}</span>
           <span className="spacer" />
           {steps.length > 0 && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>
@@ -177,7 +189,7 @@ export function UpdatesCard() {
                 disabled={working}
                 onChange={() => void setChannel(c).then(load, () => load())}
               />{" "}
-              {c === "stable" ? "Stable" : "Beta: prereleases too, for testing"}
+              {c === "stable" ? "Stable" : "Beta"}
             </label>
           ))}
         </div>
@@ -185,10 +197,10 @@ export function UpdatesCard() {
       {u?.studio?.plugin.required && (
         <div className="banner warn small">
           {u.studio.plugin.source === "fab"
-            ? "This version of Studio needs a newer editor plugin. Update it from your Fab Library."
+            ? "Editor plugin too old. Update it from your Fab Library."
             : u.studio.plugin.location === "project"
-              ? "This version of Studio needs a newer editor plugin. Update installs it and restarts the editor."
-              : "This version of Studio needs a newer editor plugin. Update it where it was installed."}
+              ? "Editor plugin too old. Update installs it and restarts the editor."
+              : "Editor plugin too old. Update it where it was installed."}
         </div>
       )}
       {fab && (
@@ -200,7 +212,7 @@ export function UpdatesCard() {
           <button onClick={() => openLink(fab.url)}>Open Fab Library</button>
         </div>
       )}
-      {engineOnly && <p className="dim small">The editor plugin was installed with the engine; the Epic launcher updates it.</p>}
+      {engineOnly && <p className="dim small">Installed with the engine. The Epic launcher updates it.</p>}
       {u && (
         <details className="update-details">
           <summary className="dim small">Details</summary>

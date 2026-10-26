@@ -39,7 +39,7 @@ const run = (id: string, name: string, state: string, statuses: string[], over: 
   }, { sessionId: "s1", seenAt: at })!,
   ...over,
 });
-const loop = (state: QaLoop["state"]): QaLoop => ({ id: `loop-${state}`, state, attempts: [], baseline: "c0", budget: { minutes: 60, tokens: 1000 }, tokens: 0, startedAt: at, ...(state === "needs_you" ? { blocker: { kind: "no_progress", reason: "Nothing changed", evidence: [] } } : {}) });
+const loop = (state: QaLoop["state"]): QaLoop => ({ id: `loop-${state}`, state, attempts: [], baseline: "c0", startedAt: at, ...(state === "needs_you" ? { blocker: { kind: "no_progress", reason: "Nothing changed", evidence: [] } } : {}) });
 const entries = (...runs: QaRun[]): TranscriptEntry[] => runs.map((r) => ({ kind: "qa", run: r }));
 let nextId = 1;
 const changed = (r: QaRun, replaces?: string): DaemonEvent => ({ id: nextId++, type: "studio.qa.changed", at, data: { runId: r.runId, run: r as unknown as Record<string, unknown>, ...(replaces ? { replaces } : {}) } });
@@ -78,7 +78,7 @@ describe("the strip of live playtests", () => {
     render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "awaiting_verdict"]))} events={[]} />);
     const ask = within(stripEl()!).getByRole("group", { name: "Step 2 needs you" });
     // The card's Stop sits in the same box, after the verdicts.
-    expect(within(ask).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip", "Stop"]);
+    expect(within(ask).getAllByRole("button").map((b) => b.textContent)).toEqual(["Pass", "Fail", "Skip", "Stop", "Assign to subagent"]);
     expect(stripEl()!.className).toContain("needs-you");
   });
 
@@ -199,50 +199,64 @@ describe("the strip of live playtests", () => {
     expect(within(stripEl()!).getByRole("button", { name: "Show 1 more: Two" })).toBeTruthy();
   });
 
-  it("offers Review, Cancel loop and Hide from strip on a loop that needs the user", () => {
+  it("offers Review, End loop and Hide from strip on a loop that needs the user", () => {
     const r = run("a", "Gate", "finished", ["failed", "passed"], { assignment: { callId: "x", sessionId: "s1", state: "done", at, loop: loop("needs_you") } });
     render(<Session transcript={entries(r)} events={[]} />);
     const box = within(stripEl()!).getByRole("group", { name: "The loop needs you" });
-    expect(within(box).getAllByRole("button").map((b) => b.textContent)).toEqual(["Review", "Cancel loop", "Hide from strip"]);
-    fireEvent.click(within(box).getByRole("button", { name: "Cancel loop" }));
+    expect(within(box).getAllByRole("button").map((b) => b.textContent)).toEqual(["Review", "End loop", "Hide from strip"]);
+    fireEvent.click(within(box).getByRole("button", { name: "End loop" }));
     expect(apiCalls.find((c) => c.name === "qaCancelAssign")?.args).toEqual(["a"]);
   });
 
   it("holds the place of the verdict buttons with the step a card is on", () => {
     render(<Session transcript={entries(run("a", "Jump", "running", ["running", "pending"]))} events={[]} />);
-    const now = within(stripEl()!).getByRole("status", { name: "Checking: Jump step 1" });
+    const now = within(stripEl()!).getByRole("status", { name: "Observer checking: Jump step 1" });
     const box = now.closest(".qa-now") as HTMLElement;
-    expect(box.textContent).toContain("Checking");
+    expect(box.textContent).toContain("Observer checking");
     expect(within(box).getByRole("button", { name: "Stop playtest Jump" })).toBeTruthy();
   });
 
-  it("says how many steps of an open card on the strip are scrolled out of view, above and below", () => {
-    // jsdom lays nothing out: the card's steps are 60 px each in a 100 px window.
+  it("says when rows of an open card on the strip are scrolled out of view, above and below, in one phrasing", () => {
+    // jsdom lays nothing out: the card's steps are 60 px each under a 20 px legend, in a 100 px window.
+    let body: HTMLElement | null = null;
+    const inBody = (el: HTMLElement) => !!body && body !== el && body.contains(el);
     const geometry = (el: HTMLElement, key: string): number => {
-      if (el.classList.contains("qa-body")) return ({ clientHeight: 100, scrollHeight: 300 } as Record<string, number>)[key] ?? 0;
-      if (el.classList.contains("qa-step")) return key === "offsetTop" ? Number(el.dataset.index) * 60 : key === "offsetHeight" ? 60 : 0;
+      if (el.classList.contains("qa-body")) return ({ clientHeight: 100, scrollHeight: 320 } as Record<string, number>)[key] ?? 0;
+      if (key === "offsetHeight" && inBody(el)) return el.classList.contains("qa-step") ? 60 : 20;
       return 0;
     };
-    const props = ["clientHeight", "scrollHeight", "offsetTop", "offsetHeight"] as const;
+    const props = ["clientHeight", "scrollHeight", "offsetHeight"] as const;
     const saved = props.map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)] as const);
+    const rect = Object.getOwnPropertyDescriptor(Element.prototype, "getBoundingClientRect");
     for (const k of props) Object.defineProperty(HTMLElement.prototype, k, { configurable: true, get(this: HTMLElement) { return geometry(this, k); } });
+    Object.defineProperty(Element.prototype, "getBoundingClientRect", {
+      configurable: true,
+      value(this: HTMLElement) {
+        const top = inBody(this) ? (this.classList.contains("qa-step") ? 20 + Number(this.dataset.index) * 60 : 0) - (body?.scrollTop ?? 0) : 0;
+        return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON() {} } as DOMRect;
+      },
+    });
     try {
       render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "passed", "passed", "passed", "awaiting_verdict"]))} events={[]} />);
       fireEvent.click(within(stripEl()!).getByRole("button", { name: /PT|Door/, expanded: false }));
-      expect(within(stripEl()!).getByRole("button", { name: /4 steps below/ })).toBeTruthy();
-      expect(within(stripEl()!).queryByRole("button", { name: /above/ })).toBeNull();
-      const body = stripEl()!.querySelector<HTMLElement>(".qa-body")!;
-      body.scrollTop = 130;
+      body = stripEl()!.querySelector<HTMLElement>(".qa-body")!;
       act(() => {
-        body.dispatchEvent(new Event("scroll"));
+        body!.dispatchEvent(new Event("scroll"));
       });
-      expect(within(stripEl()!).getByRole("button", { name: /3 steps above/ })).toBeTruthy();
-      expect(within(stripEl()!).getByRole("button", { name: /2 steps below/ })).toBeTruthy();
+      expect(within(stripEl()!).getByRole("button", { name: "▾ More below" })).toBeTruthy();
+      expect(within(stripEl()!).queryByRole("button", { name: /above/ })).toBeNull();
+      body.scrollTop = 140;
+      act(() => {
+        body!.dispatchEvent(new Event("scroll"));
+      });
+      expect(within(stripEl()!).getByRole("button", { name: "▴ More above" })).toBeTruthy();
+      expect(within(stripEl()!).getByRole("button", { name: "▾ More below" })).toBeTruthy();
     } finally {
       for (const [k, d] of saved) {
         if (d) Object.defineProperty(HTMLElement.prototype, k, d);
         else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
       }
+      if (rect) Object.defineProperty(Element.prototype, "getBoundingClientRect", rect);
     }
   });
 
@@ -267,9 +281,9 @@ describe("the strip of live playtests", () => {
   it("keeps a card's buttons where they were when it is opened on the strip, adding only detail", () => {
     render(<Session transcript={entries(run("a", "Door", "awaiting_verdict", ["passed", "awaiting_verdict"]))} events={[]} />);
     const buttons = () => within(within(stripEl()!).getByRole("group", { name: "Step 2 needs you" })).getAllByRole("button").map((b) => b.textContent);
-    expect(buttons()).toEqual(["Pass", "Fail", "Skip", "Stop"]);
+    expect(buttons()).toEqual(["Pass", "Fail", "Skip", "Stop", "Assign to subagent"]);
     fireEvent.click(within(stripEl()!).getByRole("button", { name: /Door/, expanded: false }));
-    expect(buttons()).toEqual(["Pass", "Fail", "Skip", "Stop"]);
+    expect(buttons()).toEqual(["Pass", "Fail", "Skip", "Stop", "Assign to subagent"]);
     // The verdict is asked once, in the box; the head carries no buttons.
     expect(within(stripEl()!).getAllByRole("button", { name: "Pass step 2" })).toHaveLength(1);
     expect(stripEl()!.querySelector(".qa-head .qa-actions")).toBeNull();

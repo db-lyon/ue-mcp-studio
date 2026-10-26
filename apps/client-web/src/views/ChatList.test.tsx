@@ -4,7 +4,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { ChatView, LIST_SLOW_MS } from "./Chat";
 
 /** What the panel's other calls read, all empty. */
-const OTHER = { dialogs: [], forms: [], approvals: [], providers: [], now: 0, supported: true };
+const OTHER = { dialogs: [], forms: [], approvals: [], providers: [], now: 0 };
 const daemon = { health: null, error: null, streaming: true, events: [], refresh: () => {} };
 
 afterEach(() => {

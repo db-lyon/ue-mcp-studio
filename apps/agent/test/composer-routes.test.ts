@@ -1,17 +1,15 @@
 /**
- * The settings routes grouped by decision: instructions, budgets and the
- * context strategy other MCP clients get, against a fake daemon API.
+ * The settings routes grouped by decision: the context strategy other MCP clients get, against a fake daemon API.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { envStrategy, BUDGET_ROWS, budgetRows, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
+import { envStrategy, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
+import { ContextSurfaces, contextApiOf } from "../src/context-surface.js";
 import { SettingsStore } from "../src/settings.js";
-import { BudgetStore } from "../src/budgets.js";
-import { PlaytestStore } from "../src/playtest-store.js";
-import { PUBLISHED_SEEDS, type ClientContextStrategy } from "@ue-mcp-studio/shared";
+import type { ClientContextStrategy } from "@ue-mcp-studio/shared";
 
 type Handler = (req: { body?: unknown; query?: Record<string, string> }) => Promise<{ status?: number; body?: unknown }> | { status?: number; body?: unknown };
 let root: string;
@@ -25,6 +23,12 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
+const SEEDS = { micro: 2100, lean: 18500, full: 50200 };
+const CONTEXT = {
+  project: (o: { strategy: "micro" | "lean" | "full" }) => ({ strategy: o.strategy, categories: [], instructions: "", tools: [], seedTokens: SEEDS[o.strategy] }),
+  call: async () => ({ isError: false, content: [] }),
+};
+
 function setup(extra: Record<string, unknown> = {}) {
   const data = path.join(root, "data");
   const published: string[] = [];
@@ -32,17 +36,13 @@ function setup(extra: Record<string, unknown> = {}) {
     projectDir: root,
     route: (m: string, p: string, h: Handler) => void routes.set(`${m} ${p}`, h),
     events: { publish: (t: string) => void published.push(t) },
+    context: CONTEXT,
     ...extra,
   } as unknown as DaemonExtensionApi;
   const settings = new SettingsStore(data, path.join(data, "keys"));
-  const playtests = new PlaytestStore(data);
-  const budgets = new BudgetStore(data, {
-    turnTokenLimit: () => settings.usage().turnTokenLimit,
-    setTurnTokenLimit: (n) => settings.update({ usage: { turnTokenLimit: n } }),
-    playtestBudget: () => playtests.budget(),
-    setPlaytestBudget: (b) => playtests.setBudget(b),
-  });
-  registerComposerRoutes(api, { settings, budgets, restartUeMcp: async () => void restarts++, agents: () => BUDGET_ROWS });
+  // Studio's own agent's strategy reads back through the same surfaces chat-routes builds.
+  const surfaces = new ContextSurfaces(contextApiOf(api), () => settings.usage().contextStrategy, () => settings.provider(), () => null);
+  registerComposerRoutes(api, { settings, restartUeMcp: async () => void restarts++, agentContext: surfaces });
   const call = async (key: string, body?: unknown, query: Record<string, string> = {}) => {
     const h = routes.get(key);
     if (!h) throw new Error(`no route ${key}`);
@@ -51,16 +51,32 @@ function setup(extra: Record<string, unknown> = {}) {
   return { call, settings, published };
 }
 
-describe("budget rows", () => {
-  it("lists Studio's runs, then each project subagent once, never shadowing Studio's", () => {
-    expect(budgetRows(["level-dresser", "scout", "level-dresser", "worker"]).map((r) => r.id)).toEqual(["main", "worker", "playtest-runner", "level-dresser", "scout"]);
+describe("context strategy for Studio's own agent", () => {
+  it("is kept in Studio's settings, never in ue-mcp.yml", async () => {
+    const { call, settings } = setup();
+    expect((await call("GET /context-strategy/agent")).body).toMatchObject({ strategy: "micro", effective: "micro", measurement: null });
+    const r = await call("PUT /context-strategy/agent", { strategy: "lean" });
+    expect(r.body).toMatchObject({ strategy: "lean", effective: "lean", note: null });
+    expect(settings.usage().contextStrategy).toBe("lean");
+    expect(fs.existsSync(path.join(root, "ue-mcp.yml"))).toBe(false);
+  });
+
+  it("refuses an unknown strategy, and Auto while no measurement ships", async () => {
+    const { call } = setup();
+    expect((await call("PUT /context-strategy/agent", { strategy: "warp" })).status).toBe(400);
+    expect((await call("PUT /context-strategy/agent", { strategy: "auto" })).body).toEqual({ error: "auto needs a measurement, and none ships with this Studio" });
+  });
+
+  it("shows each strategy's seed tokens from the daemon's projection", async () => {
+    const { call } = setup();
+    expect((await call("PUT /context-strategy/agent", { strategy: "full" })).body).toMatchObject({ strategy: "full", effective: "full", seeds: SEEDS, note: null });
   });
 });
 
 describe("context strategy for other clients", () => {
   it("reads ue-mcp.yml, with micro when it names none", async () => {
     const { call } = setup();
-    expect((await call("GET /context-strategy")).body).toEqual({ strategy: "micro", fromFile: false, envOverride: null, seeds: PUBLISHED_SEEDS, seedSource: "ue-mcp's published figures" });
+    expect((await call("GET /context-strategy")).body).toEqual({ strategy: "micro", fromFile: false, envOverride: null, seeds: SEEDS });
     fs.writeFileSync(path.join(root, "ue-mcp.yml"), "# mine\ncontext:\n  strategy: Lean\n");
     expect(((await call("GET /context-strategy")).body as ClientContextStrategy).strategy).toBe("lean");
   });
@@ -95,32 +111,5 @@ describe("context strategy for other clients", () => {
     expect((await setup().call("PUT /context-strategy", { strategy: "tiny" })).status).toBe(400);
   });
 
-  it("measures each strategy with the daemon's projection when it has one", async () => {
-    const tokens = { micro: 2100, lean: 18500, full: 50200 };
-    const { call } = setup({ context: { project: ({ strategy }: { strategy: keyof typeof tokens }) => ({ seedTokens: tokens[strategy] }) } });
-    expect((await call("GET /context-strategy")).body).toMatchObject({ seeds: tokens, seedSource: "measured by this ue-mcp" });
-  });
 });
 
-describe("budget routes", () => {
-  it("give the definition and the rows, and save a change", async () => {
-    const { call, published } = setup();
-    const g = (await call("GET /budgets")).body as { definition: string; agents: Array<{ id: string }>; budgets: { agents: Record<string, unknown> } };
-    expect(g.definition).toMatch(/Cached reads are left out/);
-    expect(g.agents.map((a) => a.id)).toEqual(["main", "worker", "playtest-runner"]);
-    const r = await call("PUT /budgets", { agents: { main: { perRunTokens: 400_000 } } });
-    expect((r.body as { budgets: { agents: { main: { perRunTokens: number } } } }).budgets.agents.main.perRunTokens).toBe(400_000);
-    expect(published).toContain("budgets.changed");
-    expect((await call("PUT /budgets", { agents: { main: { perRunTokens: 3 } } })).status).toBe(400);
-  });
-});
-
-describe("helpers per turn", () => {
-  it("is a spend limit under Budgets, stored where the runner reads it", async () => {
-    const { call, settings } = setup();
-    expect(((await call("GET /budgets")).body as { helpersPerTurn: number }).helpersPerTurn).toBe(4);
-    await call("PUT /budgets", { helpersPerTurn: 2 });
-    expect(settings.usage().subagentsPerTurn).toBe(2);
-    expect((await call("PUT /budgets", { helpersPerTurn: 99 })).status).toBe(400);
-  });
-});

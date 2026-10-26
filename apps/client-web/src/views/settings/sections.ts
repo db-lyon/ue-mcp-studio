@@ -1,9 +1,9 @@
 /** Settings sections, grouped by the decision being made. Kept apart from the views so the location code can read them. */
-export type SettingsSection = "agents" | "models" | "approvals" | "project" | "usage" | "general" | "diagnostics";
-export const SETTINGS_SECTIONS: readonly SettingsSection[] = ["agents", "models", "approvals", "project", "usage", "general", "diagnostics"];
+export type SettingsSection = "agents" | "models" | "approvals" | "project" | "general" | "diagnostics";
+export const SETTINGS_SECTIONS: readonly SettingsSection[] = ["agents", "models", "approvals", "project", "general", "diagnostics"];
 
 /** Where an older link or hash pointed before the sections were regrouped. */
-const MOVED: Record<string, SettingsSection> = { agent: "agents", account: "models" };
+const MOVED: Record<string, SettingsSection> = { agent: "agents", account: "models", usage: "agents" };
 
 /** A section from the hash, the old names mapped to the new; null when there is none. */
 export function sectionOf(raw: string | null | undefined): SettingsSection | null {

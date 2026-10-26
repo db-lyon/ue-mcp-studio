@@ -1,8 +1,7 @@
 /**
- * Per-turn review, on ue-mcp's checkpoints (api.checkpoints, feature
- * "checkpoints"). Under /v1/ext/studio:
+ * Per-turn review, on ue-mcp's checkpoints (api.checkpoints). Under /v1/ext/studio:
  *
- *   GET  /review/status                          whether review can run here, and the Settings default
+ *   GET  /review/status                          the Settings default
  *   PUT  /sessions/:id/review                    the session's switch: { on: true | false | null }, null for the default
  *   GET  /sessions/:id/reviews/:rid/diff?path=   one item's diff: Unreal's own diff records for a package, with a picture of each version
  *   POST /sessions/:id/reviews/:rid/native-diff  { path }: open Unreal's own diff of the item in the editor
@@ -14,7 +13,7 @@
  *   GET  /review/thumbnails/:id                  a picture of one package version, by the id the daemon gave it
  *   GET  /review/images/:name                    a picture an older review captured
  *
- * Each package's diff is the daemon's asset diff (feature "checkpoints.assetDiff"):
+ * Each package's diff is the daemon's asset diff:
  * both versions loaded in the editor and Unreal's own diff code run on them,
  * with a picture of each version rendered there. Packages past the daemon's
  * per-call limit are diffed one by one after the card is posted.
@@ -31,6 +30,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
 import {
+  refineAssetDiff,
   reviewItemOf,
   reviewOn,
   type AssetDiff,
@@ -42,6 +42,7 @@ import {
   type TurnReview,
 } from "@ue-mcp-studio/shared";
 import type { SessionStore, StoredSession } from "./sessions.js";
+import { required } from "./backend.js";
 
 /** The daemon's checkpoint shapes (db-lyon/ue-mcp#1482). */
 export interface CheckpointInfo {
@@ -93,17 +94,16 @@ export interface CheckpointApi {
   create(label?: string, opts?: { editor?: string }): Promise<CheckpointResult>;
   changes(from: string, to?: string, opts?: { editor?: string }): Promise<ChangesResult>;
   restore(checkpoint: string, opts?: { paths?: string[]; force?: boolean; editor?: string }): Promise<RestoreResult>;
-  /** Feature "checkpoints.assetDiff": one package's diff. */
-  assetDiff?(from: string, to: string | undefined, path: string, opts?: { editor?: string }): Promise<AssetDiff>;
-  /** Feature "checkpoints.assetDiff": a version's picture, by id. */
-  thumbnail?(id: string, opts?: { editor?: string }): { file: string; type: string } | null;
-  /** Feature "checkpoints.assetDiff": Unreal's own diff, opened in the editor. */
-  openNativeDiff?(path: string, from: string, to?: string, opts?: { editor?: string }): Promise<{ opened: string; windowTitle?: string }>;
+  /** One package's diff. */
+  assetDiff(from: string, to: string | undefined, path: string, opts?: { editor?: string }): Promise<AssetDiff>;
+  /** A version's picture, by id. */
+  thumbnail(id: string, opts?: { editor?: string }): { file: string; type: string } | null;
+  /** Unreal's own diff, opened in the editor. */
+  openNativeDiff(path: string, from: string, to?: string, opts?: { editor?: string }): Promise<{ opened: string; windowTitle?: string }>;
 }
 
 export interface ReviewHost {
   checkpoints?: CheckpointApi;
-  features?: readonly string[];
   projectDir: string;
   dataDir: string;
   callAction(category: string, action: string, args?: Record<string, unknown>): Promise<ActionResult>;
@@ -118,12 +118,6 @@ export interface ReviewOptions {
   defaultOn: () => boolean;
   now?: () => string;
 }
-
-/** Why review cannot run on a daemon without checkpoints. */
-export const NO_CHECKPOINTS = "This ue-mcp has no checkpoints, so turns cannot be reviewed. Update ue-mcp.";
-
-/** Why an item cannot be diffed on a daemon without asset diffs. */
-export const NO_ASSET_DIFFS = "This ue-mcp has no asset diffs, so packages show no diff. Update ue-mcp.";
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -144,25 +138,18 @@ export class ReviewBroker {
 
   constructor(private readonly o: ReviewOptions) {
     this.now = o.now ?? (() => new Date().toISOString());
+    this.cp = required(o.host.checkpoints, "checkpoints");
   }
 
-  private get cp(): CheckpointApi | undefined {
-    return this.o.host.checkpoints;
-  }
-
-  /** Why checkpoints cannot be used here, or null when they can. */
-  unavailable(): string | null {
-    return this.cp ? null : NO_CHECKPOINTS;
-  }
+  private readonly cp: CheckpointApi;
 
   status(): ReviewStatus {
-    const reason = this.unavailable();
-    return { available: !reason, ...(reason ? { reason } : {}), default: this.o.defaultOn() };
+    return { default: this.o.defaultOn() };
   }
 
   /** Whether a session reviews its turns. */
   on(s: StoredSession): boolean {
-    return reviewOn(s, this.o.defaultOn()) && !this.unavailable();
+    return reviewOn(s, this.o.defaultOn());
   }
 
   private serial<T>(sessionId: string, f: () => Promise<T>): Promise<T> {
@@ -173,10 +160,8 @@ export class ReviewBroker {
 
   /** Checkpoints on for this editor: the daemon's override, unless ue-mcp.yml has them on already. */
   async ensureEnabled(): Promise<void> {
-    const cp = this.cp;
-    if (!cp) throw new Error(NO_CHECKPOINTS);
-    const st = await cp.state({ limit: 1 });
-    if (!st.enabled) await cp.setEnabled(true);
+    const st = await this.cp.state({ limit: 1 });
+    if (!st.enabled) await this.cp.setEnabled(true);
   }
 
   /** The session's switch. Off everywhere drops Studio's override, so no save is intercepted for it. */
@@ -187,7 +172,7 @@ export class ReviewBroker {
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
     const cp = this.cp;
-    if (cp && !reviewOn(s, this.o.defaultOn()) && !this.o.store.all().some((x) => reviewOn(x, this.o.defaultOn()))) {
+    if (!reviewOn(s, this.o.defaultOn()) && !this.o.store.all().some((x) => reviewOn(x, this.o.defaultOn()))) {
       try {
         const st = await cp.state({ limit: 1 });
         if (st.source === "session") await cp.setEnabled(null);
@@ -201,20 +186,16 @@ export class ReviewBroker {
   /** A checkpoint for the session's timeline, from the review itself or a playtest loop attempt. */
   async checkpoint(label: string): Promise<CheckpointResult> {
     await this.ensureEnabled();
-    return this.cp!.create(label);
+    return this.cp.create(label);
   }
 
   async changes(from: string, to?: string): Promise<CheckpointChange[]> {
-    const cp = this.cp;
-    if (!cp) throw new Error(NO_CHECKPOINTS);
-    return (await cp.changes(from, to)).changes;
+    return (await this.cp.changes(from, to)).changes.map((c) => (c.assetDiff ? { ...c, assetDiff: refineAssetDiff(c.assetDiff) } : c));
   }
 
   /** Restore paths (all of them when none are given) to a checkpoint, as the card reports it. */
   async restore(checkpoint: string, paths?: string[], force = false): Promise<RestoreOutcome & { before: string; after: string }> {
-    const cp = this.cp;
-    if (!cp) throw new Error(NO_CHECKPOINTS);
-    const r = await cp.restore(checkpoint, { ...(paths ? { paths } : {}), ...(force ? { force: true } : {}) });
+    const r = await this.cp.restore(checkpoint, { ...(paths ? { paths } : {}), ...(force ? { force: true } : {}) });
     return {
       restored: r.restored.map((x) => x.path),
       conflicts: r.refused.filter((x) => x.reason === "edited-outside").map((x) => x.path),
@@ -403,11 +384,10 @@ export class ReviewBroker {
    */
   private async diffDeferred(s: StoredSession, review: TurnReview): Promise<void> {
     const cp = this.cp;
-    if (!cp?.assetDiff) return;
     const later = review.items.filter((it) => it.kind === "package" && /^Not diffed yet/.test(it.summary ?? ""));
     for (const it of later) {
       try {
-        const d = await cp.assetDiff(review.before, review.after, it.path);
+        const d = refineAssetDiff(await cp.assetDiff(review.before, review.after, it.path));
         this.applyDiff(it, d);
       } catch (e) {
         it.summary = `Could not diff: ${messageOf(e)}`;
@@ -438,9 +418,9 @@ export class ReviewBroker {
     }
     if (!change) return { error: `${file} is no longer in the turn's changes`, status: 404 };
     const cp = this.cp;
-    if (change.assetDiff?.state === "deferred" && cp?.assetDiff) {
+    if (change.assetDiff?.state === "deferred") {
       try {
-        change.assetDiff = await cp.assetDiff(f.review.before, f.review.after, file);
+        change.assetDiff = refineAssetDiff(await cp.assetDiff(f.review.before, f.review.after, file));
       } catch (e) {
         return { error: messageOf(e), status: 409 };
       }
@@ -471,10 +451,8 @@ export class ReviewBroker {
     const item = f.review.items.find((x) => x.path === p);
     if (!item) return { error: "body must be { path } naming an item of the review", status: 400 };
     if (item.native && !item.native.available) return { error: item.native.reason ?? "Unreal cannot open a diff of this item.", status: 409 };
-    const cp = this.cp;
-    if (!cp?.openNativeDiff) return { error: NO_ASSET_DIFFS, status: 409 };
     try {
-      return await cp.openNativeDiff(item.path, f.review.before, item.status === "added" ? undefined : f.review.after);
+      return await this.cp.openNativeDiff(item.path, f.review.before, item.status === "added" ? undefined : f.review.after);
     } catch (e) {
       return { error: messageOf(e), status: 409 };
     }
@@ -482,7 +460,7 @@ export class ReviewBroker {
 
   /** A version's picture, from the daemon. */
   thumbnail(id: string): { type: string; bytes: Buffer } | null {
-    const t = /^[0-9a-f]{40}$/.test(id) ? this.cp?.thumbnail?.(id) : null;
+    const t = /^[0-9a-f]{40}$/.test(id) ? this.cp.thumbnail(id) : null;
     if (!t) return null;
     try {
       return { type: t.type, bytes: fs.readFileSync(t.file) };

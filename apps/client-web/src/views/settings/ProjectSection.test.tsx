@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-const ctx = (over: Record<string, unknown> = {}) => ({ strategy: "micro", fromFile: false, envOverride: null, seeds: { micro: 2200, lean: 19000, full: 51000 }, seedSource: "published figures", ...over });
+const ctx = (over: Record<string, unknown> = {}) => ({ strategy: "micro", fromFile: false, envOverride: null, seeds: { micro: 2200, lean: 19000, full: 51000 }, ...over });
 const m = vi.hoisted(() => ({
   install: vi.fn(),
   contextStrategy: vi.fn(),
@@ -39,9 +39,9 @@ describe("Project > context strategy for other clients", () => {
     await show();
     expect((screen.getByRole("radio", { name: /^Micro/ }) as HTMLInputElement).checked).toBe(true);
     expect(screen.getByText("~19k tokens")).toBeTruthy();
-    expect(screen.getByText(/Applies to Claude Code on this project/)).toBeTruthy();
+    expect(screen.getByText(/Used by Claude Code./)).toBeTruthy();
     // ue-mcp.yml serves every client: the shared badge says so.
-    expect(screen.getAllByText("Shared with other clients")).toHaveLength(1);
+    expect(screen.queryByText("Shared with other clients")).toBeNull();
   });
 
   it("saves a strategy and says when clients get it", async () => {
@@ -49,15 +49,15 @@ describe("Project > context strategy for other clients", () => {
     m.saveContextStrategy.mockResolvedValue(ctx({ strategy: "lean", fromFile: true, restarting: true }));
     await act(async () => void fireEvent.click(screen.getByRole("radio", { name: /^Lean/ })));
     expect(m.saveContextStrategy).toHaveBeenCalledWith("lean");
-    expect(screen.getByText(/ue-mcp restarts after the turn in progress; each client gets it from its next session/)).toBeTruthy();
+    expect(screen.getByText(/Saved to ue-mcp.yml. ue-mcp restarts after the current turn./)).toBeTruthy();
   });
 
   it("says when the environment overrides the file", async () => {
     await show(ctx({ envOverride: "full" }));
     expect(screen.getByText("UE_MCP_CONTEXT_STRATEGY=full")).toBeTruthy();
-    expect(screen.getByText(/so clients get Full whatever the file says/)).toBeTruthy();
+    expect(screen.getByText(/overrides this. A choice here applies once it is unset./)).toBeTruthy();
     // The strategy in effect and the saved one are both named.
-    expect(screen.getByText("in effect, from the environment")).toBeTruthy();
+    expect(screen.getByText("in effect, from environment")).toBeTruthy();
     // The radio is the file's value, which a click changes; the environment's is marked, not selected.
     expect((screen.getByRole("radio", { name: /^Micro/ }) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("radio", { name: /^Full/ }) as HTMLInputElement).checked).toBe(false);

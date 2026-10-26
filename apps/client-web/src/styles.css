@@ -288,6 +288,11 @@ main.parked { position: absolute; inset: 0; visibility: hidden; pointer-events: 
 
 .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px; text-align: center; }
 .empty > p { margin: 0 auto 26px; max-width: 460px; font-size: 14.5px; }
+.refused { gap: 18px; }
+.refused-head { margin: 0; max-width: 460px; font: 600 18px/1.35 var(--sans); color: var(--text); overflow-wrap: anywhere; }
+.refused-head .version { white-space: nowrap; }
+.refused > p { margin: 0; }
+.refused-error { margin: 0; max-width: 460px; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }
 button.large { padding: 10px 20px; font-size: 12.5px; }
 .examples { display: flex; flex-direction: column; gap: 8px; margin-top: 28px; width: min(520px, 100%); }
 .examples::before { content: "or try"; font: var(--label-font); text-transform: var(--label-case); letter-spacing: var(--label-spacing); color: var(--dim); margin-bottom: 4px; }
@@ -600,6 +605,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agents-row .agents-state { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .agents-row .agents-activity { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); }
 .agents-row .agents-meta { margin-left: auto; white-space: nowrap; }
+.agents-row .agents-tokens { white-space: nowrap; }
 .state-working .agents-dot, .agent-link.state-working::before { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .state-waiting .agents-dot, .agent-link.state-waiting::before { background: var(--warn); animation: pulse 2s ease-in-out infinite; }
 .state-done .agents-dot, .agent-link.state-done::before { background: var(--ok); }
@@ -855,6 +861,8 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-agent-evidence, .qa-override { margin-left: calc(1.6em + 8px); }
 .qa-agent-evidence summary { cursor: pointer; color: var(--muted); }
 .qa-agent-evidence p { margin: 4px 0; white-space: pre-wrap; }
+.qa-captures { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.qa-captures img { display: block; width: 240px; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .qa-agent-evidence ul { margin: 4px 0; padding-left: 16px; overflow-wrap: anywhere; }
 .qa-override { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .qa-assignment { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -1128,39 +1136,55 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .review-group-label { text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
 .review-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .review-item { border-left: 2px solid var(--line-strong); padding: 4px 4px 4px 10px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.review-item.state-pending { border-left-color: var(--accent-line); }
 .review-item.state-kept { border-left-color: var(--ok); }
 .review-item.state-reverted { border-left-color: var(--dim); }
 .review-item.state-reverted .review-item-name { text-decoration: line-through; color: var(--muted); }
 .review-item-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
-.review-item-name { padding: 0; font-weight: 600; overflow-wrap: anywhere; text-align: left; }
-.review-item-path { overflow-wrap: anywhere; }
+.review-item-name { padding: 0; font-weight: 600; overflow-wrap: break-word; text-align: left; min-width: 0; }
+/* The theme's accent marks the item open now, so each theme reads as its own. */
+.review-item-name[aria-expanded="true"] { color: var(--accent); }
+.review-item-path { overflow-wrap: break-word; }
 .review-conflict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .review-diff { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .review-pictures { display: flex; gap: 10px; flex-wrap: wrap; }
 .review-pictures figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
 .review-pictures img { max-width: 220px; max-height: 220px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); }
 .review-nopicture { width: 160px; height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; border: 1px dashed var(--line-strong); border-radius: 4px; padding: 6px; box-sizing: border-box; }
-.review-item-summary { color: var(--text); overflow-wrap: anywhere; }
+.review-item-summary { color: var(--text); overflow-wrap: break-word; }
 .review-item-summary.bad { color: var(--bad); }
 .asset-diff .review-pictures { flex-wrap: nowrap; }
 .asset-diff .review-pictures figure { flex: 1 1 0; min-width: 0; max-width: 220px; }
 .asset-diff .review-pictures img { width: 100%; height: auto; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
-.review-actions { display: inline-flex; gap: 6px; flex-wrap: nowrap; margin-left: auto; white-space: nowrap; }
+.review-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; margin-left: auto; white-space: nowrap; max-width: 100%; }
 .review-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
 .review-opened.bad { color: var(--bad); }
 .diff-toggle { text-align: left; white-space: normal; }
 .diff-hidden { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .diff-hidden .diff-table-wrap { width: 100%; }
+/* A narrow card: each record's property on its own line, Before and After side by side under it. */
+@media (max-width: 480px) {
+  .diff-table thead { display: none; }
+  .diff-table, .diff-table tbody { display: block; }
+  .diff-table tr.diff-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+  .diff-table tr.diff-row td { border-bottom: 0; width: auto; }
+  .diff-table tr.diff-row td:first-child { grid-column: 1 / -1; width: auto; }
+  .diff-table tr.diff-row td[data-label]::before { content: attr(data-label); display: block; color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .diff-table tr.diff-group { display: block; }
+  .diff-table tr.diff-group th { display: block; width: auto; }
+}
+.diff-parts { display: flex; flex-direction: column; gap: 2px; }
+.review-diff .output.diff { white-space: pre-wrap; overflow-wrap: break-word; }
 .diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }
 .engine-note summary { cursor: pointer; }
 .asset-diff .review-nopicture { width: 100%; aspect-ratio: 1; height: auto; }
 .asset-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.engine-note { overflow-wrap: anywhere; }
+.engine-note { overflow-wrap: break-word; }
 .diff-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .diff-section-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.diff-section-head .mono { overflow-wrap: anywhere; }
+.diff-section-head .mono { overflow-wrap: break-word; }
 .diff-section-title { font-weight: 600; }
 .diff-table-wrap { overflow-x: auto; max-width: 100%; border: 1px solid var(--line); border-radius: 4px; }
 .diff-table { border-collapse: collapse; width: 100%; font-size: 12px; table-layout: fixed; }
@@ -1174,7 +1198,12 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-kind.del { color: var(--bad); border-color: var(--bad); }
 .diff-kind.mod { color: var(--warn); border-color: var(--warn); }
 .diff-row.mod td:nth-child(3), .diff-row.add td:nth-child(3) { color: var(--text); }
-.diff-path, .diff-message { overflow-wrap: anywhere; }
+.diff-path, .diff-message { overflow-wrap: break-word; }
+.diff-node-values { margin-top: 2px; }
+.diff-node-props { margin: 2px 0 0; display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.diff-node-props > div { display: flex; gap: 6px; min-width: 0; }
+.diff-node-props dt { color: var(--muted); }
+.diff-node-props dd { margin: 0; color: var(--text); overflow-wrap: break-word; min-width: 0; }
 .diff-facts { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .diff-facts .diff-table-wrap { width: 100%; }
 .blueprint-diff { list-style: none; margin: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; max-height: 320px; overflow: auto; }
@@ -1186,14 +1215,6 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .timeline-mark.attempt .timeline-dot { background: var(--ok); }
 .timeline-mark.undone { opacity: 0.6; }
 .timeline-label { min-width: 0; overflow-wrap: anywhere; }
-.playtest-budget input.tokens { width: 9em; }
-.playtest-budget input.minutes { width: 5em; }
-
-/* Settings > Agent > Usage, and the line under each turn saying what it spent. */
-.usage-card input.tokens { width: 9em; }
-.usage-card fieldset { border: 0; padding: 0; margin: 8px 0; }
-.usage-card legend { padding: 0; font-weight: 600; }
-.usage-line { margin: 2px 0 10px; }
 
 /* The Assign to subagent loop on a playtest card. */
 .qa-card.needs-you { border-color: var(--warn); }
@@ -1356,25 +1377,7 @@ button.strip-more { line-height: 1.4; padding: 2px 8px; }
 /* Fourth review pass: a waiting bar stands taller than the rest; focus rings stand off the control. */
 .qa-path-step.warn .qa-path-hit::before { top: 10px; height: 12px; }
 .qa-card :focus-visible, .playtest-strip :focus-visible, .playtests-page :focus-visible { outline-offset: 2px; }
-/* Each card's actions where it is drawn. Outside the page's rows and the strip's box, these wrappers only group. */
-.qa-states, .qa-actions, .qa-slot { display: contents; }
 .qa-last-known { color: var(--text); font-weight: 600; }
-/* On the page every action has a slot of its own width, so the buttons stand in the same columns on every row. */
-.qa-card.slotted, .qa-card.slotted.open { padding: 10px 12px; }
-.qa-card.slotted .qa-head { flex-wrap: nowrap; }
-.qa-card.slotted .qa-states { display: flex; align-items: center; justify-content: flex-start; gap: 6px; width: 12rem; margin-left: auto; }
-.qa-card.slotted .qa-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.qa-card.slotted .qa-slot { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
-.qa-card.slotted .qa-slot-run { width: 9rem; }
-.qa-card.slotted .qa-slot-assign { width: 9.5rem; }
-@media (max-width: 760px) {
-  .qa-card.slotted .qa-head { flex-wrap: wrap; }
-  .qa-card.slotted .qa-actions { order: 10; flex-basis: 100%; flex-wrap: wrap; row-gap: 6px; }
-  /* Narrow, the row's buttons pack from the left under its title. */
-  .qa-card.slotted .qa-states { width: auto; }
-  .qa-card.slotted .qa-slot-run, .qa-card.slotted .qa-slot-assign { width: auto; }
-  .qa-card.slotted .qa-slot:empty { display: none; }
-}
 /* On the strip a card always has one box under its head: the step it is on, or the one that needs you, with the card's own buttons at its end. */
 .qa-now { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; margin-top: 2px; padding: 6px 8px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .qa-now .qa-answer-step { flex: 1 1 200px; }
@@ -1412,8 +1415,6 @@ button.qa-scroll-cue:disabled { visibility: hidden; }
 button.qa-meta-session.link { display: inline-flex; align-items: baseline; gap: 4px; height: auto; min-height: 0; max-width: 100%; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; letter-spacing: 0; text-align: left; cursor: pointer; vertical-align: bottom; }
 button.qa-meta-session.link:hover:not(:disabled) { background: none; border: 0; color: var(--text); }
 .qa-meta-session-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-decoration: underline; text-underline-offset: 3px; }
-/* On the strip an open card's other action sits under its steps, not in its head. */
-.qa-more-actions { display: flex; gap: 6px; padding-top: 2px; }
 /* The step path's marks: what each means, and a step a run that ended never reached. */
 .qa-path-step.unrun .qa-path-hit::before { background: repeating-linear-gradient(90deg, var(--line-strong) 0 3px, transparent 3px 6px); box-shadow: none; }
 .qa-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--muted); }
@@ -1449,10 +1450,161 @@ button.qa-path-hit:focus-visible::before { box-shadow: 0 0 0 2px var(--bg), 0 0 
   .qa-pinned { flex-wrap: wrap; }
   .qa-pinned-text { flex: 1 1 100%; }
 }
-/* The editor themes draw status words in their own sans face, and a loop's reason in their warning colour. */
+/* The editor themes draw status words in their own sans face. */
 :root[data-theme="editor"] .qa-now-status, :root[data-theme="editor-orange"] .qa-now-status { font: 400 12px/1 var(--sans); }
-:root[data-theme="editor"] .qa-answer.needs .qa-answer-text, :root[data-theme="editor-orange"] .qa-answer.needs .qa-answer-text { color: var(--warn); }
-/* At 380 px a card's buttons always take their own row under its title, whatever the face's widths. */
+/* Second design review (#72): a focused bar names its step, the legend shows only the marks present. */
+.qa-path-wrap { position: relative; min-width: 0; }
+.qa-path-caption { position: absolute; left: 0; right: 0; top: 100%; z-index: 4; display: flex; align-items: baseline; gap: 8px; padding: 4px 8px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-3); color: var(--text); }
+.qa-path-caption-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.qa-path-caption-state { flex-shrink: 0; color: var(--muted); }
+.qa-legend-item { white-space: nowrap; }
+.qa-legend-mark.pending { background: var(--line-strong); }
+.qa-legend-mark.person { position: relative; }
+.qa-legend-mark.person::after { content: ""; position: absolute; left: 50%; top: -6px; width: 6px; height: 6px; margin-left: -3px; border-radius: 50%; background: var(--text); opacity: 0.75; }
+
+/* Second design review (#72), the rest. */
+/* The strip and the conversation share one space; the strip takes at most half of it. */
+.session-stage { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.playtest-strip, .playtest-strip.needs-you { max-height: 50%; }
+@media (max-width: 760px) { .playtest-strip, .playtest-strip.needs-you { max-height: 50%; } }
+.playtest-strip { border-bottom: 1px solid var(--line-strong); box-shadow: 0 8px 12px -10px rgba(0, 0, 0, 0.6); }
+.playtest-strip + .thread-stage::before { content: none; }
+/* An open card's body on the strip is sized in script to whole rows, and snaps to them as it scrolls. */
+.playtest-strip .qa-card.open .qa-body { max-height: none; scroll-snap-type: y proximity; }
+@media (max-width: 760px) { .playtest-strip .qa-card.open .qa-body { max-height: none; } }
+.playtest-strip .qa-body > *, .playtest-strip .qa-step, .playtest-strip .qa-attempt, .playtest-strip .qa-loop > * { scroll-snap-align: start; }
+/* The new-messages pill takes its own row under the conversation, so it never covers a line. */
+.jump-latest { position: static; transform: none; align-self: center; flex-shrink: 0; margin: 4px auto 6px; }
+
+/* The head: the title and its state, one line in every state and theme. */
+.qa-head { flex-wrap: nowrap; }
+.qa-toggle { align-items: center; flex: 0 1 auto; min-width: 0; }
+.qa-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
+.qa-states { display: flex; align-items: center; gap: 6px; flex-shrink: 0; width: auto; margin-left: 0; }
+.qa-states .pill { white-space: nowrap; }
+svg.qa-chevron { width: 12px; height: 12px; flex-shrink: 0; color: var(--text); opacity: 0.85; transition: transform 0.12s; }
+svg.qa-chevron.open { transform: rotate(90deg); }
+.qa-toggle:hover svg.qa-chevron { opacity: 1; }
+.qa-kind.plain { display: none; }
+.qa-card.collapsed, .qa-card.open, .qa-card.slotted, .qa-card.slotted.open { padding: 10px 12px; gap: 6px; }
+
+/* The row under the path ends with the card's own buttons, on every card. */
+.qa-compact-line { align-items: center; gap: 4px 8px; }
+.qa-box-actions { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
+.qa-pip-key { display: inline-flex; align-items: center; gap: 6px; }
+.qa-compact-line .qa-pip-key::before { content: "\B7"; margin-right: 2px; }
 @media (max-width: 760px) {
-  .qa-card:not(.dense):not(.slotted) .qa-actions { display: flex; order: 10; flex-basis: 100%; flex-wrap: wrap; gap: 6px; }
+  .qa-compact-line { flex-direction: row; flex-wrap: wrap; }
+  .qa-compact-line .qa-meta, .qa-compact-line .qa-compact-open { flex-basis: 100%; }
+  .qa-compact-line .qa-pip-key::before { content: none; }
+  .qa-compact-line .qa-box-actions { margin-left: 0; margin-top: 4px; }
 }
+.qa-start-options span { margin-left: 5px; }
+.qa-card .qa-start > button.qa-start-options { padding: 0 9px; }
+
+/* The box that asks: what to check, the verdict, and the note for Fail in place. */
+.qa-answer-lead { color: var(--muted); }
+/* The loop's reason is shown in full; the step that asks keeps to one line on the strip, its full words are in the card. */
+.qa-card.dense .qa-answer.needs .qa-answer-text { white-space: normal; overflow: visible; text-overflow: clip; }
+.qa-answer.needs .qa-answer-text { color: var(--text); }
+.qa-answer.failing { flex-direction: column; align-items: stretch; }
+.qa-answer.failing .qa-fail-note { margin-left: 0; }
+.qa-answer .qa-verdict { flex-wrap: wrap; }
+
+/* The step path: a gap between every bar, a step a person judges marked by a dot inside its bar. */
+.qa-path { gap: 4px; }
+.qa-path-step.manual .qa-path-hit::after { top: 14px; width: 4px; height: 4px; margin-left: -2px; background: var(--text); opacity: 0.85; z-index: 1; }
+.qa-path-step.manual.ok .qa-path-hit::after, .qa-path-step.manual.warn .qa-path-hit::after, .qa-path-step.manual.run .qa-path-hit::after, .qa-path-step.manual.bad .qa-path-hit::after { background: var(--bg); opacity: 1; }
+.qa-path-step.manual.bad .qa-path-hit::after { box-shadow: 0 0 0 1.5px var(--bg); }
+.qa-path-step.run .qa-path-hit::before { background: var(--text); opacity: 1; top: 10px; height: 12px; }
+.qa-path-step.unrun .qa-path-hit::before { background: transparent; box-shadow: none; border: 1.5px dashed var(--muted); box-sizing: border-box; }
+button.qa-path-hit:hover::before, button.qa-path-hit:focus-visible::before { top: 9px; height: 14px; }
+.qa-legend-mark { position: relative; }
+.qa-legend-mark.run { opacity: 1; }
+.qa-legend-mark.unrun { background: transparent; border: 1.5px dashed var(--muted); }
+.qa-legend-mark.person::after { top: 2px; width: 4px; height: 4px; margin-left: -2px; background: var(--text); opacity: 0.85; }
+.qa-legend { gap: 4px 12px; }
+
+/* An open card's steps: tags that read, titles that keep their width at 380 px, the step it opened on marked. */
+.qa-step-tags { display: inline-flex; align-items: baseline; gap: 8px; flex-shrink: 0; }
+.qa-judge { color: var(--muted); font: 600 10.5px/1.4 var(--sans); letter-spacing: 0.04em; min-width: 0; }
+.qa-judge.manual { color: var(--text); }
+.qa-player { font-family: var(--sans); }
+.qa-step.target { background: color-mix(in srgb, var(--text) 7%, transparent); }
+.qa-step.flash { background: color-mix(in srgb, var(--text) 12%, transparent); }
+.qa-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.qa-note-edit { margin-left: auto; }
+@media (max-width: 760px) {
+  .qa-step-row { flex-wrap: wrap; row-gap: 2px; }
+  .qa-instruction { flex: 1 1 calc(100% - 1.6em - 8px); }
+  .qa-step-tags { flex-basis: 100%; margin-left: calc(1.6em + 8px); }
+  .qa-judge, .qa-status { min-width: 0; text-align: left; }
+}
+
+/* While the editor is away nothing reads as live: no amber edges, and disabled buttons look it. */
+:root[data-theme] .qa-card.offline.needs-you, :root[data-theme] .qa-card.offline.state-awaiting_verdict, .qa-card.offline, .qa-card.offline.needs-you, .qa-card.offline.state-awaiting_verdict { border-color: var(--line-strong); }
+.qa-card.offline .qa-answer { border-color: var(--line-strong); }
+.qa-card.offline .qa-answer-step .qa-num { color: var(--muted); }
+.qa-card button.primary:disabled { background: transparent; border-color: var(--line-strong); color: var(--dim); opacity: 1; }
+.qa-card .qa-start > button.qa-start-options:disabled { color: var(--dim); opacity: 1; }
+
+/* One type for the playtest UI in every theme: sans for words, mono only for numbers and values. */
+.qa-card button, .playtest-strip button, .playtests-page button, .qa-pinned button, .qa-card .pill, .qa-now-status { font-family: var(--sans); letter-spacing: 0; }
+.qa-now-status { font-size: 11.5px; }
+:root[data-theme="editor-orange"] button.primary { color: #000; font-weight: 600; }
+
+/* The pointer to the strip: Show it as a link, the same in every theme. */
+.qa-pinned { align-items: baseline; }
+.qa-pinned > button { min-height: 0; padding: 0; border: 0; background: none; color: var(--accent-hi); font: 600 12px/1.4 var(--sans); text-decoration: underline; text-underline-offset: 3px; }
+.qa-pinned > button:hover:not(:disabled) { background: none; border: 0; color: var(--text); }
+
+/* Show N more: a quiet line apart from the card above, names cut rather than wrapped. */
+button.strip-more { display: flex; align-items: baseline; gap: 8px; width: 100%; margin-top: 4px; padding: 4px 10px; white-space: nowrap; overflow: hidden; font: 400 12px/1.4 var(--sans); }
+.strip-more-label { flex-shrink: 0; font-weight: 600; }
+.strip-more-names { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); }
+
+/* The page: a head that keeps Refresh on its line, one colour for every filter count, the session link keeps its arrow. */
+.playtests-head { flex-wrap: nowrap; align-items: center; }
+.playtests-count { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.playtests-head > button { flex-shrink: 0; }
+.playtests-waiting { color: var(--warn); }
+.filter-count, button.filter-chip.attention .filter-count { color: var(--muted); font-weight: 600; }
+button.filter-chip.active .filter-count { color: var(--text); }
+button.qa-meta-session.link > span[aria-hidden="true"] { flex-shrink: 0; }
+:root[data-theme="editor"] .banner.warn, :root[data-theme="editor-orange"] .banner.warn { background: var(--panel-2); border-color: var(--warn); color: var(--text); }
+/* One row of cues under a scrolling body, the two directions side by side. */
+.qa-scroll-cues { display: flex; gap: 6px; }
+.qa-scroll-cues > button.qa-scroll-cue { flex: 1 1 0; }
+.qa-scroll-cues > button.qa-scroll-cue:disabled { display: none; }
+.qa-needs-you ul { margin: 0; padding-left: 0; list-style: none; }
+/* Several on a 380 px strip: each collapsed card is a compact row (no path, text to one or two lines), so two that need you fit in half the panel. */
+@media (max-width: 760px) {
+  .playtest-strip.many .qa-card.dense.collapsed .qa-path-wrap { display: none; }
+  .playtest-strip.many .qa-card.dense.collapsed { padding: 8px 10px; gap: 4px; }
+  .playtest-strip.many .qa-card.dense.collapsed .qa-answer.needs .qa-answer-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+}
+/* The focused bar's name takes its own line under the path, so it covers nothing. */
+.qa-path-caption { position: static; margin-top: 4px; }
+/* Review of the after shots (#72). */
+/* The running bar: the text colour ringed with the accent, so it reads as live in every theme. */
+.qa-path-step.run .qa-path-hit::before { box-shadow: 0 0 0 2px var(--accent); }
+.qa-legend-mark.run { box-shadow: 0 0 0 1.5px var(--accent); }
+/* The step that asks keeps to two lines on the strip, so what to check is always readable. */
+.qa-card.dense .qa-answer:not(.needs) .qa-answer-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow: hidden; text-overflow: clip; }
+/* The summary line and its keys share one baseline; the buttons centre on it. */
+.qa-compact-line { align-items: baseline; }
+.qa-compact-line .qa-box-actions { align-self: center; }
+.qa-pip-key { align-self: baseline; }
+.qa-pip-key .qa-legend-mark { align-self: center; }
+/* Disclosure marks in an open card: the size and contrast of the card's own chevron. */
+.qa-card details > summary::marker { color: var(--text); font-size: 1.15em; }
+/* Labels in a card are sans in every theme, as their words are. */
+.qa-card .eyebrow, .playtest-strip .eyebrow { font: 600 11px/1.3 var(--sans); text-transform: none; letter-spacing: 0; }
+button.strip-more { margin-bottom: 2px; }
+/* Second review pass (#72). */
+.qa-card .qa-start > button.qa-start-options { color: var(--text); }
+:root[data-theme] .qa-card button.primary:disabled { background: transparent; border-color: var(--line-strong); color: var(--dim); font-weight: 400; }
+.qa-card.offline .qa-path-step.run .qa-path-hit::before { box-shadow: none; }
+.qa-path-step.run .qa-path-hit::before, .qa-legend-mark.run { background: color-mix(in srgb, var(--text), #fff 35%); }
+.jump-latest { font-family: var(--sans); letter-spacing: 0; }
+.qa-compact > .qa-legend { margin-top: 2px; }

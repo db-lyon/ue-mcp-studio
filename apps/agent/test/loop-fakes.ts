@@ -1,5 +1,5 @@
-/** The playtest loop's support with a faked daemon: checkpoints over FakeCheckpoints, a budget, and the notifications it sent. */
-import type { PlaytestBudget, QaLoop, QaRun, TimelineMark } from "@ue-mcp-studio/shared";
+/** The playtest loop's support with a faked daemon: checkpoints over FakeCheckpoints, and the notifications it sent. */
+import type { QaLoop, QaRun, TimelineMark } from "@ue-mcp-studio/shared";
 import type { QaLoopSupport } from "../src/qa.js";
 import { FakeCheckpoints } from "./checkpoint-fake.js";
 
@@ -7,9 +7,6 @@ export interface FakeLoopSupport extends QaLoopSupport {
   cp: FakeCheckpoints;
   marks: Array<{ sessionId: string; mark: TimelineMark }>;
   notified: Array<{ sessionId: string; loop: QaLoop; run: QaRun }>;
-  /** Set to make checkpoints unavailable, with this reason. */
-  missing: string | null;
-  budgetNow: PlaytestBudget;
 }
 
 export function fakeLoopSupport(cp = new FakeCheckpoints()): FakeLoopSupport {
@@ -18,10 +15,7 @@ export function fakeLoopSupport(cp = new FakeCheckpoints()): FakeLoopSupport {
     cp,
     marks: [],
     notified: [],
-    missing: null,
-    budgetNow: { minutes: 60, tokens: 1_000_000 },
     checkpoints: {
-      unavailable: () => f.missing,
       checkpoint: async (label) => cp.create(label),
       changes: async (from, to) => (await cp.changes(from, to)).changes,
       restore: async (checkpoint, paths, force) => {
@@ -36,9 +30,7 @@ export function fakeLoopSupport(cp = new FakeCheckpoints()): FakeLoopSupport {
       },
       mark: (sessionId, mark) => void f.marks.push({ sessionId, mark }),
     },
-    budget: () => f.budgetNow,
     notify: (sessionId, loop, run) => void f.notified.push({ sessionId, loop, run }),
-    tickMs: 5,
   };
   return f;
 }

@@ -1,10 +1,16 @@
 import { useEffect, useState } from "react";
-import { KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, type ModelCatalog, type ProviderId, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
+import { DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, routesInOrder, type ModelCatalog, type ProviderId, type RouteOrder, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { ClaudeLoginWhy, KeyForm, SignInForm } from "../ModelPicker";
 import { AccountView } from "../Account";
 import { Head } from "../SettingsHub";
-import { Card, useMessage } from "./controls";
+import { Card, Row, Seg, useMessage } from "./controls";
+import { EndpointsCard } from "./EndpointsCard";
+
+const ROUTE_ORDER_OPTIONS: ReadonlyArray<{ id: RouteOrder; name: string; title: string }> = [
+  { id: "signins-first", name: "Sign-ins first", title: "Use the plan; fall back to the key." },
+  { id: "keys-first", name: "Keys first", title: "Use the key; fall back to the sign-in." },
+];
 
 /** The vendor whose models each sign-in runs. */
 const SIGN_IN_VENDOR: Record<SignInId, string> = { claude: "anthropic", chatgpt: "openai", studio: "anthropic" };
@@ -30,57 +36,69 @@ export function ModelsSection() {
   useEffect(refresh, []);
   if (!settings) return <>{msg.node ?? <p className="muted">Loading</p>}</>;
   /** One vendor order on every card and every state; the dot, not the position, says what is connected. */
-  const vendorRank = (id: ProviderId): number => {
+  const vendorRank = (id: string): number => {
     const v = (KEY_PROVIDER_IDS as readonly string[]).includes(id) ? id : SIGN_IN_VENDOR[id as SignInId];
     const i = (KEY_PROVIDER_IDS as readonly string[]).indexOf(v ?? "");
     return i < 0 ? KEY_PROVIDER_IDS.length : i;
   };
   const byVendor = <T extends ProviderId>(ids: readonly T[]): T[] => [...ids].sort((a, b) => vendorRank(a) - vendorRank(b));
+  const order = settings.routeOrder ?? DEFAULT_ROUTE_ORDER;
+  const setOrder = (routeOrder: RouteOrder) => api.saveSettings({ routeOrder }).then(refresh, msg.fail);
   const keyOnly = KEY_PROVIDER_IDS.filter((v) => !OFFERED_SIGN_INS.some((s) => SIGN_IN_VENDOR[s] === v)).map((v) => PROVIDERS[v].name);
   return (
     <>
-      <Head title="Models & accounts" lead="What can run models on this machine. Agents choose models; this page decides how each one is reached." />
+      <Head title="Models & accounts" lead="How models are reached on this machine." />
       {msg.node}
       <div className="cfg-cols">
         <Card label="Sign-ins">
-          <p className="cfg-note">A sign-in runs its vendor's models on your plan, and is used before a key.</p>
+          <p className="cfg-note">Runs the vendor's models on your plan.</p>
           {byVendor(OFFERED_SIGN_INS).map((p) => <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={msg.fail} />)}
-          {keyOnly.length > 0 && <p className="cfg-note">{keyOnly.join(" and ")} {keyOnly.length === 1 ? "has" : "have"} no sign-in: {keyOnly.length === 1 ? "its" : "their"} models run on a key.</p>}
+          {keyOnly.length > 0 && <p className="cfg-note">{keyOnly.join(" and ")}: key only.</p>}
         </Card>
         <Card label="API keys">
-          <p className="cfg-note">Optional. A model runs on your key only when no sign-in runs it. Keys stay on this machine and serve every project.</p>
+          <p className="cfg-note">Stored on this machine, used by every project.</p>
           {byVendor(KEY_PROVIDER_IDS).map((p) => <ProviderRow key={p} provider={p} settings={settings} onChange={refresh} onError={msg.fail} />)}
         </Card>
       </div>
+      <EndpointsCard onChange={refresh} />
       <Card label="Models">
+        <Row title="Route order" help="For models a sign-in and a key can both run.">
+          <Seg label="Route order" value={order} options={ROUTE_ORDER_OPTIONS} onChange={(o) => void setOrder(o)} />
+        </Row>
         <div className="scroll-x">
           <table className="cfg-table blocks">
             <thead>
-              <tr><th>Model</th><th>Routes, in the order they are tried</th><th className="r">On this machine</th></tr>
+              <tr><th>Model</th><th>Routes, in order</th><th className="r">Runs on</th></tr>
             </thead>
             <tbody>
               {[...(catalog?.providers ?? [])].sort((a, b) => vendorRank(a.id) - vendorRank(b.id)).flatMap((v) => v.models.map((m) => {
-                const routes: Array<{ id: SignInId | "key"; on: boolean }> = [...m.signIns.map((s) => ({ id: s, on: !!catalog!.signedIn[s] })), { id: "key" as const, on: v.connected }];
+                // A custom endpoint runs its own models: it is their one route.
+                const routes: Array<{ id: SignInId | "key" | "endpoint"; on: boolean }> = v.endpoint
+                  ? [{ id: "endpoint", on: true }]
+                  : routesInOrder(m.signIns, order).map((r) => ({ id: r, on: r === "key" ? v.connected : !!catalog!.signedIn[r] }));
                 const runs = routes.find((r) => r.on);
+                const routeName = (id: SignInId | "key" | "endpoint") => (id === "endpoint" ? v.name : id === "key" ? `${v.name} key` : ROUTE_NAME[id]);
+                // An endpoint whose model list failed still runs the models it had, in a warning state.
+                const failed = v.endpoint?.listError;
                 return (
                   <tr key={`${v.id}:${m.id}`}>
-                    <td><strong>{v.name} {m.name}</strong></td>
+                    <td><div><strong>{v.name} {m.name}</strong>{v.endpoint && <div className="dim small">Custom endpoint</div>}</div></td>
                     <td data-label="Routes">
                       {routes.map((r) => (
                         <div key={r.id} className="cfg-inline small">
-                          <span className={`dot ${r.on ? "ok" : ""}`} />
-                          <span className={r.on ? "" : "dim"}>{r.id === "key" ? `${v.name} key` : ROUTE_NAME[r.id]}</span>
+                          <span className={`dot ${r.on ? (r.id === "endpoint" && failed ? "warn" : "ok") : ""}`} />
+                          <span className={r.on ? "" : "dim"}>{routeName(r.id)}</span>
                         </div>
                       ))}
                     </td>
-                    <td className="r small" data-label="On this machine">{runs ? <span className="tag ok">{runs.id === "key" ? `${v.name} key` : ROUTE_NAME[runs.id]}</span> : <span className="dim">Not connected</span>}</td>
+                    <td className="r small" data-label="Runs on">{runs ? (runs.id === "endpoint" && failed ? <span className="tag warn" title={failed}>{routeName(runs.id)}: models not read</span> : <span className="tag ok">{routeName(runs.id)}</span>) : <span className="dim">Not connected</span>}</td>
                   </tr>
                 );
               }))}
             </tbody>
           </table>
         </div>
-        <p className="cfg-note">A vendor with a saved key lists its own models, so new ones appear without a Studio update.{catalog?.providers.some((p) => p.source === "default") ? " Vendors without a key show Studio's starting list." : ""}</p>
+        <p className="cfg-note">Vendors with a key list their current models{catalog?.providers.some((p) => p.source === "default") ? "; others show a built-in list" : ""}.</p>
       </Card>
       {STUDIO_PLAN_AVAILABLE && (
         <>
@@ -113,7 +131,7 @@ export function ProviderRow({ provider, settings, onChange, onError }: {
     ? connected ? "Signed in" : "Not signed in"
     : signIn
       ? settings.account ? `Signed in as @${settings.account.login}` : "Not signed in"
-      : connected ? "Key saved on this machine" : "No key";
+      : connected ? "Key saved" : "No key";
   const disconnect = () =>
     api.saveSettings(signIn ? { signOut: provider } : { keys: { [provider]: "" } }).then(onChange, onError);
   return (

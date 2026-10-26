@@ -8,8 +8,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
-import { assetPathOf, reviewGroupOf, unifiedLines, type TurnReview } from "@ue-mcp-studio/shared";
-import { NO_CHECKPOINTS, ReviewBroker, type ReviewHost } from "../src/review.js";
+import { assetPathOf, readableValue, refineAssetDiff, reviewGroupOf, unifiedLines, type AssetDiff, type TurnReview } from "@ue-mcp-studio/shared";
+import { ReviewBroker, type ReviewHost } from "../src/review.js";
 import { SessionStore, type StoredSession } from "../src/sessions.js";
 import { AgentRunner } from "../src/runner.js";
 import type { ModelProvider, ModelRequest, ModelTurn } from "../src/providers.js";
@@ -111,29 +111,6 @@ describe("the checkpoints around a turn", () => {
     expect(published.filter((p) => p.type === "review.changed" && p.data?.reviewId === review.id).length).toBeGreaterThan(0);
   });
 
-  it("says a package is not diffed when the daemon has no asset diffs", async () => {
-    class Legacy extends FakeCheckpoints {
-      override async changes(from: string, to?: string) {
-        const r = await super.changes(from, to);
-        for (const c of r.changes) delete c.assetDiff;
-        delete r.assetDiffs;
-        return r;
-      }
-    }
-    const legacy = Object.assign(new Legacy(), { assetDiff: undefined, openNativeDiff: undefined, thumbnail: undefined });
-    legacy.files = cp.files;
-    const broker = new ReviewBroker({ host: hostOf(legacy), store, defaultOn: () => true });
-    const s = sessionWithTurn();
-    await broker.turnStarted(s);
-    cp.files.set("Content/Props/SM_Box.uasset", "box v2");
-    await broker.turnEnded(s);
-    const review = reviewOf(s)!;
-    const item = review.items.find((i) => i.kind === "package")!;
-    expect(item.summary).toBe("Not diffed: this ue-mcp has no asset diffs. Update ue-mcp.");
-    expect(item.native).toEqual({ available: false, reason: "This ue-mcp cannot open Unreal's diff. Update ue-mcp." });
-    expect(await broker.nativeDiff(s.id, review.id, { path: item.path })).toMatchObject({ status: 409 });
-  });
-
   it("opens Unreal's diff of an item: before and after, or the asset as it is now when the turn added it", async () => {
     const broker = new ReviewBroker({ host: hostOf(), store, defaultOn: () => true });
     const s = sessionWithTurn();
@@ -198,12 +175,9 @@ describe("the checkpoints around a turn", () => {
     expect(cp.log.filter((l) => l.startsWith("create After"))).toHaveLength(2);
   });
 
-  it("reviews nothing when the daemon has no checkpoints, and says why", async () => {
-    const broker = new ReviewBroker({ host: { ...hostOf(), checkpoints: undefined }, store, defaultOn: () => true });
-    expect(broker.status()).toEqual({ available: false, reason: NO_CHECKPOINTS, default: true });
-    const s = sessionWithTurn();
-    await broker.turnStarted(s);
-    expect(s.reviewing).toBeNull();
+  it("refuses to run on a daemon without checkpoints", () => {
+    expect(() => new ReviewBroker({ host: { ...hostOf(), checkpoints: undefined }, store, defaultOn: () => true })).toThrow(/ue-mcp has no checkpoints/);
+    expect(new ReviewBroker({ host: hostOf(), store, defaultOn: () => true }).status()).toEqual({ default: true });
   });
 
   it("drops Studio's override when the last session turns review off", async () => {
@@ -322,6 +296,46 @@ describe("the review model", () => {
     expect(unifiedLines("--- a/x\n+++ b/x\n@@ -1,2 +1,2 @@\n a\n-b\n+c\n@@ -10,1 +10,1 @@\n-y\n+z")).toEqual([
       { op: " ", text: "a" }, { op: "-", text: "b" }, { op: "+", text: "c" }, { op: "gap", count: 7 }, { op: "-", text: "y" }, { op: "+", text: "z" },
     ]);
+  });
+
+  it("puts a material instance's parameter structs in words, and leaves any other value as the engine wrote it", () => {
+    const words = (t: string) => readableValue(t)?.replace(/\u00a0/g, " ") ?? null;
+    const scalar = (name: string, v: string) => `(ParameterInfo=(Name="${name}",Association=GlobalParameter,Index=-1),ParameterValue=${v},ExpressionGUID=0F2C4A1B4E6D8C9A00000000AB12CD34)`;
+    expect(words(`(${scalar("Roughness", "0.500000")},${scalar("Metallic", "1.000000")})`)).toBe("Roughness = 0.5, Metallic = 1");
+    expect(words(scalar("Roughness", "0.250000"))).toBe("Roughness = 0.25");
+    expect(words(`((ParameterInfo=(Name="Tint",Association=GlobalParameter,Index=-1),ParameterValue=(R=1.000000,G=0.250000,B=0.000000,A=1.000000),ExpressionGUID=00000000000000000000000000000000))`)).toBe("Tint = (R 1, G 0.25, B 0, A 1)");
+    expect(words(`((ParameterInfo=(Name="Albedo",Association=GlobalParameter,Index=-1),ParameterValue="/Script/Engine.Texture2D'/Game/Textures/T_Rock.T_Rock'",ExpressionGUID=00000000000000000000000000000000))`)).toBe("Albedo = /Game/Textures/T_Rock");
+    expect(words("(X=1.000000,Y=2.000000,Z=3.000000)")).toBeNull();
+    expect(words("600.000000")).toBeNull();
+  });
+
+  it("counts a Blueprint variable once when the engine reports it under My Blueprint and again as a class default", () => {
+    const d: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "Blueprint", summary: "3 differences: Health Default Value 100 to 150; Health 100.000000 to 150.000000; and 1 more",
+      nativeDiff: { available: true },
+      sections: [
+        { category: "My Blueprint", kind: "properties", engineSource: "", entries: [{ group: "Health", path: "Default Value", property: "DefaultValue", diffType: "PropertyValueChanged", displayString: "Default Value", before: "100", after: "150" }] },
+        { category: "Defaults", kind: "properties", engineSource: "", entries: [
+          { path: "Health", property: "Health", diffType: "PropertyValueChanged", displayString: "Health", before: "100.000000", after: "150.000000" },
+          { path: "Walk Speed", property: "WalkSpeed", diffType: "PropertyValueChanged", displayString: "Walk Speed", before: "600.000000", after: "450.000000" },
+        ] },
+      ],
+    };
+    const r = refineAssetDiff(d);
+    expect(r.sections!.flatMap((s) => s.entries.map((e) => e.path))).toEqual(["Default Value", "Walk Speed"]);
+    expect(r.summary).toBe("2 differences: Health Default Value 100 to 150; Walk Speed 600.000000 to 450.000000");
+    // A diff with nothing to fold keeps the summary ue-mcp wrote.
+    const plain = { ...d, sections: [d.sections![1]] };
+    expect(refineAssetDiff(plain)).toBe(plain);
+  });
+
+  it("writes the summary again in words when a record's value is a parameter struct", () => {
+    const before = `((ParameterInfo=(Name="Roughness",Association=GlobalParameter,Index=-1),ParameterValue=0.500000,ExpressionGUID=00000000000000000000000000000000))`;
+    const d: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "MaterialInstanceConstant", summary: "1 difference: Scalar Parameter Values ((ParameterInfo=(Name=\"Roughness\",Association=Glo...", nativeDiff: { available: true },
+      sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [{ path: "Scalar Parameter Values", property: "ScalarParameterValues", diffType: "PropertyValueChanged", displayString: "", before, after: before.replace("0.500000", "0.800000") }] }],
+    };
+    expect(refineAssetDiff(d).summary).toBe("1 difference: Scalar Parameter Values Roughness = 0.5 to Roughness = 0.8");
   });
 });
 
