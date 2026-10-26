@@ -44,6 +44,15 @@ const plus = (a: number | null, b: number | null): number | null => (a === null 
 const sum = (list: UsageRecord[]): TokenKinds =>
   list.reduce((t, r) => ({ input: plus(t.input, r.tokens.input), cacheRead: plus(t.cacheRead, r.tokens.cacheRead), cacheWrite: plus(t.cacheWrite, r.tokens.cacheWrite), output: plus(t.output, r.tokens.output) }), ZERO);
 
+/**
+ * A model group's key, `<vendor>:<model>`, split back. A custom endpoint's
+ * vendor holds a colon itself (`endpoint:<id>`), and a model id may too.
+ */
+export function splitModelKey(key: string): { vendor: string; model: string } {
+  const i = key.indexOf(":", key.startsWith("endpoint:") ? 9 : 0);
+  return i < 0 ? { vendor: key, model: "" } : { vendor: key.slice(0, i), model: key.slice(i + 1) };
+}
+
 /** A period from the query: from and to as ISO dates; the last 7 local days by default. */
 export function periodOf(q: Record<string, unknown>, now: Date): { from: Date; to: Date } | { error: string } {
   const day = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -106,8 +115,8 @@ export function registerUsageRoutes(api: DaemonExtensionApi, o: UsageRouteOption
   const label = (g: UsageGroup, key: string): string => {
     if (g === "agent") return o.agentName(key);
     if (g === "model") {
-      const i = key.indexOf(":");
-      return o.modelName(key.slice(0, i), key.slice(i + 1));
+      const { vendor, model } = splitModelKey(key);
+      return o.modelName(vendor, model);
     }
     if (g === "vendor") return o.vendorName(key);
     if (g === "route") return o.routeName(key);

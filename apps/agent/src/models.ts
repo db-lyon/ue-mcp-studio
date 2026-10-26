@@ -4,7 +4,7 @@
  * release; until then, and when it cannot be reached, a short starting list
  * stands in. Each model names the sign-ins that can run it.
  */
-import { CLAUDE_SIGN_IN_AVAILABLE, KEY_PROVIDER_IDS, PROVIDERS, STUDIO_PLAN_AVAILABLE, type KeyProviderId, type ModelCatalog, type ModelOption, type SignInId } from "@ue-mcp-studio/shared";
+import { CLAUDE_SIGN_IN_AVAILABLE, DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, PROVIDERS, STUDIO_PLAN_AVAILABLE, endpointIdOf, endpointVendor, routesInOrder, type CustomEndpoint, type KeyProviderId, type ModelCatalog, type ModelOption, type ModelRoute, type RouteOrder, type SignInId, type VendorId } from "@ue-mcp-studio/shared";
 import { OPENAI_BASE_URLS } from "./openai-compat.js";
 
 /**
@@ -88,12 +88,47 @@ export function signInsFor(vendor: KeyProviderId, model: string, c: SignInCovera
   return out;
 }
 
+/** What a route pick needs to know about this machine. */
+export interface RouteContext {
+  signedIn: Record<SignInId, boolean>;
+  coverage: SignInCoverage;
+  hasKey: (vendor: KeyProviderId) => boolean;
+  /** Whether a custom endpoint by this id exists. */
+  hasEndpoint: (id: string) => boolean;
+  order: RouteOrder;
+}
+
+/**
+ * How a model runs now. A custom endpoint's model runs on that endpoint. A
+ * named vendor's runs on the first connected route by the route order: its
+ * sign-ins then its key, or its key then its sign-ins. Nothing connected: null.
+ */
+export function pickRoute(vendor: VendorId, model: string, c: RouteContext): ModelRoute {
+  const endpoint = endpointIdOf(vendor);
+  if (endpoint !== null) return c.hasEndpoint(endpoint) ? "endpoint" : null;
+  if (!KEY_PROVIDER_IDS.includes(vendor as KeyProviderId)) return null;
+  const v = vendor as KeyProviderId;
+  return routesInOrder(signInsFor(v, model, c.coverage), c.order).find((r) => (r === "key" ? c.hasKey(v) : c.signedIn[r])) ?? null;
+}
+
+/** A custom endpoint as the picker lists it: its models, run by the endpoint itself. */
+export function endpointCatalog(e: CustomEndpoint): ModelCatalog["providers"][number] {
+  return {
+    id: endpointVendor(e.id),
+    name: e.name,
+    connected: true,
+    source: e.models.some((m) => !m.typed) ? "live" : "typed",
+    endpoint: { id: e.id },
+    models: e.models.map((m) => ({ id: m.id, name: m.id, signIns: [] })),
+  };
+}
+
 export class ModelCatalogSource {
   private readonly cache = new Map<string, { at: number; models: Listed[] }>();
 
   constructor(private readonly keyOf: (p: KeyProviderId) => string | null) {}
 
-  async catalog(signedIn: Record<SignInId, boolean>, coverage: SignInCoverage): Promise<ModelCatalog> {
+  async catalog(signedIn: Record<SignInId, boolean>, coverage: SignInCoverage, extra: { endpoints?: CustomEndpoint[]; routeOrder?: RouteOrder } = {}): Promise<ModelCatalog> {
     const providers: ModelCatalog["providers"] = [];
     for (const p of KEY_PROVIDER_IDS) {
       const key = this.keyOf(p);
@@ -124,7 +159,9 @@ export class ModelCatalogSource {
         models: [...list, ...extra].map((m) => ({ ...m, signIns: signInsFor(p, m.id, coverage) })),
       });
     }
-    return { signedIn, providers };
+    // Custom endpoints follow the named vendors, in the order they were added.
+    for (const e of extra.endpoints ?? []) providers.push(endpointCatalog(e));
+    return { signedIn, routeOrder: extra.routeOrder ?? DEFAULT_ROUTE_ORDER, providers };
   }
 }
 
