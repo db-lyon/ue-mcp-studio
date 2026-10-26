@@ -12,15 +12,15 @@ export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
   { id: "full", name: `Full ${IMAGE_EDGES.full} px` },
 ];
 
-const SAME = "Same as the main agent";
+const SAME = "Same as main agent";
 
 /** What the ue-mcp tools row says: what the choice does, and why the strategy in effect differs when it does. */
 function contextHelp(v: AgentContextView): string {
-  const base = "How ue-mcp's actions are put to the agent: one tool to search and call them (Micro), a tool per category (Lean) or every signature up front (Full). More up front costs tokens on every call and saves discovery calls. Other MCP clients are set in Project.";
-  if (!v.projection) return `${base} This ue-mcp cannot project its tools for Studio, so only Micro runs; update ue-mcp to choose another.`;
+  const base = "How ue-mcp actions reach the agent: one search tool (Micro), a tool per category (Lean) or every signature up front (Full). More up front costs tokens on every call and saves discovery calls. Other MCP clients are set in Project.";
+  if (!v.projection) return `${base} Only Micro is available until ue-mcp is updated.`;
   return v.note ? `${base} ${v.note}` : base;
 }
-const STARTS: Record<string, string> = { never: "never: earlier settings turned it off", asked: "when you ask for a helper", automatic: "when the work splits into independent parts" };
+const STARTS: Record<string, string> = { never: "Never, set by an earlier version", asked: "When you ask", automatic: "When work splits into independent parts" };
 
 /**
  * Agents: the model every chat runs on, and what each vendor's own project
@@ -45,22 +45,22 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
   const anything = anythingConnected(settings);
   return (
     <>
-      <Head title="Agents" lead="The model every chat runs on, and what the project's own agent files give it. Studio reads each vendor's files as that vendor's tools read them, and writes none of them." />
+      <Head title="Agents" lead="The chat model, and the project's agent files (read only)." />
       {msg.node}
       <Card label="Main agent">
-        <p className="muted small">New turns run on this model. The chat's picker changes the same setting.</p>
+        <p className="muted small">Same setting as the chat's model picker.</p>
         <div className="cfg-inline">
           <ModelPicker settings={settings} onSettings={setSettings} />
           <EffortPicker settings={settings} onSettings={setSettings} />
         </div>
         {settings.route === null && !anything && (
           <p className="banner warn small" style={{ marginTop: 10 }}>
-            No model can run on this machine yet. <button className="link" onClick={() => onSection("models")}>Connect a sign-in or an API key</button> for any vendor, then pick its model here.
+            No model connected. <button className="link" onClick={() => onSection("models")}>Connect a sign-in or API key</button>.
           </p>
         )}
         {settings.route === null && anything && (
           <p className="banner warn small" style={{ marginTop: 10 }}>
-            Nothing on this machine can run this model yet. <button className="link" onClick={() => onSection("models")}>Connect it in Models & accounts</button>, or pick a model that runs.
+            This model is not connected. <button className="link" onClick={() => onSection("models")}>Connect it</button> or pick another.
           </p>
         )}
         {agentContext && (
@@ -71,37 +71,36 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
               options={AGENT_CONTEXT_STRATEGIES.filter((s) => s !== "auto" || agentContext.measurement).map((s) => ({
                 id: s,
                 name: s === "auto" ? "Auto" : `${CONTEXT_STRATEGY_INFO[s].name}${agentContext.seeds ? ` ~${tokens(agentContext.seeds[s])}` : ""}`,
-                title: s === "auto" ? "Picks the strategy with the fewest tokens among those that pass as many tasks, from a measurement" : `${CONTEXT_STRATEGY_INFO[s].sees} ${CONTEXT_STRATEGY_INFO[s].discovery}`,
+                title: s === "auto" ? "Fewest tokens among the strategies with the best measured pass rate" : `${CONTEXT_STRATEGY_INFO[s].sees} ${CONTEXT_STRATEGY_INFO[s].discovery}`,
                 disabled: !agentContext.projection && s !== "micro",
               }))}
               onChange={(v) => void api.saveAgentContext(v).then(setAgentContext, msg.fail)}
             />
           </Row>
         )}
-        <Row title="Screenshot size" help="The longest side of a screenshot or picture an agent is shown. A larger image costs more every time the conversation is read again.">
+        <Row title="Screenshot size" help="Longest side of images shown to agents. Larger costs more tokens.">
           <Seg label="Screenshot size" value={settings.usage.imageSize} options={IMAGE_SIZES} onChange={(v) => void saveUsage({ imageSize: v })} />
         </Row>
       </Card>
 
       {native && (
-        <Card label="Studio's worker">
-          <p className="muted small">Studio's own helper, used beside the project's subagents; together they are the agent's helpers. How many helpers a turn may start is in <button className="link" onClick={() => onSection("usage")}>Usage</button>.</p>
+        <Card label="Worker">
+          <p className="muted small">Studio's built-in subagent. Helpers per turn is set in <button className="link" onClick={() => onSection("usage")}>Usage</button>.</p>
           <dl className="grid">
-            <dt>Model</dt><dd>{native.worker.model ? `${native.worker.model} while the main agent runs on ${native.worker.model.split(" ")[0]}; otherwise the main agent's model` : SAME}</dd>
+            <dt>Model</dt><dd>{native.worker.model ? `${native.worker.model} when the main agent runs on ${native.worker.model.split(" ")[0]}, else the main agent's` : SAME}</dd>
             <dt>Effort</dt><dd>{native.worker.effort ? EFFORT_NAMES[native.worker.effort as Effort] ?? native.worker.effort : SAME}</dd>
             <dt>Starts</dt><dd>{STARTS[native.worker.starts]}</dd>
           </dl>
-          {native.worker.fromSettings && <p className="cfg-note">Set in an earlier Studio and kept. Read only.</p>}
+          {native.worker.fromSettings && <p className="cfg-note">Read only, set by an earlier version.</p>}
         </Card>
       )}
 
       <div className="cfg-block-head">
-        <Row inline title="Read the project's own files" help="Instructions, subagents and skills from each vendor's own files in the project and your home folder, read as that vendor's tools read them. Off: no route reads any of them.">
+        <Row inline title="Project agent files" help="Instructions, subagents and skills from the project and your home folder.">
           <Switch label="Read the project's agent files" on={settings.usage.projectInstructions} onChange={(v) => void saveUsage({ projectInstructions: v })} />
         </Row>
       </div>
       {native && settings.usage.projectInstructions && <NativePanel overview={native} onConnect={() => onSection("models")} />}
-      {native && !settings.usage.projectInstructions && <p className="cfg-note">Off: agents are given none of the project's own files.</p>}
     </>
   );
 }

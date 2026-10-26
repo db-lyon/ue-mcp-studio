@@ -6,9 +6,9 @@ import { Head } from "../SettingsHub";
 import { Card, useMessage } from "./controls";
 
 export const THEMES: { id: StudioTheme; name: string; about: string }[] = [
-  { id: "ue-mcp", name: "ue-mcp", about: "Dark, with the ue-mcp.com orange." },
-  { id: "editor-orange", name: "Editor orange", about: "Unreal's colors and type, with the ue-mcp orange." },
-  { id: "editor", name: "Editor", about: "Unreal's own colors and type, so the panel blends in." },
+  { id: "ue-mcp", name: "ue-mcp", about: "Dark, ue-mcp orange." },
+  { id: "editor-orange", name: "Editor orange", about: "Unreal colors and type, ue-mcp orange." },
+  { id: "editor", name: "Editor", about: "Unreal colors and type." },
 ];
 
 /** General: how Studio looks, and its updates. */
@@ -25,7 +25,7 @@ export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void 
   };
   return (
     <>
-      <Head title="General" lead="How Studio looks, and keeping it and the editor plugin up to date." />
+      <Head title="General" lead="Theme, and updates for Studio and the editor plugin." />
       {msg.node}
       <Card label="Appearance">
         <div className="themes">
