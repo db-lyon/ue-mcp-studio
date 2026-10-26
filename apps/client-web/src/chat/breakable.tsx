@@ -9,12 +9,13 @@ export function breakable(children: ReactNode): ReactNode {
 
 /**
  * An engine name, path or value with a break allowed only between its parts:
- * after a dot, slash, underscore, colon, comma, equals or open bracket, and
- * where a lower-case letter or digit meets a capital (CharacterMovement). A
- * narrow card then wraps BP_PlayerCharacter.CharacterMovement.MaxWalkSpeed at
- * its parts instead of inside a word.
+ * after a dot (never one inside a number), slash, backslash, underscore,
+ * colon, comma or equals sign, and where a lower-case letter or digit meets a
+ * capital (CharacterMovement). A narrow card then wraps
+ * BP_PlayerCharacter.CharacterMovement.MaxWalkSpeed at its parts instead of
+ * inside a word.
  */
 export function EngineText({ text }: { text: string }) {
-  const parts = text.split(/(?<=[./\_:,=([])|(?<=[a-z0-9])(?=[A-Z])/);
+  const parts = text.split(/(?<=\.)(?!\d)|(?<=[/\\_:,=])|(?<=[a-z0-9])(?=[A-Z])/);
   return <>{parts.map((p, i) => (i < parts.length - 1 ? [p, <wbr key={i} />] : p))}</>;
 }

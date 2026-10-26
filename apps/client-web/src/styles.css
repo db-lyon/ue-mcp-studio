@@ -1134,9 +1134,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .review-item.state-reverted .review-item-name { text-decoration: line-through; color: var(--muted); }
 .review-item-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .review-item-name { padding: 0; font-weight: 600; overflow-wrap: break-word; text-align: left; min-width: 0; }
-/* The theme's accent marks what still waits for a decision and the item open now, so each theme reads as its own. */
+/* The theme's accent marks the item open now, so each theme reads as its own. */
 .review-item-name[aria-expanded="true"] { color: var(--accent); }
-.review-item.open { background: var(--accent-wash); }
 .review-item-path { overflow-wrap: break-word; }
 .review-conflict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .review-diff { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
@@ -1151,7 +1150,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .asset-diff .review-pictures img { width: 100%; height: auto; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
-.review-actions { display: inline-flex; gap: 6px; flex-wrap: nowrap; margin-left: auto; white-space: nowrap; }
+.review-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; margin-left: auto; white-space: nowrap; max-width: 100%; }
 .review-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
 .review-opened.bad { color: var(--bad); }
 .diff-toggle { text-align: left; white-space: normal; }
