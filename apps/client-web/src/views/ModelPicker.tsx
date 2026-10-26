@@ -227,9 +227,9 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
 }
 
 const SIGN_IN_ABOUT: Record<SignInId, string> = {
-  chatgpt: "With your ChatGPT account. OpenAI models run on your ChatGPT plan's limits.",
-  claude: "Runs Claude models on your Claude plan, with the login you made in Claude Code.",
-  studio: "With your GitHub account. Runs the models in your Studio plan.",
+  chatgpt: "Runs OpenAI models on your ChatGPT plan.",
+  claude: "Runs Claude models on your Claude plan, using your Claude Code login.",
+  studio: "Runs your Studio plan's models. Sign in with GitHub.",
 };
 
 export function SignInForm(props: { id: SignInId; primary?: boolean; onDone: () => void }) {

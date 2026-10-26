@@ -99,7 +99,6 @@ export function sharedWith(view: NativeView, o: NativeOverview): Array<{ convent
 
 function ConventionView({ view, main, preview, shared, onPick, onConnect, onError }: { view: NativeView; main: Convention | null; preview: NativePreview | null; shared: ReturnType<typeof sharedWith>; onPick: (c: Convention) => void; onConnect: () => void; onError: (e: Error) => void }) {
   const info = CONVENTION_INFO[view.convention];
-  const sdk = preview?.loadedBy === "sdk";
   const inUse = view.routes.length > 0;
   /** On a tab no route reads: where else the same file is read, on its own row. */
   const also = (p: string) => (inUse ? [] : shared.filter((x) => x.paths.includes(p)));
@@ -114,7 +113,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
   );
   const scoped = view.instructions.filter((f) => f.scope.kind !== "always").reduce((n, f) => n + f.tokens, 0);
   const later = view.instructions.filter((f) => f.scope.kind !== "always").length;
-  const files = preview ? `${preview.files} file${preview.files === 1 ? "" : "s"}${later ? `; ${later} more join${later === 1 ? "s" : ""} when the agent works in ${later === 1 ? "its" : "their"} paths` : ""}` : "";
+  const files = preview ? `${preview.files} file${preview.files === 1 ? "" : "s"}${later ? `, ${later} more path-scoped` : ""}` : "";
   return (
     <>
       <p className="muted small">
@@ -125,16 +124,16 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
       <p className="cfg-status">
         <span className={`dot ${inUse ? "ok" : ""}`} aria-hidden />
         {inUse
-          ? <span>Read by: {view.routes.join(", ")}.{view.convention === main ? " The main agent runs here." : ""} {sdk ? "The Agent SDK loads these files itself, as Claude Code does." : `Studio reads them the way ${info.tool === "AGENTS.md" ? "agents that read AGENTS.md do" : `${info.tool} does`}.`}</span>
+          ? <span>Read by: {view.routes.join(", ")}.{view.convention === main ? " Main agent." : ""}</span>
           : view.convention === "agents"
-            ? <span>Custom endpoints read these files. No route on this machine reads them as AGENTS.md files yet.</span>
-            : <span>No connected route reads these. <button className="link" onClick={onConnect}>Connect one in Models & accounts</button></span>}
+            ? <span>No connected route reads these.</span>
+            : <span>No connected route reads these. <button className="link" onClick={onConnect}>Connect one</button></span>}
       </p>
       {view.notes.map((n) => <div key={n} className="banner warn small">{n}</div>)}
 
       <Card label={view.instructions.length ? `Instruction files · ${tokens(view.instructionTokens)} per call` : "Instruction files"}>
-        {scoped > 0 && <p className="muted small">Up to {tokens(view.instructionTokens + scoped)} with the files that apply only to some paths or folders.</p>}
-        {view.instructions.length === 0 && <p className="cfg-note">None found in any of those places. The usual one is a {INSTRUCTION_FILE[view.convention]} in the project folder.</p>}
+        {scoped > 0 && <p className="muted small">Up to {tokens(view.instructionTokens + scoped)} with path-scoped files.</p>}
+        {view.instructions.length === 0 && <p className="cfg-note">None found. Usually {INSTRUCTION_FILE[view.convention]} in the project folder.</p>}
         <ol className="ifiles">
           {view.instructions.map((f, i) => (
             <li key={f.path}>
@@ -159,7 +158,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
         ))}
         {preview?.text && (
           <details className="cfg-note">
-            <summary>Preview: the text on every call ({files})</summary>
+            <summary>Preview ({files})</summary>
             {preview.parts
               ? preview.parts.map((p) => (
                 <div key={p.path} className="preview-part">
@@ -173,7 +172,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
       </Card>
 
       <Card label="Subagents">
-        {view.subagents.length === 0 && <p className="cfg-note">{SUBAGENT_DIR[view.convention] ? `None found in ${SUBAGENT_DIR[view.convention]!.replace(/ and /, " or ")}.` : "Custom endpoints have no subagent files; Studio's worker is their helper."}</p>}
+        {view.subagents.length === 0 && <p className="cfg-note">{SUBAGENT_DIR[view.convention] ? `None found in ${SUBAGENT_DIR[view.convention]!.replace(/ and /, " or ")}.` : "Custom endpoints have no subagent files."}</p>}
         <ul className="ifiles plain">
           {view.subagents.map((a) => (
             <li key={a.path}>
@@ -182,9 +181,9 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
                 <dl className="fields">
                   <dt>Model</dt><dd>{a.runs.model}{a.model ? <> (file says <code>{a.model}</code>)</> : null}</dd>
                   <dt>Tools</dt><dd>{a.tools}</dd>
-                  <dt>Turns</dt><dd>{a.maxTurns ? `at most ${a.maxTurns}` : "no limit set"}</dd>
+                  <dt>Turns</dt><dd>{a.maxTurns ? `${a.maxTurns} max` : "no limit"}</dd>
                   <dt>Effort</dt><dd>{a.effort ? EFFORT_NAMES[a.effort as Effort] ?? a.effort : "the main agent's"}</dd>
-                  <dt>Size</dt><dd>{tokens(a.tokens)} tokens when started</dd>
+                  <dt>Size</dt><dd>{tokens(a.tokens)} tokens</dd>
                 </dl>
                 {a.runs.note && <div className="cfg-note warn-text">{a.runs.note}</div>}
                 {a.problems.map((p) => <div key={p} className="cfg-note warn-text">{p}</div>)}
@@ -203,7 +202,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
             <li key={s.path}>
               <div className="ifile-main">
                 <div><strong className="mono">{s.name}</strong> <span className="tag">{s.owner ? `Plugin: ${s.owner}` : SOURCE[s.source]}</span></div>
-                <div className="readers">{s.description || "No description."} {tokens(s.tokens)} tokens when loaded.{s.implicit ? "" : " Used only when you name it."}</div>
+                <div className="readers">{s.description || "No description."} <span className="dim">{tokens(s.tokens)} tokens{s.implicit ? "" : ", used only when named"}</span></div>
                 <AlsoRead p={s.path} />
                 {s.problems.map((p) => <div key={p} className="cfg-note warn-text">{p}</div>)}
                 <Path p={`${s.path}/SKILL.md`} className="path dim" />

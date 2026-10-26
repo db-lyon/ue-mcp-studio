@@ -19,20 +19,20 @@ import { Card, NumberField, Opt, Row, Seg, Switch, useMessage } from "./controls
 const RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [{ id: "ask", name: "Ask" }, { id: "allow", name: "Allow" }];
 
 export const DIALOG_MODES: { id: DialogMode; name: string; about: string }[] = [
-  { id: "interactive", name: "Show them to me in Studio", about: "Each dialog is a card in the chat with its buttons." },
-  { id: "auto", name: "Let the agent answer", about: "Without showing you. An answer that discards work waits 10 seconds so you can override it." },
-  { id: "defer", name: "Leave them in the editor", about: "Nothing is pressed; the turn waits until you answer in the editor." },
+  { id: "interactive", name: "Show in Studio", about: "A card in the chat with the dialog's buttons." },
+  { id: "auto", name: "Agent answers", about: "An answer that discards work waits 10 seconds for you to override." },
+  { id: "defer", name: "Leave in editor", about: "The turn waits until you answer in the editor." },
 ];
 
 export const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[] = [
-  { id: "interactive", name: "Ask me", about: "Each report is a card in the chat to edit, approve or discard." },
-  { id: "auto-approve", name: "File without asking", about: "Reports go straight to GitHub." },
-  { id: "defer", name: "Keep for review", about: "Reports wait on this machine for npx ue-mcp feedback review." },
+  { id: "interactive", name: "Ask", about: "Edit, approve or discard each report in the chat." },
+  { id: "auto-approve", name: "File automatically", about: "Reports go straight to GitHub." },
+  { id: "defer", name: "Hold", about: "Review later with npx ue-mcp feedback review." },
 ];
 
 const PLAYTEST_STARTS: ReadonlyArray<{ id: PlaytestRunsMode; name: string; help: string }> = [
-  { id: "manual", name: "Manual", help: "A playtest runs only when you start it, or assign it to a helper, from its card." },
-  { id: "automatic", name: "Automatic", help: "Agents start playtests themselves when the work calls for one." },
+  { id: "manual", name: "Manual", help: "Playtests run only when you start or assign them." },
+  { id: "automatic", name: "Automatic", help: "Agents start playtests when needed." },
 ];
 
 type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>;
@@ -54,7 +54,7 @@ export function ApprovalsSection() {
   const saveAgent = (u: AgentUpdate) =>
     api.saveAgentSettings(u).then((a) => {
       setAgent(a);
-      if (a.restarting) msg.ok("Saved. ue-mcp restarts to load it, after the turn in progress.");
+      if (a.restarting) msg.ok("Saved. ue-mcp restarts after the current turn.");
       else msg.clear();
     }, msg.fail);
   if (!settings || !agent) return <>{msg.node ?? <p className="muted">Loading</p>}</>;
@@ -62,13 +62,13 @@ export function ApprovalsSection() {
   const dialogMode = agent.dialogMode?.mode ?? null;
   return (
     <>
-      <Head title="Approvals & review" lead="What waits for you before an agent acts, and what you check after. It applies to every agent. Each subagent's tools come from its own file; Agents shows them." />
+      <Head title="Approvals & review" lead="What needs your approval. Applies to every agent." />
       {msg.node}
-      <Card label="Before it acts">
+      <Card label="Ask first">
         {APPROVAL_ROWS.map((r) => {
           const unknown = r.kind === "destructive" && settings.destructiveKnown === false;
           return (
-            <Row key={r.kind} title={r.label} help={unknown ? <span className="warn-text">Unavailable: this ue-mcp does not say which of its actions delete or overwrite, so none can ask first. Update ue-mcp to use this row.</span> : r.help}>
+            <Row key={r.kind} title={r.label} help={unknown ? <span className="warn-text">Unavailable. Update ue-mcp to use this rule.</span> : r.help}>
               <Seg label={r.label} value={unknown ? null : rule(r.kind)} options={RULES} disabled={unknown} onChange={(v) => void save({ approvals: { [r.kind]: v } })} />
             </Row>
           );
@@ -76,24 +76,24 @@ export function ApprovalsSection() {
         <Row title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === (agent.playtestRuns ?? "manual"))!.help}>
           {agent.playtestRuns
             ? <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
-            : <span className="dim small">Update Studio to choose this.</span>}
+            : <span className="dim small">Update Studio to set this.</span>}
         </Row>
         <p className="cfg-note">All other actions run without asking.</p>
       </Card>
 
       <Card label="Feedback reports">
-        <Row inline title="Agents can report gaps in ue-mcp's tools" help="Filed as GitHub issues on ue-mcp. Changing this restarts ue-mcp after the turn in progress.">
-          <Switch label="Agents can report gaps in ue-mcp's tools" on={agent.feedbackTool} onChange={(v) => void saveAgent({ feedbackTool: v })} />
+        <Row inline title="Report ue-mcp gaps" help="Agents file GitHub issues on ue-mcp. Changing this restarts ue-mcp.">
+          <Switch label="Report ue-mcp gaps" on={agent.feedbackTool} onChange={(v) => void saveAgent({ feedbackTool: v })} />
         </Row>
         {agent.feedbackTool && (
-          <Row title="Before a report is filed" help={agent.feedbackMode ? FEEDBACK_MODES.find((f) => f.id === agent.feedbackMode!.mode)?.about : "Update ue-mcp to choose this from Studio."}>
-            {agent.feedbackMode && <Seg label="Before a report is filed" value={agent.feedbackMode.mode} options={FEEDBACK_MODES} onChange={(v) => void saveAgent({ feedbackMode: v })} />}
+          <Row title="Filing" help={agent.feedbackMode ? FEEDBACK_MODES.find((f) => f.id === agent.feedbackMode!.mode)?.about : "Update ue-mcp to set this."}>
+            {agent.feedbackMode && <Seg label="Filing" value={agent.feedbackMode.mode} options={FEEDBACK_MODES} onChange={(v) => void saveAgent({ feedbackMode: v })} />}
           </Row>
         )}
       </Card>
 
       <Card label="Editor dialogs">
-        <Row title="Who answers a dialog an agent's call opens" help="A dialog in the editor stops every call until it is answered." />
+        <Row title="Who answers" help="Editor calls wait until an open dialog is answered." />
         {agent.dialogMode ? (
           <div className="opts">
             {DIALOG_MODES.map((d) => (
@@ -104,15 +104,15 @@ export function ApprovalsSection() {
                 )}
               </div>
             ))}
-            {dialogMode === null && <p className="cfg-note">Not set: each client decides. Studio shows them to you.</p>}
+            {dialogMode === null && <p className="cfg-note">Not set. Studio shows them.</p>}
           </div>
         ) : (
-          <p className="cfg-note">Update ue-mcp to choose this from Studio.</p>
+          <p className="cfg-note">Update ue-mcp to set this.</p>
         )}
       </Card>
 
       <Card label="Turn review">
-        <Row inline title="Review each turn" help="Keep or revert each file a turn changed. Turn it off for one session in its Checkpoints panel. Assigning a playtest to a helper requires it.">
+        <Row inline title="Review each turn" help="Keep or revert each change after a turn. Override per session in Checkpoints. Required to assign playtests.">
           <Switch label="Review each turn" on={settings.reviewTurns !== false} onChange={(v) => void save({ reviewTurns: v })} />
         </Row>
       </Card>
@@ -121,9 +121,9 @@ export function ApprovalsSection() {
 }
 
 const POLICIES: ReadonlyArray<{ id: DialogPolicy["kind"]; name: string }> = [
-  { id: "wait", name: "Keep waiting for me" },
-  { id: "agent", name: "Hand it to the agent" },
-  { id: "safe", name: "Press the safe default, Cancel or Keep" },
+  { id: "wait", name: "Keep waiting" },
+  { id: "agent", name: "Hand to agent" },
+  { id: "safe", name: "Press Cancel or Keep" },
 ];
 
 /**
@@ -134,8 +134,8 @@ const POLICIES: ReadonlyArray<{ id: DialogPolicy["kind"]; name: string }> = [
 export function DialogPolicyField({ policy, onSave }: { policy: DialogPolicy; onSave: (p: DialogPolicy) => void }) {
   const minutes = policy.kind === "wait" ? 2 : policy.minutes;
   return (
-    <div className="field dialog-policy" role="radiogroup" aria-label="If you do not answer in Studio">
-      <span className="flabel">If you do not answer in Studio</span>
+    <div className="field dialog-policy" role="radiogroup" aria-label="If unanswered">
+      <span className="flabel">If unanswered</span>
       {POLICIES.map((p) => (
         <label key={p.id} className="cfg-inline small">
           <input type="radio" name="dialog-policy" checked={policy.kind === p.id} aria-label={p.name} onChange={() => onSave(p.id === "wait" ? { kind: "wait" } : { kind: p.id, minutes })} />
@@ -149,7 +149,7 @@ export function DialogPolicyField({ policy, onSave }: { policy: DialogPolicy; on
           )}
         </label>
       ))}
-      <span className="help">The dialog shows in the chat with its buttons, and the window flashes when you are elsewhere. Saved for this project.</span>
+      <span className="help">The window flashes when Studio is not focused. Saved per project.</span>
     </div>
   );
 }

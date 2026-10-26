@@ -159,7 +159,7 @@ export function UpdatesCard() {
       {u && (
         <div className="row update-status">
           <span className={`pill ${steps.length ? "warn" : "ok"}`}>{steps.length ? "Update available" : "Up to date"}</span>
-          <span className="muted">{waiting ? "Update ready, restarts when the current turn finishes." : working ? "Updating" : steps.length ? ready : "Everything is up to date."}</span>
+          <span className="muted">{waiting ? "Update ready. Restarts after the current turn." : working ? "Updating" : steps.length ? ready : "Up to date."}</span>
           <span className="spacer" />
           {steps.length > 0 && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>
@@ -177,7 +177,7 @@ export function UpdatesCard() {
                 disabled={working}
                 onChange={() => void setChannel(c).then(load, () => load())}
               />{" "}
-              {c === "stable" ? "Stable" : "Beta: prereleases too, for testing"}
+              {c === "stable" ? "Stable" : "Beta"}
             </label>
           ))}
         </div>
@@ -185,10 +185,10 @@ export function UpdatesCard() {
       {u?.studio?.plugin.required && (
         <div className="banner warn small">
           {u.studio.plugin.source === "fab"
-            ? "This version of Studio needs a newer editor plugin. Update it from your Fab Library."
+            ? "Editor plugin too old. Update it from your Fab Library."
             : u.studio.plugin.location === "project"
-              ? "This version of Studio needs a newer editor plugin. Update installs it and restarts the editor."
-              : "This version of Studio needs a newer editor plugin. Update it where it was installed."}
+              ? "Editor plugin too old. Update installs it and restarts the editor."
+              : "Editor plugin too old. Update it where it was installed."}
         </div>
       )}
       {fab && (
@@ -200,7 +200,7 @@ export function UpdatesCard() {
           <button onClick={() => openLink(fab.url)}>Open Fab Library</button>
         </div>
       )}
-      {engineOnly && <p className="dim small">The editor plugin was installed with the engine; the Epic launcher updates it.</p>}
+      {engineOnly && <p className="dim small">Installed with the engine. The Epic launcher updates it.</p>}
       {u && (
         <details className="update-details">
           <summary className="dim small">Details</summary>

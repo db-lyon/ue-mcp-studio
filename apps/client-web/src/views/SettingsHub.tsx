@@ -29,17 +29,17 @@ const GROUPS: Array<{ label: string; items: Array<{ id: SettingsSection; name: s
   {
     label: "Work",
     items: [
-      { id: "agents", name: "Agents", sub: "Who works, on what, reading which instructions" },
-      { id: "models", name: "Models & accounts", sub: "Sign-ins, API keys and every model they run" },
-      { id: "approvals", name: "Approvals & review", sub: "What asks first, and what you check after" },
+      { id: "agents", name: "Agents", sub: "Models and project agent files" },
+      { id: "models", name: "Models & accounts", sub: "Sign-ins, keys and endpoints" },
+      { id: "approvals", name: "Approvals & review", sub: "Approvals, dialogs and turn review" },
     ],
   },
   {
     label: "Project",
     items: [
-      { id: "project", name: "Project", sub: "ue-mcp for every client on this project" },
+      { id: "project", name: "Project", sub: "ue-mcp setup for this project" },
       { id: "usage", name: "Usage", sub: "Budgets and what agents spend" },
-      { id: "diagnostics", name: "Diagnostics", sub: "Editor and daemon status, logs" },
+      { id: "diagnostics", name: "Diagnostics", sub: "Status and logs" },
     ],
   },
 ];
@@ -65,33 +65,33 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   useEffect(() => {
     api.settings().then(setSettings, () => setSettings(null));
     // The strategy in effect: an environment override beats the saved one.
-    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: c.envOverride ? `${CONTEXT_STRATEGY_INFO[c.envOverride].name} for other clients, set by the environment` : `${CONTEXT_STRATEGY_INFO[c.strategy].name} for other clients`, overridden: !!c.envOverride && c.envOverride !== c.strategy })), () => undefined);
+    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: c.envOverride ? `${CONTEXT_STRATEGY_INFO[c.envOverride].name} for other clients, from environment` : `${CONTEXT_STRATEGY_INFO[c.strategy].name} for other clients`, overridden: !!c.envOverride && c.envOverride !== c.strategy })), () => undefined);
     if (typeof api.install === "function") api.install().then((r) => setExtra((e) => ({ ...e, ready: r.ok })), () => undefined);
     if (typeof api.budgets === "function") api.budgets().then((b) => setExtra((e) => ({ ...e, budgets: Object.values(b.budgets.agents).reduce((n, x) => n + [x.perRunTokens, x.perRunMinutes, x.perDayTokens].filter((v) => v !== null).length, 0) + [b.budgets.team.perDayTokens, b.budgets.team.perMonthTokens].filter((v) => v !== null).length })), () => undefined);
     if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
   }, []);
   const dots: Partial<Record<SettingsSection, string>> = {};
-  if (settings && !anythingConnected(settings)) dots.models = "Connect a sign-in, an API key or an endpoint";
-  if (settings && settings.route === null) dots.agents = "No model can run the main agent yet";
-  else if (settings && settings.route === null) dots.models = "Nothing connected can run the main agent's model";
-  if (settings && settings.destructiveKnown === false) dots.approvals = "One kind cannot ask first until ue-mcp is updated";
-  if (extra.overridden) dots.project = "An environment variable overrides the saved context strategy";
+  if (settings && !anythingConnected(settings)) dots.models = "Nothing connected";
+  if (settings && settings.route === null) dots.agents = "No model connected";
+  else if (settings && settings.route === null) dots.models = "Main agent's model not connected";
+  if (settings && settings.destructiveKnown === false) dots.approvals = "Update ue-mcp to use every rule";
+  if (extra.overridden) dots.project = "Context strategy overridden by environment";
   if (updates > 0) dots.general = `${updates} ${updates === 1 ? "update" : "updates"} available`;
   const lines: Partial<Record<SettingsSection, string>> = {};
   if (settings) {
     const model = extra.models?.providers.flatMap((p) => p.models).find((m) => m.id === settings.model)?.name ?? settings.model;
-    const helpers = settings.usage?.projectInstructions === false ? "project files off" : "reads the project's own files";
+    const helpers = settings.usage?.projectInstructions === false ? "project files off" : "project files on";
     const anything = anythingConnected(settings);
     // An endpoint route is named by the endpoint.
     const via = settings.route === "endpoint" ? extra.models?.providers.find((p) => p.id === settings.provider)?.name ?? "a custom endpoint" : settings.route ? ROUTE_LABEL[settings.route] ?? settings.route : null;
-    lines.agents = !anything ? "No model connected yet" : `${model}${via ? ` on ${via}` : ", not connected"}, ${helpers}`;
+    lines.agents = !anything ? "No model connected" : `${model}${via ? ` on ${via}` : ", not connected"}, ${helpers}`;
     const signIns = (["claude", "chatgpt", "studio"] as const).filter((s) => settings.connected?.[s]).length;
     const keys = (["anthropic", "openai", "google"] as const).filter((k) => settings.connected?.[k]).length;
     const endpoints = settings.endpoints ?? 0;
-    lines.models = signIns + keys + endpoints === 0 ? "Nothing connected yet" : `${plural(signIns, "sign-in")}, ${plural(keys, "key")}${endpoints ? `, ${plural(endpoints, "endpoint")}` : ""}`;
+    lines.models = signIns + keys + endpoints === 0 ? "Nothing connected" : `${plural(signIns, "sign-in")}, ${plural(keys, "key")}${endpoints ? `, ${plural(endpoints, "endpoint")}` : ""}`;
     const rules = settings.approvals ? Object.values(settings.approvals) : [];
     const usable = settings.approvals ? (Object.entries(settings.approvals) as Array<[string, string]>).filter(([k]) => k !== "destructive" || settings.destructiveKnown !== false) : [];
-    if (rules.length) lines.approvals = `${usable.filter(([, r]) => r === "ask").length} kinds ask first${usable.length < rules.length ? `, ${rules.length - usable.length} unavailable` : ""}, review ${settings.reviewTurns === false ? "off" : "on"}`;
+    if (rules.length) lines.approvals = `${usable.filter(([, r]) => r === "ask").length} ask first${usable.length < rules.length ? `, ${rules.length - usable.length} unavailable` : ""}, review ${settings.reviewTurns === false ? "off" : "on"}`;
   }
   if (extra.ready !== undefined || extra.strategy) lines.project = [extra.ready === undefined ? null : extra.ready ? "Ready" : "Needs attention", extra.strategy ?? null].filter(Boolean).join(", ");
   if (extra.budgets !== undefined) lines.usage = extra.budgets ? `${plural(extra.budgets, "limit")} set` : "No limits set";
@@ -126,7 +126,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
   else if (open === "diagnostics") body = (
     <>
-      <Head title="Diagnostics" lead="The editor and daemon as Studio sees them now, and the daemon's recent events." />
+      <Head title="Diagnostics" lead="Editor and daemon status, and recent daemon events." />
       <StatusView daemon={daemon} />
       <LogsView daemon={daemon} />
     </>

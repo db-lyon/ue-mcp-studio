@@ -40,7 +40,7 @@ describe("the custom endpoints card", () => {
     m.addEndpoint.mockResolvedValue(box);
     const onChange = vi.fn();
     await act(async () => render(<EndpointsCard onChange={onChange} />));
-    expect(screen.getByText("No endpoints yet.")).toBeTruthy();
+    expect(screen.getByText("No endpoints.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add endpoint" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local box" } });
     fireEvent.change(screen.getByLabelText("Base URL"), { target: { value: "http://localhost:11434/v1" } });

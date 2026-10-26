@@ -48,7 +48,7 @@ describe("Approvals & review: before it acts", () => {
 
   it("says why the destructive row cannot ask when ue-mcp does not report its actions", async () => {
     await show({ destructiveKnown: false });
-    expect(screen.getByText(/Unavailable: this ue-mcp does not say which of its actions delete or overwrite/)).toBeTruthy();
+    expect(screen.getByText(/Unavailable. Update ue-mcp to use this rule./)).toBeTruthy();
     for (const b of screen.getByRole("radiogroup", { name: "ue-mcp actions that delete or overwrite" }).querySelectorAll("button")) {
       expect((b as HTMLButtonElement).disabled).toBe(true);
       expect(b.getAttribute("aria-checked")).toBe("false");
@@ -58,12 +58,12 @@ describe("Approvals & review: before it acts", () => {
   it("starts playtests Manual by default, saves Automatic, and says to update an older Studio", async () => {
     await show();
     expect(checked("Starting playtests", "Manual")).toBe(true);
-    expect(screen.getByText("A playtest runs only when you start it, or assign it to a helper, from its card.")).toBeTruthy();
+    expect(screen.getByText("Playtests run only when you start or assign them.")).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Automatic" })));
     expect(m.saveAgentSettings).toHaveBeenCalledWith({ playtestRuns: "automatic" });
     cleanup();
     await show({}, { playtestRuns: undefined });
-    expect(screen.getByText("Update Studio to choose this.")).toBeTruthy();
+    expect(screen.getByText("Update Studio to set this.")).toBeTruthy();
   });
 });
 
@@ -75,18 +75,18 @@ describe("Approvals & review: shared settings", () => {
 
   it("saves who answers dialogs and the feedback mode", async () => {
     await show();
-    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: /Let the agent answer/ })));
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: /Agent answers/ })));
     expect(m.saveAgentSettings).toHaveBeenCalledWith({ dialogMode: "auto" });
-    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Keep for review" })));
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Hold" })));
     expect(m.saveAgentSettings).toHaveBeenLastCalledWith({ feedbackMode: "defer" });
   });
 
   it("says ue-mcp restarts when the feedback tool changes", async () => {
     await show();
     m.saveAgentSettings.mockResolvedValueOnce({ ...agent({ feedbackTool: false }), restarting: true });
-    await act(async () => void fireEvent.click(screen.getByRole("switch", { name: "Agents can report gaps in ue-mcp's tools" })));
+    await act(async () => void fireEvent.click(screen.getByRole("switch", { name: "Report ue-mcp gaps" })));
     expect(m.saveAgentSettings).toHaveBeenCalledWith({ feedbackTool: false });
-    expect(screen.getByText(/ue-mcp restarts to load it/)).toBeTruthy();
+    expect(screen.getByText(/ue-mcp restarts after the current turn/)).toBeTruthy();
   });
 });
 

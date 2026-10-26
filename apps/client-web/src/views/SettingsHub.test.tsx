@@ -38,7 +38,7 @@ describe("Settings sections", () => {
     withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "micro", fromFile: true, envOverride: "full", seeds: {}, seedSource: "" }));
     try {
       await act(async () => void render(<SettingsHub daemon={daemon} section={null} onSection={vi.fn()} onTheme={vi.fn()} narrow />));
-      expect(screen.getByLabelText("An environment variable overrides the saved context strategy")).toBeTruthy();
+      expect(screen.getByLabelText("Context strategy overridden by environment")).toBeTruthy();
     } finally {
       delete withStrategy.contextStrategy;
     }
@@ -49,7 +49,7 @@ describe("Settings sections", () => {
     withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "full", fromFile: true, envOverride: "full", seeds: {}, seedSource: "" }));
     try {
       await act(async () => void render(<SettingsHub daemon={daemon} section={null} onSection={vi.fn()} onTheme={vi.fn()} narrow />));
-      expect(screen.getByText("Full for other clients, set by the environment")).toBeTruthy();
+      expect(screen.getByText("Full for other clients, from environment")).toBeTruthy();
     } finally {
       delete withStrategy.contextStrategy;
     }
@@ -57,7 +57,7 @@ describe("Settings sections", () => {
 
   it("marks a section that needs attention", async () => {
     await act(async () => void render(<SettingsHub daemon={daemon} section="agents" onSection={vi.fn()} onTheme={vi.fn()} updates={2} />));
-    expect(screen.getByLabelText("Connect a sign-in, an API key or an endpoint")).toBeTruthy();
+    expect(screen.getByLabelText("Nothing connected")).toBeTruthy();
     expect(screen.getByLabelText("2 updates available")).toBeTruthy();
   });
 

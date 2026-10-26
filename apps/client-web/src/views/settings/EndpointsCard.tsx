@@ -64,7 +64,7 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
   };
   return (
     <Card className="endpoints-card" label="Custom endpoints" actions={list && editing === null ? <button onClick={() => setEditing("new")}>Add endpoint</button> : undefined}>
-      <p className="cfg-note">Any server that speaks OpenAI's Chat Completions API, on this machine or hosted. Its models run on it directly and read AGENTS.md and .agents/skills. Endpoints and their keys serve every project.</p>
+      <p className="cfg-note">Any OpenAI Chat Completions server, local or hosted. Its models read AGENTS.md and .agents/skills.</p>
       {error && (
         <div className="banner bad small row" role="alert">
           <span className="grow">{list ? error : `Could not read the endpoints: ${error}`}</span>
@@ -72,7 +72,7 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
         </div>
       )}
       {!list && !error && <p className="muted small">Loading endpoints</p>}
-      {list && list.length === 0 && editing !== "new" && <p className="muted small endpoint-empty">No endpoints yet.</p>}
+      {list && list.length === 0 && editing !== "new" && <p className="muted small endpoint-empty">No endpoints.</p>}
       {list?.map((e) => editing === e.id ? (
         <EndpointForm key={e.id} endpoint={e} onSaved={changed} onCancel={() => setEditing(null)} />
       ) : (
@@ -81,7 +81,7 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
           <div className="grow">
             <div className="t"><strong>{e.name}</strong> <span className="muted small">{e.models.length === 1 ? "1 model" : `${e.models.length} models`}, {e.hasKey ? "key saved" : "no key"}</span></div>
             <div className="path dim">{e.baseUrl}</div>
-            {e.listError && <div className="small endpoint-warn">Could not read its models: {e.listError}. {e.models.length ? "Showing the models it had." : "Type them in Edit instead."}</div>}
+            {e.listError && <div className="small endpoint-warn">Could not read its models: {e.listError}. {e.models.length ? "Showing the last list." : "Add them in Edit."}</div>}
             {e.models.length > 0 && <div className="endpoint-models">{e.models.map((m) => <span key={m.id} className="tag" title={m.perMTok ? `Your price per million tokens: input ${usd(m.perMTok.input)}, cached read ${usd(m.perMTok.cacheRead)}, output ${usd(m.perMTok.output)}` : "No price: Usage shows no cost for it"}>{m.id}{m.perMTok && <span className="dim">&nbsp;{usd(m.perMTok.input)} in / {usd(m.perMTok.output)} out</span>}</span>)}</div>}
           </div>
           <div className="endpoint-actions">

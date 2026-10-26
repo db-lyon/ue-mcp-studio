@@ -19,10 +19,10 @@ export type Approvals = Record<ApprovalKind, ApprovalRule>;
 export const DEFAULT_APPROVALS: Approvals = { shell: "ask", files: "ask", editorRestart: "ask", destructive: "ask" };
 
 export const APPROVAL_ROWS: ReadonlyArray<{ kind: ApprovalKind; label: string; help: string }> = [
-  { kind: "shell", label: "Shell commands", help: "Each command waits in the chat for Allow or Deny." },
-  { kind: "files", label: "File changes", help: "Writes and edits to files on this machine." },
-  { kind: "editorRestart", label: "Restart or rebuild the editor", help: "Unsaved work in the editor is lost on a restart." },
-  { kind: "destructive", label: "ue-mcp actions that delete or overwrite", help: "Deleting assets or actors, clearing, reverting, overwriting. ue-mcp says which actions these are." },
+  { kind: "shell", label: "Shell commands", help: "Waits in the chat for Allow or Deny." },
+  { kind: "files", label: "File changes", help: "Writes and edits on this machine." },
+  { kind: "editorRestart", label: "Restart or rebuild the editor", help: "Unsaved editor work is lost." },
+  { kind: "destructive", label: "ue-mcp actions that delete or overwrite", help: "Actions ue-mcp marks as destructive." },
 ];
 
 /**

@@ -114,7 +114,7 @@ describe("updates", () => {
     render(<UpdatesCard />);
     await waitFor(() => expect(screen.getByText(/Update the editor plugin from your Fab Library\./)).toBeTruthy());
     expect(screen.getByText(/Editor plugin 0\.1\.0-beta\.9 is available/)).toBeTruthy();
-    expect(screen.getByText(/needs a newer editor plugin\. Update it from your Fab Library/)).toBeTruthy();
+    expect(screen.getByText(/Editor plugin too old\. Update it from your Fab Library/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Open Fab Library" }));
     expect(opened).toEqual(["https://www.fab.com/listings/abc"]);
@@ -130,7 +130,7 @@ describe("updates", () => {
   it("says up to date with nothing to do", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(false, false) : ueMcp(false)))));
     render(<UpdatesCard />);
-    await waitFor(() => expect(screen.getByText("Everything is up to date.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Up to date.")).toBeTruthy());
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
   });
 
@@ -147,7 +147,7 @@ describe("updates", () => {
       return new Response(JSON.stringify({ ...studio(channel === "beta", false), channel }));
     }));
     render(<UpdatesCard />);
-    await waitFor(() => expect(screen.getByText("Everything is up to date.")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Up to date.")).toBeTruthy());
     expect((screen.getByRole("radio", { name: "Stable" }) as HTMLInputElement).checked).toBe(true);
     await act(async () => fireEvent.click(screen.getByRole("radio", { name: /Beta/ })));
     await waitFor(() => expect(screen.getByText("Update available")).toBeTruthy());

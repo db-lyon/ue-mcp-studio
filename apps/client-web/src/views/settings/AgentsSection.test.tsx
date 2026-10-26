@@ -55,14 +55,14 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect([...tabs.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Claude Code1, read by a connected route", "Codex4, read by a connected route", "Gemini CLI0", "AGENTS.md0"]);
     expect([...tabs.querySelectorAll("button")].map((b) => !!b.querySelector(".dot"))).toEqual([true, true, false, false]);
     expect(tabs.querySelector("[aria-current=page]")?.textContent).toBe("Codex4, read by a connected route");
-    expect(screen.getByText(/Read by: ChatGPT sign-in, OpenAI key\. The main agent runs here\. Studio reads them the way Codex does\./)).toBeTruthy();
+    expect(screen.getByText(/Read by: ChatGPT sign-in, OpenAI key. Main agent./)).toBeTruthy();
     expect(screen.getByText("Project")).toBeTruthy();
     expect(screen.getByText("AGENTS.md is past Codex's 32 KiB limit for instruction files, so it is not read.")).toBeTruthy();
     expect(screen.getByText("scout")).toBeTruthy();
     expect(screen.getByText("gpt-6-luna").closest("dd")?.textContent).toBe("6 Luna (file says gpt-6-luna)");
     expect(screen.getByText("every tool but shell")).toBeTruthy();
     expect(screen.getByText("Plugin: ue-mcp-meshy")).toBeTruthy();
-    expect(screen.getByText(/Used only when you name it\./)).toBeTruthy();
+    expect(screen.getByText(/used only when named/)).toBeTruthy();
   });
 
   it("says on the Claude Code tab that an AGENTS.md beside a CLAUDE.md is passed over, and lets it be opened", async () => {
@@ -91,9 +91,9 @@ describe("Agents: what each vendor's own files give its models", () => {
   it("says where each vendor would read files a project does not have yet", async () => {
     await show();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^Gemini CLI/ })));
-    expect(screen.getByText(/None found in any of those places\. The usual one is a GEMINI\.md in the project folder\./)).toBeTruthy();
+    expect(screen.getByText(/None found. Usually GEMINI.md in the project folder./)).toBeTruthy();
     expect(screen.getByText(/No connected route reads these\./)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Connect one in Models & accounts" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect one" })).toBeTruthy();
   });
 
   it("offers no subagent or skill editing, only the switch that reads the files at all", async () => {
@@ -102,19 +102,19 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.queryByRole("button", { name: /Add a file|Create AGENTS\.md|New skill/ })).toBeNull();
     await act(async () => void fireEvent.click(screen.getByRole("switch", { name: "Read the project's agent files" })));
     expect(m.saveSettings).toHaveBeenCalledWith({ usage: { projectInstructions: false } });
-    expect(screen.getByText(/Off: agents are given none of the project's own files\./)).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Whose files" })).toBeNull();
   });
 
   it("shows Studio's own worker read only, and says when earlier settings set it", async () => {
     await show({}, overview({ worker: { model: "Anthropic Haiku 5.5", effort: "low", starts: "automatic", fromSettings: true } }));
-    expect(screen.getByText("Anthropic Haiku 5.5 while the main agent runs on Anthropic; otherwise the main agent's model")).toBeTruthy();
-    expect(screen.getByText("when the work splits into independent parts")).toBeTruthy();
-    expect(screen.getByText("Set in an earlier Studio and kept. Read only.")).toBeTruthy();
+    expect(screen.getByText("Anthropic Haiku 5.5 when the main agent runs on Anthropic, else the main agent's")).toBeTruthy();
+    expect(screen.getByText("When work splits into independent parts")).toBeTruthy();
+    expect(screen.getByText("Read only, set by an earlier version.")).toBeTruthy();
   });
 
   it("follows the main agent when the worker has no model of its own", async () => {
     await show({}, overview({ worker: { model: null, effort: null, starts: "asked", fromSettings: false } }));
-    expect(screen.getAllByText("Same as the main agent")).toHaveLength(2);
+    expect(screen.getAllByText("Same as main agent")).toHaveLength(2);
   });
 
   it("shows the same tabs when nothing is connected, each saying no route reads it", async () => {
@@ -126,14 +126,14 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.getByText(/No connected route reads these\./)).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^AGENTS\.md/ })));
     // Custom endpoints read AGENTS.md; nothing to connect until one is set up.
-    expect(screen.getByText(/Custom endpoints read these files. No route on this machine reads them as AGENTS.md files yet./)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Connect one in Models & accounts" })).toBeNull();
+    expect(screen.getByText(/No connected route reads these./)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Connect one" })).toBeNull();
   });
 
   it("titles the preview by who loads the files", async () => {
     m.nativePreview.mockResolvedValueOnce({ convention: "codex", text: "## CLAUDE.md", tokens: 3, files: 1, loadedBy: "sdk", parts: [{ path: "CLAUDE.md", text: "Rules only." }] } as never);
     await show();
-    expect(screen.getByText("Preview: the text on every call (1 file)")).toBeTruthy();
+    expect(screen.getByText("Preview (1 file)")).toBeTruthy();
     // The SDK reads the files as they are: the preview adds no headings into their text.
     expect(screen.getByText("Rules only.").tagName).toBe("PRE");
     expect(screen.queryByText(/## CLAUDE.md/)).toBeNull();
