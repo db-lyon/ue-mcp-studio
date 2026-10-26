@@ -107,6 +107,11 @@ function answer(method: string, url: URL): unknown {
     [/^\/v1\/ext\/studio\/sessions$/, () => ({ sessions: s ? [s] : [] })],
     [/^\/v1\/ext\/studio\/sessions\/[^/]+$/, () => s],
     [/^\/v1\/ext\/studio\/qa\/playtests$/, () => scenario.index],
+    [/^\/v1\/ext\/studio\/qa\/playtests\/script$/, () => {
+      const e = scenario.index.playtests.find((x) => x.script === url.searchParams.get("script"));
+      const r = e?.draft ?? e?.card ?? e?.last;
+      return r ? { run: r } : undefined;
+    }],
     [/^\/v1\/ext\/studio\/qa\/runs$/, () => ({ runs: [] })],
     [/^\/v1\/ext\/studio\/forms$/, () => ({ forms: [] })],
     [/^\/v1\/ext\/studio\/dialogs$/, () => ({ dialogs: [], now: Date.now(), supported: true })],

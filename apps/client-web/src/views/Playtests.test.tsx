@@ -8,6 +8,9 @@ const m = vi.hoisted(() => ({
   qaPlaytestCard: vi.fn(),
   qaRun: vi.fn(),
   qaAssign: vi.fn(),
+  qaPlaytestScript: vi.fn(),
+  qaPlaytestSave: vi.fn(),
+  qaPlaytestDelete: vi.fn(),
   qaStatus: vi.fn(() => new Promise(() => {})),
   qaResultsUrl: (id: string) => `/r/${id}`,
 }));
@@ -190,6 +193,69 @@ describe("the Playtests page", () => {
     page({ playtests: [{ ...ENTRIES[2], deleted: true }], listed: true });
     expect(within(row("Walk")).queryByRole("button", { name: "Run again" })).toBeNull();
     expect(row("Walk").querySelector(".qa-meta")?.textContent).toMatch(/^Script deleted. Ran /);
+  });
+});
+
+describe("Edit and Delete on the page", () => {
+  const openCard = (name: string) => {
+    fireEvent.click(screen.getByRole("button", { name: /^All / }));
+    fireEvent.click(within(row(name)).getByRole("button", { name: `Open playtest ${name}` }));
+  };
+
+  it("edits a script no session has in the session's step editor, read as saved", async () => {
+    m.qaPlaytestScript.mockResolvedValue({ run: draftOf("Jump", null) });
+    m.qaPlaytestSave.mockResolvedValue({ script: "/Game/T/Jump" });
+    const { reload } = page();
+    openCard("Jump");
+    await act(async () => {
+      fireEvent.click(within(row("Jump")).getByRole("button", { name: "Edit" }));
+    });
+    expect(m.qaPlaytestScript).toHaveBeenCalledWith("/Game/T/Jump");
+    const first = within(row("Jump")).getByRole("textbox", { name: "Step 1 instruction" }) as HTMLInputElement;
+    expect(first.value).toBe("Look");
+    fireEvent.change(first, { target: { value: "Look up" } });
+    await act(async () => {
+      fireEvent.click(within(row("Jump")).getByRole("button", { name: "Save" }));
+    });
+    expect(m.qaPlaytestSave).toHaveBeenCalledWith("/Game/T/Jump", [expect.objectContaining({ instruction: "Look up", judge: "manual" }), expect.objectContaining({ instruction: "Move", judge: "auto" })]);
+    expect(reload).toHaveBeenCalled();
+    expect(within(row("Jump")).queryByRole("textbox", { name: "Step 1 instruction" })).toBeNull();
+  });
+
+  it("deletes a script only on the second click, then reads the list again", async () => {
+    m.qaPlaytestDelete.mockResolvedValue({ script: "/Game/T/Walk" });
+    const { reload } = page();
+    openCard("Walk");
+    fireEvent.click(within(row("Walk")).getByRole("button", { name: "Delete" }));
+    expect(m.qaPlaytestDelete).not.toHaveBeenCalled();
+    expect(within(row("Walk")).getByText(/Deleting removes the script asset/)).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(within(row("Walk")).getByRole("button", { name: "Delete the script" }));
+    });
+    expect(m.qaPlaytestDelete).toHaveBeenCalledWith("/Game/T/Walk");
+    expect(reload).toHaveBeenCalled();
+  });
+
+  it("says why the script cannot be read", async () => {
+    m.qaPlaytestScript.mockRejectedValue(new Error("the editor is not connected, so the script cannot be read"));
+    page();
+    openCard("Fresh");
+    await act(async () => {
+      fireEvent.click(within(row("Fresh")).getByRole("button", { name: "Edit" }));
+    });
+    expect(within(row("Fresh")).getByText(/cannot be read/)).toBeTruthy();
+    expect(within(row("Fresh")).queryByRole("textbox", { name: "Step 1 instruction" })).toBeNull();
+  });
+
+  it("draws them disabled while the editor is away, and not at all on a script that is gone", () => {
+    page({ playtests: [ENTRIES[1], { ...ENTRIES[2], deleted: true }], listed: false });
+    openCard("Jump");
+    const edit = within(row("Jump")).getByRole("button", { name: "Edit" }) as HTMLButtonElement;
+    expect(edit.disabled).toBe(true);
+    expect(edit.title).toBe("The editor is not connected");
+    fireEvent.click(within(row("Walk")).getByRole("button", { name: "Open playtest Walk" }));
+    expect(within(row("Walk")).queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(within(row("Walk")).queryByRole("button", { name: "Delete" })).toBeNull();
   });
 });
 

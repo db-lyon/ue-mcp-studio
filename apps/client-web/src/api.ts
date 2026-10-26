@@ -228,6 +228,9 @@ export const api = {
   qaRuns: () => call<{ runs: QaRun[] }>("GET", "/v1/ext/studio/qa/runs"),
   qaPlaytests: (fresh = false) => call<PlaytestIndexAnswer>("GET", `/v1/ext/studio/qa/playtests${fresh ? "?fresh=1" : ""}`),
   qaPlaytestCard: (script: string) => call<{ run: QaRun }>("POST", "/v1/ext/studio/qa/playtests/card", { script }),
+  qaPlaytestScript: (script: string) => call<{ run: QaRun }>("GET", `/v1/ext/studio/qa/playtests/script?script=${encodeURIComponent(script)}`),
+  qaPlaytestSave: (script: string, steps: QaScriptStep[]) => call<{ script: string }>("PUT", "/v1/ext/studio/qa/playtests/script", { script, steps }),
+  qaPlaytestDelete: (script: string) => call<{ script: string }>("DELETE", `/v1/ext/studio/qa/playtests/script?script=${encodeURIComponent(script)}`),
   qaStatus: (runId: string, sinceSeq?: number) =>
     call<{ answer: Record<string, unknown>; run: QaRun | null }>("GET", `/v1/ext/studio/qa/runs/${encodeURIComponent(runId)}/status${sinceSeq === undefined ? "" : `?since_seq=${sinceSeq}`}`),
   qaVerdict: (runId: string, step: number, verdict: QaVerdict, note?: string) =>
