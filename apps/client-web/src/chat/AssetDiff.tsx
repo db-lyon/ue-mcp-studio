@@ -8,6 +8,7 @@ import {
   exportNumber,
   factRows,
   nodeValues,
+  readableParts,
   readableValue,
   recordsByGroup,
   unifiedLines,
@@ -46,7 +47,9 @@ const kindClass = (k: string): string => (k === "Added" ? "add" : k === "Removed
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
   if (v === null || v === undefined) return <span className="dim">{side === "before" ? "not there" : "gone"}</span>;
   if (v === "") return <span className="dim">empty</span>;
-  const words = readableValue(v) ?? (exportNumber(v) !== v ? exportNumber(v) : null);
+  const parts = readableParts(v);
+  if (parts && parts.length > 1) return <span className="mono diff-value diff-parts" title={v}>{parts.map((x, i) => <span key={i}><EngineText text={x} /></span>)}</span>;
+  const words = parts?.[0] ?? (exportNumber(v) !== v ? exportNumber(v) : null);
   return <span className="mono diff-value" title={words ? v : undefined}><EngineText text={words ?? v} /></span>;
 }
 
@@ -193,7 +196,7 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
   const [open, setOpen] = useState(!before || !after);
   if (rows.length === 0) return null;
   const changed = rows.filter((r) => r.changed).length;
-  const count = before && after ? (changed ? ` (${changed} ${changed === 1 ? "differs" : "differ"})` : " (none differ)") : "";
+  const count = before && after ? (changed ? ` (${changed} ${changed === 1 ? "fact differs" : "facts differ"})` : " (no fact differs)") : "";
   return (
     <div className="diff-facts">
       <button className="ghost small-button diff-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>

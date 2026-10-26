@@ -415,6 +415,11 @@ function parameterValue(raw: string): string {
  * as the engine wrote it.
  */
 export function readableValue(text: string | null | undefined): string | null {
+  return readableParts(text)?.join(", ") ?? null;
+}
+
+/** readableValue's parameters one by one, each "name = value" with no break inside, for a cell that lists one per line. */
+export function readableParts(text: string | null | undefined): string[] | null {
   if (!text) return null;
   const t = text.trim();
   if (!t.includes("ParameterInfo=")) return null;
@@ -424,14 +429,14 @@ export function readableValue(text: string | null | undefined): string | null {
     const name = info ? exportFields(info)?.get("Name") : undefined;
     const value = f?.get("ParameterValue") ?? f?.get("Value");
     if (!name || value === undefined) return null;
-    return `${name.replace(/^"(.*)"$/, "$1")} = ${parameterValue(value)}`;
+    return `${name.replace(/^"(.*)"$/, "$1")}\u00a0=\u00a0${parameterValue(value)}`;
   };
   const single = one(t);
-  if (single) return single;
+  if (single) return [single];
   const items = exportItems(t);
   if (!items?.length) return null;
   const parts = items.map(one);
-  return parts.every((p): p is string => p !== null) ? parts.join(", ") : null;
+  return parts.every((p): p is string => p !== null) ? parts : null;
 }
 
 const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;

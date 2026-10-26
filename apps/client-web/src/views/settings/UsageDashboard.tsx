@@ -122,7 +122,7 @@ function Tiles({ s }: { s: UsageSummary }) {
       <div className="tile">
         <div className="tile-label">Tokens</div>
         <div className="tile-value num">{tokens(t.budgetTokens)}</div>
-        <Change now={t.budgetTokens} before={s.previous?.budgetTokens ?? null} />
+        {none ? <span className="dim small">No calls yet</span> : <Change now={t.budgetTokens} before={s.previous?.budgetTokens ?? null} />}
         <div className="dim small">Input, cache writes and output, as budgets count them</div>
       </div>
       <div className="tile">
@@ -144,7 +144,7 @@ function Tiles({ s }: { s: UsageSummary }) {
       <div className="tile">
         <div className="tile-label">Runs</div>
         <div className="tile-value num">{t.runs.toLocaleString("en-US")}</div>
-        <Change now={t.runs} before={s.previous ? s.previous.runs : null} />
+        {!none && <Change now={t.runs} before={s.previous ? s.previous.runs : null} />}
         <span className="dim small">{t.calls.toLocaleString("en-US")} model calls</span>
       </div>
     </div>

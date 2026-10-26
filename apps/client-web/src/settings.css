@@ -232,6 +232,9 @@
   --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
   --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-other: #6f6e69;
 }
+.cfg .at-limit { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+@media (max-width: 760px) { .cfg .at-limit { align-items: flex-end; text-align: right; } }
+.cfg .ifile-skipped .open-file, .cfg ol.ifiles .open-file { align-self: start; }
 .cfg .usage-filters { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin: 4px 0 14px; }
 .cfg .usage-filter { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
 .cfg .usage-filter-label { color: var(--muted); font-size: 12px; white-space: nowrap; }
