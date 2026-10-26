@@ -122,7 +122,7 @@ describe("Usage dashboard", () => {
     await show(summary({ rows: [], days: [], sessions: [], ledgerStarts: null, previous: null, total: { ...row("total", "All", 0), calls: 0, runs: 0 } }));
     expect(screen.getByText(/Nothing recorded yet/)).toBeTruthy();
     // No calls: the tiles say so instead of describing calls that never ran.
-    expect(screen.getAllByText("No calls yet")).toHaveLength(2);
+    expect(screen.getAllByText("No calls yet")).toHaveLength(3);
     expect(screen.queryByText(/Every call ran on a sign-in/)).toBeNull();
     expect(screen.queryByText("Tokens per day")).toBeNull();
   });

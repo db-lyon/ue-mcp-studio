@@ -119,7 +119,7 @@ const NATIVE_NONE = (): NativeOverview => ({ ...NATIVE_FULL, main: null, convent
 const NATIVE_FULL: NativeOverview = {
   enabled: true,
   main: "claude",
-  worker: { model: "Haiku 5.5", effort: "low", starts: "asked", fromSettings: false },
+  worker: { model: "Claude Haiku 5.5", effort: "low", starts: "asked", fromSettings: false },
   conventions: [
     { convention: "claude", routes: ["Claude sign-in"], instructionTokens: 1240, notes: [], skipped: [{ path: "AGENTS.md", why: "not read: Claude Code reads AGENTS.md only where there is no CLAUDE.md" }],
       instructions: [
@@ -149,18 +149,18 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-approvals": page("Approvals & review: shell and files ask, review on", "approvals"),
   "settings-approvals-older": page("Approvals & review on an older ue-mcp: the destructive row and the shared rows unavailable", "approvals", {
     settings: { destructiveKnown: false },
-    get: (p) => (p === "/v1/ext/studio/agent-settings" ? { feedbackTool: true, feedbackMode: null, dialogMode: null } : undefined),
+    get: (p) => (p === "/v1/ext/studio/agent-settings" ? { feedbackTool: true, feedbackMode: null, dialogMode: null, playtestRuns: "manual" } : undefined),
   }),
   "settings-project": page("Project: ready, Micro for other clients, one MCP client", "project"),
   "settings-project-attention": page("Project needing attention, with the context strategy set by the environment", "project", {
     get: (p) => p === "/v1/install"
-      ? { ...INSTALL, ok: false, problems: [{ code: "plugin-outdated", what: "The bridge plugin is older than this ue-mcp", fix: "Run npx ue-mcp update, then rebuild the project." }] }
-      : p === "/v1/ext/studio/context-strategy" ? { ...CONTEXT, envOverride: "full" } : undefined,
+      ? { ...INSTALL, plugin: { ...INSTALL.plugin, installedVersion: "1.4.9" }, ok: false, problems: [{ code: "plugin-outdated", what: "The bridge plugin is older than this ue-mcp", fix: "Run npx ue-mcp update, then rebuild the project." }] }
+      : p === "/v1/ext/studio/context-strategy" ? { ...CONTEXT, fromFile: true, envOverride: "full" } : undefined,
   }),
   "settings-usage": page("Usage: a week recorded, warnings, plan meters, every tile compared with the week before, cache for connected and priced vendors", "usage", { get: usage(SUMMARY, { warnings: WARNINGS }) }),
   "settings-usage-cache-open": page("Usage, the priced but not connected vendors' cache explainers opened", "usage", { get: usage(SUMMARY), clicks: [".cache-priced > summary"] }),
   "settings-usage-plan-only": page("Usage where the week before ran only on plans: cost says so instead of a percentage", "usage", { get: usage({ ...SUMMARY, previous: { ...SUMMARY.previous!, cost: null } }) }),
-  "settings-usage-fresh": page("Usage on a fresh machine: nothing recorded, no comparison", "usage", { get: usage(EMPTY_SUMMARY, { plans: [], cache: { explainers: CACHE.explainers, others: [] } }) }),
+  "settings-usage-fresh": page("Usage on a fresh machine: nothing recorded, no comparison", "usage", { get: usage(EMPTY_SUMMARY, { plans: [] }) }),
   "settings-usage-group-model": page("Usage grouped by model, after picking it", "usage", { get: usage({ ...SUMMARY, groupBy: "model" }), clicks: ["[aria-label='Group by'] button:nth-child(2)"] }),
   "settings-general": page("General: themes and updates", "general"),
   "settings-diagnostics": page("Diagnostics: the editor and daemon, and the event log, empty because the harness sends no events", "diagnostics"),

@@ -1156,6 +1156,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-toggle { text-align: left; white-space: normal; }
 .diff-hidden { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .diff-hidden .diff-table-wrap { width: 100%; }
+.diff-parts { display: flex; flex-direction: column; gap: 2px; }
+.review-diff .output.diff { white-space: pre-wrap; overflow-wrap: break-word; }
 .diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }
 .engine-note summary { cursor: pointer; }
 .asset-diff .review-nopicture { width: 100%; aspect-ratio: 1; height: auto; }

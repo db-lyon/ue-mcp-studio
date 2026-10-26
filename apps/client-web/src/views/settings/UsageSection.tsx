@@ -71,10 +71,12 @@ export function UsageSection() {
                       <NumberField label={`${a.name} tokens per day`} value={b.perDayTokens} nullable min={BUDGET_LIMITS.minTokens} max={BUDGET_LIMITS.maxTokens} onSave={(n) => void save(a.id, { perDayTokens: n })} />
                     </td>
                     <td className="small" data-label="At the limit">
+                      <div className="at-limit">
                       <div>{AT_LIMIT[a.id] ?? (b.perDayTokens === null ? "No limit" : b.onLimit === "ask" ? "The next tool call asks you" : "The turn stops and says so")}</div>
                       {b.perDayTokens !== null && (
                         <Seg compact label={`${a.name}: at the daily limit`} value={b.onLimit === "ask" ? "ask" : "stop"} options={DAY_ACTIONS} onChange={(v) => void save(a.id, { onLimit: v === "ask" ? "ask" : "stop-and-report" })} />
                       )}
+                      </div>
                     </td>
                   </tr>
                 );

@@ -211,7 +211,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   "stopped": inSession("Stopped: in the transcript, a neutral pill, with the steps it never reached marked", "Sprint", [RUNS.stopped]),
   "loop-running": inSession("Assigned loop running: on the strip with its attempt", "Ledge grab", [RUNS.loopRunning]),
   "loop-needs-you": inSession("Loop that needs you: on the strip with its reason and Review", "Gate trigger", [RUNS.loopNeedsYou]),
-  "loop-needs-you-open": inSession("Loop that needs you, opened from the strip: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".playtest-strip .qa-toggle"),
+  "loop-needs-you-open": { ...inSession("Loop that needs you, opened from the strip: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".playtest-strip .qa-toggle"), scroll: ".playtest-strip button[title^='A subagent runs']" },
   "strip-two-need-you": inSession("Two that need you and one running: both that need you are shown at every width", "Door playtest", [RUNS.running, RUNS.waiting, RUNS.loopNeedsYou]),
   "strip-several": inSession("Several live: summary line, needs-you first, bounded height", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
   "page-needs-you": { title: "Playtests page, Needs you", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "needs-you" },

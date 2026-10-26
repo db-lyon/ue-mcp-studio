@@ -175,7 +175,7 @@ describe("the diff view", () => {
     const mi: AssetDiff = { ...material, assetClass: "MaterialInstanceConstant", sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [{ displayString: "", diffType: "PropertyValueChanged", path: "Scalar Parameter Values", before: raw("0.500000"), after: raw("0.800000") }] }] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: mi } });
     await diffOf(REVIEW.items[1]);
-    const after = screen.getByText((_, el) => el?.classList.contains("diff-value") === true && el.textContent === "Roughness = 0.8");
+    const after = screen.getByText((_, el) => el?.classList.contains("diff-value") === true && el.textContent?.replace(/ /g, " ") === "Roughness = 0.8");
     expect(after.getAttribute("title")).toBe(raw("0.800000"));
   });
 
