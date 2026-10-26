@@ -39,7 +39,7 @@ const run = (id: string, name: string, state: string, statuses: string[], over: 
   }, { sessionId: "s1", seenAt: at })!,
   ...over,
 });
-const loop = (state: QaLoop["state"]): QaLoop => ({ id: `loop-${state}`, state, attempts: [], baseline: "c0", budget: { minutes: 60, tokens: 1000 }, tokens: 0, startedAt: at, ...(state === "needs_you" ? { blocker: { kind: "no_progress", reason: "Nothing changed", evidence: [] } } : {}) });
+const loop = (state: QaLoop["state"]): QaLoop => ({ id: `loop-${state}`, state, attempts: [], baseline: "c0", startedAt: at, ...(state === "needs_you" ? { blocker: { kind: "no_progress", reason: "Nothing changed", evidence: [] } } : {}) });
 const entries = (...runs: QaRun[]): TranscriptEntry[] => runs.map((r) => ({ kind: "qa", run: r }));
 let nextId = 1;
 const changed = (r: QaRun, replaces?: string): DaemonEvent => ({ id: nextId++, type: "studio.qa.changed", at, data: { runId: r.runId, run: r as unknown as Record<string, unknown>, ...(replaces ? { replaces } : {}) } });

@@ -127,8 +127,6 @@ export class ResponsesProvider implements ModelProvider {
   constructor(
     private readonly accessToken: () => Promise<string>,
     private readonly fetchImpl: typeof fetch = fetch,
-    /** The plan's limit headers on each response, for Usage's plan meter. */
-    private readonly onHeaders?: (headers: Headers) => void,
   ) {}
 
   /** Off once the endpoint refused the native search; turns go on without it. */
@@ -151,11 +149,6 @@ export class ResponsesProvider implements ModelProvider {
       headers: { "content-type": "application/json", authorization: `Bearer ${await this.accessToken()}` },
       body: JSON.stringify(toResponsesRequest(req, this.search)),
     });
-    try {
-      if (res.headers) this.onHeaders?.(res.headers);
-    } catch {
-      // A meter that cannot be read never fails the turn.
-    }
     if (!res.ok || !res.body) {
       const text = await res.text().catch(() => "");
       let message = text;

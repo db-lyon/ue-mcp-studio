@@ -68,29 +68,6 @@ const NATIVE: NativeOverview = {
 
 const PREVIEW = "# StudioE2E\n\nUse ue-mcp for every editor change.";
 
-/** Settings > Usage budgets: the main agent, the worker and the playtest runner, the team's day set. */
-const BUDGETS = {
-  definition: "Budgets count input, cache writes and output: what each call costs to send. Cached reads are left out.",
-  agents: [{ id: "main", name: "Main agent" }, { id: "worker", name: "Studio's worker" }, { id: "playtest-runner", name: "Playtest runner" }],
-  helpersPerTurn: 4,
-  budgets: {
-    team: { perDayTokens: 3_000_000, perMonthTokens: null, onLimit: "ask" },
-    warnAt: 0.8,
-    agents: {
-      main: { perRunTokens: 600_000, perRunMinutes: null, perDayTokens: null, onLimit: "stop-and-report" },
-      worker: { perRunTokens: null, perRunMinutes: null, perDayTokens: 800_000, onLimit: "ask" },
-      "playtest-runner": { perRunTokens: 2_000_000, perRunMinutes: 60, perDayTokens: null, onLimit: "ask" },
-    },
-  },
-};
-
-/** A usage summary with nothing recorded, for the period asked. */
-const emptyUsage = (url: URL) => ({
-  from: url.searchParams.get("from"), to: url.searchParams.get("to"), groupBy: url.searchParams.get("groupBy") ?? "agent",
-  total: { key: "total", label: "All", tokens: { input: null, cacheRead: null, cacheWrite: null, output: null }, budgetTokens: 0, cachedShare: null, calls: 0, runs: 0, cost: null, costPartial: false },
-  rows: [], days: [], previous: null, ledgerStarts: null, sessions: [],
-});
-
 /** What each GET answers; anything else is a 404, and every write a 409. */
 /** Set once a scenario's arriving line has been sent: the session is then read with it. */
 let arrived = false;
@@ -132,15 +109,9 @@ function answer(method: string, url: URL): unknown {
     [/^\/v1\/ext\/studio\/native$/, () => NATIVE],
     [/^\/v1\/ext\/studio\/native\/preview$/, () => ({ convention: url.searchParams.get("convention") ?? "claude", text: PREVIEW, tokens: 420, files: 1, loadedBy: "sdk", parts: [{ path: "CLAUDE.md", text: PREVIEW }] })],
     [/^\/v1\/ext\/studio\/agent-settings$/, () => ({ feedbackTool: true, feedbackMode: { mode: "interactive", project: true }, dialogMode: { mode: "interactive", project: true }, playtestRuns: "manual" })],
-    [/^\/v1\/ext\/studio\/budgets$/, () => BUDGETS],
     [/^\/v1\/install$/, () => INSTALL],
     [/^\/v1\/ext\/studio\/context-strategy$/, () => CONTEXT],
     [/^\/v1\/ext\/studio\/config$/, () => ({ path: "C:/Projects/StudioE2E/ue-mcp.yml", exists: true, text: "context:\n  strategy: micro\n" })],
-    [/^\/v1\/ext\/studio\/usage\/summary$/, () => emptyUsage(url)],
-    [/^\/v1\/ext\/studio\/usage\/plans$/, () => ({ plans: [] })],
-    [/^\/v1\/ext\/studio\/usage\/warnings$/, () => ({ warnings: [] })],
-    [/^\/v1\/ext\/studio\/usage\/cache$/, () => ({ explainers: [], others: [] })],
-    [/^\/v1\/ext\/studio\/prices$/, () => ({ shippedAsOf: "2026-10-06", prices: [] })],
     [/^\/v1\/ext\/studio\/updates$/, () => ({ channel: "stable", studio: { installed: "0.1.24-beta.9", latest: "0.1.24-beta.9", available: false }, plugin: { installed: "0.1.4", latest: "0.1.4", available: false, location: "project", engine: "5.7" } })],
     [/^\/v1\/update$/, () => ({ installed: { version: "1.4.11-beta.4" }, server: "1.4.11-beta.4", latest: "1.4.11-beta.4", target: null, binaries: null })],
   ];

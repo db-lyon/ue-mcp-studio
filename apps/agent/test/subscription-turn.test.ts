@@ -436,10 +436,12 @@ describe("what a turn spends on the subscription route", () => {
   const spending = (id: string, input: number, parent: string | null = null, text = "...") =>
     ({ type: "assistant", parent_tool_use_id: parent, message: { id, content: [{ type: "text", text }], usage: { input_tokens: input, output_tokens: 0 } } });
 
-  it("ends the turn with the main agent's and the subagents' tokens", async () => {
+  it("keeps the main agent's and each subagent's tokens in the session, each message's growth once", async () => {
     sdk.script = async (b) => {
       b.emit({ type: "system", subtype: "init", session_id: "sdk-u" });
       b.emit(spending("m1", 3000));
+      // The same message reported again with more: only the new tokens count.
+      b.emit(spending("m1", 3500));
       b.emit(spending("s1", 5000, "agent-call"));
       b.emit(spending("m2", 1000, null, "Done."));
       b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-u" });
@@ -447,62 +449,7 @@ describe("what a turn spends on the subscription route", () => {
     const s = store.create();
     await runnerOn().send(s.id, "go");
     await until(() => store.get(s.id)!.status === "idle");
-    expect(store.get(s.id)!.transcript.at(-1)).toMatchObject({ kind: "usage", main: 4000, subagents: 5000 });
-  });
-
-  it("writes each message's new tokens to the ledger by kind, a subagent under its type, and the plan windows the SDK reports", async () => {
-    const { Ledger } = await import("../src/ledger.js");
-    const ledger = new Ledger(host.dataDir);
-    const windows: Array<{ route: string; type?: string; utilization?: number }> = [];
-    const kinds = (id: string, parent: string | null, input: number, cacheRead: number, output: number) =>
-      ({ type: "assistant", parent_tool_use_id: parent, message: { id, model: "claude-opus-5-5", content: [{ type: "text", text: "..." }], usage: { input_tokens: input, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0, output_tokens: output } } });
-    sdk.script = async (b) => {
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-ledger" });
-      b.emit({ type: "rate_limit_event", rate_limit_info: { status: "allowed_warning", rateLimitType: "five_hour", utilization: 0.82, resetsAt: 1_790_000_000 } });
-      b.emit(assistant("m1", [{ type: "tool_use", id: "agent-call", name: "Agent", input: { subagent_type: "reviewer", description: "review", prompt: "look" } }]));
-      b.emit(kinds("m1", null, 100, 900, 20));
-      // The same message reported again with more output: only the new tokens count.
-      b.emit(kinds("m1", null, 100, 900, 50));
-      b.emit(kinds("s1", "agent-call", 40, 0, 10));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-ledger" });
-    };
-    const runner = new AgentRunner({
-      host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false,
-      ledger, onPlanWindow: (route, i) => void windows.push({ route, type: i.type, utilization: i.utilization }),
-    });
-    const s = store.create();
-    await runner.send(s.id, "go");
-    await until(() => store.get(s.id)!.status === "idle");
-    const recs = ledger.records(new Date(0), new Date(Date.now() + 86_400_000));
-    expect(recs.map((r) => [r.agentId, r.parentAgentId, r.vendor, r.route, r.tokens])).toEqual([
-      ["main", null, "anthropic", "claude", { input: 100, cacheRead: 900, cacheWrite: 0, output: 20 }],
-      ["main", null, "anthropic", "claude", { input: 0, cacheRead: 0, cacheWrite: 0, output: 30 }],
-      ["reviewer", "main", "anthropic", "claude", { input: 40, cacheRead: 0, cacheWrite: 0, output: 10 }],
-    ]);
-    expect(windows).toEqual([{ route: "claude", type: "five_hour", utilization: 0.82 }]);
-  });
-
-  it("stops the turn at the token limit", async () => {
-    let afterStop = false;
-    sdk.script = async (b) => {
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-l" });
-      b.emit(spending("m1", 30_000));
-      b.emit(spending("m2", 30_000));
-      await sleep(50);
-      afterStop = !b.signal.aborted;
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-l" });
-    };
-    const runner = new AgentRunner({
-      host, store, provider: () => { throw new Error("the API route is not used"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false,
-      usage: () => ({ ...DEFAULT_USAGE, turnTokenLimit: 50_000 }),
-    });
-    const s = store.create();
-    await runner.send(s.id, "go");
-    await until(() => store.get(s.id)!.status === "error");
-    const fin = store.get(s.id)!;
-    expect(fin.error).toContain("past the main agent's per-run budget of 50000 tokens");
-    expect(fin.transcript.find((t) => t.kind === "usage")).toMatchObject({ main: 60_000, limit: 50_000 });
-    expect(afterStop).toBe(false);
+    expect(SessionStore.detail(store.get(s.id)!).tokens).toEqual({ main: 4500, "agent-call": 5000 });
   });
 });
 

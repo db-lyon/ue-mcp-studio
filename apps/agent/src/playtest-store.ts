@@ -6,24 +6,11 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_PLAYTEST_BUDGET, qaScriptKey, type PlaytestBudget, type PlaytestRunsMode } from "@ue-mcp-studio/shared";
+import { qaScriptKey, type PlaytestRunsMode } from "@ue-mcp-studio/shared";
 
 interface Saved {
   runs?: PlaytestRunsMode;
   players?: Record<string, Record<string, string>>;
-  budget?: Partial<PlaytestBudget>;
-}
-
-/** The most a budget may be set to: a day, and a billion tokens. */
-export const MAX_BUDGET: PlaytestBudget = { minutes: 24 * 60, tokens: 1_000_000_000 };
-
-/** A budget from a request, or why it is not one. Each field is a positive whole number up to its cap. */
-export function budgetOf(v: unknown): PlaytestBudget | string {
-  const b = (v ?? {}) as Partial<Record<keyof PlaytestBudget, unknown>>;
-  const ok = (n: unknown, max: number) => Number.isInteger(n) && (n as number) > 0 && (n as number) <= max;
-  if (!ok(b.minutes, MAX_BUDGET.minutes)) return `playtestBudget.minutes must be a whole number from 1 to ${MAX_BUDGET.minutes}`;
-  if (!ok(b.tokens, MAX_BUDGET.tokens)) return `playtestBudget.tokens must be a whole number from 1 to ${MAX_BUDGET.tokens}`;
-  return { minutes: b.minutes as number, tokens: b.tokens as number };
 }
 
 export class PlaytestStore {
@@ -46,17 +33,6 @@ export class PlaytestStore {
 
   setRuns(mode: PlaytestRunsMode): void {
     this.data.runs = mode;
-    this.write();
-  }
-
-  /** What one Assign to subagent loop may spend: the defaults unless the user set them. */
-  budget(): PlaytestBudget {
-    const saved = budgetOf({ ...DEFAULT_PLAYTEST_BUDGET, ...(this.data.budget ?? {}) });
-    return typeof saved === "string" ? { ...DEFAULT_PLAYTEST_BUDGET } : saved;
-  }
-
-  setBudget(budget: PlaytestBudget): void {
-    this.data.budget = budget;
     this.write();
   }
 

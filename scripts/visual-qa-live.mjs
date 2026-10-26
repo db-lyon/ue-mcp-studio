@@ -18,13 +18,13 @@
 //   - armed, running:     Start Playtest on the long script, shot as it arms and once a step runs
 //   - stopped:            pie(script_stop) on that run
 //   - finished-failures:  the failing script run to its end with a Fail on its manual step
-//   - loop-running, loop-needs-you: Assign to subagent on the failed run with a one-token budget,
-//                          which stops the loop for the user after its first attempt
+//   - loop-running, loop-needs-you: Assign to subagent on the failed run, whose failed manual
+//                          step stops the loop for the user
 //   - page-needs-you, page-failing, page-all: the Playtests page under each filter
 //
 // Each is shot in every theme at 1280 and 380 pixels through the dev UI (Vite proxied to that
 // daemon). Afterwards it deletes the sessions and scripts it made and the runs' observation
-// and recording folders, puts the playtest budget back, and stops its daemon. A failure on
+// and recording folders, and stops its daemon. A failure on
 // the way still runs the cleanup. Several live playtests in one session is covered by the
 // stubbed runner (scripts/visual-qa.mjs), since PIE runs one script at a time.
 import * as fs from "node:fs";
@@ -94,7 +94,6 @@ const SCRIPTS = {
 };
 
 const made = { sessions: new Set(), scripts: [], runs: new Set() };
-let budget = null;
 const until = async (what, f, ms = 90_000) => {
   const end = Date.now() + ms;
   for (;;) {
@@ -169,8 +168,6 @@ try {
   await until("the end of the run", async () => (await status(failing.runId))?.state === "finished");
   await shoot("finished-failures", "Finished with failures", `#/chat/${f.sessionId}`);
 
-  budget = (await studio("GET", "/agent-settings")).playtestBudget ?? null;
-  await studio("PUT", "/agent-settings", { playtestBudget: { minutes: 1, tokens: 1 } });
   await studio("POST", `/qa/runs/${encodeURIComponent(failing.runId)}/assign`, {});
   await shoot("loop-running", "An assigned loop running", `#/chat/${f.sessionId}`);
   await until("the loop to stop for the user", async () => {
@@ -182,7 +179,6 @@ try {
   for (const filter of ["needs-you", "failing", "all"]) await shoot(`page-${filter}`, `The Playtests page, ${filter}`, "#/playtests", filter);
 } finally {
   const cleanup = async (what, f) => { try { await f(); } catch (e) { console.warn(`cleanup: ${what}: ${e.message}`); } };
-  if (budget) await cleanup("budget", () => studio("PUT", "/agent-settings", { playtestBudget: budget }));
   for (const p of made.scripts) await cleanup(`script ${p}`, () => ue("pie", "script_delete", { path: p, confirm: true }));
   for (const id of made.sessions) await cleanup(`session ${id}`, () => studio("DELETE", `/sessions/${encodeURIComponent(id)}`));
   for (const id of made.runs) {

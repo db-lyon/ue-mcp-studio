@@ -216,14 +216,13 @@ export function providerFor(
     accountToken?: string | null;
     agentVersion?: string;
     chatgptToken?: () => Promise<string>;
-    onChatgptHeaders?: (h: Headers) => void;
     /** A custom endpoint's address and key, by its id; null when there is none by that id. */
     endpoint?: (id: string) => { baseUrl: string; key: string | null } | null;
   } = {},
   /** Another vendor than the main model's, for a helper on its own model. */
   vendor: VendorId = settings.provider(),
 ): ModelProvider {
-  if (route === "chatgpt" && context.chatgptToken) return new ResponsesProvider(context.chatgptToken, fetch, context.onChatgptHeaders);
+  if (route === "chatgpt" && context.chatgptToken) return new ResponsesProvider(context.chatgptToken, fetch);
   if (route === "studio" && context.accountToken) {
     return new GatewayProvider(settings.gatewayUrl(), context.accountToken, context.agentVersion);
   }

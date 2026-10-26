@@ -51,7 +51,6 @@ import {
   qaScriptKey,
   PLAYTEST_RUNS_REFUSAL,
   QA_VERDICTS,
-  type PlaytestBudget,
   type QaLoop,
   type QaRun,
   type QaVerdict,
@@ -84,21 +83,16 @@ export interface QaHost {
 export interface QaAssigner {
   assign(sessionId: string, description: string, prompt: string): { callId: string; done: Promise<{ isError: boolean; stopped?: boolean; text?: string }> };
   stop(sessionId: string, callId: string): boolean;
-  /** Tokens an agent call has spent. */
-  tokens?(callId: string): number;
 }
 
-/** What the playtest loop needs beside the assigner: checkpoints, the budget, and who to tell when it needs the user. */
+/** What the playtest loop needs beside the assigner: checkpoints, and who to tell when it needs the user. */
 export interface QaLoopSupport {
   checkpoints: LoopCheckpoints & { unavailable(): string | null };
-  budget: () => PlaytestBudget;
   /** Why a session cannot take checkpoints, such as its review switch being off; null when it can. */
   blocked?: (sessionId: string) => string | null;
   /** A loop needs the user: the Windows notification and anything else beside the card. */
   notify?: (sessionId: string, loop: QaLoop, run: QaRun) => void;
-  /** How often a running attempt's budget is checked, in ms. */
-  tickMs?: number;
-  /** The clock the time budget is measured on. */
+  /** The loop's clock. */
   now?: () => number;
 }
 
@@ -109,7 +103,7 @@ export interface QaBrokerOptions {
   assigner?: QaAssigner;
   /** The Playtest runs setting and each script's players; without it agent runs are allowed and steps have no players. */
   playtests?: PlaytestStore;
-  /** The playtest loop's checkpoints and budget; without it Assign to subagent says why it cannot start. */
+  /** The playtest loop's checkpoints; without it Assign to subagent says why it cannot start. */
   loop?: QaLoopSupport;
   now?: () => string;
 }
@@ -568,14 +562,13 @@ export class QaBroker {
         transcript: (sid) => this.o.store.get(sid)?.transcript ?? [],
       },
       checkpoints: support!.checkpoints,
-      agents: { assign: (sid, d, p) => assigner.assign(sid, d, p), stop: (sid, c) => assigner.stop(sid, c), tokens: (c) => assigner.tokens?.(c) ?? 0 },
+      agents: { assign: (sid, d, p) => assigner.assign(sid, d, p), stop: (sid, c) => assigner.stop(sid, c) },
       events: this.o.host.events,
       projectDir: this.o.host.projectDir,
       notify: (sid, l, r) => this.needsYou(sid, l, r),
-      ...(support!.tickMs ? { tickMs: support!.tickMs } : {}),
       ...(support!.now ? { now: support!.now } : {}),
       log: this.o.host.log,
-    }, sessionId, baseline, support!.budget(), crypto.randomUUID());
+    }, sessionId, baseline, crypto.randomUUID());
     this.loops.set(loop.loop.id, loop);
     this.save({ ...current, assignment: { callId: "", sessionId, state: "running", at: this.now(), loop: { ...loop.loop } } });
     void loop.start().finally(() => this.loops.delete(loop.loop.id));

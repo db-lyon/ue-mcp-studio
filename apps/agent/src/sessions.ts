@@ -29,8 +29,6 @@ export interface PendingTool {
 
 export interface StoredSession {
   id: string;
-  /** Where the session started, for the usage ledger: the editor's quick ask; absent for the chat. */
-  source?: "quick";
   title: string;
   createdAt: string;
   updatedAt: string;
@@ -73,6 +71,8 @@ export interface StoredSession {
   allowed?: string[];
   /** What the latest turn did, from its tool calls. */
   turn?: TurnFacts;
+  /** Input and output tokens each agent spent: "main", or a subagent's agent call id. */
+  tokens?: Record<string, number>;
   /** Per-turn review: this session's switch, null or absent for the Settings default. */
   review?: boolean | null;
   /** The checkpoint taken before the turn in progress, while review is on. */
@@ -238,6 +238,6 @@ export class SessionStore {
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [] };
+    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [], tokens: s.tokens ?? {} };
   }
 }

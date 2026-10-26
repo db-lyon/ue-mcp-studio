@@ -33,9 +33,9 @@ const runOf = (loop: QaLoop, over: Record<string, unknown> = {}): QaRun => ({
 });
 
 const attempt = (n: number, changes: Array<{ path: string; status: "added" | "modified" | "deleted" }>, over: Record<string, unknown> = {}) => ({
-  n, callId: `studio_${n}`, before: `b${n}`, after: `a${n}`, changes, failing: [], startedAt: "x", endedAt: "y", tokens: 100, ...over,
+  n, callId: `studio_${n}`, before: `b${n}`, after: `a${n}`, changes, failing: [], startedAt: "x", endedAt: "y", ...over,
 });
-const loopOf = (over: Partial<QaLoop>): QaLoop => ({ id: "l1", state: "running", attempts: [], baseline: "b0", budget: { minutes: 60, tokens: 2_000_000 }, tokens: 0, startedAt: "x", ...over });
+const loopOf = (over: Partial<QaLoop>): QaLoop => ({ id: "l1", state: "running", attempts: [], baseline: "b0", startedAt: "x", ...over });
 
 const mount = (run: QaRun, live: Partial<QaLive> = {}) => {
   const r = render(<QaContext.Provider value={{ events: [], streaming: true, forms: [], sessionId: "s1", ...live }}><QaCard run={run} /></QaContext.Provider>);

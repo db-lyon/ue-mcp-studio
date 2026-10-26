@@ -58,15 +58,13 @@ export function run(id: string, name: string, state: string, statuses: string[],
 }
 
 function loop(state: QaLoop["state"]): QaLoop {
-  const first = { n: 1, callId: "agent-1", before: "cp-0", after: "cp-1", changes: [{ path: "Content/Blueprints/BP_Door.uasset", status: "modified" as const }], failing: ["Step 3: the door never opened"], startedAt: ago(9), endedAt: ago(6), tokens: 48_200 };
-  const second = { n: 2, callId: "agent-2", before: "cp-1", ...(state === "running" ? {} : { after: "cp-2", endedAt: ago(2) }), changes: [], failing: state === "running" ? [] : ["Step 3: the door never opened"], startedAt: ago(5), tokens: state === "running" ? 9_100 : 39_800 };
+  const first = { n: 1, callId: "agent-1", before: "cp-0", after: "cp-1", changes: [{ path: "Content/Blueprints/BP_Door.uasset", status: "modified" as const }], failing: ["Step 3: the door never opened"], startedAt: ago(9), endedAt: ago(6) };
+  const second = { n: 2, callId: "agent-2", before: "cp-1", ...(state === "running" ? {} : { after: "cp-2", endedAt: ago(2) }), changes: [], failing: state === "running" ? [] : ["Step 3: the door never opened"], startedAt: ago(5) };
   return {
     id: `loop-${state}`,
     state,
     attempts: [first, second],
     baseline: "cp-0",
-    budget: { minutes: 60, tokens: 2_000_000 },
-    tokens: first.tokens + second.tokens,
     startedAt: ago(9),
     ...(state === "needs_you" ? { endedAt: ago(2), blocker: { kind: "no_progress" as const, reason: "Two attempts changed nothing about step 3: the door trigger never fires in PIE.", evidence: ["Step 3: the door never opened"], step: 2 } } : {}),
   };
@@ -174,7 +172,7 @@ const ENDPOINTS: CustomEndpoint[] = [
     hasKey: false,
     models: [
       { id: "qwen3-coder:30b" },
-      { id: "llama-3.3-70b-instruct", perMTok: { input: 0, cacheRead: null, cacheWrite: null, output: 0 } },
+      { id: "llama-3.3-70b-instruct" },
       { id: "my-finetune", typed: true },
     ],
     listedAt: ago(5),
@@ -185,7 +183,7 @@ const ENDPOINTS: CustomEndpoint[] = [
     name: "Team vLLM",
     baseUrl: "https://llm.internal.example.com/v1",
     hasKey: true,
-    models: [{ id: "deepseek-v4", typed: true, perMTok: { input: 0.27, cacheRead: 0.07, cacheWrite: null, output: 1.1 } }],
+    models: [{ id: "deepseek-v4", typed: true }],
     listedAt: ago(2),
     listError: "its /models answered 401",
   },
@@ -194,12 +192,35 @@ const ENDPOINTS: CustomEndpoint[] = [
 const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
   ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
 
+/** A session whose main agent started two subagents, both running: the thread list with each agent's tokens. */
+function withAgents(): SessionDetail {
+  const d = detail("Dress the cave", []);
+  const call = (id: string, description: string, outcome: "pending" | "done", minutes: number): TranscriptEntry =>
+    ({ kind: "tool", call: { id, name: "agent", input: { description, prompt: description }, outcome, startedAt: ago(minutes), ...(outcome === "done" ? { endedAt: ago(1), result: "Done." } : {}) } });
+  const step = (id: string, parent: string, method: string, minutes: number): TranscriptEntry =>
+    ({ kind: "tool", call: { id, name: "ue_mcp", input: { action: "call", category: "level", method }, outcome: "done", startedAt: ago(minutes), endedAt: ago(minutes), result: "{}" }, parent });
+  return {
+    ...d,
+    status: "running",
+    transcript: [
+      { kind: "user", text: "Dress the cave with rocks and fog, and check the lighting.", at: ago(8) },
+      call("agent-rocks", "Place rocks along the cave floor", "pending", 6),
+      step("rocks-1", "agent-rocks", "spawn_actor", 5),
+      call("agent-light", "Check the cave lighting", "pending", 6),
+      step("light-1", "agent-light", "get_outliner", 5),
+    ],
+    agents: { total: 2, running: 2 },
+    tokens: { main: 48_200, "agent-rocks": 12_950, "agent-light": 6_400 },
+  };
+}
+
 export const SCENARIOS: Record<string, Scenario> = {
+  "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
   "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], fullPage: true },
   "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, fullPage: true },
   "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },
   "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
-  "endpoints-edit": { title: "Editing a custom endpoint: its models and their prices", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
+  "endpoints-edit": { title: "Editing a custom endpoint: its models", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
   "session-empty": inSession("A session with no playtest: no strip, no row of buttons, Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
   "armed": inSession("Armed: pinned on the strip, its transcript place a one-line pointer", "Door playtest", [RUNS.armed]),

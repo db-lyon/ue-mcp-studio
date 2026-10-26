@@ -452,7 +452,7 @@ describe("the collapsed card", () => {
   });
 
   it("offers Review on a loop that stopped for the user, and Assign again only in the open card", () => {
-    const loop = { id: "l1", state: "needs_you", attempts: [], baseline: "c0", budget: { minutes: 60, tokens: 1 }, tokens: 0, startedAt: "", blocker: { kind: "no_progress", reason: "Nothing changed", evidence: [] } };
+    const loop = { id: "l1", state: "needs_you", attempts: [], baseline: "c0", startedAt: "", blocker: { kind: "no_progress", reason: "Nothing changed", evidence: [] } };
     collapsed({ ...runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }), assignment: { callId: "c", sessionId: "s1", state: "done", at: "", loop } as QaRun["assignment"] }, { sessionId: "s1" });
     expect(screen.queryByRole("button", { name: /Assign/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Run again" })).toBeNull();
@@ -487,7 +487,7 @@ describe("the collapsed card", () => {
   });
 
   it("says what a loop that stopped needs, and opens on Review", () => {
-    const loop = { id: "l1", state: "needs_you", attempts: [], baseline: "c0", budget: { minutes: 60, tokens: 1 }, tokens: 0, startedAt: "", blocker: { kind: "no_progress", reason: "Two attempts changed nothing", evidence: [] } };
+    const loop = { id: "l1", state: "needs_you", attempts: [], baseline: "c0", startedAt: "", blocker: { kind: "no_progress", reason: "Two attempts changed nothing", evidence: [] } };
     collapsed({ ...runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "failed" })) }), assignment: { callId: "c", sessionId: "s1", state: "done", at: "", loop } as QaRun["assignment"] });
     expect(screen.getByText("Two attempts changed nothing")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Review" }));

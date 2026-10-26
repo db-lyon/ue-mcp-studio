@@ -1,17 +1,14 @@
 /**
- * The settings routes grouped by decision: instructions, budgets and the
- * context strategy other MCP clients get, against a fake daemon API.
+ * The settings routes grouped by decision: the context strategy other MCP clients get, against a fake daemon API.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { envStrategy, BUDGET_ROWS, budgetRows, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
+import { envStrategy, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
 import { ContextSurfaces, contextApiOf } from "../src/context-surface.js";
 import { SettingsStore } from "../src/settings.js";
-import { BudgetStore } from "../src/budgets.js";
-import { PlaytestStore } from "../src/playtest-store.js";
 import { PUBLISHED_SEEDS, type ClientContextStrategy } from "@ue-mcp-studio/shared";
 
 type Handler = (req: { body?: unknown; query?: Record<string, string> }) => Promise<{ status?: number; body?: unknown }> | { status?: number; body?: unknown };
@@ -36,16 +33,9 @@ function setup(extra: Record<string, unknown> = {}) {
     ...extra,
   } as unknown as DaemonExtensionApi;
   const settings = new SettingsStore(data, path.join(data, "keys"));
-  const playtests = new PlaytestStore(data);
-  const budgets = new BudgetStore(data, {
-    turnTokenLimit: () => settings.usage().turnTokenLimit,
-    setTurnTokenLimit: (n) => settings.update({ usage: { turnTokenLimit: n } }),
-    playtestBudget: () => playtests.budget(),
-    setPlaytestBudget: (b) => playtests.setBudget(b),
-  });
   // Studio's own agent's strategy reads back through the same surfaces chat-routes builds; no projection here.
   const surfaces = new ContextSurfaces((extra as { context?: unknown }).context ? contextApiOf(extra) : null, () => settings.usage().contextStrategy, () => settings.provider(), () => null);
-  registerComposerRoutes(api, { settings, budgets, restartUeMcp: async () => void restarts++, agents: () => BUDGET_ROWS, agentContext: surfaces });
+  registerComposerRoutes(api, { settings, restartUeMcp: async () => void restarts++, agentContext: surfaces });
   const call = async (key: string, body?: unknown, query: Record<string, string> = {}) => {
     const h = routes.get(key);
     if (!h) throw new Error(`no route ${key}`);
@@ -53,12 +43,6 @@ function setup(extra: Record<string, unknown> = {}) {
   };
   return { call, settings, published };
 }
-
-describe("budget rows", () => {
-  it("lists Studio's runs, then each project subagent once, never shadowing Studio's", () => {
-    expect(budgetRows(["level-dresser", "scout", "level-dresser", "worker"]).map((r) => r.id)).toEqual(["main", "worker", "playtest-runner", "level-dresser", "scout"]);
-  });
-});
 
 describe("context strategy for Studio's own agent", () => {
   it("is kept in Studio's settings, never in ue-mcp.yml, and runs Micro without a projection", async () => {
@@ -132,25 +116,3 @@ describe("context strategy for other clients", () => {
   });
 });
 
-describe("budget routes", () => {
-  it("give the definition and the rows, and save a change", async () => {
-    const { call, published } = setup();
-    const g = (await call("GET /budgets")).body as { definition: string; agents: Array<{ id: string }>; budgets: { agents: Record<string, unknown> } };
-    expect(g.definition).toMatch(/Cached reads are left out/);
-    expect(g.agents.map((a) => a.id)).toEqual(["main", "worker", "playtest-runner"]);
-    const r = await call("PUT /budgets", { agents: { main: { perRunTokens: 400_000 } } });
-    expect((r.body as { budgets: { agents: { main: { perRunTokens: number } } } }).budgets.agents.main.perRunTokens).toBe(400_000);
-    expect(published).toContain("budgets.changed");
-    expect((await call("PUT /budgets", { agents: { main: { perRunTokens: 3 } } })).status).toBe(400);
-  });
-});
-
-describe("helpers per turn", () => {
-  it("is a spend limit under Budgets, stored where the runner reads it", async () => {
-    const { call, settings } = setup();
-    expect(((await call("GET /budgets")).body as { helpersPerTurn: number }).helpersPerTurn).toBe(4);
-    await call("PUT /budgets", { helpersPerTurn: 2 });
-    expect(settings.usage().subagentsPerTurn).toBe(2);
-    expect((await call("PUT /budgets", { helpersPerTurn: 99 })).status).toBe(400);
-  });
-});

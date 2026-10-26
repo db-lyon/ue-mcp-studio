@@ -85,7 +85,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
 
       {native && (
         <Card label="Worker">
-          <p className="muted small">Studio's built-in subagent. Helpers per turn is set in <button className="link" onClick={() => onSection("usage")}>Usage</button>.</p>
+          <p className="muted small">Studio's built-in subagent.</p>
           <dl className="grid">
             <dt>Model</dt><dd>{native.worker.model ? `${native.worker.model} when the main agent runs on ${native.worker.model.split(" ")[0]}, else the main agent's` : SAME}</dd>
             <dt>Effort</dt><dd>{native.worker.effort ? EFFORT_NAMES[native.worker.effort as Effort] ?? native.worker.effort : SAME}</dd>

@@ -6,7 +6,6 @@ import { AgentsSection } from "./settings/AgentsSection";
 import { ModelsSection } from "./settings/ModelsSection";
 import { ApprovalsSection } from "./settings/ApprovalsSection";
 import { ProjectSection } from "./settings/ProjectSection";
-import { UsageSection } from "./settings/UsageSection";
 import { GeneralSection } from "./settings/GeneralSection";
 import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
@@ -19,7 +18,6 @@ const ICONS: Record<SettingsSection, string> = {
   models: "M4 4h8v8H4zM6 1.5V4M10 1.5V4M6 12v2.5M10 12v2.5M1.5 6H4M1.5 10H4M12 6h2.5M12 10h2.5",
   approvals: "M8 1.5l5 2v4c0 3.2-2.2 5.6-5 7-2.8-1.4-5-3.8-5-7v-4zM5.5 8l1.7 1.7L10.7 6",
   project: "M1.5 4.5h4l1.5 1.5h7.5v7.5h-13z",
-  usage: "M3 13V8M6.5 13V4M10 13V7M13.5 13V10",
   general: "M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
   diagnostics: "M1.5 8.5h3l2-5 3 9 2-4h3",
 };
@@ -38,7 +36,6 @@ const GROUPS: Array<{ label: string; items: Array<{ id: SettingsSection; name: s
     label: "Project",
     items: [
       { id: "project", name: "Project", sub: "ue-mcp setup for this project" },
-      { id: "usage", name: "Usage", sub: "Budgets and what agents spend" },
       { id: "diagnostics", name: "Diagnostics", sub: "Status and logs" },
     ],
   },
@@ -61,13 +58,12 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  */
 export function useSectionStatus(updates: number, daemon: DaemonState): { dots: Partial<Record<SettingsSection, string>>; lines: Partial<Record<SettingsSection, string>> } {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
-  const [extra, setExtra] = useState<{ approvalsOff?: number; strategy?: string; overridden?: boolean; ready?: boolean; budgets?: number; models?: ModelCatalog } >({});
+  const [extra, setExtra] = useState<{ approvalsOff?: number; strategy?: string; overridden?: boolean; ready?: boolean; models?: ModelCatalog } >({});
   useEffect(() => {
     api.settings().then(setSettings, () => setSettings(null));
     // The strategy in effect: an environment override beats the saved one.
     if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: c.envOverride ? `${CONTEXT_STRATEGY_INFO[c.envOverride].name} for other clients, from environment` : `${CONTEXT_STRATEGY_INFO[c.strategy].name} for other clients`, overridden: !!c.envOverride && c.envOverride !== c.strategy })), () => undefined);
     if (typeof api.install === "function") api.install().then((r) => setExtra((e) => ({ ...e, ready: r.ok })), () => undefined);
-    if (typeof api.budgets === "function") api.budgets().then((b) => setExtra((e) => ({ ...e, budgets: Object.values(b.budgets.agents).reduce((n, x) => n + [x.perRunTokens, x.perRunMinutes, x.perDayTokens].filter((v) => v !== null).length, 0) + [b.budgets.team.perDayTokens, b.budgets.team.perMonthTokens].filter((v) => v !== null).length })), () => undefined);
     if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
   }, []);
   const dots: Partial<Record<SettingsSection, string>> = {};
@@ -94,7 +90,6 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
     if (rules.length) lines.approvals = `${usable.filter(([, r]) => r === "ask").length} ask first${usable.length < rules.length ? `, ${rules.length - usable.length} unavailable` : ""}, review ${settings.reviewTurns === false ? "off" : "on"}`;
   }
   if (extra.ready !== undefined || extra.strategy) lines.project = [extra.ready === undefined ? null : extra.ready ? "Ready" : "Needs attention", extra.strategy ?? null].filter(Boolean).join(", ");
-  if (extra.budgets !== undefined) lines.usage = extra.budgets ? `${plural(extra.budgets, "limit")} set` : "No limits set";
   lines.general = updates > 0 ? dots.general : "Up to date";
   const editor = daemon?.health?.editors?.find((e) => e.connected);
   if (daemon?.health) lines.diagnostics = editor ? `Editor connected, ue-mcp ${daemon.health.version}` : `No editor connected, ue-mcp ${daemon.health.version}`;
@@ -122,7 +117,6 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "models") body = <ModelsSection />;
   else if (open === "approvals") body = <ApprovalsSection />;
   else if (open === "project") body = <ProjectSection onSection={onSection} />;
-  else if (open === "usage") body = <UsageSection />;
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
   else if (open === "diagnostics") body = (
     <>

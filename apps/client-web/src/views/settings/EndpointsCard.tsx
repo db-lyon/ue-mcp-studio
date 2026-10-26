@@ -3,31 +3,13 @@ import type { CustomEndpoint, CustomEndpointInput, EndpointModel } from "@ue-mcp
 import { api } from "../../api";
 import { Card } from "./controls";
 
-/** The price columns an endpoint model offers: what an OpenAI-compatible server bills. Cache writes are not billed there. */
-const RATES = [
-  { id: "input", name: "Input" },
-  { id: "cacheRead", name: "Cached read" },
-  { id: "output", name: "Output" },
-] as const;
-type RateId = (typeof RATES)[number]["id"];
-
 interface DraftModel {
   id: string;
   typed: boolean;
-  rates: Record<RateId, string>;
 }
 
-const rateText = (v: number | null | undefined): string => (v === null || v === undefined ? "" : String(v));
-const draftOf = (m: EndpointModel): DraftModel => ({ id: m.id, typed: !!m.typed, rates: { input: rateText(m.perMTok?.input), cacheRead: rateText(m.perMTok?.cacheRead), output: rateText(m.perMTok?.output) } });
-/** A price as money: cents always shown, finer rates kept as given. */
-const usd = (n: number | null): string => (n === null ? "-" : Number.isInteger(Math.round(n * 1e6) / 1e4) ? `$${n.toFixed(2)}` : `$${n}`);
-const rateOf = (v: string): number | null => (v.trim() === "" ? null : Number(v));
-
-/** A model's draft as the agent takes it: a price only when some rate is set. */
-function modelOf(d: DraftModel): EndpointModel {
-  const perMTok = { input: rateOf(d.rates.input), cacheRead: rateOf(d.rates.cacheRead), cacheWrite: null, output: rateOf(d.rates.output) };
-  return { id: d.id, ...(d.typed ? { typed: true } : {}), ...(Object.values(perMTok).some((v) => v !== null) ? { perMTok } : {}) };
-}
+const draftOf = (m: EndpointModel): DraftModel => ({ id: m.id, typed: !!m.typed });
+const modelOf = (d: DraftModel): EndpointModel => ({ id: d.id, ...(d.typed ? { typed: true } : {}) });
 
 /**
  * Custom endpoints: any server that speaks OpenAI's Chat Completions, local
@@ -82,7 +64,7 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
             <div className="t"><strong>{e.name}</strong> <span className="muted small">{e.models.length === 1 ? "1 model" : `${e.models.length} models`}, {e.hasKey ? "key saved" : "no key"}</span></div>
             <div className="path dim">{e.baseUrl}</div>
             {e.listError && <div className="small endpoint-warn">Could not read its models: {e.listError}. {e.models.length ? "Showing the last list." : "Add them in Edit."}</div>}
-            {e.models.length > 0 && <div className="endpoint-models">{e.models.map((m) => <span key={m.id} className="tag" title={m.perMTok ? `Your price per million tokens: input ${usd(m.perMTok.input)}, cached read ${usd(m.perMTok.cacheRead)}, output ${usd(m.perMTok.output)}` : "No price: Usage shows no cost for it"}>{m.id}{m.perMTok && <span className="dim">&nbsp;{usd(m.perMTok.input)} in / {usd(m.perMTok.output)} out</span>}</span>)}</div>}
+            {e.models.length > 0 && <div className="endpoint-models">{e.models.map((m) => <span key={m.id} className="tag">{m.id}</span>)}</div>}
           </div>
           <div className="endpoint-actions">
             <button disabled={busy === e.id} onClick={() => refresh(e.id)}>{busy === e.id ? "Reading" : "Read models"}</button>
@@ -96,7 +78,7 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
   );
 }
 
-/** Add an endpoint, or change one: its name, address, key, the models it runs and what each costs. */
+/** Add an endpoint, or change one: its name, address, key and the models it runs. */
 export function EndpointForm({ endpoint, onSaved, onCancel }: { endpoint?: CustomEndpoint; onSaved: () => void; onCancel: () => void }) {
   const [name, setName] = useState(endpoint?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(endpoint?.baseUrl ?? "");
@@ -109,7 +91,7 @@ export function EndpointForm({ endpoint, onSaved, onCancel }: { endpoint?: Custo
   const addModel = () => {
     const id = typed.trim();
     if (!id || models.some((m) => m.id === id)) return setTyped("");
-    setModels([...models, { id, typed: true, rates: { input: "", cacheRead: "", output: "" } }]);
+    setModels([...models, { id, typed: true }]);
     setTyped("");
   };
   const save = () => {
@@ -125,7 +107,6 @@ export function EndpointForm({ endpoint, onSaved, onCancel }: { endpoint?: Custo
       setError(e.message);
     });
   };
-  const setRate = (i: number, id: RateId, v: string) => setModels(models.map((m, j) => (j === i ? { ...m, rates: { ...m.rates, [id]: v } } : m)));
   return (
     <div className="endpoint-form" role="group" aria-label={endpoint ? `Edit ${endpoint.name}` : "Add an endpoint"}>
       {error && <div className="banner bad small" role="alert">{error}</div>}
@@ -148,20 +129,15 @@ export function EndpointForm({ endpoint, onSaved, onCancel }: { endpoint?: Custo
       </div>
       <div className="field">
         <span className="flabel">Models</span>
-        <span className="help">Prices are dollars per million tokens. {endpoint ? "Read from its /models; type any it does not list." : "Read from its /models when you add it; type any it does not list."} A model without a price gets no cost in Usage.</span>
+        <span className="help">{endpoint ? "Read from its /models; type any it does not list." : "Read from its /models when you add it; type any it does not list."}</span>
         {models.length > 0 && (
           <div className="scroll-x">
-            <table className="cfg-table blocks endpoint-prices">
-              <thead><tr><th>Model</th>{RATES.map((r) => <th key={r.id}>{r.name}, $/M</th>)}<th /></tr></thead>
+            <table className="cfg-table blocks">
+              <thead><tr><th>Model</th><th /></tr></thead>
               <tbody>
                 {models.map((m, i) => (
                   <tr key={m.id}>
                     <td><span className="mono small">{m.id}</span> {!m.typed && <span className="dim small">listed</span>}</td>
-                    {RATES.map((r) => (
-                      <td key={r.id} data-label={r.name}>
-                        <input className="num" inputMode="decimal" aria-label={`${m.id} ${r.name.toLowerCase()} per million tokens`} placeholder="none" value={m.rates[r.id]} onChange={(e) => setRate(i, r.id, e.target.value)} />
-                      </td>
-                    ))}
                     <td className="r">{m.typed && <button aria-label={`Remove ${m.id}`} onClick={() => setModels(models.filter((_, j) => j !== i))}>Remove model</button>}</td>
                   </tr>
                 ))}

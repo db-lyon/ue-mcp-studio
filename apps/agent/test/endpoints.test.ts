@@ -1,17 +1,15 @@
-/** Custom OpenAI-compatible endpoints: the store, its routes, the route they run on, the catalog and their prices. */
+/** Custom OpenAI-compatible endpoints: the store, its routes, the route they run on and the catalog. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { conventionOf, endpointVendor, type CustomEndpoint, type SignInId } from "@ue-mcp-studio/shared";
-import { EndpointStore, baseUrlOf, endpointPrices, idFor, listEndpointModels, mergeListed, registerEndpointRoutes } from "../src/endpoints.js";
+import { EndpointStore, baseUrlOf, idFor, listEndpointModels, mergeListed, registerEndpointRoutes } from "../src/endpoints.js";
 import { ModelCatalogSource, endpointCatalog, pickRoute, type RouteContext } from "../src/models.js";
 import { OpenAICompatibleProvider } from "../src/openai-compat.js";
 import { providerFor } from "../src/providers.js";
 import { SettingsStore } from "../src/settings.js";
-import { PriceStore, costOf, priceFor } from "../src/prices.js";
-import { splitModelKey } from "../src/usage-routes.js";
 
 let dir: string;
 let keysDir: string;
@@ -51,13 +49,12 @@ describe("the endpoint store", () => {
     expect(idFor("???", () => false)).toBe("endpoint");
   });
 
-  it("changes the name, typed models, prices and key, and clears the key with an empty one", () => {
+  it("changes the name, typed models and key, and clears the key with an empty one", () => {
     store.create({ name: "Box", baseUrl: "http://box/v1", key: "k" });
-    const e = store.update("box", { name: "Big box", models: [{ id: "qwen-coder", perMTok: { input: 0.5, cacheRead: null, cacheWrite: null, output: 1 } }], key: "" });
+    const e = store.update("box", { name: "Big box", models: [{ id: "qwen-coder" }], key: "" });
     expect(e.name).toBe("Big box");
     expect(e.hasKey).toBe(false);
-    expect(e.models).toEqual([{ id: "qwen-coder", typed: true, perMTok: { input: 0.5, cacheRead: null, cacheWrite: null, output: 1 } }]);
-    expect(() => store.update("box", { models: [{ id: "m", perMTok: { input: -1, cacheRead: null, cacheWrite: null, output: null } }] })).toThrow(/zero or more/);
+    expect(e.models).toEqual([{ id: "qwen-coder", typed: true }]);
     expect(() => store.update("nope", { name: "x" })).toThrow(/no endpoint/);
   });
 
@@ -84,12 +81,12 @@ describe("reading an endpoint's models", () => {
     expect(f.mock.calls[0][1]!.headers).toEqual({});
   });
 
-  it("keeps typed models and every price when the list is read again", () => {
+  it("keeps typed models when the list is read again", () => {
     const merged = mergeListed(
-      [{ id: "a", perMTok: { input: 1, cacheRead: null, cacheWrite: null, output: 2 } }, { id: "gone" }, { id: "mine", typed: true }],
+      [{ id: "a" }, { id: "gone" }, { id: "mine", typed: true }],
       ["a", "b"],
     );
-    expect(merged).toEqual([{ id: "a", perMTok: { input: 1, cacheRead: null, cacheWrite: null, output: 2 } }, { id: "b" }, { id: "mine", typed: true }]);
+    expect(merged).toEqual([{ id: "a" }, { id: "b" }, { id: "mine", typed: true }]);
   });
 
   it("keeps the error to show when the endpoint cannot list, and the models it had", async () => {
@@ -138,8 +135,8 @@ describe("the endpoint routes", () => {
 
   it("changes, reads again and removes one, saying which was removed", async () => {
     await call("POST /endpoints", {}, { name: "Box", baseUrl: "http://box/v1" });
-    const put = await call("PUT /endpoints/:id", { id: "box" }, { models: [{ id: "llama", perMTok: { input: 1, cacheRead: null, cacheWrite: null, output: 3 } }, { id: "extra" }] });
-    expect((put.body as CustomEndpoint).models).toEqual([{ id: "llama", perMTok: { input: 1, cacheRead: null, cacheWrite: null, output: 3 } }, { id: "extra", typed: true }]);
+    const put = await call("PUT /endpoints/:id", { id: "box" }, { models: [{ id: "llama" }, { id: "extra" }] });
+    expect((put.body as CustomEndpoint).models).toEqual([{ id: "llama" }, { id: "extra", typed: true }]);
     expect((await call("POST /endpoints/:id/models", { id: "box" })).status ?? 200).toBe(200);
     const del = await call("DELETE /endpoints/:id", { id: "box" });
     expect(del.status).toBe(204);
@@ -216,23 +213,5 @@ describe("settings", () => {
     expect(() => settings.update({ routeOrder: "random" as never })).toThrow(/routeOrder/);
     expect(() => settings.update({ provider: "endpoint:Bad:Id" as never })).toThrow(/provider/);
     expect(() => settings.update({ provider: "endpoint:" as never })).toThrow(/provider/);
-  });
-});
-
-describe("pricing an endpoint's usage", () => {
-  it("prices a model from the user's price on the endpoint, and leaves an unpriced one without a cost", () => {
-    const e = store.create({ name: "Box", baseUrl: "http://box/v1", models: [{ id: "llama", perMTok: { input: 1, cacheRead: null, cacheWrite: null, output: 4 } }, { id: "free-for-all" }] });
-    const prices = new PriceStore(dir, () => endpointPrices([e]));
-    const p = priceFor(prices.all(), "endpoint:box", "llama");
-    expect(p).toMatchObject({ vendor: "endpoint:box", model: "llama", user: true });
-    expect(costOf(p, { input: 1_000_000, cacheRead: null, cacheWrite: null, output: 500_000 })).toBe(3);
-    expect(priceFor(prices.all(), "endpoint:box", "free-for-all")).toBeNull();
-    // The Usage price table shows only the prices set there.
-    expect(prices.table().prices.some((x) => x.vendor === "endpoint:box")).toBe(false);
-  });
-
-  it("splits an endpoint model's group key at the colon after the endpoint's id", () => {
-    expect(splitModelKey("endpoint:box:llama3:8b")).toEqual({ vendor: "endpoint:box", model: "llama3:8b" });
-    expect(splitModelKey("anthropic:claude-opus-5-5")).toEqual({ vendor: "anthropic", model: "claude-opus-5-5" });
   });
 });

@@ -600,6 +600,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agents-row .agents-state { font-size: 11px; color: var(--muted); white-space: nowrap; }
 .agents-row .agents-activity { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); }
 .agents-row .agents-meta { margin-left: auto; white-space: nowrap; }
+.agents-row .agents-tokens { white-space: nowrap; }
 .state-working .agents-dot, .agent-link.state-working::before { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .state-waiting .agents-dot, .agent-link.state-waiting::before { background: var(--warn); animation: pulse 2s ease-in-out infinite; }
 .state-done .agents-dot, .agent-link.state-done::before { background: var(--ok); }
@@ -1209,14 +1210,6 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .timeline-mark.attempt .timeline-dot { background: var(--ok); }
 .timeline-mark.undone { opacity: 0.6; }
 .timeline-label { min-width: 0; overflow-wrap: anywhere; }
-.playtest-budget input.tokens { width: 9em; }
-.playtest-budget input.minutes { width: 5em; }
-
-/* Settings > Agent > Usage, and the line under each turn saying what it spent. */
-.usage-card input.tokens { width: 9em; }
-.usage-card fieldset { border: 0; padding: 0; margin: 8px 0; }
-.usage-card legend { padding: 0; font-weight: 600; }
-.usage-line { margin: 2px 0 10px; }
 
 /* The Assign to subagent loop on a playtest card. */
 .qa-card.needs-you { border-color: var(--warn); }

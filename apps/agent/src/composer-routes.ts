@@ -1,8 +1,6 @@
 /**
  * Settings routes grouped by decision, under /v1/ext/studio:
  *
- *   GET  /budgets                      every budget, the definition, and the agents that have rows
- *   PUT  /budgets                      { team?, agents?, warnAt? }
  *   GET  /context-strategy             what ue-mcp.yml gives other MCP clients, and what each strategy costs
  *   PUT  /context-strategy             { strategy }: writes context.strategy and restarts ue-mcp after the turn in progress
  */
@@ -11,28 +9,20 @@ import * as path from "node:path";
 import { isMap, parseDocument } from "yaml";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import {
-  BUDGET_DEFINITION,
-  MAX_SUBAGENTS_PER_TURN,
   CONTEXT_STRATEGIES,
   AGENT_CONTEXT_STRATEGIES,
   type AgentContextStrategy,
   type AgentContextView,
-  MAIN_AGENT_ID,
-  PLAYTEST_RUNNER_ID,
   PUBLISHED_SEEDS,
   type ClientContextStrategy,
   type ContextStrategy,
 } from "@ue-mcp-studio/shared";
-import type { BudgetStore, BudgetsUpdate } from "./budgets.js";
 import type { SettingsStore } from "./settings.js";
 
 export interface ComposerRouteOptions {
   settings: SettingsStore;
-  budgets: BudgetStore;
   /** Restart ue-mcp once no turn is in progress, so a changed ue-mcp.yml is read. */
   restartUeMcp: () => Promise<unknown>;
-  /** The runs that have a budget row, by id and name: the main agent and the Playtest runner. */
-  agents: () => Array<{ id: string; name: string }>;
   /** Studio's own agent's context strategy: what it is, and what each would cost. */
   agentContext?: { view(): AgentContextView };
 }
@@ -73,29 +63,6 @@ type Projector = { project(o: { strategy: ContextStrategy; categories?: string[]
 export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRouteOptions): void {
   const bad = (e: unknown) => ({ status: 400, body: { error: e instanceof Error ? e.message : String(e) } });
   const projectDir = api.projectDir;
-
-  const budgetsBody = () => ({
-    budgets: o.budgets.get(),
-    definition: BUDGET_DEFINITION,
-    agents: o.agents().map(({ id, name }) => ({ id, name })),
-    // A spend safety limit: kept where it always was, in usage.subagentsPerTurn, which the runner reads.
-    helpersPerTurn: o.settings.usage().subagentsPerTurn,
-  });
-  api.route("GET", "/budgets", () => ({ body: budgetsBody() }));
-  api.route("PUT", "/budgets", (req) => {
-    const { helpersPerTurn, ...rest } = (req.body ?? {}) as BudgetsUpdate & { helpersPerTurn?: unknown };
-    try {
-      if (helpersPerTurn !== undefined) {
-        if (!Number.isInteger(helpersPerTurn) || (helpersPerTurn as number) < 1 || (helpersPerTurn as number) > MAX_SUBAGENTS_PER_TURN) throw new Error(`helpersPerTurn must be a whole number from 1 to ${MAX_SUBAGENTS_PER_TURN}`);
-        o.settings.update({ usage: { subagentsPerTurn: helpersPerTurn as number } });
-      }
-      o.budgets.update(rest);
-    } catch (e) {
-      return bad(e);
-    }
-    api.events.publish("budgets.changed", {});
-    return { body: budgetsBody() };
-  });
 
   const yml = path.join(projectDir, "ue-mcp.yml");
   const readYml = (): string => (fs.existsSync(yml) ? fs.readFileSync(yml, "utf-8") : "");
@@ -138,16 +105,3 @@ export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRoute
   });
 }
 
-/** The runs Studio budgets: the main agent's turn, and an assigned playtest's loop. */
-export const BUDGET_ROWS: Array<{ id: string; name: string }> = [
-  { id: MAIN_AGENT_ID, name: "Main agent" },
-  // Per day only: a helper's run is bounded by the turn that started it.
-  { id: "worker", name: "Studio's worker" },
-  { id: PLAYTEST_RUNNER_ID, name: "Playtest runner" },
-];
-
-/** Studio's rows, then one per project subagent by the name its file gives it, for per-day budgets. */
-export function budgetRows(subagents: string[]): Array<{ id: string; name: string }> {
-  const own = new Set(BUDGET_ROWS.map((r) => r.id));
-  return [...BUDGET_ROWS, ...[...new Set(subagents)].filter((n) => !own.has(n)).map((n) => ({ id: n, name: n }))];
-}
