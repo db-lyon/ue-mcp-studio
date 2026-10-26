@@ -39,6 +39,14 @@ After each run the runner reads the editor back (`editor.mjs`, `verify`): the ac
 
 `node scripts/usage-parity/report.mjs <results.jsonl>` prints the tables again.
 
+## Context strategies
+
+`--strategies micro,lean,full` runs Studio once per ue-mcp context strategy instead of once: ue-mcp is started with `UE_MCP_CONTEXT_STRATEGY` set, its own tools/list is the surface Studio's agent gets (a tool with an action enum is a category), and calls go through the category tools as Studio's daemon route sends them. `--measurement <file>` writes those runs in ue-mcp's `ContextMeasurement` format, every measured task with its tokens, model calls, discovery calls and whether its checks passed. Written to `apps/agent/src/context-costs.json`, it ships with the agent and turns on Auto in Settings > Agents.
+
+```bash
+node scripts/usage-parity/measure.mjs --project C:/path/to/TestProject/TestProject.uproject --no-cc --rounds 3 --strategies micro,lean,full --measurement apps/agent/src/context-costs.json
+```
+
 ## Options
 
 | option | default | |
@@ -52,6 +60,8 @@ After each run the runner reads the editor back (`editor.mjs`, `verify`): the ac
 | `--no-warm` | | skip the uncounted warm-up runs |
 | `--keep` | | leave the test levels and screenshots in the project |
 | `--build-only` | | bundle the harnesses and stop; no editor needed |
+| `--strategies` | none | run Studio once per listed context strategy (micro, lean, full) |
+| `--measurement` | none | with `--strategies`, write the runs as a `ContextMeasurement` file |
 
 Without `--keep`, the runner loads the level that was open before, deletes `/Game/AB` and `/Game/ABWork`, and removes the screenshots the runs wrote under `Saved/Screenshots`.
 

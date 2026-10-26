@@ -13,7 +13,8 @@ import "@fontsource/instrument-serif/latin-400-italic.css";
 import "@fontsource/roboto/latin-400.css";
 import "@fontsource/roboto/latin-700.css";
 import "../styles.css";
-import type { StudioSettings, StudioTheme } from "@ue-mcp-studio/shared";
+import "../settings.css";
+import type { NativeOverview, StudioSettings, StudioTheme } from "@ue-mcp-studio/shared";
 import { SCENARIOS } from "./fixtures";
 
 const params = new URLSearchParams(location.search);
@@ -31,7 +32,7 @@ const SETTINGS: StudioSettings = {
   reviewTurns: true,
   composerHeight: null,
   dialogPolicy: "ask",
-  usage: { turnTokens: null, sessionTokens: null, warnAt: null },
+  usage: { turnTokens: null, sessionTokens: null, warnAt: null, imageSize: "standard" },
   connected: { claude: true },
   account: null,
 } as unknown as StudioSettings;
@@ -40,6 +41,19 @@ const HEALTH = {
   ok: true, pid: 1, version: "1.4.11-beta.4", apiVersion: 1, projectRoot: "c:/projects/studioe2e", startedAt: new Date().toISOString(),
   editors: [{ name: "StudioE2E", connected: true, port: 1, pid: 1, lastDisconnect: null }],
   clients: 1, inflight: 0, lastEventId: 0, extensions: [{ name: "studio", version: "dev" }], ui: "dev", features: ["checkpoints"],
+};
+
+/** Settings > Agents: the project's own files as a Claude-only project reads them. */
+const NATIVE: NativeOverview = {
+  enabled: true,
+  main: "claude",
+  worker: { model: null, effort: null, starts: "asked", fromSettings: false },
+  conventions: [
+    { convention: "claude", routes: ["Claude sign-in"], instructionTokens: 420, notes: [], skipped: [], subagents: [], skills: [], instructions: [{ path: "CLAUDE.md", source: "project", tokens: 420, scope: { kind: "always" } }] },
+    { convention: "codex", routes: [], instructionTokens: 0, notes: [], skipped: [], instructions: [], subagents: [], skills: [] },
+    { convention: "gemini", routes: [], instructionTokens: 0, notes: [], skipped: [], instructions: [], subagents: [], skills: [] },
+    { convention: "agents", routes: [], instructionTokens: 0, notes: [], skipped: [], instructions: [], subagents: [], skills: [] },
+  ],
 };
 
 /** What each GET answers; anything else is a 404, and every write a 409. */
@@ -61,6 +75,8 @@ function answer(method: string, url: URL): unknown {
     [/^\/v1\/ext\/studio\/review\/status$/, () => ({ available: true, reason: null })],
     [/^\/v1\/ext\/studio\/models$/, () => ({ signedIn: { claude: true, chatgpt: false, studio: false }, providers: [{ id: "anthropic", name: "Anthropic", connected: false, models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5", signIns: ["claude"] }] }] })],
     [/^\/v1\/flows$/, () => ({ flows: [] })],
+    [/^\/v1\/ext\/studio\/context-strategy\/agent$/, () => scenario.agentContext],
+    [/^\/v1\/ext\/studio\/native$/, () => NATIVE],
   ];
   for (const [re, f] of routes) if (re.test(p)) return f();
   return undefined;

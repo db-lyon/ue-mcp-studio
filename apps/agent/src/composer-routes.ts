@@ -14,6 +14,9 @@ import {
   BUDGET_DEFINITION,
   MAX_SUBAGENTS_PER_TURN,
   CONTEXT_STRATEGIES,
+  AGENT_CONTEXT_STRATEGIES,
+  type AgentContextStrategy,
+  type AgentContextView,
   MAIN_AGENT_ID,
   PLAYTEST_RUNNER_ID,
   PUBLISHED_SEEDS,
@@ -30,6 +33,8 @@ export interface ComposerRouteOptions {
   restartUeMcp: () => Promise<unknown>;
   /** The runs that have a budget row, by id and name: the main agent and the Playtest runner. */
   agents: () => Array<{ id: string; name: string }>;
+  /** Studio's own agent's context strategy: what it is, and what each would cost. */
+  agentContext?: { view(): AgentContextView };
 }
 
 /** The context strategy ue-mcp.yml names, or null when it names none. */
@@ -111,6 +116,16 @@ export function registerComposerRoutes(api: DaemonExtensionApi, o: ComposerRoute
     return { strategy: named ?? "micro", fromFile: named !== null, envOverride: envStrategy(), ...seeds() };
   };
   api.route("GET", "/context-strategy", () => ({ body: contextView() }));
+  // Studio's own agent: kept in Studio's settings, never in ue-mcp.yml, so other clients are untouched.
+  api.route("GET", "/context-strategy/agent", () => (o.agentContext ? { body: o.agentContext.view() } : { status: 404, body: { error: "not available" } }));
+  api.route("PUT", "/context-strategy/agent", (req) => {
+    const strategy = (req.body as { strategy?: unknown } | undefined)?.strategy;
+    if (!(AGENT_CONTEXT_STRATEGIES as readonly unknown[]).includes(strategy)) return bad(`strategy must be one of ${AGENT_CONTEXT_STRATEGIES.join(", ")}`);
+    if (strategy === "auto" && o.agentContext && !o.agentContext.view().measurement) return bad("auto needs a measurement, and none ships with this Studio");
+    o.settings.update({ usage: { contextStrategy: strategy as AgentContextStrategy } });
+    api.events.publish("settings.changed", {});
+    return o.agentContext ? { body: o.agentContext.view() } : { status: 204 };
+  });
   api.route("PUT", "/context-strategy", async (req) => {
     const strategy = (req.body as { strategy?: unknown } | undefined)?.strategy;
     if (!(CONTEXT_STRATEGIES as readonly unknown[]).includes(strategy)) return bad(`strategy must be one of ${CONTEXT_STRATEGIES.join(", ")}`);

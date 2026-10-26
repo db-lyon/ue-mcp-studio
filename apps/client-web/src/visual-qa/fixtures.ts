@@ -9,6 +9,7 @@ import {
   qaDraftFromScript,
   qaNeedsYou,
   qaRunFromAnswer,
+  type AgentContextView,
   type PlaytestEntry,
   type PlaytestIndexAnswer,
   type QaLoop,
@@ -142,6 +143,8 @@ export interface Scenario {
   click?: string;
   /** Focused from the keyboard after the page settles, to show the focus ring: a CSS selector. */
   focus?: string;
+  /** Settings > Agents: what GET /context-strategy/agent answers. */
+  agentContext?: AgentContextView;
 }
 
 const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
@@ -169,5 +172,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   "page-all": { title: "Playtests page, All", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all" },
   "page-row-open": { title: "Playtests page, a row's full card opened in place", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
   "page-empty": { title: "Playtests page with no playtests in the project", hash: "#/playtests", index: { playtests: [], listed: true }, filter: "all" },
+  "agents-context": { title: "Settings > Agents, ue-mcp tools on Lean with each strategy's seed tokens", hash: "#/settings/agents", index: { playtests: [], listed: true }, agentContext: { strategy: "lean", effective: "lean", projection: true, seeds: { micro: 2180, lean: 18740, full: 50920 }, measurement: null, note: null } },
+  "agents-context-auto": { title: "Settings > Agents, Auto offered from a measurement and chosen", hash: "#/settings/agents", index: { playtests: [], listed: true }, agentContext: { strategy: "auto", effective: "lean", projection: true, seeds: { micro: 2180, lean: 18740, full: 50920 }, measurement: { measuredAt: "2026-10-20T12:00:00Z", ueMcpVersion: "1.4.11", runs: 9 }, note: "Auto chose Lean: 100% of tasks passed at a median 41,300 tokens." } },
+  "agents-context-no-projection": { title: "Settings > Agents on a daemon without projections: only Micro runs", hash: "#/settings/agents", index: { playtests: [], listed: true }, agentContext: { strategy: "micro", effective: "micro", projection: false, seeds: null, measurement: null, note: null } },
   "page-editor-offline": { title: "Playtests page while the editor cannot list scripts", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all" },
 };
