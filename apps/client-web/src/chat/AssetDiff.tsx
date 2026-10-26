@@ -5,6 +5,7 @@
  */
 import { useState } from "react";
 import {
+  exportNumber,
   factRows,
   nodeValues,
   readableValue,
@@ -45,7 +46,7 @@ const kindClass = (k: string): string => (k === "Added" ? "add" : k === "Removed
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
   if (v === null || v === undefined) return <span className="dim">{side === "before" ? "not there" : "gone"}</span>;
   if (v === "") return <span className="dim">empty</span>;
-  const words = readableValue(v);
+  const words = readableValue(v) ?? (exportNumber(v) !== v ? exportNumber(v) : null);
   return <span className="mono diff-value" title={words ? v : undefined}><EngineText text={words ?? v} /></span>;
 }
 
@@ -74,7 +75,9 @@ function NodeValues({ r }: { r: AssetDiffRecord }) {
   if (r.diffType !== "NODE_ADDED" && r.diffType !== "NODE_REMOVED") return null;
   const n = r.node1 ?? r.node2;
   const values = nodeValues(n);
-  const title = n?.fullTitle && n.fullTitle !== n.title && !r.displayString.includes(n.fullTitle) ? n.fullTitle.replace(/\s*\n\s*/g, ", ") : null;
+  const full = n?.fullTitle?.replace(/\s*\n\s*/g, ", ");
+  // The full title only when it says more than the node's name and its values already do.
+  const title = full && full !== n!.title && !r.displayString.includes(full) && !values.some((v) => exportNumber(v.value) === full) ? full : null;
   if (!values.length && !title) return null;
   return (
     <div className="diff-node-values small">
@@ -82,7 +85,7 @@ function NodeValues({ r }: { r: AssetDiffRecord }) {
       {values.length > 0 && (
         <dl className="diff-node-props">
           {values.map((v) => (
-            <div key={v.name}><dt><EngineText text={v.name} /></dt><dd className="mono"><EngineText text={/^-?\d+\.\d+$/.test(v.value) ? String(Number(v.value)) : readableValue(v.value) ?? v.value} /></dd></div>
+            <div key={v.name}><dt><EngineText text={v.name} /></dt><dd className="mono"><EngineText text={readableValue(v.value) ?? exportNumber(v.value)} /></dd></div>
           ))}
         </dl>
       )}
@@ -190,7 +193,7 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
   const [open, setOpen] = useState(!before || !after);
   if (rows.length === 0) return null;
   const changed = rows.filter((r) => r.changed).length;
-  const count = before && after ? (changed ? ` (${changed} differ)` : " (none differ)") : "";
+  const count = before && after ? (changed ? ` (${changed} ${changed === 1 ? "differs" : "differ"})` : " (none differ)") : "";
   return (
     <div className="diff-facts">
       <button className="ghost small-button diff-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>

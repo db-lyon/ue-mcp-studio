@@ -207,8 +207,8 @@ describe("the diff view", () => {
     expect(screen.getByText(/No picture: Unreal has no thumbnail renderer for Material/)).toBeTruthy();
     const graph = screen.getByRole("region", { name: "Material Graph" });
     expect(within(graph).getByText("Added Node Constant")).toBeTruthy();
-    expect(within(graph).getByText("0.200000")).toBeTruthy();
-    expect(within(graph).getByText("0.700000")).toBeTruthy();
+    expect(within(graph).getByText("0.2")).toBeTruthy();
+    expect(within(graph).getByText("0.7")).toBeTruthy();
     const details = screen.getByRole("region", { name: "Details" });
     const two = within(details).getByText("Two Sided").closest("tr")!;
     expect(two.textContent).toContain("False");
