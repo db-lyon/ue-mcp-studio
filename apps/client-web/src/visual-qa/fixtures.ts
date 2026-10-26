@@ -17,6 +17,7 @@ import {
   type QaRun,
   type SessionDetail,
   type SessionSummary,
+  type StudioSettings,
   type TranscriptEntry,
 } from "@ue-mcp-studio/shared";
 
@@ -146,6 +147,16 @@ export interface Scenario {
   focus?: string;
   /** Settings > Agents: what GET /context-strategy/agent answers. */
   agentContext?: AgentContextView;
+  /** Clicked one after another after the page settles, each a CSS selector; after click, when both are given. */
+  clicks?: string[];
+  /** Scrolled to the top of its scroller after the clicks, to show what lies below the fold: a CSS selector. */
+  scroll?: string;
+  /** The window's height for the shot, for a page taller than the default 860 pixels. */
+  height?: number;
+  /** Settings the scenario changes from the harness's own. */
+  settings?: Partial<StudioSettings>;
+  /** GETs the scenario answers itself, before the harness's defaults; undefined falls through. */
+  get?: (path: string, url: URL) => unknown;
   /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */
   endpoints?: CustomEndpoint[] | "error";
   /** Shoot the whole page, for a settings section taller than the window. */

@@ -5,7 +5,9 @@
  */
 import { useState } from "react";
 import {
+  exportNumber,
   factRows,
+  nodeValues,
   readableValue,
   recordsByGroup,
   unifiedLines,
@@ -44,7 +46,7 @@ const kindClass = (k: string): string => (k === "Added" ? "add" : k === "Removed
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
   if (v === null || v === undefined) return <span className="dim">{side === "before" ? "not there" : "gone"}</span>;
   if (v === "") return <span className="dim">empty</span>;
-  const words = readableValue(v);
+  const words = readableValue(v) ?? (exportNumber(v) !== v ? exportNumber(v) : null);
   return <span className="mono diff-value" title={words ? v : undefined}><EngineText text={words ?? v} /></span>;
 }
 
@@ -67,6 +69,30 @@ function Picture({ version, missing, label, name }: { version: AssetVersion | nu
 
 /** The node a graph record is about, by the title the graph shows. */
 const nodeOf = (r: AssetDiffRecord): string | undefined => r.node2?.title ?? r.node1?.title;
+
+/** An added or removed node's values: what it was set to, so an added Constant shows its number. Nothing from an older daemon. */
+function NodeValues({ r }: { r: AssetDiffRecord }) {
+  if (r.diffType !== "NODE_ADDED" && r.diffType !== "NODE_REMOVED") return null;
+  const n = r.node1 ?? r.node2;
+  const values = nodeValues(n);
+  const full = n?.fullTitle?.replace(/\s*\n\s*/g, ", ");
+  // The full title only when it says more than the node's name and its values already do.
+  const title = full && full !== n!.title && !r.displayString.includes(full) && !values.some((v) => exportNumber(v.value) === full) ? full : null;
+  if (!values.length && !title) return null;
+  return (
+    <div className="diff-node-values small">
+      {title && <div className="dim"><EngineText text={title} /></div>}
+      {values.length > 0 && (
+        <dl className="diff-node-props">
+          {values.map((v) => (
+            <div key={v.name}><dt><EngineText text={v.name} /></dt><dd className="mono"><EngineText text={readableValue(v.value) ?? exportNumber(v.value)} /></dd></div>
+          ))}
+        </dl>
+      )}
+      {(n?.propertiesDropped ?? 0) > 0 && <div className="dim">{n!.propertiesDropped} more properties not listed.</div>}
+    </div>
+  );
+}
 
 /** Property records as a table: the engine's path, then before and after. Graph and component records show the engine's message. */
 function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
@@ -97,6 +123,7 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
             <td colSpan={3}>
               {head}
               {r.toolTip && r.toolTip !== r.displayString && <div className="dim small"><EngineText text={r.toolTip} /></div>}
+              <NodeValues r={r} />
               {r.facts && r.facts.length > 0 && (
                 <div className="dim small"><EngineText text={r.facts.map((f) => `${f.name} ${f.value}`).join(", ")} /></div>
               )}
@@ -166,7 +193,7 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
   const [open, setOpen] = useState(!before || !after);
   if (rows.length === 0) return null;
   const changed = rows.filter((r) => r.changed).length;
-  const count = before && after ? (changed ? ` (${changed} differ)` : " (none differ)") : "";
+  const count = before && after ? (changed ? ` (${changed} ${changed === 1 ? "differs" : "differ"})` : " (none differ)") : "";
   return (
     <div className="diff-facts">
       <button className="ghost small-button diff-toggle" aria-expanded={open} onClick={() => setOpen(!open)}>

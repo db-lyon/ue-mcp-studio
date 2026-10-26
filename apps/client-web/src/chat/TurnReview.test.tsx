@@ -179,6 +179,20 @@ describe("the diff view", () => {
     expect(after.getAttribute("title")).toBe(raw("0.800000"));
   });
 
+  it("shows what an added or removed node holds, and only its title from an older daemon", async () => {
+    const added = { displayString: "Added Node Constant", diffType: "NODE_ADDED", category: "ADDITION", node1: { guid: "1", name: "N", class: "MaterialGraphNode", title: "Constant", fullTitle: "0.35", pins: [{ name: "B", displayName: "B", defaultValue: "0.5", linked: false }, { name: "A", displayName: "A", defaultValue: "1", linked: true }], properties: [{ name: "R", displayName: "Value", value: "0.350000", isDefault: false }, { name: "Desc", displayName: "Desc", value: "", isDefault: true }] } };
+    const graph = (e: unknown): AssetDiff => ({ ...material, sections: [{ category: "Material Graph", kind: "graph", engineSource: "", entries: [e as never] }] });
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph(added) } });
+    await diffOf(REVIEW.items[1]);
+    const props = document.querySelector(".diff-node-props")!;
+    expect([...props.querySelectorAll("div")].map((d) => d.textContent)).toEqual(["Value0.35", "B0.5"]);
+    cleanup();
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph({ ...added, node1: { guid: "1", name: "N", class: "MaterialGraphNode", title: "Constant" } }) } });
+    await diffOf(REVIEW.items[1]);
+    expect(document.querySelector(".diff-node-values")).toBeNull();
+    expect(screen.getByText("Added Node Constant")).toBeTruthy();
+  });
+
   it("lets a long engine name wrap only between its parts", () => {
     card(withItem("Content/BP_Door.uasset", { path: "Content/Characters/BP_PlayerCharacterMovementComponent.uasset" }));
     const name = document.querySelector(".review-item-name")!;
@@ -193,8 +207,8 @@ describe("the diff view", () => {
     expect(screen.getByText(/No picture: Unreal has no thumbnail renderer for Material/)).toBeTruthy();
     const graph = screen.getByRole("region", { name: "Material Graph" });
     expect(within(graph).getByText("Added Node Constant")).toBeTruthy();
-    expect(within(graph).getByText("0.200000")).toBeTruthy();
-    expect(within(graph).getByText("0.700000")).toBeTruthy();
+    expect(within(graph).getByText("0.2")).toBeTruthy();
+    expect(within(graph).getByText("0.7")).toBeTruthy();
     const details = screen.getByRole("region", { name: "Details" });
     const two = within(details).getByText("Two Sided").closest("tr")!;
     expect(two.textContent).toContain("False");

@@ -1,6 +1,6 @@
-// Screenshot the playtest UI in every state, theme and width, with no daemon and no editor.
+// Screenshot the playtest UI, the review card and Settings in every state, theme and width, with no daemon and no editor.
 //
-//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,...>]
+//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>]
 //
 // Serves apps/client-web with Vite (no proxy) and opens visual-qa.html, the real app
 // with the daemon answered from apps/client-web/src/visual-qa/fixtures.ts. Each
@@ -45,8 +45,8 @@ const base = server.resolvedUrls.local[0].replace(/\/$/, "");
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
 fs.mkdirSync(out, { recursive: true });
 
-const open = async (scenario, theme, width) => {
-  const page = await browser.newPage({ viewport: { width, height: 860 } });
+const open = async (scenario, theme, width, height = 860) => {
+  const page = await browser.newPage({ viewport: { width, height } });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`${base}/visual-qa.html?scenario=${encodeURIComponent(scenario)}&theme=${theme}`);
@@ -58,27 +58,38 @@ const open = async (scenario, theme, width) => {
 try {
   const first = await open("session-empty", "ue-mcp", 1280);
   const scenarios = await first.page.evaluate(() => window.__visualQa.scenarios);
+  const heights = await first.page.evaluate(() => window.__visualQa.heights);
   await first.page.close();
-  const lines = ["# Playtests visual QA", "", `Rendered ${new Date().toISOString()} from apps/client-web/src/visual-qa/fixtures.ts, no daemon and no editor.`, ""];
+  const lines = ["# Studio visual QA", "", `Rendered ${new Date().toISOString()} from apps/client-web/src/visual-qa/fixtures.ts, no daemon and no editor.`, ""];
   for (const [scenario, title] of Object.entries(scenarios)) {
-    if (only && !only.includes(scenario)) continue;
+    if (only && !only.some((o) => (o.endsWith("*") ? scenario.startsWith(o.slice(0, -1)) : o === scenario))) continue;
     lines.push(`## ${scenario}`, "", title, "");
     for (const theme of THEMES) for (const [label, width] of WIDTHS) {
-      const { page, errors } = await open(scenario, theme, width);
+      const { page, errors } = await open(scenario, theme, width, heights[scenario] ?? 860);
       // The app scrolls inside its own panel, so a tall section is shot in a tall window instead.
       if (await page.evaluate(() => window.__visualQa.fullPage)) {
         await page.setViewportSize({ width, height: 2600 });
         await page.waitForTimeout(400);
       }
-      const click = await page.evaluate(() => window.__visualQa.click);
-      if (click) {
-        const el = await page.$(click);
-        if (!el) errors.push(`nothing matched ${click}`);
+      const { click, clicks } = await page.evaluate(() => ({ click: window.__visualQa.click, clicks: window.__visualQa.clicks ?? [] }));
+      for (const sel of [click, ...clicks].filter(Boolean)) {
+        const el = await page.$(sel);
+        if (!el) errors.push(`nothing matched ${sel}`);
         else {
           await el.click();
           await page.mouse.move(1, 1);
           await page.waitForTimeout(700);
         }
+      }
+      const scroll = await page.evaluate(() => window.__visualQa.scroll);
+      if (scroll) {
+        const found = await page.evaluate((sel) => {
+          const el = document.querySelector(sel);
+          el?.scrollIntoView({ block: "start" });
+          return !!el;
+        }, scroll);
+        if (!found) errors.push(`nothing matched ${scroll}`);
+        await page.waitForTimeout(200);
       }
       const focus = await page.evaluate(() => window.__visualQa.focus);
       if (focus) {

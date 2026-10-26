@@ -24,8 +24,8 @@ export interface AssetDiffRecord {
   /** A difference under a property the details panel does not show. */
   hidden?: boolean;
   /** The graph nodes a graph record names, by the title the graph shows. */
-  node1?: { guid: string; name: string; class: string; title: string };
-  node2?: { guid: string; name: string; class: string; title: string };
+  node1?: AssetDiffNode;
+  node2?: AssetDiffNode;
   /** The property path, as the details panel names it. */
   path?: string;
   property?: string;
@@ -37,6 +37,50 @@ export interface AssetDiffRecord {
   properties?: AssetDiffRecord[];
   /** An added or removed actor's class, label and transform. */
   facts?: AssetFact[];
+}
+
+/**
+ * A graph node a record names. An added or removed node also carries what it
+ * holds (asset diff format 2, db-lyon/ue-mcp#1556): its full title, its
+ * visible input pins and the properties of the object behind it. An older
+ * daemon sends only the first four fields.
+ */
+export interface AssetDiffNode {
+  guid: string;
+  name: string;
+  class: string;
+  title: string;
+  fullTitle?: string;
+  pins?: AssetDiffNodePin[];
+  /** The class the properties are read from, such as MaterialExpressionConstant. */
+  propertiesOf?: string;
+  properties?: AssetDiffNodeProperty[];
+  propertiesDropped?: number;
+}
+
+export interface AssetDiffNodePin {
+  name: string;
+  displayName: string;
+  defaultValue: string;
+  linked: boolean;
+}
+
+export interface AssetDiffNodeProperty {
+  name: string;
+  displayName: string;
+  value: string;
+  /** The value equals the class default. */
+  isDefault: boolean;
+}
+
+/** What an added or removed node holds, in words: its properties set away from their defaults, then the defaults of its unlinked pins. */
+export function nodeValues(n: AssetDiffNode | undefined): Array<{ name: string; value: string }> {
+  if (!n) return [];
+  const props = (n.properties ?? []).filter((p) => !p.isDefault && p.value !== "").map((p) => ({ name: p.displayName || p.name, value: p.value }));
+  // A pin whose constant is already a listed property (Multiply's B is its Const B) is shown once.
+  const shown = new Set((n.properties ?? []).filter((p) => !p.isDefault).flatMap((p) => [p.name, p.displayName]));
+  const pins = (n.pins ?? []).filter((p) => !p.linked && p.defaultValue !== "" && !shown.has(p.displayName || p.name) && !shown.has(`Const${p.name}`)).map((p) => ({ name: p.displayName || p.name, value: p.defaultValue }));
+  return [...props, ...pins];
 }
 
 /** Records under one of the engine's own diff categories. */
@@ -351,13 +395,13 @@ function exportItems(text: string): string[] | null {
 }
 
 /** A float as ExportText writes it, 0.500000, as 0.5. */
-const exportNumber = (v: string): string => (/^-?\d+\.\d+$/.test(v) ? String(Number(v)) : v);
+export const exportNumber = (v: string): string => (/^-?\d+\.\d+$/.test(v) ? String(Number(v)) : v);
 
 /** A material parameter's value in words: a number, a colour, an asset's path, or the text as it is. */
 function parameterValue(raw: string): string {
   const v = raw.trim();
   const color = exportFields(v);
-  if (color && ["R", "G", "B", "A"].every((k) => color.has(k)) && color.size === 4) return `(R ${exportNumber(color.get("R")!)}, G ${exportNumber(color.get("G")!)}, B ${exportNumber(color.get("B")!)}, A ${exportNumber(color.get("A")!)})`;
+  if (color && ["R", "G", "B", "A"].every((k) => color.has(k)) && color.size === 4) return `(R\u00a0${exportNumber(color.get("R")!)}, G\u00a0${exportNumber(color.get("G")!)}, B\u00a0${exportNumber(color.get("B")!)}, A\u00a0${exportNumber(color.get("A")!)})`;
   // An object reference: "/Script/Engine.Texture2D'/Game/T_Rock.T_Rock'" or Texture2D'/Game/T_Rock.T_Rock'.
   const ref = /^"?[\w/.]+'([^']+)'"?$/.exec(v);
   if (ref) return ref[1].replace(/\/([^/.]+)\.\1$/, "/$1");

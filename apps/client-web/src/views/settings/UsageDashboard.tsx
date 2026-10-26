@@ -89,7 +89,7 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
       {warnings.length > 0 && (
         <div className="usage-warnings" role="list" aria-label="Warnings">
           {warnings.map((w) => (
-            <div key={w.text} role="listitem" className={`banner small ${w.severity === "bad" ? "bad" : w.severity === "warn" ? "warn" : ""}`}>
+            <div key={w.text} role="listitem" className={`banner small ${w.severity === "bad" ? "bad" : w.severity === "warn" ? "warn" : "info"}`}>
               <strong>{w.text}</strong> <span>{w.detail}</span>
             </div>
           ))}
