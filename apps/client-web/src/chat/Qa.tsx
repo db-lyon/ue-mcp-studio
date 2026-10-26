@@ -646,7 +646,11 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
   const livePill = draft
     ? (run.deleted ? { tone: "", text: "Deleted" } : null)
     : ended
-      ? (run.state === "stopped" ? { tone: "", text: "Stopped" } : { tone: sum.failed ? "bad" : "ok", text: sum.failed ? `${sum.failed} failed` : "Passed" })
+      ? (run.state === "stopped" ? { tone: "", text: "Stopped" }
+        : sum.failed ? { tone: "bad", text: `${sum.failed} failed` }
+        // An ended run with steps never judged did not pass.
+        : sum.pending ? { tone: "warn", text: "Incomplete" }
+        : { tone: "ok", text: "Passed" })
       : waiting.length
         ? { tone: "warn", text: "Needs you" }
         : { tone: "run", text: run.state === "armed" ? STARTING : runningText(run, settled, sum.total) };
@@ -693,7 +697,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       setPanel("edit");
     }, (e: Error) => setError(e.message)).finally(() => setWorking(false));
   };
-  const draftButtons = open && editable && (
+  const draftButtons = editable && (
     <>
       <button className="small-button qa-script-edit" disabled={working || !!blocked} title={blocked} aria-expanded={panel === "edit"} onClick={toggleEdit}>Edit</button>
       {panel === "delete" ? (
@@ -737,7 +741,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
               <span className="dim qa-compact-summary">{offline && (pill || assignment?.loop) && <span className="qa-last-known" title={offline}>Last known: </span>}{summaryText}</span>
             </button>
             {meta && <span className="qa-meta dim">{meta}</span>}
-            {!askBox && !needsYouLoop && actions}
+            {actions}
           </div>
         )}
         {/* In the transcript the legend sits under the summary, open or not; the page draws one over all its rows. */}
@@ -773,7 +777,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
                   </button>
                 ))}
                 {waiting.length > 1 && <button className="small-button" onClick={() => openAt(askBox.index)} aria-label={waiting.length === 2 ? "1 more step needs you" : `${waiting.length - 1} more steps need you`}>+{waiting.length - 1} more</button>}
-                {actions}
+                {dense && actions}
               </span>
             )}
           </div>
@@ -783,7 +787,7 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
             <span className="qa-answer-text">{needsYouLoop.blocker?.reason ?? "The loop is waiting for you."}</span>
             <span className="qa-verdict">
               {!open && <button className="small-button" disabled={!!offline} title={offline} onClick={() => openAt(null)}>Review</button>}
-              {actions}
+              {dense && actions}
               {onHide && <button className="small-button" aria-label={`Hide ${run.scriptName} from the strip`} title="Takes it off this strip for you; the card stays in the conversation and on the Playtests page" onClick={onHide}>Hide from strip</button>}
             </span>
           </div>

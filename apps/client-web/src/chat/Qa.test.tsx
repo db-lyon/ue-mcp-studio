@@ -204,6 +204,12 @@ describe("the checklist card", () => {
     expect(m.qaStatus).toHaveBeenCalledWith(RUN, undefined);
   });
 
+  it("calls an ended run with unjudged steps Incomplete, not Passed", () => {
+    mount(runOf({ state: "finished", steps: STEPS.map((s, i) => ({ ...s, status: i === 0 ? "passed" : "pending" })) }));
+    const head = document.querySelector(".qa-states")!;
+    expect(head.textContent).toBe("Incomplete");
+  });
+
   it("does not read an ended run again", async () => {
     const page = mount(runOf({ state: "finished", steps: STEPS.map((s) => ({ ...s, status: "passed" })) }));
     page.update({ streaming: false });
