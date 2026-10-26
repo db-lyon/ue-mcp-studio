@@ -52,7 +52,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       </section>
 
       <Card label="Context strategy">
-        <p className="muted small">What other MCP clients load at session start. Studio's agent is set in Agents.</p>
+        <p className="muted small">What every client loads at session start, Studio's agent included.</p>
         {context && (
           <>
             {context.envOverride && (

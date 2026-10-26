@@ -70,7 +70,7 @@ import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js"
 import type { AssetRef } from "@ue-mcp-studio/shared";
 import { DaemonActionEffects } from "./approval-kind.js";
 import { required } from "./backend.js";
-import { registerComposerRoutes } from "./composer-routes.js";
+import { projectStrategy, registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
 import { ContextSurfaces, contextApiOf } from "./context-surface.js";
 import { fullModelName, modelName } from "./models.js";
@@ -92,7 +92,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const actionsApi = required((api as unknown as { actions?: { effects(): Array<{ category: string; action: string; effect: string; destructive?: boolean }> } }).actions, "actions.effects");
   const effects = new DaemonActionEffects(() => actionsApi.effects());
   // How ue-mcp's tools are put to Studio's own agent, projected by the daemon.
-  const surfaces = new ContextSurfaces(contextApiOf(api), () => settings.usage().contextStrategy, () => settings.provider());
+  const surfaces = new ContextSurfaces(contextApiOf(api), () => projectStrategy(api.projectDir), () => settings.provider());
   const unwatchPlugins = api.events.subscribe((e) => {
     if (e.type === "plugins.changed") {
       effects.refresh();
@@ -385,7 +385,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   registerComposerRoutes(api, {
     settings,
     restartUeMcp: () => updates.request("restart", {}),
-    agentContext: surfaces,
   });
   const stepRoute = async (step: DeferredStep, body: unknown) => {
     const r = await updates.request(step, stepBody(body));

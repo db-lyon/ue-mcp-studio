@@ -139,23 +139,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.queryByText(/## CLAUDE.md/)).toBeNull();
   });
 
-  it("chooses how ue-mcp's tools are put to Studio's own agent, with each strategy's seed tokens", async () => {
-    await show();
-    const radios = screen.getByRole("radiogroup", { name: "ue-mcp tools" }).querySelectorAll("[role=radio]");
-    expect([...radios].map((r) => r.textContent)).toEqual(["Micro ~2.1k", "Lean ~9.4k", "Full ~31k"]);
-    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: /^Lean/ })));
-    expect(m.saveAgentContext).toHaveBeenCalledWith("lean");
-  });
 
-  it("offers Auto only with a measurement", async () => {
-    m.agentContext.mockResolvedValueOnce({ strategy: "micro", effective: "micro", seeds: null, measurement: null, note: null } as never);
-    await show();
-    expect(screen.queryByRole("radio", { name: "Auto" })).toBeNull();
-    cleanup();
-    m.agentContext.mockResolvedValueOnce({ strategy: "auto", effective: "lean", seeds: { micro: 1, lean: 2, full: 3 }, measurement: { measuredAt: "2026-10-20T00:00:00Z", ueMcpVersion: "1.4.11", runs: 6 }, note: "Auto chose Lean: 100% of tasks passed at a median 40,000 tokens." } as never);
-    await show();
-    expect(screen.getByRole("radio", { name: "Auto" })).toBeTruthy();
-  });
 
   it("saves the screenshot size", async () => {
     await show();

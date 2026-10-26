@@ -62,7 +62,7 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   useEffect(() => {
     api.settings().then(setSettings, () => setSettings(null));
     // The strategy in effect: an environment override beats the saved one.
-    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: c.envOverride ? `${CONTEXT_STRATEGY_INFO[c.envOverride].name} for other clients, from environment` : `${CONTEXT_STRATEGY_INFO[c.strategy].name} for other clients`, overridden: !!c.envOverride && c.envOverride !== c.strategy })), () => undefined);
+    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: c.envOverride ? `${CONTEXT_STRATEGY_INFO[c.envOverride].name}, from environment` : `${CONTEXT_STRATEGY_INFO[c.strategy].name}`, overridden: !!c.envOverride && c.envOverride !== c.strategy })), () => undefined);
     if (typeof api.install === "function") api.install().then((r) => setExtra((e) => ({ ...e, ready: r.ok })), () => undefined);
     if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
   }, []);

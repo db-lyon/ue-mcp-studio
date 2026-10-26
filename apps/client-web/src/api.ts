@@ -5,7 +5,6 @@
  */
 import type { DaemonEvent, DaemonHealth, StatusReport } from "ue-mcp/daemon";
 import type {
-  AgentContextStrategy,
   AgentContextView,
   ApprovalDecision,
   AssetOpenResponse,
@@ -245,8 +244,6 @@ export const api = {
   nativePreview: (convention: Convention) => call<NativePreview>("GET", `/v1/ext/studio/native/preview?convention=${encodeURIComponent(convention)}`),
   openFile: (path: string) => call<void>("POST", "/v1/ext/studio/files/open", { path }),
   contextStrategy: () => call<ClientContextStrategy>("GET", "/v1/ext/studio/context-strategy"),
-  agentContext: () => call<AgentContextView>("GET", "/v1/ext/studio/context-strategy/agent"),
-  saveAgentContext: (strategy: AgentContextStrategy) => call<AgentContextView>("PUT", "/v1/ext/studio/context-strategy/agent", { strategy }),
   saveContextStrategy: (strategy: ContextStrategy) => call<ClientContextStrategy>("PUT", "/v1/ext/studio/context-strategy", { strategy }),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),
   sendFeedback: (report: FeedbackReport) => call<FeedbackResult>("POST", "/v1/ext/studio/feedback", report),

@@ -34,7 +34,7 @@ async function show(c = ctx()) {
   await act(async () => void render(<ProjectSection onSection={vi.fn()} />));
 }
 
-describe("Project > context strategy for other clients", () => {
+describe("Project > context strategy", () => {
   it("works outside the editor, with each strategy's cost and the clients it affects", async () => {
     await show();
     expect((screen.getByRole("radio", { name: /^Micro/ }) as HTMLInputElement).checked).toBe(true);
