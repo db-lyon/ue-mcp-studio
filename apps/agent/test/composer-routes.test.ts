@@ -6,7 +6,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { envStrategy, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
+import { envStrategy, projectStrategy, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
 import { ContextSurfaces, contextApiOf } from "../src/context-surface.js";
 import { SettingsStore } from "../src/settings.js";
 import type { ClientContextStrategy } from "@ue-mcp-studio/shared";
@@ -51,27 +51,6 @@ function setup(extra: Record<string, unknown> = {}) {
   return { call, settings, published };
 }
 
-describe("context strategy for Studio's own agent", () => {
-  it("is kept in Studio's settings, never in ue-mcp.yml", async () => {
-    const { call, settings } = setup();
-    expect((await call("GET /context-strategy/agent")).body).toMatchObject({ strategy: "micro", effective: "micro", measurement: null });
-    const r = await call("PUT /context-strategy/agent", { strategy: "lean" });
-    expect(r.body).toMatchObject({ strategy: "lean", effective: "lean", note: null });
-    expect(settings.usage().contextStrategy).toBe("lean");
-    expect(fs.existsSync(path.join(root, "ue-mcp.yml"))).toBe(false);
-  });
-
-  it("refuses an unknown strategy, and Auto while no measurement ships", async () => {
-    const { call } = setup();
-    expect((await call("PUT /context-strategy/agent", { strategy: "warp" })).status).toBe(400);
-    expect((await call("PUT /context-strategy/agent", { strategy: "auto" })).body).toEqual({ error: "auto needs a measurement, and none ships with this Studio" });
-  });
-
-  it("shows each strategy's seed tokens from the daemon's projection", async () => {
-    const { call } = setup();
-    expect((await call("PUT /context-strategy/agent", { strategy: "full" })).body).toMatchObject({ strategy: "full", effective: "full", seeds: SEEDS, note: null });
-  });
-});
 
 describe("context strategy for other clients", () => {
   it("reads ue-mcp.yml, with micro when it names none", async () => {
@@ -113,3 +92,17 @@ describe("context strategy for other clients", () => {
 
 });
 
+
+describe("one context strategy for every client", () => {
+  it("gives Studio's agent the project's strategy: environment, then ue-mcp.yml, then Micro", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-strategy-"));
+    try {
+      expect(projectStrategy(dir, {})).toBe("micro");
+      fs.writeFileSync(path.join(dir, "ue-mcp.yml"), "context:\n  strategy: lean\n");
+      expect(projectStrategy(dir, {})).toBe("lean");
+      expect(projectStrategy(dir, { UE_MCP_CONTEXT_STRATEGY: "full" })).toBe("full");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

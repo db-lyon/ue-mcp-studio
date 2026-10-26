@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AGENT_CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO, EFFORT_NAMES, IMAGE_EDGES, anythingConnected, type AgentContextView, type Effort, type ImageSize, type NativeOverview, type StudioSettings, type UsageSettings } from "@ue-mcp-studio/shared";
+import { EFFORT_NAMES, IMAGE_EDGES, anythingConnected, type Effort, type ImageSize, type NativeOverview, type StudioSettings, type UsageSettings } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { EffortPicker, ModelPicker } from "../ModelPicker";
 import { Head, type SettingsSection } from "../SettingsHub";
@@ -14,11 +14,6 @@ export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
 
 const SAME = "Same as main agent";
 
-/** What the ue-mcp tools row says: what the choice does, and why the strategy in effect differs when it does. */
-function contextHelp(v: AgentContextView): string {
-  const base = "How ue-mcp actions reach the agent: one search tool (Micro), a tool per category (Lean) or every signature up front (Full). More up front costs tokens on every call and saves discovery calls. Other MCP clients are set in Project.";
-  return v.note ? `${base} ${v.note}` : base;
-}
 const STARTS: Record<string, string> = { never: "Never, set by an earlier version", asked: "When you ask", automatic: "When work splits into independent parts" };
 
 /**
@@ -28,13 +23,11 @@ const STARTS: Record<string, string> = { never: "Never, set by an earlier versio
 export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) => void }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const [native, setNative] = useState<NativeOverview | null>(null);
-  const [agentContext, setAgentContext] = useState<AgentContextView | null>(null);
   const msg = useMessage();
   const loadNative = () => api.native().then(setNative, msg.fail);
   useEffect(() => {
     api.settings().then(setSettings, msg.fail);
     void loadNative();
-    if (typeof api.agentContext === "function") api.agentContext().then(setAgentContext, () => setAgentContext(null));
   }, []);
   const saveUsage = (u: Partial<UsageSettings>) => api.saveSettings({ usage: u }).then((s) => {
     setSettings(s);
@@ -61,20 +54,6 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
           <p className="banner warn small" style={{ marginTop: 10 }}>
             This model is not connected. <button className="link" onClick={() => onSection("models")}>Connect it</button> or pick another.
           </p>
-        )}
-        {agentContext && (
-          <Row title="ue-mcp tools" help={contextHelp(agentContext)}>
-            <Seg
-              label="ue-mcp tools"
-              value={agentContext.strategy}
-              options={AGENT_CONTEXT_STRATEGIES.filter((s) => s !== "auto" || agentContext.measurement).map((s) => ({
-                id: s,
-                name: s === "auto" ? "Auto" : `${CONTEXT_STRATEGY_INFO[s].name}${agentContext.seeds ? ` ~${tokens(agentContext.seeds[s])}` : ""}`,
-                title: s === "auto" ? "Fewest tokens among the strategies with the best measured pass rate" : `${CONTEXT_STRATEGY_INFO[s].sees} ${CONTEXT_STRATEGY_INFO[s].discovery}`,
-              }))}
-              onChange={(v) => void api.saveAgentContext(v).then(setAgentContext, msg.fail)}
-            />
-          </Row>
         )}
         <Row title="Screenshot size" help="Longest side of images shown to agents. Larger costs more tokens.">
           <Seg label="Screenshot size" value={settings.usage.imageSize} options={IMAGE_SIZES} onChange={(v) => void saveUsage({ imageSize: v })} />

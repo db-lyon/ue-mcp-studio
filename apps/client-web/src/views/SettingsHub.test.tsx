@@ -48,7 +48,7 @@ describe("Settings sections", () => {
     withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "full", fromFile: true, envOverride: "full", seeds: {} }));
     try {
       await act(async () => void render(<SettingsHub daemon={daemon} section={null} onSection={vi.fn()} onTheme={vi.fn()} narrow />));
-      expect(screen.getByText("Full for other clients, from environment")).toBeTruthy();
+      expect(screen.getByText("Full, from environment")).toBeTruthy();
     } finally {
       delete withStrategy.contextStrategy;
     }
