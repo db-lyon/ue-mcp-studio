@@ -7,6 +7,7 @@ import { qaRunFromAnswer, type PendingForm, type QaRun } from "@ue-mcp-studio/sh
 
 const m = vi.hoisted(() => ({
   qaVerdict: vi.fn(),
+  qaCaptureUrl: (runId: string, step: number, n: number) => `/v1/ext/studio/qa/runs/${runId}/steps/${step}/captures/${n}`,
   qaStatus: vi.fn(),
   qaAssign: vi.fn(),
   qaCancelAssign: vi.fn(),
@@ -299,7 +300,10 @@ describe("assigning the playtest to a subagent", () => {
     expect(within(step(0)).queryByText("Agent")).toBeNull();
     const details = step(2).querySelector("details")!;
     expect(within(details).getByText("What the agent saw")).toBeTruthy();
-    expect(within(details).getByText("C:/MyGame/Saved/Screenshots/door_02.png")).toBeTruthy();
+    // Captures render as pictures served by the agent, linked full size.
+    const shot = within(details).getByAltText("door_02.png") as HTMLImageElement;
+    expect(shot.getAttribute("src")).toMatch(/\/qa\/runs\/[^/]+\/steps\/2\/captures\/1$/);
+    expect(shot.closest("a")!.getAttribute("title")).toBe("C:/MyGame/Saved/Screenshots/door_02.png");
     // Its own verdict is not offered again.
     expect(within(step(2)).queryByRole("button", { name: "Override step 3 with Pass" })).toBeNull();
     await act(async () => {

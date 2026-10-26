@@ -5,6 +5,7 @@
  *   GET    /qa/runs/:id/status          the run read again: pie(script_status), with since_seq when given
  *   POST   /qa/runs/:id/verdict         a manual step's verdict: { step, verdict: pass | fail | skip, note? }
  *   GET    /qa/runs/:id/results         the run's results.json
+ *   GET    /qa/runs/:id/steps/:step/captures/:n  a picture the agent captured for a step
  *   POST   /qa/runs/:id/assign          hand the playtest to a subagent loop: { sessionId? } for a run started elsewhere
  *   DELETE /qa/runs/:id/assign          cancel the loop
  *   POST   /qa/runs/:id/loop/revert     revert the loop's changes: { attempt? }, every attempt's when none is named
@@ -61,6 +62,8 @@ import { ELICIT_FEATURE, type ElicitParams, type ElicitResult, type FormBroker }
 import type { SessionStore } from "./sessions.js";
 import type { AgentHost } from "./tools.js";
 import type { PlaytestStore } from "./playtest-store.js";
+
+const CAPTURE_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" };
 
 /** The pie actions that start a run. */
 const STARTS = new Set(["script_run", "script_replay"]);
@@ -651,6 +654,18 @@ export class QaBroker {
   }
 
   /** The run's results.json, from its file when it is the project's, otherwise as ue-mcp reads it. */
+  /** A picture the agent captured for a step, read only from under the project's Saved folder. */
+  capture(runId: string, step: number, n: number): { type: string; bytes: Buffer } | null {
+    const s = this.runs.get(runId)?.steps.find((x) => x.index === step);
+    const raw = s?.evidence?.captures?.[n];
+    if (!raw) return null;
+    const file = path.resolve(raw);
+    const root = path.resolve(this.o.host.projectDir, "Saved");
+    const type = CAPTURE_TYPES[path.extname(file).toLowerCase()];
+    if (!type || !file.toLowerCase().startsWith(root.toLowerCase() + path.sep) || !fs.existsSync(file)) return null;
+    return { type, bytes: fs.readFileSync(file) };
+  }
+
   async results(runId: string): Promise<Record<string, unknown> | { error: string }> {
     const run = this.runs.get(runId);
     const file = run?.resultsPath ? path.resolve(run.resultsPath) : null;
@@ -784,6 +799,10 @@ export function registerQa(api: DaemonExtensionApi, store: SessionStore, forms?:
   api.route("POST", "/qa/runs/:id/verdict", async (req) => {
     const r = await broker.verdict(id(req), req.body);
     return "error" in r ? { status: r.status, body: { error: r.error } } : { body: r };
+  });
+  api.route("GET", "/qa/runs/:id/steps/:step/captures/:n", (req) => {
+    const p = broker.capture(id(req), Number(req.params.step), Number(req.params.n));
+    return p ? { headers: { "content-type": p.type, "cache-control": "private, max-age=86400" }, body: p.bytes } : { status: 404, body: { error: "no such capture" } };
   });
   api.route("GET", "/qa/runs/:id/results", async (req) => {
     const r = await broker.results(id(req));
