@@ -415,6 +415,8 @@ export function ChatView({ daemon, nav, active = true }: {
           <EditMessageContext.Provider value={disconnected ? null : editMessage}>
           <PlaytestCommandContext.Provider value={playtest}>
           <PinnedContext.Provider value={strip.ids}>
+            {/* The strip and the conversation share this space; the strip takes at most half of it. */}
+            <div className="session-stage">
             <PlaytestStrip runs={strip.pinned} onHide={strip.hide} />
             <div className="thread-stage" ref={stage}>
               <MainTranscript
@@ -438,6 +440,7 @@ export function ChatView({ daemon, nav, active = true }: {
                   />
                 </div>
               )}
+            </div>
             </div>
             <QueuedMessages
               queue={detail.queue ?? []}
