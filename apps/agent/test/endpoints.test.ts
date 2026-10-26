@@ -182,6 +182,8 @@ describe("the model catalog", () => {
     const last = c.providers[c.providers.length - 1];
     expect(last).toEqual({ id: "endpoint:box", name: "Box", connected: true, source: "typed", endpoint: { id: "box" }, models: [{ id: "llama", name: "llama", signIns: [] }] });
     expect(endpointCatalog({ ...e, models: [{ id: "x" }] }).source).toBe("live");
+    // A failed model list travels with the endpoint, so the Models table can show it.
+    expect(endpointCatalog({ ...e, listError: "its /models answered 401" }).endpoint).toEqual({ id: "box", listError: "its /models answered 401" });
   });
 });
 

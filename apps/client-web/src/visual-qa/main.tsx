@@ -115,7 +115,7 @@ function answer(method: string, url: URL): unknown {
       routeOrder: "signins-first",
       providers: [
         { id: "anthropic", name: "Anthropic", connected: false, source: "default", models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5", signIns: ["claude"] }] },
-        ...(Array.isArray(scenario.endpoints) ? scenario.endpoints : []).map((e) => ({ id: `endpoint:${e.id}`, name: e.name, connected: true, source: "live", endpoint: { id: e.id }, models: e.models.map((m) => ({ id: m.id, name: m.id, signIns: [] })) })),
+        ...(Array.isArray(scenario.endpoints) ? scenario.endpoints : []).map((e) => ({ id: `endpoint:${e.id}`, name: e.name, connected: true, source: "live", endpoint: { id: e.id, ...(e.listError ? { listError: e.listError } : {}) }, models: e.models.map((m) => ({ id: m.id, name: m.id, signIns: [] })) })),
       ],
     })],
     [/^\/v1\/ext\/studio\/endpoints$/, () => (scenario.endpoints === "error" ? undefined : { endpoints: scenario.endpoints ?? [] })],
