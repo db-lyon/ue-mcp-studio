@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult } from "ue-mcp/daemon";
 import { isDestructiveAnswer, safeButton, type DialogPolicy } from "@ue-mcp-studio/shared";
-import { DialogBroker, PROMPT_FEATURE, WAIT_POLICY_CALL_MS, type CallOptions, type DialogPromptRequest, type DialogPromptResult } from "../src/dialogs.js";
+import { DialogBroker, WAIT_POLICY_CALL_MS, type CallOptions, type DialogPromptRequest, type DialogPromptResult } from "../src/dialogs.js";
 import { dialogAnswerOf } from "../src/dialog-routes.js";
 import { SessionStore } from "../src/sessions.js";
 import type { AgentHost } from "../src/tools.js";
@@ -15,16 +15,15 @@ const BUTTONS = ["Save Selected", "Don't Save", "Cancel"];
 type Listener = (e: { type: string; data: Record<string, unknown> }) => void;
 
 /** A daemon: callAction records each call and its options; events are a list and a bus. */
-function daemon(features: string[] | null = [PROMPT_FEATURE, "events.dialog"]) {
+function daemon() {
   const calls: Array<{ category: string; action: string; args?: Record<string, unknown>; opts?: CallOptions }> = [];
   const published: Array<{ type: string; data: Record<string, unknown> }> = [];
   const listeners = new Set<Listener>();
   let next: (category: string, action: string, opts?: CallOptions) => Promise<ActionResult> = async () => ok();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-dialogs-"));
-  const host: AgentHost & { callAction: (c: string, a: string, args?: Record<string, unknown>, opts?: CallOptions) => Promise<ActionResult>; features?: string[] } = {
+  const host: AgentHost & { callAction: (c: string, a: string, args?: Record<string, unknown>, opts?: CallOptions) => Promise<ActionResult> } = {
     projectDir: "C:/Game",
     dataDir,
-    ...(features ? { features } : {}),
     callAction: (category, action, args, opts) => {
       calls.push({ category, action, args, opts });
       return next(category, action, opts);
@@ -60,8 +59,8 @@ function request(over: Partial<DialogPromptRequest["dialog"]> = {}): DialogPromp
 
 let policy: DialogPolicy = { kind: "agent", minutes: 2 };
 
-function setup(features?: string[] | null) {
-  const d = daemon(features);
+function setup() {
+  const d = daemon();
   const store = new SessionStore(d.dataDir);
   const broker = new DialogBroker({ host: d.host, store, policy: () => policy, holdMs: 10_000 });
   const s = store.create();
@@ -85,14 +84,6 @@ describe("a Studio call's dialog", () => {
     policy = { kind: "wait" };
     await broker.wrap(host, "s").callAction("level", "spawn_actor", {});
     expect(calls[1].opts?.dialogWaitMs).toBe(WAIT_POLICY_CALL_MS);
-  });
-
-  it("passes nothing to an older daemon, so calls go through as before", async () => {
-    const { host, calls, broker } = setup(null);
-    expect(broker.supported()).toBe(false);
-    await broker.wrap(host, "s").callAction("level", "spawn_actor", {});
-    expect(calls[0].opts).toBeUndefined();
-    expect(broker.state().supported).toBe(false);
   });
 
   it("shows the dialog as a card naming the call that met it, and a line in the transcript", async () => {
@@ -274,8 +265,8 @@ describe("the agent's answer in auto mode", () => {
     expect(calls.some((c) => c.action === "respond_to_dialog")).toBe(false);
   });
 
-  it("holds a destructive press on an older daemon too, where it has no events", async () => {
-    const { host, broker, calls, s } = setup(null);
+  it("holds a destructive press before it reaches the editor", async () => {
+    const { host, broker, calls, s } = setup();
     const press = broker.wrap(host, s.id).callAction("editor", "respond_to_dialog", { buttonLabel: "Delete" });
     await vi.advanceTimersByTimeAsync(5_000);
     expect(calls).toHaveLength(0);

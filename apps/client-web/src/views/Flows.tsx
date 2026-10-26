@@ -3,10 +3,10 @@ import { api, type FlowSummary } from "../api";
 import type { DaemonState } from "../state";
 import { FlowGraph, type DeclaredStep, type PlannedStep, type StepState } from "./FlowGraph";
 
-/** flow(plan)'s answer. `definition` arrives from ue-mcp versions that return the flow as declared. */
+/** flow(plan)'s answer: the ordered plan, and the flow as declared. */
 interface PlanResult {
   steps?: PlannedStep[];
-  definition?: { description?: string; steps: Record<string, DeclaredStep> };
+  definition: { description?: string; steps: Record<string, DeclaredStep> };
 }
 
 type Mode = "graph" | "json";
@@ -65,7 +65,7 @@ export function FlowsView({ daemon }: { daemon: DaemonState }) {
 
   if (error) return <div className="banner bad">{error}</div>;
   if (!flows) return <p className="muted">Loading flows</p>;
-  const definition = plan?.definition?.steps ?? null;
+  const definition = plan?.definition.steps ?? null;
   const picked = step && definition ? definition[step] : null;
 
   return (
@@ -96,10 +96,7 @@ export function FlowsView({ daemon }: { daemon: DaemonState }) {
         {selected && running && <p className="muted small">Running</p>}
         {selected && mode === "graph" && plan && (
           <>
-            {!definition && (
-              <p className="dim small">This ue-mcp version reports step names only, so connections between steps are not shown.</p>
-            )}
-            <FlowGraph definition={definition} plan={plan.steps ?? []} states={states} selected={step} onSelect={setStep} />
+            <FlowGraph definition={plan.definition.steps} states={states} selected={step} onSelect={setStep} />
             {picked && (
               <div className="step-detail">
                 <div className="row">

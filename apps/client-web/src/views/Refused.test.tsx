@@ -40,7 +40,7 @@ describe("Studio refused for an older ue-mcp", () => {
   });
 
   it("installs the floor through the daemon's update routes, and says to restart the editor", async () => {
-    const fetch = vi.fn(async (url: string) => (url.startsWith("/v1/update?") ? json({ latest: "1.4.10", target: null }) : json({ ok: true, version: "1.4.11-beta.6", state: "applied" })));
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) => (url.startsWith("/v1/update?") ? json({ latest: "1.4.10", target: null }) : json({ ok: true, version: "1.4.11-beta.6", state: "applied" })));
     vi.stubGlobal("fetch", fetch);
     render(<RefusedScreen refusal={{ needs: "1.4.11-beta.6", have: "1.4.10" }} />);
     fireEvent.click(screen.getByRole("button", { name: "Update ue-mcp" }));

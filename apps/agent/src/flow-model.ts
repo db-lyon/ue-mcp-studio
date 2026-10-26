@@ -9,6 +9,7 @@
  */
 import type { Effort } from "@ue-mcp-studio/shared";
 import type { MessageParam, ModelProvider } from "./providers.js";
+import { required } from "./backend.js";
 
 /** Set by the release bundle: false leaves the Agent SDK out of it. Unset in development and tests. */
 declare const __CLAUDE_SIGN_IN__: boolean | undefined;
@@ -103,18 +104,14 @@ function systemOf(req: FlowCompletionRequest): string {
   return parts.filter((p) => p.trim()).join("\n\n");
 }
 
-/** The part of the daemon's extension API that takes a model provider (API 2, feature "models.provider"). */
+/** The part of the daemon's extension API that takes a model provider. */
 export interface ModelHost {
   models?: { register(provider: { complete(req: FlowCompletionRequest): Promise<FlowCompletionResponse> }): () => void };
 }
 
-/**
- * Make Studio's model the one flow agent steps run on. A daemon without the
- * hook keeps its own; the function returned takes the registration back.
- */
+/** Make Studio's model the one flow agent steps run on; the function returned takes the registration back. */
 export function registerFlowModel(host: ModelHost, o: FlowModelOptions): () => void {
-  if (typeof host.models?.register !== "function") return () => {};
-  return host.models.register(studioFlowModel(o));
+  return required(host.models, "models").register(studioFlowModel(o));
 }
 
 /** A flow model provider backed by Studio's selected model and route. */

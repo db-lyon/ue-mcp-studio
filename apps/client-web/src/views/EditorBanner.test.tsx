@@ -41,9 +41,8 @@ describe("the editor banner", () => {
     expect(screen.getByText("Start")).toBeTruthy();
   });
 
-  it("counts a start step an older daemon marked ok over success: false as failed", () => {
-    expect(stepFailed({ ok: true, result: JSON.stringify({ success: false, message: "not ready" }, null, 2) })).toBe(true);
-    expect(stepFailed({ ok: true, result: JSON.stringify({ success: true, results: [{ success: false }] }) })).toBe(false);
+  it("takes the daemon's word on whether a step failed", () => {
+    expect(stepFailed({ ok: true, result: JSON.stringify({ success: true }) })).toBe(false);
     expect(stepFailed({ ok: false })).toBe(true);
   });
 

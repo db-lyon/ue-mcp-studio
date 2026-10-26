@@ -255,16 +255,13 @@ describe("the card's assignment", () => {
     expect("run" in r && r.run.assignment?.sessionId).toBe(s.id);
   });
 
-  it("does not start without checkpoints, and says why", async () => {
+  it("does not start without the loop's checkpoints, and says why", async () => {
     const s = store.create();
     s.transcript.push({ kind: "qa", run: runOf({}, s.id) });
     store.save(s);
-    const support = fakeLoopSupport();
-    support.missing = "This ue-mcp has no checkpoints, so turns cannot be reviewed. Update ue-mcp.";
     const started: string[] = [];
-    const broker = brokerWith({ assign: () => (started.push("x"), { callId: "studio_5", done: new Promise(() => {}) }), stop: () => true }, support);
-    expect(await broker.assign(RUN, {})).toEqual({ status: 409, error: "The loop did not start. This ue-mcp has no checkpoints, so turns cannot be reviewed. Update ue-mcp." });
-    expect(await brokerWith({ assign: () => ({ callId: "x", done: new Promise(() => {}) }), stop: () => true }, null).assign(RUN, {})).toMatchObject({ status: 409, error: expect.stringMatching(/needs checkpoints/) });
+    const broker = brokerWith({ assign: () => (started.push("x"), { callId: "x", done: new Promise(() => {}) }), stop: () => true }, null);
+    expect(await broker.assign(RUN, {})).toMatchObject({ status: 409, error: expect.stringMatching(/needs checkpoints/) });
     expect(started).toEqual([]);
   });
 

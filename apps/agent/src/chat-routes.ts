@@ -69,6 +69,7 @@ import { registerQuickRoute } from "./quick.js";
 import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js";
 import type { AssetRef } from "@ue-mcp-studio/shared";
 import { DaemonActionEffects } from "./approval-kind.js";
+import { required } from "./backend.js";
 import { registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
 import { ContextSurfaces, contextApiOf } from "./context-surface.js";
@@ -88,9 +89,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   // Custom OpenAI-compatible endpoints, for every project like the vendor keys.
   const endpoints = new EndpointStore();
   // ue-mcp's own word on which actions delete or overwrite, for that approval row.
-  const actionsApi = (api as unknown as { actions?: { effects(categories?: string[]): Array<{ category: string; action: string; effect: string; destructive?: boolean }> } }).actions;
-  const effects = new DaemonActionEffects(actionsApi?.effects ? () => actionsApi.effects() : null);
-  // How ue-mcp's tools are put to Studio's own agent: projected by the daemon when it can, else Micro.
+  const actionsApi = required((api as unknown as { actions?: { effects(): Array<{ category: string; action: string; effect: string; destructive?: boolean }> } }).actions, "actions.effects");
+  const effects = new DaemonActionEffects(() => actionsApi.effects());
+  // How ue-mcp's tools are put to Studio's own agent, projected by the daemon.
   const surfaces = new ContextSurfaces(contextApiOf(api), () => settings.usage().contextStrategy, () => settings.provider());
   const unwatchPlugins = api.events.subscribe((e) => {
     if (e.type === "plugins.changed") {
@@ -100,12 +101,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
 
   // The `ue-mcp login` account, kept fresh so a sign-in is picked up without a restart.
-  // Older daemons have no registryAccount; the Settings token is the only source then.
   let registry: Awaited<ReturnType<DaemonExtensionApi["registryAccount"]>> = null;
   // The signed-in plan's models, once the gateway has said; the default plan's until then.
   let planModels: readonly string[] = DEFAULT_PLAN_MODELS;
   const refreshAccount = async (): Promise<void> => {
-    registry = typeof api.registryAccount === "function" ? await api.registryAccount().catch(() => null) : null;
+    registry = await api.registryAccount().catch(() => null);
     const token = accountToken();
     if (!token) return;
     const res = await fetchUsage(token).catch(() => null);
@@ -174,7 +174,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return {
       ...rest,
       route: route(),
-      destructiveKnown: effects.available(),
       connected: { ...signedIn(), ...keys },
       endpoints: endpoints.list().length,
       account: login ? { login, via: "studio" } : registry ? { login: registry.login, via: "ue-mcp-login" } : null,
@@ -210,10 +209,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   };
   // The main agent's vendor's own files: instructions, subagents and skills (native.ts), read again at most every few seconds.
   const skillOwners = (): Map<string, string> => {
-    const list = (api as unknown as { skills?: { list(): Array<{ dir: string; owner: { kind: string; package?: string } }> } }).skills?.list;
-    if (typeof list !== "function") return new Map();
+    const skills = required((api as unknown as { skills?: { list(): Array<{ dir: string; owner: { kind: string; package?: string } }> } }).skills, "skills");
     try {
-      return new Map(list().filter((s) => s.owner.kind === "plugin" && s.owner.package).map((s) => [path.resolve(s.dir), s.owner.package!]));
+      return new Map(skills.list().filter((s) => s.owner.kind === "plugin" && s.owner.package).map((s) => [path.resolve(s.dir), s.owner.package!]));
     } catch {
       return new Map();
     }
@@ -283,7 +281,6 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   // It loops until the playtest passes, each attempt between checkpoints.
   qa.setLoopSupport({
     checkpoints: {
-      unavailable: () => review.unavailable(),
       checkpoint: (label) => review.checkpoint(label),
       changes: (from, to) => review.changes(from, to),
       restore: (checkpoint, paths, force) => review.restore(checkpoint, paths, force),

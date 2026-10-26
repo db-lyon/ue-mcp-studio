@@ -17,7 +17,6 @@ const SAME = "Same as main agent";
 /** What the ue-mcp tools row says: what the choice does, and why the strategy in effect differs when it does. */
 function contextHelp(v: AgentContextView): string {
   const base = "How ue-mcp actions reach the agent: one search tool (Micro), a tool per category (Lean) or every signature up front (Full). More up front costs tokens on every call and saves discovery calls. Other MCP clients are set in Project.";
-  if (!v.projection) return `${base} Only Micro is available until ue-mcp is updated.`;
   return v.note ? `${base} ${v.note}` : base;
 }
 const STARTS: Record<string, string> = { never: "Never, set by an earlier version", asked: "When you ask", automatic: "When work splits into independent parts" };
@@ -72,7 +71,6 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
                 id: s,
                 name: s === "auto" ? "Auto" : `${CONTEXT_STRATEGY_INFO[s].name}${agentContext.seeds ? ` ~${tokens(agentContext.seeds[s])}` : ""}`,
                 title: s === "auto" ? "Fewest tokens among the strategies with the best measured pass rate" : `${CONTEXT_STRATEGY_INFO[s].sees} ${CONTEXT_STRATEGY_INFO[s].discovery}`,
-                disabled: !agentContext.projection && s !== "micro",
               }))}
               onChange={(v) => void api.saveAgentContext(v).then(setAgentContext, msg.fail)}
             />

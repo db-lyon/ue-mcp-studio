@@ -40,22 +40,15 @@ const run = (vendor: string, strategy: "micro" | "lean" | "full", tokens: number
 });
 
 describe("reading the daemon's projection", () => {
-  it("finds api.context only when both project and call are there", () => {
-    expect(contextApiOf({})).toBeNull();
-    expect(contextApiOf({ context: { project: () => null } })).toBeNull();
-    expect(contextApiOf({ context: new FakeContext() })).not.toBeNull();
+  it("reads api.context, and fails loudly on a daemon without it", () => {
+    const context = new FakeContext();
+    expect(contextApiOf({ context })).toBe(context);
+    expect(() => contextApiOf({})).toThrow(/ue-mcp has no context projection/);
   });
 
   it("reads a category call as ue_mcp's: an args envelope with its routing merged in, or a flat call", () => {
     expect(canonCategoryCall(level, { action: "spawn_actor", args: { class: "Torch" }, editor: "Main" })).toEqual({ action: "call", category: "level", method: "spawn_actor", args: { class: "Torch", editor: "Main" } });
     expect(canonCategoryCall(level, { action: "spawn_actor", class: "Torch" })).toEqual({ action: "call", category: "level", method: "spawn_actor", args: { class: "Torch" } });
-  });
-
-  it("serves Micro, with a note, when the daemon cannot project, whatever was chosen", () => {
-    const s = new ContextSurfaces(null, () => "full", () => "anthropic", () => null);
-    expect(s.current().strategy).toBe("micro");
-    expect(s.view()).toMatchObject({ strategy: "full", effective: "micro", projection: false, seeds: null });
-    expect(s.view().note).toMatch(/cannot project its tools/);
   });
 
   it("projects Lean once, keeps it until ue-mcp's tools change, and runs a non-category tool through context.call", async () => {
@@ -85,7 +78,7 @@ describe("reading the daemon's projection", () => {
 
   it("shows each strategy's seed tokens from the projection", () => {
     const s = new ContextSurfaces(new FakeContext(), () => "micro", () => "anthropic", () => null);
-    expect(s.view()).toMatchObject({ strategy: "micro", effective: "micro", projection: true, seeds: { micro: 2000, lean: 9000, full: 30000 }, measurement: null });
+    expect(s.view()).toMatchObject({ strategy: "micro", effective: "micro", seeds: { micro: 2000, lean: 9000, full: 30000 }, measurement: null });
   });
 
   it("puts the strategy's own line and ue-mcp's instructions in the prompt", () => {

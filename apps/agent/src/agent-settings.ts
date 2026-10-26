@@ -14,6 +14,7 @@ import { parseDocument, isSeq } from "yaml";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import type { AgentSettings, DialogMode, FeedbackMode, PlaytestRunsMode } from "@ue-mcp-studio/shared";
 import type { PlaytestStore } from "./playtest-store.js";
+import { required } from "./backend.js";
 
 const FEEDBACK_MODES: readonly FeedbackMode[] = ["interactive", "auto-approve", "defer"];
 const DIALOG_MODES: readonly DialogMode[] = ["interactive", "auto", "defer"];
@@ -41,15 +42,15 @@ export function withFeedbackTool(ymlText: string, on: boolean): string {
   return doc.toString();
 }
 
-export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () => Promise<unknown>, playtests?: PlaytestStore): void {
-  const modes = (api as unknown as { modes?: Modes }).modes;
+export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () => Promise<unknown>, playtests: PlaytestStore): void {
+  const modes = required((api as unknown as { modes?: Modes }).modes, "modes");
   const yml = path.join(api.projectDir, "ue-mcp.yml");
   const read = (): string => (fs.existsSync(yml) ? fs.readFileSync(yml, "utf-8") : "");
   const view = (): AgentSettings => ({
     feedbackTool: feedbackToolOn(read()),
-    feedbackMode: modes?.get().feedback ?? null,
-    dialogMode: modes?.get().dialog ?? null,
-    ...(playtests ? { playtestRuns: playtests.runs() } : {}),
+    feedbackMode: modes.get().feedback,
+    dialogMode: modes.get().dialog,
+    playtestRuns: playtests.runs(),
   });
 
   api.route("GET", "/agent-settings", () => ({ body: view() }));
@@ -59,10 +60,9 @@ export function registerAgentSettings(api: DaemonExtensionApi, restartUeMcp: () 
     if (b.feedbackTool !== undefined && typeof b.feedbackTool !== "boolean") return { status: 400, body: { error: "feedbackTool must be a boolean" } };
     if (b.feedbackMode !== undefined && b.feedbackMode !== null && !FEEDBACK_MODES.includes(b.feedbackMode as FeedbackMode)) return { status: 400, body: { error: "feedbackMode must be interactive, auto-approve, defer or null" } };
     if (b.dialogMode !== undefined && b.dialogMode !== null && !DIALOG_MODES.includes(b.dialogMode as DialogMode)) return { status: 400, body: { error: "dialogMode must be interactive, auto, defer or null" } };
-    if ((b.feedbackMode !== undefined || b.dialogMode !== undefined) && !modes) return { status: 409, body: { error: "This ue-mcp cannot set modes from Studio; update ue-mcp." } };
-    if (b.feedbackMode !== undefined) modes!.setFeedback((b.feedbackMode as FeedbackMode | null) ?? undefined);
-    if (b.dialogMode !== undefined) modes!.setDialog((b.dialogMode as DialogMode | null) ?? undefined);
-    if (b.playtestRuns !== undefined) playtests?.setRuns(b.playtestRuns as PlaytestRunsMode);
+    if (b.feedbackMode !== undefined) modes.setFeedback((b.feedbackMode as FeedbackMode | null) ?? undefined);
+    if (b.dialogMode !== undefined) modes.setDialog((b.dialogMode as DialogMode | null) ?? undefined);
+    if (b.playtestRuns !== undefined) playtests.setRuns(b.playtestRuns as PlaytestRunsMode);
     let restarting = false;
     if (typeof b.feedbackTool === "boolean" && b.feedbackTool !== feedbackToolOn(read())) {
       fs.writeFileSync(yml, withFeedbackTool(read(), b.feedbackTool));

@@ -179,18 +179,13 @@ describe("the diff view", () => {
     expect(after.getAttribute("title")).toBe(raw("0.800000"));
   });
 
-  it("shows what an added or removed node holds, and only its title from an older daemon", async () => {
+  it("shows what an added or removed node holds", async () => {
     const added = { displayString: "Added Node Constant", diffType: "NODE_ADDED", category: "ADDITION", node1: { guid: "1", name: "N", class: "MaterialGraphNode", title: "Constant", fullTitle: "0.35", pins: [{ name: "B", displayName: "B", defaultValue: "0.5", linked: false }, { name: "A", displayName: "A", defaultValue: "1", linked: true }], properties: [{ name: "R", displayName: "Value", value: "0.350000", isDefault: false }, { name: "Desc", displayName: "Desc", value: "", isDefault: true }] } };
     const graph = (e: unknown): AssetDiff => ({ ...material, sections: [{ category: "Material Graph", kind: "graph", engineSource: "", entries: [e as never] }] });
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph(added) } });
     await diffOf(REVIEW.items[1]);
     const props = document.querySelector(".diff-node-props")!;
     expect([...props.querySelectorAll("div")].map((d) => d.textContent)).toEqual(["Value0.35", "B0.5"]);
-    cleanup();
-    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph({ ...added, node1: { guid: "1", name: "N", class: "MaterialGraphNode", title: "Constant" } }) } });
-    await diffOf(REVIEW.items[1]);
-    expect(document.querySelector(".diff-node-values")).toBeNull();
-    expect(screen.getByText("Added Node Constant")).toBeTruthy();
   });
 
   it("lets a long engine name wrap only between its parts", () => {
@@ -256,7 +251,7 @@ describe("the timeline", () => {
     { checkpoint: "3".repeat(40), label: "Restored to: Make the door", at: "2026-10-24T10:06:00.000Z", kind: "restore", undo: "4".repeat(40) },
   ];
   const panel = async (review: boolean | null = null, onChanged = vi.fn()) => {
-    m.reviewStatus.mockResolvedValue({ available: true, default: true });
+    m.reviewStatus.mockResolvedValue({ default: true });
     await act(async () => void render(<ReviewPanel sessionId="s1" review={review} timeline={MARKS} onChanged={onChanged} />));
     return onChanged;
   };
@@ -304,12 +299,5 @@ describe("the timeline", () => {
     await panel(false);
     await act(async () => void fireEvent.click(screen.getByRole("checkbox")));
     expect(m.setSessionReview).toHaveBeenLastCalledWith("s1", null);
-  });
-
-  it("says why review cannot run on a ue-mcp without checkpoints", async () => {
-    m.reviewStatus.mockResolvedValue({ available: false, reason: "This ue-mcp has no checkpoints, so turns cannot be reviewed. Update ue-mcp.", default: true });
-    await act(async () => void render(<ReviewPanel sessionId="s1" review={null} timeline={[]} onChanged={() => {}} />));
-    expect(screen.getByText(/has no checkpoints/)).toBeTruthy();
-    expect(screen.queryByRole("checkbox")).toBeNull();
   });
 });

@@ -9,7 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import { assetPathOf, readableValue, refineAssetDiff, reviewGroupOf, unifiedLines, type AssetDiff, type TurnReview } from "@ue-mcp-studio/shared";
-import { NO_CHECKPOINTS, ReviewBroker, type ReviewHost } from "../src/review.js";
+import { ReviewBroker, type ReviewHost } from "../src/review.js";
 import { SessionStore, type StoredSession } from "../src/sessions.js";
 import { AgentRunner } from "../src/runner.js";
 import type { ModelProvider, ModelRequest, ModelTurn } from "../src/providers.js";
@@ -111,29 +111,6 @@ describe("the checkpoints around a turn", () => {
     expect(published.filter((p) => p.type === "review.changed" && p.data?.reviewId === review.id).length).toBeGreaterThan(0);
   });
 
-  it("says a package is not diffed when the daemon has no asset diffs", async () => {
-    class Legacy extends FakeCheckpoints {
-      override async changes(from: string, to?: string) {
-        const r = await super.changes(from, to);
-        for (const c of r.changes) delete c.assetDiff;
-        delete r.assetDiffs;
-        return r;
-      }
-    }
-    const legacy = Object.assign(new Legacy(), { assetDiff: undefined, openNativeDiff: undefined, thumbnail: undefined });
-    legacy.files = cp.files;
-    const broker = new ReviewBroker({ host: hostOf(legacy), store, defaultOn: () => true });
-    const s = sessionWithTurn();
-    await broker.turnStarted(s);
-    cp.files.set("Content/Props/SM_Box.uasset", "box v2");
-    await broker.turnEnded(s);
-    const review = reviewOf(s)!;
-    const item = review.items.find((i) => i.kind === "package")!;
-    expect(item.summary).toBe("Not diffed: this ue-mcp has no asset diffs. Update ue-mcp.");
-    expect(item.native).toEqual({ available: false, reason: "This ue-mcp cannot open Unreal's diff. Update ue-mcp." });
-    expect(await broker.nativeDiff(s.id, review.id, { path: item.path })).toMatchObject({ status: 409 });
-  });
-
   it("opens Unreal's diff of an item: before and after, or the asset as it is now when the turn added it", async () => {
     const broker = new ReviewBroker({ host: hostOf(), store, defaultOn: () => true });
     const s = sessionWithTurn();
@@ -198,12 +175,9 @@ describe("the checkpoints around a turn", () => {
     expect(cp.log.filter((l) => l.startsWith("create After"))).toHaveLength(2);
   });
 
-  it("reviews nothing when the daemon has no checkpoints, and says why", async () => {
-    const broker = new ReviewBroker({ host: { ...hostOf(), checkpoints: undefined }, store, defaultOn: () => true });
-    expect(broker.status()).toEqual({ available: false, reason: NO_CHECKPOINTS, default: true });
-    const s = sessionWithTurn();
-    await broker.turnStarted(s);
-    expect(s.reviewing).toBeNull();
+  it("refuses to run on a daemon without checkpoints", () => {
+    expect(() => new ReviewBroker({ host: { ...hostOf(), checkpoints: undefined }, store, defaultOn: () => true })).toThrow(/ue-mcp has no checkpoints/);
+    expect(new ReviewBroker({ host: hostOf(), store, defaultOn: () => true }).status()).toEqual({ default: true });
   });
 
   it("drops Studio's override when the last session turns review off", async () => {

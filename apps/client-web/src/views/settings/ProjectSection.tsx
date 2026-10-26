@@ -72,7 +72,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
             </div>
             <p className="cfg-note" style={{ marginTop: 8 }}>
               {clients.length ? `Used by ${clients.map((c) => c.name).join(" and ")}. ` : "No other MCP client configured. "}
-              Applies from each client's next session.{context.fromFile ? "" : " Default: Micro."} Token counts {context.seedSource}.
+              Applies from each client's next session.{context.fromFile ? "" : " Default: Micro."} Token counts measured by ue-mcp.
             </p>
           </>
         )}

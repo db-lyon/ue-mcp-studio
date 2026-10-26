@@ -5,14 +5,11 @@ import {
   flowInputsOf,
   flowOptionsScope,
   stepScopedParams,
-  flowPlanSteps,
   flowValue,
   parseFlowArgs,
-  parsePairs,
   singleType,
   type FlowInput,
   type FlowListing,
-  type FlowPlanStep,
   type FlowRunRequest,
   type TranscriptEntry,
 } from "@ue-mcp-studio/shared";
@@ -24,8 +21,7 @@ type Loaded =
   | { kind: "unnamed"; flows: FlowListing[] }
   | { kind: "unknown"; closest: string[] }
   | { kind: "error"; message: string }
-  /** inputs null: this ue-mcp's plan does not report them, so the form takes key=value pairs. */
-  | { kind: "ready"; flow: FlowListing | null; steps: FlowPlanStep[]; inputs: FlowInput[] | null; scope: "flat" | "step" };
+  | { kind: "ready"; flow: FlowListing | null; inputs: FlowInput[]; scope: "flat" | "step" };
 
 /** A pair typed after the name, as the value of the field it prefills. */
 function prefillValue(raw: string, input: FlowInput | undefined): unknown {
@@ -46,15 +42,10 @@ function paramsFrom(inputs: FlowInput[], content: Record<string, unknown>, typed
   return out;
 }
 
-const pairsText = (values: Record<string, string>): string =>
-  Object.entries(values).map(([k, v]) => `${k}=${/\s/.test(v) ? `"${v}"` : v}`).join("\n");
-
 /**
  * What a /flow message opens above the composer: the flow's inputs as a form,
  * defaults filled in and the pairs typed after the name over them. A flow
- * with no inputs runs at once. Before ue-mcp reports a flow's inputs, the form
- * shows its plan and takes key=value pairs. A name that is no flow shows the
- * closest ones.
+ * with no inputs runs at once. A name that is no flow shows the closest ones.
  */
 export function FlowLauncher({ text, run, onClose }: { text: string; run: (request: FlowRunRequest) => Promise<unknown>; onClose: () => void }) {
   const parsed = useMemo(() => parseFlowArgs(text.replace(/^\s*\/flow\b/, "")), [text]);
@@ -63,7 +54,6 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pairs, setPairs] = useState(pairsText(parsed.values));
 
   const start = (params: Record<string, unknown>, shown?: string) => {
     setSent(true);
@@ -91,9 +81,9 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
       if (!plan.ok) return setLoaded({ kind: "error", message: plan.e.message });
       const inputs = flowInputsOf(plan.p);
       const scope = flowOptionsScope(plan.p);
-      setLoaded({ kind: "ready", flow, steps: flowPlanSteps(plan.p), inputs, scope });
+      setLoaded({ kind: "ready", flow, inputs, scope });
       // Nothing to ask: it runs as it is.
-      if (inputs && inputs.length === 0) start(scope === "step" ? {} : Object.fromEntries(Object.entries(typed).map(([k, v]) => [k, flowValue(v, null)])));
+      if (inputs.length === 0) start(scope === "step" ? {} : Object.fromEntries(Object.entries(typed).map(([k, v]) => [k, flowValue(v, null)])));
     });
     return () => {
       live = false;
@@ -134,31 +124,6 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
       <>
         <div className="banner bad small">{loaded.message}</div>
         <div className="row"><span className="spacer" />{close}</div>
-      </>
-    );
-  } else if (loaded.inputs === null) {
-    body = (
-      <>
-        {loaded.flow?.description && <p className="small">{loaded.flow.description}</p>}
-        <ol className="small flow-plan" aria-label="Its steps">
-          {loaded.steps.map((s, i) => (
-            <li key={i}>
-              <span className="mono">{s.name ?? `Step ${i + 1}`}</span>
-              {s.options && Object.keys(s.options).length > 0 && <span className="dim"> {JSON.stringify(s.options)}</span>}
-            </li>
-          ))}
-        </ol>
-        <label className="form-field">
-          <span>Params <span className="dim small">(key=value, one per line)</span></span>
-          <textarea rows={3} value={pairs} onChange={(e) => setPairs(e.target.value)} />
-          <span className="dim small">This ue-mcp does not say which inputs the flow takes. Each pair goes to every step.</span>
-        </label>
-        {error && <div className="banner bad small">{error}</div>}
-        <div className="row">
-          <span className="spacer" />
-          <button className="ghost" disabled={sent} onClick={onClose}>Cancel</button>
-          <button className="primary" disabled={sent} onClick={() => start(Object.fromEntries(Object.entries(parsePairs(pairs)).map(([k, v]) => [k, flowValue(v, null)])))}>Run</button>
-        </div>
       </>
     );
   } else if (loaded.inputs.length === 0) {

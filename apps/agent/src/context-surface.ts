@@ -2,8 +2,8 @@
  * How ue-mcp's tools are put to Studio's own agent: Micro (Studio's single
  * ue_mcp tool: search, describe, call), Lean (a tool per category with its
  * action names) or Full (every signature inline). Lean and Full come from the
- * daemon's projection of ue-mcp's own surfaces (feature "context.projection"),
- * so Studio never rebuilds ue-mcp's tools; a daemon without it runs Micro.
+ * daemon's projection of ue-mcp's own surfaces (api.context), so Studio never
+ * rebuilds ue-mcp's tools.
  *
  * A call to a projected category tool is read back as the ue_mcp call it is
  * (category, method, args), so approvals, the action effects, the transcript
@@ -18,6 +18,7 @@ import type { ActionResult } from "ue-mcp/daemon";
 import type { AgentContextStrategy, AgentContextView, ContextStrategy } from "@ue-mcp-studio/shared";
 import { CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO } from "@ue-mcp-studio/shared";
 import { EDITOR_TOOLS } from "./tools.js";
+import { required } from "./backend.js";
 
 export interface ProjectedTool {
   name: string;
@@ -35,15 +36,14 @@ export interface Projection {
   seedTokens: number;
 }
 
-/** The daemon's api.context, as ue-mcp declares it; absent on a daemon before "context.projection". */
+/** The daemon's api.context, as ue-mcp declares it. */
 export interface ContextApi {
   project(opts: { strategy: ContextStrategy; categories?: string[] }): Projection;
   call(tool: string, input: Record<string, unknown>, opts?: { strategy?: ContextStrategy; categories?: string[] }): Promise<ActionResult>;
 }
 
-export function contextApiOf(api: unknown): ContextApi | null {
-  const c = (api as { context?: Partial<ContextApi> } | null)?.context;
-  return c && typeof c.project === "function" && typeof c.call === "function" ? (c as ContextApi) : null;
+export function contextApiOf(api: unknown): ContextApi {
+  return required((api as { context?: ContextApi } | null)?.context, "context projection");
 }
 
 /* ── Measurements and Auto ───────────────────────────────────────── */
@@ -194,7 +194,7 @@ export class ContextSurfaces {
   private cache = new Map<ContextStrategy, EditorSurface>();
 
   constructor(
-    private readonly api: ContextApi | null,
+    private readonly api: ContextApi,
     private readonly choice: () => AgentContextStrategy,
     private readonly vendor: () => string,
     private readonly measurement: () => ContextMeasurement | null = () => readMeasurement(MEASUREMENT_FILE),
@@ -208,7 +208,6 @@ export class ContextSurfaces {
   /** The strategy turns run on now, and why it differs from the choice when it does. */
   resolve(): { effective: ContextStrategy; note: string | null } {
     const c = this.choice();
-    if (!this.api) return { effective: "micro", note: c === "micro" ? null : "This ue-mcp cannot project its tools for Studio, so Studio's agent uses Micro. Update ue-mcp to choose another." };
     if (c !== "auto") return { effective: c, note: null };
     const m = this.measurement();
     const pick = m ? autoPick(m, this.vendor(), "9+") : null;
@@ -218,7 +217,7 @@ export class ContextSurfaces {
 
   current(): EditorSurface {
     const { effective } = this.resolve();
-    if (effective === "micro" || !this.api) return microSurface();
+    if (effective === "micro") return microSurface();
     const hit = this.cache.get(effective);
     if (hit) return hit;
     try {
@@ -234,18 +233,15 @@ export class ContextSurfaces {
   view(): AgentContextView {
     const { effective, note } = this.resolve();
     let seeds: Record<ContextStrategy, number> | null = null;
-    if (this.api) {
-      try {
-        seeds = Object.fromEntries(CONTEXT_STRATEGIES.map((s) => [s, this.api!.project({ strategy: s }).seedTokens])) as Record<ContextStrategy, number>;
-      } catch {
-        seeds = null;
-      }
+    try {
+      seeds = Object.fromEntries(CONTEXT_STRATEGIES.map((s) => [s, this.api.project({ strategy: s }).seedTokens])) as Record<ContextStrategy, number>;
+    } catch {
+      seeds = null;
     }
     const m = this.measurement();
     return {
       strategy: this.choice(),
       effective,
-      projection: !!this.api,
       seeds,
       measurement: m ? { measuredAt: m.measuredAt, ueMcpVersion: m.ueMcpVersion, runs: m.runs.length } : null,
       note,

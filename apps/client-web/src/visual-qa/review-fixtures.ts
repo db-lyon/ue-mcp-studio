@@ -17,7 +17,6 @@ const PATHS = {
   bp: "Content/Characters/Player/BP_PlayerCharacterMovementComponent.uasset",
   mi: "Content/Environment/Materials/MI_RockMossyCliffFace_Variant02.uasset",
   material: "Content/Environment/Materials/M_RockMaster.uasset",
-  materialOlder: "Content/Environment/Materials/M_RockMasterLegacy.uasset",
   config: "Config/DefaultEngine.ini",
   level: "Content/Maps/L_Playtest.umap",
   crate: "Content/Props/SM_CrateWoodenLarge.uasset",
@@ -63,8 +62,8 @@ const MATERIAL_INSTANCE = ready({
   ] }],
 });
 
-/** The material as an older daemon sends it: an added node with its title only. */
-const MATERIAL_OLDER = ready({
+/** The material's facts and its graph, the added node before its values are filled in below. */
+const MATERIAL_BASE = ready({
   assetClass: "Material",
   engine: { tool: "SMaterialDiff", note: "The material graph through FGraphDiffControl::DiffGraphs, and its details through DiffUtils::CompareUnrelatedObjects.", native: "window", nativeAvailable: true },
   before: { class: "Material", facts: [{ name: "Blend mode", value: "BLEND_Opaque" }, { name: "Expressions", value: "14" }] },
@@ -76,17 +75,17 @@ const MATERIAL_OLDER = ready({
   ] }],
 });
 
-/** The same material from a daemon on asset diff format 2: added and removed nodes carry their values. */
+/** The material: added and removed nodes carry their values. */
 const MATERIAL: AssetDiff = {
-  ...MATERIAL_OLDER,
+  ...MATERIAL_BASE,
   summary: "3 differences: Removed Node Multiply; Added Node Constant; Roughness Default Value 0.2 to 0.7",
-  sections: [{ ...MATERIAL_OLDER.sections![0], entries: [
+  sections: [{ ...MATERIAL_BASE.sections![0], entries: [
     { displayString: "Removed Node Multiply", diffType: "NODE_REMOVED", category: "SUBTRACTION", node1: { guid: "5", name: "MaterialGraphNode_9", class: "MaterialGraphNode", title: "Multiply", propertiesOf: "MaterialExpressionMultiply",
       pins: [{ name: "A", displayName: "A", defaultValue: "", linked: true }, { name: "B", displayName: "B", defaultValue: "0.5", linked: false }],
       properties: [{ name: "ConstA", displayName: "Const A", value: "0.000000", isDefault: true }, { name: "ConstB", displayName: "Const B", value: "0.500000", isDefault: false }] } },
     { displayString: "Added Node Constant", diffType: "NODE_ADDED", category: "ADDITION", node1: { guid: "3", name: "MaterialGraphNode_15", class: "MaterialGraphNode", title: "Constant", fullTitle: "0.35", propertiesOf: "MaterialExpressionConstant",
       pins: [], properties: [{ name: "R", displayName: "Value", value: "0.350000", isDefault: false }, { name: "Desc", displayName: "Desc", value: "", isDefault: true }] } },
-    ...MATERIAL_OLDER.sections![0].entries.slice(1),
+    ...MATERIAL_BASE.sections![0].entries.slice(1),
   ] }],
 };
 
@@ -96,7 +95,6 @@ const CHANGES: CheckpointChange[] = [
   { path: PATHS.bp, status: "modified", kind: "package", assetDiff: BLUEPRINT },
   { path: PATHS.mi, status: "modified", kind: "package", assetDiff: MATERIAL_INSTANCE },
   { path: PATHS.material, status: "modified", kind: "package", assetDiff: MATERIAL },
-  { path: PATHS.materialOlder, status: "modified", kind: "package", assetDiff: MATERIAL_OLDER },
   { path: PATHS.level, status: "modified", kind: "package", assetDiff: ready({ assetClass: "World", summary: "1 difference: Added actor SM_CrateWoodenLarge_PlacedNearTheGate", sections: [] }) },
   { path: PATHS.config, status: "modified", kind: "config", diff: CONFIG_DIFF },
   { path: PATHS.crate, status: "modified", kind: "package", assetDiff: { state: "error", error: "Failed to load /Game/Props/SM_CrateWoodenLarge: the package was saved by a newer engine version", summary: "Could not diff: Failed to load /Game/Props/SM_CrateWoodenLarge: the package was saved by a newer engine version", nativeDiff: { available: false, reason: "Unreal could not load it." } } },
@@ -146,6 +144,5 @@ export const REVIEW_SCENARIOS: Record<string, Scenario> = {
   "review-blueprint-variables": card("Review card, the same Blueprint scrolled to My Blueprint and Defaults: each variable once", "bp", "section[aria-label='My Blueprint']"),
   "review-material-instance": card("Review card, a material instance opened: its parameters in words, not the engine's struct text", "mi"),
   "review-material": card("Review card, a material opened: the added Constant shows its value, the removed Multiply its set constant", "material"),
-  "review-material-older": card("Review card, a material from an older daemon: the added Constant has its title only, nothing breaks", "materialOlder"),
   "review-config": card("Review card, a reverted config file opened: its text diff", "config"),
 };

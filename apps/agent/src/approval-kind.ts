@@ -12,11 +12,9 @@ export interface ActionEffects {
   destructive(category: string, method: string): boolean | null;
   /** Whether the action only reads. null when it cannot say. */
   readOnly(category: string, method: string): boolean | null;
-  /** The daemon reports effects at all. */
-  available(): boolean;
 }
 
-export const NO_EFFECTS: ActionEffects = { destructive: () => null, readOnly: () => null, available: () => false };
+export const NO_EFFECTS: ActionEffects = { destructive: () => null, readOnly: () => null };
 
 /** The editor actions that stop or restart the editor, reached through ue_mcp rather than editor_restart. */
 const EDITOR_LIFECYCLE = new Set(["stop_editor", "restart_editor", "start_editor", "rebuild_editor", "rebuild"]);
@@ -54,16 +52,14 @@ export function editorPreview(name: string, input: Record<string, unknown>): App
 
 /**
  * Effects read from the daemon's actions.effects, refreshed when plugins
- * change. Built from what `effects()` returns; an older daemon has no such
- * member, and every answer is null.
+ * change. Every answer is null while effects() is failing.
  */
 export class DaemonActionEffects implements ActionEffects {
   private map: Map<string, { destructive: boolean; read: boolean }> | null = null;
 
-  constructor(private readonly source: (() => Array<{ category: string; action: string; effect: string; destructive?: boolean }>) | null) {}
+  constructor(private readonly source: () => Array<{ category: string; action: string; effect: string; destructive?: boolean }>) {}
 
   refresh(): void {
-    if (!this.source) return;
     try {
       this.map = new Map(this.source().map((e) => [`${e.category}.${e.action}`, { destructive: !!e.destructive, read: e.effect === "read" }]));
     } catch {
@@ -83,10 +79,5 @@ export class DaemonActionEffects implements ActionEffects {
   readOnly(category: string, method: string): boolean | null {
     const e = this.get(category, method);
     return e ? e.read : null;
-  }
-
-  available(): boolean {
-    if (!this.map) this.refresh();
-    return this.map !== null;
   }
 }

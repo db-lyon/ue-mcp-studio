@@ -10,10 +10,7 @@ describe("an editor operation's steps", () => {
     expect(stepPayload("Error [TASK_FAILED]: boom")).toBeNull();
   });
 
-  it("counts a step marked ok over success: false as failed, except an editor already up and answering", () => {
-    expect(stepFailed({ step: "project.build", ok: true, result: json({ success: false, exitCode: 6, message: "Build failed" }) })).toBe(true);
-    expect(stepFailed({ step: "editor.start_editor", ok: true, result: json({ success: false, alreadyRunning: true, bridgeReady: true }) })).toBe(false);
-    expect(stepFailed({ step: "editor.start_editor", ok: true, result: json({ success: false, alreadyRunning: true, bridgeReady: false }) })).toBe(true);
+  it("takes the daemon's word on whether a step failed", () => {
     expect(stepFailed({ step: "editor.stop_editor", ok: false, result: "refused" })).toBe(true);
     expect(stepFailed({ step: "editor.stop_editor", ok: true, result: json({ success: false, alreadyStopped: true, message: "No editor is running" }) })).toBe(false);
     expect(stepFailed({ step: "editor.stop_editor", ok: true, result: json({ success: true }) })).toBe(false);
@@ -22,7 +19,7 @@ describe("an editor operation's steps", () => {
   it("names the first failure by its message", () => {
     const steps = [
       { step: "editor.stop_editor", ok: true, result: json({ success: true }) },
-      { step: "project.build", ok: true, result: json({ success: false, message: "Build failed with exit code 6" }) },
+      { step: "project.build", ok: false, result: json({ success: false, message: "Build failed with exit code 6" }) },
       { step: "editor.start_editor", ok: true, result: json({ success: true }) },
     ];
     const failed = firstFailedStep(steps)!;

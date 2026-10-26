@@ -27,8 +27,8 @@ const m = vi.hoisted(() => ({
   nativePreview: vi.fn(async () => ({ convention: "codex", text: "The project's own instructions...", tokens: 10, loadedBy: "studio" })),
   openFile: vi.fn(async () => undefined),
   models: vi.fn(async () => ({ signedIn: {}, providers: [] })),
-  agentContext: vi.fn(async () => ({ strategy: "micro", effective: "micro", projection: true, seeds: { micro: 2100, lean: 9400, full: 31000 }, measurement: null, note: null })),
-  saveAgentContext: vi.fn(async (s: string) => ({ strategy: s, effective: s, projection: true, seeds: { micro: 2100, lean: 9400, full: 31000 }, measurement: null, note: null })),
+  agentContext: vi.fn(async () => ({ strategy: "micro", effective: "micro", seeds: { micro: 2100, lean: 9400, full: 31000 }, measurement: null, note: null })),
+  saveAgentContext: vi.fn(async (s: string) => ({ strategy: s, effective: s, seeds: { micro: 2100, lean: 9400, full: 31000 }, measurement: null, note: null })),
 }));
 vi.mock("../../api", () => ({ api: m, ApiError: Error }));
 import { AgentsSection } from "./AgentsSection";
@@ -147,13 +147,12 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(m.saveAgentContext).toHaveBeenCalledWith("lean");
   });
 
-  it("offers only Micro when the daemon cannot project ue-mcp's tools, and Auto only with a measurement", async () => {
-    m.agentContext.mockResolvedValueOnce({ strategy: "micro", effective: "micro", projection: false, seeds: null, measurement: null, note: null } as never);
+  it("offers Auto only with a measurement", async () => {
+    m.agentContext.mockResolvedValueOnce({ strategy: "micro", effective: "micro", seeds: null, measurement: null, note: null } as never);
     await show();
-    expect((screen.getByRole("radio", { name: /^Lean/ }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.queryByRole("radio", { name: "Auto" })).toBeNull();
     cleanup();
-    m.agentContext.mockResolvedValueOnce({ strategy: "auto", effective: "lean", projection: true, seeds: { micro: 1, lean: 2, full: 3 }, measurement: { measuredAt: "2026-10-20T00:00:00Z", ueMcpVersion: "1.4.11", runs: 6 }, note: "Auto chose Lean: 100% of tasks passed at a median 40,000 tokens." } as never);
+    m.agentContext.mockResolvedValueOnce({ strategy: "auto", effective: "lean", seeds: { micro: 1, lean: 2, full: 3 }, measurement: { measuredAt: "2026-10-20T00:00:00Z", ueMcpVersion: "1.4.11", runs: 6 }, note: "Auto chose Lean: 100% of tasks passed at a median 40,000 tokens." } as never);
     await show();
     expect(screen.getByRole("radio", { name: "Auto" })).toBeTruthy();
   });

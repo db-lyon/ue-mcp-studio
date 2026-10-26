@@ -37,15 +37,6 @@ export interface FlowListing {
   stepCount?: number;
 }
 
-/** A step of the plan, as GET /v1/flows/<name>/plan reports it. */
-export interface FlowPlanStep {
-  stepNumber?: number;
-  name?: string;
-  type?: string;
-  skipped?: boolean;
-  options?: Record<string, unknown>;
-}
-
 /** POST /v1/ext/studio/sessions/:id/flow: run a flow in the session. `text` is the message the chat shows. */
 export interface FlowRunRequest {
   name: string;
@@ -67,10 +58,10 @@ export interface FlowStepProgress {
 /** Where a /flow's run is. */
 export type FlowRunState = "running" | "succeeded" | "failed" | "stopped";
 
-/** The plan's inputs, or null when this ue-mcp's plan does not report them. */
-export function flowInputsOf(plan: unknown): FlowInput[] | null {
+/** The plan's inputs. */
+export function flowInputsOf(plan: unknown): FlowInput[] {
   const list = (plan as { inputs?: unknown } | null | undefined)?.inputs;
-  if (!Array.isArray(list)) return null;
+  if (!Array.isArray(list)) return [];
   return list.filter((x): x is FlowInput => !!x && typeof x === "object" && typeof (x as FlowInput).name === "string");
 }
 
@@ -97,12 +88,6 @@ export function stepScopedParams(inputs: FlowInput[], params: Record<string, unk
     for (const s of steps) (out[s.path] ??= {})[k] = v;
   }
   return out;
-}
-
-/** The plan's steps, in run order. */
-export function flowPlanSteps(plan: unknown): FlowPlanStep[] {
-  const list = (plan as { steps?: unknown } | null | undefined)?.steps;
-  return Array.isArray(list) ? list.filter((x): x is FlowPlanStep => !!x && typeof x === "object") : [];
 }
 
 /** An input's one type, or null when it has none or two steps disagree. */
@@ -183,11 +168,6 @@ export function parseFlowArgs(args: string): { name: string; values: Record<stri
     else rest.push(w);
   }
   return { name, values, rest };
-}
-
-/** key=value pairs, one per line or space apart, as the key=value field takes them. */
-export function parsePairs(text: string): Record<string, string> {
-  return parseFlowArgs(`_ ${text.replace(/\n/g, " ")}`).values;
 }
 
 /** The /flow message a run shows: the name and the params it was given. */

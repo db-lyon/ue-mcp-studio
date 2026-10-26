@@ -59,24 +59,19 @@ export function ApprovalsSection() {
     }, msg.fail);
   if (!settings || !agent) return <>{msg.node ?? <p className="muted">Loading</p>}</>;
   const rule = (k: ApprovalKind) => settings.approvals?.[k] ?? (k === "shell" || k === "files" ? (settings.askBeforeChanges ? "ask" : "allow") : "allow");
-  const dialogMode = agent.dialogMode?.mode ?? null;
+  const dialogMode = agent.dialogMode.mode;
   return (
     <>
       <Head title="Approvals & review" lead="What needs your approval. Applies to every agent." />
       {msg.node}
       <Card label="Ask first">
-        {APPROVAL_ROWS.map((r) => {
-          const unknown = r.kind === "destructive" && settings.destructiveKnown === false;
-          return (
-            <Row key={r.kind} title={r.label} help={unknown ? <span className="warn-text">Unavailable. Update ue-mcp to use this rule.</span> : r.help}>
-              <Seg label={r.label} value={unknown ? null : rule(r.kind)} options={RULES} disabled={unknown} onChange={(v) => void save({ approvals: { [r.kind]: v } })} />
-            </Row>
-          );
-        })}
-        <Row title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === (agent.playtestRuns ?? "manual"))!.help}>
-          {agent.playtestRuns
-            ? <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
-            : <span className="dim small">Update Studio to set this.</span>}
+        {APPROVAL_ROWS.map((r) => (
+          <Row key={r.kind} title={r.label} help={r.help}>
+            <Seg label={r.label} value={rule(r.kind)} options={RULES} onChange={(v) => void save({ approvals: { [r.kind]: v } })} />
+          </Row>
+        ))}
+        <Row title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)!.help}>
+          <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
         </Row>
         <p className="cfg-note">All other actions run without asking.</p>
       </Card>
@@ -86,29 +81,25 @@ export function ApprovalsSection() {
           <Switch label="Report ue-mcp gaps" on={agent.feedbackTool} onChange={(v) => void saveAgent({ feedbackTool: v })} />
         </Row>
         {agent.feedbackTool && (
-          <Row title="Filing" help={agent.feedbackMode ? FEEDBACK_MODES.find((f) => f.id === agent.feedbackMode!.mode)?.about : "Update ue-mcp to set this."}>
-            {agent.feedbackMode && <Seg label="Filing" value={agent.feedbackMode.mode} options={FEEDBACK_MODES} onChange={(v) => void saveAgent({ feedbackMode: v })} />}
+          <Row title="Filing" help={FEEDBACK_MODES.find((f) => f.id === agent.feedbackMode.mode)?.about}>
+            <Seg label="Filing" value={agent.feedbackMode.mode} options={FEEDBACK_MODES} onChange={(v) => void saveAgent({ feedbackMode: v })} />
           </Row>
         )}
       </Card>
 
       <Card label="Editor dialogs">
         <Row title="Who answers" help="Editor calls wait until an open dialog is answered." />
-        {agent.dialogMode ? (
-          <div className="opts">
-            {DIALOG_MODES.map((d) => (
-              <div key={d.id}>
-                <Opt name="dialog-mode" on={dialogMode === d.id} onPick={() => void saveAgent({ dialogMode: d.id })} title={d.name} desc={d.about} />
-                {d.id === "interactive" && (dialogMode === "interactive" || dialogMode === null) && (
-                  <DialogPolicyField policy={settings.dialogPolicy} onSave={(dialogPolicy) => void save({ dialogPolicy })} />
-                )}
-              </div>
-            ))}
-            {dialogMode === null && <p className="cfg-note">Not set. Studio shows them.</p>}
-          </div>
-        ) : (
-          <p className="cfg-note">Update ue-mcp to set this.</p>
-        )}
+        <div className="opts">
+          {DIALOG_MODES.map((d) => (
+            <div key={d.id}>
+              <Opt name="dialog-mode" on={dialogMode === d.id} onPick={() => void saveAgent({ dialogMode: d.id })} title={d.name} desc={d.about} />
+              {d.id === "interactive" && (dialogMode === "interactive" || dialogMode === null) && (
+                <DialogPolicyField policy={settings.dialogPolicy} onSave={(dialogPolicy) => void save({ dialogPolicy })} />
+              )}
+            </div>
+          ))}
+          {dialogMode === null && <p className="cfg-note">Not set. Studio shows them.</p>}
+        </div>
       </Card>
 
       <Card label="Turn review">
