@@ -96,8 +96,8 @@ export function UsageDashboard({ teamPerDay }: { teamPerDay: number | null }) {
         </div>
       )}
       <div className="usage-filters">
-        <Seg label="Period" value={period} options={PERIODS} onChange={setPeriod} />
-        <Seg label="Group by" value={group} options={GROUPS} onChange={setGroup} />
+        <div className="usage-filter"><span className="usage-filter-label">Period</span><Seg compact label="Period" value={period} options={PERIODS} onChange={setPeriod} /></div>
+        <div className="usage-filter"><span className="usage-filter-label">Group by</span><Seg compact label="Group by" value={group} options={GROUPS} onChange={setGroup} /></div>
       </div>
       {summary && <Tiles s={summary} />}
       {summary?.ledgerStarts
