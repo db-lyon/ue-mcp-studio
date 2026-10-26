@@ -80,7 +80,7 @@ export function ModelsSection() {
                 const routeName = (id: SignInId | "key" | "endpoint") => (id === "endpoint" ? v.name : id === "key" ? `${v.name} key` : ROUTE_NAME[id]);
                 return (
                   <tr key={`${v.id}:${m.id}`}>
-                    <td><strong>{v.name} {m.name}</strong>{v.endpoint && <span className="dim small"> custom endpoint</span>}</td>
+                    <td><div><strong>{v.name} {m.name}</strong>{v.endpoint && <div className="dim small">Custom endpoint</div>}</div></td>
                     <td data-label="Routes">
                       {routes.map((r) => (
                         <div key={r.id} className="cfg-inline small">

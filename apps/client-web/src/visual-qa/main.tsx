@@ -121,6 +121,7 @@ history.replaceState(null, "", `${location.pathname}${location.search}${scenario
   scenarios: Object.fromEntries(Object.entries(SCENARIOS).map(([name, s]) => [name, s.title])),
   click: scenario.click ?? null,
   focus: scenario.focus ?? null,
+  fullPage: scenario.fullPage ?? false,
 };
 
 void import("../App").then(({ App }) => {

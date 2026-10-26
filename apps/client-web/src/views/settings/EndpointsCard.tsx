@@ -19,6 +19,8 @@ interface DraftModel {
 
 const rateText = (v: number | null | undefined): string => (v === null || v === undefined ? "" : String(v));
 const draftOf = (m: EndpointModel): DraftModel => ({ id: m.id, typed: !!m.typed, rates: { input: rateText(m.perMTok?.input), cacheRead: rateText(m.perMTok?.cacheRead), output: rateText(m.perMTok?.output) } });
+/** A price as money: cents always shown, finer rates kept as given. */
+const usd = (n: number | null): string => (n === null ? "-" : Number.isInteger(Math.round(n * 1e6) / 1e4) ? `$${n.toFixed(2)}` : `$${n}`);
 const rateOf = (v: string): number | null => (v.trim() === "" ? null : Number(v));
 
 /** A model's draft as the agent takes it: a price only when some rate is set. */
@@ -61,9 +63,14 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
     api.removeEndpoint(e.id).then(changed, (x: Error) => setError(x.message));
   };
   return (
-    <Card label="Custom endpoints" actions={list && editing !== "new" ? <button className="small-button" onClick={() => setEditing("new")}>Add endpoint</button> : undefined}>
+    <Card className="endpoints-card" label="Custom endpoints" actions={list && editing === null ? <button onClick={() => setEditing("new")}>Add endpoint</button> : undefined}>
       <p className="cfg-note">Any server that speaks OpenAI's Chat Completions API, on this machine or hosted. Its models run on it directly and read AGENTS.md and .agents/skills. Endpoints and their keys serve every project.</p>
-      {error && <div className="banner bad small" role="alert">{error}</div>}
+      {error && (
+        <div className="banner bad small row" role="alert">
+          <span className="grow">{list ? error : `Could not read the endpoints: ${error}`}</span>
+          {!list && <button onClick={() => void load()}>Retry</button>}
+        </div>
+      )}
       {!list && !error && <p className="muted small">Loading endpoints</p>}
       {list && list.length === 0 && editing !== "new" && <p className="muted small endpoint-empty">No endpoints yet.</p>}
       {list?.map((e) => editing === e.id ? (
@@ -74,13 +81,13 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
           <div className="grow">
             <div className="t"><strong>{e.name}</strong> <span className="muted small">{e.models.length === 1 ? "1 model" : `${e.models.length} models`}, {e.hasKey ? "key saved" : "no key"}</span></div>
             <div className="path dim">{e.baseUrl}</div>
-            {e.listError && <div className="small endpoint-warn">Could not read its models: {e.listError}. {e.models.length ? "The ones below stay." : "Type them in Edit instead."}</div>}
-            {e.models.length > 0 && <div className="endpoint-models">{e.models.map((m) => <span key={m.id} className="tag" title={m.perMTok ? "Priced by you" : "No price: Usage shows no cost for it"}>{m.id}{m.perMTok ? " $" : ""}</span>)}</div>}
+            {e.listError && <div className="small endpoint-warn">Could not read its models: {e.listError}. {e.models.length ? "Showing the models it had." : "Type them in Edit instead."}</div>}
+            {e.models.length > 0 && <div className="endpoint-models">{e.models.map((m) => <span key={m.id} className="tag" title={m.perMTok ? `Your price per million tokens: input ${usd(m.perMTok.input)}, cached read ${usd(m.perMTok.cacheRead)}, output ${usd(m.perMTok.output)}` : "No price: Usage shows no cost for it"}>{m.id}{m.perMTok && <span className="dim">&nbsp;{usd(m.perMTok.input)} in / {usd(m.perMTok.output)} out</span>}</span>)}</div>}
           </div>
           <div className="endpoint-actions">
-            <button className="small-button" disabled={busy === e.id} onClick={() => refresh(e.id)}>{busy === e.id ? "Reading" : "Read models"}</button>
-            <button className="small-button" onClick={() => setEditing(e.id)}>Edit</button>
-            <button className="small-button" onClick={() => remove(e)}>Remove</button>
+            <button disabled={busy === e.id} onClick={() => refresh(e.id)}>{busy === e.id ? "Reading" : "Read models"}</button>
+            <button onClick={() => setEditing(e.id)}>Edit</button>
+            <button onClick={() => remove(e)}>Remove</button>
           </div>
         </div>
       ))}
@@ -133,7 +140,7 @@ export function EndpointForm({ endpoint, onSaved, onCancel }: { endpoint?: Custo
         </div>
         <div className="field">
           <label htmlFor="ep-key">API key <span className="dim">(optional)</span></label>
-          <input id="ep-key" type="password" value={key} placeholder={endpoint?.hasKey ? "Saved; type to replace" : "None"} disabled={clearKey} onChange={(e) => setKey(e.target.value)} />
+          <input id="ep-key" type="password" value={key} placeholder={endpoint?.hasKey ? "Saved; type to replace" : "Leave empty if it needs none"} disabled={clearKey} onChange={(e) => setKey(e.target.value)} />
           {endpoint?.hasKey && (
             <label className="small muted endpoint-check"><input type="checkbox" checked={clearKey} onChange={(e) => setClearKey(e.target.checked)} /> Remove the saved key</label>
           )}
@@ -141,11 +148,11 @@ export function EndpointForm({ endpoint, onSaved, onCancel }: { endpoint?: Custo
       </div>
       <div className="field">
         <span className="flabel">Models</span>
-        <span className="help">{endpoint ? "Read from its /models; type any it does not list." : "Read from its /models when you add it; type any it does not list."} A price, in dollars per million tokens, lets Usage estimate cost; without one it shows none.</span>
+        <span className="help">Prices are dollars per million tokens. {endpoint ? "Read from its /models; type any it does not list." : "Read from its /models when you add it; type any it does not list."} A model without a price gets no cost in Usage.</span>
         {models.length > 0 && (
           <div className="scroll-x">
             <table className="cfg-table blocks endpoint-prices">
-              <thead><tr><th>Model</th>{RATES.map((r) => <th key={r.id}>{r.name}</th>)}<th /></tr></thead>
+              <thead><tr><th>Model</th>{RATES.map((r) => <th key={r.id}>{r.name}, $/M</th>)}<th /></tr></thead>
               <tbody>
                 {models.map((m, i) => (
                   <tr key={m.id}>
@@ -155,7 +162,7 @@ export function EndpointForm({ endpoint, onSaved, onCancel }: { endpoint?: Custo
                         <input className="num" inputMode="decimal" aria-label={`${m.id} ${r.name.toLowerCase()} per million tokens`} placeholder="none" value={m.rates[r.id]} onChange={(e) => setRate(i, r.id, e.target.value)} />
                       </td>
                     ))}
-                    <td className="r">{m.typed && <button className="small-button" onClick={() => setModels(models.filter((_, j) => j !== i))}>Remove</button>}</td>
+                    <td className="r">{m.typed && <button aria-label={`Remove ${m.id}`} onClick={() => setModels(models.filter((_, j) => j !== i))}>Remove model</button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -163,7 +170,7 @@ export function EndpointForm({ endpoint, onSaved, onCancel }: { endpoint?: Custo
           </div>
         )}
         <div className="row endpoint-add-model">
-          <input aria-label="Model id" placeholder="Model id, as the endpoint names it" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addModel()} />
+          <input aria-label="Model id" placeholder="Model id" value={typed} onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addModel()} />
           <button disabled={!typed.trim()} onClick={addModel}>Add model</button>
         </div>
       </div>
