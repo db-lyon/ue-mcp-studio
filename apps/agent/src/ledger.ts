@@ -221,7 +221,7 @@ export function summarize(ledger: Ledger, o: SummaryOptions): UsageSummary {
     days: [...days.entries()].map(([day, byKey]) => ({ day, byKey })),
     // Only a period the ledger fully saw is compared against.
     previous: starts && new Date(starts) <= new Date(o.from.getTime() - span)
-      ? { budgetTokens: before.reduce((s, r) => s + budgetTokens(r.tokens), 0), cachedShare: cachedShare(before.reduce((t, r) => add(t, r.tokens), ZERO)) }
+      ? (({ budgetTokens, cachedShare, cost, costPartial, runs, calls }) => ({ budgetTokens, cachedShare, cost, costPartial, runs, calls }))(rowOf("previous", "", before, o.prices))
       : null,
     ledgerStarts: starts,
     sessions: [...bySession.entries()].map(([id, l]) => {

@@ -50,6 +50,12 @@ function Change({ now, before }: { now: number; before: number | null | undefine
   return <span className="dim small">{d === 0 ? "same as" : `${d > 0 ? "+" : ""}${d}% against`} the period before</span>;
 }
 
+/** The cost against the period before; a period billed only by plan has no cost to compare with. */
+function CostChange({ now, previous }: { now: number; previous: UsageSummary["previous"] }) {
+  if (previous && previous.cost === null) return <span className="dim small">no cost the period before: every call ran on a plan</span>;
+  return <Change now={now} before={previous ? previous.cost : null} />;
+}
+
 /**
  * Usage's dashboard: what the ledger recorded for a period, by agent, model,
  * vendor, route or source, with each sign-in's plan meter beside it. Every
@@ -132,11 +138,13 @@ function Tiles({ s }: { s: UsageSummary }) {
       <div className="tile">
         <div className="tile-label">Estimated cost</div>
         <div className="tile-value num">{none ? "-" : t.cost === null ? "None" : usd(t.cost)}</div>
+        {!none && t.cost !== null && <CostChange now={t.cost} previous={s.previous} />}
         <span className="dim small">{none ? "No calls yet" : t.cost === null ? "Every call ran on a sign-in, billed by plan" : t.costPartial ? "Keys and endpoints only; some calls had no price or ran on a plan" : "On keys and endpoints, from the price table"}</span>
       </div>
       <div className="tile">
         <div className="tile-label">Runs</div>
         <div className="tile-value num">{t.runs.toLocaleString("en-US")}</div>
+        <Change now={t.runs} before={s.previous ? s.previous.runs : null} />
         <span className="dim small">{t.calls.toLocaleString("en-US")} model calls</span>
       </div>
     </div>
