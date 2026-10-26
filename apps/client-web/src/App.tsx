@@ -4,7 +4,6 @@ import { api } from "./api";
 import { applyTheme } from "./theme";
 import { useDaemon, type DaemonState } from "./state";
 import { openDocs } from "./native";
-import { FlowsView } from "./views/Flows";
 import { PluginsView } from "./views/Plugins";
 import { useUpdateCount } from "./views/Updates";
 import { UpdateRunner } from "./views/UpdateOverlay";
@@ -26,7 +25,7 @@ import { focusRun, useAttention } from "./attention";
 import { replaceStaleWindow } from "./window-version";
 import { RefusedScreen, useRefusal } from "./views/Refused";
 
-const TABS = ["Chat", "Playtests", "Flows", "Plugins", "Settings"] as const;
+const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
 
 /** Studio, or the one screen that says it needs a newer ue-mcp. */
@@ -163,7 +162,6 @@ function Studio({ daemon }: { daemon: DaemonState }) {
         {tab !== "Chat" && (
           <main className={`view-${tab.toLowerCase()}`}>
             {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
-            {tab === "Flows" && <FlowsView daemon={daemon} />}
             {tab === "Plugins" && <PluginsView daemon={daemon} />}
             {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
           </main>

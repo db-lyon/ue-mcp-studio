@@ -28,8 +28,8 @@ function setup(open = true, tab: NavTab = "Chat", updates = 0, playtestsWaiting 
 
 describe("the navigation drawer", () => {
   it("lists the tabs, marks the current one, and carries the bar's tools", () => {
-    setup(true, "Flows", 2);
-    expect(screen.getByText("Flows").closest("button")?.getAttribute("aria-current")).toBe("page");
+    setup(true, "Plugins", 2);
+    expect(screen.getByText("Plugins").closest("button")?.getAttribute("aria-current")).toBe("page");
     expect(screen.getByText("Chat").closest("button")?.getAttribute("aria-current")).toBeNull();
     expect(screen.getByText("Settings").closest("button")?.querySelector(".tab-dot")).not.toBeNull();
     expect(screen.getByText("Docs")).toBeTruthy();
