@@ -10,8 +10,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import {
   DEFAULT_DIALOG_POLICY,
-  AGENT_CONTEXT_STRATEGIES,
-  type AgentContextStrategy,
   DEFAULT_USAGE,
   EFFORTS,
   IMAGE_EDGES,
@@ -79,7 +77,6 @@ export function usageOf(raw: unknown): UsageSettings {
     subagentsPerTurn: perTurnOf(u.subagentsPerTurn) ?? DEFAULT_USAGE.subagentsPerTurn,
     projectInstructions: typeof u.projectInstructions === "boolean" ? u.projectInstructions : DEFAULT_USAGE.projectInstructions,
     imageSize: (u.imageSize as string) in IMAGE_EDGES ? (u.imageSize as ImageSize) : DEFAULT_USAGE.imageSize,
-    contextStrategy: AGENT_CONTEXT_STRATEGIES.includes(u.contextStrategy as AgentContextStrategy) ? (u.contextStrategy as AgentContextStrategy) : DEFAULT_USAGE.contextStrategy,
   };
 }
 
@@ -112,10 +109,6 @@ export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): U
   if (u.imageSize !== undefined) {
     if (!(u.imageSize in IMAGE_EDGES)) throw new Error(`usage.imageSize must be one of ${Object.keys(IMAGE_EDGES).join(", ")}`);
     next.imageSize = u.imageSize;
-  }
-  if (u.contextStrategy !== undefined) {
-    if (!AGENT_CONTEXT_STRATEGIES.includes(u.contextStrategy)) throw new Error(`usage.contextStrategy must be one of ${AGENT_CONTEXT_STRATEGIES.join(", ")}`);
-    next.contextStrategy = u.contextStrategy;
   }
   return next;
 }

@@ -130,8 +130,6 @@ export interface UsageSettings {
   /** Put the project's CLAUDE.md in the agent's instructions, as a terminal client does. */
   projectInstructions: boolean;
   imageSize: ImageSize;
-  /** How ue-mcp's tools are put to Studio's own agent; auto picks from a measurement when one ships. */
-  contextStrategy: AgentContextStrategy;
 }
 
 export const DEFAULT_USAGE: UsageSettings = {
@@ -141,7 +139,6 @@ export const DEFAULT_USAGE: UsageSettings = {
   subagentsPerTurn: 4,
   projectInstructions: true,
   imageSize: "standard",
-  contextStrategy: "micro",
 };
 
 /** GET /v1/ext/studio/settings. Secrets are reported by presence only, never returned. */

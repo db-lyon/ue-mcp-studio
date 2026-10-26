@@ -127,14 +127,6 @@ describe("Auto", () => {
   });
 });
 
-describe("the setting", () => {
-  it("defaults to Micro, keeps a valid choice, and refuses anything else", () => {
-    expect(usageOf({}).contextStrategy).toBe("micro");
-    expect(usageOf({ contextStrategy: "warp" }).contextStrategy).toBe("micro");
-    expect(applyUsage(DEFAULT_USAGE, { contextStrategy: "lean" }).contextStrategy).toBe("lean");
-    expect(() => applyUsage(DEFAULT_USAGE, { contextStrategy: "warp" as never })).toThrow(/micro, lean, full, auto/);
-  });
-});
 
 describe("the Agent SDK's registry", () => {
   it("types a projected schema as far as it says, and stands projected tools in for ue_mcp", () => {
