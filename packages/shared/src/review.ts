@@ -389,3 +389,59 @@ export function readableValue(text: string | null | undefined): string | null {
   const parts = items.map(one);
   return parts.every((p): p is string => p !== null) ? parts.join(", ") : null;
 }
+
+const plural = (n: number, one: string, many = `${one}s`): string => `${n} ${n === 1 ? one : many}`;
+const clip = (v: string, max = 60): string => {
+  const one = v.replace(/\s+/g, " ").trim();
+  return one.length > max ? `${one.slice(0, max - 3)}...` : one;
+};
+
+/** A record in a line, its values in words where the engine wrote a struct. */
+function recordLine(r: AssetDiffRecord): string {
+  const label = r.path ? (r.group && r.group !== r.path ? `${r.group} ${r.path}` : r.path) : r.displayString;
+  if (!r.path || (r.before === undefined && r.after === undefined)) return r.displayString;
+  const v = (x: string | null | undefined) => (x === null || x === undefined ? "none" : clip(readableValue(x) ?? x));
+  if (r.diffType === "PropertyAddedToB") return `${label} added: ${v(r.after)}`;
+  if (r.diffType === "PropertyAddedToA") return `${label} removed: ${v(r.before)}`;
+  return `${label} ${v(r.before)} to ${v(r.after)}`;
+}
+
+/**
+ * A package's diff as the card shows it. A Blueprint variable is reported by
+ * the engine twice, under My Blueprint and again as the class default it
+ * declares: the Defaults record is dropped so the variable counts once. When
+ * that, or a struct value put in words, changes what the one-line summary
+ * says, the summary is written again from the records.
+ */
+export function refineAssetDiff(d: AssetDiff): AssetDiff {
+  if (d.state !== "ready" || !d.sections?.length) return d;
+  const variables = new Set(d.sections.filter((s) => s.category === "My Blueprint").flatMap((s) => s.entries.map((e) => e.group).filter((g): g is string => !!g)));
+  let folded = 0;
+  const sections = d.sections.flatMap((s) => {
+    if (s.category !== "Defaults" || variables.size === 0) return [s];
+    const entries = s.entries.filter((e) => {
+      const twice = !e.group && variables.has(e.property ?? e.path ?? "");
+      if (twice) folded++;
+      return !twice;
+    });
+    if (entries.length === s.entries.length) return [s];
+    return entries.length ? [{ ...s, entries, hiddenChanges: entries.filter((e) => e.hidden).length }] : [];
+  });
+  const all = sections.flatMap((s) => s.entries);
+  const visible = all.filter((r) => !r.hidden);
+  const reworded = visible.some((r) => readableValue(r.before) !== null || readableValue(r.after) !== null);
+  if (!folded && !reworded) return d;
+  const out: AssetDiff = { ...d, sections, ...(d.recordCount !== undefined ? { recordCount: d.recordCount - folded } : {}) };
+  if (d.status !== "modified" || visible.length === 0) return out;
+  const lines: string[] = [];
+  for (const r of visible) {
+    const line = recordLine(r);
+    if (!lines.includes(line)) lines.push(line);
+    if (lines.length === 2) break;
+  }
+  const hidden = all.length - visible.length;
+  const total = visible.length + (d.recordsDropped ?? 0);
+  const rest = total - lines.length;
+  out.summary = `${plural(total, "difference")}: ${lines.join("; ")}${rest > 0 ? `; and ${rest} more` : ""}${hidden ? `; plus ${plural(hidden, "difference")} in properties the details panel does not show` : ""}`;
+  return out;
+}

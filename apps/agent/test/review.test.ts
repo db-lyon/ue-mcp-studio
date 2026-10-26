@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
-import { assetPathOf, readableValue, reviewGroupOf, unifiedLines, type TurnReview } from "@ue-mcp-studio/shared";
+import { assetPathOf, readableValue, refineAssetDiff, reviewGroupOf, unifiedLines, type AssetDiff, type TurnReview } from "@ue-mcp-studio/shared";
 import { NO_CHECKPOINTS, ReviewBroker, type ReviewHost } from "../src/review.js";
 import { SessionStore, type StoredSession } from "../src/sessions.js";
 import { AgentRunner } from "../src/runner.js";
@@ -334,6 +334,34 @@ describe("the review model", () => {
     expect(readableValue("600.000000")).toBeNull();
   });
 
+  it("counts a Blueprint variable once when the engine reports it under My Blueprint and again as a class default", () => {
+    const d: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "Blueprint", summary: "3 differences: Health Default Value 100 to 150; Health 100.000000 to 150.000000; and 1 more",
+      nativeDiff: { available: true },
+      sections: [
+        { category: "My Blueprint", kind: "properties", engineSource: "", entries: [{ group: "Health", path: "Default Value", property: "DefaultValue", diffType: "PropertyValueChanged", displayString: "Default Value", before: "100", after: "150" }] },
+        { category: "Defaults", kind: "properties", engineSource: "", entries: [
+          { path: "Health", property: "Health", diffType: "PropertyValueChanged", displayString: "Health", before: "100.000000", after: "150.000000" },
+          { path: "Walk Speed", property: "WalkSpeed", diffType: "PropertyValueChanged", displayString: "Walk Speed", before: "600.000000", after: "450.000000" },
+        ] },
+      ],
+    };
+    const r = refineAssetDiff(d);
+    expect(r.sections!.flatMap((s) => s.entries.map((e) => e.path))).toEqual(["Default Value", "Walk Speed"]);
+    expect(r.summary).toBe("2 differences: Health Default Value 100 to 150; Walk Speed 600.000000 to 450.000000");
+    // A diff with nothing to fold keeps the summary ue-mcp wrote.
+    const plain = { ...d, sections: [d.sections![1]] };
+    expect(refineAssetDiff(plain)).toBe(plain);
+  });
+
+  it("writes the summary again in words when a record's value is a parameter struct", () => {
+    const before = `((ParameterInfo=(Name="Roughness",Association=GlobalParameter,Index=-1),ParameterValue=0.500000,ExpressionGUID=00000000000000000000000000000000))`;
+    const d: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "MaterialInstanceConstant", summary: "1 difference: Scalar Parameter Values ((ParameterInfo=(Name=\"Roughness\",Association=Glo...", nativeDiff: { available: true },
+      sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [{ path: "Scalar Parameter Values", property: "ScalarParameterValues", diffType: "PropertyValueChanged", displayString: "", before, after: before.replace("0.500000", "0.800000") }] }],
+    };
+    expect(refineAssetDiff(d).summary).toBe("1 difference: Scalar Parameter Values Roughness = 0.5 to Roughness = 0.8");
+  });
 });
 
 // ── With the runner ──────────────────────────────────────────────────
