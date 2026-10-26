@@ -30,6 +30,7 @@ import {
   type QaRun,
   type QaStep,
   type QaVerdict,
+  type QaScriptStep,
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { DEFAULT_RUN, DraftEditor, RunPanel, playersNeeded, type RunOptions } from "./PlaytestDraft";
@@ -409,6 +410,8 @@ export interface QaCardActions {
   start?: (o: RunOptions) => Promise<{ run: QaRun }>;
   /** Assign to subagent, for a run whose card is in no session yet. */
   assign?: () => Promise<{ run: QaRun }>;
+  /** Edit and Delete for any saved script: its steps as saved, then pie(script_update) or pie(script_delete). */
+  script?: { read: () => Promise<QaRun>; save: (steps: QaScriptStep[]) => Promise<void>; remove: () => Promise<void> };
 }
 
 /** A pill's words while the editor is away: what the run last did, not what it is doing. */
@@ -451,6 +454,8 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
   const [assigning, setAssigning] = useState(false);
   /** A draft's open panel: Start playtest's options, Edit, or Delete waiting for its second click. */
   const [panel, setPanel] = useState<"run" | "edit" | "delete" | null>(null);
+  /** The script as saved, read for Edit on a card drawn outside a session. */
+  const [editing, setEditing] = useState<QaRun | null>(null);
   const [working, setWorking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -599,13 +604,13 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
       .finally(() => setAssigning(false));
   };
 
-  /** A draft's Start playtest, Edit and Delete: each answers with the card's next state. */
-  const act = (call: () => Promise<{ run: QaRun }>) => {
+  /** A draft's Start playtest, Edit and Delete: each answers with the card's next state, or the page reads its list again. */
+  const act = (call: () => Promise<{ run: QaRun } | void>) => {
     setWorking(true);
     setError(null);
     call().then((r) => {
       setPanel(null);
-      setRun((c) => (r.run.runId === c.runId ? newerRun(r.run, c) : r.run));
+      if (r) setRun((c) => (r.run.runId === c.runId ? newerRun(r.run, c) : r.run));
     }, (e: Error) => setError(e.message)).finally(() => setWorking(false));
   };
   const start = (o: RunOptions) => act(() => (outside?.start ? outside.start(o) : api.qaRun(run.runId, o)));
@@ -675,16 +680,30 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
   const cancelAssigned = assigned && <button className="small-button" disabled={assigning || !!offline} title={offline} onClick={toggleAssign} aria-label={assignment?.loop ? "End the loop" : "Cancel the subagent"}>{assignment?.loop ? "End loop" : "Cancel subagent"}</button>;
   const assignButton = canAssign && !assigned && <button className="small-button" disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "A subagent runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"}>{needsYouLoop ? "Assign again" : "Assign to subagent"}</button>;
   const endLoop = needsYouLoop && <button className="small-button" disabled={assigning || !!offline} title={offline ?? "End the loop: it stops waiting for you, and its attempts stay to review and revert"} onClick={closeLoop}>End loop</button>;
-  const draftButtons = open && draft && owned && !run.deleted && !assigned && (
+  /** Edit and Delete: on a session's own draft, or on any saved script where the card is drawn with `script` actions. */
+  const scripted = outside?.script;
+  const editable = (scripted ? true : draft && owned) && !run.deleted && !assigned;
+  const blocked = scripted ? offline : undefined;
+  const toggleEdit = () => {
+    if (panel === "edit" || !scripted) return setPanel(panel === "edit" ? null : "edit");
+    setWorking(true);
+    setError(null);
+    scripted.read().then((r) => {
+      setEditing(r);
+      setPanel("edit");
+    }, (e: Error) => setError(e.message)).finally(() => setWorking(false));
+  };
+  const draftButtons = open && editable && (
     <>
-      <button className="small-button" disabled={working} aria-expanded={panel === "edit"} onClick={() => setPanel(panel === "edit" ? null : "edit")}>Edit</button>
+      <button className="small-button qa-script-edit" disabled={working || !!blocked} title={blocked} aria-expanded={panel === "edit"} onClick={toggleEdit}>Edit</button>
       {panel === "delete" ? (
-        <button className="danger-button small-button" disabled={working} onClick={() => act(() => api.qaDeleteScript(run.runId))}>Delete the script</button>
+        <button className="danger-button small-button" disabled={working || !!blocked} title={blocked} onClick={() => act(() => (scripted ? scripted.remove() : api.qaDeleteScript(run.runId)))}>Delete the script</button>
       ) : (
-        <button className="ghost small-button" disabled={working} onClick={() => setPanel("delete")}>Delete</button>
+        <button className="ghost small-button qa-script-delete" disabled={working || !!blocked} title={blocked} onClick={() => setPanel("delete")}>Delete</button>
       )}
     </>
   );
+  const editRun = panel === "edit" ? (scripted ? editing : draft ? run : null) : null;
   const dismiss = onDismiss && ended && <button className="ghost small-button" aria-label="Dismiss this run" onClick={onDismiss}>Dismiss</button>;
   /** The card's own buttons, in one order everywhere. */
   const ownActions = [startButtons, stopButton, cancelAssigned, assignButton, endLoop, draftButtons, extra, dismiss].filter(Boolean);
@@ -796,8 +815,8 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
         </div>
       )}
       {dense && panel !== "edit" && run.steps.length > 0 && <PathLegend runs={[run]} />}
-      {panel === "edit" && draft ? (
-        <DraftEditor run={run} busy={working} onSave={(steps) => act(() => api.qaSaveScript(run.runId, steps))} onCancel={() => setPanel(null)} />
+      {editRun ? (
+        <DraftEditor run={editRun} busy={working} onSave={(steps) => act(() => (scripted ? scripted.save(steps) : api.qaSaveScript(run.runId, steps)))} onCancel={() => setPanel(null)} />
       ) : (
       <ol className="qa-steps">
         {run.steps.map((s) => {

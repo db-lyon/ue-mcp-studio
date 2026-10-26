@@ -3,8 +3,8 @@
  * newest run as a step path, when it ran and in which session (or outside
  * Studio). Filters narrow it to what needs the user and what is failing. Each
  * row is the playtest's card: Start playtest, Assign to subagent and the full
- * card work as they do in a session, and Open in session goes to the card
- * there. A script no session has gets a session of its own on its first action.
+ * card work as they do in a session, Edit and Delete change any saved script,
+ * and Open in session goes to the card there. A script no session has gets a session of its own on its first action.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
@@ -177,6 +177,17 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
       const r = await api.qaAssign(c.runId, null);
       onChanged();
       return r;
+    },
+    script: {
+      read: async () => (await api.qaPlaytestScript(entry.script)).run,
+      save: async (steps) => {
+        await api.qaPlaytestSave(entry.script, steps);
+        onChanged();
+      },
+      remove: async () => {
+        await api.qaPlaytestDelete(entry.script);
+        onChanged();
+      },
     },
   };
   if (!shown) return null;
