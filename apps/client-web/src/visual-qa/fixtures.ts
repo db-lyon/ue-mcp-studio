@@ -58,15 +58,13 @@ export function run(id: string, name: string, state: string, statuses: string[],
 }
 
 function loop(state: QaLoop["state"]): QaLoop {
-  const first = { n: 1, callId: "agent-1", before: "cp-0", after: "cp-1", changes: [{ path: "Content/Blueprints/BP_Door.uasset", status: "modified" as const }], failing: ["Step 3: the door never opened"], startedAt: ago(9), endedAt: ago(6), tokens: 48_200 };
-  const second = { n: 2, callId: "agent-2", before: "cp-1", ...(state === "running" ? {} : { after: "cp-2", endedAt: ago(2) }), changes: [], failing: state === "running" ? [] : ["Step 3: the door never opened"], startedAt: ago(5), tokens: state === "running" ? 9_100 : 39_800 };
+  const first = { n: 1, callId: "agent-1", before: "cp-0", after: "cp-1", changes: [{ path: "Content/Blueprints/BP_Door.uasset", status: "modified" as const }], failing: ["Step 3: the door never opened"], startedAt: ago(9), endedAt: ago(6) };
+  const second = { n: 2, callId: "agent-2", before: "cp-1", ...(state === "running" ? {} : { after: "cp-2", endedAt: ago(2) }), changes: [], failing: state === "running" ? [] : ["Step 3: the door never opened"], startedAt: ago(5) };
   return {
     id: `loop-${state}`,
     state,
     attempts: [first, second],
     baseline: "cp-0",
-    budget: { minutes: 60, tokens: 2_000_000 },
-    tokens: first.tokens + second.tokens,
     startedAt: ago(9),
     ...(state === "needs_you" ? { endedAt: ago(2), blocker: { kind: "no_progress" as const, reason: "Two attempts changed nothing about step 3: the door trigger never fires in PIE.", evidence: ["Step 3: the door never opened"], step: 2 } } : {}),
   };
@@ -174,7 +172,7 @@ const ENDPOINTS: CustomEndpoint[] = [
     hasKey: false,
     models: [
       { id: "qwen3-coder:30b" },
-      { id: "llama-3.3-70b-instruct", perMTok: { input: 0, cacheRead: null, cacheWrite: null, output: 0 } },
+      { id: "llama-3.3-70b-instruct" },
       { id: "my-finetune", typed: true },
     ],
     listedAt: ago(5),
@@ -185,7 +183,7 @@ const ENDPOINTS: CustomEndpoint[] = [
     name: "Team vLLM",
     baseUrl: "https://llm.internal.example.com/v1",
     hasKey: true,
-    models: [{ id: "deepseek-v4", typed: true, perMTok: { input: 0.27, cacheRead: 0.07, cacheWrite: null, output: 1.1 } }],
+    models: [{ id: "deepseek-v4", typed: true }],
     listedAt: ago(2),
     listError: "its /models answered 401",
   },
@@ -199,7 +197,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, fullPage: true },
   "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },
   "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
-  "endpoints-edit": { title: "Editing a custom endpoint: its models and their prices", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
+  "endpoints-edit": { title: "Editing a custom endpoint: its models", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
   "session-empty": inSession("A session with no playtest: no strip, no row of buttons, Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
   "armed": inSession("Armed: pinned on the strip, its transcript place a one-line pointer", "Door playtest", [RUNS.armed]),
