@@ -155,7 +155,7 @@ const tone = (s: QaStep): string =>
 /** A running run's pill: the step it is on, or how far it got when none is running. */
 export function runningText(run: QaRun, settled: number, total: number): string {
   const on = run.steps.find((s) => s.status === "running");
-  return on ? `Running step ${on.index + 1} of ${total}` : `Running, ${settled} of ${total} done`;
+  return on ? `Step ${on.index + 1} of ${total}: ${stepDoing(on).toLowerCase()}` : `Running, ${settled} of ${total} done`;
 }
 
 /** One line for the collapsed card: how many steps, and where they stand. */
