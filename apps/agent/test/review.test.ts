@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
-import { assetPathOf, reviewGroupOf, unifiedLines, type TurnReview } from "@ue-mcp-studio/shared";
+import { assetPathOf, readableValue, reviewGroupOf, unifiedLines, type TurnReview } from "@ue-mcp-studio/shared";
 import { NO_CHECKPOINTS, ReviewBroker, type ReviewHost } from "../src/review.js";
 import { SessionStore, type StoredSession } from "../src/sessions.js";
 import { AgentRunner } from "../src/runner.js";
@@ -323,6 +323,17 @@ describe("the review model", () => {
       { op: " ", text: "a" }, { op: "-", text: "b" }, { op: "+", text: "c" }, { op: "gap", count: 7 }, { op: "-", text: "y" }, { op: "+", text: "z" },
     ]);
   });
+
+  it("puts a material instance's parameter structs in words, and leaves any other value as the engine wrote it", () => {
+    const scalar = (name: string, v: string) => `(ParameterInfo=(Name="${name}",Association=GlobalParameter,Index=-1),ParameterValue=${v},ExpressionGUID=0F2C4A1B4E6D8C9A00000000AB12CD34)`;
+    expect(readableValue(`(${scalar("Roughness", "0.500000")},${scalar("Metallic", "1.000000")})`)).toBe("Roughness = 0.5, Metallic = 1");
+    expect(readableValue(scalar("Roughness", "0.250000"))).toBe("Roughness = 0.25");
+    expect(readableValue(`((ParameterInfo=(Name="Tint",Association=GlobalParameter,Index=-1),ParameterValue=(R=1.000000,G=0.250000,B=0.000000,A=1.000000),ExpressionGUID=00000000000000000000000000000000))`)).toBe("Tint = (R 1, G 0.25, B 0, A 1)");
+    expect(readableValue(`((ParameterInfo=(Name="Albedo",Association=GlobalParameter,Index=-1),ParameterValue="/Script/Engine.Texture2D'/Game/Textures/T_Rock.T_Rock'",ExpressionGUID=00000000000000000000000000000000))`)).toBe("Albedo = /Game/Textures/T_Rock");
+    expect(readableValue("(X=1.000000,Y=2.000000,Z=3.000000)")).toBeNull();
+    expect(readableValue("600.000000")).toBeNull();
+  });
+
 });
 
 // ── With the runner ──────────────────────────────────────────────────

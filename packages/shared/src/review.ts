@@ -311,3 +311,81 @@ export function unifiedLines(diff: string): Array<{ op: " " | "-" | "+"; text: s
   }
   return out;
 }
+
+/** The fields of one struct as ExportText writes it, (A=1,B=(C=2)), split at its top level; null when the text is not one. */
+function exportFields(text: string): Map<string, string> | null {
+  const items = exportItems(text);
+  if (!items) return null;
+  const out = new Map<string, string>();
+  for (const it of items) {
+    const eq = it.indexOf("=");
+    if (eq <= 0) return null;
+    out.set(it.slice(0, eq), it.slice(eq + 1));
+  }
+  return out;
+}
+
+/** The top-level items of a parenthesised ExportText list, quotes and nesting respected; null when it is not one. */
+function exportItems(text: string): string[] | null {
+  const t = text.trim();
+  if (!t.startsWith("(") || !t.endsWith(")")) return null;
+  const items: string[] = [];
+  let depth = 0;
+  let quoted = false;
+  let start = 1;
+  for (let i = 1; i < t.length - 1; i++) {
+    const c = t[i];
+    if (c === '"' && t[i - 1] !== "\\") quoted = !quoted;
+    if (quoted) continue;
+    if (c === "(") depth++;
+    else if (c === ")") depth--;
+    else if (c === "," && depth === 0) {
+      items.push(t.slice(start, i));
+      start = i + 1;
+    }
+    if (depth < 0) return null;
+  }
+  if (depth !== 0 || quoted) return null;
+  items.push(t.slice(start, t.length - 1));
+  return items.filter((x) => x !== "");
+}
+
+/** A float as ExportText writes it, 0.500000, as 0.5. */
+const exportNumber = (v: string): string => (/^-?\d+\.\d+$/.test(v) ? String(Number(v)) : v);
+
+/** A material parameter's value in words: a number, a colour, an asset's path, or the text as it is. */
+function parameterValue(raw: string): string {
+  const v = raw.trim();
+  const color = exportFields(v);
+  if (color && ["R", "G", "B", "A"].every((k) => color.has(k)) && color.size === 4) return `(R ${exportNumber(color.get("R")!)}, G ${exportNumber(color.get("G")!)}, B ${exportNumber(color.get("B")!)}, A ${exportNumber(color.get("A")!)})`;
+  // An object reference: "/Script/Engine.Texture2D'/Game/T_Rock.T_Rock'" or Texture2D'/Game/T_Rock.T_Rock'.
+  const ref = /^"?[\w/.]+'([^']+)'"?$/.exec(v);
+  if (ref) return ref[1].replace(/\/([^/.]+)\.\1$/, "/$1");
+  return exportNumber(v.replace(/^"(.*)"$/, "$1"));
+}
+
+/**
+ * A material parameter struct, or a list of them, as ExportText writes it
+ * (a material instance's Scalar Parameter Values, say), in words: "Roughness =
+ * 0.5, Tint = (R 1, G 0, B 0, A 1)". Null for any other value, which is shown
+ * as the engine wrote it.
+ */
+export function readableValue(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const t = text.trim();
+  if (!t.includes("ParameterInfo=")) return null;
+  const one = (s: string): string | null => {
+    const f = exportFields(s);
+    const info = f?.get("ParameterInfo");
+    const name = info ? exportFields(info)?.get("Name") : undefined;
+    const value = f?.get("ParameterValue") ?? f?.get("Value");
+    if (!name || value === undefined) return null;
+    return `${name.replace(/^"(.*)"$/, "$1")} = ${parameterValue(value)}`;
+  };
+  const single = one(t);
+  if (single) return single;
+  const items = exportItems(t);
+  if (!items?.length) return null;
+  const parts = items.map(one);
+  return parts.every((p): p is string => p !== null) ? parts.join(", ") : null;
+}

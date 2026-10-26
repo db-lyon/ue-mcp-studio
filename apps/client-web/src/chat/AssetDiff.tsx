@@ -6,6 +6,7 @@
 import { useState } from "react";
 import {
   factRows,
+  readableValue,
   recordsByGroup,
   unifiedLines,
   type AssetDiff,
@@ -39,11 +40,12 @@ const CHANGE_KIND: Record<string, string> = {
 const kindOf = (r: AssetDiffRecord): string => CHANGE_KIND[r.category ?? ""] ?? CHANGE_KIND[r.diffType] ?? "Changed";
 const kindClass = (k: string): string => (k === "Added" ? "add" : k === "Removed" ? "del" : k === "Minor" || k === "Moved" ? "minor" : "mod");
 
-/** A value as ExportText wrote it, or what its absence means. */
+/** A value as ExportText wrote it, a parameter struct in words, or what its absence means. */
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
   if (v === null || v === undefined) return <span className="dim">{side === "before" ? "not there" : "gone"}</span>;
   if (v === "") return <span className="dim">empty</span>;
-  return <span className="mono diff-value"><EngineText text={v} /></span>;
+  const words = readableValue(v);
+  return <span className="mono diff-value" title={words ? v : undefined}><EngineText text={words ?? v} /></span>;
 }
 
 /** One version's picture, or why there is none. */
