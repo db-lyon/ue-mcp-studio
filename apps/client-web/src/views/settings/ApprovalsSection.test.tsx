@@ -70,7 +70,7 @@ describe("Approvals & review: before it acts", () => {
 describe("Approvals & review: shared settings", () => {
   it("marks what ue-mcp keeps for every client", async () => {
     await show();
-    expect(screen.getAllByText("Shared with other clients").length).toBe(3);
+    expect(screen.queryByText("Shared with other clients")).toBeNull();
   });
 
   it("saves who answers dialogs and the feedback mode", async () => {

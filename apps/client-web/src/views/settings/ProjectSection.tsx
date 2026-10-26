@@ -6,7 +6,7 @@ import { inEditor, native } from "../../native";
 import { ProjectSetup } from "../ProjectSetup";
 import { ConfigView } from "../Config";
 import { Head, type SettingsSection } from "../SettingsHub";
-import { Card, Opt, Shared, tokens, useMessage } from "./controls";
+import { Card, Opt, tokens, useMessage } from "./controls";
 import { Path } from "./NativePanel";
 
 /**
@@ -51,7 +51,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         ))}
       </section>
 
-      <Card label={<>Context strategy for other clients <Shared /></>}>
+      <Card label="Context strategy for other clients">
         <p className="muted small">What a client such as an editor extension or a terminal agent is given at the start of each session. Studio's own agent has its own choice, in Agents.</p>
         {context && (
           <>

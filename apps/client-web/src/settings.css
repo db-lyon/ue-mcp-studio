@@ -60,7 +60,6 @@
 .cfg button.switch.on { background: var(--accent); border-color: var(--accent); }
 .cfg button.switch.on::after { left: 16px; background: var(--on-accent); }
 
-.cfg .shared { display: inline-flex; align-items: center; gap: 5px; border: 1px dashed var(--accent-line); color: var(--accent-hi); border-radius: 999px; padding: 0 8px; font: 500 10.5px/1.7 var(--mono); white-space: nowrap; vertical-align: middle; margin-left: 6px; }
 .cfg .tag { display: inline-flex; align-items: center; border: 1px solid var(--line-strong); color: var(--muted); border-radius: 999px; padding: 0 8px; font: 500 10.5px/1.7 var(--mono); white-space: nowrap; vertical-align: middle; }
 .cfg .tag.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .cfg .tag.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
@@ -144,7 +143,6 @@
 /* Inside Settings a stack fills the content column. */
 .cfg .stack { max-width: none; margin: 0; width: 100%; }
 /* The shared badge reads the same in every heading and theme. */
-.cfg .shared { text-transform: none; letter-spacing: 0; font-family: var(--sans); font-weight: 600; }
 .cfg h2.cfg-label { flex-wrap: wrap; }
 /* Paths break at their slashes, never inside a name. */
 .cfg .path { overflow-wrap: break-word; word-break: normal; }
@@ -172,7 +170,6 @@
 @media (max-width: 760px) { .cfg ul.recognised { columns: 1; } }
 
 /* The shared badge is a quiet label, not a link. */
-.cfg .shared { color: var(--muted); border: 1px solid var(--line-strong); }
 
 /* Editor themes: table heads in the editor's own type, like the card titles. */
 :root[data-theme="editor"] .cfg table.cfg-table th, :root[data-theme="editor-orange"] .cfg table.cfg-table th { font: 600 11.5px/1.4 var(--sans); text-transform: none; letter-spacing: 0; }

@@ -48,11 +48,6 @@ export function Row({ title, help, children, badge, inline }: { title: ReactNode
   );
 }
 
-/** "Shared with other clients": the value lives in ue-mcp, so every MCP client on the project follows it. */
-export function Shared() {
-  return <span className="shared" title="ue-mcp stores this for the project, so every MCP client connected to it follows the same setting.">Shared with other clients</span>;
-}
-
 /** A choice with a sentence under it. */
 export function Opt({ on, onPick, title, desc, name, disabled, overridden }: { on: boolean; onPick: () => void; title: ReactNode; desc?: ReactNode; name: string; disabled?: boolean; overridden?: boolean }) {
   return (
