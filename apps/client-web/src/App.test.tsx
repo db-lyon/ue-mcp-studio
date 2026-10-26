@@ -14,7 +14,6 @@ vi.mock("./api", () => {
 });
 vi.mock("./state", () => ({ useDaemon: () => ({ events: m.events, health: null, streaming: true, error: null, refresh: () => {} }) }));
 vi.mock("./views/SettingsHub", () => ({ SettingsHub: () => <div>Settings view</div> }));
-vi.mock("./views/Flows", () => ({ FlowsView: () => <div>Flows view</div> }));
 vi.mock("./views/EditorBanner", () => ({ EditorBanner: () => null }));
 vi.mock("./views/DialogBanner", () => ({ DialogBanner: () => null }));
 vi.mock("./views/UpdateOverlay", () => ({ UpdateRunner: () => null }));

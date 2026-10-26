@@ -18,9 +18,10 @@ import {
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
-import { PathLegend, QaCard, QaContext, type QaCardActions, type QaLive } from "../chat/Qa";
+import { PathLegend, QaCard, QaContext, savedScriptActions, type QaCardActions, type QaLive } from "../chat/Qa";
 
 const FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [
+  { id: "active", label: "Active", empty: "No playtest is running." },
   { id: "needs-you", label: "Needs you", empty: "Nothing needs you. A playtest step that needs your verdict, or a loop that stops for you, shows here." },
   { id: "failing", label: "Failing", empty: "No playtest is failing: every last run passed." },
   { id: "all", label: "All", empty: "No playtests in this project yet. Ask the agent for one in a session, or type /playtest in the message box." },
@@ -33,7 +34,7 @@ const RELOAD_MS = 800;
 function readFilter(): PlaytestFilter | null {
   try {
     const v = window.localStorage.getItem(FILTER_KEY);
-    return v === "needs-you" || v === "failing" || v === "all" ? v : null;
+    return v === "active" || v === "needs-you" || v === "failing" || v === "all" ? v : null;
   } catch {
     return null;
   }
@@ -91,11 +92,12 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   onChat?: () => void;
 }) {
   const { index, error, reload } = source;
-  const all = index?.playtests ?? [];
+  // A deleted script is gone from the project, so it is gone from the page.
+  const all = useMemo(() => (index?.playtests ?? []).filter((e) => !e.deleted), [index]);
   const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.id, all.filter((e) => playtestMatches(e, f.id)).length])) as Record<PlaytestFilter, number>, [all]);
   const [picked, setPicked] = useState<PlaytestFilter | null>(readFilter);
-  // Until the user picks one: Needs you when something does, otherwise All.
-  const filter: PlaytestFilter = picked ?? (counts["needs-you"] > 0 ? "needs-you" : "all");
+  // Until the user picks one: Active when something runs, then Needs you, otherwise All.
+  const filter: PlaytestFilter = picked ?? (counts.active > 0 ? "active" : counts["needs-you"] > 0 ? "needs-you" : "all");
   const pick = (f: PlaytestFilter) => {
     setPicked(f);
     try {
@@ -158,7 +160,7 @@ function metaOf(e: PlaytestEntry, open?: () => void): ReactNode {
       : <span className="qa-meta-session" title={title}>{title}</span>}</>
     : e.last ? " outside Studio" : "";
   const when = e.last ? `${qaEnded(e.last.state) ? "Ran" : "Started"} ${ranAgo(e.last.seenAt)}` : e.card ? "Never run, drafted" : "Never run";
-  return <>{e.deleted && "Script deleted. "}{when}{where}</>;
+  return <>{when}{where}</>;
 }
 
 export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }: { entry: PlaytestEntry; offline?: boolean; onOpenSession: (sessionId: string, runId: string) => void; onChanged: () => void }) {
@@ -178,24 +180,14 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
       onChanged();
       return r;
     },
-    script: {
-      read: async () => (await api.qaPlaytestScript(entry.script)).run,
-      save: async (steps) => {
-        await api.qaPlaytestSave(entry.script, steps);
-        onChanged();
-      },
-      remove: async () => {
-        await api.qaPlaytestDelete(entry.script);
-        onChanged();
-      },
-    },
+    script: savedScriptActions(entry.script, onChanged),
   };
   if (!shown) return null;
   const target = entry.session && entry.last?.sessionId === entry.session.id ? entry.last : entry.card;
   const go = target?.sessionId ? () => onOpenSession(target.sessionId!, target.runId) : undefined;
   return (
-    <div className={`playtests-row ${entry.deleted ? "deleted" : ""}`}>
-      <QaCard run={shown} actions={entry.deleted ? {} : actions} meta={metaOf(entry, go)} slotted offline={offline ? "The editor is not connected" : undefined} />
+    <div className="playtests-row">
+      <QaCard run={shown} actions={actions} meta={metaOf(entry, go)} slotted offline={offline ? "The editor is not connected" : undefined} />
     </div>
   );
 }

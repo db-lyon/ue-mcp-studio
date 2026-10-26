@@ -238,3 +238,19 @@ describe("step captures", () => {
     fs.rmSync(outside, { force: true });
   });
 });
+
+describe("where a run's card sits in its session", () => {
+  it("moves a run that starts again to the end of the transcript, and says so", async () => {
+    const t = setup();
+    t.setAnswer(async () => ok({ ...runAnswer(), state: "finished" }));
+    await t.broker.wrap(t.host, t.s.id).callAction("pie", "script_run", {});
+    const s = t.store.get(t.s.id)!;
+    s.transcript.push({ kind: "user", text: "later", at: "" });
+    t.setAnswer(async () => ok({ ...runAnswer(), state: "running" }));
+    await t.broker.wrap(t.host, t.s.id).callAction("pie", "script_run", {});
+    const kinds = t.store.get(t.s.id)!.transcript.map((e) => e.kind);
+    expect(kinds.at(-1)).toBe("qa");
+    expect(kinds.filter((k) => k === "qa")).toHaveLength(1);
+    expect(t.published.some((p) => p.type === "transcript.moved" && p.data.sessionId === t.s.id)).toBe(true);
+  });
+});

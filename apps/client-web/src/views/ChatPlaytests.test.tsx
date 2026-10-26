@@ -34,23 +34,17 @@ function open(runs: QaRun[]) {
 }
 
 describe("a session's playtests", () => {
-  it("pin a running one under the header, leave a line in its place, and keep Checkpoints in the composer's bar", async () => {
+  it("draw a running one as the conversation's latest item, not pinned above it", async () => {
+    // The agent moves a run that starts to the end of the transcript; the chat draws it in order.
     const { container } = open([run("done", "Walk", "finished", ["passed"]), run("live", "Door", "running", ["running", "pending"])]);
-    const strip = await screen.findByRole("region", { name: "Live playtests" });
-    expect(within(strip).getByRole("group", { name: "Playtest Door" })).toBeTruthy();
-    // The strip comes before the transcript, so it is under the header and over the conversation.
-    const stage = container.querySelector(".thread-stage")!;
-    expect(strip.compareDocumentPosition(stage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(within(stage as HTMLElement).getByRole("group", { name: "Playtest Walk" })).toBeTruthy();
-    expect(within(stage as HTMLElement).queryByRole("group", { name: "Playtest Door" })).toBeNull();
-    expect(within(stage as HTMLElement).getByRole("note").textContent).toContain("Door is running on the strip above");
-    // No row of buttons above the conversation, and no per-session Playtests button.
-    expect(container.querySelector(".conversation-tools")).toBeNull();
-    expect(screen.queryByRole("button", { name: /^Playtests/ })).toBeNull();
-    // Wide, the header (shown only narrow) and the composer's bar both carry it; the bar's is the one on screen.
-    const checkpoints = within(container.querySelector<HTMLElement>(".composer-bar")!).getByRole("button", { name: "Checkpoints" });
-    fireEvent.click(checkpoints);
-    expect(screen.getByRole("dialog", { name: "Checkpoints" })).toBeTruthy();
+    await screen.findByRole("group", { name: "Playtest Walk" });
+    const stage = container.querySelector<HTMLElement>(".thread-stage")!;
+    const door = await within(stage).findByRole("group", { name: "Playtest Door" });
+    expect(screen.queryByRole("region", { name: "Live playtests" })).toBeNull();
+    // Shown once, after everything else in the conversation.
+    expect(within(stage).getAllByRole("group", { name: "Playtest Door" })).toHaveLength(1);
+    const walk = within(stage).getByRole("group", { name: "Playtest Walk" });
+    expect(walk.compareDocumentPosition(door) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("take no space while none is live", async () => {
