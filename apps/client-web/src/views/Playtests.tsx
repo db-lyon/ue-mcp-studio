@@ -111,7 +111,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
     <div className="playtests-page">
       <div className="playtests-head">
         <h1 className="playtests-title">Playtests</h1>
-        <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} known`) : ""}{counts["needs-you"] > 0 && <span className="playtests-waiting" title="The number on the Playtests tab"> · {counts["needs-you"]} need{counts["needs-you"] === 1 ? "s" : ""} you</span>}</span>
+        <span className="dim small playtests-count">{index ? (index.listed ? `${all.length} in this project` : `${all.length} known`) : ""}{index?.listed !== false && counts["needs-you"] > 0 && <span className="playtests-waiting" title="The number on the Playtests tab"> · {counts["needs-you"]} need{counts["needs-you"] === 1 ? "s" : ""} you</span>}</span>
         <span className="spacer" />
         <button className="small-button" onClick={() => reload(true)} title="List the project's scripts again">Refresh</button>
       </div>

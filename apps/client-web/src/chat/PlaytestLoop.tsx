@@ -65,9 +65,9 @@ export function LoopPanel({ loop, busy, onRevert, onThread, showReason = false }
                 {a.reverted && <span className="pill small">Reverted</span>}
                 <span className="spacer" />
                 {!running && !a.reverted && a.changes.length > 0 && (
-                  <button className="small-button" disabled={busy} onClick={() => onRevert(a.n)} aria-label={`Revert attempt ${a.n}`}>Revert</button>
+                  <button className="small-button" disabled={busy} onClick={() => onRevert(a.n)} aria-label={`Revert attempt ${a.n}`} title="Undo the changes this attempt made">Undo its changes</button>
                 )}
-                {onThread && <button className="small-button" onClick={() => onThread(a.callId)} aria-label={`Open attempt ${a.n}'s thread`} title="What the subagent did in this attempt">Open thread</button>}
+                {onThread && <button className="small-button" onClick={() => onThread(a.callId)} aria-label={`Open attempt ${a.n}'s thread`} title="The subagent's messages and tool calls in this attempt">See what it did</button>}
               </div>
               {(a.changes.length > 0 || a.failing.length > 0) && (
                 <details className="small">

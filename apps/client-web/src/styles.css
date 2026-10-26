@@ -1567,3 +1567,19 @@ button.qa-meta-session.link > span[aria-hidden="true"] { flex-shrink: 0; }
 .playtest-strip.many.needs-you { max-height: 66%; }
 /* The focused bar's name takes its own line under the path, so it covers nothing. */
 .qa-path-caption { position: static; margin-top: 4px; }
+/* Review of the after shots (#72). */
+/* The running bar: the text colour ringed with the accent, so it reads as live in every theme. */
+.qa-path-step.run .qa-path-hit::before { box-shadow: 0 0 0 2px var(--accent); }
+.qa-legend-mark.run { box-shadow: 0 0 0 1.5px var(--accent); }
+/* The step that asks keeps to two lines on the strip, so what to check is always readable. */
+.qa-card.dense .qa-answer:not(.needs) .qa-answer-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow: hidden; text-overflow: clip; }
+/* The summary line and its keys share one baseline; the buttons centre on it. */
+.qa-compact-line { align-items: baseline; }
+.qa-compact-line .qa-box-actions { align-self: center; }
+.qa-pip-key { align-self: baseline; }
+.qa-pip-key .qa-legend-mark { align-self: center; }
+/* Disclosure marks in an open card: the size and contrast of the card's own chevron. */
+.qa-card details > summary::marker { color: var(--text); font-size: 1.15em; }
+/* Labels in a card are sans in every theme, as their words are. */
+.qa-card .eyebrow, .playtest-strip .eyebrow { font: 600 11px/1.3 var(--sans); text-transform: none; letter-spacing: 0; }
+button.strip-more { margin-bottom: 2px; }

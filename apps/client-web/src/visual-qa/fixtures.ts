@@ -110,6 +110,7 @@ function transcript(runs: QaRun[]): TranscriptEntry[] {
   entries.push({ kind: "assistant", text: "I saved it as a script. The observer checks the jump, the door angle and the sprint speed; you judge the jump arc and how the door opens.", at: ago(11) });
   for (const r of runs) entries.push({ kind: "qa", run: r });
   const text = runs.some(qaNeedsYou) ? "It needs you now: the strip above has what it is waiting on."
+    : runs.every((r) => r.state === "armed") ? "It is starting. I will read the results when it ends."
     : runs.some(qaActive) ? "It is running. I will read the results when it ends."
     : runs.some((r) => r.state === "finished" || r.state === "stopped") ? "The run ended; its card has each step's result."
     : "It is ready. Press Start playtest on its card to run it.";

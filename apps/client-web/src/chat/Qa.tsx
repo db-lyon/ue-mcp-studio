@@ -216,7 +216,7 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
         <div className="qa-path-caption small" aria-hidden="true">
           <span className="qa-num mono">{on.index + 1}</span>
           <span className="qa-path-caption-text">{on.instruction}</span>
-          <span className="qa-path-caption-state">{judgeLabel(on)}, {statusLabel(on, ended)}</span>
+          <span className="qa-path-caption-state">{on.judge === "auto" ? "Checked by the observer" : "Judged by a person"}: {statusLabel(on, ended)}</span>
         </div>
       )}
     </div>
@@ -365,7 +365,7 @@ const MARKS: Array<[PathMark, string]> = [
   ["warn", "Needs you"],
   ["run", "Running"],
   ["pending", "To come"],
-  ["skipped", "Skipped: a verdict passed over it"],
+  ["skipped", "Skipped: passed over, not judged"],
   ["unrun", "Not run: the run ended first"],
 ];
 
@@ -717,7 +717,10 @@ export function QaCard({ run: saved, form: own, onDismiss, onHide, actions: outs
             </button>
             {meta && <span className="qa-meta dim">{meta}</span>}
             {!open && !slotted && manualSteps > 0 && !draft && (
-              <span className="qa-pip-key dim"><span className="qa-legend-mark pending person" aria-hidden="true" />judged by a person</span>
+              <span className="qa-pip-key dim"><span className="qa-legend-mark pending person" aria-hidden="true" />Judged by a person</span>
+            )}
+            {!open && !slotted && ended && sum.pending > 0 && (
+              <span className="qa-pip-key dim"><span className="qa-legend-mark unrun" aria-hidden="true" />Not run</span>
             )}
             {!ask && !needsYouLoop && actions}
           </div>
