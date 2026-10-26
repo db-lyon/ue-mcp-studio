@@ -1,6 +1,6 @@
 # Agents, settings and usage
 
-Status: the plan in force. Phases 1 to 4 are built (section 8); phase 4's measurement for Auto waits on an editor run (section 10). Every decision is settled; there are no open questions.
+Status: the plan in force. Phases 1 to 5 are built (section 8); phase 4's measurement for Auto waits on an editor run (section 10). Every decision is settled; there are no open questions.
 
 ## Why
 
@@ -212,7 +212,7 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 2. **Native files on every route**, the read-only Agents view, the built-in worker shown read only, helpers per turn under Budgets. (Built, #67.)
 3. **Usage ledger and dashboard.** (Built, #68.)
 4. **Context strategy for Studio's agent**, on ue-mcp's projections. (Built, #70; Auto stays hidden until its measurement is committed.)
-5. **Custom endpoints and route order.**
+5. **Custom endpoints and route order** (built, #71).
 
 ---
 
@@ -277,3 +277,13 @@ No phase was run against a live editor: the user has not asked for editor use. E
 2. **The Claude sign-in gets the same surface**: projected tools are registered with the Agent SDK from their JSON Schemas, and project subagents whose files allow ue_mcp get every projected editor tool in its place.
 3. **The choice is Studio's own setting** (`usage.contextStrategy`, Micro by default) and never touches ue-mcp.yml, so other clients keep theirs. A daemon without projections runs Micro whatever was chosen and says why; a projection that fails mid-session falls back to Micro for that turn.
 4. **Auto ships hidden.** It appears only once `context-costs.json` exists beside the agent; the usage-parity runner writes it from task-checked runs per strategy.
+
+### Phase 5
+
+1. **Endpoints serve every project, like the vendor keys.** The list is `~/.ue-mcp/studio/endpoints.json`, beside the keys folder; each key is `keys/endpoint-<id>.key`, mode 600, reported by presence only. An endpoint's id comes from its name (lowercase letters, digits and hyphens), so `endpoint:<id>` never holds a second colon.
+2. **A key is optional.** Without one the request carries no authorization header, as a local server expects.
+3. **Models are read from the endpoint's `/models` and can be typed.** Adding an endpoint, or changing its address or key, reads the list once; Read models reads it again. A typed model stays when the list is read again, a listed one that disappears goes, and a changed address drops the listed ones. A failed read is kept and shown beside the endpoint, never thrown, and its models stay.
+4. **Prices live on the endpoint's models**, dollars per million input, cached-read and output tokens, and count as the user's own price in Usage. They are not written into the Usage price table, where a user's own price for the same model still wins.
+5. **An endpoint's model has one route: the endpoint.** The route order (sign-ins first by default, or keys first) applies only to named vendors' models that a sign-in and a key can both run; the catalog carries it so the picker and the models table list routes in the order they are tried.
+6. **Removing the endpoint the main agent runs on** puts the main agent back on the default model, so a turn never starts on a route that is gone. A model the endpoint no longer lists is shown in the picker's connect view with what to do.
+7. **The ledger keeps `endpoint:<id>` as both vendor and route**, so each endpoint is counted apart, and Usage names it by the endpoint's current name.
