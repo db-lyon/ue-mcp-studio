@@ -66,7 +66,7 @@ describe("the checklist card", () => {
     expect(within(step(0)).getByText("auto")).toBeTruthy();
     expect(within(step(2)).getByText("manual")).toBeTruthy();
     expect(screen.getAllByRole("listitem").map((li) => li.getAttribute("data-status"))).toEqual(["pending", "pending", "pending"]);
-    expect(within(step(0)).getByText("Pending")).toBeTruthy();
+    expect(within(step(0)).getByText("To come")).toBeTruthy();
     expect(step(1).textContent).toContain("Door.OpenAngle gt 80, within 5000 ms");
   });
 
@@ -329,11 +329,11 @@ describe("the collapsed card", () => {
     const bars = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem");
     expect(bars.map((b) => b.className.split(" ")[1])).toEqual(["ok", "bad", ""]);
     const bar = within(bars[1]).getByRole("button");
-    expect(bar.getAttribute("aria-label")).toBe("Step 2, auto, Failed");
-    expect(bar.getAttribute("title")).toBe("2. Open the door (auto): Failed");
+    expect(bar.getAttribute("aria-label")).toBe("Step 2, observer, Failed");
+    expect(bar.getAttribute("title")).toBe("2. Open the door (Observer): Failed");
     // The step the finished run never reached is marked so, apart from one still to come.
     expect(bars[2].className).toContain("unrun");
-    expect(within(bars[2]).getByRole("button").getAttribute("title")).toBe("3. " + STEPS[2].instruction + " (" + STEPS[2].judge + "): Not run");
+    expect(within(bars[2]).getByRole("button").getAttribute("title")).toBe("3. " + STEPS[2].instruction + " (Person): Not run");
     expect(screen.getByText("3 steps: 1 passed, 1 failed, 1 not run")).toBeTruthy();
     expect(screen.queryByText("Walk up to the door")).toBeNull();
     // The pill says how it ended in words, not only in colour.
@@ -344,7 +344,7 @@ describe("the collapsed card", () => {
     collapsed(runOf());
     const bars = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem");
     expect(bars.map((b) => b.classList.contains("manual"))).toEqual([false, false, true]);
-    expect(within(bars[2]).getByRole("button").getAttribute("aria-label")).toBe("Step 3, manual, Pending");
+    expect(within(bars[2]).getByRole("button").getAttribute("aria-label")).toBe("Step 3, person, To come");
   });
 
   it("opens to the full card on a click, and closes again from its title", () => {
@@ -365,7 +365,7 @@ describe("the collapsed card", () => {
     };
     try {
       collapsed(runOf());
-      fireEvent.click(screen.getByRole("button", { name: "Step 3, manual, Pending" }));
+      fireEvent.click(screen.getByRole("button", { name: "Step 3, person, To come" }));
       expect(screen.getByText("The door opens without a visible pop")).toBeTruthy();
       expect(scrolled).toEqual(["2"]);
       expect(document.activeElement?.getAttribute("data-index")).toBe("2");
@@ -461,7 +461,7 @@ describe("the collapsed card", () => {
       fireEvent.click(screen.getByRole("button", { name: "Open playtest DoorOpens" }));
       expect(scrolled).toEqual([RUN]);
       fireEvent.click(screen.getByRole("button", { name: /DoorOpens/, expanded: true }));
-      fireEvent.click(screen.getByRole("button", { name: "Step 2, auto, Pending" }));
+      fireEvent.click(screen.getByRole("button", { name: "Step 2, observer, To come" }));
       const li = document.querySelector(".qa-step[data-index='1']")!;
       expect(li.classList.contains("flash")).toBe(true);
       act(() => {

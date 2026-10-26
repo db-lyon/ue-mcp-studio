@@ -115,7 +115,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
         <span className="spacer" />
         <button className="small-button" onClick={() => reload(true)} title="List the project's scripts again">Refresh</button>
       </div>
-      <div className="playtests-filters" role="group" aria-label="Show">
+      {all.length > 0 && <div className="playtests-filters" role="group" aria-label="Show">
         {FILTERS.map((f) => (
           <button
             key={f.id}
@@ -126,8 +126,8 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
             {f.label} <span className="filter-count">{counts[f.id]}</span>
           </button>
         ))}
-      </div>
-      {all.length > 0 && <PathLegend />}
+      </div>}
+      {rows.length > 0 && <PathLegend runs={rows.map(playtestShown).filter((r): r is QaRun => !!r)} />}
       {error && <div className="banner bad small" role="alert">{error}</div>}
       {index && !index.listed && (
         <div className="banner warn small">The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.</div>

@@ -134,7 +134,7 @@ describe("the Playtests page", () => {
   it("opens the full card in place from a step's bar", () => {
     page();
     fireEvent.click(screen.getByRole("button", { name: "All 4" }));
-    fireEvent.click(within(row("Jump")).getByRole("button", { name: "Step 1, auto, Failed" }));
+    fireEvent.click(within(row("Jump")).getByRole("button", { name: "Step 1, observer, Failed" }));
     expect(within(row("Jump")).getByText("Jump 1")).toBeTruthy();
   });
 
@@ -168,11 +168,11 @@ describe("the Playtests page", () => {
     expect((within(card).getByRole("button", { name: "Pass step 2" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it("says what each mark on a step path means", () => {
+  it("names only the marks the shown paths carry", () => {
     page();
     const legend = screen.getByRole("note", { name: "What the step marks mean" });
     expect(legend.textContent).toContain("Passed");
-    expect(legend.textContent).toContain("Not run");
+    expect(legend.textContent).not.toContain("Not run");
     expect(legend.textContent).toContain("Judged by a person");
   });
 
