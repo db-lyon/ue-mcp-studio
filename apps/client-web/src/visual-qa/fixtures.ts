@@ -107,7 +107,7 @@ function transcript(runs: QaRun[]): TranscriptEntry[] {
   }
   entries.push({ kind: "assistant", text: "I saved it as a script. The observer checks the jump, the door angle and the sprint speed; you judge the jump arc and how the door opens.", at: ago(11) });
   for (const r of runs) entries.push({ kind: "qa", run: r });
-  const text = runs.some(qaNeedsYou) ? "It needs you now: the strip above has what it is waiting on."
+  const text = runs.some(qaNeedsYou) ? "It needs you now: the card below has what it is waiting on."
     : runs.every((r) => r.state === "armed") ? "It is starting. I will read the results when it ends."
     : runs.some(qaActive) ? "It is running. I will read the results when it ends."
     : runs.some((r) => r.state === "finished" || r.state === "stopped") ? "The run ended; its card has each step's result."
@@ -223,22 +223,22 @@ export const SCENARIOS: Record<string, Scenario> = {
   "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },
   "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
   "endpoints-edit": { title: "Editing a custom endpoint: its models", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
-  "session-empty": inSession("A session with no playtest: no strip, no row of buttons, Checkpoints in the composer bar", "Door playtest", []),
+  "session-empty": inSession("A session with no playtest: Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
-  "armed": inSession("Armed: pinned on the strip, its transcript place a one-line pointer", "Door playtest", [RUNS.armed]),
-  "running": inSession("Running: live card on the strip", "Jump check", [RUNS.running]),
-  "waiting": inSession("Waiting for a verdict: Pass, Fail and Skip on the strip", "Door playtest", [RUNS.waiting]),
-  "waiting-open": inSession("Waiting, opened in place from the waiting step's bar", "Door playtest", [RUNS.waiting], ".playtest-strip .qa-path-step[data-status='awaiting_verdict'] button"),
-  "focus-step-bar": inSession("Keyboard focus on a step bar of a waiting card on the strip", "Door playtest", [RUNS.waiting], undefined, ".playtest-strip .qa-path-step:nth-child(2) button"),
-  "focus-verdict": inSession("Keyboard focus on Pass in the strip", "Door playtest", [RUNS.waiting], undefined, ".playtest-strip .qa-answer button"),
-  "finished-failures": inSession("Finished with failures: back in the transcript, not on the strip", "Landing check", [RUNS.failed]),
+  "armed": inSession("Armed: the latest item in the conversation", "Door playtest", [RUNS.armed]),
+  "running": inSession("Running: the latest item in the conversation", "Jump check", [RUNS.running]),
+  "waiting": inSession("Waiting for a verdict: Pass, Fail and Skip on the card", "Door playtest", [RUNS.waiting]),
+  "waiting-open": inSession("Waiting, opened in place from the waiting step's bar", "Door playtest", [RUNS.waiting], ".thread-stage .qa-path-step[data-status='awaiting_verdict'] button"),
+  "focus-step-bar": inSession("Keyboard focus on a step bar of a waiting card", "Door playtest", [RUNS.waiting], undefined, ".thread-stage .qa-path-step:nth-child(2) button"),
+  "focus-verdict": inSession("Keyboard focus on Pass", "Door playtest", [RUNS.waiting], undefined, ".thread-stage .qa-answer button"),
+  "finished-failures": inSession("Finished with failures", "Landing check", [RUNS.failed]),
   "finished-failures-open": inSession("Finished with failures, opened from a failed step's bar", "Landing check", [RUNS.failed], ".qa-path-step[data-status='failed'] button"),
   "stopped": inSession("Stopped: in the transcript, a neutral pill, with the steps it never reached marked", "Sprint", [RUNS.stopped]),
-  "loop-running": inSession("Assigned loop running: on the strip with its attempt", "Ledge grab", [RUNS.loopRunning]),
-  "loop-needs-you": inSession("Loop that needs you: on the strip with its reason and Review", "Gate trigger", [RUNS.loopNeedsYou]),
-  "loop-needs-you-open": { ...inSession("Loop that needs you, opened from the strip: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".playtest-strip .qa-toggle"), scroll: ".playtest-strip button[title^='A subagent runs']" },
-  "strip-two-need-you": inSession("Two that need you and one running: both that need you are shown at every width", "Door playtest", [RUNS.running, RUNS.waiting, RUNS.loopNeedsYou]),
-  "strip-several": inSession("Several live: summary line, needs-you first, bounded height", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
+  "loop-running": inSession("Assigned loop running, with its attempt", "Ledge grab", [RUNS.loopRunning]),
+  "loop-needs-you": inSession("Loop that needs you, with its reason and Review", "Gate trigger", [RUNS.loopNeedsYou]),
+  "loop-needs-you-open": { ...inSession("Loop that needs you, opened: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".thread-stage .qa-toggle"), scroll: ".thread-stage button[title^='A subagent runs']" },
+  "strip-two-need-you": inSession("Two that need you and one running", "Door playtest", [RUNS.running, RUNS.waiting, RUNS.loopNeedsYou]),
+  "strip-several": inSession("Several live in one conversation", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
   "new-messages": (() => {
     const s = inSession("New messages arrive while the reader is scrolled up: the pill takes its own row, over no line", "Door playtest", [RUNS.armed]);
     const talk: TranscriptEntry[] = Array.from({ length: 6 }, (_, i) => ({ kind: i % 2 ? "assistant" as const : "user" as const, text: i % 2 ? "The observer reads the door angle every frame; the run ends when every step has a result." : "How does it decide the door opened?", at: ago(20 - i) }));

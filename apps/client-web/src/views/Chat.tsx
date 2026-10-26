@@ -27,7 +27,7 @@ import { chatPane } from "../chat/pane";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../chat/TurnReview";
-import { PinnedContext, PlaytestStrip, usePinned, useSessionRuns } from "../chat/PlaytestStrip";
+import { useSessionRuns } from "../chat/sessionRuns";
 import { NARROW, useMedia } from "../layout";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
@@ -302,7 +302,6 @@ export function ChatView({ daemon, nav, active = true }: {
   const outside = useOutsideRuns(daemon.events, daemon.streaming);
   // The session's live playtests, pinned under its header while they run or wait for the user.
   const sessionRuns = useSessionRuns(detail?.id ?? null, detail?.transcript, daemon.events);
-  const strip = usePinned(sessionRuns.runs, sessionRuns.alias);
   const qaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms, sessionId: detail?.id ?? null, onThread: openThreadId }), [daemon.events, daemon.streaming, forms, detail?.id, openThreadId]);
   /** The runs with a card on screen, so their verdict forms are answered there. */
   const qaRuns = useMemo(() => new Set([
@@ -415,10 +414,7 @@ export function ChatView({ daemon, nav, active = true }: {
           <AssetTranscriptContext.Provider value={detail.transcript}>
           <EditMessageContext.Provider value={disconnected ? null : editMessage}>
           <PlaytestCommandContext.Provider value={playtest}>
-          <PinnedContext.Provider value={strip.ids}>
-            {/* The strip and the conversation share this space; the strip takes at most half of it. */}
             <div className="session-stage">
-            <PlaytestStrip runs={strip.pinned} onHide={strip.hide} />
             <div className="thread-stage" ref={stage}>
               <MainTranscript
                 transcript={detail.transcript}
@@ -487,7 +483,6 @@ export function ChatView({ daemon, nav, active = true }: {
             <Sheet open={reviewOpen} title="Checkpoints" onClose={() => setReviewOpen(false)}>
               {reviewOpen && <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />}
             </Sheet>
-          </PinnedContext.Provider>
           </PlaytestCommandContext.Provider>
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>

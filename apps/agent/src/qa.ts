@@ -39,6 +39,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
 import {
+  qaActive,
   qaApplyStreamEvent,
   qaApplyVerdictAnswer,
   qaEnded,
@@ -796,8 +797,18 @@ export class QaBroker {
         draft.run = run;
         this.o.store.save(s);
       } else if (entry?.kind === "qa") {
+        const started = qaActive(run) && !qaActive(entry.run);
         entry.run = run;
-        this.o.store.save(s);
+        // A run that starts again is the conversation's latest item: its card moves to the end and stays there.
+        const at = s.transcript.indexOf(entry);
+        if (started && at !== s.transcript.length - 1) {
+          s.transcript.splice(at, 1);
+          s.transcript.push(entry);
+          this.o.store.save(s);
+          this.o.host.events.publish("transcript.moved", { sessionId: s.id, runId: run.runId });
+        } else {
+          this.o.store.save(s);
+        }
       } else {
         s.transcript.push({ kind: "qa", run });
         this.o.store.save(s);
