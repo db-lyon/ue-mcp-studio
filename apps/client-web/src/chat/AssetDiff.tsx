@@ -16,6 +16,7 @@ import {
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { DiffView } from "./Diff";
+import { EngineText } from "./breakable";
 
 /** EDiffType::Category and the diff types, in words. */
 const CHANGE_KIND: Record<string, string> = {
@@ -38,17 +39,11 @@ const CHANGE_KIND: Record<string, string> = {
 const kindOf = (r: AssetDiffRecord): string => CHANGE_KIND[r.category ?? ""] ?? CHANGE_KIND[r.diffType] ?? "Changed";
 const kindClass = (k: string): string => (k === "Added" ? "add" : k === "Removed" ? "del" : k === "Minor" || k === "Moved" ? "minor" : "mod");
 
-/** Text that may break after a comma, a slash or a dot, so a long value wraps between its parts, never inside a number. */
-function Breakable({ text }: { text: string }) {
-  const parts = text.split(/(?<=[,/=(])/);
-  return <>{parts.map((x, i) => <span key={i}>{x}{i < parts.length - 1 && <wbr />}</span>)}</>;
-}
-
 /** A value as ExportText wrote it, or what its absence means. */
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
   if (v === null || v === undefined) return <span className="dim">{side === "before" ? "not there" : "gone"}</span>;
   if (v === "") return <span className="dim">empty</span>;
-  return <span className="mono diff-value"><Breakable text={v} /></span>;
+  return <span className="mono diff-value"><EngineText text={v} /></span>;
 }
 
 /** One version's picture, or why there is none. */
@@ -63,7 +58,7 @@ function Picture({ version, missing, label, name }: { version: AssetVersion | nu
       ) : (
         <div className="review-nopicture dim small">No picture: {t && "error" in t ? t.error : "the editor kept none for this version."}</div>
       )}
-      <figcaption className="small dim"><span className="picture-label">{label}</span><span className="picture-class">{version?.class ? <Breakable text={version.class} /> : "no version"}</span></figcaption>
+      <figcaption className="small dim"><span className="picture-label">{label}</span><span className="picture-class">{version?.class ? <EngineText text={version.class} /> : "no version"}</span></figcaption>
     </figure>
   );
 }
@@ -82,8 +77,8 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
         const head = (
           <>
             <span className={`diff-kind ${kindClass(k)}`}>{k}</span>
-            {values ? <span className="diff-path" title={r.displayString}>{r.path}</span> : <span className="diff-message" title={r.toolTip}>{r.displayString}</span>}
-            {node && !r.displayString.includes(node) && <span className="dim"> on {node}</span>}
+            {values ? <span className="diff-path" title={r.displayString}><EngineText text={r.path!} /></span> : <span className="diff-message" title={r.toolTip}><EngineText text={r.displayString} /></span>}
+            {node && !r.displayString.includes(node) && <span className="dim"> on <EngineText text={node} /></span>}
           </>
         );
         if (values) {
@@ -99,9 +94,9 @@ function RecordRows({ entries }: { entries: AssetDiffRecord[] }) {
           <tr key={i} className={`diff-row ${kindClass(k)}`}>
             <td colSpan={3}>
               {head}
-              {r.toolTip && r.toolTip !== r.displayString && <div className="dim small">{r.toolTip}</div>}
+              {r.toolTip && r.toolTip !== r.displayString && <div className="dim small"><EngineText text={r.toolTip} /></div>}
               {r.facts && r.facts.length > 0 && (
-                <div className="dim small"><Breakable text={r.facts.map((f) => `${f.name} ${f.value}`).join(", ")} /></div>
+                <div className="dim small"><EngineText text={r.facts.map((f) => `${f.name} ${f.value}`).join(", ")} /></div>
               )}
               {r.properties && r.properties.length > 0 && (
                 <table className="diff-table nested"><tbody><RecordRows entries={r.properties} /></tbody></table>
@@ -136,7 +131,7 @@ function Section({ s }: { s: AssetDiffSection }) {
   return (
     <section className="diff-section" aria-label={s.category}>
       <div className="diff-section-head" title={`From Unreal's ${s.engineSource}`}>
-        <span className="diff-section-title">{s.category}</span>
+        <span className="diff-section-title"><EngineText text={s.category} /></span>
         <span className="dim small">{shown.length === 1 ? "1 difference" : `${shown.length} differences`}</span>
       </div>
       {shown.length > 0 && <RecordTable entries={shown} graph={s.kind === "graph"} />}
@@ -156,7 +151,7 @@ function GroupRows({ group, entries }: { group: string | null; entries: AssetDif
   return (
     <>
       {group !== null && (
-        <tr className="diff-group"><th colSpan={3}>{group}</th></tr>
+        <tr className="diff-group"><th colSpan={3}><EngineText text={group} /></th></tr>
       )}
       <RecordRows entries={entries} />
     </>
@@ -182,7 +177,7 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
             <tbody>
               {rows.map((r) => (
                 <tr key={r.name} className={r.changed ? "diff-row mod" : "diff-row"}>
-                  <td>{r.name}</td>
+                  <td><EngineText text={r.name} /></td>
                   {before && <td><Value v={r.before ?? null} side="before" /></td>}
                   {after && <td><Value v={r.after ?? null} side="after" /></td>}
                 </tr>
@@ -206,7 +201,7 @@ export function AssetDiffView({ diff, name, status, blueprintTree, nativeNote }:
     return (
       <div className="banner bad small" role="alert">
         <div>Unreal could not load this asset to diff it, so there is no before and after to show.</div>
-        <div className="mono small"><Breakable text={diff.error ?? "No reason was given."} /></div>
+        <div className="mono small"><EngineText text={diff.error ?? "No reason was given."} /></div>
         <div>{consequence}</div>
       </div>
     );

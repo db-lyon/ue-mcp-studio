@@ -170,6 +170,13 @@ describe("the diff view", () => {
     nativeDiff: { available: true },
   };
 
+  it("lets a long engine name wrap only between its parts", () => {
+    card(withItem("Content/BP_Door.uasset", { path: "Content/Characters/BP_PlayerCharacterMovementComponent.uasset" }));
+    const name = document.querySelector(".review-item-name")!;
+    expect(name.textContent).toBe("BP_PlayerCharacterMovementComponent.uasset");
+    expect(name.querySelectorAll("wbr").length).toBeGreaterThanOrEqual(4);
+  });
+
   it("shows a package's engine diff: pictures, each category's records with before and after, and the facts", async () => {
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: material } });
     await diffOf(REVIEW.items[1]);
