@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { StudioConfigFile } from "@ue-mcp-studio/shared";
 import { api, ApiError } from "../api";
+import { YamlEditor } from "./YamlEditor";
 
 export function ConfigView() {
   const [file, setFile] = useState<StudioConfigFile | null>(null);
@@ -36,7 +37,7 @@ export function ConfigView() {
         <button disabled={!dirty} onClick={save}>Save</button>
       </div>
       {message && <div className={`banner ${message.ok ? "ok" : "bad"}`}>{message.text}</div>}
-      <textarea className="editor mono" spellCheck={false} value={text} onChange={(e) => setText(e.target.value)} />
+      <YamlEditor label="ue-mcp.yml" value={text} onChange={setText} />
     </section>
   );
 }
