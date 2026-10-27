@@ -36,7 +36,7 @@ import { modelName } from "./models.js";
 import { AttachmentStore, contentFor } from "./attachments.js";
 import { keptName, toolResultContent } from "./images.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
-import { flowCommandText, flowValue, parseFlowArgs, parseSlashCommand, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
+import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { subagentLimitText } from "./subagent-limit.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
@@ -44,6 +44,11 @@ import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, type ActionEffects } from "./approval-kind.js";
 import { AGENT_TOOL } from "./tools.js";
 import { SKILL_TOOL, agentTool, sdkAgents, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
+
+/** The most of a /action's answer the agent's note carries; the transcript keeps all of it. */
+export const ACTION_NOTE_CHARS = 4000;
+/** The id a /action's call is recorded under, so a daemon restart can tell it from a turn's. */
+export const ACTION_CALL_PREFIX = "action-";
 
 /**
  * Testing gameplay with the user: a playtest, which is a test script the agent
@@ -445,6 +450,16 @@ export class AgentRunner {
         this.o.store.save(s);
         continue;
       }
+      // A /action answered the previous daemon, if anyone: there is no turn to resume, so its call ends here.
+      const action = [...s.transcript].reverse().find((t) => t.kind === "tool" && t.call.id.startsWith(ACTION_CALL_PREFIX));
+      if (action?.kind === "tool" && action.call.outcome === "pending") {
+        const ran = !(s.approvals ?? []).some((a) => a.toolUseId === action.call.id);
+        const cut = ran ? `It was cut off: ${why}. The action may have gone on in the editor.` : `It was cut off before it was approved: ${why}. It did not run.`;
+        this.recordOutcome(s, { id: action.call.id, name: action.call.name, input: {}, state: "done", result: cut, isError: true }, ran ? "unknown" : "stopped");
+        Object.assign(s, { approvals: [], status: "idle", waitingCause: null });
+        this.o.store.save(s);
+        continue;
+      }
       const asked = new Set((s.approvals ?? []).map((a) => a.toolUseId));
       // An approval only the previous daemon could answer; its call asks again when the turn resumes.
       if (s.approvals?.length) {
@@ -481,6 +496,14 @@ export class AgentRunner {
       const { name, values } = parseFlowArgs(command.args);
       const params = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, flowValue(v, null)]));
       return this.flow(sessionId, { name, params, text: text.trim() });
+    }
+    // A /action message (queued, or from a client without the form) runs with the pairs it names.
+    if (command?.name === "action") {
+      const { name, values } = parseActionArgs(command.args);
+      const parts = splitActionName(name);
+      if (!parts) throw new Error("name the action as category.method: /action level.place_actor");
+      const args = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, flowValue(v, null)]));
+      return this.action(sessionId, { ...parts, args, text: text.trim() });
     }
     const s = this.require(sessionId);
     if (this.active.has(s.id) || s.status === "running" || s.status === "waiting") {
@@ -653,6 +676,63 @@ export class AgentRunner {
       s.notes.push(outcome.success
         ? `The user ran ${shown}: the flow succeeded.${outcome.summary ? `\n${outcome.summary}` : ""}`
         : `The user ran ${shown}: the flow failed. ${[...outcome.errors, outcome.summary ?? ""].filter(Boolean).join(" ")}`);
+      this.setStatus(s, "idle", null);
+    } finally {
+      if (this.active.get(s.id) === controller) this.active.delete(s.id);
+    }
+  }
+
+  /**
+   * A /action: one ue-mcp action the user runs without the model. It goes in
+   * the transcript as the ue_mcp call it is, through the same approval rules
+   * as the agent's calls (Settings > Approvals & review, and Allow for this
+   * session), and the review checkpoints a turn gets. A playtest it starts is
+   * the user's own, as from the card. The agent gets a note with its next turn.
+   */
+  async action(sessionId: string, request: ActionRunRequest): Promise<void> {
+    const s = this.require(sessionId);
+    if (this.busy(s)) throw new Error("a turn is already in progress; stop it or wait for it to finish");
+    const { category, method } = request;
+    if (!splitActionName(`${category}.${method}`)) throw new Error("name the action as category.method: /action level.place_actor");
+    const shown = request.text?.trim() || actionCommandText(category, method, request.args);
+    s.archived = false;
+    if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = shown.slice(0, 60);
+    s.transcript.push({ kind: "user", text: shown, at: now() });
+    s.turn = { start: s.transcript.length - 1, mutations: 0, targets: [], playtest: false };
+    s.draft = "";
+    s.error = null;
+    const controller = new AbortController();
+    this.active.set(s.id, controller);
+    this.setStatus(s, "running", null);
+    const id = `${ACTION_CALL_PREFIX}${crypto.randomUUID()}`;
+    const name = "ue_mcp";
+    const input: Record<string, unknown> = { action: "call", category, method, args: request.args };
+    try {
+      await this.o.review?.turnStarted(s).catch((e) => this.o.host.log.warn("the review checkpoint before the action failed", e));
+      this.addEntry(s, { kind: "tool", call: { id, name, input, outcome: "pending", startedAt: now() } });
+      const signal = controller.signal;
+      const gate = await this.gate(s, id, name, input, signal);
+      // A Stop answered the call and ended the run already.
+      if (gate && "stopped" in gate) return;
+      if (gate) {
+        this.recordOutcome(s, { id, name, input, state: "done", result: "The user declined to run it.", isError: true }, "declined");
+        s.notes.push(`The user typed ${shown}, then declined it at the approval, so it did not run.`);
+        this.setStatus(s, "idle", null);
+        return;
+      }
+      const exec = await executeTool(this.hostFor(s.id, true), name, input, signal);
+      if (signal.aborted) {
+        this.mergeExec(s, exec, exec.outcome !== "unknown");
+        return;
+      }
+      this.mergeExec(s, exec, exec.outcome !== "unknown");
+      this.markSaved(s, exec.saved);
+      this.recordOutcome(s, { id, name, input, state: "done", result: exec.text, isError: exec.isError, ...(exec.images ? { images: exec.images } : {}) }, exec.outcome);
+      const said = (exec.modelText ?? exec.text).trim();
+      const result = said.length > ACTION_NOTE_CHARS ? `${said.slice(0, ACTION_NOTE_CHARS)}
+[cut at ${ACTION_NOTE_CHARS} characters]` : said;
+      s.notes.push(`The user ran ${shown} themselves (${category}.${method}, not through you). ${exec.isError ? "It failed" : "It answered"}:
+${result}`);
       this.setStatus(s, "idle", null);
     } finally {
       if (this.active.get(s.id) === controller) this.active.delete(s.id);

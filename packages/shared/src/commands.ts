@@ -17,6 +17,7 @@ export interface SlashCommand {
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "playtest", args: "what to test (optional)", summary: "Draft a playtest of what the conversation is about, as a Playtest card" },
   { name: "flow", args: "flow name, then key=value (optional)", summary: "Run one of the project's flows, with a form for its inputs" },
+  { name: "action", args: "category.method, then key=value (optional)", summary: "Run one ue-mcp action directly, with a form for its parameters" },
 ];
 
 /** The command a message runs, and the text after its name. Null for an ordinary message. */

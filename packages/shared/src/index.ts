@@ -865,6 +865,7 @@ export * from "./playtests.js";
 export * from "./review.js";
 export * from "./commands.js";
 export * from "./flows.js";
+export * from "./actions.js";
 export * from "./composer.js";
 export * from "./native.js";
 export * from "./version.js";

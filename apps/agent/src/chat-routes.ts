@@ -17,6 +17,9 @@
  *   POST /sessions/:id/messages     send a message; the turn runs in the background. "/playtest <text>" runs the playtest flow
  *   POST /sessions/:id/playtest     a /playtest: { text?, source?, turn? }, source an agent message's transcript index, turn the latest turn's (the Make playtest pill)
  *   POST /sessions/:id/flow         a /flow: { name, params?, text? }, run through the daemon's /v1/flows/<name>/run
+ *   GET  /actions                   every ue-mcp action as category.method, with its line and effect, for /action's menu
+ *   GET  /actions/:name             one action's parameters (project(describe_action)), for /action's form
+ *   POST /sessions/:id/action       a /action: { category, method, args?, text? }, run as a ue_mcp call under the approval rules
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *   POST /quick                     the editor's quick ask: a new session with its first message (quick.ts)
@@ -35,10 +38,12 @@
 import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { PlaytestFlow } from "./playtest-flow.js";
 import { FlowCaller } from "./flow-run.js";
+import { ActionCatalog } from "./action-catalog.js";
 import { registerFlowModel, type ModelHost } from "./flow-model.js";
 import { CLAUDE_SIGN_IN_AVAILABLE, IMAGE_EDGES, PROVIDERS } from "@ue-mcp-studio/shared";
 import { setImageEdge } from "./images.js";
-import type { ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import type { ActionRunRequest, ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
+import { splitActionName } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { DEFAULT_MODEL, SettingsStore } from "./settings.js";
@@ -93,8 +98,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const effects = new DaemonActionEffects(() => actionsApi.effects());
   // How ue-mcp's tools are put to Studio's own agent, projected by the daemon.
   const surfaces = new ContextSurfaces(contextApiOf(api), () => projectStrategy(api.projectDir), () => settings.provider());
+  // /action's catalog and forms, read from ue-mcp's own surface.
+  const actionCatalog = new ActionCatalog({ effects: () => actionsApi.effects(), callAction: (c, a, args) => api.callAction(c, a, args) });
   const unwatchPlugins = api.events.subscribe((e) => {
     if (e.type === "plugins.changed") {
+      actionCatalog.invalidate();
       effects.refresh();
       surfaces.invalidate();
     }
@@ -648,6 +656,35 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress; wait for it to finish or stop it" } };
     const request: FlowRunRequest = { name: b.name.trim(), params: (b.params as Record<string, unknown> | undefined) ?? {}, ...(b.text ? { text: b.text as string } : {}) };
     runner.flow(s.id, request).catch((e) => api.log.warn(`flow in session ${s.id} failed`, e));
+    return { status: 202, body: { sessionId: s.id } };
+  });
+  api.route("GET", "/actions", async () => {
+    try {
+      return { body: { actions: await actionCatalog.list() } };
+    } catch (e) {
+      return { status: 500, body: { error: e instanceof Error ? e.message : String(e) } };
+    }
+  });
+  api.route("GET", "/actions/:name", async (req) => {
+    const parts = splitActionName(req.params.name);
+    if (!parts) return bad("name an action as category.method");
+    try {
+      return { body: await actionCatalog.describe(parts.category, parts.method) };
+    } catch (e) {
+      return { status: 404, body: { error: e instanceof Error ? e.message : String(e) } };
+    }
+  });
+  // A /action from its form: the action and the args the form gave.
+  api.route("POST", "/sessions/:id/action", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const b = (req.body ?? {}) as { category?: unknown; method?: unknown; args?: unknown; text?: unknown };
+    if (typeof b.category !== "string" || typeof b.method !== "string" || !splitActionName(`${b.category}.${b.method}`)) return bad("body must be { category: string, method: string, args?: object, text?: string }");
+    if (b.args !== undefined && (typeof b.args !== "object" || b.args === null || Array.isArray(b.args))) return bad("args is an object of the action's parameters");
+    if (b.text !== undefined && typeof b.text !== "string") return bad("text is the message the chat shows");
+    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress; wait for it to finish or stop it" } };
+    const request: ActionRunRequest = { category: b.category, method: b.method, args: (b.args as Record<string, unknown> | undefined) ?? {}, ...(b.text ? { text: b.text as string } : {}) };
+    runner.action(s.id, request).catch((e) => api.log.warn(`action in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });
   // A message written while a turn runs: it waits, and goes when the turns before it have ended.

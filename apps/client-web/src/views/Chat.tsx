@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { parseSlashCommand, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
 import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
@@ -16,6 +16,7 @@ import { Composer } from "../chat/Composer";
 import { Approvals } from "../chat/Approvals";
 import { FormCards, useForms } from "../chat/Forms";
 import { FlowLauncher } from "../chat/FlowCommand";
+import { ActionLauncher } from "../chat/ActionCommand";
 import { OutsideRuns, QaContext, useOutsideRuns } from "../chat/Qa";
 import { DialogCards } from "../chat/Dialogs";
 import { useDialogs } from "../chat/dialog-model";
@@ -45,8 +46,9 @@ function sessionOf(data: Record<string, unknown>): string | null {
   return typeof data.sessionId === "string" ? data.sessionId : null;
 }
 
-/** The project's flows, for the names /flow completes. One function, so the menu fetches once per opening. */
+/** The project's flows and ue-mcp's actions, for the names /flow and /action complete. One function each, so the menu fetches once per opening. */
 const loadFlowNames = () => api.flows().then((r) => r.flows);
+const loadActionNames = () => api.actions().then((r) => r.actions);
 
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
@@ -207,13 +209,18 @@ export function ChatView({ daemon, nav, active = true }: {
       setError(e.message);
     });
   };
-  /** A /flow message being run: its form, above the composer. */
+  /** A /flow or /action message being run: its form, above the composer. */
   const [flowAsk, setFlowAsk] = useState<string | null>(null);
-  useEffect(() => setFlowAsk(null), [selected]);
+  const [actionAsk, setActionAsk] = useState<string | null>(null);
+  useEffect(() => {
+    setFlowAsk(null);
+    setActionAsk(null);
+  }, [selected]);
   const send = () => {
-    // A /flow opens its form rather than going out as a message.
-    if (selected && canSend && attach.ready.length === 0 && parseSlashCommand(draft)?.name === "flow") {
-      setFlowAsk(draft.trim());
+    // A /flow or /action opens its form rather than going out as a message.
+    const command = selected && canSend && attach.ready.length === 0 ? parseSlashCommand(draft)?.name : undefined;
+    if (selected && (command === "flow" || command === "action")) {
+      (command === "flow" ? setFlowAsk : setActionAsk)(draft.trim());
       clearPills();
       setDraft("");
       void api.saveDraft(selected, "").catch(() => {});
@@ -227,6 +234,13 @@ export function ChatView({ daemon, nav, active = true }: {
     setThread(null);
     setSent((n) => n + 1);
     return api.flow(id, request).then(() => loadDetail(id));
+  };
+  const runAction = (request: ActionRunRequest) => {
+    if (!selected) return Promise.reject(new Error("Open a session first."));
+    const id = selected;
+    setThread(null);
+    setSent((n) => n + 1);
+    return api.action(id, request).then(() => loadDetail(id));
   };
   const sendNow = () => dispatch((id, text, files) => api.send(id, text, files, true), true);
   const queue = () => dispatch((id, text, files) => api.queue(id, text, files), false);
@@ -451,6 +465,7 @@ export function ChatView({ daemon, nav, active = true }: {
             <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
             <FormCards forms={forms} runs={qaRuns} />
             {flowAsk && !busy && <FlowLauncher key={flowAsk} text={flowAsk} run={runFlow} onClose={() => setFlowAsk(null)} />}
+            {actionAsk && !busy && <ActionLauncher key={actionAsk} text={actionAsk} run={runAction} onClose={() => setActionAsk(null)} />}
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
             {playtest && <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} />}
             <Composer
@@ -462,6 +477,7 @@ export function ChatView({ daemon, nav, active = true }: {
               canSend={canSend}
               onSend={send}
               flows={loadFlowNames}
+              actions={loadActionNames}
               onQueue={queue}
               onSendNow={sendNow}
               onStop={() => selected && void api.stop(selected)}
