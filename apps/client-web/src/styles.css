@@ -30,6 +30,8 @@
   --shadow: 0 20px 40px -24px rgba(0, 0, 0, 0.6);
   --code-bg: #0f0f0e;
   --code-text: #d6d3cc;
+  /* YAML keys: neutral where the accent is orange, so they stay apart from amber numbers. */
+  --syn-key: var(--text);
   --composer-bg: rgba(0, 0, 0, 0.15);
   --mark-glow: 0 0 10px rgba(232, 114, 12, 0.55);
   --ok-glow: 0 0 8px rgba(108, 192, 139, 0.6);
@@ -80,6 +82,7 @@
   --shadow: none;
   --code-bg: var(--ue-input, #0f0f0f);
   --code-text: var(--ue-foreground, #c0c0c0);
+  --syn-key: var(--accent-hi);
   --composer-bg: var(--ue-recessed, #1a1a1a);
   --mark-glow: none;
   --ok-glow: none;
@@ -105,6 +108,7 @@
   --accent-line: #e8720c;
   --on-accent: #140a02;
   --selection: rgba(232, 114, 12, 0.45);
+  --syn-key: var(--text);
 }
 
 /* Editor themes: flat Slate controls, no brand flourishes. */
@@ -347,6 +351,30 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
   padding: 12px;
   resize: vertical;
 }
+/* YAML editor: a transparent textarea over a highlighted <pre>. Both share box, font
+   and metrics so each character paints exactly under the caret; the <pre> follows the
+   textarea's scroll and stops where its scrollbars start. */
+.yaml-editor { position: relative; background: var(--code-bg); border-radius: var(--radius); }
+.yaml-editor .editor, .yaml-layer {
+  font: 12px/1.6 var(--mono);
+  font-variant-ligatures: none;
+  letter-spacing: 0;
+  tab-size: 2;
+  white-space: pre;
+  overflow-wrap: normal;
+  padding: 12px;
+  border: 1px solid transparent;
+}
+.yaml-editor .editor { position: relative; display: block; background: transparent; color: transparent; caret-color: var(--text); border-color: var(--line-strong); }
+.yaml-editor .editor:focus { border-color: var(--accent-line); }
+.yaml-layer { position: absolute; top: 0; left: 0; right: 0; bottom: 0; margin: 0; overflow: hidden; pointer-events: none; color: var(--code-text); background: transparent; }
+.yaml-layer code { display: block; font: inherit; color: inherit; background: none; padding: 0; border: 0; white-space: inherit; }
+.y-key { color: var(--syn-key); }
+.y-string { color: var(--ok); }
+.y-number, .y-bool, .y-null { color: var(--warn); }
+.y-anchor, .y-tag { color: var(--bad); }
+.y-comment { color: var(--dim); }
+.y-dash, .y-punct, .y-doc { color: var(--muted); }
 
 /* Chat */
 .chat { display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 14px; height: 100%; min-height: 0; }
