@@ -9,8 +9,8 @@ import type { PendingFile } from "./attachments";
 afterEach(cleanup);
 
 describe("the command registry", () => {
-  it("has /playtest and /flow", () => {
-    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["playtest", "flow"]);
+  it("has /playtest, /flow and /action", () => {
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["playtest", "flow", "action"]);
   });
 
   it("reads a command and its text from a message, and leaves any other message alone", () => {
@@ -22,6 +22,7 @@ describe("the command registry", () => {
     expect(parseSlashCommand("please /playtest it")).toBeNull();
     expect(parseSlashCommand("/Game/Maps/Main is broken")).toBeNull();
     expect(parseSlashCommand("/flow rebuild clean=true")).toEqual({ name: "flow", args: "rebuild clean=true" });
+    expect(parseSlashCommand("/action level.place_actor actorClass=PointLight")).toEqual({ name: "action", args: "level.place_actor actorClass=PointLight" });
   });
 
   it("knows a name is being typed only while the message is the slash and the start of a name", () => {
@@ -34,7 +35,7 @@ describe("the command registry", () => {
   });
 
   it("matches by the start of the name", () => {
-    expect(matchCommands("").map((c) => c.name)).toEqual(["playtest", "flow"]);
+    expect(matchCommands("").map((c) => c.name)).toEqual(["playtest", "flow", "action"]);
     expect(matchCommands("PLAY").map((c) => c.name)).toEqual(["playtest"]);
     expect(matchCommands("x")).toEqual([]);
   });
@@ -130,7 +131,7 @@ describe("the slash menu", () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
     fireEvent.change(box(), { target: { value: "/" } });
-    expect(options()).toEqual([{ text: "/playtest", selected: true }, { text: "/flow", selected: false }]);
+    expect(options()).toEqual([{ text: "/playtest", selected: true }, { text: "/flow", selected: false }, { text: "/action", selected: false }]);
     fireEvent.keyDown(box(), { key: "Enter" });
     fireEvent.change(box(), { target: { value: "/playtest the door opens" } });
     fireEvent.keyDown(box(), { key: "Enter" });
