@@ -7,7 +7,8 @@
  * because it restarts the daemon this agent lives in. The editor plugin
  * cannot replace itself while the editor has it loaded, but the daemon
  * outlives the editor: the zip for this engine is downloaded and checked
- * against its published SHA-256, unpacked beside the plugin, then the editor
+ * against its published SHA-256, unpacked under Intermediate/ (never under
+ * Plugins/, where the editor would find a second copy), then the editor
  * is stopped, the folders are swapped (the old one kept until the swap is
  * done), and the editor is started again. A plugin installed from Fab is
  * never swapped: the Fab Library updates it.
@@ -314,38 +315,65 @@ export class Updater {
     return this.ueMcp("studio", ["extension", "install", await this.manifestUrl(), uproject]);
   }
 
-  /**
-   * Update a project whose bridge is installed from source: a daemon can only
-   * deploy its own version's source, so the new package runs `ue-mcp update`
-   * (package, then bridge source), and the editor is rebuilt on it.
-   */
-  async updateUeMcpSource(version: string): Promise<{ ok: boolean; error?: string }> {
-    const uproject = this.uproject();
-    if (!uproject) return { ok: false, error: "could not find the project" };
-    if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) return { ok: false, error: `not a version: ${version}` };
+  /** How the project's bridge was installed: its install marker, else a Source folder means source. */
+  bridgeKind(): "source" | "binary" | null {
+    const dir = path.join(this.host.projectDir, "Plugins", "UE_MCP_Bridge");
+    try {
+      const kind = (JSON.parse(fs.readFileSync(path.join(dir, ".ue-mcp-install.json"), "utf-8")) as { kind?: string }).kind;
+      if (kind === "source" || kind === "binary") return kind;
+    } catch {
+      // No marker: an install from before it.
+    }
+    if (!fs.existsSync(path.join(dir, "UE_MCP_Bridge.uplugin"))) return null;
+    return fs.existsSync(path.join(dir, "Source")) ? "source" : "binary";
+  }
+
+  /** Run `ue-mcp@<version> <args>` to the end; its output's last lines on failure. */
+  private async runUeMcp(version: string, args: string[]): Promise<{ ok: boolean; error?: string }> {
     const npx = npxCli();
     if (!npx) return { ok: false, error: "npx was not found beside Node" };
-    this.publish("update.progress", { part: "ueMcp", message: `Installing ue-mcp ${version} and its bridge source` });
-    let stderr = "";
+    let output = "";
     const code = await new Promise<number | null>((resolve) => {
-      const c = spawn(process.execPath, [...npxArgs(npx, `ue-mcp@${version}`), "update", uproject, "--no-build"], { cwd: this.host.projectDir, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
-      c.stderr.setEncoding("utf-8");
-      c.stderr.on("data", (d: string) => void (stderr = (stderr + d).slice(-64_000)));
+      const c = spawn(process.execPath, [...npxArgs(npx, `ue-mcp@${version}`), ...args], { cwd: this.host.projectDir, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      for (const s of [c.stdout, c.stderr]) {
+        s.setEncoding("utf-8");
+        s.on("data", (d: string) => void (output = (output + d).slice(-64_000)));
+      }
       c.on("exit", resolve);
       c.on("error", (e) => {
-        stderr += e.message;
+        output += e.message;
         resolve(null);
       });
     });
-    if (code !== 0) {
-      const said = failureText(stderr);
-      return { ok: false, error: `ue-mcp ${version} update exited with ${code ?? "an error"}${said ? `:\n${said}` : ""}` };
+    if (code === 0) return { ok: true };
+    const said = failureText(output.replace(/\x1b\[[0-9;]*m/g, ""));
+    return { ok: false, error: `ue-mcp ${version} ${args[0]} exited with ${code ?? "an error"}${said ? `:\n${said}` : ""}` };
+  }
+
+  /**
+   * Install the bridge of ue-mcp `version` through that version's own package,
+   * not this daemon, which may be a much older ue-mcp: the release being
+   * installed is the one whose updater checks the result and puts the old
+   * files back when it would not load. A binary install gets that release's
+   * binaries (`update --apply-only`); a source install gets its source and
+   * the editor is rebuilt on it, so the editor never starts on source it has
+   * not built.
+   */
+  async updateUeMcp(version: string): Promise<{ ok: boolean; error?: string }> {
+    const uproject = this.uproject();
+    if (!uproject) return { ok: false, error: "could not find the project" };
+    if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) return { ok: false, error: `not a version: ${version}` };
+    if (this.bridgeKind() !== "source") {
+      this.publish("update.progress", { part: "ueMcp", message: `Installing the bridge plugin ${version}` });
+      return this.runUeMcp(version, ["update", uproject, "--apply-only"]);
     }
-    if (this.host.editors().some((e) => e.connected)) {
-      this.publish("update.progress", { part: "ueMcp", message: "Rebuilding the editor on the new bridge" });
-      await this.host.editorOperation("rebuild");
-    }
-    return { ok: true };
+    this.publish("update.progress", { part: "ueMcp", message: `Installing ue-mcp ${version} and its bridge source` });
+    const deployed = await this.runUeMcp(version, ["update", uproject, "--no-build"]);
+    if (!deployed.ok) return deployed;
+    this.publish("update.progress", { part: "ueMcp", message: "Rebuilding the editor on the new bridge" });
+    const rebuilt = await this.host.editorOperation("rebuild");
+    const failed = ((rebuilt.steps as Array<{ step: string; ok: boolean; result?: string }> | undefined) ?? []).find((s) => !s.ok);
+    return failed ? { ok: false, error: `The bridge source ${version} is deployed, but ${failed.step} failed: ${failed.result ?? "no detail"}` } : { ok: true };
   }
 
   /** Restart the daemon on the newest ue-mcp, after an update installed it. */
@@ -373,8 +401,10 @@ export class Updater {
     if (this.busy) return { ok: false, error: `an update is already running (${this.busy})` };
     this.busy = "plugin";
     const target = this.pluginDir();
-    const staged = path.join(this.host.projectDir, "Plugins", `.${PLUGIN}.update`);
-    const previous = path.join(this.host.projectDir, "Plugins", `.${PLUGIN}.previous`);
+    // Outside Plugins/: a copy there is a second UE_MCP_Studio.uplugin for the editor to discover.
+    const work = path.join(this.host.projectDir, "Intermediate", "UE_MCP_Studio_Update");
+    const staged = path.join(work, "update");
+    const previous = path.join(work, "previous");
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "studio-plugin-"));
     let swapped = false;
     try {
@@ -391,20 +421,31 @@ export class Updater {
       fs.writeFileSync(zip, Buffer.from(await res.arrayBuffer()));
       if (sha256(zip) !== file.sha256.toLowerCase()) throw new Error("the download did not match its published SHA-256");
       this.step("Unpacking");
+      // Copies earlier releases of this updater kept under Plugins/.
+      for (const spare of [`.${PLUGIN}.update`, `.${PLUGIN}.previous`]) fs.rmSync(path.join(this.host.projectDir, "Plugins", spare), { recursive: true, force: true });
       fs.rmSync(staged, { recursive: true, force: true });
       await unzip(zip, staged);
       const unpacked = fs.existsSync(path.join(staged, PLUGIN, `${PLUGIN}.uplugin`)) ? path.join(staged, PLUGIN) : staged;
       if (!fs.existsSync(path.join(unpacked, `${PLUGIN}.uplugin`))) throw new Error("the download holds no Studio plugin");
 
       this.step("Closing the editor");
-      if (this.host.editors().some((e) => e.connected)) await this.host.editorOperation("stop");
+      // Asked whether or not a bridge is connected: an editor still starting holds the plugin too.
+      // Windows lets the folder be renamed under a running editor, so a stop that failed ends here.
+      const stopped = stepFailure(await this.host.editorOperation("stop"));
+      if (stopped) throw new Error(`the editor did not close (${stopped}), so the plugin was left as it is`);
       this.step("Replacing the plugin");
       fs.rmSync(previous, { recursive: true, force: true });
       await retry(() => fs.renameSync(target, previous));
       swapped = true;
       await retry(() => fs.renameSync(unpacked, target));
-      fs.rmSync(staged, { recursive: true, force: true });
-      fs.rmSync(previous, { recursive: true, force: true });
+      // The new plugin is in place; a spare that will not go yet is outside Plugins/ and goes next time.
+      for (const spare of [staged, previous, work]) {
+        try {
+          fs.rmSync(spare, { recursive: true, force: true });
+        } catch {
+          // Still held.
+        }
+      }
       this.step("Starting the editor");
       const notStarted = await startFailure(this.host);
       if (notStarted) return { ok: false, version: p.version, error: `The plugin is updated to ${p.version}, but the editor did not start: ${notStarted}` };
@@ -424,13 +465,19 @@ export class Updater {
   }
 }
 
+/** The first failed step of an editor operation's result, as "step: reason", or null. */
+function stepFailure(result: Record<string, unknown>): string | null {
+  const steps = (result.steps as Array<{ step: string; ok: boolean; result?: string }> | undefined) ?? [];
+  const failed = steps.find((s) => !s.ok);
+  return failed ? `${failed.step}: ${failed.result ?? "failed"}` : null;
+}
+
 /** Why starting the editor failed, or null when it started. */
 async function startFailure(host: UpdaterHost): Promise<string | null> {
   try {
     const result = await host.editorOperation("start");
-    const steps = (result.steps as Array<{ step: string; ok: boolean; result?: string }> | undefined) ?? [];
-    const failed = steps.find((s) => !s.ok);
-    if (failed) return `${failed.step}: ${failed.result ?? "failed"}`;
+    const failed = stepFailure(result);
+    if (failed) return failed;
     return result.ok === false ? String(result.error ?? "failed") : null;
   } catch (e) {
     return e instanceof Error ? e.message : String(e);
