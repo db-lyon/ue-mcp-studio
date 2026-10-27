@@ -376,6 +376,18 @@ export class Updater {
     return failed ? { ok: false, error: `The bridge source ${version} is deployed, but ${failed.step} failed: ${failed.result ?? "no detail"}` } : { ok: true };
   }
 
+  /**
+   * The refused screen's update: `ue-mcp@<version> update --apply-only` for any
+   * install kind, so that release installs its own bridge. The editor is left
+   * alone; the screen asks for the restart, and a source bridge builds then.
+   */
+  async applyUeMcp(version: string): Promise<{ ok: boolean; error?: string }> {
+    const uproject = this.uproject();
+    if (!uproject) return { ok: false, error: "could not find the project" };
+    if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) return { ok: false, error: `not a version: ${version}` };
+    return this.runUeMcp(version, ["update", uproject, "--apply-only"]);
+  }
+
   /** Restart the daemon on the newest ue-mcp, after an update installed it. */
   async restartDaemon(): Promise<{ started: boolean; error?: string }> {
     if (this.busy) return { started: false, error: `an update is already running (${this.busy})` };
