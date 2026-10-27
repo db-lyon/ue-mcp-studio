@@ -481,6 +481,9 @@ describe("the project's own Claude Code files on the Claude sign-in", () => {
     await until(() => store.get(s.id)!.status === "idle");
     const o = sdk.options.at(-1)!;
     expect(o.settingSources).toEqual(["user", "project", "local"]);
+    // The project's files load, but only Studio's MCP server: a project .mcp.json's ue-mcp would offer tools no call may use.
+    expect(o.strictMcpConfig).toBe(true);
+    expect(Object.keys(o.mcpServers as Record<string, unknown>)).toEqual(["studio"]);
     expect(o.toolAliases).toMatchObject({ Read: "mcp__studio__read_file", Bash: "mcp__studio__shell", Edit: "mcp__studio__edit_file" });
     expect(o.tools).toEqual(expect.arrayContaining(["Agent", "WebSearch", "Skill"]));
     expect((o.agents as Record<string, { tools: string[]; model: string; prompt: string }>).reviewer).toMatchObject({ tools: ["mcp__studio__read_file", "mcp__studio__grep"], model: "haiku" });
