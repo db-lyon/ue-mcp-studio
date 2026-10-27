@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   APPROVAL_ROWS,
   MAX_DIALOG_MINUTES,
+  PROJECT_SCOPED_KINDS,
   type AgentSettings,
   type ApprovalKind,
   type ApprovalRule,
@@ -17,6 +18,12 @@ import { Card, NumberField, Opt, Row, Seg, Switch, useMessage } from "./controls
 
 
 const RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [{ id: "ask", name: "Ask" }, { id: "allow", name: "Allow" }];
+/** Shell commands and file changes: allowed inside the project folder, or anywhere on this machine. */
+const SCOPED_RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [
+  { id: "ask", name: "Ask" },
+  { id: "project", name: "In project" },
+  { id: "allow", name: "Anywhere" },
+];
 
 export const DIALOG_MODES: { id: DialogMode; name: string; about: string }[] = [
   { id: "interactive", name: "Show in Studio", about: "A card in the chat with the dialog's buttons." },
@@ -67,7 +74,7 @@ export function ApprovalsSection() {
       <Card label="Ask first">
         {APPROVAL_ROWS.map((r) => (
           <Row key={r.kind} title={r.label} help={r.help}>
-            <Seg label={r.label} value={rule(r.kind)} options={RULES} onChange={(v) => void save({ approvals: { [r.kind]: v } })} />
+            <Seg label={r.label} value={rule(r.kind)} options={PROJECT_SCOPED_KINDS.includes(r.kind) ? SCOPED_RULES : RULES} onChange={(v) => void save({ approvals: { [r.kind]: v } })} />
           </Row>
         ))}
         <Row title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)!.help}>

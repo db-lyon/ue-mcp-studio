@@ -27,6 +27,7 @@ import type { QaBroker } from "./qa.js";
 import { TOOLS, WORK_TOOLS, editorConnected, executeTool, forModel, packageFile, validateInput, verifyUnknown, type AgentHost, type ToolExecution } from "./tools.js";
 import type Anthropic from "@anthropic-ai/sdk";
 import { approvalFor, localToolDefinitions, shell } from "./local-tools.js";
+import { callInsideProject } from "./project-scope.js";
 import { MICRO_LINE, microSurface, withSurface, type EditorSurface } from "./context-surface.js";
 
 /** Set by the release bundle: false leaves the Agent SDK out of it. Unset in development and tests. */
@@ -1053,8 +1054,9 @@ export class AgentRunner {
     if (!kind) return null;
     // A bad input fails in the executor without changing anything.
     if (validateInput(name, input)) return null;
-    const asks = this.o.approvals
-      ? this.o.approvals()[kind] === "ask"
+    const rule = this.o.approvals?.()[kind];
+    const asks = rule
+      ? rule === "ask" || (rule === "project" && !callInsideProject(this.o.host.projectDir, name, input))
       : (kind === "shell" || kind === "files") && (this.o.askBeforeChanges?.() ?? true);
     if (!asks) return null;
     if (s.allowed?.includes(SESSION_KEY[kind])) return null;
