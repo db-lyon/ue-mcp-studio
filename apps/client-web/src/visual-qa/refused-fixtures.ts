@@ -21,8 +21,8 @@ export const REFUSED_SCENARIOS: Record<string, Scenario> = {
   "refused-by-daemon": refused("A ue-mcp that checks the floor refused Studio: one screen, one button", { get: (p) => (p === "/v1/health" ? health : undefined) }),
   "refused-by-studio": refused("An older ue-mcp loaded Studio, which answers only its refusal route", { get: (p) => (p === "/v1/ext/studio/refusal" ? { needs: NEEDS, have: HAVE } : undefined) }),
   "refused-update-failed": refused("Update ue-mcp pressed, and the install failed", {
-    get: (p) => (p === "/v1/health" ? health : p === "/v1/update" ? { installed: { version: HAVE }, server: HAVE, latest: NEEDS, target: NEEDS, binaries: null } : undefined),
-    post: (p) => (p === "/v1/update/apply" ? { status: 500, body: { ok: false, error: `no prebuilt bridge for UE 5.7 in ue-mcp ${NEEDS}` } } : undefined),
+    get: (p) => (p === "/v1/ext/studio/refusal" ? { needs: NEEDS, have: HAVE } : p === "/v1/update" ? { installed: { version: HAVE }, server: HAVE, latest: NEEDS, target: NEEDS, binaries: null } : undefined),
+    post: (p) => (p === "/v1/ext/studio/refusal/update" ? { status: 500, body: { ok: false, error: `ue-mcp ${NEEDS} update exited with 1:\nno prebuilt bridge for UE 5.7 in ue-mcp ${NEEDS}` } } : undefined),
     click: ".refused button.primary",
   }),
 };
