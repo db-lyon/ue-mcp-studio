@@ -35,18 +35,9 @@ describe("the navigation drawer", () => {
     expect(screen.getByText("Docs")).toBeTruthy();
   });
 
-  it("has a Playtests page, counting the playtests that need the user", () => {
-    const p = setup(true, "Chat", 0, 2);
-    const item = screen.getByText("Playtests").closest("button")!;
-    expect(item.querySelector(".tab-count")?.textContent).toBe("2");
-    expect(item.querySelector(".tab-count")?.getAttribute("aria-label")).toBe("2 need you");
-    fireEvent.click(item);
-    expect(p.onTab).toHaveBeenCalledWith("Playtests");
-  });
-
-  it("puts no count on Playtests while nothing needs the user", () => {
-    setup();
-    expect(screen.getByText("Playtests").closest("button")!.querySelector(".tab-count")).toBeNull();
+  it("hides the Playtests page for now, even while playtests need the user", () => {
+    setup(true, "Chat", 0, 2);
+    expect(screen.queryByText("Playtests")).toBeNull();
   });
 
   it("lists the recent sessions when it opens, leaving archived ones out, and marks the open one", async () => {

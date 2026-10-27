@@ -318,6 +318,8 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         systemPrompt: t.system,
         ...subagentOptions(t.subagents, t.subagentSystem, t.native, t.editor?.tools.map((p) => p.name)),
         mcpServers: { [SERVER]: server },
+        // Only Studio's server: a project's .mcp.json (often its own ue-mcp) would show tools no call may use.
+        strictMcpConfig: true,
         // The project's own files load as Claude Code loads them; none while "Read the project's own files" is off.
         settingSources: t.native?.settingSources ?? [],
         ...(t.native ? { toolAliases: Object.fromEntries(Object.entries(BUILTIN_TO_STUDIO).map(([b, s]) => [b, `${PREFIX}${s}`])) } : {}),

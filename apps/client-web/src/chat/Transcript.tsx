@@ -63,7 +63,8 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
-  if (entry.kind === "qa") return <QaCard run={entry.run} />;
+  // A deleted script's cards leave the conversation with it.
+  if (entry.kind === "qa") return entry.run.deleted ? null : <QaCard run={entry.run} />;
   if (entry.kind === "review") return <TurnReviewCard review={entry.review} />;
   if (entry.kind === "playtest") {
     return entry.state === "failed"

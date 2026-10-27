@@ -25,7 +25,10 @@ import { focusRun, useAttention } from "./attention";
 import { replaceStaleWindow } from "./window-version";
 import { RefusedScreen, useRefusal } from "./views/Refused";
 
+// Playtests is hidden for now; its view stays for when it comes back.
 const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
+// Playtests is hidden for now; its view stays for when it comes back.
+const SHOWN: readonly (typeof TABS)[number][] = TABS.filter((t) => t !== "Playtests");
 type Tab = (typeof TABS)[number];
 
 /** Studio, or the one screen that says it needs a newer ue-mcp. */
@@ -122,7 +125,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
               <span className="product">Studio</span>
             </span>
             <nav>
-              {TABS.map((t) => (
+              {SHOWN.map((t) => (
                 <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
                   {t}
                   {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
