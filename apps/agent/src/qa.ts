@@ -407,9 +407,12 @@ export class QaBroker {
   }
 
   /** A script pie(script_delete) removed: its draft cards say so. */
+  /** A deleted script takes every card of it with it: its draft and its runs, in every session. */
   private deleted(path: string): void {
-    const run = this.runs.get(qaDraftId(path));
-    if (run && qaIsDraft(run)) this.save({ ...run, deleted: true });
+    const key = qaScriptKey(path);
+    for (const run of [...this.runs.values()]) {
+      if (qaScriptKey(run.script) === key && !run.deleted) this.save({ ...run, deleted: true });
+    }
   }
 
   /** Edit on a draft's card: the steps as the user changed them, saved with pie(script_update). */

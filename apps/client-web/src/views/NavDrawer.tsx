@@ -3,7 +3,7 @@ import type { SessionSummary } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 
 export type NavTab = "Chat" | "Playtests" | "Plugins" | "Settings";
-const TABS: NavTab[] = ["Chat", "Playtests", "Plugins", "Settings"];
+const TABS: NavTab[] = ["Chat", "Plugins", "Settings"];
 
 /**
  * Navigation at narrow widths: a panel that slides over the page from the

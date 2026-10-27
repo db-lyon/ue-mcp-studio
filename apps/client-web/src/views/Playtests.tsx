@@ -144,7 +144,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
       ) : <p className="muted playtests-empty">{FILTERS.find((f) => f.id === filter)!.empty}</p>)}
       <QaContext.Provider value={live}>
         <div className="playtests-list">
-          {rows.map((e) => <PlaytestRow key={e.script} entry={e} offline={index?.listed === false} onOpenSession={onOpenSession} onChanged={() => reload()} />)}
+          {rows.map((e) => <PlaytestRow key={e.script} entry={e} offline={index?.listed === false} onOpenSession={onOpenSession} onChanged={() => reload(true)} />)}
         </div>
       </QaContext.Provider>
     </div>

@@ -168,7 +168,7 @@ describe("a draft Playtest card", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(m.qaDeleteScript).not.toHaveBeenCalled();
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Delete the script" }));
+      fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     });
     expect(m.qaDeleteScript).toHaveBeenCalledWith(`draft:${PATH}`);
     expect(screen.getByRole("status").textContent).toBe("Deleted");

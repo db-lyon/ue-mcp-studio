@@ -111,7 +111,7 @@ export function stepsOf(rows: Row[]): QaScriptStep[] {
   });
 }
 
-export function DraftEditor({ run, busy, onSave, onCancel }: { run: QaRun; busy: boolean; onSave: (steps: QaScriptStep[], map: string) => void; onCancel: () => void }) {
+export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun; busy: boolean; error?: string | null; onSave: (steps: QaScriptStep[], map: string) => void; onCancel: () => void }) {
   const [rows, setRows] = useState<Row[]>(() => qaScriptSteps(run).map(rowOf));
   const [map, setMap] = useState(run.map ?? "");
   const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -165,6 +165,7 @@ export function DraftEditor({ run, busy, onSave, onCancel }: { run: QaRun; busy:
         <button className="ghost small-button" onClick={onCancel}>Cancel</button>
         <button className="primary small-button" disabled={busy || !valid} onClick={() => onSave(stepsOf(rows), map.trim())}>Save</button>
       </div>
+      {error && <div className="banner bad small" role="alert">Not saved. {error}</div>}
     </div>
   );
 }
