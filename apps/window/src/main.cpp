@@ -46,6 +46,7 @@
 #include "dock.h"
 #include "json.h"
 #include "location.h"
+#include "update.h"
 
 #ifndef STUDIO_WINDOW_VERSION
 #define STUDIO_WINDOW_VERSION "0.0.0"
@@ -423,6 +424,35 @@ bool runSetup(const std::string& optionsJson) {
   flags += flag("skills", false) ? L" --skills" : L" --no-skills";
   std::wstring p = uproject();
   return !p.empty() && spawnNpx({L"-y " + package() + L" init --yes --json --install=binary" + flags + L" --project=\"" + p + L"\""});
+}
+
+std::wstring updateOutPath() { return join(studioDir(), L"ue-mcp-update.log"); }
+std::wstring updateExitPath() { return join(studioDir(), L"ue-mcp-update.exit"); }
+std::string gUpdateVersion;
+
+/** The refused screen's update: the target release's own CLI applies its bridge (update.h). */
+bool startUeMcpUpdate(const std::string& version) {
+  std::wstring p = uproject();
+  std::wstring node = findNode();
+  if (!ueupdate::validVersion(version) || p.empty() || node.empty()) return false;
+  std::wstring nodeDir = dirOf(node);
+  std::wstring cmd = join(join(env(L"SystemRoot"), L"System32"), L"cmd.exe");
+  makeDirs(studioDir());
+  DeleteFileW(updateOutPath().c_str());
+  DeleteFileW(updateExitPath().c_str());
+  std::wstring chain = ueupdate::command(join(nodeDir, L"npx.cmd"), widen(version), p, updateOutPath(), updateExitPath());
+  std::wstring path = env(L"PATH");
+  if (path.find(nodeDir) == std::wstring::npos) SetEnvironmentVariableW(L"PATH", (nodeDir + L";" + path).c_str());
+  if (!createDetached(cmd, L"\"" + cmd + L"\" /d /s /c \"" + chain + L"\"", gOpt.project, CREATE_NO_WINDOW)) return false;
+  gUpdateVersion = version;
+  return true;
+}
+
+std::string ueMcpUpdateResult() {
+  std::string exitText, output;
+  bool exited = readFile(updateExitPath(), exitText);
+  if (exited) readFile(updateOutPath(), output);
+  return ueupdate::result(exited, exitText, output, gUpdateVersion);
 }
 
 bool enablePlugin(const std::string& name) {
@@ -971,7 +1001,8 @@ const wchar_t* kShim = LR"JS((function () {
   });
   var names = ["getstatus", "startdaemon", "installbridge", "startsetupplan", "getsetupplan", "runsetup", "restarteditor",
     "enableplugin", "openprojectfolder", "geteditortheme", "opennodedownload", "drawattention", "notify", "opendocs",
-    "getwindowmode", "setwindowmode", "raiseeditor", "openlog", "setconnectionstate", "getconnectionstate", "retryconnection"];
+    "getwindowmode", "setwindowmode", "raiseeditor", "openlog", "setconnectionstate", "getconnectionstate", "retryconnection",
+    "startuemcpupdate", "getuemcpupdate"];
   var studio = {};
   names.forEach(function (name) {
     studio[name] = function (arg) {
@@ -1027,6 +1058,8 @@ std::string dispatch(const std::string& method, const std::string& arg) {
   if (method == "startsetupplan") return b(startSetupPlan());
   if (method == "getsetupplan") return s(getSetupPlan());
   if (method == "runsetup") return b(runSetup(arg));
+  if (method == "startuemcpupdate") return b(startUeMcpUpdate(arg));
+  if (method == "getuemcpupdate") return s(ueMcpUpdateResult());
   if (method == "restarteditor") return b(restartEditor());
   if (method == "enableplugin") return b(enablePlugin(arg));
   if (method == "openprojectfolder") {
