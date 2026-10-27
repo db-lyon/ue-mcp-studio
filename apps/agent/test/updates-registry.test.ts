@@ -199,6 +199,17 @@ describe("updates through an age-gated npm", () => {
     });
   }, 90_000);
 
+  it("the refused screen's update: the release published today applies its own bridge, either kind, and the editor is left alone", async () => {
+    for (const kind of ["binary", "source"] as const) {
+      const dir = bridge(project(), kind);
+      const ops: string[] = [];
+      const r = await new Updater({ ...host(dir), editorOperation: async (op: string) => (ops.push(op), {}) }, "0.0.1").applyUeMcp(TODAY);
+      expect(r).toEqual({ ok: true });
+      expect(recorded()).toContainEqual(["update", path.join(dir, "Game.uproject"), "--apply-only"]);
+      expect(ops).toEqual([]);
+    }
+  }, 120_000);
+
   it("says what npm said when the version cannot be installed", async () => {
     const r = await new Updater(host(project()), "0.0.1").updateUeMcp("9.9.9");
     expect(r.ok).toBe(false);
