@@ -64,6 +64,15 @@ function project(): string {
   return dir;
 }
 
+/** A bridge plugin installed in `dir` the given way, with its install marker. */
+function bridge(dir: string, kind: "source" | "binary"): string {
+  const plugin = path.join(dir, "Plugins", "UE_MCP_Bridge");
+  fs.mkdirSync(path.join(plugin, kind === "source" ? "Source" : "Binaries"), { recursive: true });
+  fs.writeFileSync(path.join(plugin, "UE_MCP_Bridge.uplugin"), "{}");
+  fs.writeFileSync(path.join(plugin, ".ue-mcp-install.json"), JSON.stringify({ kind }));
+  return dir;
+}
+
 const host = (dir: string) => ({ projectDir: dir, editors: () => [], editorOperation: async () => ({}) });
 const manifestNaming = (pkg: string) => (async () => new Response(JSON.stringify({ version: "0.0.1", url: "x", sha256: "x", ueMcp: { package: pkg } }))) as unknown as typeof fetch;
 const recorded = (): string[][] => (fs.existsSync(calls) ? fs.readFileSync(calls, "utf-8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as string[]) : []);
@@ -163,15 +172,46 @@ describe("updates through an age-gated npm", () => {
     expect(failureText(r.stderr)).toMatch(new RegExp(`No matching version found for ue-mcp@${TODAY.replace(/\./g, "\\.")} with a date before`));
   }, 90_000);
 
-  it("installs the ue-mcp published today and runs its update", async () => {
-    const dir = project();
-    const r = await new Updater(host(dir), "0.0.1").updateUeMcpSource(TODAY);
+  it("installs a binary bridge through the ue-mcp published today, which applies its own binaries", async () => {
+    const dir = bridge(project(), "binary");
+    const ops: string[] = [];
+    const r = await new Updater({ ...host(dir), editorOperation: async (op: string) => (ops.push(op), {}) }, "0.0.1").updateUeMcp(TODAY);
     expect(r).toEqual({ ok: true });
-    expect(recorded()).toContainEqual(["update", path.join(dir, "Game.uproject"), "--no-build"]);
+    expect(recorded()).toContainEqual(["update", path.join(dir, "Game.uproject"), "--apply-only"]);
+    expect(ops).toEqual([]);
   }, 90_000);
 
+  it("deploys a source bridge through the ue-mcp published today, then rebuilds the editor on it", async () => {
+    const dir = bridge(project(), "source");
+    const ops: string[] = [];
+    const r = await new Updater({ ...host(dir), editorOperation: async (op: string) => (ops.push(op), {}) }, "0.0.1").updateUeMcp(TODAY);
+    expect(r).toEqual({ ok: true });
+    expect(recorded()).toContainEqual(["update", path.join(dir, "Game.uproject"), "--no-build"]);
+    // The editor never starts on source it has not built, whether or not it was up.
+    expect(ops).toEqual(["rebuild"]);
+  }, 90_000);
+
+  it("says which rebuild step failed after a source deploy", async () => {
+    const dir = bridge(project(), "source");
+    const failing = { ...host(dir), editorOperation: async () => ({ steps: [{ step: "project.build", ok: false, result: "no toolchain" }] }) };
+    expect(await new Updater(failing, "0.0.1").updateUeMcp(TODAY)).toEqual({
+      ok: false, error: `The bridge source ${TODAY} is deployed, but project.build failed: no toolchain`,
+    });
+  }, 90_000);
+
+  it("the refused screen's update: the release published today applies its own bridge, either kind, and the editor is left alone", async () => {
+    for (const kind of ["binary", "source"] as const) {
+      const dir = bridge(project(), kind);
+      const ops: string[] = [];
+      const r = await new Updater({ ...host(dir), editorOperation: async (op: string) => (ops.push(op), {}) }, "0.0.1").applyUeMcp(TODAY);
+      expect(r).toEqual({ ok: true });
+      expect(recorded()).toContainEqual(["update", path.join(dir, "Game.uproject"), "--apply-only"]);
+      expect(ops).toEqual([]);
+    }
+  }, 120_000);
+
   it("says what npm said when the version cannot be installed", async () => {
-    const r = await new Updater(host(project()), "0.0.1").updateUeMcpSource("9.9.9");
+    const r = await new Updater(host(project()), "0.0.1").updateUeMcp("9.9.9");
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/^ue-mcp 9\.9\.9 update exited with 1:\n/);
     expect(r.error).toMatch(/ETARGET|No matching version found for ue-mcp@9\.9\.9/);

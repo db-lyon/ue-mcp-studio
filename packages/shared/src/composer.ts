@@ -6,8 +6,12 @@
 
 /* ── Approvals ─────────────────────────────────────────────────────── */
 
-/** Whether an agent asks before it does a kind of thing, or does it. */
-export type ApprovalRule = "ask" | "allow";
+/**
+ * Whether an agent asks before it does a kind of thing, or does it. "project"
+ * does it without asking when it stays inside the project folder, and asks
+ * otherwise; only the kinds with a path take it (PROJECT_SCOPED_KINDS).
+ */
+export type ApprovalRule = "ask" | "project" | "allow";
 
 /** What an agent can be made to ask about. Reading files, the web and every other ue-mcp action never ask. */
 export type ApprovalKind = "shell" | "files" | "editorRestart" | "destructive";
@@ -15,12 +19,19 @@ export const APPROVAL_KINDS: readonly ApprovalKind[] = ["shell", "files", "edito
 
 export type Approvals = Record<ApprovalKind, ApprovalRule>;
 
+/** The kinds whose calls name a place on disk, so "project" applies. */
+export const PROJECT_SCOPED_KINDS: readonly ApprovalKind[] = ["shell", "files"];
+
+/** Whether a rule may be stored for a kind. */
+export const approvalRuleFits = (kind: ApprovalKind, rule: unknown): rule is ApprovalRule =>
+  rule === "ask" || rule === "allow" || (rule === "project" && PROJECT_SCOPED_KINDS.includes(kind));
+
 /** A new install asks about all four. Settings from before the rows existed keep what they did: see migrateApprovals. */
 export const DEFAULT_APPROVALS: Approvals = { shell: "ask", files: "ask", editorRestart: "ask", destructive: "ask" };
 
 export const APPROVAL_ROWS: ReadonlyArray<{ kind: ApprovalKind; label: string; help: string }> = [
-  { kind: "shell", label: "Shell commands", help: "Waits in the chat for Allow or Deny." },
-  { kind: "files", label: "File changes", help: "Writes and edits on this machine." },
+  { kind: "shell", label: "Shell commands", help: "In project runs commands that only name paths inside the project folder; any other command asks." },
+  { kind: "files", label: "File changes", help: "In project writes and edits inside the project folder; changes anywhere else ask." },
   { kind: "editorRestart", label: "Restart or rebuild the editor", help: "Unsaved editor work is lost." },
   { kind: "destructive", label: "ue-mcp actions that delete or overwrite", help: "Actions ue-mcp marks as destructive." },
 ];

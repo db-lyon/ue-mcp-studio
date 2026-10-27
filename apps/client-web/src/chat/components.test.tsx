@@ -152,7 +152,7 @@ describe("a session row", () => {
     fireEvent.click(screen.getByRole("button", { name: "Session actions" }));
     fireEvent.click(screen.getByRole("menuitem", { name: "Delete" }));
     expect(api.deleteSession).not.toHaveBeenCalled();
-    await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "Delete for good" })));
+    await act(async () => fireEvent.click(screen.getByRole("menuitem", { name: "Are you sure?" })));
     expect(api.deleteSession).toHaveBeenCalledWith("s1");
     expect(onChanged).toHaveBeenCalledWith("s1");
   });

@@ -98,7 +98,7 @@ export function SessionRow({ s, selected, onOpen, onChanged }: {
           <button role="menuitem" onClick={() => { setMenu(false); setEditing(true); }}>Rename</button>
           <button role="menuitem" onClick={() => { setMenu(false); void update({ archived: !s.archived }); }}>{s.archived ? "Restore" : "Archive"}</button>
           <button role="menuitem" className={`danger ${confirm ? "confirm" : ""}`} onClick={() => (confirm ? void remove() : setConfirm(true))}>
-            {confirm ? "Delete for good" : "Delete"}
+            {confirm ? "Are you sure?" : "Delete"}
           </button>
         </div>
       )}

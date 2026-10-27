@@ -120,6 +120,43 @@ describe("Studio updates", () => {
     expect(steps[0]).toMatch(/Downloading/);
   });
 
+  it("leaves the plugin alone when the editor does not close, rather than swapping under it", async () => {
+    const dir = project("0.1.0-beta.4");
+    const zip = pluginZip("0.1.0-beta.9");
+    const ops: string[] = [];
+    const host = {
+      ...fakeHost(dir),
+      editorOperation: async (op: string) => (ops.push(op), op === "stop" ? { steps: [{ step: "editor.stop_editor", ok: false, result: "a modal dialog is open" }] } : {}),
+    };
+    const u = new Updater(host, "0.1.0-beta.9", () => {}, manifestFetch({
+      version: "0.1.0-beta.9", url: "s", sha256: "x",
+      plugin: { version: "0.1.0-beta.9", files: { "5.8": { url: "https://x/p.zip", sha256: zip.sha256 } } },
+    }, fs.readFileSync(zip.file)));
+    expect(await u.updatePlugin()).toEqual({ ok: false, error: "the editor did not close (editor.stop_editor: a modal dialog is open), so the plugin was left as it is" });
+    expect(ops).toEqual(["stop"]);
+    expect(u.pluginVersion()).toBe("0.1.0-beta.4");
+  });
+
+  it("stages outside Plugins/ and clears the copies an earlier updater left there", async () => {
+    const dir = project("0.1.0-beta.4");
+    for (const spare of [".UE_MCP_Studio.update", ".UE_MCP_Studio.previous"]) {
+      fs.mkdirSync(path.join(dir, "Plugins", spare), { recursive: true });
+      fs.writeFileSync(path.join(dir, "Plugins", spare, "UE_MCP_Studio.uplugin"), "{}");
+    }
+    const zip = pluginZip("0.1.0-beta.9");
+    const seen: string[][] = [];
+    const host = { ...fakeHost(dir), editorOperation: async (op: string) => (op === "stop" && seen.push(fs.readdirSync(path.join(dir, "Plugins")).sort()), {}) };
+    const u = new Updater(host, "0.1.0-beta.9", () => {}, manifestFetch({
+      version: "0.1.0-beta.9", url: "s", sha256: "x",
+      plugin: { version: "0.1.0-beta.9", files: { "5.8": { url: "https://x/p.zip", sha256: zip.sha256 } } },
+    }, fs.readFileSync(zip.file)));
+    expect(await u.updatePlugin()).toEqual({ ok: true, version: "0.1.0-beta.9" });
+    // While the new plugin waited to go in, Plugins/ held one Studio plugin.
+    expect(seen).toEqual([["UE_MCP_Studio"]]);
+    expect(fs.readdirSync(path.join(dir, "Plugins"))).toEqual(["UE_MCP_Studio"]);
+    expect(fs.existsSync(path.join(dir, "Intermediate", "UE_MCP_Studio_Update"))).toBe(false);
+  });
+
   it("says so when the plugin is in place but the editor does not start", async () => {
     const dir = project("0.1.0-beta.4");
     const zip = pluginZip("0.1.0-beta.9");

@@ -1,5 +1,5 @@
 // Unit tests for dock.h (the shared-memory protocol and where the window goes),
-// location.h and connection.h.
+// location.h, connection.h and update.h.
 // Built beside studio-window.exe; apps/window/test/dock.test.ts runs it.
 // Prints "ok <name>" or "FAIL <name>: <what>" per case and exits non-zero on a failure.
 
@@ -10,6 +10,7 @@
 #include "../src/connection.h"
 #include "../src/dock.h"
 #include "../src/location.h"
+#include "../src/update.h"
 
 namespace {
 
@@ -406,6 +407,40 @@ int main() {
   test("elapsed time reads as seconds, then minutes", [] {
     CHECK(conn::elapsed(8400) == "8s");
     CHECK(conn::elapsed(65000) == "1m 05s");
+  });
+
+  test("the refused screen's update takes only a release version", [] {
+    CHECK(ueupdate::validVersion("1.4.11"));
+    CHECK(ueupdate::validVersion("1.4.11-beta.8"));
+    CHECK(ueupdate::validVersion("10.0.0-rc.1"));
+    CHECK(!ueupdate::validVersion(""));
+    CHECK(!ueupdate::validVersion("latest"));
+    CHECK(!ueupdate::validVersion("1.4"));
+    CHECK(!ueupdate::validVersion("1.4.11-"));
+    CHECK(!ueupdate::validVersion("1.4.11 && calc"));
+    CHECK(!ueupdate::validVersion("1.4.11-beta\"&calc"));
+    CHECK(!ueupdate::validVersion("1.4.11-beta|x"));
+  });
+
+  test("the refused screen's update runs the target release's own apply, its exit to a file", [] {
+    std::wstring c = ueupdate::command(L"C:\\node\\npx.cmd", L"1.4.11-beta.8", L"D:\\My Game\\Game.uproject", L"D:\\out.log", L"D:\\out.exit");
+    CHECK(c == L"\"C:\\node\\npx.cmd\" -y --min-release-age=0 ue-mcp@1.4.11-beta.8 update \"D:\\My Game\\Game.uproject\" --apply-only"
+               L" > \"D:\\out.log\" 2>&1 && (echo 0)> \"D:\\out.exit\" || (echo 1)> \"D:\\out.exit\"");
+  });
+
+  test("the refused screen's update result: nothing while it runs, then ok or what the CLI said", [] {
+    CHECK(ueupdate::result(false, "", "", "1.4.11").empty());
+    CHECK(ueupdate::result(true, "0 \r\n", "Bridge 1.4.11 installed\n", "1.4.11") == "{\"ok\":true}");
+    CHECK(ueupdate::result(true, "1\r\n", "\x1b[31mx\x1b[0m one\nno prebuilt bridge for UE 5.7\r\n", "1.4.11") ==
+          "{\"ok\":false,\"error\":\"ue-mcp 1.4.11 update failed:\\nx one\\nno prebuilt bridge for UE 5.7\"}");
+    CHECK(ueupdate::result(true, "1", "", "1.4.11") == "{\"ok\":false,\"error\":\"ue-mcp 1.4.11 update failed\"}");
+  });
+
+  test("a failed update says npm's own error, without its log pointer", [] {
+    std::string out = "a\nb\nnpm error code ETARGET\nnpm error No matching version found for ue-mcp@9.9.9.\n"
+                      "npm error A complete log of this run can be found in: C:\\Users\\u\\AppData\\Local\\npm-cache\\_logs\\x.log\n";
+    CHECK(ueupdate::failureText(out) == "code ETARGET\nNo matching version found for ue-mcp@9.9.9.");
+    CHECK(ueupdate::failureText("1\n2\n3\n4\n5\n6\n7\n") == "3\n4\n5\n6\n7");
   });
 
   std::printf(failures ? "%d failed\n" : "all passed\n", failures);
