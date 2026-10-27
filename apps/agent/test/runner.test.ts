@@ -1118,7 +1118,7 @@ describe("approval rows: editor restarts and ue-mcp actions that delete or overw
     destructive: (c: string, m: string) => (c === "asset" && m === "delete" ? true : c === "asset" || c === "level" ? false : null),
     readOnly: () => null,
   };
-  const rows = (over: Partial<Record<"shell" | "files" | "editorRestart" | "destructive", "ask" | "allow">>) => () =>
+  const rows = (over: Partial<Record<"shell" | "files" | "editorRestart" | "destructive", "ask" | "project" | "allow">>) => () =>
     ({ shell: "allow", files: "allow", editorRestart: "allow", destructive: "allow", ...over } as const);
   const waiting = (sid: string) => () => (store.get(sid)!.approvals ?? []).length > 0;
 
@@ -1178,6 +1178,25 @@ describe("approval rows: editor restarts and ue-mcp actions that delete or overw
     expect(store.get(s.id)!.approvals![0]).toMatchObject({ tool: "shell", command: "echo hi" });
     runner.answerApproval(s.id, store.get(s.id)!.approvals![0].id, "deny");
     await turn;
+  });
+  it("runs commands and file changes inside the project without asking under In project, and asks about the rest", async () => {
+    const elsewhere = path.join(path.dirname(host.projectDir), "elsewhere.txt");
+    const model = new ScriptedModel([
+      () => use("w1", "write_file", { path: "a.txt", content: "x" }),
+      () => use("c1", "shell", { command: "echo hi" }),
+      () => use("w2", "write_file", { path: elsewhere, content: "y" }),
+      () => text("ok"),
+    ]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", approvals: rows({ shell: "project", files: "project" }) });
+    const s = store.create();
+    const turn = runner.send(s.id, "go");
+    await until(waiting(s.id));
+    expect(fs.readFileSync(path.join(host.projectDir, "a.txt"), "utf-8")).toBe("x");
+    expect(host.published.filter((e) => e.type === "approval.requested")).toHaveLength(1);
+    expect(store.get(s.id)!.approvals![0]).toMatchObject({ tool: "write_file", path: elsewhere });
+    runner.answerApproval(s.id, store.get(s.id)!.approvals![0].id, "deny");
+    await turn;
+    expect(fs.existsSync(elsewhere)).toBe(false);
   });
 });
 

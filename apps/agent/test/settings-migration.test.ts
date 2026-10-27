@@ -52,7 +52,10 @@ describe("approvals from an older Studio", () => {
     settings.update({ askBeforeChanges: false });
     raw = JSON.parse(fs.readFileSync(path.join(d, "settings.json"), "utf-8"));
     expect(raw.approvals.files).toBe("allow");
-    expect(() => settings.update({ approvals: { files: "maybe" as never } })).toThrow(/ask or allow/);
+    expect(() => settings.update({ approvals: { files: "maybe" as never } })).toThrow(/files must be ask, project or allow/);
+    settings.update({ approvals: { shell: "project" } });
+    expect(settings.approvals().shell).toBe("project");
+    expect(() => settings.update({ approvals: { destructive: "project" } })).toThrow(/destructive must be ask or allow/);
     expect(() => settings.update({ approvals: { network: "ask" } as never })).toThrow(/no approval network/);
   });
 
