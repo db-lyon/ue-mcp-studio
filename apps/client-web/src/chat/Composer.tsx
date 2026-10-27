@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { formatBytes, type PendingFile } from "./attachments";
 import { useSlashMenu } from "./SlashMenu";
-import type { FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
+import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 
 /** The text box grows with what is written up to this many lines, then scrolls. */
 export const MAX_LINES = 15;
@@ -41,7 +41,7 @@ export function fitHeight({ content, line, chrome, floor, room }: { content: num
  * the dragged height is a minimum the content can still grow past. A double
  * click on the divider forgets it. `height` is the saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, flows, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, flows, actions, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -65,11 +65,13 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   commands?: readonly SlashCommand[];
   /** The project's flows, for the names /flow completes. Fetched when the menu offers them; stable across renders. */
   flows?: () => Promise<FlowListing[]>;
+  /** ue-mcp's actions, for the names /action completes. Fetched when the menu offers them; stable across renders. */
+  actions?: () => Promise<ActionListing[]>;
   children?: ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
-  const slash = useSlashMenu(draft, onDraft, commands, flows);
+  const slash = useSlashMenu(draft, onDraft, commands, flows, actions);
   /** A hidden copy of the box, out of the page flow, measured instead of the box so typing never lays out the conversation. */
   const mirror = useRef<HTMLTextAreaElement>(null);
   const [floor, setFloor] = useState<number | null>(height ?? null);
