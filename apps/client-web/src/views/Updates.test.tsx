@@ -77,9 +77,9 @@ describe("updates", () => {
     expect(screen.getAllByRole("button", { name: "Update" })).toHaveLength(1);
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Update" })));
     await waitFor(() => expect(screen.getByText("the editor would not stop")).toBeTruthy());
-    expect(posted).toEqual(["/v1/update/apply", "/v1/ext/studio/updates/plugin"]);
+    expect(posted).toEqual(["/v1/ext/studio/updates/ueMcp", "/v1/ext/studio/updates/plugin"]);
     // ue-mcp's update fetches the binaries for the version itself; the file name is not a source to pass.
-    const apply = (fetch as unknown as { mock: { calls: Array<[string, RequestInit?]> } }).mock.calls.find(([u]) => u === "/v1/update/apply")!;
+    const apply = (fetch as unknown as { mock: { calls: Array<[string, RequestInit?]> } }).mock.calls.find(([u]) => u === "/v1/ext/studio/updates/ueMcp")!;
     expect(JSON.parse(String(apply[1]!.body))).toEqual({ version: "1.4.0-beta.2" });
     expect(screen.getByRole("dialog", { name: "Update stopped" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Close" }));

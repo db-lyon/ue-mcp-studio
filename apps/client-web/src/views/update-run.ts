@@ -182,11 +182,12 @@ export async function execute(start: UpdateRun, onChange: (run: UpdateRun) => vo
     // The next page reads this, so it must be kept before ue-mcp or the editor goes away.
     await saving;
     const then = run.steps.filter((s) => s.state === "pending" && WAITS.includes(s.key)).map((s) => s.key);
-    let r = step.key === "ueMcp"
-      ? await send("/v1/update/apply", { version: run.target })
+    // The bridge installs through the target ue-mcp package itself, never the daemon, which may run a
+    // much older ue-mcp: the release being installed checks the result and puts the old files back when
+    // it would not load. A source bridge is rebuilt on before anything starts the editor.
+    const r = step.key === "ueMcp"
+      ? await send("/v1/ext/studio/updates/ueMcp", { version: run.target })
       : await send(`/v1/ext/studio/updates/${step.key}`, { then });
-    // A bridge installed from source updates through the new package itself, then a rebuild.
-    if (step.key === "ueMcp" && !r.ok && /source install/i.test(r.error ?? "")) r = await send("/v1/ext/studio/updates/ueMcp", { version: run.target });
     // A turn is in progress: the agent runs this and the rest once it finishes.
     if (r.ok && r.deferred) {
       set({ ...run, detail: undefined, steps: run.steps.map((s) => (r.deferred!.includes(s.key) && s.state !== "done" ? { ...s, state: "deferred" } : s)) });

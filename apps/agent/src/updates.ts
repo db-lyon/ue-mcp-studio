@@ -314,38 +314,65 @@ export class Updater {
     return this.ueMcp("studio", ["extension", "install", await this.manifestUrl(), uproject]);
   }
 
-  /**
-   * Update a project whose bridge is installed from source: a daemon can only
-   * deploy its own version's source, so the new package runs `ue-mcp update`
-   * (package, then bridge source), and the editor is rebuilt on it.
-   */
-  async updateUeMcpSource(version: string): Promise<{ ok: boolean; error?: string }> {
-    const uproject = this.uproject();
-    if (!uproject) return { ok: false, error: "could not find the project" };
-    if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) return { ok: false, error: `not a version: ${version}` };
+  /** How the project's bridge was installed: its install marker, else a Source folder means source. */
+  bridgeKind(): "source" | "binary" | null {
+    const dir = path.join(this.host.projectDir, "Plugins", "UE_MCP_Bridge");
+    try {
+      const kind = (JSON.parse(fs.readFileSync(path.join(dir, ".ue-mcp-install.json"), "utf-8")) as { kind?: string }).kind;
+      if (kind === "source" || kind === "binary") return kind;
+    } catch {
+      // No marker: an install from before it.
+    }
+    if (!fs.existsSync(path.join(dir, "UE_MCP_Bridge.uplugin"))) return null;
+    return fs.existsSync(path.join(dir, "Source")) ? "source" : "binary";
+  }
+
+  /** Run `ue-mcp@<version> <args>` to the end; its output's last lines on failure. */
+  private async runUeMcp(version: string, args: string[]): Promise<{ ok: boolean; error?: string }> {
     const npx = npxCli();
     if (!npx) return { ok: false, error: "npx was not found beside Node" };
-    this.publish("update.progress", { part: "ueMcp", message: `Installing ue-mcp ${version} and its bridge source` });
-    let stderr = "";
+    let output = "";
     const code = await new Promise<number | null>((resolve) => {
-      const c = spawn(process.execPath, [...npxArgs(npx, `ue-mcp@${version}`), "update", uproject, "--no-build"], { cwd: this.host.projectDir, stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
-      c.stderr.setEncoding("utf-8");
-      c.stderr.on("data", (d: string) => void (stderr = (stderr + d).slice(-64_000)));
+      const c = spawn(process.execPath, [...npxArgs(npx, `ue-mcp@${version}`), ...args], { cwd: this.host.projectDir, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      for (const s of [c.stdout, c.stderr]) {
+        s.setEncoding("utf-8");
+        s.on("data", (d: string) => void (output = (output + d).slice(-64_000)));
+      }
       c.on("exit", resolve);
       c.on("error", (e) => {
-        stderr += e.message;
+        output += e.message;
         resolve(null);
       });
     });
-    if (code !== 0) {
-      const said = failureText(stderr);
-      return { ok: false, error: `ue-mcp ${version} update exited with ${code ?? "an error"}${said ? `:\n${said}` : ""}` };
+    if (code === 0) return { ok: true };
+    const said = failureText(output.replace(/\x1b\[[0-9;]*m/g, ""));
+    return { ok: false, error: `ue-mcp ${version} ${args[0]} exited with ${code ?? "an error"}${said ? `:\n${said}` : ""}` };
+  }
+
+  /**
+   * Install the bridge of ue-mcp `version` through that version's own package,
+   * not this daemon, which may be a much older ue-mcp: the release being
+   * installed is the one whose updater checks the result and puts the old
+   * files back when it would not load. A binary install gets that release's
+   * binaries (`update --apply-only`); a source install gets its source and
+   * the editor is rebuilt on it, so the editor never starts on source it has
+   * not built.
+   */
+  async updateUeMcp(version: string): Promise<{ ok: boolean; error?: string }> {
+    const uproject = this.uproject();
+    if (!uproject) return { ok: false, error: "could not find the project" };
+    if (!/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version)) return { ok: false, error: `not a version: ${version}` };
+    if (this.bridgeKind() !== "source") {
+      this.publish("update.progress", { part: "ueMcp", message: `Installing the bridge plugin ${version}` });
+      return this.runUeMcp(version, ["update", uproject, "--apply-only"]);
     }
-    if (this.host.editors().some((e) => e.connected)) {
-      this.publish("update.progress", { part: "ueMcp", message: "Rebuilding the editor on the new bridge" });
-      await this.host.editorOperation("rebuild");
-    }
-    return { ok: true };
+    this.publish("update.progress", { part: "ueMcp", message: `Installing ue-mcp ${version} and its bridge source` });
+    const deployed = await this.runUeMcp(version, ["update", uproject, "--no-build"]);
+    if (!deployed.ok) return deployed;
+    this.publish("update.progress", { part: "ueMcp", message: "Rebuilding the editor on the new bridge" });
+    const rebuilt = await this.host.editorOperation("rebuild");
+    const failed = ((rebuilt.steps as Array<{ step: string; ok: boolean; result?: string }> | undefined) ?? []).find((s) => !s.ok);
+    return failed ? { ok: false, error: `The bridge source ${version} is deployed, but ${failed.step} failed: ${failed.result ?? "no detail"}` } : { ok: true };
   }
 
   /** Restart the daemon on the newest ue-mcp, after an update installed it. */
