@@ -48,6 +48,12 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
       ? { ...INSTALL, plugin: { ...INSTALL.plugin, installedVersion: "1.4.9" }, ok: false, problems: [{ code: "plugin-outdated", what: "The bridge plugin is older than this ue-mcp", fix: "Run npx ue-mcp update, then rebuild the project." }] }
       : p === "/v1/ext/studio/context-strategy" ? { ...CONTEXT, fromFile: true, envOverride: "full" } : undefined,
   }),
+  "settings-project-yaml": page("Project with Advanced open: ue-mcp.yml highlighted, focused, with a line longer than the box", "project", {
+    get: (p) => (p === "/v1/ext/studio/config" ? { path: "C:/Projects/StudioE2E/ue-mcp.yml", exists: true, text: YAML } : undefined),
+    click: "details.advanced > summary",
+    scroll: "details.advanced",
+    focus: ".yaml-editor textarea",
+  }),
   "settings-general": page("General: themes and updates", "general"),
   "settings-diagnostics": page("Diagnostics: the editor and daemon, and the event log, empty because the harness sends no events", "diagnostics"),
 };
@@ -63,3 +69,33 @@ export const INSTALL = {
 };
 
 export const CONTEXT = { strategy: "micro", fromFile: false, envOverride: null, seeds: { micro: 2180, lean: 18740, full: 50920 }, };
+
+/** Every kind of token the ue-mcp.yml editor colours, and a line wider than the box. */
+const YAML = [
+  "# ue-mcp.yml: what ue-mcp does for this project",
+  "---",
+  "context:",
+  "  strategy: micro # micro, lean or full",
+  "server:",
+  "  mode: daemon",
+  "  port: 9867",
+  "  timeoutSeconds: 2.5",
+  "  paramEcho: false",
+  "  proxy: null",
+  "defaults: &defaults",
+  "  retries: 3",
+  "  label: \"Studio E2E\"",
+  "flows:",
+  "  smoke:",
+  "    <<: *defaults",
+  "    steps:",
+  "      - project.get_status",
+  "      - level.list_actors",
+  "      - !!str 42",
+  "    tags: [qa, nightly, {owner: 'level-team'}]",
+  "  notes: |",
+  "    Free text: not a key, # not a comment.",
+  "    Kept as written.",
+  "extraContentRoots: [\"/Game/VeryLongFolderNameThatKeepsGoing/AndGoing/AndGoingPastTheRightEdgeOfTheBox\", \"/Game/Other\"]",
+  "",
+].join("\n");
