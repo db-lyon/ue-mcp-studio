@@ -238,9 +238,9 @@ describe("Edit and Delete on the page", () => {
     openCard("Walk");
     fireEvent.click(within(row("Walk")).getByRole("button", { name: "Delete" }));
     expect(m.qaPlaytestDelete).not.toHaveBeenCalled();
-    expect(within(row("Walk")).getByText(/Deleting removes the script asset/)).toBeTruthy();
+    expect(within(row("Walk")).getByText("Delete this playtest?")).toBeTruthy();
     await act(async () => {
-      fireEvent.click(within(row("Walk")).getByRole("button", { name: "Delete the script" }));
+      fireEvent.click(within(row("Walk")).getByRole("button", { name: "Delete" }));
     });
     expect(m.qaPlaytestDelete).toHaveBeenCalledWith("/Game/T/Walk");
     expect(reload).toHaveBeenCalled();

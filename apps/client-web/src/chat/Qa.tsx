@@ -545,18 +545,22 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const draftButtons = editable && (
     <>
       <IconButton label="Edit" disabled={working || !!blocked} title={blocked} expanded={panel === "edit"} onClick={toggleEdit} glyph={GLYPH.edit} />
-      {panel === "delete" ? (
-        <IconButton danger label="Delete the script" disabled={working || !!blocked} title={blocked ?? "Click again to delete the script"} onClick={() => act(() => (scripted ? scripted.remove() : api.qaDeleteScript(run.runId)))} glyph={GLYPH.trash} />
-      ) : (
-        <IconButton label="Delete" disabled={working || !!blocked} title={blocked} onClick={() => setPanel("delete")} glyph={GLYPH.trash} />
-      )}
+      <IconButton label="Delete" disabled={working || !!blocked} title={blocked} onClick={() => setPanel("delete")} glyph={GLYPH.trash} />
     </>
   );
   const editRun = panel === "edit" ? (scripted ? editing : draft ? run : null) : null;
   const dismiss = onDismiss && ended && <IconButton label="Dismiss this run" onClick={onDismiss} glyph={GLYPH.cancel} />;
   /** The card's own buttons, in one order everywhere. */
   const ownActions = [startButtons, stopButton, cancelAssigned, assignButton, endLoop, draftButtons, extra, dismiss].filter(Boolean);
-  const actions = ownActions.length > 0 ? <span className="qa-box-actions">{ownActions.map((a, i) => <Fragment key={i}>{a}</Fragment>)}</span> : null;
+  // Delete asks in the card's corner, in words, where the click was.
+  const confirmDelete = panel === "delete" && (
+    <span className="qa-box-actions qa-confirm" role="group" aria-label="Confirm delete">
+      <span className="small">Delete this playtest?</span>
+      <button className="danger-button small-button" disabled={working} onClick={() => act(() => (scripted ? scripted.remove() : api.qaDeleteScript(run.runId)))}>Delete</button>
+      <button className="ghost small-button" disabled={working} onClick={() => setPanel(null)}>Keep</button>
+    </span>
+  );
+  const actions = confirmDelete || (ownActions.length > 0 ? <span className="qa-box-actions">{ownActions.map((a, i) => <Fragment key={i}>{a}</Fragment>)}</span> : null);
 
   /** The box that asks on a collapsed card. An open card asks on the step's own row instead, so it is not shown twice. */
   const askBox = ask && !open ? ask : null;
@@ -590,7 +594,6 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
           </div>
         )}
         {/* In the transcript the legend sits under the summary, open or not; the page draws one over all its rows. */}
-        {!slotted && run.steps.length > 0 && panel !== "edit" && <PathLegend runs={[run]} />}
         {askBox && (
           <div className={`qa-answer ${failInBox ? "failing" : ""}`} role="group" aria-label={`Step ${askBox.index + 1} needs you`}>
             <span className="qa-answer-step">
@@ -634,13 +637,12 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
             </span>
           </div>
         )}
-        {error && <div className="banner bad small">{error}</div>}
+        {error && panel !== "edit" && <div className="banner bad small">{error}</div>}
       </div>
       {open && <div className="qa-body-wrap">
       <div className="qa-body" id={`qa-body-${run.runId}`} ref={body}>
       {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
       {panel === "run" && runnable && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
-      {panel === "delete" && <div className="small dim">Deleting removes the script asset. <button className="ghost small-button" onClick={() => setPanel(null)}>Keep it</button></div>}
       {assignment?.loop && (
         <LoopPanel
           loop={assignment.loop}
@@ -659,7 +661,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
         </div>
       )}
       {editRun ? (
-        <DraftEditor run={editRun} busy={working} onSave={(steps, map) => act(() => (scripted ? scripted.save(steps, map) : api.qaSaveScript(run.runId, steps, map)))} onCancel={() => setPanel(null)} />
+        <DraftEditor run={editRun} busy={working} error={error} onSave={(steps, map) => act(() => (scripted ? scripted.save(steps, map) : api.qaSaveScript(run.runId, steps, map)))} onCancel={() => setPanel(null)} />
       ) : (
       <ol className="qa-steps">
         {run.steps.map((s) => {
