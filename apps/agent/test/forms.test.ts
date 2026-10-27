@@ -48,7 +48,22 @@ describe("the feedback tool in ue-mcp.yml", () => {
     const on = withFeedbackTool(off, true);
     expect(feedbackToolOn(on)).toBe(true);
     expect(on).not.toContain("disable");
-    expect(feedbackToolOn(withFeedbackTool("disable:\n  - niagara\n", false))).toBe(false);
-    expect(withFeedbackTool("disable:\n  - niagara\n", true)).toContain("niagara");
+    expect(feedbackToolOn(withFeedbackTool("ue-mcp:\n  disable:\n    - niagara\n", false))).toBe(false);
+    expect(withFeedbackTool("ue-mcp:\n  disable:\n    - niagara\n", true)).toContain("niagara");
+  });
+
+  it("reads and writes the list where ue-mcp reads it, under the ue-mcp block", () => {
+    // What `ue-mcp init` writes for a project set up without the feedback tool.
+    const init = "ue-mcp:\n  version: 1\n  disable:\n    - feedback\n";
+    expect(feedbackToolOn(init)).toBe(false);
+    const on = withFeedbackTool(init, true);
+    expect(feedbackToolOn(on)).toBe(true);
+    expect(on).toBe("ue-mcp:\n  version: 1\n");
+    expect(withFeedbackTool(yml, false)).toContain("ue-mcp:\n  version: 1\n  disable:\n    - feedback");
+  });
+
+  it("moves a top-level list an earlier Studio wrote into the block", () => {
+    const stray = "ue-mcp:\n  version: 1\ndisable:\n  - feedback\n  - niagara\n";
+    expect(withFeedbackTool(stray, true)).toBe("ue-mcp:\n  version: 1\n  disable:\n    - niagara\n");
   });
 });
