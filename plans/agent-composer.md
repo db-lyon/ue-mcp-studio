@@ -1,6 +1,6 @@
 # Agents and settings
 
-Status: the plan in force. Phases 1 to 5 are built (section 8); the Usage section, its ledger, budgets, prices and plan meters were removed afterwards (section 4). Every decision is settled; there are no open questions.
+Status: the plan in force. Phases 1 to 5 are built (section 8); the Usage section, its ledger, budgets, prices and plan meters were removed afterwards (section 4), Auto was removed from the context strategies (#125), and the built-in worker's model, effort and start are editable again (#129). The "Shared with other clients" badge and Playtest runs as ue-mcp's shared mode were planned and are not built. Every decision is settled; there are no open questions.
 
 ## Why
 
@@ -17,32 +17,32 @@ Every route (the Claude sign-in, the ChatGPT sign-in, any API key, any custom en
 
 ## Decisions at a glance
 
-1. Settings has six sections: **General, Agents, Models & accounts, Approvals & review, Project, Diagnostics**, grouped by the decision being made. A value ue-mcp stores for every MCP client carries a "Shared with other clients" badge. (Built in phase 1.)
+1. Settings has six sections: **General, Agents, Models & accounts, Approvals & review, Project, Diagnostics**, grouped by the decision being made. (Built in phase 1.) A "Shared with other clients" badge on the values ue-mcp stores for every MCP client was planned and is not built.
 2. **Each route reads its vendor's own files.** A model's vendor picks the convention: Anthropic models read what Claude Code reads, OpenAI models what Codex reads, Gemini models what Gemini CLI reads, and a custom endpoint reads AGENTS.md and the vendor-neutral `.agents/skills/`. Studio invents no file format and writes none.
 3. **The Claude sign-in loads them natively.** The Agent SDK runs with the same setting sources as Claude Code (user, project, local). Studio's own tools keep working beside them, and every call still goes through Studio's executor, approvals and transcript.
 4. **Studio's own loop reads them the way each vendor's tool does**: instruction files in that tool's order, subagents as helpers of Studio's agent tool, skills through a skill tool with the same contract.
-5. **Agents in Settings is read only**: for each convention, the instruction files, subagents and skills found, with source path, size in tokens and Open file, and a sentence on which files that vendor's tools read.
-6. **The built-in editor worker stays**, Studio's own helper for work that splits, with sensible defaults. The subagent mode, model and effort controls leave the UI; earlier values keep working. The helpers-per-turn cap keeps its stored value and has no control.
+5. **The convention view in Agents is read only**: for each convention, the instruction files, subagents and skills found, with source path, size in tokens and Open file, and a sentence on which files that vendor's tools read.
+6. **The built-in editor worker stays**, Studio's own helper for work that splits, with sensible defaults. Its model, effort and start are edited on the Worker card in Agents (#129). The helpers-per-turn cap keeps its stored value and has no control.
 7. **Safety stays in one place**: Approvals & review, per kind.
-8. **Context strategy uses ue-mcp's names everywhere: Micro, Lean, Full.** Project sets it, and Studio's own agent follows it like every other client.
+8. **Context strategy uses ue-mcp's names everywhere: Micro, Lean, Full.** Settings > Project sets it, and Studio's own agent follows it like every other client.
 9. **Token use shows only in the chat's thread list**: each agent's input and output tokens for the session, beside its row.
 
 ---
 
 ## 1. Information architecture (built, phase 1)
 
-**The rule: a section groups settings by the decision the user is making, never by where the value is stored.** The shared badge, not the section, says the blast radius.
+**The rule: a section groups settings by the decision the user is making, never by where the value is stored.**
 
 | Section | Holds |
 |---------|-------|
-| **Agents** | The main agent's model and effort, screenshot size, the "Read the project's own files" switch, and the read-only view of what each route loads (instructions, subagents, skills), with the built-in editor worker. |
+| **Agents** | The main agent's model and effort, screenshot size, the "Read the project's own files" switch, the read-only view of what each route loads (instructions, subagents, skills), and the Worker card, which edits the built-in editor worker's model, effort and start. |
 | **Models & accounts** | Sign-ins, API keys, custom endpoints, route order, the model catalog with every route that runs each model. |
 | **Approvals & review** | Before it acts: shell commands, file changes, editor restarts, destructive ue-mcp actions, starting playtests, feedback reports, editor dialogs. After it acts: per-turn review. |
-| **Project** | Install, bridge plugin, MCP clients, context strategy for other clients, ue-mcp.yml. Native Unreal tools and skills for other clients from inside the editor, where ue-mcp init runs. |
+| **Project** | Install, bridge plugin, MCP clients, the context strategy (every client's, Studio's agent included), ue-mcp.yml. Native Unreal tools and skills for other clients from inside the editor, where ue-mcp init runs. |
 | **General** | Appearance, Updates. |
 | **Diagnostics** | Editor and daemon status, logs. |
 
-Desktop: a left rail under two labels (Work; Project and Studio) with a status dot where something needs attention. Narrow: Settings opens on the section list with one live status line per section; a section opens full width with Back.
+Desktop: a left rail under three labels, Studio (General), Work (Agents, Models & accounts, Approvals & review) and Project (Project, Diagnostics), with a status dot where something needs attention. A wide panel opens on General. Narrow: Settings opens on the section list with one live status line per section; a section opens full width with Back.
 
 ### 1.1 Where every earlier setting went
 
@@ -52,17 +52,17 @@ Desktop: a left rail under two labels (Work; Project and Studio) with a status d
 | Model, effort | Agents | the chat's picker sets the same model, as before |
 | Sign-ins, API keys | Models & accounts | one name per route: "Claude sign-in", "ChatGPT sign-in", "<vendor> key" |
 | Ask before commands and files | Approvals & review | four rows: shell, files, editor restarts, destructive ue-mcp actions |
-| Subagents mode, model, effort | not editable | earlier values still drive the built-in editor worker, shown read only (2.7) |
+| Subagents mode, model, effort | Agents > Worker | the built-in editor worker's start, model and effort, editable (2.7, #129) |
 | Subagents per turn | not editable | the stored value still caps helpers per turn |
 | Give the agent CLAUDE.md | Agents | "Read the project's own files", one switch for every convention |
 | Image size | Agents | |
 | Turn token limit | removed | dropped when old settings load |
 | Review each turn | Approvals & review | |
 | Dialog mode and policy | Approvals & review | mode shared; the policy sits under "Show them to me in Studio", the mode it applies to |
-| Playtest runs | Approvals & review > Starting playtests | ue-mcp's shared mode when the daemon offers it (section 6) |
+| Playtest runs | Approvals & review > Starting playtests | Studio's own setting; ue-mcp's shared mode is not used (section 6) |
 | Assign to subagent budget | removed | the loop stops after a fixed number of attempts |
 | Feedback tool and mode | Approvals & review | shared |
-| Context strategy for other clients | Project | from any browser |
+| Context strategy | Project | from any browser; every client follows it, Studio's agent included |
 | Install, bridge, clients, ue-mcp.yml | Project | |
 | Status, logs | Diagnostics | |
 
@@ -135,13 +135,13 @@ An OpenAI-compatible endpoint has no tool of its own, so it reads the vendor-neu
 
 ### 2.7 What Settings > Agents shows
 
-Read only, one tab per convention, the conventions of connected routes first; when nothing is connected all four show, so a new user sees what each vendor would read.
+The convention view is read only, one tab per convention, the conventions of connected routes first; when nothing is connected all four show, so a new user sees what each vendor would read.
 
 - Instruction files: path, size in tokens, when it applies (always, in a folder, for matching files), which it imports, Open file.
 - Subagents: name, description, model as written and as it will run here, tools, turn limit, path, size, Open file.
 - Skills: name, description, source (project, user, a ue-mcp plugin with its package from the daemon's skills listing), size, Open file.
 - A sentence per convention on which files that vendor's tools read, linking its documentation.
-- The built-in editor worker: its model, effort and when it starts, from earlier settings when the user had set them, else the defaults (the main agent's model and effort, started when the user asks).
+- The Worker card: the built-in editor worker's model, effort and when it starts, editable (#129). Unset, it follows the main agent's model and effort and starts when the user asks.
 
 Open file opens the file in the system's editor through the agent (`POST /files/open`), only for a path the view listed.
 
@@ -150,7 +150,7 @@ Open file opens the file in the system's editor through the agent (`POST /files/
 | Old | Now |
 |-----|-----|
 | `usage.projectInstructions` | "Read the project's own files"; false keeps every route reading none |
-| `usage.subagents`, `subagentModel`, `subagentEffort` | kept and honoured by the built-in worker, shown read only |
+| `usage.subagents`, `subagentModel`, `subagentEffort` | kept and honoured by the built-in worker, edited on the Worker card |
 | `usage.subagentsPerTurn` | kept and honoured, no control |
 | `askBeforeChanges` | the four approval rows; still written for an older Studio |
 | `usage.turnTokenLimit`, playtest budget | dropped on load |
@@ -161,7 +161,7 @@ Open file opens the file in the system's editor through the agent (`POST /files/
 
 **Other clients** (built): Project sets `context.strategy` in ue-mcp.yml from any browser, with each strategy's seed tokens (measured by the daemon's projection when it offers one, else ue-mcp's published figures), the clients it affects, and the environment override marked.
 
-**Studio's own agent**: Micro (today's single ue-mcp tool), Lean (a tool per category with action names, signatures on demand) or Full (every signature inline), from the daemon's projection of ue-mcp's own surfaces (`context.project` and `context.call`), so Studio never rebuilds ue-mcp's tools. It follows the project's strategy (environment, then ue-mcp.yml, then Micro). Auto was removed: no measurement ever shipped, so it always ran Micro.
+**Studio's own agent**: Micro (today's single ue-mcp tool), Lean (a tool per category with action names, signatures on demand) or Full (every signature inline), from the daemon's projection of ue-mcp's own surfaces (`context.project` and `context.call`), so Studio never rebuilds ue-mcp's tools. It follows the project's strategy (environment, then ue-mcp.yml, then Micro), chosen in Settings > Project; Studio's agent has no separate choice. Auto was removed (#125): no measurement ever shipped, so it always ran Micro.
 
 ---
 
@@ -179,7 +179,7 @@ Sign-ins, API keys and the model catalog (built). Adds custom OpenAI-compatible 
 
 ## 6. ue-mcp prerequisites
 
-General daemon features, added to ue-mcp first and announced as feature strings: the skills listing with owners (`skills`, `GET /v1/skills`), projections of ue-mcp's surfaces for a category list and a call into a projected tool (`context.projection`), each action's read and destructive flags (`actions.effects`), the context measurement format (`ContextMeasurement`, its validator and JSON schema), and Playtest runs as a shared mode (`modes.playtest`, `ue-mcp playtest mode`). Studio feature-detects each and keeps today's behaviour without it.
+General daemon features, added to ue-mcp first and announced as feature strings: the skills listing with owners (`skills`, `GET /v1/skills`), projections of ue-mcp's surfaces for a category list and a call into a projected tool (`context.projection`), each action's read and destructive flags (`actions.effects`), the context measurement format (`ContextMeasurement`, its validator and JSON schema), and Playtest runs as a shared mode (`modes.playtest`, `ue-mcp playtest mode`). Studio feature-detects each it uses and keeps today's behaviour without it. It does not use `modes.playtest`: Playtest runs is Studio's own setting.
 
 ---
 
@@ -191,8 +191,7 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 | GET | `/native` | per convention: instruction files, subagents, skills, with paths, scopes and sizes |
 | GET | `/native/preview?convention=` | the instruction text an agent on that convention is given |
 | POST | `/files/open` | open a listed file in the system's editor |
-| GET, PUT | `/context-strategy` | other clients' strategy in ue-mcp.yml |
-| GET, PUT | `/context` | Studio's agent: its strategy, the seed cost of each at its scope, the measurement table |
+| GET, PUT | `/context-strategy` | the project's strategy in ue-mcp.yml, which every client and Studio's agent follow, with each strategy's seed cost |
 | GET, POST, PUT, DELETE | `/endpoints` | custom model endpoints |
 
 ---
@@ -200,7 +199,7 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 ## 8. Phasing
 
 1. **Settings layout** (built, #64).
-2. **Native files on every route**, the read-only Agents view, the built-in worker shown read only. (Built, #67.)
+2. **Native files on every route**, the read-only Agents view, the built-in worker shown read only. (Built, #67; the Worker card is editable since #129.)
 3. **Usage ledger and dashboard.** (Built, #68; removed since.)
 4. **Context strategy for Studio's agent**, on ue-mcp's projections. (Built, #70; Auto removed, #125.)
 5. **Custom endpoints and route order** (built, #71).
@@ -216,9 +215,9 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 5. Codex skills with the same name are both listed, because Codex lists both; Gemini and Claude precedence follow their documentation.
 6. A subagent whose model this machine cannot run uses the main agent's model and says so in the view; it is never dropped.
 7. The old CLAUDE.md switch becomes "Read the project's own files" for every convention, keeping its stored value.
-8. The built-in worker keeps honouring the stored subagent mode, model and effort; they are shown, not edited.
+8. The built-in worker keeps honouring the stored subagent mode, model and effort, and the Worker card edits them (#129).
 9. The chat's model picker sets the model new turns run on, as before; there is no separate per-session default.
-10. Playtest runs uses ue-mcp's shared mode when the daemon offers it, with the shared badge; otherwise Studio's own setting, without it.
+10. Playtest runs is Studio's own setting. Using ue-mcp's shared mode when the daemon offers it, with a shared badge, was planned and is not built.
 
 ---
 
@@ -226,7 +225,7 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 
 No phase was run against a live editor: the user has not asked for editor use. Each phase's PR lists the exact commands that prove it live once asked.
 
-- **Lean and Full on the daemon**: with the daemon offering `context.projection` (ue-mcp after 1.4.11-beta.4), choose Lean in Settings > Agents and run a turn on each route; the transcript shows each category call as `ue_mcp` category.method, and a destructive action still asks first.
+- **Lean and Full on the daemon**: with the daemon offering `context.projection` (ue-mcp after 1.4.11-beta.4), choose Lean in Settings > Project and run a turn on each route; the transcript shows each category call as `ue_mcp` category.method, and a destructive action still asks first.
 
 ---
 
@@ -239,7 +238,7 @@ No phase was run against a live editor: the user has not asked for editor use. E
 3. **Destructive actions come only from ue-mcp.** Studio reads the daemon's action effects. Studio runs only on a ue-mcp that reports them, and never guesses from action names.
 4. **Scoped files join through tool results**, once per conversation, on both routes; the main agent and each helper are separate conversations.
 5. **Context strategy for other clients** writes `context.strategy` in ue-mcp.yml (micro as no setting, as `ue-mcp init` does), then restarts ue-mcp after the turn in progress. The choice shown is the file's value, which a click changes; an environment override is marked beside it.
-6. **Narrow Settings** opens on the section list with a live status line per section; a wide panel always has a section open, Agents first. Old `#/settings/agent` and `#/settings/account` links land on Agents and Models & accounts.
+6. **Narrow Settings** opens on the section list with a live status line per section; a wide panel always has a section open, General first. Old `#/settings/agent` and `#/settings/account` links land on Agents and Models & accounts.
 7. **Phase 1 read every convention on every route** and offered per-file switches, added files and Create AGENTS.md. Phase 2 replaces that with each vendor's own files read as its tools read them, shown read only: the per-file switches, added files, Studio's own `~/.ue-mcp/studio/instructions.md` and Create AGENTS.md are removed, since Studio no longer chooses what a vendor's convention says.
 
 ### Phase 2
@@ -247,7 +246,7 @@ No phase was run against a live editor: the user has not asked for editor use. E
 1. **One vendor order everywhere.** Sign-ins, keys, the models table and the Agents tabs list vendors in one fixed order (Anthropic, OpenAI, Google, then other models) in every state; a green dot marks what a connected route reads. Position never encodes connection, so nothing reorders when a route connects.
 2. **The tabs are named after the tool whose files they show**: Claude Code, Codex, Gemini CLI, AGENTS.md. All four show with nothing connected, the first in the order selected, each saying no route reads it; the AGENTS.md tab says custom endpoints read it rather than offering a connection. Below 480 px the tabs become a select.
 3. **The preview is what the route really gets.** On the Claude sign-in the Agent SDK reads the files itself, so the preview is those files in load order with imports expanded; on every other route it is the text Studio sends. Its title says how many files are read on every call and how many join by path.
-4. **Studio's worker follows the main agent** unless an earlier Studio set its own model of the same vendor; a model of another vendor is not used, so the view never shows a model the turn would not run. Its values are read only.
+4. **Studio's worker follows the main agent** unless an earlier Studio set its own model of the same vendor; a model of another vendor is not used, so the view never shows a model the turn would not run. The Worker card edits its values (#129).
 
 ### Phase 3
 
