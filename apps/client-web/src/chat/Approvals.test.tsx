@@ -71,7 +71,7 @@ describe("an approval card", () => {
 describe("a session waiting for approval", () => {
   it("says so in the session list", () => {
     const s: SessionSummary = { id: "s", title: "t", status: "running", createdAt: at, updatedAt: at, waitingCause: null, archived: false, agents: { total: 0, running: 0 }, awaiting: 1 };
-    expect(sessionLine(s)).toBe("Needs your approval");
+    expect(sessionLine(s)).toBe("Waiting on your approval");
   });
 });
 
