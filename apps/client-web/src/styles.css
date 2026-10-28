@@ -914,6 +914,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-agent-evidence summary { cursor: pointer; color: var(--muted); }
 .qa-agent-evidence p { margin: 4px 0; white-space: pre-wrap; }
 .qa-captures { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.qa-capture-missing { display: inline-block; padding: 2px 0; overflow-wrap: anywhere; }
 .qa-captures img { display: block; width: 240px; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .qa-agent-evidence ul { margin: 4px 0; padding-left: 16px; overflow-wrap: anywhere; }
 .qa-override { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1199,11 +1200,31 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .review-pictures { display: flex; gap: 10px; flex-wrap: wrap; }
 .review-pictures figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
 .review-pictures img { max-width: 220px; max-height: 220px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); }
-.review-nopicture { width: 160px; height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; border: 1px dashed var(--line-strong); border-radius: 4px; padding: 6px; box-sizing: border-box; }
+.review-picture-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 220px; padding-top: 2px; overflow-wrap: break-word; }
+/* An asset with no picture: its type, path, what changed and its facts in the picture's place. */
+.asset-tile { display: flex; gap: 10px; align-items: flex-start; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--accent-line); border-radius: 4px; }
+.asset-tile .asset-icon { flex-shrink: 0; color: var(--accent); margin-top: 1px; }
+.asset-tile-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 auto; }
+.asset-tile-head { display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; min-width: 0; }
+.asset-tile-class { font-weight: 600; overflow-wrap: break-word; min-width: 0; }
+.asset-tile-status { color: var(--muted); }
+.asset-tile-status.added { color: var(--ok); }
+.asset-tile-status.deleted { color: var(--bad); }
+.asset-tile-path { color: var(--muted); overflow-wrap: anywhere; }
+.asset-tile-changes { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.asset-tile-changes li { padding: 0 6px; border-radius: 3px; border: 1px solid var(--line-strong); color: var(--muted); white-space: nowrap; }
+.asset-tile-changes li.add { color: var(--ok); border-color: var(--ok); }
+.asset-tile-changes li.del { color: var(--bad); border-color: var(--bad); }
+.asset-tile-changes li.mod { color: var(--warn); border-color: var(--warn); }
+.asset-tile-facts { margin: 0; display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 12px; }
+.asset-tile-facts > div { display: contents; }
+.asset-tile-facts dt { color: var(--muted); overflow-wrap: break-word; min-width: 0; }
+.asset-tile-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
+.asset-tile-note { overflow-wrap: break-word; }
 .review-item-summary { color: var(--text); overflow-wrap: break-word; }
 .review-item-summary.bad { color: var(--bad); }
 .asset-diff .review-pictures { flex-wrap: nowrap; }
-.asset-diff .review-pictures figure { flex: 1 1 0; min-width: 0; max-width: 220px; }
+.asset-diff .review-pictures figure, .asset-diff .review-pictures .review-picture-side { flex: 1 1 0; min-width: 0; max-width: 220px; }
 .asset-diff .review-pictures img { width: 100%; height: auto; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
@@ -1228,7 +1249,6 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .review-diff .output.diff { white-space: pre-wrap; overflow-wrap: break-word; }
 .diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }
 .engine-note summary { cursor: pointer; }
-.asset-diff .review-nopicture { width: 100%; aspect-ratio: 1; height: auto; }
 .asset-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .engine-note { overflow-wrap: break-word; }
 .diff-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
