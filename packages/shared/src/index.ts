@@ -10,7 +10,7 @@ import type { QaRun } from "./qa.js";
 import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
-import type { AgentContextStrategy, Approvals } from "./composer.js";
+import type { Approvals } from "./composer.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {

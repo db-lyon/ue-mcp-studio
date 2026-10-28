@@ -1,6 +1,6 @@
 # Agents and settings
 
-Status: the plan in force. Phases 1 to 5 are built (section 8); the Usage section, its ledger, budgets, prices and plan meters were removed afterwards (section 4); phase 4's measurement for Auto waits on an editor run (section 10). Every decision is settled; there are no open questions.
+Status: the plan in force. Phases 1 to 5 are built (section 8); the Usage section, its ledger, budgets, prices and plan meters were removed afterwards (section 4). Every decision is settled; there are no open questions.
 
 ## Why
 
@@ -24,7 +24,7 @@ Every route (the Claude sign-in, the ChatGPT sign-in, any API key, any custom en
 5. **Agents in Settings is read only**: for each convention, the instruction files, subagents and skills found, with source path, size in tokens and Open file, and a sentence on which files that vendor's tools read.
 6. **The built-in editor worker stays**, Studio's own helper for work that splits, with sensible defaults. The subagent mode, model and effort controls leave the UI; earlier values keep working. The helpers-per-turn cap keeps its stored value and has no control.
 7. **Safety stays in one place**: Approvals & review, per kind.
-8. **Context strategy uses ue-mcp's names everywhere: Micro, Lean, Full.** Project sets it for other clients; Studio's own agent has its own choice plus Auto, which stays hidden until measurements ship.
+8. **Context strategy uses ue-mcp's names everywhere: Micro, Lean, Full.** Project sets it, and Studio's own agent follows it like every other client.
 9. **Token use shows only in the chat's thread list**: each agent's input and output tokens for the session, beside its row.
 
 ---
@@ -161,7 +161,7 @@ Open file opens the file in the system's editor through the agent (`POST /files/
 
 **Other clients** (built): Project sets `context.strategy` in ue-mcp.yml from any browser, with each strategy's seed tokens (measured by the daemon's projection when it offers one, else ue-mcp's published figures), the clients it affects, and the environment override marked.
 
-**Studio's own agent**: Micro (today's single ue-mcp tool), Lean (a tool per category with action names, signatures on demand) or Full (every signature inline), from the daemon's projection of ue-mcp's own surfaces (`context.project` and `context.call`), so Studio never rebuilds ue-mcp's tools. Auto picks, per vendor and scope, the strategy with the fewest median tokens among those within one task of the best pass rate, from `context-costs.json` in ue-mcp's measurement format (`ContextMeasurement`). Until a measurement ships, Auto is hidden and Micro is the default. The measurement runner is ready and needs editor runs (section 10).
+**Studio's own agent**: Micro (today's single ue-mcp tool), Lean (a tool per category with action names, signatures on demand) or Full (every signature inline), from the daemon's projection of ue-mcp's own surfaces (`context.project` and `context.call`), so Studio never rebuilds ue-mcp's tools. It follows the project's strategy (environment, then ue-mcp.yml, then Micro). Auto was removed: no measurement ever shipped, so it always ran Micro.
 
 ---
 
@@ -202,7 +202,7 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 1. **Settings layout** (built, #64).
 2. **Native files on every route**, the read-only Agents view, the built-in worker shown read only. (Built, #67.)
 3. **Usage ledger and dashboard.** (Built, #68; removed since.)
-4. **Context strategy for Studio's agent**, on ue-mcp's projections. (Built, #70; Auto stays hidden until its measurement is committed.)
+4. **Context strategy for Studio's agent**, on ue-mcp's projections. (Built, #70; Auto removed, #125.)
 5. **Custom endpoints and route order** (built, #71).
 
 ---
@@ -226,7 +226,6 @@ General daemon features, added to ue-mcp first and announced as feature strings:
 
 No phase was run against a live editor: the user has not asked for editor use. Each phase's PR lists the exact commands that prove it live once asked.
 
-- **Context measurement for Auto**: `node scripts/usage-parity/measure.mjs --project <tests/ue_mcp .uproject> --no-cc --rounds 3 --strategies micro,lean,full --measurement apps/agent/src/context-costs.json`, then commit the file. Until it exists Auto stays hidden and Micro is the default.
 - **Lean and Full on the daemon**: with the daemon offering `context.projection` (ue-mcp after 1.4.11-beta.4), choose Lean in Settings > Agents and run a turn on each route; the transcript shows each category call as `ue_mcp` category.method, and a destructive action still asks first.
 
 ---
@@ -258,8 +257,7 @@ The ledger, budgets, plan meters and cost estimates built here were removed (sec
 
 1. **Lean and Full are ue-mcp's own projected tools**, offered as they are; Studio writes none of them. A category call is read back as the ue_mcp call it is (category, method, args), so approvals, action effects, checkpoints and the transcript see one shape on every strategy. A projected tool that is not a category, such as Lean's catalog, runs through `context.call`.
 2. **The Claude sign-in gets the same surface**: projected tools are registered with the Agent SDK from their JSON Schemas, and project subagents whose files allow ue_mcp get every projected editor tool in its place.
-3. **The choice is Studio's own setting** (`usage.contextStrategy`, Micro by default) and never touches ue-mcp.yml, so other clients keep theirs. A daemon without projections runs Micro whatever was chosen and says why; a projection that fails mid-session falls back to Micro for that turn.
-4. **Auto ships hidden.** It appears only once `context-costs.json` exists beside the agent; the usage-parity runner writes it from task-checked runs per strategy.
+3. **The choice is the project's** (environment, then ue-mcp.yml, then Micro), the same one every client gets. A daemon without projections runs Micro whatever was chosen and says why; a projection that fails mid-session falls back to Micro for that turn.
 
 ### Phase 5
 

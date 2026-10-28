@@ -10,13 +10,9 @@
  * and the checkpoints see one shape on every strategy. A projected tool that
  * is not a category (Lean's catalog) runs through the daemon's context.call.
  */
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ActionResult } from "ue-mcp/daemon";
-import type { AgentContextStrategy, AgentContextView, ContextStrategy } from "@ue-mcp-studio/shared";
-import { CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO } from "@ue-mcp-studio/shared";
+import type { ContextStrategy } from "@ue-mcp-studio/shared";
 import { EDITOR_TOOLS } from "./tools.js";
 import { required } from "./backend.js";
 
@@ -44,68 +40,6 @@ export interface ContextApi {
 
 export function contextApiOf(api: unknown): ContextApi {
   return required((api as { context?: ContextApi } | null)?.context, "context projection");
-}
-
-/* ── Measurements and Auto ───────────────────────────────────────── */
-
-/** ue-mcp's ContextMeasurement, the fields Auto reads. */
-export interface ContextMeasurement {
-  version: 1;
-  measuredAt: string;
-  ueMcpVersion: string;
-  runs: Array<{
-    model: { vendor: string; model: string };
-    scope: "1-3" | "4-8" | "9+";
-    strategy: ContextStrategy;
-    seedTokens: number;
-    tasks: Array<{ id: string; totalTokens: number; modelCalls: number; discoveryCalls: number; passed: boolean }>;
-  }>;
-}
-
-/** A measurement file as shipped, or null when it is missing or not in ue-mcp's format. */
-export function readMeasurement(file: string): ContextMeasurement | null {
-  try {
-    const v = JSON.parse(fs.readFileSync(file, "utf-8")) as Partial<ContextMeasurement>;
-    if (v.version !== 1 || typeof v.measuredAt !== "string" || !Array.isArray(v.runs)) return null;
-    const ok = v.runs.every((r) => r && CONTEXT_STRATEGIES.includes(r.strategy) && Array.isArray(r.tasks) && typeof r.model?.vendor === "string");
-    return ok ? (v as ContextMeasurement) : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Where Studio ships its measurement: beside the agent's bundle. */
-export const MEASUREMENT_FILE = path.join(path.dirname(fileURLToPath(import.meta.url)), "context-costs.json");
-
-const median = (xs: number[]): number => {
-  const s = [...xs].sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
-
-/**
- * Auto's pick for a vendor and scope: among the strategies whose pass rate is
- * within one task of the best, the one with the fewest median tokens. Null
- * when the measurement has no runs for that vendor and scope.
- */
-export function autoPick(m: ContextMeasurement, vendor: string, scope: "1-3" | "4-8" | "9+"): { strategy: ContextStrategy; why: string } | null {
-  const by = new Map<ContextStrategy, { passed: number; tasks: number; tokens: number[] }>();
-  for (const r of m.runs) {
-    if (r.model.vendor !== vendor || r.scope !== scope) continue;
-    const e = by.get(r.strategy) ?? { passed: 0, tasks: 0, tokens: [] };
-    for (const t of r.tasks) {
-      e.tasks++;
-      if (t.passed) e.passed++;
-      e.tokens.push(t.totalTokens);
-    }
-    by.set(r.strategy, e);
-  }
-  const rated = [...by.entries()].filter(([, e]) => e.tasks > 0).map(([s, e]) => ({ s, rate: e.passed / e.tasks, slack: 1 / e.tasks, med: median(e.tokens) }));
-  if (!rated.length) return null;
-  const best = Math.max(...rated.map((r) => r.rate));
-  const near = rated.filter((r) => r.rate >= best - r.slack).sort((a, b) => a.med - b.med);
-  const pick = near[0];
-  return { strategy: pick.s, why: `${Math.round(pick.rate * 100)}% of tasks passed at a median ${Math.round(pick.med).toLocaleString("en-US")} tokens` };
 }
 
 /* ── The surface a turn is given ─────────────────────────────────── */
@@ -187,7 +121,7 @@ function projectedSurface(api: ContextApi, p: Projection): EditorSurface {
 }
 
 /**
- * The editor surface each turn gets, by the agent's setting: projected once per
+ * The editor surface each turn gets, by the project's strategy: projected once per
  * strategy and kept until ue-mcp's tools change (a plugin installed or removed).
  */
 export class ContextSurfaces {
@@ -195,9 +129,7 @@ export class ContextSurfaces {
 
   constructor(
     private readonly api: ContextApi,
-    private readonly choice: () => AgentContextStrategy,
-    private readonly vendor: () => string,
-    private readonly measurement: () => ContextMeasurement | null = () => readMeasurement(MEASUREMENT_FILE),
+    private readonly strategy: () => ContextStrategy,
   ) {}
 
   /** ue-mcp's tools changed: project again on the next turn. */
@@ -205,18 +137,8 @@ export class ContextSurfaces {
     this.cache.clear();
   }
 
-  /** The strategy turns run on now, and why it differs from the choice when it does. */
-  resolve(): { effective: ContextStrategy; note: string | null } {
-    const c = this.choice();
-    if (c !== "auto") return { effective: c, note: null };
-    const m = this.measurement();
-    const pick = m ? autoPick(m, this.vendor(), "9+") : null;
-    if (!pick) return { effective: "micro", note: m ? "The measurement has no runs for this model's vendor, so Auto uses Micro." : "No measurement ships with this Studio, so Auto uses Micro." };
-    return { effective: pick.strategy, note: `Auto chose ${CONTEXT_STRATEGY_INFO[pick.strategy].name}: ${pick.why}.` };
-  }
-
   current(): EditorSurface {
-    const { effective } = this.resolve();
+    const effective = this.strategy();
     if (effective === "micro") return microSurface();
     const hit = this.cache.get(effective);
     if (hit) return hit;
@@ -228,24 +150,6 @@ export class ContextSurfaces {
       // A projection that fails leaves the agent working: Micro needs nothing from it.
       return microSurface();
     }
-  }
-
-  view(): AgentContextView {
-    const { effective, note } = this.resolve();
-    let seeds: Record<ContextStrategy, number> | null = null;
-    try {
-      seeds = Object.fromEntries(CONTEXT_STRATEGIES.map((s) => [s, this.api.project({ strategy: s }).seedTokens])) as Record<ContextStrategy, number>;
-    } catch {
-      seeds = null;
-    }
-    const m = this.measurement();
-    return {
-      strategy: this.choice(),
-      effective,
-      seeds,
-      measurement: m ? { measuredAt: m.measuredAt, ueMcpVersion: m.ueMcpVersion, runs: m.runs.length } : null,
-      note,
-    };
   }
 }
 

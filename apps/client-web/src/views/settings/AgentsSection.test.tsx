@@ -27,8 +27,6 @@ const m = vi.hoisted(() => ({
   nativePreview: vi.fn(async () => ({ convention: "codex", text: "The project's own instructions...", tokens: 10, loadedBy: "studio" })),
   openFile: vi.fn(async () => undefined),
   models: vi.fn(async () => ({ signedIn: {}, providers: [] })),
-  agentContext: vi.fn(async () => ({ strategy: "micro", effective: "micro", seeds: { micro: 2100, lean: 9400, full: 31000 }, measurement: null, note: null })),
-  saveAgentContext: vi.fn(async (s: string) => ({ strategy: s, effective: s, seeds: { micro: 2100, lean: 9400, full: 31000 }, measurement: null, note: null })),
 }));
 vi.mock("../../api", () => ({ api: m, ApiError: Error }));
 import { AgentsSection } from "./AgentsSection";

@@ -40,7 +40,7 @@ if (strategy !== "micro") {
       return { isError: !!r.isError, content: r.content as Array<{ type: string; text?: string }> };
     },
   };
-  surface = new ContextSurfaces(api, () => strategy, () => "anthropic", () => null).current();
+  surface = new ContextSurfaces(api, () => strategy).current();
 }
 const host = {
   projectDir,
