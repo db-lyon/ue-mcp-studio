@@ -146,3 +146,36 @@ describe("usage settings", () => {
     expect(s.subagentModel()).toBe("gpt-6");
   });
 });
+
+describe("settings files every earlier Studio wrote (#151)", () => {
+  const fromFile = (raw: unknown) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
+    fs.writeFileSync(path.join(dir, "settings.json"), typeof raw === "string" ? raw : JSON.stringify(raw));
+    return new SettingsStore(dir, path.join(dir, "keys")).view();
+  };
+
+  it("0.1.23's file: no usage, approvals, review or route order", () => {
+    const v = fromFile({ provider: "anthropic", model: "claude-sonnet-5-5", effort: "high", gatewayUrl: "https://gateway.ue-mcp.com", theme: "editor" });
+    expect(v.usage).toEqual(DEFAULT_USAGE);
+    expect(v.approvals).toEqual({ shell: "ask", files: "ask", editorRestart: "allow", destructive: "allow" });
+    expect(v).toMatchObject({ reviewTurns: true, routeOrder: "signins-first", theme: "editor", model: "claude-sonnet-5-5" });
+  });
+
+  it("usage with removed fields, an old off, and old approval shapes", () => {
+    const v = fromFile({
+      provider: "byok",
+      askBeforeChanges: false,
+      usage: { subagents: "off", contextStrategy: "full", budgets: { turn: 100000 }, imageSize: "small" },
+      approvals: { shell: true, files: "never", editorRestart: "project", destructive: "ask" },
+      dialogPolicy: { kind: "agent", minutes: 0 },
+    });
+    expect(v.provider).toBe("anthropic");
+    expect(v.usage).toEqual({ ...DEFAULT_USAGE, subagents: "asked", imageSize: "small" });
+    expect(v.approvals).toEqual({ shell: "allow", files: "allow", editorRestart: "allow", destructive: "ask" });
+    expect(v.dialogPolicy).toEqual({ kind: "agent", minutes: 2 });
+  });
+
+  it("a file that is empty, null or not JSON reads as a new install", () => {
+    for (const raw of ["", "null", "[]", "{not json"]) expect(fromFile(raw)).toMatchObject({ theme: "ue-mcp", usage: DEFAULT_USAGE });
+  });
+});
