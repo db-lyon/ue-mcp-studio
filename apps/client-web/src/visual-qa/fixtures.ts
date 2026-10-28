@@ -183,6 +183,8 @@ export interface Scenario {
   height?: number;
   /** Settings the scenario changes from the harness's own. */
   settings?: Partial<StudioSettings>;
+  /** GETs answered 404, as an agent or daemon from before the route answers them. */
+  missing?: string[];
   /** GETs the scenario answers itself, before the harness's defaults; undefined falls through. */
   get?: (path: string, url: URL) => unknown;
   /** Writes the scenario answers itself, with their status; undefined is the harness's 409. */
