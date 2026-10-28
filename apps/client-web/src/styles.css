@@ -556,8 +556,32 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .connect-other { justify-content: center; margin-top: 8px; }
 .empty > .picker { margin-bottom: 14px; }
 .composer { flex-direction: column; align-items: stretch; }
-.composer-bar { display: flex; align-items: center; gap: 8px; }
+.composer-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; position: relative; }
 .composer-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* The bar's tiers (chat/barTier.ts) step down by its own width. Send, Stop and Queue never
+   shrink; the model and effort shrink before anything moves, so nothing is pushed past the edge. */
+.composer-bar > .composer-send, .composer-bar > .composer-queue { flex: none; }
+.composer-bar > .spacer { min-width: 0; }
+.composer-bar > .composer-hint { flex: 1000 1 0; text-align: right; }
+.composer-bar > .picker { flex: 0 1 auto; min-width: 0; }
+.composer-bar .picker-button { max-width: 100%; min-width: 0; }
+.composer-bar .picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.composer-bar .picker-via, .composer-bar .picker-caret { flex: none; }
+.composer-bar > .effort { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.composer-bar > .effort select { min-width: 0; }
+.composer-bar > .bar-button { flex: none; }
+.composer-bar > .bar-button.icon-only { width: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.composer-bar:not([data-tier="full"]) .picker-button .picker-via,
+.composer-bar:not([data-tier="full"]) .effort-label { display: none; }
+.composer-bar:not([data-tier="full"]) > .effort { padding-left: 4px; }
+/* Merged: one chip for the model and effort, its menu with an Effort row under the models. */
+.picker-effort { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+.picker-effort .segments { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 8px 6px; }
+.picker-effort .segments button { flex: 1 1 auto; height: 28px; padding: 0 8px; font: 500 12px/1 var(--sans); letter-spacing: 0; text-transform: none; }
+.picker-effort .segments button.current { background: var(--accent-wash); border-color: var(--accent-line); color: var(--text); }
+/* Narrowest: the menu opens across the whole bar instead of from the chip. */
+.composer-bar[data-tier="narrowest"] > .picker { position: static; }
+.composer-bar[data-tier="narrowest"] .picker-menu { left: 0; right: 0; width: auto; }
 .queue { display: flex; flex-direction: column; gap: 2px; padding: 6px 16px; border-top: 1px solid var(--line); background: var(--composer-bg); max-height: 28vh; overflow: auto; }
 .queue-head { display: flex; align-items: center; gap: 8px; padding: 2px 0 4px; }
 .queue-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border: 1px dashed var(--accent-line); border-radius: 6px; background: var(--accent-wash); font-size: 13px; }
@@ -1005,17 +1029,14 @@ button.drawer-session.active { color: var(--text); }
   .msg.assistant { max-width: 100%; }
 }
 
-/* Composer at narrow widths: the bar wraps instead of pushing Send off screen, and the app
-   takes the dynamic viewport height so the composer stays above a mobile browser's toolbar. */
+/* Composer at narrow widths: the app takes the dynamic viewport height so the composer stays
+   above a mobile browser's toolbar. The bar itself steps down by its own width (chat/barTier.ts). */
 @supports (height: 100dvh) {
   .app { height: 100dvh; }
 }
 @media (max-width: 760px) {
   .composer { padding: 10px 10px 10px; gap: 8px; }
-  .composer-bar { flex-wrap: wrap; gap: 6px; }
-  .composer .attach-button { padding: 6px 8px; }
-  .composer-hint, .composer-bar > .spacer { display: none; }
-  .composer-bar > button:last-child { margin-left: auto; }
+  .composer-bar { gap: 6px; }
   .composer textarea { padding: 8px 10px; }
   .queue { padding: 6px 10px; }
   .thread-head { padding: 8px 10px; }
