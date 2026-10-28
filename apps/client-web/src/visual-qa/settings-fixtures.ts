@@ -14,7 +14,7 @@ const NATIVE_NONE = (): NativeOverview => ({ ...NATIVE_FULL, main: null, convent
 const NATIVE_FULL: NativeOverview = {
   enabled: true,
   main: "claude",
-  worker: { model: "Claude Haiku 5.5", effort: "low", starts: "asked", fromSettings: false },
+  worker: { model: "Claude Haiku 5.5", effort: "low", starts: "asked" },
   conventions: [
     { convention: "claude", routes: ["Claude sign-in"], instructionTokens: 1240, notes: [], skipped: [{ path: "AGENTS.md", why: "not read: Claude Code reads AGENTS.md only where there is no CLAUDE.md" }],
       instructions: [

@@ -57,7 +57,7 @@ const HEALTH = {
 const NATIVE: NativeOverview = {
   enabled: true,
   main: "claude",
-  worker: { model: null, effort: null, starts: "asked", fromSettings: false },
+  worker: { model: null, effort: null, starts: "asked" },
   conventions: [
     { convention: "claude", routes: ["Claude sign-in"], instructionTokens: 420, notes: [], skipped: [], subagents: [], skills: [], instructions: [{ path: "CLAUDE.md", source: "project", tokens: 420, scope: { kind: "always" } }] },
     { convention: "codex", routes: [], instructionTokens: 0, notes: [], skipped: [], instructions: [], subagents: [], skills: [] },

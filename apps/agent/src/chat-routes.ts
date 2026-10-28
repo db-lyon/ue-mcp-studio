@@ -82,7 +82,7 @@ import { fullModelName, modelName } from "./models.js";
 import { userHome } from "./instructions.js";
 import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
-import { DEFAULT_USAGE, KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, endpointVendor, type KeyProviderId, type VendorId } from "@ue-mcp-studio/shared";
+import { KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, endpointVendor, type KeyProviderId, type VendorId } from "@ue-mcp-studio/shared";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
@@ -383,8 +383,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
         // A model of another vendor than the main agent's is not used: the worker then runs on the main agent's.
         model: u.subagentModel && u.subagentModel.provider === settings.provider() ? fullModelName(u.subagentModel.model) : null,
         effort: u.subagentEffort,
-        starts: u.subagents === "off" ? "never" : u.subagents,
-        fromSettings: u.subagentModel !== null || u.subagentEffort !== null || u.subagents !== DEFAULT_USAGE.subagents,
+        starts: u.subagents === "automatic" ? "automatic" : "asked",
       };
     },
     home: userHome,

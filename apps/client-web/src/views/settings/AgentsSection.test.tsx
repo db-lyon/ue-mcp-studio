@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { DEFAULT_USAGE, type NativeOverview, type UsageSettings } from "@ue-mcp-studio/shared";
 
 const overview = (over: Partial<NativeOverview> = {}): NativeOverview => ({
   enabled: true,
   main: "codex",
-  worker: { model: "6 Sol", effort: "high", starts: "asked", fromSettings: false },
+  worker: { model: "6 Sol", effort: "high", starts: "asked" },
   conventions: [
     { convention: "claude", routes: ["Claude sign-in"], instructionTokens: 120, notes: [], skipped: [{ path: "AGENTS.md", why: "not read: Claude Code reads AGENTS.md only where there is no CLAUDE.md" }], subagents: [], skills: [],
       instructions: [{ path: "CLAUDE.md", source: "project", tokens: 120, scope: { kind: "always" } }] },
@@ -34,6 +34,7 @@ import { AgentsSection } from "./AgentsSection";
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  m.models.mockImplementation(async () => ({ signedIn: {}, providers: [] }));
 });
 
 const settingsWith = (usage: Partial<UsageSettings> = {}) => ({ provider: "openai", model: "gpt-6-sol", effort: "high", route: "chatgpt", connected: { chatgpt: true }, usage: { ...DEFAULT_USAGE, ...usage } });
@@ -96,23 +97,60 @@ describe("Agents: what each vendor's own files give its models", () => {
 
   it("offers no subagent or skill editing, only the switch that reads the files at all", async () => {
     await show();
-    expect(screen.queryByRole("combobox", { name: /Helper model/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Add a file|Create AGENTS\.md|New skill/ })).toBeNull();
     await act(async () => void fireEvent.click(screen.getByRole("switch", { name: "Read the project's agent files" })));
     expect(m.saveSettings).toHaveBeenCalledWith({ usage: { projectInstructions: false } });
     expect(screen.queryByRole("navigation", { name: "Whose files" })).toBeNull();
   });
 
-  it("shows Studio's own worker read only, and says when earlier settings set it", async () => {
-    await show({}, overview({ worker: { model: "Anthropic Haiku 5.5", effort: "low", starts: "automatic", fromSettings: true } }));
-    expect(screen.getByText("Anthropic Haiku 5.5 when the main agent runs on Anthropic, else the main agent's")).toBeTruthy();
-    expect(screen.getByText("When work splits into independent parts")).toBeTruthy();
-    expect(screen.getByText("Read only, set by an earlier version.")).toBeTruthy();
+  it("follows the main agent when the worker has no model or effort of its own", async () => {
+    await show();
+    expect(screen.getByRole("button", { name: "Worker model: Same as main agent" })).toBeTruthy();
+    expect((screen.getByRole("combobox", { name: "Worker effort" }) as HTMLSelectElement).value).toBe("");
+    expect(screen.getByRole("radio", { name: "When you ask" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByText(/earlier version/)).toBeNull();
   });
 
-  it("follows the main agent when the worker has no model of its own", async () => {
-    await show({}, overview({ worker: { model: null, effort: null, starts: "asked", fromSettings: false } }));
-    expect(screen.getAllByText("Same as main agent")).toHaveLength(2);
+  it("picks the worker's model from the main agent's vendor only, and back to the main agent's", async () => {
+    m.models.mockResolvedValue({ signedIn: { chatgpt: true }, providers: [
+      { id: "openai", name: "OpenAI", connected: false, models: [{ id: "gpt-6-sol", name: "6 Sol", signIns: ["chatgpt"] }, { id: "gpt-6-luna", name: "6 Luna", signIns: ["chatgpt"] }] },
+      { id: "anthropic", name: "Anthropic", connected: true, models: [{ id: "claude-haiku-5-5", name: "Haiku 5.5", signIns: [] }] },
+    ] } as never);
+    await show();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^Worker model/ })));
+    const menu = screen.getByRole("listbox");
+    expect([...menu.querySelectorAll("[role=option]")].map((o) => o.querySelector("span")?.textContent)).toEqual(["Same as main agent", "6 Sol", "6 Luna"]);
+    await act(async () => void fireEvent.click(screen.getByRole("option", { name: /6 Luna/ })));
+    expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { subagentModel: { provider: "openai", model: "gpt-6-luna" } } });
+    expect(screen.getByRole("button", { name: "Worker model: 6 Luna" })).toBeTruthy();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: /^Worker model/ })));
+    await act(async () => void fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "Same as main agent" })));
+    expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { subagentModel: null } });
+  });
+
+  it("shows a stored model of another vendor as the main agent's, since the worker does not use it", async () => {
+    await show({ subagentModel: { provider: "anthropic", model: "claude-haiku-5-5" } });
+    expect(screen.getByRole("button", { name: "Worker model: Same as main agent" })).toBeTruthy();
+  });
+
+  it("sets and clears the worker's effort", async () => {
+    await show({ subagentEffort: "low" });
+    const effort = screen.getByRole("combobox", { name: "Worker effort" }) as HTMLSelectElement;
+    expect(effort.value).toBe("low");
+    await act(async () => void fireEvent.change(effort, { target: { value: "max" } }));
+    expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { subagentEffort: "max" } });
+    await act(async () => void fireEvent.change(effort, { target: { value: "" } }));
+    expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { subagentEffort: null } });
+    // The main agent's effort is a different control and is not touched.
+    expect(m.saveSettings).not.toHaveBeenCalledWith(expect.objectContaining({ effort: expect.anything() }));
+  });
+
+  it("shows an off from an earlier version as When you ask, and changes it", async () => {
+    await show({ subagents: "off" });
+    expect(screen.getByRole("radio", { name: "When you ask" }).getAttribute("aria-checked")).toBe("true");
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "When work splits into independent parts" })));
+    expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { subagents: "automatic" } });
+    expect(screen.getByRole("radio", { name: "When work splits into independent parts" }).getAttribute("aria-checked")).toBe("true");
   });
 
   it("shows the same tabs when nothing is connected, each saying no route reads it", async () => {
