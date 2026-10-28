@@ -228,6 +228,18 @@ describe("updates through an age-gated npm", () => {
     expect(failures).toEqual([]);
   }, 90_000);
 
+  it("moves the project to an installed Studio with extension use, then goes back to the channel (ue-mcp#1619)", async () => {
+    const dir = project();
+    const uproject = path.join(dir, "Game.uproject");
+    const u = new Updater(host(dir), "0.0.1", () => {}, manifestNaming(`ue-mcp@${TODAY}`), () => "stable");
+    u.targetInstalled("0.1.25");
+    expect(await u.updateStudio()).toEqual({ started: true });
+    const call = await until(() => recorded().find((c) => c[0] === "extension" && c[1] === "use" && c[4] === uproject));
+    expect(call.slice(0, 5)).toEqual(["extension", "use", "studio", "0.1.25", uproject]);
+    await u.updateStudio();
+    await until(() => recorded().find((c) => c[0] === "extension" && c[1] === "install" && c[3] === uproject));
+  }, 90_000);
+
   it("restarts the daemon on the ue-mcp published today", async () => {
     const dir = project();
     const uproject = path.join(dir, "Game.uproject");

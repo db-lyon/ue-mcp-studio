@@ -275,6 +275,13 @@ function withAgents(): SessionDetail {
 }
 
 export const SCENARIOS: Record<string, Scenario> = {
+  "version-notice": {
+    title: "Another project installed a newer Studio: Update this project and Keep (ue-mcp#1619)",
+    hash: `#/chat/${SESSION_ID}`,
+    session: withAgents(),
+    index: { playtests: [], listed: true },
+    get: (p) => (p === "/v1/ext/studio/version-notice" ? { notice: { installed: "0.1.25", current: "0.1.23" } } : undefined),
+  },
   "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
   "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], fullPage: true },
   "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, fullPage: true },
