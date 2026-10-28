@@ -527,7 +527,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     api.log.warn("could not copy Claude conversations into Claude Code's home", e);
   }
   api.route("GET", "/sessions", () => ({ body: { sessions: store.all().map(SessionStore.summary) } }));
-  api.route("POST", "/sessions", () => ({ status: 201, body: SessionStore.detail(store.create()) }));
+  api.route("POST", "/sessions", () => ({ status: 201, body: SessionStore.detail(store.blank()) }));
   api.route("GET", "/sessions/:id", (req) => {
     const s = store.get(req.params.id);
     return s ? { body: SessionStore.detail(s) } : missing(req.params.id);
