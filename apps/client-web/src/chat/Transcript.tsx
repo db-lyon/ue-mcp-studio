@@ -1,4 +1,5 @@
 import { createContext, memo, useContext, useMemo, useState } from "react";
+import { MentionText } from "./MentionMenu";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
@@ -201,7 +202,7 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
   return (
     <div className="msg user">
       {entry.attachments && entry.attachments.length > 0 && <SentFiles files={entry.attachments} />}
-      {entry.text}
+      <MentionText text={entry.text} />
       {entry.source !== undefined && <span className="dim small msg-source"> from the agent's message above</span>}
       {onEdit && at !== undefined && entry.source === undefined && (
         <button className="msg-edit ghost small-button" aria-label="Edit this message" title="Edit and send again from here" onClick={() => setText(entry.text)}>Edit</button>

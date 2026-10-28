@@ -29,9 +29,6 @@ const result = await build({
 });
 // The WebP decoder's code, which the agent loads from beside the bundle.
 fs.copyFileSync(path.join(root, "node_modules", "@jsquash", "webp", "codec", "dec", "webp_dec.wasm"), path.join(root, "apps", "agent", "dist", "webp_dec.wasm"));
-// The context measurement Auto reads, once one is recorded; without it Auto stays hidden.
-const costs = path.join(root, "apps", "agent", "src", "context-costs.json");
-if (fs.existsSync(costs)) fs.copyFileSync(costs, path.join(root, "apps", "agent", "dist", "context-costs.json"));
 // Which packages went into the bundle, for the third-party notices.
 fs.writeFileSync(path.join(root, "apps", "agent", "dist", "meta.json"), JSON.stringify(result.metafile));
 console.log("bundled the agent into apps/agent/dist/index.js");

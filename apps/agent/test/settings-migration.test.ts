@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { SettingsStore } from "../src/settings.js";
+import { projectStrategy } from "../src/composer-routes.js";
 import { PlaytestStore } from "../src/playtest-store.js";
 import { DEFAULT_APPROVALS } from "@ue-mcp-studio/shared";
 
@@ -67,7 +68,7 @@ describe("approvals from an older Studio", () => {
     stores(d).settings.update({ approvals: { shell: "ask" } });
     const after = JSON.parse(fs.readFileSync(path.join(d, "settings.json"), "utf-8"));
     for (const [k, v] of Object.entries(before)) if (k !== "askBeforeChanges") {
-      // Nothing the old file held is lost; a field added since, such as contextStrategy, may join it at its default.
+      // Nothing the old file held is lost; a field added since may join it at its default.
       if (v && typeof v === "object" && !Array.isArray(v)) expect(after[k]).toMatchObject(v as object);
       else expect(after[k]).toEqual(v);
     }
@@ -91,5 +92,19 @@ describe("budgets from an older Studio", () => {
     expect(JSON.parse(fs.readFileSync(path.join(d, "settings.json"), "utf-8")).usage).not.toHaveProperty("turnTokenLimit");
     expect(playtests.runs()).toBe("automatic");
     expect(playtests.players("/Game/Tests/Sprint")).toEqual({ 0: "host", 2: "client 1" });
+  });
+});
+
+describe("the Auto context strategy from an older Studio", () => {
+  it("runs the agent on Micro and drops the stored choice", () => {
+    const d = oldDir("settings-0.1.24.json");
+    const raw = JSON.parse(fs.readFileSync(path.join(d, "settings.json"), "utf-8"));
+    fs.writeFileSync(path.join(d, "settings.json"), JSON.stringify({ ...raw, usage: { ...raw.usage, contextStrategy: "auto" } }));
+    const { settings } = stores(d);
+    expect(settings.usage()).not.toHaveProperty("contextStrategy");
+    // No measurement ever shipped, so Auto always resolved to Micro, the project's default.
+    expect(projectStrategy(d, {})).toBe("micro");
+    settings.update({ theme: "editor" });
+    expect(JSON.parse(fs.readFileSync(path.join(d, "settings.json"), "utf-8")).usage).not.toHaveProperty("contextStrategy");
   });
 });

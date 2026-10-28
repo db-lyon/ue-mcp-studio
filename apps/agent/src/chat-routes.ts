@@ -29,7 +29,8 @@
  *
  * Per-turn review (/review, /sessions/:id/review, /sessions/:id/reviews, /sessions/:id/timeline) is in review.ts.
  * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
- * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts.
+ * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts; the composer's @-mention search
+ * (/mentions/search) in mentions.ts.
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,
  * studio.transcript.added, studio.turn.delta, studio.tool.finished,
@@ -43,7 +44,7 @@ import { registerFlowModel, type ModelHost } from "./flow-model.js";
 import { CLAUDE_SIGN_IN_AVAILABLE, IMAGE_EDGES, PROVIDERS } from "@ue-mcp-studio/shared";
 import { setImageEdge } from "./images.js";
 import type { ActionRunRequest, ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
-import { splitActionName } from "@ue-mcp-studio/shared";
+import { MENTION_KINDS, splitActionName, type MentionKind } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { DEFAULT_MODEL, SettingsStore } from "./settings.js";
@@ -71,7 +72,8 @@ import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 import { registerQuickRoute } from "./quick.js";
-import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js";
+import { AssetResolver, editorBusy, missLine, openAsset, traceName } from "./asset-links.js";
+import { MentionSearch, SUPERSEDED } from "./mentions.js";
 import type { AssetRef } from "@ue-mcp-studio/shared";
 import { DaemonActionEffects } from "./approval-kind.js";
 import { required } from "./backend.js";
@@ -82,7 +84,7 @@ import { fullModelName, modelName } from "./models.js";
 import { userHome } from "./instructions.js";
 import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
-import { DEFAULT_USAGE, KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, endpointVendor, type KeyProviderId, type VendorId } from "@ue-mcp-studio/shared";
+import { KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, endpointVendor, type KeyProviderId, type VendorId } from "@ue-mcp-studio/shared";
 
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
@@ -97,7 +99,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const actionsApi = required((api as unknown as { actions?: { effects(): Array<{ category: string; action: string; effect: string; destructive?: boolean }> } }).actions, "actions.effects");
   const effects = new DaemonActionEffects(() => actionsApi.effects());
   // How ue-mcp's tools are put to Studio's own agent, projected by the daemon.
-  const surfaces = new ContextSurfaces(contextApiOf(api), () => projectStrategy(api.projectDir), () => settings.provider());
+  const surfaces = new ContextSurfaces(contextApiOf(api), () => projectStrategy(api.projectDir));
   // /action's catalog and forms, read from ue-mcp's own surface.
   const actionCatalog = new ActionCatalog({ effects: () => actionsApi.effects(), callAction: (c, a, args) => api.callAction(c, a, args) });
   const unwatchPlugins = api.events.subscribe((e) => {
@@ -383,8 +385,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
         // A model of another vendor than the main agent's is not used: the worker then runs on the main agent's.
         model: u.subagentModel && u.subagentModel.provider === settings.provider() ? fullModelName(u.subagentModel.model) : null,
         effort: u.subagentEffort,
-        starts: u.subagents === "off" ? "never" : u.subagents,
-        fromSettings: u.subagentModel !== null || u.subagentEffort !== null || u.subagents !== DEFAULT_USAGE.subagents,
+        starts: u.subagents === "automatic" ? "automatic" : "asked",
       };
     },
     home: userHome,
@@ -759,9 +760,22 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   // Asset names in the chat: resolved from disk, opened in the editor on a click.
   const assets = new AssetResolver(api);
+  // @-mentions in the composer: assets, actors and files by name (mentions.ts).
+  const mentions = new MentionSearch({ host: api, connected: () => api.editors().some((e) => e.connected), busy: () => editorBusy(busy.state()) });
   // A finished call may have created an asset that was missing a moment ago.
   const unwatchAssets = api.events.subscribe((e) => {
-    if (/tool\.finished$/.test(e.type)) assets.forgetMissing();
+    if (/tool\.finished$/.test(e.type)) {
+      assets.forgetMissing();
+      mentions.forget();
+    }
+  });
+  api.route("POST", "/mentions/search", async (req) => {
+    const b = (req.body ?? {}) as { query?: unknown; kinds?: unknown };
+    const kinds = b.kinds === undefined ? undefined : Array.isArray(b.kinds) && b.kinds.every((k) => (MENTION_KINDS as readonly unknown[]).includes(k)) ? (b.kinds as MentionKind[]) : null;
+    if (typeof b.query !== "string" || kinds === null) return bad(`body must be { query: string, kinds?: (${MENTION_KINDS.join(" | ")})[] }`);
+    const answer = await mentions.search(b.query, kinds);
+    // A newer search took this one's place: the UI has dropped it already.
+    return answer === SUPERSEDED ? { status: 409, body: { error: "superseded by a newer search" } } : { body: answer };
   });
   api.route("POST", "/assets/resolve", async (req) => {
     const b = (req.body ?? {}) as { refs?: unknown; sessionId?: unknown };

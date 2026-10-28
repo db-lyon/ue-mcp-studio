@@ -310,6 +310,10 @@ describe("assigning the playtest to a subagent", () => {
     const shot = within(details).getByAltText("door_02.png") as HTMLImageElement;
     expect(shot.getAttribute("src")).toMatch(/\/qa\/runs\/[^/]+\/steps\/2\/captures\/1$/);
     expect(shot.closest("a")!.getAttribute("title")).toBe("C:/MyGame/Saved/Screenshots/door_02.png");
+    // A capture the agent can no longer read is named in words, not a broken frame.
+    fireEvent.error(shot);
+    expect(within(details).queryByAltText("door_02.png")).toBeNull();
+    expect(within(details).getByText("door_02.png").closest(".qa-capture-missing")!.textContent).toBe("door_02.png could not be read");
     // Its own verdict is not offered again.
     expect(within(step(2)).queryByRole("button", { name: "Override step 3 with Pass" })).toBeNull();
     await act(async () => {

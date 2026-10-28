@@ -184,8 +184,45 @@ describe("the diff view", () => {
     const graph = (e: unknown): AssetDiff => ({ ...material, sections: [{ category: "Material Graph", kind: "graph", engineSource: "", entries: [e as never] }] });
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph(added) } });
     await diffOf(REVIEW.items[1]);
-    const props = document.querySelector(".diff-node-props")!;
-    expect([...props.querySelectorAll("div")].map((d) => d.textContent)).toEqual(["Value0.35", "B0.5"]);
+    // The added node's values sit under After, one pin per line; Before says it was not there.
+    const row = screen.getByText("Added Node Constant").closest("tr")!;
+    const [change, before, after] = [...row.children] as HTMLElement[];
+    expect(row.children).toHaveLength(3);
+    expect(change.textContent).toBe("AddedAdded Node Constant");
+    expect(before.className).toContain("cmp-absent");
+    expect(before.textContent).toBe("not there");
+    expect([...after.querySelectorAll(".cmp-kv > div")].map((d) => d.textContent)).toEqual(["Value0.35", "B0.5"]);
+  });
+
+  it("keeps every record's cells in their columns: a removed node's values under Before, a property's values side by side, a graph record's properties as rows of their own", async () => {
+    const removed = { displayString: "Removed Node Print String", diffType: "NODE_REMOVED", category: "SUBTRACTION", node1: { guid: "1", name: "N", class: "K2Node_CallFunction", title: "Print String", fullTitle: "Print String\nTarget is Kismet System Library", pins: [{ name: "Duration", displayName: "Duration", defaultValue: "2.0", linked: false }, { name: "TextColor", displayName: "Text Color", defaultValue: "(R=0.000000,G=0.660000,B=1.000000,A=1.000000)", linked: false }] } };
+    const links = { displayString: "Pin 'then' has more links (was 0 now 1)", diffType: "PIN_LINKEDTO_NUM_INC", category: "MODIFICATION" };
+    const moved = { displayString: "Node moved", diffType: "NODE_MOVED", category: "MINOR" };
+    const prop = { displayString: "Property Changed: Default Value", diffType: "NODE_PROPERTY", category: "MODIFICATION", properties: [{ displayString: "Default Value", diffType: "PropertyValueChanged", path: "Default Value", before: "0.200000", after: "0.700000" }] };
+    const graph: AssetDiff = { ...material, sections: [{ category: "EventGraph", kind: "graph", engineSource: "", entries: [removed, links, moved, prop] as never }] };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph } });
+    await diffOf(REVIEW.items[1]);
+    const table = screen.getByRole("region", { name: "EventGraph" }).querySelector("table")!;
+    expect(table.querySelector("[colspan]")).toBeNull();
+    for (const tr of table.querySelectorAll("tbody tr")) expect(tr.children).toHaveLength(3);
+    const cells = (text: string) => [...screen.getByText(text).closest("tr")!.children] as HTMLElement[];
+    const [rc, rb, ra] = cells("Removed Node Print String");
+    expect(rc.querySelector(".cmp-subtitle")!.textContent).toBe("Print String, Target is Kismet System Library");
+    expect([...rb.querySelectorAll(".cmp-kv dt")].map((d) => d.textContent)).toEqual(["Duration", "Text Color"]);
+    // A colour keeps its text, with a swatch beside it.
+    expect(rb.querySelector(".cmp-swatch")!.getAttribute("style")).toContain("rgb(0, 212, 255)");
+    expect(rb.textContent).toContain("(R=0.000000,G=0.660000,B=1.000000,A=1.000000)");
+    expect(ra.textContent).toBe("gone");
+    // The link row's own was/now text stays in Change, and both sides are empty.
+    const [, lb, la] = cells("Pin 'then' has more links (was 0 now 1)");
+    expect(lb.className).toContain("cmp-empty");
+    expect(la.className).toContain("cmp-empty");
+    expect(screen.getByText("Pin 'then' has more links (was 0 now 1)").closest("tr")!.className).toContain("bare");
+    expect(screen.getByText("Node moved").closest("tr")!.className).toContain("minor");
+    // The property under the graph record is a row of its own, before and after on the same line.
+    const sub = screen.getByText("Default Value").closest("tr")!;
+    expect(sub.className).toContain("sub");
+    expect([...sub.children].map((c) => c.textContent)).toEqual(["ChangedDefault Value", "0.2", "0.7"]);
   });
 
   it("lets a long engine name wrap only between its parts", () => {
@@ -219,12 +256,50 @@ describe("the diff view", () => {
     const added: AssetDiff = { ...material, status: "added", before: null, sections: [] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package", assetDiff: added } });
     await diffOf(REVIEW.items[2]);
-    expect(screen.getByText("Did not exist before this turn")).toBeTruthy();
+    // Neither version has a picture, so the tile says it is new.
+    expect(within(screen.getByRole("group", { name: "Material SM_Box.uasset" })).getByText("New in this turn")).toBeTruthy();
     cleanup();
     const deleted: AssetDiff = { ...material, status: "deleted", after: null, sections: [] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "deleted", kind: "package", assetDiff: deleted } });
     await diffOf({ ...REVIEW.items[2], status: "deleted" });
     expect(screen.getByText("Deleted in this turn")).toBeTruthy();
+  });
+
+  it("puts the asset's type, path, changes and facts where neither version has a picture", async () => {
+    const level: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "World", summary: "3 differences", nativeDiff: { available: true },
+      before: { class: "World", facts: [{ name: "Actors", value: "41" }, { name: "Streaming", value: "World Partition" }] },
+      after: { class: "World", facts: [{ name: "Actors", value: "42" }, { name: "Streaming", value: "World Partition" }] },
+      sections: [{ category: "Actors", kind: "components", engineSource: "DiffUtils::CompareUnrelatedSCS", entries: [
+        { displayString: "Added actor SM_Crate_2", diffType: "OBJECT_ADDED", group: "SM_Crate_2" },
+        { displayString: "Relative Location", diffType: "PropertyValueChanged", path: "Relative Location", before: "(X=0)", after: "(X=10)", group: "Gate" },
+        { displayString: "Hidden", diffType: "PropertyValueChanged", path: "Hidden", before: "A", after: "B", hidden: true },
+      ] }],
+    };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/Maps/L_Gate.umap", status: "modified", kind: "package", assetDiff: level } });
+    await diffOf({ ...REVIEW.items[1], path: "Content/Maps/L_Gate.umap", asset: "/Game/Maps/L_Gate.L_Gate", group: "level" });
+    expect(document.querySelector("img")).toBeNull();
+    expect(document.querySelector(".review-pictures")).toBeNull();
+    const tile = screen.getByRole("group", { name: "World L_Gate.umap" });
+    expect(tile.getAttribute("data-family")).toBe("level");
+    expect(tile.querySelector("svg.asset-icon")).toBeTruthy();
+    expect(tile.textContent).toContain("Changed in this turn");
+    expect(tile.textContent).toContain("/Game/Maps/L_Gate.L_Gate");
+    expect(within(tile).getByRole("list", { name: "What changed" }).textContent).toBe("1 actor added1 actor changed");
+    // The fact that changed first, with its old value.
+    const facts = [...tile.querySelectorAll(".asset-tile-facts > div")].map((d) => d.textContent);
+    expect(facts).toEqual(["Actors41 to 42", "StreamingWorld Partition"]);
+  });
+
+  it("turns a thumbnail that fails to load into the tile, and says why a side has none", async () => {
+    const both: AssetDiff = { ...material, after: { ...material.after!, thumbnail: { id: "b".repeat(40), url: "", source: "rendered" } } };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: both } });
+    await diffOf(REVIEW.items[1]);
+    fireEvent.error(screen.getByAltText("BP_Door.uasset after"));
+    expect(screen.getByText("No picture: the file could not be read.")).toBeTruthy();
+    fireEvent.error(screen.getByAltText("BP_Door.uasset before"));
+    expect(document.querySelector("img")).toBeNull();
+    expect(screen.getByRole("group", { name: "Material BP_Door.uasset" }).textContent).toContain("1 node added");
   });
 
   it("shows why the engine could not diff a package", async () => {
@@ -241,6 +316,16 @@ describe("the diff view", () => {
     await diffOf({ ...REVIEW.items[2], visual: true });
     expect((screen.getByAltText("SM_Box.uasset after the turn") as HTMLImageElement).src).toContain("/v1/ext/studio/review/images/abc-def-1.png");
     expect(screen.getByText("Did not exist before this turn")).toBeTruthy();
+  });
+
+  it("shows the tile for an older review that captured no picture", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package" } });
+    await diffOf({ ...REVIEW.items[2], visual: true });
+    expect(document.querySelector("img")).toBeNull();
+    const tile = screen.getByRole("group", { name: "Asset SM_Box.uasset" });
+    expect(tile.getAttribute("data-family")).toBe("mesh");
+    expect(tile.textContent).toContain("/Game/SM_Box.SM_Box");
+    expect(tile.textContent).toContain("No picture was captured for this asset.");
   });
 });
 

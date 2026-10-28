@@ -38,7 +38,8 @@ npm run dev             # UI with hot reload, proxied to the project's daemon
 
 ### Visual QA
 
-- `npm run visual-qa -- --out <dir>` renders the real UI against stubbed daemon answers (`apps/client-web/src/visual-qa/fixtures.ts`, served as `visual-qa.html`) and screenshots every playtest state in the three themes at 1280 and 380 pixels, with an `index.md`. No daemon or editor is involved.
+- `npm run visual-qa -- --out <dir>` renders the real UI against stubbed daemon answers (`apps/client-web/src/visual-qa/fixtures.ts`, served as `visual-qa.html`) and screenshots every playtest state in the three themes at 1280 and 380 pixels, with an `index.md`. No daemon or editor is involved. `--widths 320,590,1280` shoots those widths instead.
+- `apps/client-web/src/chat/composer-bar.layout.test.ts` measures the composer bar on the same page in headless Chrome or Edge as part of `npm test`, because jsdom has no layout.
 - `npm run visual-qa:live` drives the same states against the StudioE2E editor through ue-mcp; its header lists the steps. It touches an editor, so run it only when the user has asked for editor runs, and it refuses without `--editor-approved`.
 
 ## Conventions

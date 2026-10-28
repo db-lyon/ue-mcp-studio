@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { EFFORT_NAMES, IMAGE_EDGES, anythingConnected, type Effort, type ImageSize, type NativeOverview, type StudioSettings, type UsageSettings } from "@ue-mcp-studio/shared";
+import { IMAGE_EDGES, anythingConnected, type ImageSize, type KeyProviderId, type NativeOverview, type StudioSettings, type SubagentMode, type UsageSettings } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { EffortPicker, ModelPicker } from "../ModelPicker";
 import { Head, type SettingsSection } from "../SettingsHub";
 import { NativePanel } from "./NativePanel";
-import { Card, Row, Seg, Switch, tokens, useMessage } from "./controls";
+import { Card, Row, Seg, Switch, useMessage } from "./controls";
 
 export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
   { id: "small", name: `Small ${IMAGE_EDGES.small} px` },
@@ -14,11 +14,15 @@ export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
 
 const SAME = "Same as main agent";
 
-const STARTS: Record<string, string> = { never: "Never, set by an earlier version", asked: "When you ask", automatic: "When work splits into independent parts" };
+export const STARTS: ReadonlyArray<{ id: Exclude<SubagentMode, "off">; name: string }> = [
+  { id: "asked", name: "When you ask" },
+  { id: "automatic", name: "When work splits into independent parts" },
+];
 
 /**
  * Agents: the model every chat runs on, and what each vendor's own project
- * files give its models (instructions, subagents and skills), read only.
+ * files give its models (instructions, subagents and skills), read only, and
+ * the model, effort and start of Studio's own worker.
  */
 export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) => void }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
@@ -60,17 +64,31 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
         </Row>
       </Card>
 
-      {native && (
-        <Card label="Worker">
-          <p className="muted small">Studio's built-in subagent.</p>
-          <dl className="grid">
-            <dt>Model</dt><dd>{native.worker.model ? `${native.worker.model} when the main agent runs on ${native.worker.model.split(" ")[0]}, else the main agent's` : SAME}</dd>
-            <dt>Effort</dt><dd>{native.worker.effort ? EFFORT_NAMES[native.worker.effort as Effort] ?? native.worker.effort : SAME}</dd>
-            <dt>Starts</dt><dd>{STARTS[native.worker.starts]}</dd>
-          </dl>
-          {native.worker.fromSettings && <p className="cfg-note">Read only, set by an earlier version.</p>}
-        </Card>
-      )}
+      <Card label="Worker">
+        <p className="muted small">Studio's built-in subagent. It runs on the main agent's sign-in or key.</p>
+        <div className="cfg-inline">
+          <ModelPicker
+            settings={settings}
+            onSettings={setSettings}
+            follow={{
+              label: "Worker model",
+              same: SAME,
+              // A model of another vendor is not used: the worker runs on the main agent's.
+              value: settings.usage.subagentModel?.provider === settings.provider ? settings.usage.subagentModel.model : null,
+              onPick: (model) => saveUsage({ subagentModel: model ? { provider: settings.provider as KeyProviderId, model } : null }),
+            }}
+          />
+          <EffortPicker
+            settings={settings}
+            onSettings={setSettings}
+            follow={{ label: "Worker effort", same: SAME, value: settings.usage.subagentEffort, onPick: (effort) => saveUsage({ subagentEffort: effort }) }}
+          />
+        </div>
+        <Row title="Starts">
+          {/* An "off" stored by an earlier version reads as When you ask. */}
+          <Seg label="Worker starts" value={settings.usage.subagents === "automatic" ? "automatic" : "asked"} options={STARTS} onChange={(v) => void saveUsage({ subagents: v })} />
+        </Row>
+      </Card>
 
       <div className="cfg-block-head">
         <Row inline title="Project agent files" help="Instructions, subagents and skills from the project and your home folder.">

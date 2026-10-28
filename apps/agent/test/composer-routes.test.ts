@@ -7,7 +7,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { envStrategy, projectStrategy, registerComposerRoutes, withStrategy, ymlStrategy } from "../src/composer-routes.js";
-import { ContextSurfaces, contextApiOf } from "../src/context-surface.js";
 import { SettingsStore } from "../src/settings.js";
 import type { ClientContextStrategy } from "@ue-mcp-studio/shared";
 
@@ -40,9 +39,7 @@ function setup(extra: Record<string, unknown> = {}) {
     ...extra,
   } as unknown as DaemonExtensionApi;
   const settings = new SettingsStore(data, path.join(data, "keys"));
-  // Studio's own agent's strategy reads back through the same surfaces chat-routes builds.
-  const surfaces = new ContextSurfaces(contextApiOf(api), () => settings.usage().contextStrategy, () => settings.provider(), () => null);
-  registerComposerRoutes(api, { settings, restartUeMcp: async () => void restarts++, agentContext: surfaces });
+  registerComposerRoutes(api, { settings, restartUeMcp: async () => void restarts++ });
   const call = async (key: string, body?: unknown, query: Record<string, string> = {}) => {
     const h = routes.get(key);
     if (!h) throw new Error(`no route ${key}`);

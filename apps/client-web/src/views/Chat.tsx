@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
-import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
+import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
@@ -12,7 +12,8 @@ import { pillsFor } from "../chat/pill-providers";
 import { PillRow } from "../chat/Pills";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
-import { Composer } from "../chat/Composer";
+import { BarButton, CheckpointsGlyph, Composer } from "../chat/Composer";
+import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../chat/Approvals";
 import { FormCards, useForms } from "../chat/Forms";
 import { FlowLauncher } from "../chat/FlowCommand";
@@ -49,6 +50,8 @@ function sessionOf(data: Record<string, unknown>): string | null {
 /** The project's flows and ue-mcp's actions, for the names /flow and /action complete. One function each, so the menu fetches once per opening. */
 const loadFlowNames = () => api.flows().then((r) => r.flows);
 const loadActionNames = () => api.actions().then((r) => r.actions);
+/** Names for the composer's @-mentions: the project's assets, the open level's actors and the project's files. */
+const searchMentions: MentionSearchFn = (request, signal) => api.searchMentions(request, signal);
 
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
@@ -478,6 +481,7 @@ export function ChatView({ daemon, nav, active = true }: {
               onSend={send}
               flows={loadFlowNames}
               actions={loadActionNames}
+              mentions={searchMentions}
               onQueue={queue}
               onSendNow={sendNow}
               onStop={() => selected && void api.stop(selected)}
@@ -488,9 +492,9 @@ export function ChatView({ daemon, nav, active = true }: {
               height={settings?.composerHeight ?? null}
               onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
               picker={<>
-                {settings && <><ModelPicker settings={settings} onSettings={setSettings} up /><EffortPicker settings={settings} onSettings={setSettings} /></>}
+                {settings && <ModelAndEffort settings={settings} onSettings={setSettings} />}
                 {/* Narrow, Checkpoints is in the header. */}
-                {!narrow && <button className="ghost composer-checkpoints" onClick={() => setReviewOpen(true)} title="Review this session's changes and its checkpoints">Checkpoints</button>}
+                {!narrow && <BarButton className="composer-checkpoints" label="Checkpoints" title="Review this session's changes and its checkpoints" icon={<CheckpointsGlyph />} onClick={() => setReviewOpen(true)} />}
               </>}
             >
               {!narrow && threads}

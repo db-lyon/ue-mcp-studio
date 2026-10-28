@@ -26,6 +26,7 @@ import {
   qaMergeAnswer,
   qaSummaryOf,
   qaVerdictForm,
+  assetLinkTarget,
   type PendingForm,
   type QaRun,
   type QaStep,
@@ -36,6 +37,16 @@ import { api } from "../api";
 import { DEFAULT_RUN, DraftEditor, RunPanel, playersNeeded, type RunOptions } from "./PlaytestDraft";
 import { LoopPanel, loopPill } from "./PlaytestLoop";
 import { native } from "../native";
+import { PictureOr } from "./AssetTile";
+import { ExactAssetLink, StepText } from "./AssetLink";
+import { stepPlain } from "./asset-links";
+import { StepSetup } from "./step-setup";
+
+/** A script's path under its card's title, a link that opens the script asset; an inline script has no asset. */
+function ScriptPath({ script }: { script: string }) {
+  const path = assetLinkTarget(script);
+  return path ? <ExactAssetLink path={path} label={script} /> : <>{script}</>;
+}
 
 /** What a card needs from the page: the daemon's stream, and the session's waiting forms. */
 export interface QaLive {
@@ -203,7 +214,7 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
         {steps.map((s) => {
           const mark = markOf(s, ended);
           const cls = `qa-path-step ${tone(s)} ${s.judge} ${mark === "skipped" || mark === "unrun" ? mark : ""}`;
-          const title = `${s.index + 1}. ${s.instruction} (${judgeLabel(s)}): ${statusLabel(s, ended)}`;
+          const title = `${s.index + 1}. ${stepPlain(s.instruction)} (${judgeLabel(s)}): ${statusLabel(s, ended)}`;
           return (
             <li key={s.index} className={cls} data-status={s.status}>
               {onStep
@@ -216,7 +227,7 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
       {on && (
         <div className="qa-path-caption small" aria-hidden="true">
           <span className="qa-num mono">{on.index + 1}</span>
-          <span className="qa-path-caption-text">{on.instruction}</span>
+          <span className="qa-path-caption-text">{stepPlain(on.instruction)}</span>
           <span className="qa-path-caption-state">{on.judge === "auto" ? "Checked by the observer" : "Judged by a person"}: {statusLabel(on, ended)}</span>
         </div>
       )}
@@ -598,7 +609,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
           <div className={`qa-answer ${failInBox ? "failing" : ""}`} role="group" aria-label={`Step ${askBox.index + 1} needs you`}>
             <span className="qa-answer-step">
               <span className="qa-num mono">{askBox.index + 1}</span>
-              <span className="qa-answer-text"><span className="qa-answer-lead">Check in PIE: </span>{askBox.instruction}</span>
+              <span className="qa-answer-text"><span className="qa-answer-lead">Check in PIE: </span><StepText text={askBox.instruction} /></span>
             </span>
             {failInBox ? (
               <FailNote
@@ -631,7 +642,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
         )}
         {!askBox && needsYouLoop && (
           <div className="qa-answer needs" role="group" aria-label="The loop needs you">
-            <span className="qa-answer-text">{needsYouLoop.blocker?.reason ?? "The loop is waiting for you."}</span>
+            <span className="qa-answer-text">{needsYouLoop.blocker?.reason ? <StepText text={needsYouLoop.blocker.reason} /> : "The loop is waiting for you."}</span>
             <span className="qa-verdict">
               {!open && <button className="small-button" disabled={!!offline} title={offline} onClick={() => openAt(null)}>Review</button>}
             </span>
@@ -641,7 +652,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
       </div>
       {open && <div className="qa-body-wrap">
       <div className="qa-body" id={`qa-body-${run.runId}`} ref={body}>
-      {draft && <div className="dim small mono qa-script-path">{run.script}</div>}
+      {draft && <div className="dim small mono qa-script-path"><ScriptPath script={run.script} /></div>}
       {panel === "run" && runnable && <RunPanel run={run} busy={working} onStart={start} onCancel={() => setPanel(null)} />}
       {assignment?.loop && (
         <LoopPanel
@@ -677,7 +688,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
             <li key={s.index} className={`qa-step ${tone(s)} ${s.judge} ${marked === s.index ? "target" : ""}`} data-status={s.status} data-index={s.index} tabIndex={-1}>
               <div className="qa-step-row">
                 <span className="qa-num mono dim">{s.index + 1}</span>
-                <span className="qa-instruction">{s.instruction}</span>
+                <span className="qa-instruction"><StepText text={s.instruction} /></span>
                 <span className="qa-step-tags">
                   {s.player && <span className="qa-player small" title="The player this step is for">{s.player}</span>}
                   <span className={`qa-judge small ${s.judge}`} title={s.judge === "auto" ? "The observer checks this step from a value in PIE" : "A person judges this step"}>{judgeLabel(s)}</span>
@@ -689,6 +700,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                   </span>}
                 </span>
               </div>
+              <StepSetup step={s} />
               {s.expect && <div className="qa-expect mono dim small">{s.expect.value} {s.expect.op}{s.expect.target !== undefined ? ` ${s.expect.target}` : ""}{s.withinMs ? `, within ${s.withinMs} ms` : ""}</div>}
               {s.status === "failed" && s.judge === "auto" && evidence && <div className="qa-evidence small" role="note">{evidence.split("\n").slice(1).join(" ") || evidence}</div>}
               {s.note && !verdictable && !byAgent && !failBox && (
@@ -707,7 +719,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                     <div className="qa-captures">
                       {s.evidence!.captures!.map((c, n) => (
                         <a key={c} href={api.qaCaptureUrl(run.runId, s.index, n)} target="_blank" rel="noreferrer" title={c}>
-                          <img src={api.qaCaptureUrl(run.runId, s.index, n)} alt={c.split(/[\/]/).pop()} loading="lazy" />
+                          <PictureOr src={api.qaCaptureUrl(run.runId, s.index, n)} alt={c.split(/[\/]/).pop() ?? c} lazy fallback={<span className="qa-capture-missing mono small">{c.split(/[\/]/).pop()}<span className="dim"> could not be read</span></span>} />
                         </a>
                       ))}
                     </div>

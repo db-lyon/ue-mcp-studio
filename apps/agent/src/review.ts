@@ -114,7 +114,7 @@ export interface ReviewHost {
 export interface ReviewOptions {
   host: ReviewHost;
   store: SessionStore;
-  /** Settings > Agent: Review each turn. */
+  /** Settings > Approvals & review: Review each turn. */
   defaultOn: () => boolean;
   now?: () => string;
 }

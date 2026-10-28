@@ -1,6 +1,6 @@
 {
   "name": "@ue-mcp-studio/client-web",
-  "version": "0.1.24-beta.17",
+  "version": "0.1.24-beta.18",
   "private": true,
   "type": "module",
   "scripts": {
@@ -31,7 +31,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "jsdom": "^25.0.1",
     "playwright-core": "^1.49.1",
-    "ue-mcp": "1.4.11-beta.9",
+    "ue-mcp": "1.4.11-beta.10",
     "vite": "^5.4.11"
   }
 }

@@ -62,6 +62,7 @@ export const QA = [
   "Every playtest is a created script and its card; there is no other way to deliver one. A reply that lists steps marked PASS or FAIL, or steps for the user to try, as prose or a table, is a failed playtest. "
     + "Never mark a step passed or failed from your own reading of the editor: the script run's observer, the user on the card, or a subagent the user assigned decides it.",
   "Make a step auto with an expect when a value the observer reads can decide it (a property, a distance, visibility), and manual when only a person can judge it (how it looks or feels). Describe pie.script_create first for the step format. "
+    + "In a step's instruction, write each asset it names as a markdown link to its object path, as in a reply, so the Playtest card links it. "
     + "In a multiplayer playtest give each step a player, \"host\" or \"client 1\", \"client 2\" and so on: Studio keeps it, shows it on the card and takes it out before ue-mcp sees the step.",
   "The user answers manual steps with the Pass, Fail and Skip buttons on the Playtest card. Never call pie.verdict for a manual step yourself unless the user told you that step's outcome in a message, "
     + "or the user assigned you the playtest from its card: then follow that brief, which says how to drive PIE and which steps you judge. "
@@ -91,6 +92,9 @@ const WORK = [
   ...QA,
 ];
 
+/** How the user's @-mentions reach the agent (mentionToken in the shared package). */
+export const MENTION_LINE = "The user's messages can mention things as [@Name](target \"Type\"). The target is an asset's object path, actor:<object path> for an actor in the open level, or file:<path from the project folder>. Use the target as it is; it needs no search.";
+
 /** Where the machine tools work, for the prompts. */
 const where = (projectDir: string): string =>
   `The project folder is ${projectDir}: commands run there and relative paths start there. The shell is ${shell().name}.`;
@@ -107,6 +111,7 @@ export function subagentLine(usage: Pick<UsageSettings, "subagents" | "subagents
 const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING): string => [
   "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
+  MENTION_LINE,
   playtestRunsLine(runs),
   where(projectDir),
   subagentLine(usage),

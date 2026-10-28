@@ -82,20 +82,3 @@ export interface ClientContextStrategy {
   restarting?: boolean;
 }
 
-/** Studio's own agent: a ue-mcp strategy, or auto, which picks one from a measurement. */
-export type AgentContextStrategy = ContextStrategy | "auto";
-export const AGENT_CONTEXT_STRATEGIES: readonly AgentContextStrategy[] = ["micro", "lean", "full", "auto"];
-
-/** GET /context-strategy/agent: Studio's own agent's choice and what each would cost. */
-export interface AgentContextView {
-  strategy: AgentContextStrategy;
-  /** The strategy turns run on now, auto resolved. */
-  effective: ContextStrategy;
-  /** Seed tokens per strategy for every category, as the daemon's projection measures them; null when it failed. */
-  seeds: Record<ContextStrategy, number> | null;
-  /** Auto is offered only when a measurement ships; null otherwise. */
-  measurement: { measuredAt: string; ueMcpVersion: string; runs: number } | null;
-  /** Why the effective strategy differs from the choice, when it does. */
-  note: string | null;
-}
-

@@ -14,7 +14,7 @@ const NATIVE_NONE = (): NativeOverview => ({ ...NATIVE_FULL, main: null, convent
 const NATIVE_FULL: NativeOverview = {
   enabled: true,
   main: "claude",
-  worker: { model: "Claude Haiku 5.5", effort: "low", starts: "asked", fromSettings: false },
+  worker: { model: "Claude Haiku 5.5", effort: "low", starts: "asked" },
   conventions: [
     { convention: "claude", routes: ["Claude sign-in"], instructionTokens: 1240, notes: [], skipped: [{ path: "AGENTS.md", why: "not read: Claude Code reads AGENTS.md only where there is no CLAUDE.md" }],
       instructions: [
@@ -45,8 +45,18 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-project": page("Project: ready, Micro for other clients, one MCP client", "project"),
   "settings-project-attention": page("Project needing attention, with the context strategy set by the environment", "project", {
     get: (p) => p === "/v1/install"
-      ? { ...INSTALL, plugin: { ...INSTALL.plugin, installedVersion: "1.4.9" }, ok: false, problems: [{ code: "plugin-outdated", what: "The bridge plugin is older than this ue-mcp", fix: "Run npx ue-mcp update, then rebuild the project." }] }
+      ? { ...INSTALL, plugin: { ...INSTALL.plugin, installedVersion: "1.4.9" }, ok: false, problems: [{ code: "bridge_version_mismatch", what: "The installed plugin is v1.4.9 and this package ships v1.4.11.", fix: "Run 'npx ue-mcp deploy C:/Projects/StudioE2E/StudioE2E.uproject' to sync the source, then rebuild." }] }
       : p === "/v1/ext/studio/context-strategy" ? { ...CONTEXT, fromFile: true, envOverride: "full" } : undefined,
+  }),
+  "settings-project-rebuild": page("Project with a bridge updated while the editor was open: needs a rebuild, with the Rebuild button", "project", {
+    get: (p) => p === "/v1/install"
+      ? {
+          ...INSTALL,
+          ok: false,
+          plugin: { ...INSTALL.plugin, pendingBuild: { version: "1.4.11-beta.9", at: "2026-10-27T10:00:00Z", reason: "editor running" } },
+          problems: [{ code: "bridge_build_stale", what: "The compiled plugin is older than its source, so handlers added since the last build answer 'Unknown method'.", fix: "Rebuild with the editor STOPPED: project(action='build')." }],
+        }
+      : undefined,
   }),
   "settings-project-yaml": page("Project with Advanced open: ue-mcp.yml highlighted, focused, with a line longer than the box", "project", {
     get: (p) => (p === "/v1/ext/studio/config" ? { path: "C:/Projects/StudioE2E/ue-mcp.yml", exists: true, text: YAML } : undefined),
