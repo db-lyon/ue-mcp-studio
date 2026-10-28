@@ -9,7 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult } from "ue-mcp/daemon";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
-import { PlaytestFlow, flowErrors, outcomeOf, playtestParams, playtestTarget, type FlowEventLike } from "../src/playtest-flow.js";
+import { PLAYTEST_LINKS_LINE, PlaytestFlow, flowErrors, outcomeOf, playtestParams, playtestTarget, playtestTurnParams, type FlowEventLike } from "../src/playtest-flow.js";
 import { AgentRunner } from "../src/runner.js";
 import { SessionStore } from "../src/sessions.js";
 import { QaBroker, type QaHost } from "../src/qa.js";
@@ -150,6 +150,18 @@ describe("the flow's params", () => {
     const p = playtestParams("the second jump", "Done: BP_Hero jumps twice now.", transcript);
     expect(p.context.startsWith("The user asked to test: the second jump\n\nMade from this agent message:\nDone: BP_Hero jumps twice now.")).toBe(true);
     expect(playtestTarget("the door opens", null, [])).toBe("the door opens");
+  });
+
+  it("tells the draft to write each asset a step names as a markdown link to its object path, kept when the conversation is cut", () => {
+    expect(playtestParams("", null, transcript).context.endsWith(PLAYTEST_LINKS_LINE)).toBe(true);
+    const long: TranscriptEntry[] = Array.from({ length: 16 }, (_, i) => ({ kind: "user" as const, text: `${"padding ".repeat(200)}${i}`, at: "2026-10-28T10:00:00.000Z" }));
+    const cut = playtestParams("", null, long);
+    expect(cut.context.length).toBeLessThanOrEqual(12_000);
+    expect(cut.context).toContain(PLAYTEST_LINKS_LINE);
+    expect(PLAYTEST_LINKS_LINE).toContain("[L_WG_Meadow](/Game/Maps/L_WG_Meadow.L_WG_Meadow)");
+    const turn = playtestTurnParams(long, [{ kind: "asset", path: "/Game/BP_Hero.BP_Hero" } as never]);
+    expect(turn.context.length).toBeLessThanOrEqual(12_000);
+    expect(turn.context).toContain(PLAYTEST_LINKS_LINE);
   });
 });
 
