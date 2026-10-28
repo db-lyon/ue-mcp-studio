@@ -184,8 +184,45 @@ describe("the diff view", () => {
     const graph = (e: unknown): AssetDiff => ({ ...material, sections: [{ category: "Material Graph", kind: "graph", engineSource: "", entries: [e as never] }] });
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph(added) } });
     await diffOf(REVIEW.items[1]);
-    const props = document.querySelector(".diff-node-props")!;
-    expect([...props.querySelectorAll("div")].map((d) => d.textContent)).toEqual(["Value0.35", "B0.5"]);
+    // The added node's values sit under After, one pin per line; Before says it was not there.
+    const row = screen.getByText("Added Node Constant").closest("tr")!;
+    const [change, before, after] = [...row.children] as HTMLElement[];
+    expect(row.children).toHaveLength(3);
+    expect(change.textContent).toBe("AddedAdded Node Constant");
+    expect(before.className).toContain("cmp-absent");
+    expect(before.textContent).toBe("not there");
+    expect([...after.querySelectorAll(".cmp-kv > div")].map((d) => d.textContent)).toEqual(["Value0.35", "B0.5"]);
+  });
+
+  it("keeps every record's cells in their columns: a removed node's values under Before, a property's values side by side, a graph record's properties as rows of their own", async () => {
+    const removed = { displayString: "Removed Node Print String", diffType: "NODE_REMOVED", category: "SUBTRACTION", node1: { guid: "1", name: "N", class: "K2Node_CallFunction", title: "Print String", fullTitle: "Print String\nTarget is Kismet System Library", pins: [{ name: "Duration", displayName: "Duration", defaultValue: "2.0", linked: false }, { name: "TextColor", displayName: "Text Color", defaultValue: "(R=0.000000,G=0.660000,B=1.000000,A=1.000000)", linked: false }] } };
+    const links = { displayString: "Pin 'then' has more links (was 0 now 1)", diffType: "PIN_LINKEDTO_NUM_INC", category: "MODIFICATION" };
+    const moved = { displayString: "Node moved", diffType: "NODE_MOVED", category: "MINOR" };
+    const prop = { displayString: "Property Changed: Default Value", diffType: "NODE_PROPERTY", category: "MODIFICATION", properties: [{ displayString: "Default Value", diffType: "PropertyValueChanged", path: "Default Value", before: "0.200000", after: "0.700000" }] };
+    const graph: AssetDiff = { ...material, sections: [{ category: "EventGraph", kind: "graph", engineSource: "", entries: [removed, links, moved, prop] as never }] };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph } });
+    await diffOf(REVIEW.items[1]);
+    const table = screen.getByRole("region", { name: "EventGraph" }).querySelector("table")!;
+    expect(table.querySelector("[colspan]")).toBeNull();
+    for (const tr of table.querySelectorAll("tbody tr")) expect(tr.children).toHaveLength(3);
+    const cells = (text: string) => [...screen.getByText(text).closest("tr")!.children] as HTMLElement[];
+    const [rc, rb, ra] = cells("Removed Node Print String");
+    expect(rc.querySelector(".cmp-subtitle")!.textContent).toBe("Print String, Target is Kismet System Library");
+    expect([...rb.querySelectorAll(".cmp-kv dt")].map((d) => d.textContent)).toEqual(["Duration", "Text Color"]);
+    // A colour keeps its text, with a swatch beside it.
+    expect(rb.querySelector(".cmp-swatch")!.getAttribute("style")).toContain("rgb(0, 212, 255)");
+    expect(rb.textContent).toContain("(R=0.000000,G=0.660000,B=1.000000,A=1.000000)");
+    expect(ra.textContent).toBe("gone");
+    // The link row's own was/now text stays in Change, and both sides are empty.
+    const [, lb, la] = cells("Pin 'then' has more links (was 0 now 1)");
+    expect(lb.className).toContain("cmp-empty");
+    expect(la.className).toContain("cmp-empty");
+    expect(screen.getByText("Pin 'then' has more links (was 0 now 1)").closest("tr")!.className).toContain("bare");
+    expect(screen.getByText("Node moved").closest("tr")!.className).toContain("minor");
+    // The property under the graph record is a row of its own, before and after on the same line.
+    const sub = screen.getByText("Default Value").closest("tr")!;
+    expect(sub.className).toContain("sub");
+    expect([...sub.children].map((c) => c.textContent)).toEqual(["ChangedDefault Value", "0.2", "0.7"]);
   });
 
   it("lets a long engine name wrap only between its parts", () => {
