@@ -10,7 +10,8 @@ import { GeneralSection } from "./settings/GeneralSection";
 import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
 
-import { type SettingsSection } from "./settings/sections";
+import { sectionOf, type SettingsSection } from "./settings/sections";
+import { ErrorBoundary } from "./ErrorBoundary";
 export type { SettingsSection } from "./settings/sections";
 
 const ICONS: Record<SettingsSection, string> = {
@@ -41,6 +42,8 @@ const GROUPS: Array<{ label: string; items: Array<{ id: SettingsSection; name: s
   },
 ];
 
+const NAMES = Object.fromEntries(GROUPS.flatMap((g) => g.items.map((s) => [s.id, s.name]))) as Record<SettingsSection, string>;
+
 function Icon({ d }: { d: string }) {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -62,10 +65,20 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   useEffect(() => {
     api.settings().then(setSettings, () => setSettings(null));
     // The strategy in effect: an environment override beats the saved one.
-    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: c.envOverride ? `${CONTEXT_STRATEGY_INFO[c.envOverride].name}, from environment` : `${CONTEXT_STRATEGY_INFO[c.strategy].name}`, overridden: !!c.envOverride && c.envOverride !== c.strategy })), () => undefined);
+    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: c.envOverride ? `${CONTEXT_STRATEGY_INFO[c.envOverride]?.name ?? c.envOverride}, from environment` : CONTEXT_STRATEGY_INFO[c.strategy]?.name ?? c.strategy, overridden: !!c.envOverride && c.envOverride !== c.strategy })), () => undefined);
     if (typeof api.install === "function") api.install().then((r) => setExtra((e) => ({ ...e, ready: r.ok })), () => undefined);
     if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
   }, []);
+  // The rail's lines only describe; one that cannot be worked out is left off rather than taking Settings down.
+  try {
+    return statusOf(updates, daemon, settings, extra);
+  } catch (e) {
+    console.error("Settings could not work out a section's state", e);
+    return { dots: {}, lines: {} };
+  }
+}
+
+function statusOf(updates: number, daemon: DaemonState, settings: StudioSettings | null, extra: { strategy?: string; overridden?: boolean; ready?: boolean; models?: ModelCatalog }): { dots: Partial<Record<SettingsSection, string>>; lines: Partial<Record<SettingsSection, string>> } {
   const dots: Partial<Record<SettingsSection, string>> = {};
   if (settings && !anythingConnected(settings)) dots.models = "Nothing connected";
   if (settings && settings.route === null) dots.agents = "No model connected";
@@ -108,8 +121,8 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   narrow?: boolean;
 }) {
   const { dots, lines } = useSectionStatus(updates, daemon);
-  // Wide always shows a section; narrow starts on the list.
-  const open: SettingsSection | null = section ?? (narrow ? null : "general");
+  // Wide always shows a section; narrow starts on the list. A name no version used opens General.
+  const open: SettingsSection | null = sectionOf(section) ?? (narrow ? null : "general");
   let body: ReactNode = null;
   if (open === "agents") body = <AgentsSection onSection={onSection} />;
   else if (open === "models") body = <ModelsSection />;
@@ -150,7 +163,10 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
       {open && (
         <div className="cfg-content">
           <button className="ghost cfg-back" onClick={() => onSection(null)}>{"‹"} All settings</button>
-          {body}
+          {/* A section that throws shows why in its place; the rail and the other sections keep working. */}
+          <ErrorBoundary what="This section" where={`Settings > ${NAMES[open]}`} resetKey={open}>
+            {body}
+          </ErrorBoundary>
         </div>
       )}
     </div>

@@ -34,6 +34,41 @@ const NOTHING_CONNECTED: Partial<StudioSettings> = { route: null, connected: {} 
 
 const page = (title: string, section: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: `#/settings/${section}`, index: { playtests: [], listed: true }, height: 2600, ...o });
 
+/**
+ * What Studio 0.1.23 and an older ue-mcp answer, which the newest UI bundle on
+ * the machine reads when the daemon serves it beside them (#151): no usage,
+ * approvals, review or route order; no playtest runs; no agent files or
+ * context strategy routes; an install report and update check missing parts.
+ */
+/** The theme being shot: the settings answer is where the app reads it. */
+const shotTheme = () => new URL(location.href).searchParams.get("theme") ?? "ue-mcp";
+
+const OLD_AGENT: Partial<Scenario> = {
+  missing: ["/v1/ext/studio/native", "/v1/ext/studio/context-strategy", "/v1/ext/studio/endpoints"],
+  get: (p) => {
+    if (p === "/v1/ext/studio/settings") return { provider: "anthropic", model: "claude-sonnet-5-5", route: "claude", effort: "high", gatewayUrl: "https://gateway.ue-mcp.com", theme: shotTheme(), askBeforeChanges: true, composerHeight: null, dialogPolicy: { kind: "wait" }, connected: { claude: true }, account: null };
+    if (p === "/v1/ext/studio/agent-settings") return { feedbackTool: true, feedbackMode: { mode: "interactive", project: false }, dialogMode: { mode: null, project: false } };
+    if (p === "/v1/ext/studio/models") return { providers: [{ id: "anthropic", name: "Anthropic", connected: false, source: "default", models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5" }] }, { id: "openai", name: "OpenAI" }] };
+    if (p === "/v1/install") return { ok: false, plugin: { deployed: true, installedVersion: "1.4.0", enabledInUproject: true }, problems: [{ code: "bridge_version_mismatch", what: "The installed plugin is v1.4.0." }] };
+    if (p === "/v1/update") return { server: "1.4.0", latest: "1.4.11", target: "1.4.11" };
+    if (p === "/v1/ext/studio/updates") return { studio: { installed: "0.1.23", latest: "0.1.23", available: false } };
+    if (p === "/v1/health") return { ok: true, pid: 1, version: "1.4.0", apiVersion: 1, projectRoot: "c:/projects/studioe2e", startedAt: "2026-10-28T09:00:00Z", clients: 0 };
+    return undefined;
+  },
+};
+
+/** Every settings answer empty but the theme being shot, as a missing or unreadable settings file with an agent that sends what it read. */
+const EMPTY: Partial<Scenario> = {
+  get: (p) => (p === "/v1/ext/studio/settings" ? { theme: shotTheme() } : ["/v1/ext/studio/agent-settings", "/v1/ext/studio/models", "/v1/ext/studio/native", "/v1/ext/studio/context-strategy"].includes(p) ? {} : undefined),
+};
+
+const SECTIONS = ["general", "agents", "models", "approvals", "project", "diagnostics"] as const;
+
+export const OLD_DATA_SCENARIOS: Record<string, Scenario> = Object.fromEntries(SECTIONS.flatMap((s) => [
+  [`settings-old-${s}`, page(`${s} with Studio 0.1.23's and an older ue-mcp's answers: every part renders, nothing blank`, s, { ...OLD_AGENT, fullPage: true })],
+  [`settings-empty-${s}`, page(`${s} with every settings answer empty`, s, { ...EMPTY, fullPage: true })],
+]));
+
 export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-list": page("Settings at narrow width: the list of sections, each with its state; wide opens Agents", "", { hash: "#/settings" }),
   "settings-agents": page("Agents: main agent, worker, and the project's Claude files with a subagent and a skill", "agents", { get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_FULL : undefined) }),
@@ -65,6 +100,7 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     focus: ".yaml-editor textarea",
   }),
   "settings-general": page("General: themes and updates", "general"),
+  ...OLD_DATA_SCENARIOS,
   "settings-diagnostics": page("Diagnostics: the editor and daemon, and the event log, empty because the harness sends no events", "diagnostics"),
 };
 

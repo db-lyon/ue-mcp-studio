@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { inEditor, native } from "../native";
+import { obj } from "../normalize";
 
 /** The part of `ue-mcp init --dry-run`'s plan the page reads. */
 interface SetupPlan {
@@ -9,6 +10,33 @@ interface SetupPlan {
   contextStrategy: "micro" | "lean" | "full";
   feedback: boolean;
   skills: boolean;
+}
+
+/** The plan from any ue-mcp's `init --dry-run`, each part it does not report left empty or off; null when there is none yet. */
+export function planOf(raw: string | null | undefined): SetupPlan | null {
+  let parsed: unknown;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+  const plan = obj(obj(parsed).plan);
+  if (!Object.keys(plan).length) return null;
+  const project = obj(plan.project);
+  return {
+    project: { engine: typeof project.engine === "string" ? project.engine : null },
+    clients: (Array.isArray(plan.clients) ? plan.clients : []).map(obj).filter((c) => typeof c.id === "string").map((c) => ({
+      id: c.id as string,
+      name: typeof c.name === "string" ? c.name : (c.id as string),
+      detected: c.detected === true,
+      projectScoped: c.projectScoped !== false,
+      selected: c.selected === true,
+    })),
+    nativeTools: { enabled: obj(plan.nativeTools).enabled !== false },
+    contextStrategy: plan.contextStrategy === "lean" || plan.contextStrategy === "full" ? plan.contextStrategy : "micro",
+    feedback: plan.feedback === true,
+    skills: plan.skills === true,
+  };
 }
 
 const engineAtLeast = (v: string | null, major: number, minor: number): boolean => {
@@ -38,9 +66,8 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
     const poll = async (): Promise<void> => {
       const raw = await native().getsetupplan?.();
       if (stopped) return;
-      const parsed = raw ? (JSON.parse(raw) as { plan?: SetupPlan }) : null;
-      if (parsed?.plan) {
-        const p = parsed.plan;
+      const p = planOf(raw);
+      if (p) {
         setPlan(p);
         // A global client's config applies to every project, so it is never chosen for the user.
         setClients(new Set(p.clients.filter((c) => c.selected && c.projectScoped).map((c) => c.id)));

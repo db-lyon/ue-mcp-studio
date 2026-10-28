@@ -8,12 +8,13 @@ const openLink = (url: string) => void window.open(url, "_blank", "noopener");
 
 /**
  * Report a problem or suggest an idea: filed as an issue on Studio's GitHub
- * tracker, with the installed versions when the user includes them.
+ * tracker, with the installed versions when the user includes them. A crash
+ * opens it filled in with what broke and its stack.
  */
-export function FeedbackDialog({ onClose }: { onClose: () => void }) {
+export function FeedbackDialog({ onClose, initial }: { onClose: () => void; initial?: { title: string; description: string } }) {
   const [kind, setKind] = useState<FeedbackReport["kind"]>("problem");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
   const [includeEnvironment, setIncludeEnvironment] = useState(true);
   const [environment, setEnvironment] = useState<string | null>(null);
   const [sending, setSending] = useState(false);

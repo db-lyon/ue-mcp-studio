@@ -24,6 +24,7 @@ import { useSessionFocus } from "./focus";
 import { focusRun, useAttention } from "./attention";
 import { replaceStaleWindow } from "./window-version";
 import { RefusedScreen, useRefusal } from "./views/Refused";
+import { ErrorBoundary } from "./views/ErrorBoundary";
 
 // Playtests is hidden for now; its view stays for when it comes back.
 const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
@@ -159,14 +160,18 @@ function Studio({ daemon }: { daemon: DaemonState }) {
       <div className="stage">
         {chatShown.current && (
           <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
-            <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} />
+            <ErrorBoundary what="Chat">
+              <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} />
+            </ErrorBoundary>
           </main>
         )}
         {tab !== "Chat" && (
           <main className={`view-${tab.toLowerCase()}`}>
-            {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
-            {tab === "Plugins" && <PluginsView daemon={daemon} />}
-            {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
+            <ErrorBoundary what={tab} resetKey={tab}>
+              {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
+              {tab === "Plugins" && <PluginsView daemon={daemon} />}
+              {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
+            </ErrorBoundary>
           </main>
         )}
       </div>

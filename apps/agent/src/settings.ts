@@ -20,24 +20,27 @@ import {
   KEY_PROVIDER_IDS,
   STUDIO_THEMES,
   type Effort,
-  type ImageSize,
   type KeyProviderId,
   type StudioSettingsUpdate,
   type StudioTheme,
-  type SubagentMode,
   type UsageSettings,
   APPROVAL_KINDS,
   PROJECT_SCOPED_KINDS,
   approvalRuleFits,
   type ApprovalKind,
   DEFAULT_APPROVALS,
-  migrateApprovals,
   type Approvals,
   DEFAULT_ROUTE_ORDER,
   ROUTE_ORDERS,
   isVendorId,
   type RouteOrder,
   type VendorId,
+  usageOf,
+  dialogPolicyOf,
+  approvalsOf,
+  subagentModelOf,
+  subagentModeOf,
+  subagentsPerTurnOf,
 } from "@ue-mcp-studio/shared";
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
@@ -60,30 +63,7 @@ interface StoredSettings {
   approvals: Approvals;
 }
 
-const subagentModelOf = (v: unknown): UsageSettings["subagentModel"] | undefined => {
-  if (v === null) return null;
-  const m = v as { provider?: unknown; model?: unknown } | undefined;
-  return m && KEY_PROVIDER_IDS.includes(m.provider as KeyProviderId) && typeof m.model === "string" && m.model.trim()
-    ? { provider: m.provider as KeyProviderId, model: m.model.trim() }
-    : undefined;
-};
-/** Settings offer When you ask and Automatic; an "off" from an earlier version reads as When you ask. */
-const modeOf = (v: SubagentMode): SubagentMode => (v === "off" ? "asked" : v);
-const perTurnOf = (v: unknown): number | undefined =>
-  Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_SUBAGENTS_PER_TURN ? (v as number) : undefined;
-
-/** Stored usage settings, each field that is missing or not valid at its default. */
-export function usageOf(raw: unknown): UsageSettings {
-  const u = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  return {
-    subagents: SUBAGENT_MODES.includes(u.subagents as SubagentMode) ? modeOf(u.subagents as SubagentMode) : DEFAULT_USAGE.subagents,
-    subagentModel: subagentModelOf(u.subagentModel) ?? DEFAULT_USAGE.subagentModel,
-    subagentEffort: EFFORTS.includes(u.subagentEffort as Effort) ? (u.subagentEffort as Effort) : DEFAULT_USAGE.subagentEffort,
-    subagentsPerTurn: perTurnOf(u.subagentsPerTurn) ?? DEFAULT_USAGE.subagentsPerTurn,
-    projectInstructions: typeof u.projectInstructions === "boolean" ? u.projectInstructions : DEFAULT_USAGE.projectInstructions,
-    imageSize: (u.imageSize as string) in IMAGE_EDGES ? (u.imageSize as ImageSize) : DEFAULT_USAGE.imageSize,
-  };
-}
+export { usageOf, dialogPolicyOf, approvalsOf };
 
 /** A usage update applied to the stored settings; throws on a field that is not valid. */
 export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): UsageSettings {
@@ -91,7 +71,7 @@ export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): U
   const next = { ...current };
   if (u.subagents !== undefined) {
     if (!SUBAGENT_MODES.includes(u.subagents)) throw new Error(`usage.subagents must be one of ${SUBAGENT_MODES.join(", ")}`);
-    next.subagents = modeOf(u.subagents);
+    next.subagents = subagentModeOf(u.subagents);
   }
   if (u.subagentModel !== undefined) {
     const m = subagentModelOf(u.subagentModel);
@@ -103,7 +83,7 @@ export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): U
     next.subagentEffort = u.subagentEffort;
   }
   if (u.subagentsPerTurn !== undefined) {
-    const n = perTurnOf(u.subagentsPerTurn);
+    const n = subagentsPerTurnOf(u.subagentsPerTurn);
     if (n === undefined) throw new Error(`usage.subagentsPerTurn must be a whole number from 1 to ${MAX_SUBAGENTS_PER_TURN}`);
     next.subagentsPerTurn = n;
   }
@@ -118,30 +98,10 @@ export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): U
   return next;
 }
 
-/** A stored or requested dialog policy, or null when it is not one. */
-export function dialogPolicyOf(v: unknown): DialogPolicy | null {
-  if (!v || typeof v !== "object") return null;
-  const p = v as { kind?: unknown; minutes?: unknown };
-  if (p.kind === "wait") return { kind: "wait" };
-  if ((p.kind === "agent" || p.kind === "safe") && typeof p.minutes === "number" && Number.isFinite(p.minutes)
-    && p.minutes > 0 && p.minutes <= MAX_DIALOG_MINUTES) {
-    return { kind: p.kind, minutes: p.minutes };
-  }
-  return null;
-}
-
 /** The tallest composer height kept; anything larger is a mistake, not a layout. */
 const MAX_COMPOSER_HEIGHT = 4000;
 const composerHeightOf = (v: unknown): number | null =>
   typeof v === "number" && Number.isFinite(v) && v > 0 && v <= MAX_COMPOSER_HEIGHT ? Math.round(v) : null;
-
-/** Stored approval rows; settings from before them keep what askBeforeChanges did. */
-export function approvalsOf(raw: Record<string, unknown>): Approvals {
-  const base = migrateApprovals(raw.askBeforeChanges !== false);
-  const a = raw.approvals && typeof raw.approvals === "object" ? (raw.approvals as Record<string, unknown>) : null;
-  if (!a) return base;
-  return Object.fromEntries(APPROVAL_KINDS.map((k) => [k, approvalRuleFits(k, a[k]) ? a[k] : base[k]])) as Approvals;
-}
 
 /**
  * The selected model's vendor: a named vendor or a custom endpoint. Settings
