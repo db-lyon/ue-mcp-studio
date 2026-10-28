@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { STATE_LABEL, agentCalls, agentStatus, callsIn, describe, formatDuration, isActive, summarize, tokenCount } from "./model";
 import { useNow } from "./hooks";
+import { useAsked } from "./asked";
 
 const EMPTY: ReadonlySet<string> = new Set();
 
@@ -28,6 +29,7 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
 }) {
   const agents = agentCalls(transcript);
   const now = useNow(agents.some((a) => a.outcome === "pending"));
+  const asked = useAsked();
   const [showFinished, setShowFinished] = useState(false);
   // The open thread keeps its row until it is closed, so a dismissal never pulls the list out from under it.
   const listed = agents.filter((a) => !dismissed.has(a.id) || a.outcome === "pending" || a.id === thread);
@@ -37,7 +39,7 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
       ? <div className="agents-bar agents-solo dim small">tokens: {tokenCount(tokens.main ?? 0)}</div>
       : null;
   }
-  const rows = listed.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now) }));
+  const rows = listed.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now, asked) }));
   const active = rows.filter((r) => isActive(r.state));
   const finished = rows.filter((r) => !isActive(r.state));
   const failed = finished.filter((r) => r.state === "failed" || r.state === "unknown").length;

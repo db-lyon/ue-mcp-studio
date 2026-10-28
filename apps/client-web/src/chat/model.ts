@@ -7,10 +7,11 @@ import type { ToolCallRecord, TranscriptEntry, TurnStatus } from "@ue-mcp-studio
 export type Call = ToolCallRecord;
 
 /** What a subagent is doing now. */
-export type AgentState = "working" | "waiting" | "done" | "failed" | "unknown" | "stopped";
+export type AgentState = "working" | "approval" | "waiting" | "done" | "failed" | "unknown" | "stopped";
 
 export const STATE_LABEL: Record<AgentState, string> = {
   working: "working",
+  approval: "waiting on you",
   waiting: "waiting for editor",
   done: "done",
   failed: "failed",
@@ -19,7 +20,7 @@ export const STATE_LABEL: Record<AgentState, string> = {
 };
 
 /** The states that are still running; the rest are finished. */
-export const ACTIVE: readonly AgentState[] = ["working", "waiting"];
+export const ACTIVE: readonly AgentState[] = ["working", "approval", "waiting"];
 export const isActive = (state: AgentState): boolean => ACTIVE.includes(state);
 
 /**
@@ -112,16 +113,24 @@ export interface AgentStatus {
   secs: number;
 }
 
-/** A subagent's state, from its call and its own transcript entries. */
-export function agentStatus(call: Call, transcript: TranscriptEntry[], sessionWaiting: boolean, now: number): AgentStatus {
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * A subagent's state, from its call and its own transcript entries. `asked`:
+ * the tool call ids waiting for the user's approval, which make a subagent
+ * that runs one wait on the user rather than work (#149).
+ */
+export function agentStatus(call: Call, transcript: TranscriptEntry[], sessionWaiting: boolean, now: number, asked: ReadonlySet<string> = NONE): AgentStatus {
   const end = call.endedAt ? Date.parse(call.endedAt) : now;
   const secs = Math.max(1, Math.round((end - Date.parse(call.startedAt)) / 1000));
   if (call.outcome === "done") return { state: "done", activity: null, secs };
   if (call.outcome === "error") return { state: "failed", activity: null, secs };
   if (call.outcome === "unknown") return { state: "unknown", activity: null, secs };
   if (call.outcome === "stopped") return { state: "stopped", activity: null, secs };
-  if (sessionWaiting) return { state: "waiting", activity: null, secs };
   const steps = transcript.filter((t) => t.parent === call.id);
+  const held = steps.find((t) => t.kind === "tool" && t.call.outcome === "pending" && asked.has(t.call.id));
+  if (held?.kind === "tool") return { state: "approval", activity: `approve ${toolLabel(held.call)}`, secs };
+  if (sessionWaiting) return { state: "waiting", activity: null, secs };
   const running = [...steps].reverse().find((t) => t.kind === "tool" && t.call.outcome === "pending");
   if (running?.kind === "tool") return { state: "working", activity: toolLabel(running.call), secs };
   const last = Math.max(Date.parse(call.startedAt), ...steps.map(timeOf));
@@ -134,6 +143,7 @@ export function summarize(states: AgentState[]): string {
   const n = (st: AgentState) => states.filter((s) => s === st).length;
   const failed = n("failed") + n("unknown");
   return [
+    n("approval") && `${n("approval")} waiting on you`,
     n("working") && `${n("working")} working`,
     n("waiting") && `${n("waiting")} waiting`,
     n("done") && `${n("done")} done`,
