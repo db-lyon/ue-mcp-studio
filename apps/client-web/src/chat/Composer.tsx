@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { formatBytes, type PendingFile } from "./attachments";
 import { useSlashMenu } from "./SlashMenu";
+import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
 import { BarTierContext, atMost, barTier, useBarTier, type BarTier } from "./barTier";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 
@@ -42,7 +43,7 @@ export function fitHeight({ content, line, chrome, floor, room }: { content: num
  * the dragged height is a minimum the content can still grow past. A double
  * click on the divider forgets it. `height` is the saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, flows, actions, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, flows, actions, mentions, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -68,11 +69,14 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   flows?: () => Promise<FlowListing[]>;
   /** ue-mcp's actions, for the names /action completes. Fetched when the menu offers them; stable across renders. */
   actions?: () => Promise<ActionListing[]>;
+  /** Looks names up for an @-mention; without it, @ is plain text. */
+  mentions?: MentionSearchFn;
   children?: ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const slash = useSlashMenu(draft, onDraft, commands, flows, actions);
+  const mention = useMentionMenu(draft, onDraft, box, mentions);
   /** A hidden copy of the box, out of the page flow, measured instead of the box so typing never lays out the conversation. */
   const mirror = useRef<HTMLTextAreaElement>(null);
   const [floor, setFloor] = useState<number | null>(height ?? null);
@@ -231,17 +235,25 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           ))}
         </div>
       )}
+      {mentions && <MentionChips draft={draft} onDraft={onDraft} />}
       <textarea ref={mirror} className="composer-mirror" rows={1} tabIndex={-1} aria-hidden readOnly defaultValue="" />
-      {slash.menu}
+      {slash.menu ?? mention.menu}
       <textarea
         ref={box}
         rows={1}
         value={draft}
         placeholder={placeholder}
         disabled={busy && !onQueue}
-        {...slash.aria}
-        onChange={(e) => onDraft(e.target.value)}
-        onBlur={onBlur}
+        {...(slash.open ? slash.aria : mention.aria)}
+        onChange={(e) => {
+          mention.track(e.target);
+          onDraft(e.target.value);
+        }}
+        onSelect={(e) => mention.track(e.currentTarget)}
+        onBlur={() => {
+          mention.blur();
+          onBlur();
+        }}
         onPaste={(e) => {
           // A pasted screenshot or copied file is attached; pasted text stays text.
           if (e.clipboardData.files.length > 0) {
@@ -251,6 +263,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         }}
         onKeyDown={(e) => {
           if (slash.keyDown(e)) return;
+          if (!slash.open && mention.keyDown(e)) return;
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             if (!canSend) return;

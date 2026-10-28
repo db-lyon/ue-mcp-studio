@@ -29,7 +29,8 @@
  *
  * Per-turn review (/review, /sessions/:id/review, /sessions/:id/reviews, /sessions/:id/timeline) is in review.ts.
  * Editor dialogs (/dialogs) are in dialog-routes.ts, playtests, PIE test script runs (/qa), in qa.ts. Studio's window and the editor's busy state are in window-routes.ts; resolving
- * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts.
+ * and opening the assets the chat names (/assets/resolve, /assets/open) in asset-links.ts; the composer's @-mention search
+ * (/mentions/search) in mentions.ts.
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,
  * studio.transcript.added, studio.turn.delta, studio.tool.finished,
@@ -43,7 +44,7 @@ import { registerFlowModel, type ModelHost } from "./flow-model.js";
 import { CLAUDE_SIGN_IN_AVAILABLE, IMAGE_EDGES, PROVIDERS } from "@ue-mcp-studio/shared";
 import { setImageEdge } from "./images.js";
 import type { ActionRunRequest, ApprovalDecision, FlowRunRequest, PlaytestRequest, FeedbackReport, VcsStatus, AttachmentUpload, ModelRoute, SessionUpdate, SignInId, StudioSettings, StudioSettingsUpdate, AccountUsage, StudioAccountResponse } from "@ue-mcp-studio/shared";
-import { splitActionName } from "@ue-mcp-studio/shared";
+import { MENTION_KINDS, splitActionName, type MentionKind } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { DEFAULT_MODEL, SettingsStore } from "./settings.js";
@@ -71,7 +72,8 @@ import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
 import { registerQuickRoute } from "./quick.js";
-import { AssetResolver, missLine, openAsset, traceName } from "./asset-links.js";
+import { AssetResolver, editorBusy, missLine, openAsset, traceName } from "./asset-links.js";
+import { MentionSearch, SUPERSEDED } from "./mentions.js";
 import type { AssetRef } from "@ue-mcp-studio/shared";
 import { DaemonActionEffects } from "./approval-kind.js";
 import { required } from "./backend.js";
@@ -758,9 +760,22 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   // Asset names in the chat: resolved from disk, opened in the editor on a click.
   const assets = new AssetResolver(api);
+  // @-mentions in the composer: assets, actors and files by name (mentions.ts).
+  const mentions = new MentionSearch({ host: api, connected: () => api.editors().some((e) => e.connected), busy: () => editorBusy(busy.state()) });
   // A finished call may have created an asset that was missing a moment ago.
   const unwatchAssets = api.events.subscribe((e) => {
-    if (/tool\.finished$/.test(e.type)) assets.forgetMissing();
+    if (/tool\.finished$/.test(e.type)) {
+      assets.forgetMissing();
+      mentions.forget();
+    }
+  });
+  api.route("POST", "/mentions/search", async (req) => {
+    const b = (req.body ?? {}) as { query?: unknown; kinds?: unknown };
+    const kinds = b.kinds === undefined ? undefined : Array.isArray(b.kinds) && b.kinds.every((k) => (MENTION_KINDS as readonly unknown[]).includes(k)) ? (b.kinds as MentionKind[]) : null;
+    if (typeof b.query !== "string" || kinds === null) return bad(`body must be { query: string, kinds?: (${MENTION_KINDS.join(" | ")})[] }`);
+    const answer = await mentions.search(b.query, kinds);
+    // A newer search took this one's place: the UI has dropped it already.
+    return answer === SUPERSEDED ? { status: 409, body: { error: "superseded by a newer search" } } : { body: answer };
   });
   api.route("POST", "/assets/resolve", async (req) => {
     const b = (req.body ?? {}) as { refs?: unknown; sessionId?: unknown };

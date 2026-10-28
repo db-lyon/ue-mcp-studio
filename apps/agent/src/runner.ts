@@ -91,6 +91,9 @@ const WORK = [
   ...QA,
 ];
 
+/** How the user's @-mentions reach the agent (mentionToken in the shared package). */
+export const MENTION_LINE = "The user's messages can mention things as [@Name](target \"Type\"). The target is an asset's object path, actor:<object path> for an actor in the open level, or file:<path from the project folder>. Use the target as it is; it needs no search.";
+
 /** Where the machine tools work, for the prompts. */
 const where = (projectDir: string): string =>
   `The project folder is ${projectDir}: commands run there and relative paths start there. The shell is ${shell().name}.`;
@@ -107,6 +110,7 @@ export function subagentLine(usage: Pick<UsageSettings, "subagents" | "subagents
 const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING): string => [
   "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
+  MENTION_LINE,
   playtestRunsLine(runs),
   where(projectDir),
   subagentLine(usage),

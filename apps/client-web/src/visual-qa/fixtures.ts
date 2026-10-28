@@ -9,7 +9,11 @@ import {
   qaDraftFromScript,
   qaNeedsYou,
   qaRunFromAnswer,
+  mentionToken,
+  rankMentions,
   type CustomEndpoint,
+  type MentionMatch,
+  type MentionSearchResponse,
   type PlaytestEntry,
   type PlaytestIndexAnswer,
   type QaLoop,
@@ -160,7 +164,9 @@ export interface Scenario {
   /** GETs the scenario answers itself, before the harness's defaults; undefined falls through. */
   get?: (path: string, url: URL) => unknown;
   /** Writes the scenario answers itself, with their status; undefined is the harness's 409. */
-  post?: (path: string) => { status: number; body: unknown } | undefined;
+  post?: (path: string, body?: unknown) => { status: number; body: unknown } | undefined;
+  /** Typed from the keyboard into an element after the page settles: a CSS selector and the keys. */
+  type?: { into: string; text: string };
   /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */
   endpoints?: CustomEndpoint[] | "error";
   /** Shoot the whole page, for a settings section taller than the window. */
@@ -191,6 +197,33 @@ const ENDPOINTS: CustomEndpoint[] = [
     listError: "its /models answered 401",
   },
 ];
+
+/** What a mention search finds in the door project. */
+const MENTIONS: MentionMatch[] = [
+  { kind: "asset", name: "BP_Door", type: "Blueprint", path: "/Game/Props/Doors/BP_Door.BP_Door", target: "/Game/Props/Doors/BP_Door.BP_Door" },
+  { kind: "asset", name: "SM_Door", type: "StaticMesh", path: "/Game/Props/Doors/Meshes/SM_Door.SM_Door", target: "/Game/Props/Doors/Meshes/SM_Door.SM_Door" },
+  { kind: "asset", name: "M_DoorWood_Weathered", type: "MaterialInstanceConstant", path: "/Game/Props/Doors/Materials/Instances/M_DoorWood_Weathered.M_DoorWood_Weathered", target: "/Game/Props/Doors/Materials/Instances/M_DoorWood_Weathered.M_DoorWood_Weathered" },
+  { kind: "actor", name: "Front Door", type: "StaticMeshActor", path: "/Game/Maps/Cave.Cave:PersistentLevel.StaticMeshActor_12", target: "actor:/Game/Maps/Cave.Cave:PersistentLevel.StaticMeshActor_12" },
+  { kind: "file", name: "DoorComponent.cpp", type: "C++ source", path: "Source/StudioE2E/Doors/DoorComponent.cpp", target: "file:Source/StudioE2E/Doors/DoorComponent.cpp" },
+  { kind: "actor", name: "PlayerStart", type: "PlayerStart", path: "/Game/Maps/Cave.Cave:PersistentLevel.PlayerStart_0", target: "actor:/Game/Maps/Cave.Cave:PersistentLevel.PlayerStart_0" },
+  { kind: "file", name: "DoorComponent.h", type: "C++ header", path: "Source/StudioE2E/Doors/DoorComponent.h", target: "file:Source/StudioE2E/Doors/DoorComponent.h" },
+];
+
+/** A session whose composer has `text` typed into it, the mention search answered from MENTIONS. */
+function mentionScenario(title: string, text: string, sources: MentionSearchResponse["sources"] = { asset: "editor", actor: "editor", file: "disk" }): Scenario {
+  const s = inSession(title, "Door playtest", []);
+  return {
+    ...s,
+    session: { ...s.session!, draft: "Put a light over " },
+    type: { into: ".composer textarea:not(.composer-mirror)", text },
+    post: (path, body) => {
+      if (path !== "/v1/ext/studio/mentions/search") return undefined;
+      const b = body as { query: string; kinds?: MentionMatch["kind"][] };
+      const pool = MENTIONS.filter((m) => (!b.kinds || b.kinds.includes(m.kind)) && sources[m.kind] !== "unavailable");
+      return { status: 200, body: { query: b.query, results: rankMentions(b.query, pool), sources: Object.fromEntries(Object.entries(sources).filter(([k]) => !b.kinds || b.kinds.includes(k as MentionMatch["kind"]))) } };
+    },
+  };
+}
 
 const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
   ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
@@ -235,6 +268,21 @@ export const SCENARIOS: Record<string, Scenario> = {
   "composer-menu": (() => {
     const s = inSession("The composer's model menu open: with an Effort row when the bar has merged model and effort", "Door playtest", [], ".composer-bar .picker-button");
     return { ...s, session: { ...s.session!, draft: "Add a second door trigger by the ledge" } };
+  })(),
+  "mention-menu": mentionScenario("The @-mention menu: assets, an actor and files matching @Door, each with its name, type and path", "@Door"),
+  "mention-actor": mentionScenario("The @-mention menu narrowed to actors with @actor:, with no editor attached", "@actor:Fro", { actor: "unavailable" }),
+  "mention-empty": mentionScenario("The @-mention menu when nothing matches", "@Zebra"),
+  "mention-sent": (() => {
+    const s = inSession("Mentions in the message being written, as chips over the box, and in a sent message", "Door playtest", []);
+    const text = `Swap the mesh on ${mentionToken(MENTIONS[3])} for ${mentionToken(MENTIONS[1])} and log it in ${mentionToken(MENTIONS[4])}`;
+    return {
+      ...s,
+      session: {
+        ...s.session!,
+        transcript: [...s.session!.transcript, { kind: "user" as const, text, at: ago(2) }, { kind: "assistant" as const, text: "Done: the front door now uses SM_Door.", at: ago(1) }],
+        draft: `Now make ${mentionToken(MENTIONS[0])} open toward ${mentionToken(MENTIONS[5])} `,
+      },
+    };
   })(),
   "session-empty": inSession("A session with no playtest: Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),

@@ -1161,6 +1161,26 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .slash-name { font-family: var(--mono, monospace); }
 .slash-summary { flex-basis: 100%; }
 
+/* The @-mention menu: above the message box like the slash menu, so it never covers Send, and it scrolls past a few rows. */
+.mention-menu { position: absolute; left: 16px; right: 16px; bottom: calc(100% - 6px); z-index: 5; display: flex; flex-direction: column; max-height: min(340px, 50vh); padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); }
+.mention-menu ul { margin: 0; padding: 0; list-style: none; overflow-y: auto; min-height: 0; }
+.mention-menu li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px; row-gap: 2px; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.mention-menu li.active { background: var(--panel-3); }
+.mention-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono, monospace); }
+.mention-type { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 16ch; }
+@media (min-width: 700px) { .mention-type { max-width: 28ch; } }
+.mention-path { grid-column: 1 / -1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; font-family: var(--mono, monospace); font-size: 11px; }
+.mention-kind { flex: none; padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 600; line-height: 16px; text-transform: uppercase; letter-spacing: 0.04em; background: var(--panel-3); color: var(--muted); }
+.mention-kind.kind-asset, .kind-asset > .mention-kind { background: var(--accent-wash); color: var(--accent-hi, var(--accent)); }
+.mention-status, .mention-note { padding: 6px 10px; }
+.mention-menu ul:not(:empty) ~ .mention-note, .mention-status + .mention-note { border-top: 1px solid var(--line); }
+/* The mentions a message carries, while it is written and once sent. */
+.mention-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.mention-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 2px 2px 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-size: 12px; vertical-align: baseline; }
+.mention-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono, monospace); }
+.mention-sent.mention-chip { padding: 0 6px 0 3px; }
+.mention-sent .asset-link.code { background: none; box-shadow: none; padding: 0; }
+
 .playtest-failed { display: flex; flex-direction: column; gap: 4px; }
 .playtest-failed .row { align-items: center; }
 .playtest-failed ul { margin: 0; padding-left: 18px; }
