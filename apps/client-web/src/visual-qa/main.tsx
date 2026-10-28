@@ -76,6 +76,7 @@ function answer(method: string, url: URL): unknown {
   const p = url.pathname;
   if (method !== "GET") return undefined;
   const s = scenario.session && arrived && scenario.arrives ? { ...scenario.session, transcript: [...scenario.session.transcript, scenario.arrives] } : scenario.session;
+  if (scenario.missing?.includes(p)) return undefined;
   const own = scenario.get?.(p, url);
   if (own !== undefined) return own;
   const routes: Array<[RegExp, () => unknown]> = [
