@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { StatusReport } from "ue-mcp/daemon";
 import { CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO, type ClientContextStrategy, type ContextStrategy } from "@ue-mcp-studio/shared";
-import { api } from "../../api";
+import { api, notThere } from "../../api";
 import { inEditor, native } from "../../native";
 import { ProjectSetup } from "../ProjectSetup";
 import { ConfigView } from "../Config";
@@ -39,7 +39,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
   const [rebuild, setRebuild] = useState<RebuildState>("idle");
   const load = () => {
     api.install().then(setReport, msg.fail);
-    api.contextStrategy().then(setContext, msg.fail);
+    api.contextStrategy().then(setContext, (e: Error) => (notThere(e) ? setContext(null) : msg.fail(e)));
   };
   useEffect(load, []);
   const pick = (strategy: ContextStrategy) =>
@@ -126,7 +126,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                   name="client-context"
                   on={context.strategy === s}
                   onPick={() => void pick(s)}
-                  title={<>{CONTEXT_STRATEGY_INFO[s].name} <span className="tag">~{tokens(context.seeds[s])} tokens</span>{context.envOverride === s && <> <span className="tag warn">in effect, from environment</span></>}{context.envOverride && context.envOverride !== s && context.strategy === s && <> <span className="tag">saved, not in effect</span></>}</>}
+                  title={<>{CONTEXT_STRATEGY_INFO[s].name}{context.seeds[s] !== undefined && <> <span className="tag">~{tokens(context.seeds[s])} tokens</span></>}{context.envOverride === s && <> <span className="tag warn">in effect, from environment</span></>}{context.envOverride && context.envOverride !== s && context.strategy === s && <> <span className="tag">saved, not in effect</span></>}</>}
                   desc={<><br />{CONTEXT_STRATEGY_INFO[s].sees} {CONTEXT_STRATEGY_INFO[s].discovery}</>}
                 />
               ))}

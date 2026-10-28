@@ -77,7 +77,7 @@ export function ApprovalsSection() {
             <Seg label={r.label} value={rule(r.kind)} options={PROJECT_SCOPED_KINDS.includes(r.kind) ? SCOPED_RULES : RULES} onChange={(v) => void save({ approvals: { [r.kind]: v } })} />
           </Row>
         ))}
-        <Row title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)!.help}>
+        <Row title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
           <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
         </Row>
         <p className="cfg-note">All other actions run without asking.</p>

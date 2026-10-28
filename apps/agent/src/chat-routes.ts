@@ -36,6 +36,7 @@
  * studio.transcript.added, studio.turn.delta, studio.tool.finished,
  * studio.approval.requested and studio.approval.resolved.
  */
+import { registerVersionNotice } from "./version-notice.js";
 import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { PlaytestFlow } from "./playtest-flow.js";
 import { FlowCaller } from "./flow-run.js";
@@ -443,6 +444,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
   api.route("POST", "/updates/restart", (req) => stepRoute("restart", req.body));
   api.route("POST", "/updates/studio", (req) => stepRoute("studio", req.body));
+  // Another project installed a newer Studio: move this one to it through the same Studio step, or keep this version.
+  registerVersionNotice(api, (version) => {
+    updater.targetInstalled(version);
+    return stepRoute("studio", {});
+  });
   api.route("POST", "/updates/plugin", (req) => stepRoute("plugin", req.body));
   api.route("POST", "/updates/ueMcp", async (req) => {
     const version = String((req.body as { version?: unknown } | undefined)?.version ?? "");

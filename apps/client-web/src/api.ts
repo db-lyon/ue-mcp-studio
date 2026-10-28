@@ -3,7 +3,7 @@
  * authenticates by the cookie the daemon set; under `npm run dev` the proxy
  * adds the token.
  */
-import type { DaemonEvent, DaemonHealth, StatusReport } from "ue-mcp/daemon";
+import type { DaemonEvent } from "ue-mcp/daemon";
 import type {
   ApprovalDecision,
   AssetOpenResponse,
@@ -14,7 +14,6 @@ import type {
   DialogsState,
   FeedbackReport,
   FeedbackResult,
-  ModelCatalog,
   CustomEndpoint,
   CustomEndpointInput,
   CustomEndpointList,
@@ -35,10 +34,8 @@ import type {
   StudioAbout,
   WindowLaunch,
   StudioConfigFile,
-  StudioSettings,
   StudioSettingsUpdate,
   StudioSignIn,
-  AgentSettings,
   DialogMode,
   FeedbackMode,
   PendingForm,
@@ -49,14 +46,13 @@ import type {
   ReviewStatus,
   TimelineMark,
   TurnReview,
-  ClientContextStrategy,
   ContextStrategy,
-  NativeOverview,
   NativePreview,
   Convention,
   MentionSearchRequest,
   MentionSearchResponse,
 } from "@ue-mcp-studio/shared";
+import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
 export interface InstalledPlugin {
@@ -108,6 +104,9 @@ export class ApiError extends Error {
   }
 }
 
+/** A route an older agent or daemon does not have: the part it feeds is left out, not reported as a failure. */
+export const notThere = (e: unknown): boolean => e instanceof ApiError && e.status === 404;
+
 async function call<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     method,
@@ -133,9 +132,18 @@ export interface FlowSummary {
 const reviewBase = (sessionId: string, reviewId: string): string =>
   `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/reviews/${encodeURIComponent(reviewId)}`;
 
+/** A newer Studio installed by another project than the one this project uses (ue-mcp#1619). */
+export interface StudioVersionNotice {
+  installed: string;
+  current: string;
+}
+
 export const api = {
-  health: () => call<DaemonHealth>("GET", "/v1/health"),
-  install: () => call<StatusReport>("GET", "/v1/install"),
+  versionNotice: () => call<{ notice: StudioVersionNotice | null }>("GET", "/v1/ext/studio/version-notice"),
+  keepStudio: (version: string) => call<{ notice: StudioVersionNotice | null }>("POST", "/v1/ext/studio/version-notice/keep", { version }),
+  useInstalledStudio: (version: string) => call<unknown>("POST", "/v1/ext/studio/version-notice/update", { version }),
+  health: () => call<unknown>("GET", "/v1/health").then(healthOf),
+  install: () => call<unknown>("GET", "/v1/install").then(installOf),
   about: () => call<StudioAbout>("GET", "/v1/ext/studio/about"),
   openWindow: () => call<WindowLaunch>("POST", "/v1/ext/studio/window", {}),
   config: () => call<StudioConfigFile>("GET", "/v1/ext/studio/config"),
@@ -144,9 +152,9 @@ export const api = {
   planFlow: (name: string) => call<unknown>("GET", `/v1/flows/${encodeURIComponent(name)}/plan`),
   runFlow: (name: string) => call<unknown>("POST", `/v1/flows/${encodeURIComponent(name)}/run`, {}),
   editor: (op: "start" | "stop" | "restart" | "rebuild") => call<Record<string, unknown>>("POST", `/v1/editor/${op}`),
-  settings: () => call<StudioSettings>("GET", "/v1/ext/studio/settings"),
-  saveSettings: (u: StudioSettingsUpdate) => call<StudioSettings>("PUT", "/v1/ext/studio/settings", u),
-  models: () => call<ModelCatalog>("GET", "/v1/ext/studio/models"),
+  settings: () => call<unknown>("GET", "/v1/ext/studio/settings").then(settingsOf),
+  saveSettings: (u: StudioSettingsUpdate) => call<unknown>("PUT", "/v1/ext/studio/settings", u).then(settingsOf),
+  models: () => call<unknown>("GET", "/v1/ext/studio/models").then(catalogOf),
   endpoints: () => call<CustomEndpointList>("GET", "/v1/ext/studio/endpoints"),
   addEndpoint: (e: CustomEndpointInput) => call<CustomEndpoint>("POST", "/v1/ext/studio/endpoints", e),
   saveEndpoint: (id: string, e: CustomEndpointInput) => call<CustomEndpoint>("PUT", `/v1/ext/studio/endpoints/${encodeURIComponent(id)}`, e),
@@ -197,8 +205,8 @@ export const api = {
   approve: (id: string, approvalId: string, decision: ApprovalDecision) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),
-  agentSettings: () => call<AgentSettings>("GET", "/v1/ext/studio/agent-settings"),
-  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>) => call<AgentSettings>("PUT", "/v1/ext/studio/agent-settings", u),
+  agentSettings: () => call<unknown>("GET", "/v1/ext/studio/agent-settings").then(agentSettingsOf),
+  saveAgentSettings: (u: Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>) => call<unknown>("PUT", "/v1/ext/studio/agent-settings", u).then(agentSettingsOf),
   forms: (sessionId: string) => call<{ forms: PendingForm[] }>("GET", `/v1/ext/studio/forms?session=${encodeURIComponent(sessionId)}`),
   answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) =>
     call<void>("POST", `/v1/ext/studio/forms/${encodeURIComponent(id)}`, answer),
@@ -251,11 +259,11 @@ export const api = {
   searchMentions: (request: MentionSearchRequest, signal?: AbortSignal) => call<MentionSearchResponse>("POST", "/v1/ext/studio/mentions/search", request, signal),
   openAsset: (path: string) => call<AssetOpenResponse>("POST", "/v1/ext/studio/assets/open", { path }),
   stopBusy: () => call<{ stopped: string[] }>("POST", "/v1/ext/studio/busy/stop"),
-  native: () => call<NativeOverview>("GET", "/v1/ext/studio/native"),
+  native: () => call<unknown>("GET", "/v1/ext/studio/native").then(nativeOf),
   nativePreview: (convention: Convention) => call<NativePreview>("GET", `/v1/ext/studio/native/preview?convention=${encodeURIComponent(convention)}`),
   openFile: (path: string) => call<void>("POST", "/v1/ext/studio/files/open", { path }),
-  contextStrategy: () => call<ClientContextStrategy>("GET", "/v1/ext/studio/context-strategy"),
-  saveContextStrategy: (strategy: ContextStrategy) => call<ClientContextStrategy>("PUT", "/v1/ext/studio/context-strategy", { strategy }),
+  contextStrategy: () => call<unknown>("GET", "/v1/ext/studio/context-strategy").then(contextOf),
+  saveContextStrategy: (strategy: ContextStrategy) => call<unknown>("PUT", "/v1/ext/studio/context-strategy", { strategy }).then(contextOf),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),
   sendFeedback: (report: FeedbackReport) => call<FeedbackResult>("POST", "/v1/ext/studio/feedback", report),
 };

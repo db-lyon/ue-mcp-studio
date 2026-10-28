@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { IMAGE_EDGES, anythingConnected, type ImageSize, type KeyProviderId, type NativeOverview, type StudioSettings, type SubagentMode, type UsageSettings } from "@ue-mcp-studio/shared";
-import { api } from "../../api";
+import { api, notThere } from "../../api";
 import { EffortPicker, ModelPicker } from "../ModelPicker";
 import { Head, type SettingsSection } from "../SettingsHub";
 import { NativePanel } from "./NativePanel";
@@ -28,7 +28,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const [native, setNative] = useState<NativeOverview | null>(null);
   const msg = useMessage();
-  const loadNative = () => api.native().then(setNative, msg.fail);
+  const loadNative = () => api.native().then(setNative, (e: Error) => (notThere(e) ? setNative(null) : msg.fail(e)));
   useEffect(() => {
     api.settings().then(setSettings, msg.fail);
     void loadNative();

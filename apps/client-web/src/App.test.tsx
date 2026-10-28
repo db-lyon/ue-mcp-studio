@@ -6,14 +6,19 @@ const sessions = [
   { id: "s1", title: "First", status: "idle", createdAt: 1, updatedAt: 1, archived: false, agents: { total: 0, running: 0 }, awaiting: 0 },
   { id: "s2", title: "Second", status: "idle", createdAt: 2, updatedAt: 2, archived: false, agents: { total: 0, running: 0 }, awaiting: 0 },
 ];
-const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), saveDraft: vi.fn(), events: [] as unknown[] }));
+const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), saveDraft: vi.fn(), events: [] as unknown[], settingsCrash: false }));
 vi.mock("./api", () => {
   const pending = () => new Promise(() => {});
   const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => (k === "events" ? undefined : t[k]) ?? pending });
   return { api, ApiError: class extends Error {} };
 });
 vi.mock("./state", () => ({ useDaemon: () => ({ events: m.events, health: null, streaming: true, error: null, refresh: () => {} }) }));
-vi.mock("./views/SettingsHub", () => ({ SettingsHub: () => <div>Settings view</div> }));
+vi.mock("./views/SettingsHub", () => ({
+  SettingsHub: () => {
+    if (m.settingsCrash) throw new TypeError("Cannot read properties of undefined (reading 'flatMap')");
+    return <div>Settings view</div>;
+  },
+}));
 vi.mock("./views/EditorBanner", () => ({ EditorBanner: () => null }));
 vi.mock("./views/DialogBanner", () => ({ DialogBanner: () => null }));
 vi.mock("./views/UpdateOverlay", () => ({ UpdateRunner: () => null }));
@@ -38,6 +43,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  m.settingsCrash = false;
   window.location.hash = "";
 });
 
@@ -124,5 +130,24 @@ describe("returning to Chat from another tab", () => {
     expect(document.querySelector("main.view-chat:not(.parked) .chat")).not.toBeNull();
     await waitFor(() => expect(m.sessions).toHaveBeenCalled());
     expect(window.location.hash).toBe("#/chat");
+  });
+});
+
+describe("a view that throws", () => {
+  it("Settings shows why in its place, and the tabs and the chat keep working (#151)", async () => {
+    layout(false);
+    m.settingsCrash = true;
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      render(<App />);
+      const before = await leaveChatOpen();
+      fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+      expect((await screen.findByRole("alert")).textContent).toContain("Settings could not be shown.");
+      expect(screen.getByText(/reading 'flatMap'/)).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+      await waitFor(() => expectSameChat(before));
+    } finally {
+      quiet.mockRestore();
+    }
   });
 });

@@ -76,6 +76,6 @@ describe("Settings sections", () => {
     expect(sectionOf("agent")).toBe("agents");
     expect(sectionOf("account")).toBe("models");
     expect(sectionOf("usage")).toBe("agents");
-    expect(sectionOf("nowhere")).toBeNull();
+    expect(sectionOf("nowhere")).toBe("general");
   });
 });
