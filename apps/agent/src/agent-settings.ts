@@ -25,20 +25,29 @@ interface Modes {
   setDialog(mode: DialogMode | undefined): void;
 }
 
+/** ue-mcp reads its settings from the `ue-mcp:` block, so the disable list lives there. */
+const DISABLE = ["ue-mcp", "disable"];
+
 /** Whether ue-mcp.yml leaves the feedback tool on. */
 export function feedbackToolOn(ymlText: string): boolean {
-  const disabled = parseDocument(ymlText).toJS()?.disable;
-  return !(Array.isArray(disabled) && disabled.includes("feedback"));
+  const disabled = parseDocument(ymlText).getIn(DISABLE);
+  return !(isSeq(disabled) && (disabled.toJSON() as unknown[]).includes("feedback"));
 }
 
-/** ue-mcp.yml with the feedback tool turned on or off, its comments and layout kept. */
+/**
+ * ue-mcp.yml with the feedback tool turned on or off, its comments and layout
+ * kept. A top-level `disable` list, which ue-mcp never read and earlier Studios
+ * wrote, moves into the block.
+ */
 export function withFeedbackTool(ymlText: string, on: boolean): string {
   const doc = parseDocument(ymlText || "{}\n");
-  const list = doc.get("disable");
-  const current = isSeq(list) ? (list.toJSON() as string[]) : [];
+  const stray = doc.get("disable");
+  const list = doc.getIn(DISABLE);
+  const current = [...new Set([...(isSeq(list) ? (list.toJSON() as string[]) : []), ...(isSeq(stray) ? (stray.toJSON() as string[]) : [])])];
+  doc.delete("disable");
   const next = on ? current.filter((c) => c !== "feedback") : current.includes("feedback") ? current : [...current, "feedback"];
-  if (next.length === 0) doc.delete("disable");
-  else doc.set("disable", next);
+  if (next.length === 0) doc.deleteIn(DISABLE);
+  else doc.setIn(DISABLE, next);
   return doc.toString();
 }
 

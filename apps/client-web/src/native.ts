@@ -6,7 +6,7 @@
  * (the fallback while the editor is down, or `npm run dev`) the same calls
  * resolve to a logged no-op, so views never branch on where they run.
  */
-interface StudioBinding {
+export interface StudioBinding {
   restarteditor(): Promise<boolean>;
   enableplugin(name: string): Promise<boolean>;
   openprojectfolder(): Promise<boolean>;
@@ -41,6 +41,10 @@ interface StudioBinding {
   openlog?(): Promise<boolean>;
   /** Studio's own window only: the page's connection state, as JSON. A page that reports it keeps the window while ue-mcp is away. */
   setconnectionstate?(state: string): Promise<boolean>;
+  /** Studio's own window only: run `ue-mcp@<version> update --apply-only` for the refused screen; false when it could not start. */
+  startuemcpupdate?(version: string): Promise<boolean>;
+  /** Studio's own window only: "" while that update runs, then JSON of { ok, error? }. */
+  getuemcpupdate?(): Promise<string>;
 }
 
 declare global {

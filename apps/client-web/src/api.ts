@@ -20,6 +20,9 @@ import type {
   CustomEndpointInput,
   CustomEndpointList,
   FlowRunRequest,
+  ActionDescription,
+  ActionListing,
+  ActionRunRequest,
   PlaytestRequest,
   QueuedMessage,
   SessionDetail,
@@ -171,6 +174,10 @@ export const api = {
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),
   flow: (id: string, request: FlowRunRequest) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/flow`, request),
+  action: (id: string, request: ActionRunRequest) =>
+    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/action`, request),
+  actions: () => call<{ actions: ActionListing[] }>("GET", "/v1/ext/studio/actions"),
+  describeAction: (name: string) => call<ActionDescription>("GET", `/v1/ext/studio/actions/${encodeURIComponent(name)}`),
   playtest: (id: string, request: PlaytestRequest) =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/playtest`, request),
   queue: (id: string, text: string, attachments: string[] = []) =>

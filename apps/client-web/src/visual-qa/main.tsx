@@ -105,6 +105,7 @@ function answer(method: string, url: URL): unknown {
     })],
     [/^\/v1\/ext\/studio\/endpoints$/, () => (scenario.endpoints === "error" ? undefined : { endpoints: scenario.endpoints ?? [] })],
     [/^\/v1\/flows$/, () => ({ flows: [] })],
+    [/^\/v1\/ext\/studio\/actions$/, () => ({ actions: [] })],
     [/^\/v1\/ext\/studio\/context-strategy\/agent$/, () => scenario.agentContext],
     [/^\/v1\/ext\/studio\/native$/, () => NATIVE],
     [/^\/v1\/ext\/studio\/native\/preview$/, () => ({ convention: url.searchParams.get("convention") ?? "claude", text: PREVIEW, tokens: 420, files: 1, loadedBy: "sdk", parts: [{ path: "CLAUDE.md", text: PREVIEW }] })],

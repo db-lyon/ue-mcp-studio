@@ -27,6 +27,9 @@ import {
   type SubagentMode,
   type UsageSettings,
   APPROVAL_KINDS,
+  PROJECT_SCOPED_KINDS,
+  approvalRuleFits,
+  type ApprovalKind,
   DEFAULT_APPROVALS,
   migrateApprovals,
   type Approvals,
@@ -135,7 +138,7 @@ export function approvalsOf(raw: Record<string, unknown>): Approvals {
   const base = migrateApprovals(raw.askBeforeChanges !== false);
   const a = raw.approvals && typeof raw.approvals === "object" ? (raw.approvals as Record<string, unknown>) : null;
   if (!a) return base;
-  return Object.fromEntries(APPROVAL_KINDS.map((k) => [k, a[k] === "ask" || a[k] === "allow" ? a[k] : base[k]])) as Approvals;
+  return Object.fromEntries(APPROVAL_KINDS.map((k) => [k, approvalRuleFits(k, a[k]) ? a[k] : base[k]])) as Approvals;
 }
 
 /**
@@ -277,7 +280,7 @@ export class SettingsStore {
       if (!u.approvals || typeof u.approvals !== "object") throw new Error("approvals must be an object");
       for (const [k, v] of Object.entries(u.approvals)) {
         if (!(APPROVAL_KINDS as readonly string[]).includes(k)) throw new Error(`no approval ${k}; one of ${APPROVAL_KINDS.join(", ")}`);
-        if (v !== "ask" && v !== "allow") throw new Error(`approvals.${k} must be ask or allow`);
+        if (!approvalRuleFits(k as ApprovalKind, v)) throw new Error(`approvals.${k} must be ask${PROJECT_SCOPED_KINDS.includes(k as ApprovalKind) ? ", project" : ""} or allow`);
       }
       s.approvals = { ...s.approvals, ...u.approvals };
     }

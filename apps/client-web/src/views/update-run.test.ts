@@ -104,28 +104,21 @@ describe("an update run", () => {
     const seen: string[][] = [];
     const run = planRun({ studio: studio(true, true), ueMcp: ueMcp("1.4.0-beta.3", "1.4.0-beta.4") })!;
     await execute(run, (r) => seen.push(r.steps.map((s) => s.state)), async (url) => (sent.push(url), { ok: true }));
-    expect(sent).toEqual(["/v1/update/apply", "/v1/ext/studio/updates/plugin", "/v1/ext/studio/updates/studio"]);
+    expect(sent).toEqual(["/v1/ext/studio/updates/ueMcp", "/v1/ext/studio/updates/plugin", "/v1/ext/studio/updates/studio"]);
     expect(seen[seen.length - 1]).toEqual(["done", "done", "active"]);
     expect((await loadRun())!.steps.map((s) => s.state)).toEqual(["done", "done", "active"]);
   });
 
-  it("updates a bridge installed from source through the new package instead of failing", async () => {
+  it("installs the bridge through the target ue-mcp package, not the daemon, and stops on its error", async () => {
     agent(() => ({}));
     const sent: Array<[string, unknown]> = [];
     const run = planRun({ studio: studio(false, false), ueMcp: ueMcp("1.4.0-beta.3", "1.4.1") })!;
     let last: UpdateRun | null = null;
-    await execute(run, (r) => (last = r), async (url, body) => {
-      sent.push([url, body]);
-      return url === "/v1/update/apply"
-        ? { ok: false, error: "this process runs ue-mcp 1.4.0-beta.3; a source install updates to the version of the package that deploys it. Run ue-mcp update." }
-        : { ok: true };
-    });
-    expect(sent).toEqual([
-      ["/v1/update/apply", { version: "1.4.1" }],
-      ["/v1/ext/studio/updates/ueMcp", { version: "1.4.1" }],
-      ["/v1/ext/studio/updates/restart", { then: [] }],
-    ]);
-    expect(last!.error).toBeUndefined();
+    const said = "ue-mcp 1.4.1 update exited with 1:\nthe new bridge did not install cleanly, so the previous one was put back: module UE_MCP_BridgeRuntime has no Binaries/Win64/UnrealEditor-UE_MCP_BridgeRuntime.dll";
+    await execute(run, (r) => (last = r), async (url, body) => (sent.push([url, body]), url.endsWith("/ueMcp") ? { ok: false, error: said } : { ok: true }));
+    expect(sent).toEqual([["/v1/ext/studio/updates/ueMcp", { version: "1.4.1" }]]);
+    expect(last!.steps.map((s) => s.state)).toEqual(["failed", "pending"]);
+    expect(last!.error).toBe(said);
   });
 
   it("finishes with what is installed now, and forgets the run", async () => {
@@ -149,7 +142,7 @@ describe("an update run", () => {
       sent.push([url, body]);
       return url.endsWith("/plugin") ? { ok: true, deferred: ["plugin", "studio"] } : { ok: true };
     });
-    expect(sent).toEqual([["/v1/update/apply", { version: "1.4.0-beta.4" }], ["/v1/ext/studio/updates/plugin", { then: ["studio"] }]]);
+    expect(sent).toEqual([["/v1/ext/studio/updates/ueMcp", { version: "1.4.0-beta.4" }], ["/v1/ext/studio/updates/plugin", { then: ["studio"] }]]);
     expect(last!.steps.map((s) => s.state)).toEqual(["done", "deferred", "deferred"]);
     expect(waitingSteps(last!)).toEqual(["plugin", "studio"]);
     const kept = (await loadRun(Date.now() + 3 * 3600_000))!;

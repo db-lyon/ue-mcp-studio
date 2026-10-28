@@ -45,6 +45,17 @@ describe("Approvals & review: before it acts", () => {
     expect(checked("Restart or rebuild the editor", "Ask")).toBe(true);
   });
 
+  it("offers In project and Anywhere for commands and file changes only", async () => {
+    await show();
+    const shell = screen.getByRole("radiogroup", { name: "Shell commands" });
+    expect([...shell.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Ask", "In project", "Anywhere"]);
+    const restart = screen.getByRole("radiogroup", { name: "Restart or rebuild the editor" });
+    expect([...restart.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Ask", "Allow"]);
+    await act(async () => void fireEvent.click(shell.querySelectorAll("button")[1]));
+    expect(m.saveSettings).toHaveBeenCalledWith({ approvals: { shell: "project" } });
+    expect(checked("Shell commands", "In project")).toBe(true);
+  });
+
   it("starts playtests Manual by default, and saves Automatic", async () => {
     await show();
     expect(checked("Starting playtests", "Manual")).toBe(true);
