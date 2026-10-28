@@ -145,7 +145,13 @@ data: ${data}
       },
     }), { status: 200, headers: { "content-type": "text/event-stream" } });
   }
-  const written = method === "GET" ? undefined : scenario.post?.(url.pathname);
+  let sent: unknown;
+  try {
+    sent = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
+  } catch {
+    sent = undefined;
+  }
+  const written = method === "GET" ? undefined : scenario.post?.(url.pathname, sent);
   if (written) return new Response(JSON.stringify(written.body), { status: written.status, headers: { "content-type": "application/json" } });
   const body = answer(method, url);
   if (body === undefined) {
@@ -172,6 +178,7 @@ history.replaceState(null, "", `${location.pathname}${location.search}${scenario
   scroll: scenario.scroll ?? null,
   heights: Object.fromEntries(Object.entries(SCENARIOS).flatMap(([name, s]) => (s.height ? [[name, s.height]] : []))),
   focus: scenario.focus ?? null,
+  type: scenario.type ?? null,
   fullPage: scenario.fullPage ?? false,
 };
 

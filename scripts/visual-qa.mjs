@@ -123,6 +123,18 @@ try {
         else await page.focus(focus);
         await page.waitForTimeout(200);
       }
+      const typed = await page.evaluate(() => window.__visualQa.type);
+      if (typed) {
+        // Typed key by key at the end of what the box holds, as a person would, then left to settle.
+        if (!(await page.$(typed.into))) errors.push(`nothing matched ${typed.into}`);
+        else {
+          await page.focus(typed.into);
+          await page.keyboard.press("End");
+          await page.keyboard.type(typed.text, { delay: 20 });
+          await page.mouse.move(1, 1);
+          await page.waitForTimeout(700);
+        }
+      }
       const file = `${scenario}-${theme}-${label}.png`;
       await page.screenshot({ path: path.join(out, file), animations: "disabled" });
       lines.push(`- [${theme}, ${label} (${width}px)](${file})${errors.length ? ` errors: ${errors.join("; ")}` : ""}`);
