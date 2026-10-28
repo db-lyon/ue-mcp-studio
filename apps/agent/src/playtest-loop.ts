@@ -316,6 +316,9 @@ export interface LoopOptions {
 
 const iso = (ms: number): string => new Date(ms).toISOString();
 
+/** How long the loop waits for a run to be read again after an attempt. */
+export const REFRESH_MS = 30_000;
+
 /** One loop, from its first checkpoint to passed, Needs you or stopped. */
 export class PlaytestLoop {
   readonly loop: QaLoop;
@@ -337,10 +340,15 @@ export class PlaytestLoop {
     this.o.card.save(this.loop.id, this.loop, state, this.current?.callId);
   }
 
-  /** Stop the loop at once: the running attempt is stopped, its changes checkpointed so they stay restorable. */
+  /**
+   * Stop the loop at once: the running attempt is stopped, its changes
+   * checkpointed so they stay restorable. Between attempts there is nothing to
+   * stop, so the loop ends here rather than when its next read answers.
+   */
   cancel(): void {
     this.cancelled = true;
     if (this.current) this.o.agents.stop(this.current.sessionId, this.current.callId);
+    else this.stop();
   }
 
   /** Stop the attempt running for a blocker found while it ran. */
@@ -352,6 +360,7 @@ export class PlaytestLoop {
 
   start(): Promise<void> {
     this.done = this.run().catch((e) => {
+      if (this.ended()) return;
       this.loop.state = "failed";
       this.loop.error = e instanceof Error ? e.message : String(e);
       this.loop.endedAt = iso(this.now());
@@ -409,7 +418,8 @@ export class PlaytestLoop {
         if (this.cancelled) return this.stop();
         if (this.live) return this.block(this.live, failing);
         const holder = this.o.card.holder(this.loop.id);
-        const ran = holder && holder.runId !== startRun ? (await this.o.card.refresh(holder.runId)) ?? holder : null;
+        const ran = holder && holder.runId !== startRun ? (await this.refreshed(holder.runId)) ?? holder : null;
+        if (this.cancelled) return this.stop();
         if (ran) attempt.runId = ran.runId;
         const decision = decide({
           run: ran,
@@ -431,6 +441,19 @@ export class PlaytestLoop {
     }
   }
 
+  /** The run read again, or null when the read fails or takes longer than REFRESH_MS: the card's copy is judged instead. */
+  private async refreshed(runId: string): Promise<QaRun | null> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), REFRESH_MS);
+    });
+    try {
+      return await Promise.race([this.o.card.refresh(runId).catch(() => null), late]);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   private attemptCrashed = false;
   private attemptBuildFailed = false;
 
@@ -440,19 +463,31 @@ export class PlaytestLoop {
     if (this.builds >= 2) this.trip({ kind: "builds", reason: "A build failed twice in a row.", evidence: [why] });
   }
 
+  /** Whether the loop has ended: once it has, nothing it was still waiting on changes it. */
+  private ended(): boolean {
+    return this.loop.state !== "running";
+  }
+
   private finish(): void {
+    if (this.ended()) return;
     this.loop.state = "passed";
     this.loop.endedAt = iso(this.now());
     this.save("done");
   }
 
   private stop(): void {
+    if (this.ended()) {
+      // Cancelled between attempts: the attempt's checkpoint landed after, so save it on the stopped loop.
+      if (this.loop.state === "stopped") this.save("stopped");
+      return;
+    }
     this.loop.state = "stopped";
     this.loop.endedAt = iso(this.now());
     this.save("stopped");
   }
 
   private block(blocker: QaBlocker, failing: FailingStep[]): void {
+    if (this.ended()) return;
     this.loop.state = "needs_you";
     this.loop.blocker = blocker.evidence.length || !failing.length ? blocker : { ...blocker, evidence: failing.map((f) => f.line) };
     this.loop.endedAt = iso(this.now());
