@@ -16,6 +16,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { cleanup, connect, ensureBaseline, preflight, reset, verify } from "./editor.mjs";
 import { report, spend } from "./report.mjs";
+import { ueMcpPackageDir } from "./ue-mcp-path.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..", "..");
@@ -38,7 +39,8 @@ const baseRef = opt("base", null);
 const strategies = opt("strategies", null)?.split(",").filter((s) => ["micro", "lean", "full"].includes(s)) ?? null;
 const measurementFile = opt("measurement", null);
 const projectDir = path.dirname(path.resolve(uproject));
-const ueMcp = path.join(repo, "apps", "agent", "node_modules", "ue-mcp", "dist", "index.js");
+const ueMcpDir = ueMcpPackageDir(repo);
+const ueMcp = path.join(ueMcpDir, "dist", "index.js");
 const promptsFile = path.join(here, "prompts.json");
 const prompts = JSON.parse(fs.readFileSync(promptsFile, "utf8"));
 for (const p of promptIds) if (!prompts[p]) throw new Error(`no prompt ${p} in prompts.json`);
@@ -181,7 +183,7 @@ const text = report(runs);
 fs.writeFileSync(path.join(runDir, "report.md"), text);
 if (measurementFile && strategies) {
   // ue-mcp's ContextMeasurement: one run per strategy, every measured task with what it spent and whether its checks passed.
-  const pkg = JSON.parse(fs.readFileSync(path.join(repo, "apps", "agent", "node_modules", "ue-mcp", "package.json"), "utf8"));
+  const pkg = JSON.parse(fs.readFileSync(path.join(ueMcpDir, "package.json"), "utf8"));
   const measurement = {
     version: 1,
     measuredAt: new Date().toISOString(),
