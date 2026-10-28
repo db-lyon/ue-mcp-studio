@@ -124,7 +124,9 @@ export class SessionStore {
       if (!f.endsWith(".json")) continue;
       try {
         const s = JSON.parse(fs.readFileSync(path.join(this.dir, f), "utf-8")) as StoredSession;
-        this.cache.set(s.id, s);
+        // A blank session written by an earlier version: nothing to keep.
+        if (SessionStore.isBlank(s)) fs.rmSync(path.join(this.dir, f), { force: true });
+        else this.cache.set(s.id, s);
       } catch {
         // A half-written file from a crash mid-write: the rename never happened, so the previous version is the .json.
       }
@@ -153,6 +155,17 @@ export class SessionStore {
     return s;
   }
 
+  /** A session for New: the blank one there is, so pressing New again makes no second one (#140). */
+  blank(): StoredSession {
+    return this.all().find(SessionStore.isBlank) ?? this.create();
+  }
+
+  /** Nothing written in it yet: no message, draft, queue, note or name of its own. */
+  static isBlank(s: StoredSession): boolean {
+    return s.title === DEFAULT_SESSION_TITLE && s.transcript.length === 0 && s.messages.length === 0 && !s.draft.trim()
+      && !s.queue?.length && !s.notes.length && !s.touched.length;
+  }
+
   get(id: string): StoredSession | undefined {
     return this.cache.get(id);
   }
@@ -161,11 +174,18 @@ export class SessionStore {
     return [...this.cache.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
 
-  /** Write through a rename, so a reader or a restart never sees half a session. */
+  /**
+   * Write through a rename, so a reader or a restart never sees half a session.
+   * A blank one stays in memory only, so sessions opened and left do not pile up.
+   */
   save(s: StoredSession): void {
     s.updatedAt = new Date().toISOString();
     this.cache.set(s.id, s);
     const file = path.join(this.dir, `${s.id}.json`);
+    if (SessionStore.isBlank(s)) {
+      fs.rmSync(file, { force: true });
+      return;
+    }
     const tmp = `${file}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, JSON.stringify(s));
     fs.renameSync(tmp, file);
@@ -222,9 +242,9 @@ export class SessionStore {
   }
 
   delete(id: string): boolean {
-    this.cache.delete(id);
+    const had = this.cache.delete(id);
     const file = path.join(this.dir, `${id}.json`);
-    if (!fs.existsSync(file)) return false;
+    if (!fs.existsSync(file)) return had;
     fs.rmSync(file);
     return true;
   }
