@@ -404,7 +404,7 @@ export interface SessionDetail extends SessionSummary {
   approvals: ApprovalRequest[];
   /** The latest turn, from its tool calls: what the composer's pills are made from. */
   turn?: TurnFacts;
-  /** This session's review switch; absent or null follows Settings > Agent. */
+  /** This session's review switch; absent or null follows Settings > Approvals & review. */
   review?: boolean | null;
   /** The session's checkpoints, oldest first: each reviewed turn, restore and playtest loop attempt. */
   timeline?: TimelineMark[];

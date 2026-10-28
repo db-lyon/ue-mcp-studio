@@ -12,7 +12,7 @@ The editor must already be running on that project. The runner never starts, sto
 ## What it compares
 
 - `cc`: Claude Code headless (`claude -p`) with ue-mcp as its only MCP server (`--strict-mcp-config`), `--setting-sources project,local`, bypassing permissions. Multi-turn prompts continue with `--resume`.
-- `studio`: this checkout's agent source, bundled into a harness that runs Studio's own Claude sign-in turn (`runSubscriptionTurn`), tool executor (`executeTool`) and system prompts with the default usage settings, against ue-mcp. The model, effort and SDK options are the ones Studio sends.
+- `studio`: this checkout's agent source, bundled into a harness that runs Studio's Claude-plan turn on the user's Claude Code login (`runSubscriptionTurn`), tool executor (`executeTool`) and system prompts with the default usage settings, against ue-mcp. The model, effort and SDK options are the ones Studio sends.
 - `studio-base` (with `--base <git ref>`): the same harness built from that ref, so a change is measured against what it changes, in the same session.
 
 Both clients use the same Claude login, model and effort (`--model`, default `claude-sonnet-5-5`; `--effort`, default `medium`).
