@@ -218,7 +218,7 @@ export interface TimelineMark {
 
 /** GET /review/status: the Settings default. */
 export interface ReviewStatus {
-  /** Settings > Agent: Review each turn, for sessions that have not set their own. */
+  /** Settings > Approvals & review: Review each turn, for sessions that have not set their own. */
   default: boolean;
 }
 
