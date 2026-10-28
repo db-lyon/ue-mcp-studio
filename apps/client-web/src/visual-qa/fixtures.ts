@@ -9,7 +9,6 @@ import {
   qaDraftFromScript,
   qaNeedsYou,
   qaRunFromAnswer,
-  type AgentContextView,
   type CustomEndpoint,
   type PlaytestEntry,
   type PlaytestIndexAnswer,
@@ -146,8 +145,6 @@ export interface Scenario {
   focus?: string;
   /** A line that arrives after the reader has scrolled the conversation up: the session is read again with it. */
   arrives?: TranscriptEntry;
-  /** Settings > Agents: what GET /context-strategy/agent answers. */
-  agentContext?: AgentContextView;
   /** Clicked one after another after the page settles, each a CSS selector; after click, when both are given. */
   clicks?: string[];
   /** Scrolled to the top of its scroller after the clicks, to show what lies below the fold: a CSS selector. */
@@ -252,7 +249,5 @@ export const SCENARIOS: Record<string, Scenario> = {
   "page-row-delete": { title: "Playtests page, Delete waiting for its second click", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-row:nth-child(4) .qa-toggle", ".playtests-row:nth-child(4) .qa-script-delete"] },
   "page-row-offline-open": { title: "Playtests page, an open row while the editor is away: Edit and Delete disabled", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
   "page-empty": { title: "Playtests page with no playtests in the project", hash: "#/playtests", index: { playtests: [], listed: true }, filter: "all" },
-  "agents-context": { title: "Settings > Agents, ue-mcp tools on Lean with each strategy's seed tokens", hash: "#/settings/agents", index: { playtests: [], listed: true }, agentContext: { strategy: "lean", effective: "lean", seeds: { micro: 2180, lean: 18740, full: 50920 }, measurement: null, note: null } },
-  "agents-context-auto": { title: "Settings > Agents, Auto offered from a measurement and chosen", hash: "#/settings/agents", index: { playtests: [], listed: true }, agentContext: { strategy: "auto", effective: "lean", seeds: { micro: 2180, lean: 18740, full: 50920 }, measurement: { measuredAt: "2026-10-20T12:00:00Z", ueMcpVersion: "1.4.11", runs: 9 }, note: "Auto chose Lean: 100% of tasks passed at a median 41,300 tokens." } },
   "page-editor-offline": { title: "Playtests page while the editor cannot list scripts", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all" },
 };

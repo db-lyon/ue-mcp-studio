@@ -97,7 +97,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const actionsApi = required((api as unknown as { actions?: { effects(): Array<{ category: string; action: string; effect: string; destructive?: boolean }> } }).actions, "actions.effects");
   const effects = new DaemonActionEffects(() => actionsApi.effects());
   // How ue-mcp's tools are put to Studio's own agent, projected by the daemon.
-  const surfaces = new ContextSurfaces(contextApiOf(api), () => projectStrategy(api.projectDir), () => settings.provider());
+  const surfaces = new ContextSurfaces(contextApiOf(api), () => projectStrategy(api.projectDir));
   // /action's catalog and forms, read from ue-mcp's own surface.
   const actionCatalog = new ActionCatalog({ effects: () => actionsApi.effects(), callAction: (c, a, args) => api.callAction(c, a, args) });
   const unwatchPlugins = api.events.subscribe((e) => {

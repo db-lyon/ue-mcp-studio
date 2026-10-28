@@ -5,7 +5,6 @@
  */
 import type { DaemonEvent, DaemonHealth, StatusReport } from "ue-mcp/daemon";
 import type {
-  AgentContextView,
   ApprovalDecision,
   AssetOpenResponse,
   AssetRef,

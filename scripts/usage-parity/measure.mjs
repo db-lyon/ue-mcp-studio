@@ -7,7 +7,7 @@
  *   [--strategies micro,lean,full] [--measurement <file>]
  *
  * --strategies runs Studio once per ue-mcp context strategy; --measurement writes the runs in
- * ue-mcp's ContextMeasurement format, which Studio's Auto reads (apps/agent/src/context-costs.json).
+ * ue-mcp's ContextMeasurement format.
  */
 import fs from "node:fs";
 import os from "node:os";
