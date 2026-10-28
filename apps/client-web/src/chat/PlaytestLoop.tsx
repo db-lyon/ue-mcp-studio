@@ -5,6 +5,7 @@
  * every attempt once the loop is not running.
  */
 import { REVIEW_GROUPS, reviewGroupOf, type CheckpointChange, type QaLoop, type QaLoopChange } from "@ue-mcp-studio/shared";
+import { StepText } from "./AssetLink";
 
 const plural = (n: number, one: string): string => `${n} ${one}${n === 1 ? "" : "s"}`;
 
@@ -50,8 +51,8 @@ export function LoopPanel({ loop, busy, onRevert, onThread, showReason = false }
       {/* The reason is in the box under the card's path unless a verdict holds it; here, what it is based on. */}
       {loop.state === "needs_you" && loop.blocker && (showReason || loop.blocker.evidence.length > 0) && (
         <div className="qa-needs-you small" role="note">
-          {showReason && <div>{loop.blocker.reason}</div>}
-          {loop.blocker.evidence.length > 0 && <ul>{loop.blocker.evidence.map((e, i) => <li key={i}><span className="dim">What it saw: </span>{e}</li>)}</ul>}
+          {showReason && <div><StepText text={loop.blocker.reason} /></div>}
+          {loop.blocker.evidence.length > 0 && <ul>{loop.blocker.evidence.map((e, i) => <li key={i}><span className="dim">What it saw: </span><StepText text={e} /></li>)}</ul>}
         </div>
       )}
       {loop.attempts.length > 0 && (
@@ -71,7 +72,7 @@ export function LoopPanel({ loop, busy, onRevert, onThread, showReason = false }
               {(a.changes.length > 0 || a.failing.length > 0) && (
                 <details className="small">
                   <summary>{a.failing.length ? `${plural(a.failing.length, "step")} failed` : "What it changed"}</summary>
-                  {a.failing.length > 0 && <ul className="qa-attempt-failing">{a.failing.map((f, i) => <li key={i}>{f}</li>)}</ul>}
+                  {a.failing.length > 0 && <ul className="qa-attempt-failing">{a.failing.map((f, i) => <li key={i}><StepText text={f} /></li>)}</ul>}
                   {REVIEW_GROUPS.map(({ group, label }) => {
                     const items = a.changes.filter((c) => groupOf(c) === group);
                     return items.length ? (

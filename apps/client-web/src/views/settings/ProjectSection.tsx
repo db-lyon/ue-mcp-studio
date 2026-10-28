@@ -8,6 +8,24 @@ import { ConfigView } from "../Config";
 import { Head, type SettingsSection } from "../SettingsHub";
 import { Card, Opt, tokens, useMessage } from "./controls";
 import { Path } from "./NativePanel";
+import { problemCopy, readRebuild } from "./install-problems";
+
+type RebuildState = "idle" | "confirm" | "running";
+
+/** What the panel says when a rebuild ends. */
+function rebuildMessage(outcome: ReturnType<typeof readRebuild>, reopened: boolean | null): { ok: boolean; text: string } {
+  if (outcome.ok) return { ok: true, text: "The bridge plugin is rebuilt and the editor is open again." };
+  const f = outcome.failure!;
+  if (f.step === "stop") return { ok: false, text: "The editor did not close, so nothing was built. Save your work and close any open dialogs in the editor, then try again." };
+  if (f.step === "build") {
+    const after = reopened === false
+      ? "The editor did not open again. Open the project in Unreal to keep working on the previous build."
+      : "The editor opened again on the previous build.";
+    return { ok: false, text: `The build failed. ${after} ${f.reason}` };
+  }
+  if (f.step === "start") return { ok: false, text: "The bridge plugin is rebuilt, but the editor did not open again. Open the project in Unreal." };
+  return { ok: false, text: `The rebuild did not finish. ${f.reason}` };
+}
 
 /**
  * Project: what ue-mcp gives every MCP client connected to this project. The
@@ -18,6 +36,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
   const [report, setReport] = useState<StatusReport | null>(null);
   const [context, setContext] = useState<ClientContextStrategy | null>(null);
   const msg = useMessage();
+  const [rebuild, setRebuild] = useState<RebuildState>("idle");
   const load = () => {
     api.install().then(setReport, msg.fail);
     api.contextStrategy().then(setContext, msg.fail);
@@ -28,6 +47,27 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       setContext(c);
       msg.ok(c.restarting ? "Saved to ue-mcp.yml. ue-mcp restarts after the current turn." : "Saved to ue-mcp.yml.");
     }, msg.fail);
+  // Stop, build, start: the daemon's own rebuild. A failed build leaves the editor
+  // down, so it is opened again on the previous build.
+  const runRebuild = async () => {
+    setRebuild("running");
+    msg.clear();
+    try {
+      const outcome = readRebuild(await api.editor("rebuild"));
+      let reopened: boolean | null = null;
+      if (outcome.failure?.step === "build") {
+        reopened = await api.editor("start").then((r) => readRebuild(r).ok, () => false);
+      }
+      const said = rebuildMessage(outcome, reopened);
+      if (said.ok) msg.ok(said.text);
+      else msg.fail(said.text);
+    } catch (e) {
+      msg.fail(`The rebuild did not run. ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setRebuild("idle");
+      load();
+    }
+  };
   const clients = report?.clients.filter((c) => c.configured) ?? [];
   const p = report?.plugin;
   return (
@@ -43,12 +83,33 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
           <button onClick={load}>Check again</button>
           <button onClick={() => void native().openprojectfolder()}>Open project folder</button>
         </div>
-        {report?.problems.map((pr) => (
-          <div key={pr.code} className="problem">
-            <strong>{pr.what}</strong>
-            <p className="muted">{pr.fix}</p>
-          </div>
-        ))}
+        {report?.problems.map((pr) => {
+          const copy = problemCopy(pr, report);
+          return (
+            <div key={pr.code} className="problem">
+              <strong>{copy.title}</strong>
+              {copy.detail && <p className="muted">{copy.detail}</p>}
+              {copy.action === "rebuild" && rebuild === "idle" && (
+                <div className="actions"><button className="primary" onClick={() => setRebuild("confirm")}>Rebuild</button></div>
+              )}
+              {copy.action === "rebuild" && rebuild === "confirm" && (
+                <div className="banner warn small" role="alert">
+                  Rebuild closes the editor, builds the bridge plugin, and opens the editor again. It can take a few minutes. The editor does not close while it has unsaved changes.
+                  <div className="actions">
+                    <button className="primary" onClick={() => void runRebuild()}>Close the editor and rebuild</button>
+                    <button className="ghost" onClick={() => setRebuild("idle")}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              {copy.action === "rebuild" && rebuild === "running" && (
+                <div className="banner ok small" role="status">Rebuilding. The editor closes, the bridge plugin builds, then the editor opens again.</div>
+              )}
+              {copy.action === "updates" && (
+                <div className="actions"><button onClick={() => onSection("general")}>Open Updates</button></div>
+              )}
+            </div>
+          );
+        })}
       </section>
 
       <Card label="Context strategy">

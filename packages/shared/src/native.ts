@@ -111,9 +111,7 @@ export interface WorkerView {
   model: string | null;
   /** Null: the main agent's effort. */
   effort: string | null;
-  starts: "never" | "asked" | "automatic";
-  /** The values come from settings the user made before these became read only. */
-  fromSettings: boolean;
+  starts: "asked" | "automatic";
 }
 
 /** GET /native */

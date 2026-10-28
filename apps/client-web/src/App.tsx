@@ -60,9 +60,9 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   useEffect(() => {
     if (!narrow) setDrawer(false);
   }, [narrow]);
-  // A wide panel always has a section open, Agents first; a narrow one starts on the section list.
+  // A wide panel always has a section open, General first, as the rail lists it; a narrow one starts on the section list.
   useEffect(() => {
-    if (tab === "Settings" && section === null && !narrow) setSection("agents");
+    if (tab === "Settings" && section === null && !narrow) setSection("general");
   }, [tab, section, narrow]);
   /** A request for the chat to show a session, or its list (null); `n` tells requests apart. */
   const [chatNav, setChatNav] = useState<{ session: string | null; n: number }>({ session: null, n: 0 });

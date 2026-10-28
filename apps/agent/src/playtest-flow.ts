@@ -10,6 +10,12 @@ import type { PlaytestStage, TouchedItem, TranscriptEntry } from "@ue-mcp-studio
 
 export const PLAYTEST_FLOW = "playtest";
 
+/**
+ * How a drafted step names an asset: a markdown link to its object path, which
+ * the Playtest card links exactly, with no lookup.
+ */
+export const PLAYTEST_LINKS_LINE = "In each step's instruction, write every asset it names (a map, a Blueprint, an Input Action) as a markdown link to its object path, for example [L_WG_Meadow](/Game/Maps/L_WG_Meadow.L_WG_Meadow).";
+
 /** How much of the conversation goes to the flow as context. */
 const CONTEXT_ENTRIES = 16;
 const CONTEXT_CHARS = 12_000;
@@ -97,11 +103,12 @@ export function playtestParams(text: string, source: string | null, transcript: 
   ].filter(Boolean).join("\n\n");
   const lines = recent.map((m) => `${m.who}: ${m.text}`);
   let convo = lines.join("\n\n");
-  while (head.length + convo.length > CONTEXT_CHARS && lines.length > 1) {
+  while (head.length + convo.length + PLAYTEST_LINKS_LINE.length > CONTEXT_CHARS && lines.length > 1) {
     lines.shift();
     convo = lines.join("\n\n");
   }
-  const parts = [head, convo ? `The recent conversation:\n${convo}` : ""].filter(Boolean).join("\n\n");
+  // Last, since an overlong context keeps its end.
+  const parts = [head, convo ? `The recent conversation:\n${convo}` : "", PLAYTEST_LINKS_LINE].filter(Boolean).join("\n\n");
   return { target, context: parts.length > CONTEXT_CHARS ? parts.slice(parts.length - CONTEXT_CHARS) : parts };
 }
 
@@ -121,11 +128,12 @@ export function playtestTurnParams(turn: TranscriptEntry[], targets: TouchedItem
   ].filter(Boolean).join("\n");
   const lines = messages.map((m) => `${m.who}: ${m.text}`);
   let convo = lines.join("\n\n");
-  while (changed.length + convo.length > CONTEXT_CHARS && lines.length > 1) {
+  while (changed.length + convo.length + PLAYTEST_LINKS_LINE.length > CONTEXT_CHARS && lines.length > 1) {
     lines.shift();
     convo = lines.join("\n\n");
   }
-  const context = [`Test what the agent's last turn changed.${changed ? `\n${changed}` : ""}`, convo ? `That turn:\n${convo}` : ""].filter(Boolean).join("\n\n");
+  // Before the turn, since an overlong context keeps its start.
+  const context = [`Test what the agent's last turn changed.${changed ? `\n${changed}` : ""}`, PLAYTEST_LINKS_LINE, convo ? `That turn:\n${convo}` : ""].filter(Boolean).join("\n\n");
   return { target, context: context.length > CONTEXT_CHARS ? context.slice(0, CONTEXT_CHARS) : context };
 }
 

@@ -36,7 +36,7 @@ function setup(main = { vendor: "openai", model: "gpt-6-sol", route: "chatgpt" a
     routesFor: (v) => (v === "openai" ? ["ChatGPT sign-in"] : v === "anthropic" ? ["Claude sign-in"] : []),
     runsOverApi: (v, m) => v === "openai" && m === "gpt-6-luna",
     modelName: (m) => m.toUpperCase(),
-    worker: () => ({ model: "GPT-6-SOL", effort: "high", starts: "asked", fromSettings: false }),
+    worker: () => ({ model: "GPT-6-SOL", effort: "high", starts: "asked" }),
     home: () => home,
     owners: () => new Map(),
     top: root,

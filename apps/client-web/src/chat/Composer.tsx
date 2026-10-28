@@ -1,6 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { formatBytes, type PendingFile } from "./attachments";
 import { useSlashMenu } from "./SlashMenu";
+import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
+import { BarTierContext, atMost, barTier, useBarTier, type BarTier } from "./barTier";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 
 /** The text box grows with what is written up to this many lines, then scrolls. */
@@ -41,7 +43,7 @@ export function fitHeight({ content, line, chrome, floor, room }: { content: num
  * the dragged height is a minimum the content can still grow past. A double
  * click on the divider forgets it. `height` is the saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, flows, actions, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, flows, actions, mentions, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -67,11 +69,14 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   flows?: () => Promise<FlowListing[]>;
   /** ue-mcp's actions, for the names /action completes. Fetched when the menu offers them; stable across renders. */
   actions?: () => Promise<ActionListing[]>;
+  /** Looks names up for an @-mention; without it, @ is plain text. */
+  mentions?: MentionSearchFn;
   children?: ReactNode;
 }) {
   const input = useRef<HTMLInputElement>(null);
   const box = useRef<HTMLTextAreaElement>(null);
   const slash = useSlashMenu(draft, onDraft, commands, flows, actions);
+  const mention = useMentionMenu(draft, onDraft, box, mentions);
   /** A hidden copy of the box, out of the page flow, measured instead of the box so typing never lays out the conversation. */
   const mirror = useRef<HTMLTextAreaElement>(null);
   const [floor, setFloor] = useState<number | null>(height ?? null);
@@ -145,6 +150,20 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     if (el.style.overflowY !== overflow) el.style.overflowY = overflow;
   }, [draft, floor, viewport, placeholder]);
 
+  /** The bar's tier, from its own width: the panel can be narrower than the window. */
+  const bar = useRef<HTMLDivElement>(null);
+  const [tier, setTier] = useState<BarTier>("full");
+  useLayoutEffect(() => {
+    const el = bar.current;
+    if (!el) return;
+    const measure = () => setTier(barTier(el.clientWidth, parseFloat(getComputedStyle(el).fontSize)));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const o = new ResizeObserver(measure);
+    o.observe(el);
+    return () => o.disconnect();
+  }, []);
+
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
     if (pending.current) clearTimeout(pending.current);
@@ -216,17 +235,25 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           ))}
         </div>
       )}
+      {mentions && <MentionChips draft={draft} onDraft={onDraft} />}
       <textarea ref={mirror} className="composer-mirror" rows={1} tabIndex={-1} aria-hidden readOnly defaultValue="" />
-      {slash.menu}
+      {slash.menu ?? mention.menu}
       <textarea
         ref={box}
         rows={1}
         value={draft}
         placeholder={placeholder}
         disabled={busy && !onQueue}
-        {...slash.aria}
-        onChange={(e) => onDraft(e.target.value)}
-        onBlur={onBlur}
+        {...(slash.open ? slash.aria : mention.aria)}
+        onChange={(e) => {
+          mention.track(e.target);
+          onDraft(e.target.value);
+        }}
+        onSelect={(e) => mention.track(e.currentTarget)}
+        onBlur={() => {
+          mention.blur();
+          onBlur();
+        }}
         onPaste={(e) => {
           // A pasted screenshot or copied file is attached; pasted text stays text.
           if (e.clipboardData.files.length > 0) {
@@ -236,6 +263,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         }}
         onKeyDown={(e) => {
           if (slash.keyDown(e)) return;
+          if (!slash.open && mention.keyDown(e)) return;
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
             if (!canSend) return;
@@ -245,9 +273,12 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           }
         }}
       />
-      <div className="composer-bar">
-        {picker}
-        <button className="ghost attach-button" disabled={busy && !onQueue} onClick={() => input.current?.click()} title="Attach files (or drop or paste them)">Attach</button>
+      {/* Send or Stop is last and never shrinks; the rest gives way by tier (barTier.ts). */}
+      <div className="composer-bar" ref={bar} data-tier={tier}>
+        <BarTierContext.Provider value={tier}>
+          {picker}
+          <BarButton className="attach-button" label="Attach" title="Attach files (or drop or paste them)" icon={<AttachGlyph />} disabled={busy && !onQueue} onClick={() => input.current?.click()} />
+        </BarTierContext.Provider>
         <input
           ref={input}
           type="file"
@@ -260,9 +291,9 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           }}
         />
         <span className="spacer" />
-        {onQueue && <span className="composer-hint dim small">{busy ? "Enter to queue, Ctrl+Enter to stop and send now" : "Enter to send, Shift+Enter for a new line"}</span>}
-        {busy && onQueue && <button disabled={!canSend} onClick={onQueue} title="Send when the running turn ends">Queue</button>}
-        {busy ? <button onClick={onStop}>Stop</button> : <button className="primary" disabled={!canSend} onClick={onSend}>Send</button>}
+        {onQueue && tier === "full" && <span className="composer-hint dim small">{busy ? "Enter to queue, Ctrl+Enter to stop and send now" : "Enter to send, Shift+Enter for a new line"}</span>}
+        {busy && onQueue && <button className="composer-queue" disabled={!canSend} onClick={onQueue} title="Send when the running turn ends">Queue</button>}
+        {busy ? <button className="composer-send" onClick={onStop}>Stop</button> : <button className="composer-send primary" disabled={!canSend} onClick={onSend}>Send</button>}
       </div>
       {children}
     </div>
@@ -270,3 +301,46 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
 }
 
 const extOf = (name: string): string => (name.includes(".") ? name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE");
+
+/**
+ * A bar button that keeps its words while there is room and becomes an icon
+ * when the bar narrows, still named by `label` for the keyboard and a screen reader.
+ */
+export function BarButton({ label, title, icon, className = "", disabled, onClick }: {
+  label: string;
+  title: string;
+  icon: ReactNode;
+  className?: string;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  const iconOnly = atMost("icons", useBarTier());
+  return (
+    <button
+      className={`ghost bar-button ${iconOnly ? "icon-only" : ""} ${className}`}
+      aria-label={iconOnly ? label : undefined}
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      {iconOnly ? icon : label}
+    </button>
+  );
+}
+
+function AttachGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M13.5 7.5 8 13a3.5 3.5 0 0 1-5-5l5.8-5.8a2.3 2.3 0 0 1 3.3 3.3L6.3 11.3a1.1 1.1 0 0 1-1.6-1.6L10 4.5" />
+    </svg>
+  );
+}
+
+/** Checkpoints: a flag on a pole. */
+export function CheckpointsGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3.5 14.5V2M3.5 2.5h8.5l-2 3 2 3H3.5" />
+    </svg>
+  );
+}

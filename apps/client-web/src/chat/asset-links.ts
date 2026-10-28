@@ -256,3 +256,70 @@ export function useAssetLinks(sessionId: string | null): AssetLinks {
   useEffect(() => () => store.dispose(), [store]);
   return store;
 }
+
+export type StepPart =
+  | { kind: "text"; text: string }
+  | { kind: "exact"; path: string; label: string }
+  | { kind: "asset"; token: string; code: boolean }
+  | { kind: "code"; text: string };
+
+/**
+ * A markdown link to a rooted target, a code span, a bare object path, or an
+ * identifier with an underscore (L_WG_Meadow, BP_Door, IA_Jump). An
+ * identifier followed by a dot and a word is a property path, never a candidate.
+ */
+const STEP_TOKEN = new RegExp(
+  [
+    String.raw`\[(?<label>[^\]\n]+)\]\((?<url>\/[^)\s]+)\)`,
+    String.raw`\x60(?<code>[^\x60\n]+)\x60`,
+    `(?<path>${OBJECT_PATH_IN_TEXT.source})`,
+    String.raw`(?<![\w/.\-])(?<name>[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]*[A-Za-z0-9])(?![\w/]|\.\w)`,
+  ].join("|"),
+  "g",
+);
+
+/**
+ * A playtest step's text split for linking, as chat links a reply: a markdown
+ * link to an object path is exact; a code span, a bare object path or an
+ * identifier that looks like an asset name is a candidate the store resolves,
+ * plain until it does.
+ */
+export function stepParts(text: string, max = 50): StepPart[] {
+  const out: StepPart[] = [];
+  let last = 0;
+  let n = 0;
+  const plain = (t: string) => {
+    if (!t) return;
+    const prev = out[out.length - 1];
+    if (prev?.kind === "text") prev.text += t;
+    else out.push({ kind: "text", text: t });
+  };
+  for (const m of text.matchAll(STEP_TOKEN)) {
+    const at = m.index ?? 0;
+    const g = m.groups ?? {};
+    let part: StepPart | null = null;
+    if (g.url !== undefined) {
+      const path = assetLinkTarget(g.url);
+      part = path ? { kind: "exact", path, label: g.label.trim() } : { kind: "text", text: g.label };
+    } else if (g.code !== undefined) {
+      part = classifyAssetToken(g.code) ? { kind: "asset", token: g.code.trim(), code: true } : { kind: "code", text: g.code };
+    } else if (g.path !== undefined) {
+      if (classifyAssetToken(g.path)) part = { kind: "asset", token: g.path, code: false };
+    } else if (g.name !== undefined && classifyAssetToken(g.name)?.kind === "name") {
+      part = { kind: "asset", token: g.name, code: false };
+    }
+    if (!part || (part.kind === "asset" && n >= max)) continue;
+    plain(text.slice(last, at));
+    if (part.kind === "text") plain(part.text);
+    else out.push(part);
+    if (part.kind === "asset") n++;
+    last = at + m[0].length;
+  }
+  plain(text.slice(last));
+  return out;
+}
+
+/** A step's text as words alone, for a tooltip or a line that cannot hold links: a markdown link reads as its label, a code span as its text. */
+export function stepPlain(text: string): string {
+  return stepParts(text, Infinity).map((p) => (p.kind === "exact" ? p.label : p.kind === "asset" ? p.token : p.text)).join("");
+}

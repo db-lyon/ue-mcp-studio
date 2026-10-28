@@ -19,6 +19,7 @@ import {
 import { api } from "../api";
 import type { DaemonState } from "../state";
 import { PathLegend, QaCard, QaContext, savedScriptActions, type QaCardActions, type QaLive } from "../chat/Qa";
+import { AssetLinksContext, useAssetLinks } from "../chat/asset-links";
 
 const FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [
   { id: "active", label: "Active", empty: "No playtest is running." },
@@ -108,6 +109,8 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   };
   const rows = all.filter((e) => playtestMatches(e, filter));
   const live: QaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms: [], sessionId: null }), [daemon.events, daemon.streaming]);
+  // Asset names in step text resolve by a project lookup here: the page belongs to no session.
+  const assetLinks = useAssetLinks(null);
 
   return (
     <div className="playtests-page">
@@ -143,9 +146,11 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
         </div>
       ) : <p className="muted playtests-empty">{FILTERS.find((f) => f.id === filter)!.empty}</p>)}
       <QaContext.Provider value={live}>
+        <AssetLinksContext.Provider value={assetLinks}>
         <div className="playtests-list">
           {rows.map((e) => <PlaytestRow key={e.script} entry={e} offline={index?.listed === false} onOpenSession={onOpenSession} onChanged={() => reload(true)} />)}
         </div>
+        </AssetLinksContext.Provider>
       </QaContext.Provider>
     </div>
   );

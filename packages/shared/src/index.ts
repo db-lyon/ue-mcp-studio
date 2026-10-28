@@ -10,7 +10,7 @@ import type { QaRun } from "./qa.js";
 import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
-import type { AgentContextStrategy, Approvals } from "./composer.js";
+import type { Approvals } from "./composer.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -404,7 +404,7 @@ export interface SessionDetail extends SessionSummary {
   approvals: ApprovalRequest[];
   /** The latest turn, from its tool calls: what the composer's pills are made from. */
   turn?: TurnFacts;
-  /** This session's review switch; absent or null follows Settings > Agent. */
+  /** This session's review switch; absent or null follows Settings > Approvals & review. */
   review?: boolean | null;
   /** The session's checkpoints, oldest first: each reviewed turn, restore and playtest loop attempt. */
   timeline?: TimelineMark[];
@@ -869,3 +869,4 @@ export * from "./actions.js";
 export * from "./composer.js";
 export * from "./native.js";
 export * from "./version.js";
+export * from "./mentions.js";

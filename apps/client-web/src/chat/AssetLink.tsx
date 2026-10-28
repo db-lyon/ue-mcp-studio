@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { breakable } from "./breakable";
 import { ApiError, api } from "../api";
 import { native } from "../native";
-import { splitText, useAssetLink } from "./asset-links";
+import { splitText, stepParts, useAssetLink } from "./asset-links";
 
 /** How long the inline note after a click stays up. */
 export const TOAST_MS = 2500;
@@ -99,4 +99,18 @@ function AssetButton({ token, code, paths }: { token: string; code: boolean; pat
 /** Plain text (a tool's input or result) with its object paths as asset links. */
 export function LinkedText({ text }: { text: string }) {
   return <>{splitText(text).map((p, i) => (p.asset ? <AssetToken key={i} token={p.text} code={false} /> : p.text))}</>;
+}
+
+/** A playtest step's text, or a line quoting one, with its asset names linked as chat links them. */
+export function StepText({ text }: { text: string }) {
+  return (
+    <>
+      {stepParts(text).map((p, i) => (
+        p.kind === "exact" ? <ExactAssetLink key={i} path={p.path} label={p.label} />
+          : p.kind === "asset" ? <AssetToken key={i} token={p.token} code={p.code} />
+          : p.kind === "code" ? <code key={i}>{breakable(p.text)}</code>
+          : <Fragment key={i}>{p.text}</Fragment>
+      ))}
+    </>
+  );
 }

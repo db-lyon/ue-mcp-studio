@@ -9,8 +9,11 @@ import {
   qaDraftFromScript,
   qaNeedsYou,
   qaRunFromAnswer,
-  type AgentContextView,
+  mentionToken,
+  rankMentions,
   type CustomEndpoint,
+  type MentionMatch,
+  type MentionSearchResponse,
   type PlaytestEntry,
   type PlaytestIndexAnswer,
   type QaLoop,
@@ -72,14 +75,40 @@ function loop(state: QaLoop["state"]): QaLoop {
 
 const assigned = (state: QaLoop["state"]) => ({ callId: "agent-2", sessionId: "qa-session", state: state === "running" ? "running" as const : "done" as const, at: ago(9), loop: loop(state) });
 
+/** A draft whose steps name assets the ways a model writes them: a markdown link, a code span, a bare path, a bare name, and arrange and act targets. */
+const LINKED_STEPS = [
+  { instruction: "Load [L_WG_Meadow](/Game/Maps/L_WG_Meadow) and walk up to BP_Obstacle_BrokenBridge", judge: "manual" as const },
+  { instruction: "Press `IA_Jump` at the gap past /Game/Props/SM_PlankWorn.SM_PlankWorn; BP_NotInThisProject stays plain", judge: "manual" as const,
+    arrange: [{ kind: "spawn", class: "/Game/AI/BP_Wolf.BP_Wolf_C" }, { kind: "set", target: "BridgeGate", path: "bLocked", value: false }],
+    act: [{ place: { at: "BridgeGate", offset: [-150, 0, 0] } }, { press: { action: "/Game/Input/IA_Jump.IA_Jump" } }] },
+  { instruction: "The character lands on the far side", judge: "auto" as const, expect: { value: "CharacterMovement.MovementMode", op: "eq", target: 1 } },
+];
+
+/** What the agent answers for the names and paths in LINKED_STEPS. */
+const LINKED_ASSETS: Record<string, string> = {
+  BP_Obstacle_BrokenBridge: "/Game/Obstacles/BP_Obstacle_BrokenBridge.BP_Obstacle_BrokenBridge",
+  IA_Jump: "/Game/Input/IA_Jump.IA_Jump",
+  "/Game/Props/SM_PlankWorn.SM_PlankWorn": "/Game/Props/SM_PlankWorn.SM_PlankWorn",
+};
+const resolveLinked = (path: string, body: unknown) => {
+  if (path !== "/v1/ext/studio/assets/resolve") return undefined;
+  const refs = ((body as { refs?: Array<{ token: string }> } | undefined)?.refs ?? []);
+  return { status: 200, body: { results: refs.map((r) => (LINKED_ASSETS[r.token] ? { status: "resolved", paths: [LINKED_ASSETS[r.token]] } : { status: "unresolved" })) } };
+};
+
 export const RUNS = {
-  draft: { ...qaDraftFromScript({ path: `${SCRIPTS}/PT_DoorOpens`, name: "PT_DoorOpens", steps: STEPS }, { sessionId: "qa-session", seenAt: ago(6) })! },
+  linked: { ...qaDraftFromScript({ path: `${SCRIPTS}/TS_Playtest_BP_Obstacle_BrokenBridge`, name: "TS_Playtest_BP_Obstacle_BrokenBridge", map: "/Game/Maps/L_WG_Meadow", steps: LINKED_STEPS }, { sessionId: "qa-session", seenAt: ago(6) })! },
+  draft:{ ...qaDraftFromScript({ path: `${SCRIPTS}/PT_DoorOpens`, name: "PT_DoorOpens", steps: STEPS }, { sessionId: "qa-session", seenAt: ago(6) })! },
   armed: run("script_PT_DoorOpens_armed", "PT_DoorOpens", "armed", ["pending", "pending", "pending", "pending", "pending"]),
   running: run("script_PT_JumpCheck_running", "PT_JumpCheck", "running", ["passed", "running", "pending", "pending", "pending"]),
   waiting: run("script_PT_DoorOpens_waiting", "PT_DoorOpens", "awaiting_verdict", ["passed", "passed", "passed", "awaiting_verdict", "pending"]),
   failed: run("script_PT_LandingCheck_done", "PT_LandingCheck", "finished", ["passed", "failed", "passed", "failed", "skipped"]),
   stopped: run("script_PT_Sprint_stopped", "PT_Sprint", "stopped", ["passed", "passed", "pending", "pending", "pending"]),
   loopRunning: run("script_PT_LedgeGrab_loop", "PT_LedgeGrab", "running", ["passed", "passed", "running", "pending", "pending"], { assignment: assigned("running") }),
+  judged: (() => {
+    const r = run("script_PT_DoorLooks_unreadable-1", "PT_DoorLooks", "finished", ["passed", "passed", "passed", "passed", "passed"]);
+    return { ...r, steps: r.steps.map((s) => (s.index === 3 ? { ...s, verdictSource: "agent" as const, note: "The door swings over 9 frames with no pop.", evidence: { note: "The door swings over 9 frames with no pop.", captures: ["C:/Projects/StudioE2E/Saved/Screenshots/door_open_01.png", "C:/Projects/StudioE2E/Saved/Screenshots/door_open_02_unreadable.png"] } } : s)) };
+  })(),
   loopNeedsYou: run("script_PT_GateTrigger_blocked", "PT_GateTrigger", "finished", ["passed", "passed", "failed", "skipped", "passed"], { assignment: assigned("needs_you") }),
 };
 
@@ -146,8 +175,6 @@ export interface Scenario {
   focus?: string;
   /** A line that arrives after the reader has scrolled the conversation up: the session is read again with it. */
   arrives?: TranscriptEntry;
-  /** Settings > Agents: what GET /context-strategy/agent answers. */
-  agentContext?: AgentContextView;
   /** Clicked one after another after the page settles, each a CSS selector; after click, when both are given. */
   clicks?: string[];
   /** Scrolled to the top of its scroller after the clicks, to show what lies below the fold: a CSS selector. */
@@ -159,7 +186,9 @@ export interface Scenario {
   /** GETs the scenario answers itself, before the harness's defaults; undefined falls through. */
   get?: (path: string, url: URL) => unknown;
   /** Writes the scenario answers itself, with their status; undefined is the harness's 409. */
-  post?: (path: string) => { status: number; body: unknown } | undefined;
+  post?: (path: string, body?: unknown) => { status: number; body: unknown } | undefined;
+  /** Typed from the keyboard into an element after the page settles: a CSS selector and the keys. */
+  type?: { into: string; text: string };
   /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */
   endpoints?: CustomEndpoint[] | "error";
   /** Shoot the whole page, for a settings section taller than the window. */
@@ -190,6 +219,33 @@ const ENDPOINTS: CustomEndpoint[] = [
     listError: "its /models answered 401",
   },
 ];
+
+/** What a mention search finds in the door project. */
+const MENTIONS: MentionMatch[] = [
+  { kind: "asset", name: "BP_Door", type: "Blueprint", path: "/Game/Props/Doors/BP_Door.BP_Door", target: "/Game/Props/Doors/BP_Door.BP_Door" },
+  { kind: "asset", name: "SM_Door", type: "StaticMesh", path: "/Game/Props/Doors/Meshes/SM_Door.SM_Door", target: "/Game/Props/Doors/Meshes/SM_Door.SM_Door" },
+  { kind: "asset", name: "M_DoorWood_Weathered", type: "MaterialInstanceConstant", path: "/Game/Props/Doors/Materials/Instances/M_DoorWood_Weathered.M_DoorWood_Weathered", target: "/Game/Props/Doors/Materials/Instances/M_DoorWood_Weathered.M_DoorWood_Weathered" },
+  { kind: "actor", name: "Front Door", type: "StaticMeshActor", path: "/Game/Maps/Cave.Cave:PersistentLevel.StaticMeshActor_12", target: "actor:/Game/Maps/Cave.Cave:PersistentLevel.StaticMeshActor_12" },
+  { kind: "file", name: "DoorComponent.cpp", type: "C++ source", path: "Source/StudioE2E/Doors/DoorComponent.cpp", target: "file:Source/StudioE2E/Doors/DoorComponent.cpp" },
+  { kind: "actor", name: "PlayerStart", type: "PlayerStart", path: "/Game/Maps/Cave.Cave:PersistentLevel.PlayerStart_0", target: "actor:/Game/Maps/Cave.Cave:PersistentLevel.PlayerStart_0" },
+  { kind: "file", name: "DoorComponent.h", type: "C++ header", path: "Source/StudioE2E/Doors/DoorComponent.h", target: "file:Source/StudioE2E/Doors/DoorComponent.h" },
+];
+
+/** A session whose composer has `text` typed into it, the mention search answered from MENTIONS. */
+function mentionScenario(title: string, text: string, sources: MentionSearchResponse["sources"] = { asset: "editor", actor: "editor", file: "disk" }): Scenario {
+  const s = inSession(title, "Door playtest", []);
+  return {
+    ...s,
+    session: { ...s.session!, draft: "Put a light over " },
+    type: { into: ".composer textarea:not(.composer-mirror)", text },
+    post: (path, body) => {
+      if (path !== "/v1/ext/studio/mentions/search") return undefined;
+      const b = body as { query: string; kinds?: MentionMatch["kind"][] };
+      const pool = MENTIONS.filter((m) => (!b.kinds || b.kinds.includes(m.kind)) && sources[m.kind] !== "unavailable");
+      return { status: 200, body: { query: b.query, results: rankMentions(b.query, pool), sources: Object.fromEntries(Object.entries(sources).filter(([k]) => !b.kinds || b.kinds.includes(k as MentionMatch["kind"]))) } };
+    },
+  };
+}
 
 const inSession = (title: string, sessionTitle: string, runs: QaRun[], click?: string, focus?: string): Scenario =>
   ({ title, hash: `#/chat/${SESSION_ID}`, session: detail(sessionTitle, runs), index: { playtests: PROJECT, listed: true }, ...(click ? { click } : {}), ...(focus ? { focus } : {}) });
@@ -223,8 +279,36 @@ export const SCENARIOS: Record<string, Scenario> = {
   "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },
   "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
   "endpoints-edit": { title: "Editing a custom endpoint: its models", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
+  "composer-idle": (() => {
+    const s = inSession("The composer bar idle, with a draft: Send at the right end", "Door playtest", []);
+    return { ...s, session: { ...s.session!, draft: "Add a second door trigger by the ledge" } };
+  })(),
+  "composer-running": (() => {
+    const s = inSession("The composer bar while a turn runs: Queue and Stop at the right end", "Door playtest", []);
+    return { ...s, session: { ...s.session!, status: "running" as const, draft: "Then check the sprint speed" } };
+  })(),
+  "composer-menu": (() => {
+    const s = inSession("The composer's model menu open: with an Effort row when the bar has merged model and effort", "Door playtest", [], ".composer-bar .picker-button");
+    return { ...s, session: { ...s.session!, draft: "Add a second door trigger by the ledge" } };
+  })(),
+  "mention-menu": mentionScenario("The @-mention menu: assets, an actor and files matching @Door, each with its name, type and path", "@Door"),
+  "mention-actor": mentionScenario("The @-mention menu narrowed to actors with @actor:, with no editor attached", "@actor:Fro", { actor: "unavailable" }),
+  "mention-empty": mentionScenario("The @-mention menu when nothing matches", "@Zebra"),
+  "mention-sent": (() => {
+    const s = inSession("Mentions in the message being written, as chips over the box, and in a sent message", "Door playtest", []);
+    const text = `Swap the mesh on ${mentionToken(MENTIONS[3])} for ${mentionToken(MENTIONS[1])} and log it in ${mentionToken(MENTIONS[4])}`;
+    return {
+      ...s,
+      session: {
+        ...s.session!,
+        transcript: [...s.session!.transcript, { kind: "user" as const, text, at: ago(2) }, { kind: "assistant" as const, text: "Done: the front door now uses SM_Door.", at: ago(1) }],
+        draft: `Now make ${mentionToken(MENTIONS[0])} open toward ${mentionToken(MENTIONS[5])} `,
+      },
+    };
+  })(),
   "session-empty": inSession("A session with no playtest: Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
+  "draft-asset-links": { ...inSession("A draft opened: asset names in its steps, its script path and its arrange and act targets as links; a name that does not resolve stays plain", "Broken bridge", [RUNS.linked], ".thread-stage .qa-toggle"), post: resolveLinked, focus: ".thread-stage .qa-instruction .asset-link:not(.code)" },
   "armed": inSession("Armed: the latest item in the conversation", "Door playtest", [RUNS.armed]),
   "running": inSession("Running: the latest item in the conversation", "Jump check", [RUNS.running]),
   "waiting": inSession("Waiting for a verdict: Pass, Fail and Skip on the card", "Door playtest", [RUNS.waiting]),
@@ -234,9 +318,10 @@ export const SCENARIOS: Record<string, Scenario> = {
   "finished-failures": inSession("Finished with failures", "Landing check", [RUNS.failed]),
   "finished-failures-open": inSession("Finished with failures, opened from a failed step's bar", "Landing check", [RUNS.failed], ".qa-path-step[data-status='failed'] button"),
   "stopped": inSession("Stopped: in the transcript, a neutral pill, with the steps it never reached marked", "Sprint", [RUNS.stopped]),
+  "agent-captures": { ...inSession("A step the agent judged, opened: one capture it saw and one it can no longer read", "Door looks", [RUNS.judged]), clicks: [".thread-stage .qa-toggle", ".thread-stage .qa-agent-evidence summary"], scroll: ".thread-stage .qa-agent-evidence" },
   "loop-running": inSession("Assigned loop running, with its attempt", "Ledge grab", [RUNS.loopRunning]),
   "loop-needs-you": inSession("Loop that needs you, with its reason and Review", "Gate trigger", [RUNS.loopNeedsYou]),
-  "loop-needs-you-open": { ...inSession("Loop that needs you, opened: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".thread-stage .qa-toggle"), scroll: ".thread-stage button[title^='A subagent runs']" },
+  "loop-needs-you-open": { ...inSession("Loop that needs you, opened: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".thread-stage .qa-toggle"), scroll: ".thread-stage .qa-loop" },
   "strip-two-need-you": inSession("Two that need you and one running", "Door playtest", [RUNS.running, RUNS.waiting, RUNS.loopNeedsYou]),
   "strip-several": inSession("Several live in one conversation", "Door playtest", [RUNS.failed, RUNS.running, RUNS.waiting, RUNS.loopRunning, RUNS.loopNeedsYou]),
   "new-messages": (() => {
@@ -252,7 +337,5 @@ export const SCENARIOS: Record<string, Scenario> = {
   "page-row-delete": { title: "Playtests page, Delete waiting for its second click", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-row:nth-child(4) .qa-toggle", ".playtests-row:nth-child(4) .qa-script-delete"] },
   "page-row-offline-open": { title: "Playtests page, an open row while the editor is away: Edit and Delete disabled", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
   "page-empty": { title: "Playtests page with no playtests in the project", hash: "#/playtests", index: { playtests: [], listed: true }, filter: "all" },
-  "agents-context": { title: "Settings > Agents, ue-mcp tools on Lean with each strategy's seed tokens", hash: "#/settings/agents", index: { playtests: [], listed: true }, agentContext: { strategy: "lean", effective: "lean", seeds: { micro: 2180, lean: 18740, full: 50920 }, measurement: null, note: null } },
-  "agents-context-auto": { title: "Settings > Agents, Auto offered from a measurement and chosen", hash: "#/settings/agents", index: { playtests: [], listed: true }, agentContext: { strategy: "auto", effective: "lean", seeds: { micro: 2180, lean: 18740, full: 50920 }, measurement: { measuredAt: "2026-10-20T12:00:00Z", ueMcpVersion: "1.4.11", runs: 9 }, note: "Auto chose Lean: 100% of tasks passed at a median 41,300 tokens." } },
   "page-editor-offline": { title: "Playtests page while the editor cannot list scripts", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all" },
 };

@@ -1,6 +1,6 @@
 // Screenshot the playtest UI, the review card and Settings in every state, theme and width, with no daemon and no editor.
 //
-//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>]
+//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>] [--widths <px,px,...>]
 //
 // Serves apps/client-web with Vite (no proxy) and opens visual-qa.html, the real app
 // with the daemon answered from apps/client-web/src/visual-qa/fixtures.ts. Each
@@ -33,13 +33,37 @@ const browserPath = BROWSERS.find((p) => fs.existsSync(p));
 if (!browserPath) throw new Error("no Chrome or Edge found: pass --browser <path> or set STUDIO_QA_BROWSER");
 
 const THEMES = ["ue-mcp", "editor-orange", "editor"];
-const WIDTHS = [["wide", 1280], ["narrow", 380]];
+// --widths 320,590,1280 shoots those widths instead, each file named by its width.
+const WIDTHS = arg("widths") ? arg("widths").split(",").map((w) => [`${Number(w)}`, Number(w)]) : [["wide", 1280], ["narrow", 380]];
 
 const { createServer } = await import("vite");
 const { chromium } = await import("playwright-core");
 
 delete process.env.STUDIO_PROJECT;
-const server = await createServer({ root: web, configFile: path.join(web, "vite.config.ts"), server: { port: 0, strictPort: false }, logLevel: "warn" });
+/**
+ * Pictures the fixtures name: a review thumbnail, a captured review image or a
+ * playtest capture, drawn as a shaded sphere whose hue comes from the id. An id
+ * with "unreadable" in it answers 404, as a file the agent lost would.
+ */
+const pictures = {
+  name: "visual-qa-pictures",
+  configureServer(s) {
+    s.middlewares.use((req, res, next) => {
+      const m = /^\/v1\/ext\/studio\/(?:review\/(?:thumbnails|images)\/[^/?]+|qa\/runs\/[^?]+\/captures\/\d+)/.exec(req.url ?? "");
+      if (!m) return next();
+      // A run id with "unreadable-<n>" in it loses only its capture n.
+      const lost = /unreadable(?:-(\d+))?/.exec(req.url);
+      if (lost && (lost[1] === undefined || req.url.endsWith(`/captures/${lost[1]}`))) {
+        res.statusCode = 404;
+        return res.end();
+      }
+      const hue = [...req.url].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+      res.setHeader("content-type", "image/svg+xml");
+      res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><defs><radialGradient id="g" cx="0.38" cy="0.34" r="0.7"><stop offset="0" stop-color="hsl(${hue},55%,78%)"/><stop offset="0.55" stop-color="hsl(${hue},45%,42%)"/><stop offset="1" stop-color="hsl(${hue},40%,14%)"/></radialGradient></defs><rect width="256" height="256" fill="#1d1f24"/><ellipse cx="128" cy="214" rx="78" ry="12" fill="#000" opacity="0.45"/><circle cx="128" cy="124" r="86" fill="url(#g)"/></svg>`);
+    });
+  },
+};
+const server = await createServer({ root: web, configFile: path.join(web, "vite.config.ts"), server: { port: 0, strictPort: false }, logLevel: "warn", plugins: [pictures] });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, "");
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
@@ -98,6 +122,18 @@ try {
         if (!(await page.$(focus))) errors.push(`nothing matched ${focus}`);
         else await page.focus(focus);
         await page.waitForTimeout(200);
+      }
+      const typed = await page.evaluate(() => window.__visualQa.type);
+      if (typed) {
+        // Typed key by key at the end of what the box holds, as a person would, then left to settle.
+        if (!(await page.$(typed.into))) errors.push(`nothing matched ${typed.into}`);
+        else {
+          await page.focus(typed.into);
+          await page.keyboard.press("End");
+          await page.keyboard.type(typed.text, { delay: 20 });
+          await page.mouse.move(1, 1);
+          await page.waitForTimeout(700);
+        }
       }
       const file = `${scenario}-${theme}-${label}.png`;
       await page.screenshot({ path: path.join(out, file), animations: "disabled" });

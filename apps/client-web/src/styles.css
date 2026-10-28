@@ -20,6 +20,8 @@
   --warn: #e0a43a;
   --bad: #e5604f;
   --bad-text: #f2b3aa;
+  --diff-before: rgba(229, 96, 79, 0.05);
+  --diff-after: rgba(108, 192, 139, 0.05);
   --warn-text: #efd09a;
   --glow: rgba(232, 114, 12, 0.07);
   --selection: rgba(232, 114, 12, 0.35);
@@ -72,6 +74,8 @@
   --warn: var(--ue-warning, #ffb800);
   --bad: var(--ue-error, #ef3535);
   --bad-text: var(--ue-foreground, #c0c0c0);
+  --diff-before: rgba(239, 53, 53, 0.07);
+  --diff-after: rgba(31, 228, 75, 0.05);
   --warn-text: var(--ue-foreground, #c0c0c0);
   --glow: transparent;
   --selection: color-mix(in srgb, var(--ue-select, #0070e0) 45%, transparent);
@@ -556,8 +560,32 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .connect-other { justify-content: center; margin-top: 8px; }
 .empty > .picker { margin-bottom: 14px; }
 .composer { flex-direction: column; align-items: stretch; }
-.composer-bar { display: flex; align-items: center; gap: 8px; }
+.composer-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; position: relative; }
 .composer-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* The bar's tiers (chat/barTier.ts) step down by its own width. Send, Stop and Queue never
+   shrink; the model and effort shrink before anything moves, so nothing is pushed past the edge. */
+.composer-bar > .composer-send, .composer-bar > .composer-queue { flex: none; }
+.composer-bar > .spacer { min-width: 0; }
+.composer-bar > .composer-hint { flex: 1000 1 0; text-align: right; }
+.composer-bar > .picker { flex: 0 1 auto; min-width: 0; }
+.composer-bar .picker-button { max-width: 100%; min-width: 0; }
+.composer-bar .picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.composer-bar .picker-via, .composer-bar .picker-caret { flex: none; }
+.composer-bar > .effort { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+.composer-bar > .effort select { min-width: 0; }
+.composer-bar > .bar-button { flex: none; }
+.composer-bar > .bar-button.icon-only { width: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.composer-bar:not([data-tier="full"]) .picker-button .picker-via,
+.composer-bar:not([data-tier="full"]) .effort-label { display: none; }
+.composer-bar:not([data-tier="full"]) > .effort { padding-left: 4px; }
+/* Merged: one chip for the model and effort, its menu with an Effort row under the models. */
+.picker-effort { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+.picker-effort .segments { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 8px 6px; }
+.picker-effort .segments button { flex: 1 1 auto; height: 28px; padding: 0 8px; font: 500 12px/1 var(--sans); letter-spacing: 0; text-transform: none; }
+.picker-effort .segments button.current { background: var(--accent-wash); border-color: var(--accent-line); color: var(--text); }
+/* Narrowest: the menu opens across the whole bar instead of from the chip. */
+.composer-bar[data-tier="narrowest"] > .picker { position: static; }
+.composer-bar[data-tier="narrowest"] .picker-menu { left: 0; right: 0; width: auto; }
 .queue { display: flex; flex-direction: column; gap: 2px; padding: 6px 16px; border-top: 1px solid var(--line); background: var(--composer-bg); max-height: 28vh; overflow: auto; }
 .queue-head { display: flex; align-items: center; gap: 8px; padding: 2px 0 4px; }
 .queue-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border: 1px dashed var(--accent-line); border-radius: 6px; background: var(--accent-wash); font-size: 13px; }
@@ -824,7 +852,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 
 /* Asset names in the chat: inline code that opens the asset in the editor. */
 .asset-ref { position: relative; display: inline; }
-.asset-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-decoration: none; }
+.asset-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-decoration: none; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
 .asset-link.code { font: 12px var(--mono); background: var(--panel-2); padding: 1px 4px; border-radius: 4px; box-shadow: inset 0 -1px 0 var(--accent-line); }
 .asset-link:hover, .asset-link:focus-visible { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
 .asset-link:focus-visible { outline: 1px solid var(--accent-line); outline-offset: 1px; }
@@ -874,7 +902,10 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-status.warn { color: var(--warn); font-weight: 600; }
 .qa-status.run { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .qa-status[title] { cursor: help; }
-.qa-expect, .qa-evidence, .qa-note, .qa-verdict { margin-left: calc(1.6em + 8px); }
+.qa-expect, .qa-evidence, .qa-note, .qa-verdict, .qa-setup { margin-left: calc(1.6em + 8px); }
+.qa-setup { display: flex; flex-wrap: wrap; gap: 0 12px; overflow-wrap: anywhere; }
+.qa-setup-lead { color: var(--muted); }
+.qa-script-path { overflow-wrap: anywhere; }
 .qa-evidence { color: var(--bad-text); white-space: pre-wrap; }
 .qa-note { color: var(--muted); font-style: italic; }
 .qa-verdict { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -890,6 +921,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-agent-evidence summary { cursor: pointer; color: var(--muted); }
 .qa-agent-evidence p { margin: 4px 0; white-space: pre-wrap; }
 .qa-captures { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.qa-capture-missing { display: inline-block; padding: 2px 0; overflow-wrap: anywhere; }
 .qa-captures img { display: block; width: 240px; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .qa-agent-evidence ul { margin: 4px 0; padding-left: 16px; overflow-wrap: anywhere; }
 .qa-override { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1005,17 +1037,14 @@ button.drawer-session.active { color: var(--text); }
   .msg.assistant { max-width: 100%; }
 }
 
-/* Composer at narrow widths: the bar wraps instead of pushing Send off screen, and the app
-   takes the dynamic viewport height so the composer stays above a mobile browser's toolbar. */
+/* Composer at narrow widths: the app takes the dynamic viewport height so the composer stays
+   above a mobile browser's toolbar. The bar itself steps down by its own width (chat/barTier.ts). */
 @supports (height: 100dvh) {
   .app { height: 100dvh; }
 }
 @media (max-width: 760px) {
   .composer { padding: 10px 10px 10px; gap: 8px; }
-  .composer-bar { flex-wrap: wrap; gap: 6px; }
-  .composer .attach-button { padding: 6px 8px; }
-  .composer-hint, .composer-bar > .spacer { display: none; }
-  .composer-bar > button:last-child { margin-left: auto; }
+  .composer-bar { gap: 6px; }
   .composer textarea { padding: 8px 10px; }
   .queue { padding: 6px 10px; }
   .thread-head { padding: 8px 10px; }
@@ -1139,6 +1168,26 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .slash-name { font-family: var(--mono, monospace); }
 .slash-summary { flex-basis: 100%; }
 
+/* The @-mention menu: above the message box like the slash menu, so it never covers Send, and it scrolls past a few rows. */
+.mention-menu { position: absolute; left: 16px; right: 16px; bottom: calc(100% - 6px); z-index: 5; display: flex; flex-direction: column; max-height: min(340px, 50vh); padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); }
+.mention-menu ul { margin: 0; padding: 0; list-style: none; overflow-y: auto; min-height: 0; }
+.mention-menu li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: baseline; column-gap: 8px; row-gap: 2px; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+.mention-menu li.active { background: var(--panel-3); }
+.mention-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono, monospace); }
+.mention-type { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 16ch; }
+@media (min-width: 700px) { .mention-type { max-width: 28ch; } }
+.mention-path { grid-column: 1 / -1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; direction: rtl; text-align: left; font-family: var(--mono, monospace); font-size: 11px; }
+.mention-kind { flex: none; padding: 0 5px; border-radius: 4px; font-size: 10px; font-weight: 600; line-height: 16px; text-transform: uppercase; letter-spacing: 0.04em; background: var(--panel-3); color: var(--muted); }
+.mention-kind.kind-asset, .kind-asset > .mention-kind { background: var(--accent-wash); color: var(--accent-hi, var(--accent)); }
+.mention-status, .mention-note { padding: 6px 10px; }
+.mention-menu ul:not(:empty) ~ .mention-note, .mention-status + .mention-note { border-top: 1px solid var(--line); }
+/* The mentions a message carries, while it is written and once sent. */
+.mention-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.mention-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 2px 2px 2px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel-2); font-size: 12px; vertical-align: baseline; }
+.mention-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono, monospace); }
+.mention-sent.mention-chip { padding: 0 6px 0 3px; }
+.mention-sent .asset-link.code { background: none; box-shadow: none; padding: 0; }
+
 .playtest-failed { display: flex; flex-direction: column; gap: 4px; }
 .playtest-failed .row { align-items: center; }
 .playtest-failed ul { margin: 0; padding-left: 18px; }
@@ -1178,11 +1227,31 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .review-pictures { display: flex; gap: 10px; flex-wrap: wrap; }
 .review-pictures figure { margin: 0; display: flex; flex-direction: column; gap: 4px; }
 .review-pictures img { max-width: 220px; max-height: 220px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel-2); }
-.review-nopicture { width: 160px; height: 120px; display: flex; align-items: center; justify-content: center; text-align: center; border: 1px dashed var(--line-strong); border-radius: 4px; padding: 6px; box-sizing: border-box; }
+.review-picture-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; max-width: 220px; padding-top: 2px; overflow-wrap: break-word; }
+/* An asset with no picture: its type, path, what changed and its facts in the picture's place. */
+.asset-tile { display: flex; gap: 10px; align-items: flex-start; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--accent-line); border-radius: 4px; }
+.asset-tile .asset-icon { flex-shrink: 0; color: var(--accent); margin-top: 1px; }
+.asset-tile-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1 1 auto; }
+.asset-tile-head { display: flex; align-items: baseline; gap: 4px 10px; flex-wrap: wrap; min-width: 0; }
+.asset-tile-class { font-weight: 600; overflow-wrap: break-word; min-width: 0; }
+.asset-tile-status { color: var(--muted); }
+.asset-tile-status.added { color: var(--ok); }
+.asset-tile-status.deleted { color: var(--bad); }
+.asset-tile-path { color: var(--muted); overflow-wrap: anywhere; }
+.asset-tile-changes { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.asset-tile-changes li { padding: 0 6px; border-radius: 3px; border: 1px solid var(--line-strong); color: var(--muted); white-space: nowrap; }
+.asset-tile-changes li.add { color: var(--ok); border-color: var(--ok); }
+.asset-tile-changes li.del { color: var(--bad); border-color: var(--bad); }
+.asset-tile-changes li.mod { color: var(--warn); border-color: var(--warn); }
+.asset-tile-facts { margin: 0; display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 12px; }
+.asset-tile-facts > div { display: contents; }
+.asset-tile-facts dt { color: var(--muted); overflow-wrap: break-word; min-width: 0; }
+.asset-tile-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
+.asset-tile-note { overflow-wrap: break-word; }
 .review-item-summary { color: var(--text); overflow-wrap: break-word; }
 .review-item-summary.bad { color: var(--bad); }
 .asset-diff .review-pictures { flex-wrap: nowrap; }
-.asset-diff .review-pictures figure { flex: 1 1 0; min-width: 0; max-width: 220px; }
+.asset-diff .review-pictures figure, .asset-diff .review-pictures .review-picture-side { flex: 1 1 0; min-width: 0; max-width: 220px; }
 .asset-diff .review-pictures img { width: 100%; height: auto; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
@@ -1192,46 +1261,69 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-toggle { text-align: left; white-space: normal; }
 .diff-hidden { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .diff-hidden .diff-table-wrap { width: 100%; }
-/* A narrow card: each record's property on its own line, Before and After side by side under it. */
-@media (max-width: 480px) {
-  .diff-table thead { display: none; }
-  .diff-table, .diff-table tbody { display: block; }
-  .diff-table tr.diff-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
-  .diff-table tr.diff-row td { border-bottom: 0; width: auto; }
-  .diff-table tr.diff-row td:first-child { grid-column: 1 / -1; width: auto; }
-  .diff-table tr.diff-row td[data-label]::before { content: attr(data-label); display: block; color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
-  .diff-table tr.diff-group { display: block; }
-  .diff-table tr.diff-group th { display: block; width: auto; }
-}
 .diff-parts { display: flex; flex-direction: column; gap: 2px; }
 .review-diff .output.diff { white-space: pre-wrap; overflow-wrap: break-word; }
 .diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }
 .engine-note summary { cursor: pointer; }
-.asset-diff .review-nopicture { width: 100%; aspect-ratio: 1; height: auto; }
 .asset-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .engine-note { overflow-wrap: break-word; }
 .diff-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .diff-section-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .diff-section-head .mono { overflow-wrap: break-word; }
 .diff-section-title { font-weight: 600; }
-.diff-table-wrap { overflow-x: auto; max-width: 100%; border: 1px solid var(--line); border-radius: 4px; }
+/* The Change | Before | After comparison of every change card (chat/compare.tsx). Its tier
+   is the card's own width, set by a ResizeObserver as data-tier on .asset-diff: Chrome 90
+   has no container queries. Wide is the default, so an unmeasured card is a table. */
+.diff-table-wrap { max-width: 100%; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .diff-table { border-collapse: collapse; width: 100%; font-size: 12px; table-layout: fixed; }
-.diff-table th, .diff-table td { text-align: left; vertical-align: top; padding: 4px 6px; border-bottom: 1px solid var(--line); overflow-wrap: break-word; }
+.diff-table th, .diff-table td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; min-width: 0; }
+.diff-table tr:last-child > td { border-bottom: 0; }
 .diff-table thead th { color: var(--muted); font-weight: 600; background: var(--panel-2); }
 .diff-table th:first-child, .diff-table td:first-child { width: 40%; }
+.diff-table th + th, .diff-table td + td { border-left: 1px solid var(--line-strong); }
+.diff-table th.cmp-before, .diff-table td[data-label="Before"] { background: var(--diff-before); }
+.diff-table th.cmp-after, .diff-table td[data-label="After"] { background: var(--diff-after); }
+.diff-table tbody tr.diff-row:nth-child(even) > td.cmp-change { background: var(--tint); }
 .diff-table tr.diff-group th { background: var(--panel-2); color: var(--text); font-weight: 600; }
-.diff-table.nested { margin-top: 4px; border: 1px solid var(--line); }
+.diff-table tr.diff-row.sub > td.cmp-change { padding-left: 22px; }
+.diff-table tr.diff-row.minor { font-size: 11px; color: var(--muted); }
+.diff-table tr.diff-row.minor .diff-kind { opacity: 0.7; }
+.diff-table tr.diff-row.minor .cmp-side { opacity: 0.75; }
+.diff-table td.cmp-absent { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--tint) 6px 7px); }
+.diff-table td.cmp-side { color: var(--text); }
+.cmp-subtitle { margin-top: 2px; overflow-wrap: anywhere; }
+/* Pin and fact values: muted labels, monospace values, one per line. */
+.cmp-kv { margin: 0; display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 10px; }
+.cmp-kv > div { display: contents; }
+.cmp-kv dt { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.cmp-kv dd { margin: 0; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.cmp-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 2px; border: 1px solid var(--line-strong); vertical-align: -1px; }
+/* Medium: the change across the card, then Before and After side by side, each labelled. */
+.asset-diff:not([data-tier="wide"]) .diff-table thead { display: none; }
+.asset-diff:not([data-tier="wide"]) .diff-table, .asset-diff:not([data-tier="wide"]) .diff-table tbody { display: block; }
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-group, .asset-diff:not([data-tier="wide"]) .diff-table tr.diff-group th { display: block; width: auto; }
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.asset-diff:not([data-tier="wide"]) .diff-table tbody tr.diff-row:last-child { border-bottom: 0; }
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row > td { border-bottom: 0; width: auto; }
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row > td.cmp-change { grid-column: 1 / -1; background: none; }
+.asset-diff:not([data-tier="wide"]) .diff-table td.cmp-side::before { content: attr(data-label); display: block; color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.asset-diff:not([data-tier="wide"]) .diff-table td.cmp-side + td.cmp-side { border-left: 1px solid var(--line-strong); }
+.asset-diff[data-tier="medium"] .diff-table td.cmp-change + td.cmp-side { border-left: 0; }
+/* A row with nothing on either side is its change alone. */
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row.bare > td.cmp-side { display: none; }
+/* Narrow: the change, then a labelled Before, then a labelled After; an empty side is left out. */
+.asset-diff[data-tier="narrow"] .diff-table tr.diff-row, .asset-diff[data-tier="tiny"] .diff-table tr.diff-row { grid-template-columns: minmax(0, 1fr); }
+.asset-diff[data-tier="narrow"] .diff-table td.cmp-side, .asset-diff[data-tier="tiny"] .diff-table td.cmp-side { border-left: 0; border-top: 1px dashed var(--line); }
+.asset-diff[data-tier="narrow"] .diff-table td.cmp-empty, .asset-diff[data-tier="narrow"] .diff-table td.cmp-absent,
+.asset-diff[data-tier="tiny"] .diff-table td.cmp-empty, .asset-diff[data-tier="tiny"] .diff-table td.cmp-absent { display: none; }
+.asset-diff[data-tier="tiny"] .cmp-kv { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.asset-diff[data-tier="tiny"] .cmp-kv dd { margin-bottom: 3px; }
 .diff-kind { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 5px; margin-right: 6px; border-radius: 3px; border: 1px solid var(--line-strong); color: var(--muted); }
 .diff-kind.add { color: var(--ok); border-color: var(--ok); }
 .diff-kind.del { color: var(--bad); border-color: var(--bad); }
 .diff-kind.mod { color: var(--warn); border-color: var(--warn); }
-.diff-row.mod td:nth-child(3), .diff-row.add td:nth-child(3) { color: var(--text); }
 .diff-path, .diff-message { overflow-wrap: break-word; }
 .diff-node-values { margin-top: 2px; }
-.diff-node-props { margin: 2px 0 0; display: flex; flex-wrap: wrap; gap: 2px 14px; }
-.diff-node-props > div { display: flex; gap: 6px; min-width: 0; }
-.diff-node-props dt { color: var(--muted); }
-.diff-node-props dd { margin: 0; color: var(--text); overflow-wrap: break-word; min-width: 0; }
 .diff-facts { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .diff-facts .diff-table-wrap { width: 100%; }
 .blueprint-diff { list-style: none; margin: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; max-height: 320px; overflow: auto; }
