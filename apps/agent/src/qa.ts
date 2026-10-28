@@ -184,7 +184,8 @@ export class QaBroker {
           t.run = { ...t.run, assignment: { ...t.run.assignment, state: "stopped", ...(loop ? { loop: { ...loop, state: loop.state === "running" ? "stopped" : loop.state } } : {}) } };
           o.store.save(s);
         }
-        this.runs.set(t.run.runId, t.run);
+        // Sessions come newest first: a draft two sessions made is the latest one's.
+        if (!this.runs.has(t.run.runId)) this.runs.set(t.run.runId, t.run);
       }
     }
     this.unsubscribe = o.host.events.subscribe((e) => this.observe(e));
@@ -395,8 +396,10 @@ export class QaBroker {
     const draft = qaDraftFromScript(script, { sessionId, players: this.o.playtests?.players(where), seenAt: this.now() });
     if (!draft) return null;
     const had = this.runs.get(draft.runId);
-    // A subagent running it, or a session that drafted it, stays with the card.
-    const next = had ? { ...draft, sessionId: had.sessionId ?? draft.sessionId, ...(had.assignment ? { assignment: had.assignment } : {}) } : draft;
+    // The session drafting it now takes the card (#139), unless a subagent is running it.
+    const owner = had?.assignment?.state === "running" || !sessionId ? had?.sessionId ?? sessionId : sessionId;
+    const kept = had?.assignment && owner === had.sessionId ? { assignment: had.assignment } : {};
+    const next = had ? { ...draft, sessionId: owner, ...kept } : draft;
     this.save(next);
     return next;
   }

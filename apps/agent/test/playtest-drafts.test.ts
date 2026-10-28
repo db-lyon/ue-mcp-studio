@@ -90,6 +90,40 @@ describe("a script the agent creates", () => {
   });
 });
 
+describe("a script another session drafted before (#139)", () => {
+  const flowScript = (instruction: string) => ({ path: PATH, name: "SigilPickup", steps: [{ instruction, judge: "manual" }] });
+
+  it("gets its card in the session drafting it now, and leaves the first session alone", async () => {
+    const { broker, s: first } = setup();
+    await broker.drafted(first.id, flowScript("First draft"));
+    const before = store.get(first.id)!.updatedAt;
+    const second = store.create();
+    second.transcript.push({ kind: "user", text: "/playtest SigilPickup", at: "2026-10-24T12:01:00.000Z" });
+    store.save(second);
+    await broker.drafted(second.id, flowScript("Second draft"));
+    expect(cards(second.id)).toHaveLength(1);
+    expect(cards(second.id)[0]).toMatchObject({ runId: qaDraftId(PATH), sessionId: second.id, steps: [{ instruction: "Second draft" }] });
+    expect(broker.get(qaDraftId(PATH))?.sessionId).toBe(second.id);
+    // The first session keeps its own card and is not moved up the session list.
+    expect(cards(first.id)[0].steps.map((x) => x.instruction)).toEqual(["First draft"]);
+    expect(store.get(first.id)!.updatedAt).toBe(before);
+    expect(published.filter((e) => e.type === "transcript.added").map((e) => e.data?.sessionId)).toEqual([first.id, second.id]);
+  });
+
+  it("stays the latest session's after a restart", async () => {
+    const { broker, s: first } = setup();
+    await broker.drafted(first.id, flowScript("First draft"));
+    const second = store.create();
+    await broker.drafted(second.id, flowScript("Second draft"));
+    // The first session is the older one on disk, whatever the clock's resolution.
+    const file = path.join(root, "data", "sessions", `${first.id}.json`);
+    fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(fs.readFileSync(file, "utf-8")), updatedAt: "2026-01-01T00:00:00.000Z" }));
+    store = new SessionStore(path.join(root, "data"));
+    const again = new QaBroker({ host: qaHost(), store, playtests, loop: fakeLoopSupport() });
+    expect(again.get(qaDraftId(PATH))?.sessionId).toBe(second.id);
+  });
+});
+
 describe("Playtest runs", () => {
   it("Manual refuses the agent's own run, naming the setting, and lets an assigned subagent run it", async () => {
     const { agent, assigned } = setup();
