@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { CustomEndpoint, CustomEndpointInput, EndpointModel } from "@ue-mcp-studio/shared";
-import { api } from "../../api";
+import { api, notThere } from "../../api";
 import { Card } from "./controls";
 
 interface DraftModel {
@@ -20,10 +20,12 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // An agent from before custom endpoints has no route for them: the card is left out.
+  const [absent, setAbsent] = useState(false);
   const load = () => api.endpoints().then((r) => {
     setList(r.endpoints);
     setError(null);
-  }, (e: Error) => setError(e.message));
+  }, (e: Error) => (notThere(e) ? setAbsent(true) : setError(e.message)));
   useEffect(() => void load(), []);
   const changed = () => {
     setEditing(null);
@@ -44,6 +46,7 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
     if (!window.confirm(`Remove ${e.name}? Its key is deleted from this machine.`)) return;
     api.removeEndpoint(e.id).then(changed, (x: Error) => setError(x.message));
   };
+  if (absent) return null;
   return (
     <Card className="endpoints-card" label="Custom endpoints" actions={list && editing === null ? <button onClick={() => setEditing("new")}>Add endpoint</button> : undefined}>
       <p className="cfg-note">Any OpenAI Chat Completions server, local or hosted. Its models read AGENTS.md and .agents/skills.</p>

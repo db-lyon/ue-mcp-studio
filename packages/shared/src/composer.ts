@@ -76,8 +76,8 @@ export interface ClientContextStrategy {
   fromFile: boolean;
   /** UE_MCP_CONTEXT_STRATEGY in the daemon's environment wins over the file. */
   envOverride: ContextStrategy | null;
-  /** Seed tokens per strategy for every category, as the daemon's projection measures them. */
-  seeds: Record<ContextStrategy, number>;
+  /** Seed tokens per strategy for every category, as the daemon's projection measures them; a strategy it did not measure is absent. */
+  seeds: Partial<Record<ContextStrategy, number>>;
   /** A change applies once ue-mcp restarts and the clients start a new session. */
   restarting?: boolean;
 }

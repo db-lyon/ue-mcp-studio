@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { FAB_LIBRARY_URL, isNewer, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
+import { obj } from "../normalize";
 
 /** GET /v1/ext/studio/updates. */
 export interface StudioUpdates {
@@ -55,7 +56,7 @@ export async function setChannel(channel: "stable" | "beta"): Promise<void> {
 
 async function get<T>(url: string): Promise<T | null> {
   const res = await fetch(url, { credentials: "same-origin" }).catch(() => null);
-  return res?.ok ? ((await res.json()) as T) : null;
+  return res?.ok ? ((await res.json().catch(() => null)) as T | null) : null;
 }
 
 /** Every read's count goes to the dot on Settings, so it never disagrees with the card. */
@@ -71,10 +72,49 @@ export function withFloor(u: UeMcpUpdate | null, min: string | undefined): UeMcp
   return { ...u, target: u.target && !isNewer(min, u.target) ? u.target : min };
 }
 
+const text = (v: unknown): string | null => (typeof v === "string" ? v : null);
+
+/** Studio's update check from any agent, each part it does not report as nothing installed and nothing newer (#151). */
+export function studioUpdatesOf(raw: unknown): StudioUpdates | null {
+  if (!raw || typeof raw !== "object") return null;
+  const u = obj(raw);
+  const studio = obj(u.studio);
+  const plugin = obj(u.plugin);
+  return {
+    ...u,
+    channel: u.channel === "beta" ? "beta" : "stable",
+    studio: { installed: text(studio.installed) ?? "?", latest: text(studio.latest), available: studio.available === true },
+    plugin: {
+      ...plugin,
+      installed: text(plugin.installed),
+      latest: text(plugin.latest),
+      available: plugin.available === true,
+      location: plugin.location === "project" || plugin.location === "engine" ? plugin.location : "none",
+      engine: text(plugin.engine),
+    } as StudioPluginUpdate,
+    ueMcpMin: text(u.ueMcpMin) ?? undefined,
+  } as StudioUpdates;
+}
+
+/** The daemon's update check from any ue-mcp. */
+export function ueMcpUpdateOf(raw: unknown): UeMcpUpdate | null {
+  if (!raw || typeof raw !== "object") return null;
+  const u = obj(raw);
+  const binaries = obj(u.binaries);
+  return {
+    ...u,
+    installed: { version: text(obj(u.installed).version) },
+    server: text(u.server) ?? "?",
+    latest: text(u.latest),
+    target: text(u.target),
+    binaries: typeof binaries.file === "string" ? { available: binaries.available === true, file: binaries.file } : null,
+  } as UeMcpUpdate;
+}
+
 /** The bridge check follows Studio's channel: beta takes ue-mcp prereleases, stable takes latest. */
 export async function readUpdates(): Promise<{ studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }> {
-  const studio = await get<StudioUpdates>("/v1/ext/studio/updates");
-  const ueMcp = withFloor(await get<UeMcpUpdate>(`/v1/update?channel=${studio?.channel === "beta" ? "beta" : "latest"}`), studio?.ueMcpMin);
+  const studio = studioUpdatesOf(await get<unknown>("/v1/ext/studio/updates"));
+  const ueMcp = withFloor(ueMcpUpdateOf(await get<unknown>(`/v1/update?channel=${studio?.channel === "beta" ? "beta" : "latest"}`)), studio?.ueMcpMin);
   const u = { studio, ueMcp };
   for (const l of countListeners) l(waiting(u));
   return u;
