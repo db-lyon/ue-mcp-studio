@@ -20,15 +20,19 @@ const PATHS = {
   config: "Config/DefaultEngine.ini",
   level: "Content/Maps/L_Playtest.umap",
   crate: "Content/Props/SM_CrateWoodenLarge.uasset",
+  input: "Content/Input/Actions/IA_WallRunWhileCrouched.uasset",
 };
+
+/** A rendered thumbnail; the harness draws one for any id, and 404s an id with "unreadable" in it. */
+const shot = (id: string) => ({ id, url: "", source: "rendered" as const });
 
 const ready = (d: Partial<AssetDiff>): AssetDiff => refineAssetDiff({ state: "ready", status: "modified", summary: "", nativeDiff: { available: true }, ...d } as AssetDiff);
 
 const BLUEPRINT = ready({
   assetClass: "Blueprint",
   engine: { tool: "SBlueprintDiff", note: "Graphs through FGraphDiffControl::DiffGraphs, components through DiffUtils::CompareUnrelatedSCS, variables and class defaults through DiffUtils::CompareUnrelatedStructs.", native: "window", nativeAvailable: true },
-  before: { class: "Blueprint", facts: [{ name: "Parent class", value: "Character" }, { name: "Variables", value: "3" }, { name: "Variable MaxSprintSpeedMultiplier", value: "real = 1.5" }] },
-  after: { class: "Blueprint", facts: [{ name: "Parent class", value: "Character" }, { name: "Variables", value: "4" }, { name: "Variable MaxSprintSpeedMultiplier", value: "real = 1.8" }, { name: "Variable bCanWallRunWhileCrouched", value: "bool = true" }] },
+  before: { class: "Blueprint", thumbnail: shot("bp-before"), facts: [{ name: "Parent class", value: "Character" }, { name: "Variables", value: "3" }, { name: "Variable MaxSprintSpeedMultiplier", value: "real = 1.5" }] },
+  after: { class: "Blueprint", thumbnail: shot("bp-after"), facts: [{ name: "Parent class", value: "Character" }, { name: "Variables", value: "4" }, { name: "Variable MaxSprintSpeedMultiplier", value: "real = 1.8" }, { name: "Variable bCanWallRunWhileCrouched", value: "bool = true" }] },
   summary: "5 differences: Removed ...",
   sections: [
     { category: "Graph: EventGraph", kind: "graph", engineSource: "FGraphDiffControl::DiffGraphs", entries: [
@@ -53,8 +57,8 @@ const BLUEPRINT = ready({
 const MATERIAL_INSTANCE = ready({
   assetClass: "MaterialInstanceConstant",
   engine: { tool: "SMaterialInstanceDiff", note: "The instance's details through DiffUtils::CompareUnrelatedObjects.", native: "details", nativeAvailable: true },
-  before: { class: "MaterialInstanceConstant", facts: [{ name: "Parent", value: "/Game/Environment/Materials/M_RockMaster.M_RockMaster" }, { name: "Scalar parameter Roughness", value: "0.55" }] },
-  after: { class: "MaterialInstanceConstant", facts: [{ name: "Parent", value: "/Game/Environment/Materials/M_RockMaster.M_RockMaster" }, { name: "Scalar parameter Roughness", value: "0.8" }] },
+  before: { class: "MaterialInstanceConstant", thumbnail: shot("mi-before"), facts: [{ name: "Parent", value: "/Game/Environment/Materials/M_RockMaster.M_RockMaster" }, { name: "Scalar parameter Roughness", value: "0.55" }] },
+  after: { class: "MaterialInstanceConstant", thumbnail: { error: "the thumbnail render timed out after 5 s" }, facts: [{ name: "Parent", value: "/Game/Environment/Materials/M_RockMaster.M_RockMaster" }, { name: "Scalar parameter Roughness", value: "0.8" }] },
   summary: "2 differences: Scalar Parameter Values ((ParameterInfo=(Name=\"Roughness\",Associat...",
   sections: [{ category: "Details", kind: "properties", engineSource: "DiffUtils::CompareUnrelatedObjects", entries: [
     { path: "Scalar Parameter Values", property: "ScalarParameterValues", diffType: "PropertyValueChanged", displayString: "Scalar Parameter Values", before: `(${scalar("Roughness", "0.550000")},${scalar("MossCoverage", "0.300000")})`, after: `(${scalar("Roughness", "0.800000")},${scalar("MossCoverage", "0.650000")})` },
@@ -67,7 +71,7 @@ const MATERIAL_BASE = ready({
   assetClass: "Material",
   engine: { tool: "SMaterialDiff", note: "The material graph through FGraphDiffControl::DiffGraphs, and its details through DiffUtils::CompareUnrelatedObjects.", native: "window", nativeAvailable: true },
   before: { class: "Material", facts: [{ name: "Blend mode", value: "BLEND_Opaque" }, { name: "Expressions", value: "14" }] },
-  after: { class: "Material", facts: [{ name: "Blend mode", value: "BLEND_Opaque" }, { name: "Expressions", value: "15" }] },
+  after: { class: "Material", thumbnail: shot("material-after-unreadable"), facts: [{ name: "Blend mode", value: "BLEND_Opaque" }, { name: "Expressions", value: "15" }] },
   summary: "2 differences: Added Node Constant; Roughness Default Value 0.2 to 0.7",
   sections: [{ category: "Material Graph", kind: "graph", engineSource: "FGraphDiffControl::DiffGraphs", entries: [
     { displayString: "Added Node Constant", diffType: "NODE_ADDED", category: "ADDITION", node2: { guid: "3", name: "MaterialGraphNode_15", class: "MaterialGraphNode", title: "Constant" } },
@@ -89,13 +93,40 @@ const MATERIAL: AssetDiff = {
   ] }],
 };
 
+/** A level: Unreal keeps no thumbnail for a World, so the tile takes the picture's place. */
+const LEVEL = ready({
+  assetClass: "World",
+  packageName: "/Game/Maps/L_Playtest",
+  engine: { tool: "SLevelDiff", note: "Actors through DiffUtils::CompareUnrelatedSCS and their properties through DiffUtils::CompareUnrelatedObjects.", native: "window", nativeAvailable: true },
+  before: { class: "World", facts: [{ name: "Actors", value: "41" }, { name: "Streaming", value: "World Partition" }, { name: "Game mode override", value: "BP_PlaytestGameMode_C" }] },
+  after: { class: "World", facts: [{ name: "Actors", value: "42" }, { name: "Streaming", value: "World Partition" }, { name: "Game mode override", value: "BP_PlaytestGameMode_C" }] },
+  summary: "2 differences: Added actor SM_CrateWoodenLarge_PlacedNearTheGate; ShrineGate Relative Location",
+  sections: [{ category: "Actors", kind: "components", engineSource: "DiffUtils::CompareUnrelatedSCS", entries: [
+    { group: "SM_CrateWoodenLarge_PlacedNearTheGate", displayString: "Added actor SM_CrateWoodenLarge_PlacedNearTheGate", diffType: "OBJECT_ADDED", facts: [{ name: "Class", value: "StaticMeshActor" }, { name: "Location", value: "(X=1240, Y=-310, Z=0)" }] },
+    { group: "ShrineGate", path: "Relative Location", diffType: "PropertyValueChanged", displayString: "Relative Location", before: "(X=1200.000000,Y=-280.000000,Z=0.000000)", after: "(X=1180.000000,Y=-280.000000,Z=0.000000)" },
+  ] }],
+});
+
+/** An Input Action added in the turn: no thumbnail and no earlier version. */
+const INPUT_ACTION = ready({
+  status: "added",
+  assetClass: "InputAction",
+  packageName: "/Game/Input/Actions/IA_WallRunWhileCrouched",
+  engine: { tool: "SDetailsDiff", note: "Its details through DiffUtils::CompareUnrelatedObjects.", native: "details", nativeAvailable: true },
+  before: null,
+  after: { class: "InputAction", facts: [{ name: "Value type", value: "Digital (bool)" }, { name: "Triggers", value: "Pressed" }, { name: "Consume input", value: "true" }] },
+  summary: "New InputAction",
+  sections: [],
+});
+
 const CONFIG_DIFF = "--- a/Config/DefaultEngine.ini\n+++ b/Config/DefaultEngine.ini\n@@ -12,3 +12,4 @@\n [/Script/Engine.RendererSettings]\n-r.DefaultFeature.AutoExposure=True\n+r.DefaultFeature.AutoExposure=False\n+r.Lumen.HardwareRayTracing.LightingMode=2\n r.ReflectionMethod=1\n";
 
 const CHANGES: CheckpointChange[] = [
   { path: PATHS.bp, status: "modified", kind: "package", assetDiff: BLUEPRINT },
   { path: PATHS.mi, status: "modified", kind: "package", assetDiff: MATERIAL_INSTANCE },
   { path: PATHS.material, status: "modified", kind: "package", assetDiff: MATERIAL },
-  { path: PATHS.level, status: "modified", kind: "package", assetDiff: ready({ assetClass: "World", summary: "1 difference: Added actor SM_CrateWoodenLarge_PlacedNearTheGate", sections: [] }) },
+  { path: PATHS.level, status: "modified", kind: "package", assetDiff: LEVEL },
+  { path: PATHS.input, status: "added", kind: "package", assetDiff: INPUT_ACTION },
   { path: PATHS.config, status: "modified", kind: "config", diff: CONFIG_DIFF },
   { path: PATHS.crate, status: "modified", kind: "package", assetDiff: { state: "error", error: "Failed to load /Game/Props/SM_CrateWoodenLarge: the package was saved by a newer engine version", summary: "Could not diff: Failed to load /Game/Props/SM_CrateWoodenLarge: the package was saved by a newer engine version", nativeDiff: { available: false, reason: "Unreal could not load it." } } },
 ];
@@ -144,5 +175,7 @@ export const REVIEW_SCENARIOS: Record<string, Scenario> = {
   "review-blueprint-variables": card("Review card, the same Blueprint scrolled to My Blueprint and Defaults: each variable once", "bp", "section[aria-label='My Blueprint']"),
   "review-material-instance": card("Review card, a material instance opened: its parameters in words, not the engine's struct text", "mi"),
   "review-material": card("Review card, a material opened: the added Constant shows its value, the removed Multiply its set constant", "material"),
+  "review-level": card("Review card, a level opened: no thumbnail for a World, so its type, path, what changed and its facts", "level"),
+  "review-input-action": card("Review card, an added Input Action opened: no thumbnail and no earlier version", "input"),
   "review-config": card("Review card, a reverted config file opened: its text diff", "config"),
 };

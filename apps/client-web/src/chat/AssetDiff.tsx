@@ -21,6 +21,7 @@ import {
 import { api } from "../api";
 import { DiffView } from "./Diff";
 import { EngineText } from "./breakable";
+import { AssetTile, TILE_FACTS, tileOf } from "./AssetTile";
 
 /** EDiffType::Category and the diff types, in words. */
 const CHANGE_KIND: Record<string, string> = {
@@ -53,20 +54,45 @@ function Value({ v, side }: { v: string | null | undefined; side: "before" | "af
   return <span className="mono diff-value" title={words ? v : undefined}><EngineText text={words ?? v} /></span>;
 }
 
-/** One version's picture, or why there is none. */
-function Picture({ version, missing, label, name }: { version: AssetVersion | null | undefined; missing: string; label: string; name: string }) {
-  const t: AssetThumbnail | undefined = version?.thumbnail;
+const pictureOf = (v: AssetVersion | null | undefined): Extract<AssetThumbnail, { id: string }> | null => (v?.thumbnail && "id" in v.thumbnail ? v.thumbnail : null);
+
+/**
+ * A picture of each version that has one. Where neither has, the asset's tile
+ * takes the space: its type, path, what changed and its facts. A version with
+ * no picture beside one that has says why in words, never in an empty frame.
+ */
+function Pictures({ diff, name, asset, status }: { diff: AssetDiff; name: string; asset?: string; status: "added" | "modified" | "deleted" }) {
+  const [failed, setFailed] = useState<Record<string, boolean>>({});
+  const sides = [
+    { label: "Before", v: diff.before, missing: "Did not exist before this turn" },
+    { label: "After", v: diff.after, missing: "Deleted in this turn" },
+  ];
+  const shown = sides.filter((s) => pictureOf(s.v) && !failed[s.label]);
+  if (shown.length === 0) {
+    const errors = [...new Set(sides.flatMap((s) => (s.v?.thumbnail && "error" in s.v.thumbnail ? [s.v.thumbnail.error] : [])))];
+    return <AssetTile {...tileOf(diff, name, asset, status)} note={errors.length ? <>No picture: <EngineText text={errors.join("; ")} /></> : undefined} />;
+  }
   return (
-    <figure>
-      {!version ? (
-        <div className="review-nopicture">{missing}</div>
-      ) : t && "id" in t ? (
-        <img src={api.reviewThumbnailUrl(t.id)} alt={`${name} ${label.toLowerCase()}`} title={t.source === "saved" ? `The thumbnail saved with this version. ${t.note ?? ""}` : "Rendered from this version"} />
-      ) : (
-        <div className="review-nopicture dim small">No picture: {t && "error" in t ? t.error : "the editor kept none for this version."}</div>
-      )}
-      <figcaption className="small dim"><span className="picture-label">{label}</span><span className="picture-class">{version?.class ? <EngineText text={version.class} /> : "no version"}</span></figcaption>
-    </figure>
+    <div className="review-pictures">
+      {sides.map((s) => {
+        const t = pictureOf(s.v);
+        if (t && !failed[s.label]) {
+          return (
+            <figure key={s.label}>
+              <img src={api.reviewThumbnailUrl(t.id)} alt={`${name} ${s.label.toLowerCase()}`} title={t.source === "saved" ? `The thumbnail saved with this version. ${t.note ?? ""}` : "Rendered from this version"} onError={() => setFailed((f) => ({ ...f, [s.label]: true }))} />
+              <figcaption className="small dim"><span className="picture-label">{s.label}</span><span className="picture-class"><EngineText text={s.v!.class} /></span></figcaption>
+            </figure>
+          );
+        }
+        const why = !s.v ? s.missing : s.v.thumbnail && "error" in s.v.thumbnail ? `No picture: ${s.v.thumbnail.error}` : failed[s.label] ? "No picture: the file could not be read." : "No picture: the editor kept none for this version.";
+        return (
+          <div key={s.label} className="review-picture-side small">
+            <span className="picture-label dim">{s.label}</span>
+            <span className="dim"><EngineText text={why} /></span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -191,10 +217,11 @@ function GroupRows({ group, entries }: { group: string | null; entries: AssetDif
 }
 
 /** Facts about each version side by side: LODs, sizes, parameters. */
-function Facts({ before, after }: { before: AssetVersion | null | undefined; after: AssetVersion | null | undefined }) {
+function Facts({ before, after, tiled }: { before: AssetVersion | null | undefined; after: AssetVersion | null | undefined; tiled: boolean }) {
   const rows = factRows(before, after);
-  const [open, setOpen] = useState(!before || !after);
-  if (rows.length === 0) return null;
+  const [open, setOpen] = useState(!tiled && (!before || !after));
+  // The tile already lists up to TILE_FACTS of them.
+  if (rows.length === 0 || (tiled && rows.length <= TILE_FACTS)) return null;
   const changed = rows.filter((r) => r.changed).length;
   const count = before && after ? (changed ? ` (${changed} ${changed === 1 ? "fact differs" : "facts differ"})` : " (no fact differs)") : "";
   return (
@@ -223,7 +250,7 @@ function Facts({ before, after }: { before: AssetVersion | null | undefined; aft
 }
 
 /** A package's diff from Unreal's diff code. */
-export function AssetDiffView({ diff, name, status, blueprintTree, nativeNote }: { diff: AssetDiff; name: string; status: "added" | "modified" | "deleted"; blueprintTree?: React.ReactNode; nativeNote?: React.ReactNode }) {
+export function AssetDiffView({ diff, name, asset, status, blueprintTree, nativeNote }: { diff: AssetDiff; name: string; asset?: string; status: "added" | "modified" | "deleted"; blueprintTree?: React.ReactNode; nativeNote?: React.ReactNode }) {
   if (diff.state === "error") {
     const consequence = status === "added"
       ? "Revert deletes the file the agent added; Keep leaves it."
@@ -244,10 +271,7 @@ export function AssetDiffView({ diff, name, status, blueprintTree, nativeNote }:
   return (
     <div className="asset-diff">
       {nativeNote}
-      <div className="review-pictures">
-        <Picture version={diff.before} missing="Did not exist before this turn" label="Before" name={name} />
-        <Picture version={diff.after} missing="Deleted in this turn" label="After" name={name} />
-      </div>
+      <Pictures diff={diff} name={name} asset={asset} status={status} />
       {diff.classChanged && <div className="banner warn small">The asset's class changed: {diff.classChanged}.</div>}
       {sections.map((s) => <Section key={s.category} s={s} />)}
       {diff.status === "modified" && records === 0 && !diff.textDiff && (
@@ -260,7 +284,7 @@ export function AssetDiffView({ diff, name, status, blueprintTree, nativeNote }:
           <DiffView lines={unifiedLines(diff.textDiff.diff)} label={`${diff.textDiff.format} diff of ${name}`} />
         </div>
       )}
-      <Facts before={diff.before} after={diff.after} />
+      <Facts before={diff.before} after={diff.after} tiled={!pictureOf(diff.before) && !pictureOf(diff.after)} />
       {blueprintTree}
       {diff.engine && (
         <details className="small dim engine-note">

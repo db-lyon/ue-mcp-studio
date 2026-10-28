@@ -36,6 +36,7 @@ import { api } from "../api";
 import { DEFAULT_RUN, DraftEditor, RunPanel, playersNeeded, type RunOptions } from "./PlaytestDraft";
 import { LoopPanel, loopPill } from "./PlaytestLoop";
 import { native } from "../native";
+import { PictureOr } from "./AssetTile";
 
 /** What a card needs from the page: the daemon's stream, and the session's waiting forms. */
 export interface QaLive {
@@ -707,7 +708,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                     <div className="qa-captures">
                       {s.evidence!.captures!.map((c, n) => (
                         <a key={c} href={api.qaCaptureUrl(run.runId, s.index, n)} target="_blank" rel="noreferrer" title={c}>
-                          <img src={api.qaCaptureUrl(run.runId, s.index, n)} alt={c.split(/[\/]/).pop()} loading="lazy" />
+                          <PictureOr src={api.qaCaptureUrl(run.runId, s.index, n)} alt={c.split(/[\/]/).pop() ?? c} lazy fallback={<span className="qa-capture-missing mono small">{c.split(/[\/]/).pop()}<span className="dim"> could not be read</span></span>} />
                         </a>
                       ))}
                     </div>

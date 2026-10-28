@@ -79,6 +79,10 @@ export const RUNS = {
   failed: run("script_PT_LandingCheck_done", "PT_LandingCheck", "finished", ["passed", "failed", "passed", "failed", "skipped"]),
   stopped: run("script_PT_Sprint_stopped", "PT_Sprint", "stopped", ["passed", "passed", "pending", "pending", "pending"]),
   loopRunning: run("script_PT_LedgeGrab_loop", "PT_LedgeGrab", "running", ["passed", "passed", "running", "pending", "pending"], { assignment: assigned("running") }),
+  judged: (() => {
+    const r = run("script_PT_DoorLooks_unreadable-1", "PT_DoorLooks", "finished", ["passed", "passed", "passed", "passed", "passed"]);
+    return { ...r, steps: r.steps.map((s) => (s.index === 3 ? { ...s, verdictSource: "agent" as const, note: "The door swings over 9 frames with no pop.", evidence: { note: "The door swings over 9 frames with no pop.", captures: ["C:/Projects/StudioE2E/Saved/Screenshots/door_open_01.png", "C:/Projects/StudioE2E/Saved/Screenshots/door_open_02_unreadable.png"] } } : s)) };
+  })(),
   loopNeedsYou: run("script_PT_GateTrigger_blocked", "PT_GateTrigger", "finished", ["passed", "passed", "failed", "skipped", "passed"], { assignment: assigned("needs_you") }),
 };
 
@@ -243,6 +247,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   "finished-failures": inSession("Finished with failures", "Landing check", [RUNS.failed]),
   "finished-failures-open": inSession("Finished with failures, opened from a failed step's bar", "Landing check", [RUNS.failed], ".qa-path-step[data-status='failed'] button"),
   "stopped": inSession("Stopped: in the transcript, a neutral pill, with the steps it never reached marked", "Sprint", [RUNS.stopped]),
+  "agent-captures": { ...inSession("A step the agent judged, opened: one capture it saw and one it can no longer read", "Door looks", [RUNS.judged]), clicks: [".thread-stage .qa-toggle", ".thread-stage .qa-agent-evidence summary"], scroll: ".thread-stage .qa-agent-evidence" },
   "loop-running": inSession("Assigned loop running, with its attempt", "Ledge grab", [RUNS.loopRunning]),
   "loop-needs-you": inSession("Loop that needs you, with its reason and Review", "Gate trigger", [RUNS.loopNeedsYou]),
   "loop-needs-you-open": { ...inSession("Loop that needs you, opened: Assign again and Cancel loop", "Gate trigger", [RUNS.loopNeedsYou], ".thread-stage .qa-toggle"), scroll: ".thread-stage button[title^='A subagent runs']" },

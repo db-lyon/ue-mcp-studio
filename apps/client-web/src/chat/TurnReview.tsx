@@ -19,6 +19,7 @@ import {
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { AssetDiffView } from "./AssetDiff";
+import { AssetTile } from "./AssetTile";
 import { DiffView } from "./Diff";
 import { SessionIdContext } from "./attachments";
 import { EngineText } from "./breakable";
@@ -179,6 +180,7 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
         <AssetDiffView
           diff={c.assetDiff}
           name={name}
+          asset={item.asset}
           status={item.status}
           nativeNote={native}
           blueprintTree={c.assetDiff.blueprint ? <details className="small"><summary>Structure (blueprint diff)</summary><BlueprintDiff diff={c.assetDiff.blueprint} /></details> : undefined}
@@ -191,21 +193,40 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
       {native}
       {c.diff !== undefined && <DiffView lines={unifiedLines(c.diff)} label={`Diff of ${item.path}`} />}
       {c.blueprintDiff && <BlueprintDiff diff={c.blueprintDiff} />}
-      {item.visual && (
-        <div className="review-pictures">
-          <figure>
-            {diff.before ? <img src={api.reviewImageUrl(diff.before)} alt={`${name} before the turn`} /> : <div className="review-nopicture dim small">{item.status === "added" ? "Did not exist before this turn" : "No picture was captured before this turn."}</div>}
-            <figcaption className="small dim">Before</figcaption>
-          </figure>
-          <figure>
-            {diff.after ? <img src={api.reviewImageUrl(diff.after)} alt={`${name} after the turn`} /> : <div className="review-nopicture dim small">{item.status === "deleted" ? "Deleted in this turn" : "No picture was captured after this turn."}</div>}
-            <figcaption className="small dim">After</figcaption>
-          </figure>
-        </div>
-      )}
+      {item.visual && <CapturedPictures name={name} item={item} before={diff.before} after={diff.after} />}
       {c.diff === undefined && !c.blueprintDiff && !item.visual && (
         <div className="dim small">{item.summary ?? (c.large ? "A large file: no diff is kept for it." : "Not a text file, so there is no line diff.")}</div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The pictures a review recorded before engine diffs captured after the turn.
+ * A side with none says why in words; with none at all, the asset's tile.
+ */
+function CapturedPictures({ name, item, before, after }: { name: string; item: ReviewItem; before?: string; after?: string }) {
+  const [failed, setFailed] = useState<Record<string, boolean>>({});
+  const sides = [
+    { label: "Before", file: before, alt: `${name} before the turn`, missing: item.status === "added" ? "Did not exist before this turn" : "No picture was captured before this turn." },
+    { label: "After", file: after, alt: `${name} after the turn`, missing: item.status === "deleted" ? "Deleted in this turn" : "No picture was captured after this turn." },
+  ];
+  if (!sides.some((s) => s.file && !failed[s.label])) {
+    return <AssetTile fileName={name} path={item.asset} status={item.status} note="No picture was captured for this asset." />;
+  }
+  return (
+    <div className="review-pictures">
+      {sides.map((s) => (s.file && !failed[s.label] ? (
+        <figure key={s.label}>
+          <img src={api.reviewImageUrl(s.file)} alt={s.alt} onError={() => setFailed((f) => ({ ...f, [s.label]: true }))} />
+          <figcaption className="small dim">{s.label}</figcaption>
+        </figure>
+      ) : (
+        <div key={s.label} className="review-picture-side small">
+          <span className="picture-label dim">{s.label}</span>
+          <span className="dim">{failed[s.label] ? "The picture could not be read." : s.missing}</span>
+        </div>
+      )))}
     </div>
   );
 }

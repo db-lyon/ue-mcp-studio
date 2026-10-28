@@ -219,12 +219,50 @@ describe("the diff view", () => {
     const added: AssetDiff = { ...material, status: "added", before: null, sections: [] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package", assetDiff: added } });
     await diffOf(REVIEW.items[2]);
-    expect(screen.getByText("Did not exist before this turn")).toBeTruthy();
+    // Neither version has a picture, so the tile says it is new.
+    expect(within(screen.getByRole("group", { name: "Material SM_Box.uasset" })).getByText("New in this turn")).toBeTruthy();
     cleanup();
     const deleted: AssetDiff = { ...material, status: "deleted", after: null, sections: [] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "deleted", kind: "package", assetDiff: deleted } });
     await diffOf({ ...REVIEW.items[2], status: "deleted" });
     expect(screen.getByText("Deleted in this turn")).toBeTruthy();
+  });
+
+  it("puts the asset's type, path, changes and facts where neither version has a picture", async () => {
+    const level: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "World", summary: "3 differences", nativeDiff: { available: true },
+      before: { class: "World", facts: [{ name: "Actors", value: "41" }, { name: "Streaming", value: "World Partition" }] },
+      after: { class: "World", facts: [{ name: "Actors", value: "42" }, { name: "Streaming", value: "World Partition" }] },
+      sections: [{ category: "Actors", kind: "components", engineSource: "DiffUtils::CompareUnrelatedSCS", entries: [
+        { displayString: "Added actor SM_Crate_2", diffType: "OBJECT_ADDED", group: "SM_Crate_2" },
+        { displayString: "Relative Location", diffType: "PropertyValueChanged", path: "Relative Location", before: "(X=0)", after: "(X=10)", group: "Gate" },
+        { displayString: "Hidden", diffType: "PropertyValueChanged", path: "Hidden", before: "A", after: "B", hidden: true },
+      ] }],
+    };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/Maps/L_Gate.umap", status: "modified", kind: "package", assetDiff: level } });
+    await diffOf({ ...REVIEW.items[1], path: "Content/Maps/L_Gate.umap", asset: "/Game/Maps/L_Gate.L_Gate", group: "level" });
+    expect(document.querySelector("img")).toBeNull();
+    expect(document.querySelector(".review-pictures")).toBeNull();
+    const tile = screen.getByRole("group", { name: "World L_Gate.umap" });
+    expect(tile.getAttribute("data-family")).toBe("level");
+    expect(tile.querySelector("svg.asset-icon")).toBeTruthy();
+    expect(tile.textContent).toContain("Changed in this turn");
+    expect(tile.textContent).toContain("/Game/Maps/L_Gate.L_Gate");
+    expect(within(tile).getByRole("list", { name: "What changed" }).textContent).toBe("1 actor added1 actor changed");
+    // The fact that changed first, with its old value.
+    const facts = [...tile.querySelectorAll(".asset-tile-facts > div")].map((d) => d.textContent);
+    expect(facts).toEqual(["Actors41 to 42", "StreamingWorld Partition"]);
+  });
+
+  it("turns a thumbnail that fails to load into the tile, and says why a side has none", async () => {
+    const both: AssetDiff = { ...material, after: { ...material.after!, thumbnail: { id: "b".repeat(40), url: "", source: "rendered" } } };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: both } });
+    await diffOf(REVIEW.items[1]);
+    fireEvent.error(screen.getByAltText("BP_Door.uasset after"));
+    expect(screen.getByText("No picture: the file could not be read.")).toBeTruthy();
+    fireEvent.error(screen.getByAltText("BP_Door.uasset before"));
+    expect(document.querySelector("img")).toBeNull();
+    expect(screen.getByRole("group", { name: "Material BP_Door.uasset" }).textContent).toContain("1 node added");
   });
 
   it("shows why the engine could not diff a package", async () => {
@@ -241,6 +279,16 @@ describe("the diff view", () => {
     await diffOf({ ...REVIEW.items[2], visual: true });
     expect((screen.getByAltText("SM_Box.uasset after the turn") as HTMLImageElement).src).toContain("/v1/ext/studio/review/images/abc-def-1.png");
     expect(screen.getByText("Did not exist before this turn")).toBeTruthy();
+  });
+
+  it("shows the tile for an older review that captured no picture", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package" } });
+    await diffOf({ ...REVIEW.items[2], visual: true });
+    expect(document.querySelector("img")).toBeNull();
+    const tile = screen.getByRole("group", { name: "Asset SM_Box.uasset" });
+    expect(tile.getAttribute("data-family")).toBe("mesh");
+    expect(tile.textContent).toContain("/Game/SM_Box.SM_Box");
+    expect(tile.textContent).toContain("No picture was captured for this asset.");
   });
 });
 
