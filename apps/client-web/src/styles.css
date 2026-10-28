@@ -852,7 +852,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 
 /* Asset names in the chat: inline code that opens the asset in the editor. */
 .asset-ref { position: relative; display: inline; }
-.asset-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-decoration: none; }
+.asset-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-decoration: none; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
 .asset-link.code { font: 12px var(--mono); background: var(--panel-2); padding: 1px 4px; border-radius: 4px; box-shadow: inset 0 -1px 0 var(--accent-line); }
 .asset-link:hover, .asset-link:focus-visible { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
 .asset-link:focus-visible { outline: 1px solid var(--accent-line); outline-offset: 1px; }
@@ -902,7 +902,10 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-status.warn { color: var(--warn); font-weight: 600; }
 .qa-status.run { color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 .qa-status[title] { cursor: help; }
-.qa-expect, .qa-evidence, .qa-note, .qa-verdict { margin-left: calc(1.6em + 8px); }
+.qa-expect, .qa-evidence, .qa-note, .qa-verdict, .qa-setup { margin-left: calc(1.6em + 8px); }
+.qa-setup { display: flex; flex-wrap: wrap; gap: 0 12px; overflow-wrap: anywhere; }
+.qa-setup-lead { color: var(--muted); }
+.qa-script-path { overflow-wrap: anywhere; }
 .qa-evidence { color: var(--bad-text); white-space: pre-wrap; }
 .qa-note { color: var(--muted); font-style: italic; }
 .qa-verdict { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
