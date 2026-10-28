@@ -20,6 +20,8 @@
   --warn: #e0a43a;
   --bad: #e5604f;
   --bad-text: #f2b3aa;
+  --diff-before: rgba(229, 96, 79, 0.05);
+  --diff-after: rgba(108, 192, 139, 0.05);
   --warn-text: #efd09a;
   --glow: rgba(232, 114, 12, 0.07);
   --selection: rgba(232, 114, 12, 0.35);
@@ -72,6 +74,8 @@
   --warn: var(--ue-warning, #ffb800);
   --bad: var(--ue-error, #ef3535);
   --bad-text: var(--ue-foreground, #c0c0c0);
+  --diff-before: rgba(239, 53, 53, 0.07);
+  --diff-after: rgba(31, 228, 75, 0.05);
   --warn-text: var(--ue-foreground, #c0c0c0);
   --glow: transparent;
   --selection: color-mix(in srgb, var(--ue-select, #0070e0) 45%, transparent);
@@ -1234,17 +1238,6 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-toggle { text-align: left; white-space: normal; }
 .diff-hidden { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .diff-hidden .diff-table-wrap { width: 100%; }
-/* A narrow card: each record's property on its own line, Before and After side by side under it. */
-@media (max-width: 480px) {
-  .diff-table thead { display: none; }
-  .diff-table, .diff-table tbody { display: block; }
-  .diff-table tr.diff-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
-  .diff-table tr.diff-row td { border-bottom: 0; width: auto; }
-  .diff-table tr.diff-row td:first-child { grid-column: 1 / -1; width: auto; }
-  .diff-table tr.diff-row td[data-label]::before { content: attr(data-label); display: block; color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
-  .diff-table tr.diff-group { display: block; }
-  .diff-table tr.diff-group th { display: block; width: auto; }
-}
 .diff-parts { display: flex; flex-direction: column; gap: 2px; }
 .review-diff .output.diff { white-space: pre-wrap; overflow-wrap: break-word; }
 .diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }
@@ -1255,24 +1248,59 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-section-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .diff-section-head .mono { overflow-wrap: break-word; }
 .diff-section-title { font-weight: 600; }
-.diff-table-wrap { overflow-x: auto; max-width: 100%; border: 1px solid var(--line); border-radius: 4px; }
+/* The Change | Before | After comparison of every change card (chat/compare.tsx). Its tier
+   is the card's own width, set by a ResizeObserver as data-tier on .asset-diff: Chrome 90
+   has no container queries. Wide is the default, so an unmeasured card is a table. */
+.diff-table-wrap { max-width: 100%; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .diff-table { border-collapse: collapse; width: 100%; font-size: 12px; table-layout: fixed; }
-.diff-table th, .diff-table td { text-align: left; vertical-align: top; padding: 4px 6px; border-bottom: 1px solid var(--line); overflow-wrap: break-word; }
+.diff-table th, .diff-table td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; min-width: 0; }
+.diff-table tr:last-child > td { border-bottom: 0; }
 .diff-table thead th { color: var(--muted); font-weight: 600; background: var(--panel-2); }
 .diff-table th:first-child, .diff-table td:first-child { width: 40%; }
+.diff-table th + th, .diff-table td + td { border-left: 1px solid var(--line-strong); }
+.diff-table th.cmp-before, .diff-table td[data-label="Before"] { background: var(--diff-before); }
+.diff-table th.cmp-after, .diff-table td[data-label="After"] { background: var(--diff-after); }
+.diff-table tbody tr.diff-row:nth-child(even) > td.cmp-change { background: var(--tint); }
 .diff-table tr.diff-group th { background: var(--panel-2); color: var(--text); font-weight: 600; }
-.diff-table.nested { margin-top: 4px; border: 1px solid var(--line); }
+.diff-table tr.diff-row.sub > td.cmp-change { padding-left: 22px; }
+.diff-table tr.diff-row.minor { font-size: 11px; color: var(--muted); }
+.diff-table tr.diff-row.minor .diff-kind { opacity: 0.7; }
+.diff-table tr.diff-row.minor .cmp-side { opacity: 0.75; }
+.diff-table td.cmp-absent { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--tint) 6px 7px); }
+.diff-table td.cmp-side { color: var(--text); }
+.cmp-subtitle { margin-top: 2px; overflow-wrap: anywhere; }
+/* Pin and fact values: muted labels, monospace values, one per line. */
+.cmp-kv { margin: 0; display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 10px; }
+.cmp-kv > div { display: contents; }
+.cmp-kv dt { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
+.cmp-kv dd { margin: 0; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+.cmp-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 2px; border: 1px solid var(--line-strong); vertical-align: -1px; }
+/* Medium: the change across the card, then Before and After side by side, each labelled. */
+.asset-diff:not([data-tier="wide"]) .diff-table thead { display: none; }
+.asset-diff:not([data-tier="wide"]) .diff-table, .asset-diff:not([data-tier="wide"]) .diff-table tbody { display: block; }
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-group, .asset-diff:not([data-tier="wide"]) .diff-table tr.diff-group th { display: block; width: auto; }
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
+.asset-diff:not([data-tier="wide"]) .diff-table tbody tr.diff-row:last-child { border-bottom: 0; }
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row > td { border-bottom: 0; width: auto; }
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row > td.cmp-change { grid-column: 1 / -1; background: none; }
+.asset-diff:not([data-tier="wide"]) .diff-table td.cmp-side::before { content: attr(data-label); display: block; color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.asset-diff:not([data-tier="wide"]) .diff-table td.cmp-side + td.cmp-side { border-left: 1px solid var(--line-strong); }
+.asset-diff[data-tier="medium"] .diff-table td.cmp-change + td.cmp-side { border-left: 0; }
+/* A row with nothing on either side is its change alone. */
+.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row.bare > td.cmp-side { display: none; }
+/* Narrow: the change, then a labelled Before, then a labelled After; an empty side is left out. */
+.asset-diff[data-tier="narrow"] .diff-table tr.diff-row, .asset-diff[data-tier="tiny"] .diff-table tr.diff-row { grid-template-columns: minmax(0, 1fr); }
+.asset-diff[data-tier="narrow"] .diff-table td.cmp-side, .asset-diff[data-tier="tiny"] .diff-table td.cmp-side { border-left: 0; border-top: 1px dashed var(--line); }
+.asset-diff[data-tier="narrow"] .diff-table td.cmp-empty, .asset-diff[data-tier="narrow"] .diff-table td.cmp-absent,
+.asset-diff[data-tier="tiny"] .diff-table td.cmp-empty, .asset-diff[data-tier="tiny"] .diff-table td.cmp-absent { display: none; }
+.asset-diff[data-tier="tiny"] .cmp-kv { grid-template-columns: minmax(0, 1fr); gap: 0; }
+.asset-diff[data-tier="tiny"] .cmp-kv dd { margin-bottom: 3px; }
 .diff-kind { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 5px; margin-right: 6px; border-radius: 3px; border: 1px solid var(--line-strong); color: var(--muted); }
 .diff-kind.add { color: var(--ok); border-color: var(--ok); }
 .diff-kind.del { color: var(--bad); border-color: var(--bad); }
 .diff-kind.mod { color: var(--warn); border-color: var(--warn); }
-.diff-row.mod td:nth-child(3), .diff-row.add td:nth-child(3) { color: var(--text); }
 .diff-path, .diff-message { overflow-wrap: break-word; }
 .diff-node-values { margin-top: 2px; }
-.diff-node-props { margin: 2px 0 0; display: flex; flex-wrap: wrap; gap: 2px 14px; }
-.diff-node-props > div { display: flex; gap: 6px; min-width: 0; }
-.diff-node-props dt { color: var(--muted); }
-.diff-node-props dd { margin: 0; color: var(--text); overflow-wrap: break-word; min-width: 0; }
 .diff-facts { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
 .diff-facts .diff-table-wrap { width: 100%; }
 .blueprint-diff { list-style: none; margin: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; max-height: 320px; overflow: auto; }

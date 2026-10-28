@@ -38,6 +38,16 @@ const BLUEPRINT = ready({
     { category: "Graph: EventGraph", kind: "graph", engineSource: "FGraphDiffControl::DiffGraphs", entries: [
       { displayString: "Added Node Branch", diffType: "NODE_ADDED", category: "ADDITION", node2: { guid: "1", name: "K2Node_IfThenElse_3", class: "K2Node_IfThenElse", title: "Branch" } },
       { displayString: "Pin Default Value Changed: InSpeedMultiplierForCharacterMovementComponent", diffType: "PIN_DEFAULT_VALUE", category: "MODIFICATION", node1: { guid: "2", name: "K2Node_CallFunction_7", class: "K2Node_CallFunction", title: "SetMaxWalkSpeedFromSprintMultiplier" } },
+      { displayString: "Added Node 'PrintString'", diffType: "NODE_ADDED", category: "ADDITION", node1: { guid: "5", name: "K2Node_CallFunction_9", class: "K2Node_CallFunction", title: "PrintString", fullTitle: "Print String", pins: [
+        { name: "InString", displayName: "In String", defaultValue: "Wall run started while crouched", linked: false },
+        { name: "bPrintToScreen", displayName: "Print to Screen", defaultValue: "true", linked: false },
+        { name: "bPrintToLog", displayName: "Print to Log", defaultValue: "true", linked: false },
+        { name: "TextColor", displayName: "Text Color", defaultValue: "(R=0.000000,G=0.660000,B=1.000000,A=1.000000)", linked: false },
+        { name: "Duration", displayName: "Duration", defaultValue: "2.000000", linked: false },
+        { name: "Key", displayName: "Key", defaultValue: "None", linked: false },
+      ] } },
+      { displayString: "Pin 'then' has more links (was 0 now 1)", diffType: "PIN_LINKEDTO_NUM_INC", category: "MODIFICATION", node1: { guid: "6", name: "K2Node_Event_0", class: "K2Node_Event", title: "Event ActorBeginOverlap" } },
+      { displayString: "Node moved", diffType: "NODE_MOVED", category: "MINOR", node1: { guid: "1", name: "K2Node_IfThenElse_3", class: "K2Node_IfThenElse", title: "Branch" } },
     ] },
     { category: "Components", kind: "components", engineSource: "DiffUtils::CompareUnrelatedSCS", entries: [
       { group: "CharacterMovement", path: "MaxWalkSpeedCrouched", diffType: "NODE_PROPERTY_CHANGED", displayString: "MaxWalkSpeedCrouched changed on CharacterMovement", before: "300.000000", after: "260.000000" },
