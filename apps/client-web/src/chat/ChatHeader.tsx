@@ -1,6 +1,7 @@
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { STATE_LABEL, agentStatus, describe, formatDuration, isActive, type Call } from "./model";
 import { useNow } from "./hooks";
+import { useAsked } from "./asked";
 
 /**
  * The single header over a conversation where the chat shows one pane at a
@@ -24,7 +25,8 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
   onReview?: () => void;
 }) {
   const now = useNow(thread?.outcome === "pending");
-  const st = thread ? agentStatus(thread, transcript, sessionWaiting, now) : null;
+  const asked = useAsked();
+  const st = thread ? agentStatus(thread, transcript, sessionWaiting, now, asked) : null;
   return (
     <div className={`chat-back ${st ? `state-${st.state}` : ""}`}>
       <button

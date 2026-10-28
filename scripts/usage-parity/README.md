@@ -68,4 +68,4 @@ Without `--keep`, the runner loads the level that was open before, deletes `/Gam
 ## Needs
 
 - `claude` on the PATH, signed in. Studio's harness runs on the same login, through the Agent SDK runtime Studio downloads to `~/.ue-mcp/studio/runtime`.
-- The repo's dependencies (`npm ci`): the harness resolves the Agent SDK and the MCP SDK from them, and ue-mcp from `apps/agent/node_modules/ue-mcp`.
+- The repo's dependencies (`npm ci`): the harness resolves the Agent SDK and the MCP SDK from them, and ue-mcp from the nearest `node_modules/ue-mcp` above `apps/agent`, where npm installed it.

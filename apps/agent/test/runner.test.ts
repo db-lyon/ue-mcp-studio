@@ -407,6 +407,51 @@ describe("the editor going away", () => {
     expect(fin.touched).toEqual([{ kind: "asset", path: "/Game/Kept/BP_Saved", saved: true }]);
   });
 
+  it("an editor killed mid-turn leaves a disconnect note and lists what it lost, and leaves other sessions' dates alone (#144)", async () => {
+    const other = store.create();
+    other.touched.push({ kind: "asset", path: "/Game/Old/BP_Old", saved: false });
+    other.transcript.push({ kind: "user", text: "old work", at: "2026-10-25T05:00:00.000Z" });
+    store.save(other);
+    other.updatedAt = "2026-10-25T05:00:00.000Z";
+    store.save(other, { touch: false });
+
+    let crashed = false;
+    host.handler = async (_c, action) => {
+      if (action === "list_dirty_packages") return { isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, content: [], maps: [{ package: "/Game/Playtest/L_Playtest" }] }) }] };
+      if (action === "place_actor") return { isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, created: true, actorLabel: "K1" }) }] };
+      if (!crashed) {
+        // The editor is killed once the change is in and the editor has listed what is unsaved.
+        await until(() => host.calls.some((c) => c.action === "list_dirty_packages"), 300).catch(() => undefined);
+        await new Promise((r) => setTimeout(r, 5));
+        crashed = true;
+        host.connected = false;
+        host.emit("editor.disconnected", { cause: "crashed" });
+        throw new Error("Bridge connection lost (close code 1006)");
+      }
+      return { isError: false, content: [{ type: "text", text: "{\"success\":true}" }] };
+    };
+    const model = new ScriptedModel([
+      () => call("p", "level", "place_actor", { actorClass: "StaticMeshActor", label: "K1" }),
+      () => call("d", "level", "get_actor_details", { actorLabel: "K1" }),
+      () => text("Carrying on."),
+    ]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    await runner.send(s.id, "place K1");
+    expect(store.get(s.id)!.status).toBe("waiting");
+
+    host.connected = true;
+    host.emit("editor.connected");
+    await until(() => store.get(s.id)!.status === "idle");
+    const notes = store.get(s.id)!.transcript.flatMap((t) => (t.kind === "note" ? [t.text] : []));
+    expect(notes).toContain("The editor disconnected during this turn: the editor crashed.");
+    const lost = notes.find((n) => n.startsWith("The editor crashed."));
+    expect(lost).toMatch(/package \/Game\/Playtest\/L_Playtest \(unsaved in the editor\)/);
+    expect(lost).toMatch(/actor K1 \(not saved\)/);
+    expect(store.get(other.id)!.updatedAt).toBe("2026-10-25T05:00:00.000Z");
+    expect(store.get(other.id)!.crashed).toBe(true);
+  });
+
   it("a restart tool call waits for the editor and then continues", async () => {
     host.editorOperation = async (op: string) => {
       host.connected = false;

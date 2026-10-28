@@ -15,6 +15,7 @@ import { SessionRow } from "../chat/SessionRow";
 import { BarButton, CheckpointsGlyph, Composer } from "../chat/Composer";
 import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../chat/Approvals";
+import { AskedContext } from "../chat/asked";
 import { FormCards, useForms } from "../chat/Forms";
 import { FlowLauncher } from "../chat/FlowCommand";
 import { ActionLauncher } from "../chat/ActionCommand";
@@ -299,6 +300,8 @@ export function ChatView({ daemon, nav, active = true }: {
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
+  // The calls waiting for approval, so the thread a call waits in says it waits on the user.
+  const asked = useMemo(() => new Set((detail?.approvals ?? []).map((a) => a.toolUseId)), [detail?.approvals]);
   // The Make playtest pill and Retry: the playtest flow, started when no turn runs.
   const playtest = useMemo(() => (detail && !disconnected
     ? {
@@ -373,6 +376,7 @@ export function ChatView({ daemon, nav, active = true }: {
   );
 
   return (
+    <AskedContext.Provider value={asked}>
     <div className="chat" data-pane={chatPane(selected, listed, sessions.length)}>
       <aside className="card sessions">
         <div className="row">
@@ -512,6 +516,7 @@ export function ChatView({ daemon, nav, active = true }: {
         )}
       </section>
     </div>
+    </AskedContext.Provider>
   );
 }
 
