@@ -13,6 +13,7 @@ import { PillRow } from "../chat/Pills";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
 import { BarButton, CheckpointsGlyph, Composer } from "../chat/Composer";
+import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../chat/Approvals";
 import { FormCards, useForms } from "../chat/Forms";
 import { FlowLauncher } from "../chat/FlowCommand";
@@ -49,6 +50,8 @@ function sessionOf(data: Record<string, unknown>): string | null {
 /** The project's flows and ue-mcp's actions, for the names /flow and /action complete. One function each, so the menu fetches once per opening. */
 const loadFlowNames = () => api.flows().then((r) => r.flows);
 const loadActionNames = () => api.actions().then((r) => r.actions);
+/** Names for the composer's @-mentions: the project's assets, the open level's actors and the project's files. */
+const searchMentions: MentionSearchFn = (request, signal) => api.searchMentions(request, signal);
 
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
@@ -478,6 +481,7 @@ export function ChatView({ daemon, nav, active = true }: {
               onSend={send}
               flows={loadFlowNames}
               actions={loadActionNames}
+              mentions={searchMentions}
               onQueue={queue}
               onSendNow={sendNow}
               onStop={() => selected && void api.stop(selected)}

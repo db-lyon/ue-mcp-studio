@@ -54,6 +54,8 @@ import type {
   NativeOverview,
   NativePreview,
   Convention,
+  MentionSearchRequest,
+  MentionSearchResponse,
 } from "@ue-mcp-studio/shared";
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
@@ -106,9 +108,10 @@ export class ApiError extends Error {
   }
 }
 
-async function call<T>(method: string, url: string, body?: unknown): Promise<T> {
+async function call<T>(method: string, url: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(url, {
     method,
+    signal,
     headers: body === undefined ? undefined : { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "same-origin",
@@ -244,6 +247,8 @@ export const api = {
   resolveAssets: (refs: AssetRef[], sessionId: string | null) =>
     call<AssetResolveResponse>("POST", "/v1/ext/studio/assets/resolve", sessionId ? { refs, sessionId } : { refs }),
   reportAssetMiss: (name: string, candidates: number) => call<void>("POST", "/v1/ext/studio/assets/missed", { name, candidates }),
+  /** Names for an @-mention; `signal` drops a search the composer no longer wants. */
+  searchMentions: (request: MentionSearchRequest, signal?: AbortSignal) => call<MentionSearchResponse>("POST", "/v1/ext/studio/mentions/search", request, signal),
   openAsset: (path: string) => call<AssetOpenResponse>("POST", "/v1/ext/studio/assets/open", { path }),
   stopBusy: () => call<{ stopped: string[] }>("POST", "/v1/ext/studio/busy/stop"),
   native: () => call<NativeOverview>("GET", "/v1/ext/studio/native"),
