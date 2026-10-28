@@ -85,6 +85,10 @@ const host = (): QaHost & AgentHost => ({
   log: { info() {}, warn() {} },
 }) as unknown as QaHost & AgentHost;
 
+/** An answer as ue-mcp projects it for a call's select: only those top-level fields. */
+const selected = (answer: Record<string, unknown>, args: Record<string, unknown>): Record<string, unknown> =>
+  Array.isArray(args.select) ? Object.fromEntries(Object.entries(answer).filter(([k]) => (args.select as string[]).includes(k))) : answer;
+
 const emit = (type: string, data: Record<string, unknown>) => listeners.forEach((l) => l({ type, data }));
 
 /** What one attempt's subagent does: change files, add tool calls, run the playtest with these step outcomes, and report. */
@@ -93,6 +97,10 @@ interface Attempt {
   calls?: Array<{ name: string; input: Record<string, unknown>; result?: string; outcome?: "done" | "error" | "declined" }>;
   run?: StepState[] | null;
   runState?: string;
+  /** Runs started before run, each stopped: an attempt that started over. */
+  stoppedRuns?: StepState[][];
+  /** The select the subagent's script_run calls carry. */
+  select?: string[];
   events?: Array<{ type: string; data: Record<string, unknown> }>;
   report?: string;
   /** Never finish on its own: only a stop ends it. */
@@ -144,13 +152,24 @@ function setup(plan: Attempt[], opts: { steps?: Array<Record<string, unknown>>; 
           }
           st.save(live);
           for (const e of step.events ?? []) emit(e.type, e.data);
+          for (const early of step.stoppedRuns ?? []) {
+            runCount++;
+            const runId = `${BASE}${String(runCount).padStart(2, "0")}`;
+            runs.set(runId, answerOf(runId, early, "running"));
+            const orig = h.callAction;
+            h.callAction = async (c, a, args) => (a === "script_run" ? ok(selected(runs.get(runId)!, args)) : orig(c, a, args));
+            await assigned.callAction("pie", "script_run", { script: SCRIPT, start_pie: true, ...(step.select ? { select: step.select } : {}) });
+            h.callAction = orig;
+            runs.set(runId, answerOf(runId, early, "stopped"));
+            await broker.status(runId);
+          }
           if (step.run) {
             runCount++;
             const runId = `${BASE}${String(runCount).padStart(2, "0")}`;
             runs.set(runId, answerOf(runId, step.run, step.runState));
             const orig = h.callAction;
-            h.callAction = async (c, a, args) => (a === "script_run" ? ok(runs.get(runId)!) : orig(c, a, args));
-            await assigned.callAction("pie", "script_run", { script: SCRIPT, start_pie: true });
+            h.callAction = async (c, a, args) => (a === "script_run" ? ok(selected(runs.get(runId)!, args)) : orig(c, a, args));
+            await assigned.callAction("pie", "script_run", { script: SCRIPT, start_pie: true, ...(step.select ? { select: step.select } : {}) });
             h.callAction = orig;
           }
           if (!step.hang) resolve({ isError: false, text: step.report ?? "Done." });
@@ -223,6 +242,61 @@ describe("the loop", () => {
     expect(brief).toMatch(/No auto step needs you to drive the pawn/);
     steps = STEPS;
     expect(firstBrief(qaRunFromAnswer(answerOf("r", [OPEN_FAIL]), { sessionId: "s", seenAt: "x" })!)).toMatch(/pie\.inject_input/);
+  });
+});
+
+describe("an attempt that starts the playtest more than once (#143)", () => {
+  it("ends as passed on every card the loop's runs took, and Cancel then has nothing to stop", async () => {
+    const h = setup([
+      { run: null, report: "Did not run it." },
+      { files: { "Content/BP_Door.uasset": "v2" }, stoppedRuns: [[PASS], [PASS]], run: [PASS, PASS], select: ["success", "run_id", "state"], report: "Fixed it." },
+    ]);
+    await assign(h);
+    await ended(h);
+    const cards = store.get(h.sessionId)!.transcript.flatMap((t) => (t.kind === "qa" ? [t.run] : []));
+    expect(h.loop().state).toBe("passed");
+    for (const c of cards) {
+      expect(c.assignment?.state, c.runId).not.toBe("running");
+      expect(c.assignment?.loop?.state, c.runId).toBe("passed");
+    }
+    expect(h.broker.all().filter((r) => r.assignment?.state === "running")).toEqual([]);
+    for (const c of cards) expect("error" in h.broker.cancel(c.runId), c.runId).toBe(true);
+    // Every run took the loop's one card, so the script's row is the run that passed.
+    expect(cards.map((c) => [c.runId, c.script])).toEqual([[`${BASE}03`, SCRIPT]]);
+  });
+
+  it("Cancel on a card the ended loop left running closes the loop there too", async () => {
+    const h = setup([{ run: [PASS, PASS] }]);
+    await assign(h);
+    await ended(h);
+    // A card an older Studio left behind: the loop's copy still running on it.
+    const stale = { ...h.card(), runId: `${BASE}99`, assignment: { ...h.card().assignment!, state: "running" as const, loop: { ...h.loop(), state: "running" as const } } };
+    (h.broker as unknown as { runs: Map<string, QaRun> }).runs.set(stale.runId, stale);
+    expect("run" in h.broker.cancel(stale.runId)).toBe(true);
+    expect(h.broker.get(stale.runId)?.assignment?.loop?.state).not.toBe("running");
+    expect(h.broker.get(stale.runId)?.assignment?.state).not.toBe("running");
+  });
+
+  it("Cancel ends a loop at once while it waits to read the attempt's run", async () => {
+    const h = setup([{ run: [PASS, PASS] }]);
+    let hold = false;
+    const read = (h.broker as unknown as { o: { host: QaHost } }).o.host;
+    const orig = read.callAction;
+    read.callAction = async (c, a, args) => {
+      if (hold && a === "script_status") return new Promise<ActionResult>(() => {});
+      return orig(c, a, args);
+    };
+    support.checkpoints.mark = (sessionId, mark) => {
+      support.marks.push({ sessionId, mark });
+      hold = true;
+    };
+    await assign(h);
+    await until(() => support.marks.length === 1);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(h.loop().state).toBe("running");
+    expect("run" in h.broker.cancel(h.card().runId)).toBe(true);
+    expect(h.loop().state).toBe("stopped");
+    expect(h.broker.all().filter((r) => r.assignment?.state === "running")).toEqual([]);
   });
 });
 

@@ -68,6 +68,17 @@ const CAPTURE_TYPES: Record<string, string> = { ".png": "image/png", ".jpg": "im
 /** The pie actions that start a run. */
 const STARTS = new Set(["script_run", "script_replay"]);
 
+/** What a start's answer must carry for its card: which script it ran, so it takes the loop's card and the script's row (#143). */
+const RUN_FIELDS = ["run_id", "script", "script_name", "state", "mode", "replay_of", "recording_id", "results_path", "last_seq"];
+
+/** A start's args with the model's select widened, and its omit narrowed, to keep RUN_FIELDS in the answer. */
+export function keepRunFields(args: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...args };
+  if (Array.isArray(args.select)) out.select = [...new Set([...(args.select as unknown[]), ...RUN_FIELDS])];
+  if (Array.isArray(args.omit)) out.omit = (args.omit as unknown[]).filter((p) => typeof p !== "string" || !RUN_FIELDS.includes(p.split(".")[0]));
+  return out;
+}
+
 export interface QaHost {
   callAction(category: string, action: string, args?: Record<string, unknown>, opts?: { elicit?: (p: ElicitParams) => Promise<ElicitResult> }): Promise<ActionResult>;
   editors(): Array<{ connected: boolean }>;
@@ -240,9 +251,11 @@ export class QaBroker {
       const call: Inflight = { sessionId, action };
       this.inflight.push(call);
       try {
-        const r = await host.callAction(category, action, args);
+        const r = await host.callAction(category, action, keepRunFields(args));
         const body = json(r);
-        if (!failure(r, body) && body) this.started(sessionId, action, body);
+        // An answer that still has no script names the one the call ran.
+        const script = typeof args.script === "string" && args.script ? args.script : null;
+        if (!failure(r, body) && body) this.started(sessionId, action, body.script === undefined && script ? { ...body, script } : body);
         return r;
       } finally {
         this.inflight.splice(this.inflight.indexOf(call), 1);
@@ -587,10 +600,12 @@ export class QaBroker {
     return [...this.runs.values()].filter((r) => r.assignment?.loop?.id === loopId && !r.deleted).pop();
   }
 
+  /** Every card that carries the loop says the same: an older card left Running is a loop that never ends (#143). */
   private saveLoop(loopId: string, loop: QaLoop, state: "running" | "done" | "failed" | "stopped", callId?: string): void {
-    const run = this.loopHolder(loopId);
-    if (!run?.assignment) return;
-    this.save({ ...run, assignment: { ...run.assignment, callId: callId ?? run.assignment.callId, state, loop: JSON.parse(JSON.stringify(loop)) as QaLoop } });
+    const carriers = [...this.runs.values()].filter((r) => r.assignment?.loop?.id === loopId && !r.deleted);
+    for (const run of carriers) {
+      this.save({ ...run, assignment: { ...run.assignment!, callId: callId ?? run.assignment!.callId, state, loop: JSON.parse(JSON.stringify(loop)) as QaLoop } });
+    }
   }
 
   /** A loop stopped for the user: a note for the agent's next turn, and the attention event Studio's window notifies with. */
@@ -676,6 +691,15 @@ export class QaBroker {
     const loop = a.loop ? this.loops.get(a.loop.id) : undefined;
     if (loop) {
       loop.cancel();
+      return { run: this.runs.get(runId) ?? run };
+    }
+    // A loop this daemon no longer runs: close it on every card that still shows it running.
+    if (a.loop) {
+      const holder = this.loopHolder(a.loop.id) ?? run;
+      const latest = holder.assignment?.loop ?? a.loop;
+      const open = latest.state === "running";
+      const was = holder.assignment?.state;
+      this.saveLoop(a.loop.id, open ? { ...latest, state: "stopped", endedAt: this.now() } : latest, open || !was || was === "running" ? (open ? "stopped" : "done") : was);
       return { run: this.runs.get(runId) ?? run };
     }
     if (!this.o.assigner?.stop(a.sessionId, a.callId)) {

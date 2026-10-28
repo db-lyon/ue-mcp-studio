@@ -5,6 +5,7 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
+import { useAsked } from "./asked";
 import { breakable } from "./breakable";
 import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
@@ -279,6 +280,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   const items = useMemo(() => mainTimeline(transcript, status), [transcript, status]);
   const follow = useFollow<HTMLDivElement>(`${transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
+  const asked = useAsked().size;
   return (
     <>
       <div className="transcript" ref={follow.ref} onScroll={follow.onScroll} aria-hidden={hidden || undefined}>
@@ -288,6 +290,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
           return <AgentGroup key={item.calls[0].id} calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} />;
         })}
         {streaming && <div className="msg assistant">{streaming}</div>}
+        {asked > 0 && <div className="banner warn" role="status">Waiting on you: {asked === 1 ? "a call needs" : `${asked} calls need`} your approval below.</div>}
         {waiting && <div className="banner warn">Waiting for editor: {waitingCause ?? "not connected"}. The turn continues when it is back.</div>}
         {status === "error" && error && <div className="banner bad">{error}</div>}
       </div>
@@ -321,7 +324,8 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
   onOpen: (id: string) => void;
 }) {
   const now = useNow(calls.some((c) => c.outcome === "pending"));
-  const rows = calls.map((c) => ({ call: c, ...agentStatus(c, transcript, sessionWaiting, now) }));
+  const asked = useAsked();
+  const rows = calls.map((c) => ({ call: c, ...agentStatus(c, transcript, sessionWaiting, now, asked) }));
   const running = rows.some((r) => isActive(r.state));
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? (running || calls.length <= GROUP_OPEN_MAX);
@@ -363,7 +367,7 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack, onSto
   onStop: (id: string) => void;
 }) {
   const now = useNow(call.outcome === "pending");
-  const st = agentStatus(call, transcript, sessionWaiting, now);
+  const st = agentStatus(call, transcript, sessionWaiting, now, useAsked());
   const prompt = (call.input as { prompt?: string }).prompt;
   const steps = transcript.filter((t) => t.parent === call.id);
   const follow = useFollow<HTMLDivElement>(`${steps.length}:${call.outcome}`);

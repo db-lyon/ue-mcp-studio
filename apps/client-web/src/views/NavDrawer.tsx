@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { SessionSummary } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import { listState } from "../chat/SessionRow";
 
 export type NavTab = "Chat" | "Playtests" | "Plugins" | "Settings";
 const TABS: NavTab[] = ["Chat", "Plugins", "Settings"];
@@ -76,9 +77,9 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
           {recent?.map((s) => (
             <button
               key={s.id}
-              className={`drawer-session status-${s.status} ${tab === "Chat" && s.id === session ? "active" : ""}`}
+              className={`drawer-session status-${listState(s)} ${tab === "Chat" && s.id === session ? "active" : ""}`}
               onClick={pick(() => onSession(s.id))}
-              title={s.title}
+              title={s.awaiting ? `${s.title}, waiting on your approval` : s.title}
             >
               <span className="session-dot" />
               <span className="drawer-session-title">{s.title || "Untitled"}</span>

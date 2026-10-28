@@ -178,8 +178,9 @@ export class SessionStore {
    * Write through a rename, so a reader or a restart never sees half a session.
    * A blank one stays in memory only, so sessions opened and left do not pile up.
    */
-  save(s: StoredSession): void {
-    s.updatedAt = new Date().toISOString();
+  save(s: StoredSession, opts: { touch?: boolean } = {}): void {
+    // touch: false is bookkeeping, such as the crash flag, which must not move the session up the list (#144).
+    if (opts.touch !== false) s.updatedAt = new Date().toISOString();
     this.cache.set(s.id, s);
     const file = path.join(this.dir, `${s.id}.json`);
     if (SessionStore.isBlank(s)) {

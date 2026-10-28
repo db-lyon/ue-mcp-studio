@@ -10,9 +10,18 @@ const STATUS_LABEL: Record<string, string> = {
   error: "Stopped on an error",
 };
 
+/**
+ * The state the session list shows: a call waiting for approval, from the main
+ * agent or any subagent, puts the session on the user whatever its turn is
+ * doing, since a subagent the user assigned runs while the session is idle (#149).
+ */
+export const listState = (s: Pick<SessionSummary, "status" | "awaiting">): string => (s.awaiting ? "needs-you" : s.status);
+
 /** The line under a session's title: what it is doing, its subagents, or when it last changed. */
 export function sessionLine(s: SessionSummary): string {
-  const status = s.awaiting ? "Needs your approval" : STATUS_LABEL[s.status] ?? "";
+  const status = s.awaiting
+    ? s.awaiting === 1 ? "Waiting on your approval" : `Waiting on your approval of ${s.awaiting} calls`
+    : STATUS_LABEL[s.status] ?? "";
   const agents = s.agents?.running ? `${s.agents.running} of ${s.agents.total} subagents running` : "";
   const line = [status, agents].filter(Boolean).join(", ") || new Date(s.updatedAt).toLocaleString();
   // The model of its last turn, and how it was reached.
@@ -60,7 +69,7 @@ export function SessionRow({ s, selected, onOpen, onChanged }: {
   const remove = () => api.deleteSession(s.id).then(() => onChanged(s.id), () => onChanged());
 
   return (
-    <div ref={box} className={`item status-${s.status} ${selected ? "selected" : ""} ${s.archived ? "archived" : ""}`} onClick={() => !editing && onOpen()}>
+    <div ref={box} className={`item status-${listState(s)} ${selected ? "selected" : ""} ${s.archived ? "archived" : ""}`} onClick={() => !editing && onOpen()}>
       {editing ? (
         <input
           className="session-title-edit"
