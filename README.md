@@ -8,10 +8,10 @@ Studio runs in its own window beside the editor, in a separate process, so the c
 
 Studio comes as two packages, each with its own releases:
 
-- **The editor plugin**, from [db-lyon/ue-mcp-studio-plugin](https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest). Unzip `UE_MCP_Studio-<version>-UE<engine>-Win64.zip` into your project's `Plugins/` folder and open the project. On first start the plugin installs ue-mcp and the Studio extension.
+- **The editor plugin**, from [db-lyon/ue-mcp-studio-plugin](https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest). Unzip `UE_MCP_Studio-<version>-UE<engine>-Win64.zip` into your project's `Plugins/` folder and open the project. On first start the plugin's UE-MCP Studio tab lists what it installs and where: the bridge plugin, ue-mcp from npm, the Studio extension and Studio's window app. Nothing installs or downloads until you allow it there.
 - **The Studio extension**, from [this repository's releases](https://github.com/db-lyon/ue-mcp-studio/releases/latest): `studio-<version>.zip` and `latest.json`, which the plugin and `npx ue-mcp extension install <latest.json url> <uproject>` follow.
 
-Unreal Engine 5.7 and 5.8 on Windows, with Node.js installed. Requires ue-mcp 1.4.3 or later. **Settings > Update** keeps ue-mcp, the plugin and the extension current with one button. An update that restarts ue-mcp or the editor waits until no turn is running; **Restart now** installs it at once and stops the turn.
+Unreal Engine 5.7 and 5.8 on Windows, with Node.js installed. Requires ue-mcp 1.4.11-beta.9 or later. The **Updates** card under **Settings > General** keeps ue-mcp, the plugin and the extension current with one button. An update that restarts ue-mcp or the editor waits until no turn is running; **Restart now** installs it at once and stops the turn.
 
 ## Models
 
@@ -25,7 +25,7 @@ Pick a model in the chat box. Each vendor connects through its own sign-in where
 
 The agent works in the editor through ue-mcp, and on your machine through Studio's own tools: `shell` (Git Bash on Windows when Git is installed, otherwise PowerShell), `read_file`, `write_file`, `edit_file`, `glob`, `grep` and `web_fetch`, plus the model provider's own web search where the route has one. Commands run in the project folder, and relative paths start there.
 
-Reads, searches and fetches run freely. A command, a file write or an edit waits in the chat with the command or the diff until you choose Allow, Allow for this session or Deny. **Settings > Agent** turns the asking off for a project.
+Reads, searches and fetches run freely. **Settings > Approvals & review** sets, per kind, whether an agent asks first: shell commands, file changes, restarting or rebuilding the editor, and ue-mcp actions that delete or overwrite. Each kind is Ask or Allow, and shell commands and file changes can also run without asking only inside the project folder. A new install asks for all four, and the choices are kept per project. A request that asks waits in the chat with the command or the diff until you choose Allow, Allow for this session or Deny.
 
 ## Development
 
