@@ -67,6 +67,8 @@ const subagentModelOf = (v: unknown): UsageSettings["subagentModel"] | undefined
     ? { provider: m.provider as KeyProviderId, model: m.model.trim() }
     : undefined;
 };
+/** Settings offer When you ask and Automatic; an "off" from an earlier version reads as When you ask. */
+const modeOf = (v: SubagentMode): SubagentMode => (v === "off" ? "asked" : v);
 const perTurnOf = (v: unknown): number | undefined =>
   Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_SUBAGENTS_PER_TURN ? (v as number) : undefined;
 
@@ -74,7 +76,7 @@ const perTurnOf = (v: unknown): number | undefined =>
 export function usageOf(raw: unknown): UsageSettings {
   const u = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   return {
-    subagents: SUBAGENT_MODES.includes(u.subagents as SubagentMode) ? (u.subagents as SubagentMode) : DEFAULT_USAGE.subagents,
+    subagents: SUBAGENT_MODES.includes(u.subagents as SubagentMode) ? modeOf(u.subagents as SubagentMode) : DEFAULT_USAGE.subagents,
     subagentModel: subagentModelOf(u.subagentModel) ?? DEFAULT_USAGE.subagentModel,
     subagentEffort: EFFORTS.includes(u.subagentEffort as Effort) ? (u.subagentEffort as Effort) : DEFAULT_USAGE.subagentEffort,
     subagentsPerTurn: perTurnOf(u.subagentsPerTurn) ?? DEFAULT_USAGE.subagentsPerTurn,
@@ -89,7 +91,7 @@ export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): U
   const next = { ...current };
   if (u.subagents !== undefined) {
     if (!SUBAGENT_MODES.includes(u.subagents)) throw new Error(`usage.subagents must be one of ${SUBAGENT_MODES.join(", ")}`);
-    next.subagents = u.subagents;
+    next.subagents = modeOf(u.subagents);
   }
   if (u.subagentModel !== undefined) {
     const m = subagentModelOf(u.subagentModel);

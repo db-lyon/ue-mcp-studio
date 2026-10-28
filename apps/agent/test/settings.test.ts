@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { SettingsStore } from "../src/settings.js";
+import { SettingsStore, usageOf } from "../src/settings.js";
 import { DEFAULT_USAGE } from "@ue-mcp-studio/shared";
 
 const store = () => ((d) => new SettingsStore(d, path.join(d, "keys")))(fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-")));
@@ -108,9 +108,16 @@ describe("usage settings", () => {
 
   it("change only the fields given", () => {
     const s = store();
-    s.update({ usage: { subagents: "off" } });
+    s.update({ usage: { subagents: "automatic" } });
     s.update({ usage: { imageSize: "small" } });
-    expect(s.usage()).toMatchObject({ subagents: "off", imageSize: "small", subagentsPerTurn: 4 });
+    expect(s.usage()).toMatchObject({ subagents: "automatic", imageSize: "small", subagentsPerTurn: 4 });
+  });
+
+  it("read an off from an earlier version as When you ask, the choice Settings shows", () => {
+    const s = store();
+    s.update({ usage: { subagents: "off" } });
+    expect(s.usage().subagents).toBe("asked");
+    expect(usageOf({ subagents: "off" }).subagents).toBe("asked");
   });
 
   it("refuse values out of range", () => {
