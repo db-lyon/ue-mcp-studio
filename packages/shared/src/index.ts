@@ -869,3 +869,4 @@ export * from "./actions.js";
 export * from "./composer.js";
 export * from "./native.js";
 export * from "./version.js";
+export * from "./mentions.js";
