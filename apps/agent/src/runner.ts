@@ -202,6 +202,27 @@ export interface RunnerOptions {
 
 const now = (): string => new Date().toISOString();
 
+/** editor(list_dirty_packages)'s package names, from its content and maps lists; null for an answer that is not one. */
+export function parseDirty(text: string): string[] | null {
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!v || typeof v !== "object" || (v as { success?: unknown }).success === false) return null;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.content) && !Array.isArray(o.maps)) return null;
+  const names = new Set<string>();
+  for (const list of [o.content, o.maps]) {
+    for (const e of Array.isArray(list) ? list : []) {
+      const name = typeof e === "string" ? e : e && typeof e === "object" ? (e as { package?: unknown }).package : null;
+      if (typeof name === "string" && name) names.add(name);
+    }
+  }
+  return [...names].sort();
+}
+
 /** A promise's value, or null as soon as the signal aborts. The work goes on; its result is dropped. */
 export function unlessAborted<T>(p: Promise<T>, signal: AbortSignal): Promise<T | null> {
   if (signal.aborted) return Promise.resolve(null);
@@ -258,6 +279,12 @@ export class AgentRunner {
   private readonly waitingApprovals = new Map<string, { sessionId: string; parent: string | null; answer: (d: ApprovalDecision | "stopped") => void }>();
   /** Why the editor last went away, for waiting turns and unknown outcomes. */
   private lastCause = "the editor is not connected";
+  /** The editor's dirty packages as it last listed them, read after each change or save. */
+  private dirty: string[] = [];
+  /** The packages that were dirty when the editor last crashed: lost with it. */
+  private lostPackages: string[] = [];
+  /** A dirty-package read in flight, and whether another change came in meanwhile. */
+  private dirtyRead: { again: boolean } | null = null;
   private readonly unsubscribe: () => void;
   /** Where the images a tool showed the model are kept for the panel. */
   private readonly files: AttachmentStore;
@@ -273,15 +300,21 @@ export class AgentRunner {
           : cause === "restarting" ? "the editor is restarting"
           : cause === "rebuild" ? "the project is rebuilding"
           : "the editor connection dropped";
-        if (cause === "crashed") {
-          for (const s of o.store.all()) {
-            if (s.touched.length > 0) {
-              s.crashed = true;
-              o.store.save(s);
-            }
+        // What was unsaved when it went: the last dirty-package list the editor gave.
+        this.lostPackages = cause === "crashed" ? [...this.dirty] : [];
+        for (const s of o.store.all()) {
+          const turn = this.busy(s);
+          // The turn's transcript keeps the disconnect and its cause after the waiting line is gone (#144).
+          if (turn) this.addEntry(s, { kind: "note", text: `The editor disconnected during this turn: ${this.lastCause}.`, at: now() });
+          if (cause === "crashed" && (turn || s.touched.length > 0)) {
+            s.crashed = true;
+            // A session with no turn running keeps its place in the list.
+            o.store.save(s, { touch: turn });
           }
         }
       } else if (e.type === "editor.connected") {
+        // With the editor back, what the crash lost is listed at once, not on the session's next message.
+        for (const s of o.store.all()) if (s.crashed && this.busy(s)) this.reconcileCrash(s);
         this.resumeAll();
       } else if (e.type === "studio.busy.changed" && e.data.failure && !e.data.operation) {
         // The restart or rebuild ended without the editor: nothing will bring it back, so stop waiting for it.
@@ -1706,6 +1739,7 @@ ${result}`);
   /** A call's changes: what the session touched, and the turn's count of changing calls with the targets they named. */
   private mergeExec(s: StoredSession, exec: ToolExecution, known: boolean): void {
     this.mergeTouched(s, exec.touched, known);
+    if (exec.changed || exec.saved.length > 0) this.readDirty();
     if (!exec.changed || !s.turn) return;
     s.turn.mutations++;
     for (const t of exec.touched) {
@@ -1728,10 +1762,34 @@ ${result}`);
     }
   }
 
-  /** After a crash: list what the session changed and never saved, and saved assets that are not on disk. */
+  /**
+   * Ask the editor what is unsaved, in the background, so a crash can name it.
+   * Reads coalesce: changes while one is in flight cause one more read after it.
+   */
+  private readDirty(): void {
+    if (this.dirtyRead) {
+      this.dirtyRead.again = true;
+      return;
+    }
+    const read = { again: false };
+    this.dirtyRead = read;
+    void Promise.resolve()
+      .then(() => this.o.host.callAction("editor", "list_dirty_packages", {}))
+      .then((r) => {
+        const body = r.isError ? null : parseDirty(r.content.map((c) => c.text ?? "").join(""));
+        if (body) this.dirty = body;
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        this.dirtyRead = null;
+        if (read.again) this.readDirty();
+      });
+  }
+
+  /** After a crash: list what the session changed and never saved, the packages unsaved in the editor, and saved assets that are not on disk. */
   private reconcileCrash(s: StoredSession): void {
     s.crashed = false;
-    const lost: string[] = [];
+    const lost: string[] = this.lostPackages.map((p) => `package ${p} (unsaved in the editor)`);
     for (const t of s.touched) {
       if (!t.saved) {
         lost.push(`${t.kind} ${t.path} (not saved)`);

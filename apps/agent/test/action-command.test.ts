@@ -103,6 +103,8 @@ describe("a /action in a session", () => {
       projectDir: path.join(root, "project"),
       dataDir: path.join(root, "data"),
       callAction: async (category: string, action: string, args?: Record<string, unknown>) => {
+        // The runner's own background read of what is unsaved, which is not the action's call.
+        if (action === "list_dirty_packages") return answer({ success: true, content: [], maps: [] });
         calls.push({ category, action, args });
         return reply(category, action);
       },

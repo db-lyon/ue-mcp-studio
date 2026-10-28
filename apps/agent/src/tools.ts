@@ -188,6 +188,24 @@ export function namedTargets(args: Record<string, unknown>): TouchedItem[] {
   return out;
 }
 
+/**
+ * The targets a changing call's answer names, beside the ones its arguments
+ * name: a call that makes an actor names it by its label only in the answer
+ * (place_actor takes label, answers actorLabel), so the change is still known (#144).
+ */
+export function changedTargets(args: Record<string, unknown>, answer: Record<string, unknown> | null): TouchedItem[] {
+  const out = namedTargets(args);
+  if (typeof args.label === "string" && args.label) out.push({ kind: "actor", path: args.label, saved: false });
+  if (answer) out.push(...namedTargets(answer));
+  const seen = new Set<string>();
+  return out.filter((t) => {
+    const key = `${t.kind}:${t.path}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 /** Did a result report changing something? Handlers say so with created/updated/changed/deleted. */
 function reportsChange(json: Record<string, unknown> | null): boolean {
   if (!json) return false;
@@ -274,7 +292,7 @@ export async function executeTool(host: AgentHost, name: string, input: Record<s
   }
   const json = parseJson(text);
   const changed = !r.isError && reportsChange(json);
-  const touched = changed ? namedTargets(args) : [];
+  const touched = changed ? changedTargets(args, json) : [];
   const savedHere = json?.saved === true;
   for (const t of touched) t.saved = savedHere;
   let saved: string[] = [];
