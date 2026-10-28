@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   EFFORTS,
   EFFORT_NAMES,
@@ -17,6 +17,7 @@ import {
   type StudioSignIn,
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import { atMost, useBarTier } from "../chat/barTier";
 
 type Catalog = ModelCatalog;
 type Vendor = Catalog["providers"][number];
@@ -79,18 +80,22 @@ export function ModelPicker({
   onSettings,
   up = false,
   follow,
+  merged = false,
 }: {
   settings: StudioSettings;
   onSettings: (s: StudioSettings) => void;
   /** Open above the button, for the composer at the bottom of the panel. */
   up?: boolean;
   follow?: Follow<string>;
+  /** The effort too: the button names both and the menu has an Effort section under the models. */
+  merged?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const catalog = useCatalog(settings);
   const [connecting, setConnecting] = useState<{ vendor: VendorId; model: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -129,15 +134,44 @@ export function ModelPicker({
     // Nothing connected yet: no vendor is chosen for the user.
     : anythingConnected(settings) ? current?.model.name ?? settings.model : "Choose a model";
 
+  // A model with no route has no effort to set, as the separate Effort control is then disabled.
+  const withEffort = merged && !follow && settings.route !== null;
+  const label = withEffort ? `${shown} · ${EFFORT_NAMES[settings.effort]}` : shown;
+  // Escape closes the menu; the arrow keys move between the models.
+  const keyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape" && open) {
+      e.stopPropagation();
+      done();
+      button.current?.focus();
+      return;
+    }
+    if ((e.key === "ArrowDown" || e.key === "ArrowUp") && open) {
+      const items = [...(box.current?.querySelectorAll<HTMLButtonElement>(".picker-models button.picker-item") ?? [])];
+      if (!items.length) return;
+      e.preventDefault();
+      const at = items.indexOf(document.activeElement as HTMLButtonElement);
+      const next = at < 0 ? (e.key === "ArrowDown" ? 0 : items.length - 1) : (at + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      items[next].focus();
+    }
+  };
+
   return (
-    <div className="picker" ref={box}>
-      <button className="picker-button" onClick={() => setOpen(!open)} title="Model" aria-label={follow ? `${follow.label}: ${shown}` : undefined}>
-        <span>{shown}</span>
+    <div className={`picker ${merged ? "merged" : ""}`} ref={box} onKeyDown={keyDown}>
+      <button
+        ref={button}
+        className="picker-button"
+        onClick={() => setOpen(!open)}
+        title={withEffort ? "Model and effort" : "Model"}
+        aria-haspopup="true"
+        aria-expanded={open}
+        aria-label={follow ? `${follow.label}: ${shown}` : withEffort ? `Model and effort: ${shown}, ${EFFORT_NAMES[settings.effort]}` : undefined}
+      >
+        <span className="picker-label">{label}</span>
         {via && <span className="picker-via">{viaName(via, current?.vendor.name ?? (via === "key" ? PROVIDERS[settings.provider as KeyProviderId]?.name ?? settings.provider : settings.provider))}</span>}
         <span className="picker-caret" aria-hidden>{"▾"}</span>
       </button>
       {open && (
-        <div className={`picker-menu ${up ? "up" : ""}`} role="listbox">
+        <div className={`picker-menu ${up ? "up" : ""}`}>
           {error && <div className="banner bad small" onClick={() => setError(null)}>{error}</div>}
           {connecting && catalog ? (
             <div className="picker-connect">
@@ -150,7 +184,7 @@ export function ModelPicker({
               />
             </div>
           ) : (
-            <>
+            <div className="picker-models" role="listbox" aria-label="Model">
             {follow && (
               <button role="option" aria-selected={follow.value === null} className={`picker-item ${follow.value === null ? "current" : ""}`} onClick={() => void select(settings.provider, null)}>
                 <span>{follow.same}</span>
@@ -179,8 +213,9 @@ export function ModelPicker({
                 })}
               </div>
             ))}
-            </>
+            </div>
           )}
+          {withEffort && !connecting && <EffortSegments settings={settings} onSettings={onSettings} />}
           {!catalog && !error && <p className="muted small">Loading models</p>}
         </div>
       )}
@@ -397,6 +432,55 @@ function TerminalSignIn({ command, lead = "No browser opened? Run this in" }: { 
       <div className="row">
         <code className="mono small">{command}</code>
         <button onClick={() => void navigator.clipboard?.writeText(command)}>Copy</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The model and the effort in the composer bar: two controls while there is
+ * room, one chip with one menu when the bar narrows (chat/barTier.ts).
+ */
+export function ModelAndEffort({ settings, onSettings }: { settings: StudioSettings; onSettings: (s: StudioSettings) => void }) {
+  return atMost("merged", useBarTier())
+    ? <ModelPicker settings={settings} onSettings={onSettings} up merged />
+    : <><ModelPicker settings={settings} onSettings={onSettings} up /><EffortPicker settings={settings} onSettings={onSettings} /></>;
+}
+
+/** The effort as a row of choices, in the merged menu. Left and Right move and pick. */
+function EffortSegments({ settings, onSettings }: { settings: StudioSettings; onSettings: (s: StudioSettings) => void }) {
+  const [error, setError] = useState<string | null>(null);
+  const pick = (effort: Effort) => api.saveSettings({ effort }).then(onSettings, (e: Error) => setError(e.message));
+  const group = useRef<HTMLDivElement>(null);
+  const head = useId();
+  const keyDown = (e: React.KeyboardEvent) => {
+    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const at = EFFORTS.indexOf(settings.effort);
+    const next = EFFORTS[(at + step + EFFORTS.length) % EFFORTS.length];
+    void pick(next);
+    group.current?.querySelector<HTMLButtonElement>(`[data-effort="${next}"]`)?.focus();
+  };
+  return (
+    <div className="picker-effort">
+      <div className="picker-group-head"><span className="eyebrow" id={head}>Effort</span></div>
+      {error && <div className="banner bad small" onClick={() => setError(null)}>{error}</div>}
+      <div className="segments" role="radiogroup" aria-labelledby={head} ref={group} onKeyDown={keyDown}>
+        {EFFORTS.map((x) => (
+          <button
+            key={x}
+            role="radio"
+            data-effort={x}
+            aria-checked={settings.effort === x}
+            tabIndex={settings.effort === x ? 0 : -1}
+            className={settings.effort === x ? "current" : ""}
+            onClick={() => void pick(x)}
+          >
+            {EFFORT_NAMES[x]}
+          </button>
+        ))}
       </div>
     </div>
   );

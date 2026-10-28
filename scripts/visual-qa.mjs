@@ -1,6 +1,6 @@
 // Screenshot the playtest UI, the review card and Settings in every state, theme and width, with no daemon and no editor.
 //
-//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>]
+//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>] [--widths <px,px,...>]
 //
 // Serves apps/client-web with Vite (no proxy) and opens visual-qa.html, the real app
 // with the daemon answered from apps/client-web/src/visual-qa/fixtures.ts. Each
@@ -33,7 +33,8 @@ const browserPath = BROWSERS.find((p) => fs.existsSync(p));
 if (!browserPath) throw new Error("no Chrome or Edge found: pass --browser <path> or set STUDIO_QA_BROWSER");
 
 const THEMES = ["ue-mcp", "editor-orange", "editor"];
-const WIDTHS = [["wide", 1280], ["narrow", 380]];
+// --widths 320,590,1280 shoots those widths instead, each file named by its width.
+const WIDTHS = arg("widths") ? arg("widths").split(",").map((w) => [`${Number(w)}`, Number(w)]) : [["wide", 1280], ["narrow", 380]];
 
 const { createServer } = await import("vite");
 const { chromium } = await import("playwright-core");

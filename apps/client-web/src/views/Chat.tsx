@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
-import { ConnectModel, EffortPicker, ModelPicker, useCatalog } from "./ModelPicker";
+import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
@@ -12,7 +12,7 @@ import { pillsFor } from "../chat/pill-providers";
 import { PillRow } from "../chat/Pills";
 import { Threads } from "../chat/Threads";
 import { SessionRow } from "../chat/SessionRow";
-import { Composer } from "../chat/Composer";
+import { BarButton, CheckpointsGlyph, Composer } from "../chat/Composer";
 import { Approvals } from "../chat/Approvals";
 import { FormCards, useForms } from "../chat/Forms";
 import { FlowLauncher } from "../chat/FlowCommand";
@@ -488,9 +488,9 @@ export function ChatView({ daemon, nav, active = true }: {
               height={settings?.composerHeight ?? null}
               onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
               picker={<>
-                {settings && <><ModelPicker settings={settings} onSettings={setSettings} up /><EffortPicker settings={settings} onSettings={setSettings} /></>}
+                {settings && <ModelAndEffort settings={settings} onSettings={setSettings} />}
                 {/* Narrow, Checkpoints is in the header. */}
-                {!narrow && <button className="ghost composer-checkpoints" onClick={() => setReviewOpen(true)} title="Review this session's changes and its checkpoints">Checkpoints</button>}
+                {!narrow && <BarButton className="composer-checkpoints" label="Checkpoints" title="Review this session's changes and its checkpoints" icon={<CheckpointsGlyph />} onClick={() => setReviewOpen(true)} />}
               </>}
             >
               {!narrow && threads}

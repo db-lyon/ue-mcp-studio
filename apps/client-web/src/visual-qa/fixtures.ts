@@ -220,6 +220,18 @@ export const SCENARIOS: Record<string, Scenario> = {
   "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },
   "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
   "endpoints-edit": { title: "Editing a custom endpoint: its models", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
+  "composer-idle": (() => {
+    const s = inSession("The composer bar idle, with a draft: Send at the right end", "Door playtest", []);
+    return { ...s, session: { ...s.session!, draft: "Add a second door trigger by the ledge" } };
+  })(),
+  "composer-running": (() => {
+    const s = inSession("The composer bar while a turn runs: Queue and Stop at the right end", "Door playtest", []);
+    return { ...s, session: { ...s.session!, status: "running" as const, draft: "Then check the sprint speed" } };
+  })(),
+  "composer-menu": (() => {
+    const s = inSession("The composer's model menu open: with an Effort row when the bar has merged model and effort", "Door playtest", [], ".composer-bar .picker-button");
+    return { ...s, session: { ...s.session!, draft: "Add a second door trigger by the ledge" } };
+  })(),
   "session-empty": inSession("A session with no playtest: Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
   "armed": inSession("Armed: the latest item in the conversation", "Door playtest", [RUNS.armed]),
