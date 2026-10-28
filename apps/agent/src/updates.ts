@@ -306,12 +306,27 @@ export class Updater {
     return { started: true };
   }
 
-  /** Reinstall the extension from the channel through the newest ue-mcp; the install restarts the daemon on it. */
+  /** An installed version the next Studio step moves this project to, instead of the channel's. */
+  private studioTarget: string | null = null;
+
+  /** Make the next Studio step `ue-mcp extension use studio <version>`: that version is already installed. */
+  targetInstalled(version: string): void {
+    this.studioTarget = version;
+  }
+
+  /**
+   * Reinstall the extension from the channel through the newest ue-mcp, or move
+   * the project to an installed version (targetInstalled); either restarts the
+   * daemon on it and records the version for this project only.
+   */
   async updateStudio(): Promise<{ started: boolean; error?: string }> {
     // Restarting the daemon now would end the plugin swap halfway.
     if (this.busy) return { started: false, error: `an update is already running (${this.busy})` };
     const uproject = this.uproject();
     if (!uproject) return { started: false, error: "could not find the project" };
+    const target = this.studioTarget;
+    this.studioTarget = null;
+    if (target) return this.ueMcp("studio", ["extension", "use", "studio", target, uproject]);
     return this.ueMcp("studio", ["extension", "install", await this.manifestUrl(), uproject]);
   }
 

@@ -132,7 +132,16 @@ export interface FlowSummary {
 const reviewBase = (sessionId: string, reviewId: string): string =>
   `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/reviews/${encodeURIComponent(reviewId)}`;
 
+/** A newer Studio installed by another project than the one this project uses (ue-mcp#1619). */
+export interface StudioVersionNotice {
+  installed: string;
+  current: string;
+}
+
 export const api = {
+  versionNotice: () => call<{ notice: StudioVersionNotice | null }>("GET", "/v1/ext/studio/version-notice"),
+  keepStudio: (version: string) => call<{ notice: StudioVersionNotice | null }>("POST", "/v1/ext/studio/version-notice/keep", { version }),
+  useInstalledStudio: (version: string) => call<unknown>("POST", "/v1/ext/studio/version-notice/update", { version }),
   health: () => call<unknown>("GET", "/v1/health").then(healthOf),
   install: () => call<unknown>("GET", "/v1/install").then(installOf),
   about: () => call<StudioAbout>("GET", "/v1/ext/studio/about"),
