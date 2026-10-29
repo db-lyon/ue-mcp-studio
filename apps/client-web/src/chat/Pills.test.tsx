@@ -49,8 +49,14 @@ describe("the Make playtest pill", () => {
 
   it("is a new pill for each turn, so a dismissed one stays gone only for its turn", () => {
     const first = makePlaytestPill(session())!;
-    expect(pillsFor(session(), new Set([first.id]))).toEqual([]);
-    expect(pillsFor(session({ turn: turn({ start: 9 }) }), new Set([first.id])).map((p) => p.id)).toEqual(["make-playtest:9"]);
+    expect(pillsFor(session(), new Set([first.id]), [makePlaytestPill])).toEqual([]);
+    expect(pillsFor(session({ turn: turn({ start: 9 }) }), new Set([first.id]), [makePlaytestPill]).map((p) => p.id)).toEqual(["make-playtest:9"]);
+  });
+
+  it("is hidden for now: no provider is on, so the row renders nothing", () => {
+    expect(pillsFor(session())).toEqual([]);
+    const { container } = render(<PillRow pills={pillsFor(session())} actions={{ playtest: vi.fn() }} onClear={vi.fn()} />);
+    expect(container.innerHTML).toBe("");
   });
 });
 
@@ -69,7 +75,7 @@ describe("the pill row", () => {
 
   it("clears on Escape, but not on an Escape something else took", () => {
     const onClear = vi.fn();
-    render(<PillRow pills={pillsFor(session())} actions={{ playtest: vi.fn() }} onClear={onClear} />);
+    render(<PillRow pills={pillsFor(session(), new Set(), providers)} actions={{ playtest: vi.fn() }} onClear={onClear} />);
     const taken = new KeyboardEvent("keydown", { key: "Escape", cancelable: true });
     taken.preventDefault();
     window.dispatchEvent(taken);
