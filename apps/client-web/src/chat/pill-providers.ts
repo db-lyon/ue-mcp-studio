@@ -40,7 +40,8 @@ export const makePlaytestPill: PillProvider = (s) => {
 };
 
 /** Every provider, in the order their pills show. */
-export const PILL_PROVIDERS: readonly PillProvider[] = [makePlaytestPill];
+// Make playtest is hidden until its relevance check (#115) is built; with no provider the row renders nothing.
+export const PILL_PROVIDERS: readonly PillProvider[] = [];
 
 /** The pills for a session, without the ones dismissed. */
 export function pillsFor(s: SessionDetail, dismissed: ReadonlySet<string> = new Set(), providers: readonly PillProvider[] = PILL_PROVIDERS): Pill[] {
