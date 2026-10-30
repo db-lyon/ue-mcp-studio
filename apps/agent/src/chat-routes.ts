@@ -387,7 +387,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
         // A model of another vendor than the main agent's is not used: the worker then runs on the main agent's.
         model: u.subagentModel && u.subagentModel.provider === settings.provider() ? fullModelName(u.subagentModel.model) : null,
         effort: u.subagentEffort,
-        starts: u.subagents === "automatic" ? "automatic" : "asked",
+        starts: u.subagents,
       };
     },
     home: userHome,

@@ -4,6 +4,7 @@
  * them; GET /v1/ext/studio/native shows what each route loads.
  */
 import type { InstructionScope } from "./composer.js";
+import type { SubagentMode } from "./index.js";
 
 /** Whose file conventions a route reads. The model's vendor picks it, whatever the route. */
 export type Convention = "claude" | "codex" | "gemini" | "agents";
@@ -105,13 +106,13 @@ export interface NativeView {
   skipped: Array<{ path: string; why: string }>;
 }
 
-/** Studio's own helper for work that splits, as earlier settings left it. */
+/** Studio's own helper for work that splits, as the Worker settings have it. */
 export interface WorkerView {
   /** Null: the main agent's model, whichever that is. */
   model: string | null;
   /** Null: the main agent's effort. */
   effort: string | null;
-  starts: "asked" | "automatic";
+  starts: SubagentMode;
 }
 
 /** GET /native */

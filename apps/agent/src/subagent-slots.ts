@@ -2,7 +2,8 @@
  * How many subagents a turn runs at once, from Settings > Agents > Worker, on
  * every route. One started past the limit waits here and starts when a running
  * one finishes, so the model's call takes longer and returns the subagent's
- * own result. Stopping the turn cancels the ones still waiting.
+ * own result. Stopping the turn cancels the ones still waiting. A limit of -1
+ * (no limit) starts every subagent at once and queues none.
  */
 export class SubagentSlots {
   private readonly running = new Set<string>();
@@ -10,7 +11,7 @@ export class SubagentSlots {
   private readonly limit: number;
 
   constructor(limit: number) {
-    this.limit = Math.max(1, Math.floor(limit) || 1);
+    this.limit = limit === -1 ? Infinity : Math.max(1, Math.floor(limit) || 1);
   }
 
   /**

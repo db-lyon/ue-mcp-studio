@@ -126,11 +126,27 @@ describe("usage settings", () => {
     expect(a.usage().subagentsPerTurn).toBe(16);
   });
 
-  it("read an off from an earlier version as When you ask, the choice Settings shows", () => {
-    const s = store();
-    s.update({ usage: { subagents: "off" } });
-    expect(s.usage().subagents).toBe("asked");
-    expect(usageOf({ subagents: "off" }).subagents).toBe("asked");
+  it("keep Off as Off, through a restart (#173)", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
+    const a = new SettingsStore(d, path.join(d, "keys"));
+    a.update({ usage: { subagents: "off" } });
+    expect(a.usage().subagents).toBe("off");
+    expect(new SettingsStore(d, path.join(d, "keys")).usage().subagents).toBe("off");
+    expect(usageOf({ subagents: "off" }).subagents).toBe("off");
+  });
+
+  it("take -1 and 1 to 16 workers at once, and refuse 0, -2 and 17 (#173)", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
+    const a = new SettingsStore(d, path.join(d, "keys"));
+    for (const n of [-1, 1, 8, 16]) {
+      a.update({ usage: { subagentsPerTurn: n } });
+      expect(new SettingsStore(d, path.join(d, "keys")).usage().subagentsPerTurn).toBe(n);
+    }
+    for (const n of [0, -2, 17]) {
+      expect(() => a.update({ usage: { subagentsPerTurn: n } })).toThrow(/usage.subagentsPerTurn/);
+      expect(usageOf({ subagentsPerTurn: n }).subagentsPerTurn).toBe(DEFAULT_USAGE.subagentsPerTurn);
+    }
+    expect(usageOf({ subagentsPerTurn: -1 }).subagentsPerTurn).toBe(-1);
   });
 
   it("refuse values out of range", () => {
@@ -174,7 +190,7 @@ describe("settings files every earlier Studio wrote (#151)", () => {
     expect(v).toMatchObject({ reviewTurns: true, routeOrder: "signins-first", theme: "editor", model: "claude-sonnet-5-5" });
   });
 
-  it("usage with removed fields, an old off, and old approval shapes", () => {
+  it("usage with removed fields, an off, and old approval shapes", () => {
     const v = fromFile({
       provider: "byok",
       askBeforeChanges: false,
@@ -183,7 +199,7 @@ describe("settings files every earlier Studio wrote (#151)", () => {
       dialogPolicy: { kind: "agent", minutes: 0 },
     });
     expect(v.provider).toBe("anthropic");
-    expect(v.usage).toEqual({ ...DEFAULT_USAGE, subagents: "asked", imageSize: "small" });
+    expect(v.usage).toEqual({ ...DEFAULT_USAGE, subagents: "off", imageSize: "small" });
     expect(v.approvals).toEqual({ shell: "allow", files: "allow", editorRestart: "allow", destructive: "ask" });
     expect(v.dialogPolicy).toEqual({ kind: "agent", minutes: 2 });
   });

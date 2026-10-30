@@ -145,12 +145,30 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(m.saveSettings).not.toHaveBeenCalledWith(expect.objectContaining({ effort: expect.anything() }));
   });
 
-  it("shows an off from an earlier version as When you ask, and changes it", async () => {
-    await show({ subagents: "off" });
-    expect(screen.getByRole("radio", { name: "When you ask" }).getAttribute("aria-checked")).toBe("true");
+  it("offers Off beside the two starts, and Off disables the worker's model, effort and concurrency (#173)", async () => {
+    await show();
+    const radios = screen.getAllByRole("radio").filter((r) => r.closest("[aria-label='Worker starts']"));
+    expect(radios.map((r) => r.textContent)).toEqual(["Off", "When you ask", "When work splits into independent parts"]);
+    const fields = () => [
+      screen.getByRole("button", { name: "Worker model: Same as main agent" }) as HTMLButtonElement,
+      screen.getByRole("combobox", { name: "Worker effort" }) as HTMLSelectElement,
+      screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement,
+    ];
+    expect(fields().map((f) => f.disabled)).toEqual([false, false, false]);
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Off" })));
+    expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { subagents: "off" } });
+    expect(screen.getByRole("radio", { name: "Off" }).getAttribute("aria-checked")).toBe("true");
+    expect(fields().map((f) => f.disabled)).toEqual([true, true, true]);
+    expect(screen.getByText(/project's helper agents in \.claude\/agents do not run either/)).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "When work splits into independent parts" })));
     expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { subagents: "automatic" } });
-    expect(screen.getByRole("radio", { name: "When work splits into independent parts" }).getAttribute("aria-checked")).toBe("true");
+    expect(fields().map((f) => f.disabled)).toEqual([false, false, false]);
+  });
+
+  it("shows a stored Off as Off, with the other fields disabled (#173)", async () => {
+    await show({ subagents: "off" });
+    expect(screen.getByRole("radio", { name: "Off" }).getAttribute("aria-checked")).toBe("true");
+    expect((screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement).disabled).toBe(true);
   });
 
   it("shows the same tabs when nothing is connected, each saying no route reads it", async () => {
@@ -182,24 +200,35 @@ describe("Agents: what each vendor's own files give its models", () => {
     const field = screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement;
     expect(field.value).toBe("4");
     expect(screen.getByText("Concurrency")).toBeTruthy();
-    expect(screen.getByText("Maximum number of active workers allowed at one time. Additional workers are queued.")).toBeTruthy();
+    expect(screen.getByText("Maximum number of active workers allowed at one time. Additional workers are queued. Use -1 for no limit.").textContent).toBe("Maximum number of active workers allowed at one time. Additional workers are queued. Use -1 for no limit.");
     fireEvent.change(field, { target: { value: "8" } });
     await act(async () => void fireEvent.keyDown(field, { key: "Enter" }));
     expect(m.saveSettings).toHaveBeenCalledWith({ usage: { subagentsPerTurn: 8 } });
     expect((screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement).value).toBe("8");
   });
 
-  it("keeps a subagents at once outside 1 to 16 from being saved, and says why", async () => {
+  it("keeps a concurrency other than -1 or 1 to 16 from being saved, and says why", async () => {
     await show({ subagentsPerTurn: 6 });
     const field = screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement;
     expect(field.value).toBe("6");
-    for (const bad of ["0", "17", "2.5", ""]) {
+    for (const bad of ["0", "-2", "17", "2.5", ""]) {
       fireEvent.change(field, { target: { value: bad } });
       await act(async () => void fireEvent.blur(field));
       expect(field.getAttribute("aria-invalid")).toBe("true");
-      expect(field.title).toBe("a whole number from 1 to 16");
+      expect(field.title).toBe("a whole number from 1 to 16, or -1");
     }
     expect(m.saveSettings).not.toHaveBeenCalled();
+  });
+
+  it("saves -1 for no limit and shows No limit beside it (#173)", async () => {
+    await show();
+    expect(screen.queryByText("No limit")).toBeNull();
+    const field = screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement;
+    fireEvent.change(field, { target: { value: "-1" } });
+    await act(async () => void fireEvent.keyDown(field, { key: "Enter" }));
+    expect(m.saveSettings).toHaveBeenCalledWith({ usage: { subagentsPerTurn: -1 } });
+    expect((screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement).value).toBe("-1");
+    expect(screen.getByText("No limit")).toBeTruthy();
   });
 
   it("saves the screenshot size", async () => {

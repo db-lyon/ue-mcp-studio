@@ -10,11 +10,33 @@ const failed = (n: number) => ({ hook_event_name: "PostToolUseFailure", tool_nam
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
 describe("subagent options", () => {
-  it("leave the subagent tool out entirely while subagents are off", () => {
+  it("leave the subagent tool out entirely while subagents are off, and disallow it by both names", () => {
     const o = subagentOptions({ mode: "off", perTurn: 4, model: "claude-opus-5-5", effort: "high" }, "sub");
     expect(o.tools).toEqual(["WebSearch"]);
     expect(o.allowedTools).not.toContain("Agent");
+    expect(o.disallowedTools).toEqual(["Agent", "Task"]);
     expect(o).not.toHaveProperty("agents");
+  });
+
+  it("run no project subagent while subagents are off (#173)", () => {
+    const native = { settingSources: ["project" as const], agents: { reviewer: { description: "Reviews", prompt: "Review." } }, skills: false };
+    const o = subagentOptions({ mode: "off", perTurn: 4, model: "m", effort: "high" }, "sub", native);
+    expect(o.tools).not.toContain("Agent");
+    expect(o.disallowedTools).toEqual(["Agent", "Task"]);
+    expect(o).not.toHaveProperty("agents");
+  });
+
+  it("with no limit (-1), let all 5 agent calls start at once and queue none (#173)", async () => {
+    const slots = new SubagentSlots(-1);
+    const queued: string[] = [];
+    const o = subagentOptions({ mode: "automatic", perTurn: -1, model: "m", effort: "medium" }, "sub", undefined, undefined, { slots, onQueued: (id, cancel) => cancel && queued.push(id) });
+    const signal = new AbortController().signal;
+    const done = new Map<number, unknown>();
+    for (let i = 0; i < 5; i++) void o.hooks!.PreToolUse[0].hooks[0](pre(i), `t${i}`, { signal }).then((r) => done.set(i, r));
+    await tick();
+    expect([...done.keys()].sort()).toEqual([0, 1, 2, 3, 4]);
+    expect(queued).toEqual([]);
+    expect(slots.counts).toEqual({ running: 5, waiting: 0 });
   });
 
   it("run the subagent on its own model and effort", () => {

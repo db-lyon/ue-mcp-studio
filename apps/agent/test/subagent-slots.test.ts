@@ -42,4 +42,13 @@ describe("subagent slots", () => {
     const slots = new SubagentSlots(0);
     expect(await slots.acquire("a")).toBe(true);
   });
+
+  it("with -1, start every one at once and queue none (#173)", async () => {
+    const slots = new SubagentSlots(-1);
+    let waited = 0;
+    const all = await Promise.all(Array.from({ length: 20 }, (_, i) => slots.acquire(`s${i}`, () => waited++)));
+    expect(all.every(Boolean)).toBe(true);
+    expect(waited).toBe(0);
+    expect(slots.counts).toEqual({ running: 20, waiting: 0 });
+  });
 });

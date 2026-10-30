@@ -15,6 +15,7 @@ import {
   ROUTE_ORDERS,
   SIGN_IN_IDS,
   STUDIO_THEMES,
+  SUBAGENT_MODES,
   approvalsOf,
   dialogPolicyOf,
   isVendorId,
@@ -35,6 +36,7 @@ import {
   type SignInId,
   type StudioSettings,
   type StudioTheme,
+  type SubagentMode,
 } from "@ue-mcp-studio/shared";
 
 type Raw = Record<string, unknown>;
@@ -213,7 +215,7 @@ export function nativeOf(raw: unknown): NativeOverview {
     worker: {
       model: typeof worker.model === "string" ? worker.model : null,
       effort: typeof worker.effort === "string" ? worker.effort : null,
-      starts: worker.starts === "automatic" ? "automatic" : "asked",
+      starts: SUBAGENT_MODES.includes(worker.starts as SubagentMode) ? (worker.starts as SubagentMode) : "asked",
     },
   };
 }
