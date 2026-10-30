@@ -107,7 +107,7 @@ export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export const EFFORTS: readonly Effort[] = ["low", "medium", "high", "xhigh", "max"];
 export const EFFORT_NAMES: Record<Effort, string> = { low: "Low", medium: "Medium", high: "High", xhigh: "Extra high", max: "Max" };
 
-/** When the agent hands work to subagents: never, only when the user asks, or whenever the work splits. */
+/** When the agent hands work to subagents: never (no agent tool at all), only when the user asks, or whenever the work splits. */
 export type SubagentMode = "off" | "asked" | "automatic";
 export const SUBAGENT_MODES: readonly SubagentMode[] = ["off", "asked", "automatic"];
 
@@ -115,8 +115,10 @@ export const SUBAGENT_MODES: readonly SubagentMode[] = ["off", "asked", "automat
 export type ImageSize = "full" | "standard" | "small";
 export const IMAGE_EDGES: Record<ImageSize, number> = { full: 2000, standard: 1568, small: 1024 };
 
-/** The most subagents a turn may run at once. */
+/** The most subagents a turn may run at once, short of no limit. */
 export const MAX_SUBAGENTS_PER_TURN = 16;
+/** Concurrency with no limit: every subagent starts at once, none queued. */
+export const UNLIMITED_SUBAGENTS = -1;
 
 /** How much a turn may spend, and on what. Settings > Agent > Usage. */
 export interface UsageSettings {
@@ -125,7 +127,7 @@ export interface UsageSettings {
   subagentModel: { provider: KeyProviderId; model: string } | null;
   /** How long subagents reason; null for the main effort. */
   subagentEffort: Effort | null;
-  /** How many subagents a turn runs at once; more wait and start as running ones finish. */
+  /** How many subagents a turn runs at once, more waiting until running ones finish; -1 for no limit. */
   subagentsPerTurn: number;
   /** Put the project's CLAUDE.md in the agent's instructions, as a terminal client does. */
   projectInstructions: boolean;

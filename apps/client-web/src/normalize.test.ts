@@ -22,8 +22,11 @@ describe("settings as earlier Studios sent them", () => {
     expect(s.usage.imageSize).toBe("small");
   });
 
-  it("reads an old subagents: off as When you ask", () => {
-    expect(settingsOf({ usage: { subagents: "off" } }).usage.subagents).toBe("asked");
+  it("keeps subagents: off as Off, and takes -1 for no limit (#173)", () => {
+    expect(settingsOf({ usage: { subagents: "off" } }).usage.subagents).toBe("off");
+    expect(settingsOf({ usage: { subagentsPerTurn: -1 } }).usage.subagentsPerTurn).toBe(-1);
+    for (const n of [0, -2, 17]) expect(settingsOf({ usage: { subagentsPerTurn: n } }).usage.subagentsPerTurn).toBe(4);
+    expect(nativeOf({ worker: { starts: "off" } }).worker.starts).toBe("off");
   });
 
   it("reads the old approvals shapes: none, a list, booleans, a rule a kind does not take", () => {

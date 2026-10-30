@@ -39,7 +39,6 @@ import {
   dialogPolicyOf,
   approvalsOf,
   subagentModelOf,
-  subagentModeOf,
   subagentsPerTurnOf,
 } from "@ue-mcp-studio/shared";
 
@@ -71,7 +70,7 @@ export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): U
   const next = { ...current };
   if (u.subagents !== undefined) {
     if (!SUBAGENT_MODES.includes(u.subagents)) throw new Error(`usage.subagents must be one of ${SUBAGENT_MODES.join(", ")}`);
-    next.subagents = subagentModeOf(u.subagents);
+    next.subagents = u.subagents;
   }
   if (u.subagentModel !== undefined) {
     const m = subagentModelOf(u.subagentModel);
@@ -84,7 +83,7 @@ export function applyUsage(current: UsageSettings, u: Partial<UsageSettings>): U
   }
   if (u.subagentsPerTurn !== undefined) {
     const n = subagentsPerTurnOf(u.subagentsPerTurn);
-    if (n === undefined) throw new Error(`usage.subagentsPerTurn must be a whole number from 1 to ${MAX_SUBAGENTS_PER_TURN}`);
+    if (n === undefined) throw new Error(`usage.subagentsPerTurn must be -1 for no limit, or a whole number from 1 to ${MAX_SUBAGENTS_PER_TURN}`);
     next.subagentsPerTurn = n;
   }
   if (u.projectInstructions !== undefined) {

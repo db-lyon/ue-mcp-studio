@@ -12,6 +12,7 @@ import {
   MAX_DIALOG_MINUTES,
   MAX_SUBAGENTS_PER_TURN,
   SUBAGENT_MODES,
+  UNLIMITED_SUBAGENTS,
   type DialogPolicy,
   type Effort,
   type ImageSize,
@@ -30,17 +31,15 @@ export const subagentModelOf = (v: unknown): UsageSettings["subagentModel"] | un
     : undefined;
 };
 
-/** Settings offer When you ask and Automatic; an "off" from an earlier version reads as When you ask. */
-export const subagentModeOf = (v: SubagentMode): SubagentMode => (v === "off" ? "asked" : v);
-
+/** Workers at once: -1 for no limit, or 1 to the most; undefined when it is neither. */
 export const subagentsPerTurnOf = (v: unknown): number | undefined =>
-  Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_SUBAGENTS_PER_TURN ? (v as number) : undefined;
+  v === UNLIMITED_SUBAGENTS || (Number.isInteger(v) && (v as number) >= 1 && (v as number) <= MAX_SUBAGENTS_PER_TURN) ? (v as number) : undefined;
 
 /** Stored usage settings; fields an earlier Studio kept there, such as contextStrategy and budgets, are dropped. */
 export function usageOf(raw: unknown): UsageSettings {
   const u = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   return {
-    subagents: SUBAGENT_MODES.includes(u.subagents as SubagentMode) ? subagentModeOf(u.subagents as SubagentMode) : DEFAULT_USAGE.subagents,
+    subagents: SUBAGENT_MODES.includes(u.subagents as SubagentMode) ? (u.subagents as SubagentMode) : DEFAULT_USAGE.subagents,
     subagentModel: subagentModelOf(u.subagentModel) ?? DEFAULT_USAGE.subagentModel,
     subagentEffort: EFFORTS.includes(u.subagentEffort as Effort) ? (u.subagentEffort as Effort) : DEFAULT_USAGE.subagentEffort,
     subagentsPerTurn: subagentsPerTurnOf(u.subagentsPerTurn) ?? DEFAULT_USAGE.subagentsPerTurn,
