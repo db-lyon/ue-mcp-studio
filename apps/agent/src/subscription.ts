@@ -148,11 +148,6 @@ export interface SubscriptionTurn {
   };
 }
 
-/**
- * The SDK options for subagents: none at all when they are off, else the
- * subagent Studio defines, on its own model and effort, with hooks that hold
- * an agent call past the concurrency limit until a running one finishes.
- */
 /** A project subagent as the SDK takes it, its tools already in Studio's names. */
 export interface NativeAgentDefinition {
   description: string;
@@ -177,11 +172,18 @@ export interface AgentQueue {
 /** A day, in seconds: a queued agent call waits as long as the running ones take. */
 const QUEUE_HOOK_TIMEOUT = 24 * 60 * 60;
 
+/**
+ * The SDK options for subagents: none at all when they are off, the subagent
+ * tool disallowed, else the subagent Studio defines, on its own model and
+ * effort, with hooks that hold an agent call past the concurrency limit until
+ * a running one finishes (never, with no limit).
+ */
 export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string, native?: SubscriptionTurn["native"], editor?: string[], queue: AgentQueue = { slots: new SubagentSlots(s.perTurn) }) {
   const studio = withEditor(STUDIO_TOOLS, editor);
   const projectAgents = Object.fromEntries(Object.entries(native ? native.agents : {}).map(([n, a]) => [n, a.tools ? { ...a, tools: withEditor(a.tools, editor) } : a]));
   const skill = native?.skills ? [SKILL] : [];
-  if (s.mode === "off" && Object.keys(projectAgents).length === 0) return { tools: [SEARCH, ...skill], allowedTools: [...studio, SEARCH, ...skill] };
+  // Off, the SDK's subagent tool is withheld under both its names, so the project's .claude/agents files cannot run either.
+  if (s.mode === "off") return { tools: [SEARCH, ...skill], allowedTools: [...studio, SEARCH, ...skill], disallowedTools: [AGENT, "Task"] };
   const { slots } = queue;
   const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "deny" as const, permissionDecisionReason: reason } });
   // Before an agent call starts: it waits here while the limit is reached, and starts when a slot frees.
@@ -215,15 +217,13 @@ export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem
     // Everything else goes through Studio's tools, so one approval model and one transcript cover every route.
     tools: [AGENT, SEARCH, ...skill],
     agents: {
-      ...(s.mode === "off" ? {} : {
-        [WORKER]: {
-          description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
-          prompt: subagentSystem,
-          model: s.model,
-          effort: s.effort,
-          tools: [...studio, SEARCH],
-        },
-      }),
+      [WORKER]: {
+        description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
+        prompt: subagentSystem,
+        model: s.model,
+        effort: s.effort,
+        tools: [...studio, SEARCH],
+      },
       // The project's own subagents, as their files say, each call still through Studio's tools.
       ...Object.fromEntries(Object.entries(projectAgents).map(([name, a]) => [name, { ...a, prompt: `${subagentSystem}\n\n${a.prompt}` }])),
     },

@@ -141,21 +141,24 @@ describe("a Codex project on an OpenAI main agent, with a Gemini-file helper els
 });
 
 describe("Studio's own worker beside the project's helpers", () => {
-  it("is refused while earlier settings turned it off, and a named helper still runs", async () => {
+  it("offers no agent tool while Off, even with project helpers, and the instructions omit workers (#173)", async () => {
     write(".claude/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews\n---\nReview it.");
-    const main = new Scripted([
-      () => ({ content: [{ type: "tool_use", id: "w", name: "agent", input: { description: "x", prompt: "do it" } }, { type: "tool_use", id: "r", name: "agent", input: { helper: "reviewer", description: "y", prompt: "review" } }] as never, stopReason: "tool_use" }),
-      () => text("Reviewed."),
-      () => text("ok"),
-    ]);
+    const main = new Scripted([() => text("ok")]);
     const runner = new AgentRunner({ host, store, provider: () => main, model: () => "claude-sonnet-5-5", usage: () => ({ ...DEFAULT_USAGE, subagents: "off" }), native: nativeFor("claude") });
-    const s = store.create();
-    await runner.send(s.id, "go");
-    const t = store.get(s.id)!.transcript;
-    const w = t.find((x) => x.kind === "tool" && x.call.id === "w");
-    expect(w?.kind === "tool" && w.call.result).toMatch(/Studio's own worker is off/);
-    const r = t.find((x) => x.kind === "tool" && x.call.id === "r");
-    expect(r?.kind === "tool" && r.call).toMatchObject({ outcome: "done", result: "Reviewed." });
+    await runner.send(store.create().id, "go");
+    expect(main.requests[0].tools.some((t) => (t as { name: string }).name === "agent")).toBe(false);
+    const system = main.requests[0].system.map((b) => b.text).join("\n");
+    expect(system).not.toMatch(/agent tool|subagents? runs? at once|no limit|reviewer/i);
+  });
+
+  it("offers the agent tool with the project's helpers while workers are on", async () => {
+    write(".claude/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews\n---\nReview it.");
+    const main = new Scripted([() => text("ok")]);
+    const runner = new AgentRunner({ host, store, provider: () => main, model: () => "claude-sonnet-5-5", usage: () => DEFAULT_USAGE, native: nativeFor("claude") });
+    await runner.send(store.create().id, "go");
+    const agent = main.requests[0].tools.find((t) => (t as { name: string }).name === "agent") as { description: string } | undefined;
+    expect(agent?.description).toContain("reviewer");
+    expect(main.requests[0].system.map((b) => b.text).join("\n")).toContain("agent tool");
   });
 
   it("offers no agent tool when the worker is off and the project has no helpers", async () => {

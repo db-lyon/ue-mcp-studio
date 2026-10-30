@@ -102,7 +102,9 @@ const where = (projectDir: string): string =>
 /** What the main agent is told about subagents, by the Subagents setting; nothing when they are off. */
 export function subagentLine(usage: Pick<UsageSettings, "subagents" | "subagentsPerTurn">): string | null {
   const n = usage.subagentsPerTurn;
-  const most = `${n} subagent${n === 1 ? " runs" : "s run"} at once; any more wait and start as running ones finish, each still returning its own report.`;
+  const most = n === -1
+    ? "There is no limit on how many run at once."
+    : `${n} subagent${n === 1 ? " runs" : "s run"} at once; any more wait and start as running ones finish, each still returning its own report.`;
   if (usage.subagents === "off") return null;
   if (usage.subagents === "asked") return `Start a subagent with the agent tool only when the user asks for one; otherwise do the work yourself. ${most}`;
   return "For work that splits into independent parts, start a subagent per part with the agent tool, several in one message so they run at the same time. "
@@ -354,7 +356,7 @@ export class AgentRunner {
     return this.o.native?.() ?? null;
   }
 
-  /** The main agent's tools: the work tools, the agent tool when a helper can run, and the skill tool when there are skills. */
+  /** The main agent's tools: the work tools, the agent tool unless workers are off, and the skill tool when there are skills. */
   /** The editor surface for this turn: Studio's ue_mcp on Micro, ue-mcp's projected tools on Lean and Full. */
   private surface(): EditorSurface {
     return this.o.surfaces?.current() ?? microSurface();
@@ -380,10 +382,9 @@ export class AgentRunner {
 
   private mainTools(surface = this.surface()) {
     const n = this.native();
-    const worker = this.usage().subagents !== "off";
-    const helpers = n?.helpers ?? [];
     const tools = this.workTools(surface);
-    if (worker || helpers.length) tools.push(agentTool(AGENT_TOOL, helpers.map((h) => ({ name: h.name, description: h.description }))));
+    // Off, no agent tool at all: neither Studio's worker nor the project's helpers run.
+    if (this.usage().subagents !== "off") tools.push(agentTool(AGENT_TOOL, (n?.helpers ?? []).map((h) => ({ name: h.name, description: h.description }))));
     if (n?.skills.length) tools.push(SKILL_TOOL);
     return tools;
   }
@@ -1474,23 +1475,13 @@ ${result}`);
     // Subagents run at the same time, before the calls the main agent makes itself.
     const queued = pending.filter((p) => p.name === "agent" && p.state === "queued");
     const usage = this.usage();
-    // Studio's own worker can be off from earlier settings; the project's own helpers follow their files.
-    const workerOff = usage.subagents === "off";
-    const refusedWorker = workerOff ? queued.filter((p) => typeof p.input.helper !== "string") : [];
-    for (const p of refusedWorker) {
-      p.state = "done";
-      p.result = "Studio's own worker is off in this project's settings. Name one of the project's helpers, or do this part yourself.";
-      p.isError = true;
-      this.recordOutcome(s, p, "error");
-    }
-    const runnable = queued.filter((p) => !refusedWorker.includes(p));
-    if (s.turn && runnable.length > 0) s.turn.agents = (s.turn.agents ?? 0) + runnable.length;
-    if (runnable.length > 0) {
+    if (s.turn && queued.length > 0) s.turn.agents = (s.turn.agents ?? 0) + queued.length;
+    if (queued.length > 0) {
       // Past the limit a subagent waits for a running one to finish, and its call returns its own result.
       const slots = new SubagentSlots(usage.subagentsPerTurn);
       const cancel = () => slots.cancelAll();
       signal.addEventListener("abort", cancel, { once: true });
-      await Promise.all(runnable.map(async (p) => {
+      await Promise.all(queued.map(async (p) => {
         const started = await slots.acquire(p.id, () => this.markQueued(s, p.id, () => slots.cancel(p.id)));
         if (signal.aborted) return;
         if (!started) {

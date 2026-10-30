@@ -1260,6 +1260,29 @@ describe("Settings > Agent > Usage", () => {
     expect(fin.transcript.filter((t) => t.kind === "tool" && t.call.name === "agent").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["done", "done", "done", "done", "done"]);
   });
 
+  it("with no limit (-1), runs all 5 subagents at once and queues none (#173)", async () => {
+    const h = held(5);
+    const runner = new AgentRunner({ host, store, provider: () => h.provider, model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: -1 }) });
+    const s = store.create();
+    const turn = runner.send(s.id, "five parts");
+    await until(() => h.track.started.length === 5);
+    expect(h.track.live).toBe(5);
+    expect(queuedIds(s.id)).toEqual([]);
+    for (let i = 0; i < 5; i++) h.finish(`part ${i}`);
+    await turn;
+    expect(h.track.most).toBe(5);
+    expect(h.track.mainResults!.map((r) => r.content)).toEqual([0, 1, 2, 3, 4].map((i) => `Report: part ${i}`));
+  });
+
+  it("tells the model there is no limit when concurrency is -1 (#173)", async () => {
+    const model = new ScriptedModel([() => text("ok")]);
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: -1 }) });
+    await runner.send(store.create().id, "hi");
+    const prompt = model.requests[0].system[0].text;
+    expect(prompt).toContain("no limit on how many run at once");
+    expect(prompt).not.toContain("wait and start");
+  });
+
   it("tells the model how many subagents run at once and that more wait, never to do the work itself (#164)", async () => {
     const requests: ModelRequest[] = [];
     const runner = new AgentRunner({ host, store, provider: () => fanOut(7, requests), model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: 6 }) });

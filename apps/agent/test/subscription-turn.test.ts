@@ -343,6 +343,24 @@ describe("subagents past the limit on the subscription route (#164)", () => {
     expect(agentCalls.map((c) => [c.id, c.outcome, c.result, !!c.queued])).toEqual(["g0", "g1", "g2", "g3", "g4"].map((id) => [id, "done", `Report ${id}`, false]));
   });
 
+  it("with no limit (-1), starts all 5 at once and queues none (#173)", async () => {
+    const gates = new Map<string, () => void>();
+    const started: string[] = [];
+    const answers = new Map<string, unknown>();
+    sdk.script = fiveAgents(gates, started, answers);
+    const s = store.create();
+    const turn = runnerAt(-1).send(s.id, "five parts");
+    await until(() => started.length === 5);
+    expect(started).toEqual(["g0", "g1", "g2", "g3", "g4"]);
+    expect(queuedIn(s.id)).toEqual([]);
+    for (const id of started) gates.get(id)!();
+    await turn;
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    expect([...answers.values()].every((a) => JSON.stringify(a) === "{}")).toBe(true);
+    expect(fin.transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call.outcome] : []))).toEqual(["done", "done", "done", "done", "done"]);
+  });
+
   it("cancels the 3 waiting ones when the turn is stopped, and starts none of them", async () => {
     const gates = new Map<string, () => void>();
     const started: string[] = [];
@@ -574,6 +592,22 @@ describe("the project's own Claude Code files on the Claude sign-in", () => {
     expect(call?.kind === "tool" && call.call).toMatchObject({ name: "read_file", outcome: "done" });
     expect(call?.kind === "tool" && call.call.result).toContain("hello");
     expect(toolsFor({ tools: ["Read", "Grep"], noShell: false }).allowed).toEqual(new Set(["read_file", "grep"]));
+  });
+
+  it("withhold the subagent tool while workers are Off, so the project's .claude/agents files cannot run (#173)", async () => {
+    write(".claude/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews changes\n---\nReview carefully.");
+    sdk.script = async (b) => b.emit({ type: "result", subtype: "success", is_error: false, result: "ok", session_id: "x" });
+    const runner = new AgentRunner({ host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, native, usage: () => ({ ...DEFAULT_USAGE, subagents: "off" }) });
+    const s = store.create();
+    await runner.send(s.id, "hi");
+    await until(() => store.get(s.id)!.status === "idle");
+    const o = sdk.options.at(-1)!;
+    expect(o.disallowedTools).toEqual(expect.arrayContaining(["Agent", "Task"]));
+    expect(o.tools).not.toContain("Agent");
+    expect(o.allowedTools).not.toContain("Agent");
+    expect(o).not.toHaveProperty("agents");
+    expect(o).not.toHaveProperty("hooks");
+    expect(String(o.systemPrompt)).not.toMatch(/agent tool|subagents? runs? at once|no limit/i);
   });
 
   it("load none while the project's own files are off", async () => {
