@@ -37,7 +37,8 @@
  * studio.approval.requested and studio.approval.resolved.
  */
 import { registerVersionNotice } from "./version-notice.js";
-import { readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
+import { readDiscovery, type DaemonExtensionApi, type ExtensionHandler } from "ue-mcp/daemon";
+import { guardedRoute } from "./guarded-route.js";
 import { PlaytestFlow } from "./playtest-flow.js";
 import { FlowCaller } from "./flow-run.js";
 import { ActionCatalog } from "./action-catalog.js";
@@ -695,32 +696,34 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return { status: 202, body: { sessionId: s.id } };
   });
   // A message written while a turn runs: it waits, and goes when the turns before it have ended.
-  api.route("POST", "/sessions/:id/queue", (req) => {
+  // A queue request that fails answers with the error; it never reaches the daemon as an exception (#165).
+  const queueRoute = (what: string, fn: ExtensionHandler) => guardedRoute(api.log, what, fn);
+  api.route("POST", "/sessions/:id/queue", queueRoute("queueing a message", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
     const m = messageBody(s.id, req.body);
     if ("error" in m) return bad(m.error);
     const q = runner.enqueue(s.id, m.text, m.files.map(({ path: _p, ...a }) => a));
     return { status: 201, body: q };
-  });
-  api.route("PUT", "/sessions/:id/queue/:qid", (req) => {
+  }));
+  api.route("PUT", "/sessions/:id/queue/:qid", queueRoute("changing a queued message", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
     const text = (req.body as { text?: unknown } | undefined)?.text;
     if (typeof text !== "string" || !text.trim()) return bad("body must be { text: string } with text");
     return runner.editQueued(req.params.id, req.params.qid, text) ? { status: 204 } : { status: 404, body: { error: "that message is not queued any more" } };
-  });
-  api.route("DELETE", "/sessions/:id/queue/:qid", (req) => {
+  }));
+  api.route("DELETE", "/sessions/:id/queue/:qid", queueRoute("removing a queued message", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
     return runner.editQueued(req.params.id, req.params.qid, null) ? { status: 204 } : { status: 404, body: { error: "that message is not queued any more" } };
-  });
+  }));
   // Send the next queued message now, when a stopped or failed turn left the queue waiting.
-  api.route("POST", "/sessions/:id/queue/next", (req) => {
+  api.route("POST", "/sessions/:id/queue/next", queueRoute("sending the next queued message", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
     if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress" } };
     void runner.sendQueued(s.id);
     return { status: 202, body: { sessionId: s.id } };
-  });
+  }));
   // Edit one of the user's messages. "rewind" (the default) cuts this conversation back to it and sends the
   // new text as a new turn; "fork" leaves this session as it is and continues from the new text in a copy.
   api.route("POST", "/sessions/:id/transcript/:index/edit", async (req) => {

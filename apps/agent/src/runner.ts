@@ -1289,16 +1289,21 @@ ${result}`);
 
   /** Send the first queued message, when no turn is running. */
   async sendQueued(sessionId: string): Promise<void> {
-    const s = this.o.store.get(sessionId);
-    if (!s || this.busy(s) || !s.queue?.length) return;
-    const [next, ...rest] = s.queue;
-    s.queue = rest;
-    this.o.store.save(s);
-    const files = next.attachments.flatMap((a) => {
-      const f = this.files.get(s.id, a.id);
-      return f ? [f] : [];
-    });
-    await this.send(s.id, next.text, files).catch((e) => this.o.host.log.warn(`a queued message in session ${s.id} failed`, e));
+    // Callers fire and forget this, from a timer too, so it never rejects: a rejection nobody handles ends the daemon.
+    try {
+      const s = this.o.store.get(sessionId);
+      if (!s || this.busy(s) || !s.queue?.length) return;
+      const [next, ...rest] = s.queue;
+      s.queue = rest;
+      this.o.store.save(s);
+      const files = next.attachments.flatMap((a) => {
+        const f = this.files.get(s.id, a.id);
+        return f ? [f] : [];
+      });
+      await this.send(s.id, next.text, files);
+    } catch (e) {
+      this.o.host.log.warn(`a queued message in session ${sessionId} failed`, e);
+    }
   }
 
   /** Stop the running turn, as Stop does, and send this message now, ahead of the queue. */

@@ -1000,6 +1000,29 @@ describe("the queue while a turn searches a large folder", () => {
   });
 });
 
+describe("a queued message that cannot be sent", () => {
+  it("is logged, and never rejects where nobody waits for it", async () => {
+    const warned: string[] = [];
+    host.log = { info() {}, warn: (m: string) => void warned.push(m) } as never;
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const s = store.create();
+    const first = runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    runner.enqueue(s.id, "two", []);
+    runner.stop(s.id);
+    await first.catch(() => {});
+    // The save that takes the message off the queue fails, as a locked file does on Windows.
+    const save = store.save.bind(store);
+    store.save = () => {
+      throw new Error("EPERM: operation not permitted, rename");
+    };
+    await expect(runner.sendQueued(s.id)).resolves.toBeUndefined();
+    store.save = save;
+    expect(warned.some((m) => m.includes(`a queued message in session ${s.id} failed`))).toBe(true);
+  });
+});
+
 describe("editing a sent message", () => {
   it("cuts the model's conversation back to that message and sends the new text", async () => {
     const model = new ScriptedModel([() => text("A."), () => call("t1", "level", "get_outliner"), () => text("B."), () => text("C.")]);
