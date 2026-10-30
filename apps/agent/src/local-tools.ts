@@ -354,15 +354,48 @@ export function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${re}$`, process.platform === "win32" ? "i" : "");
 }
 
-/** Every file under a folder, relative with forward slashes, skipping generated folders the pattern does not name. */
-function* walk(base: string, pattern: string): Generator<string> {
+/**
+ * How long a glob or a grep without ripgrep may search before it answers with
+ * what it found. Each one reads the disk asynchronously, so the daemon keeps
+ * answering while it runs (#165), and this bounds a search of a whole drive.
+ */
+export const SEARCH_BUDGET_MS = 60_000;
+
+/** A search that ran out of time or was stopped: how far it got, for the model. */
+interface SearchLimit {
+  signal?: AbortSignal;
+  /** Date.now() past which the search stops. */
+  deadline: number;
+  stopped?: "time" | "abort";
+}
+
+const searchLimit = (signal?: AbortSignal): SearchLimit => ({ signal, deadline: Date.now() + SEARCH_BUDGET_MS });
+
+/** True when the search should stop now, and records why. */
+function searchOver(limit: SearchLimit): boolean {
+  if (limit.signal?.aborted) limit.stopped = "abort";
+  else if (Date.now() > limit.deadline) limit.stopped = "time";
+  return limit.stopped !== undefined;
+}
+
+const stoppedNote = (limit: SearchLimit): string =>
+  limit.stopped === "time" ? `\n[search stopped after ${SEARCH_BUDGET_MS / 1000} s; these are the results so far; narrow the path or the glob]`
+    : limit.stopped === "abort" ? "\n[search stopped]" : "";
+
+/**
+ * Every file under a folder, relative with forward slashes, skipping generated
+ * folders the pattern does not name. Reads each folder asynchronously, so a
+ * walk of a large tree never holds the daemon's event loop.
+ */
+async function* walk(base: string, pattern: string, limit: SearchLimit): AsyncGenerator<string> {
   const named = new Set(SKIP_DIRS.filter((d) => pattern.toLowerCase().includes(d.toLowerCase())));
   const stack = [""];
   while (stack.length) {
+    if (searchOver(limit)) return;
     const rel = stack.pop()!;
     let entries: fs.Dirent[];
     try {
-      entries = fs.readdirSync(path.join(base, rel), { withFileTypes: true });
+      entries = await fs.promises.readdir(path.join(base, rel), { withFileTypes: true });
     } catch {
       continue;
     }
@@ -375,27 +408,37 @@ function* walk(base: string, pattern: string): Generator<string> {
   }
 }
 
-export function glob(projectDir: string, input: { pattern: string; path?: string }): LocalResult {
+async function isFolder(p: string): Promise<boolean | null> {
+  try {
+    return (await fs.promises.stat(p)).isDirectory();
+  } catch {
+    return null;
+  }
+}
+
+export async function glob(projectDir: string, input: { pattern: string; path?: string }, signal?: AbortSignal): Promise<LocalResult> {
   const base = resolvePath(projectDir, input.path ?? ".");
-  if (!fs.existsSync(base) || !fs.statSync(base).isDirectory()) return fail(`No such folder: ${base}`);
+  if ((await isFolder(base)) !== true) return fail(`No such folder: ${base}`);
   const re = globToRegExp(input.pattern);
+  const limit = searchLimit(signal);
   const hits: Array<{ rel: string; mtime: number }> = [];
-  for (const rel of walk(base, input.pattern)) {
+  for await (const rel of walk(base, input.pattern, limit)) {
     if (!re.test(rel)) continue;
     let mtime = 0;
     try {
-      mtime = fs.statSync(path.join(base, rel)).mtimeMs;
+      mtime = (await fs.promises.stat(path.join(base, rel))).mtimeMs;
     } catch {
       // Gone since the listing.
     }
     hits.push({ rel, mtime });
     if (hits.length >= LIST_MAX * 20) break;
   }
-  if (hits.length === 0) return { text: `No files match ${input.pattern} under ${base}.`, isError: false };
+  const note = stoppedNote(limit);
+  if (hits.length === 0) return { text: `No files match ${input.pattern} under ${base}.${note}`, isError: false };
   hits.sort((a, b) => b.mtime - a.mtime);
   const shown = hits.slice(0, LIST_MAX);
   const more = hits.length > shown.length ? `\n[${hits.length - shown.length} more not shown; narrow the pattern]` : "";
-  return { text: `${hits.length} ${hits.length === 1 ? "file" : "files"} under ${base}, newest first:\n${shown.map((h) => h.rel).join("\n")}${more}`, isError: false };
+  return { text: `${hits.length} ${hits.length === 1 ? "file" : "files"} under ${base}, newest first:\n${shown.map((h) => h.rel).join("\n")}${more}${note}`, isError: false };
 }
 
 export interface GrepInput {
@@ -406,6 +449,10 @@ export interface GrepInput {
 }
 
 let rgCache: string | null | undefined;
+/** Set which ripgrep the grep tool uses: a path, null for none, or undefined to look on PATH again. */
+export function setRipgrep(rg: string | null | undefined): void {
+  rgCache = rg;
+}
 /** ripgrep, when it is on PATH. */
 export function ripgrep(): string | null {
   if (rgCache !== undefined) return rgCache;
@@ -415,8 +462,7 @@ export function ripgrep(): string | null {
 
 const capText = (s: string): string => (s.length > TEXT_MAX ? `${s.slice(0, TEXT_MAX)}\n[output cut at ${TEXT_MAX} characters; narrow the search]` : s);
 
-function grepRg(rg: string, target: string, input: GrepInput, signal?: AbortSignal): Promise<LocalResult> {
-  const isDir = fs.statSync(target).isDirectory();
+function grepRg(rg: string, target: string, isDir: boolean, input: GrepInput, signal?: AbortSignal): Promise<LocalResult> {
   const args = ["--line-number", "--no-heading", "--color", "never", "--max-columns", "400", "--max-columns-preview", "--hidden", "--glob", "!.git"];
   if (input.ignore_case) args.push("--ignore-case");
   if (input.glob) args.push("--glob", input.glob);
@@ -458,7 +504,8 @@ function grepReport(target: string, pattern: string, lines: string[], more: bool
   return { text: capText(`Matches in ${target} (path:line:text):\n${lines.join("\n")}${tail}`), isError: false };
 }
 
-function grepJs(target: string, input: GrepInput): LocalResult {
+/** grep without ripgrep: asynchronous reads, so the daemon keeps answering while it searches (#165). */
+async function grepJs(target: string, isDir: boolean, input: GrepInput, signal?: AbortSignal): Promise<LocalResult> {
   let re: RegExp;
   try {
     re = new RegExp(input.pattern, input.ignore_case ? "i" : "");
@@ -466,17 +513,21 @@ function grepJs(target: string, input: GrepInput): LocalResult {
     return fail(`Not a valid regular expression: ${e instanceof Error ? e.message : String(e)}`);
   }
   const filter = input.glob ? globToRegExp(input.glob) : null;
-  const isDir = fs.statSync(target).isDirectory();
-  const files = isDir ? walk(target, input.glob ?? "") : [path.basename(target)];
+  const limit = searchLimit(signal);
+  const one = async function* (): AsyncGenerator<string> {
+    yield path.basename(target);
+  };
+  const files = isDir ? walk(target, input.glob ?? "", limit) : one();
   const root = isDir ? target : path.dirname(target);
   const lines: string[] = [];
-  for (const rel of files) {
+  for await (const rel of files) {
     if (filter && !filter.test(rel)) continue;
+    if (searchOver(limit)) break;
     const file = path.join(root, rel);
     let buf: Buffer;
     try {
-      if (fs.statSync(file).size > GREP_FILE_MAX) continue;
-      buf = fs.readFileSync(file);
+      if ((await fs.promises.stat(file)).size > GREP_FILE_MAX) continue;
+      buf = await fs.promises.readFile(file);
     } catch {
       continue;
     }
@@ -488,14 +539,16 @@ function grepJs(target: string, input: GrepInput): LocalResult {
       lines.push(`${rel}:${i + 1}:${text[i].slice(0, 400)}`);
     }
   }
-  return grepReport(target, input.pattern, lines, false);
+  const r = grepReport(target, input.pattern, lines, false);
+  return { ...r, text: r.text + stoppedNote(limit) };
 }
 
 export async function grep(projectDir: string, input: GrepInput, signal?: AbortSignal, useRg = true): Promise<LocalResult> {
   const target = resolvePath(projectDir, input.path ?? ".");
-  if (!fs.existsSync(target)) return fail(`No such file or folder: ${target}`);
+  const isDir = await isFolder(target);
+  if (isDir === null) return fail(`No such file or folder: ${target}`);
   const rg = useRg ? ripgrep() : null;
-  return rg ? grepRg(rg, target, input, signal) : grepJs(target, input);
+  return rg ? grepRg(rg, target, isDir, input, signal) : grepJs(target, isDir, input, signal);
 }
 
 // ---------------------------------------------------------------------------
@@ -699,7 +752,7 @@ export async function runLocal(projectDir: string, name: LocalToolName, input: R
       case "edit_file":
         return editFile(projectDir, input as unknown as EditInput);
       case "glob":
-        return glob(projectDir, input as { pattern: string; path?: string });
+        return await glob(projectDir, input as { pattern: string; path?: string }, signal);
       case "grep":
         return await grep(projectDir, input as unknown as GrepInput, signal);
       case "web_fetch":

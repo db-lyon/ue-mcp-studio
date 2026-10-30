@@ -171,12 +171,12 @@ describe("glob and grep", () => {
     expect(globToRegExp("Source/*.cpp").test("Source/Game/A.cpp")).toBe(false);
   });
 
-  it("lists matching files and skips generated folders unless named", () => {
-    const r = glob(dir, { pattern: "**/*.cpp" });
+  it("lists matching files and skips generated folders unless named", async () => {
+    const r = await glob(dir, { pattern: "**/*.cpp" });
     expect(r.text).toContain("Source/Game/A.cpp");
     expect(r.text).toContain("Source/B.cpp");
     expect(r.text).not.toContain("Intermediate");
-    expect(glob(dir, { pattern: "Intermediate/*.cpp" }).text).toContain("Intermediate/Gen.cpp");
+    expect((await glob(dir, { pattern: "Intermediate/*.cpp" })).text).toContain("Intermediate/Gen.cpp");
   });
 
   it("searches contents with the JS fallback", async () => {
@@ -190,6 +190,49 @@ describe("glob and grep", () => {
   it("searches contents with ripgrep when there is one", async () => {
     const r = await grep(dir, { pattern: "terrain", path: "Docs" });
     expect(r.text).toMatch(/PASSES\.md:2:Pass 1: terrain/);
+  });
+});
+
+// A search runs in the daemon's process: one that held the event loop for 15 minutes left every
+// request unanswered, the queue's included, and Studio looked dead (#165).
+describe("a search of a large folder", () => {
+  beforeEach(() => {
+    for (let d = 0; d < 20; d++) {
+      fs.mkdirSync(path.join(dir, `Folder${d}`), { recursive: true });
+      for (let f = 0; f < 10; f++) fs.writeFileSync(path.join(dir, `Folder${d}`, `File${f}.txt`), `line\n`.repeat(50) + (d === 19 && f === 9 ? "needle\n" : ""));
+    }
+  });
+
+  /** Whether a timer set when `search` starts runs before the search answers. */
+  async function answersWhileRunning(search: () => Promise<unknown>): Promise<boolean> {
+    let settled = false;
+    let ranFirst: boolean | null = null;
+    setImmediate(() => (ranFirst = !settled));
+    await search().finally(() => (settled = true));
+    await new Promise((r) => setImmediate(r));
+    return ranFirst === true;
+  }
+
+  it("lets the daemon answer while grep without ripgrep reads the files", async () => {
+    let r: Awaited<ReturnType<typeof grep>> | null = null;
+    expect(await answersWhileRunning(async () => (r = await grep(dir, { pattern: "needle" }, undefined, false)))).toBe(true);
+    expect(r!.text).toContain("Folder19/File9.txt:51:needle");
+  });
+
+  it("lets the daemon answer while glob walks the folders", async () => {
+    let r: Awaited<ReturnType<typeof glob>> | null = null;
+    expect(await answersWhileRunning(async () => (r = await glob(dir, { pattern: "*.txt" })))).toBe(true);
+    expect(r!.text).toMatch(/^200 files under/);
+  });
+
+  it("stops when the turn is stopped", async () => {
+    const stop = new AbortController();
+    const g = grep(dir, { pattern: "needle" }, stop.signal, false);
+    stop.abort();
+    expect((await g).text).toContain("[search stopped]");
+    const l = new AbortController();
+    l.abort();
+    expect((await glob(dir, { pattern: "*.txt" }, l.signal)).text).toContain("[search stopped]");
   });
 });
 

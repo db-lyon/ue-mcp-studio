@@ -16,6 +16,7 @@ import { pngBytes } from "./image-fixtures.js";
 import { DEFAULT_USAGE, type UsageSettings } from "@ue-mcp-studio/shared";
 import { loadout } from "../src/native.js";
 import { composeNative, type NativeRun } from "../src/native-runtime.js";
+import { setRipgrep } from "../src/local-tools.js";
 
 class FakeHost implements AgentHost {
   connected = true;
@@ -906,6 +907,119 @@ describe("queued messages", () => {
     await until(() => model.requests.length === 3);
     expect(userTexts(model.requests[2].messages).at(-1)).toContain("later");
     model.release();
+  });
+});
+
+// The turn that took Studio down searched a large folder with grep and no ripgrep: every queue
+// request waited until the search ended, 15 minutes later (#165). Each step here runs from its own
+// timer, as a request would, and must land while that search is still running.
+describe("the queue while a turn searches a large folder", () => {
+  beforeEach(() => {
+    setRipgrep(null);
+    for (let d = 0; d < 20; d++) {
+      fs.mkdirSync(path.join(host.projectDir, "Source", `Folder${d}`), { recursive: true });
+      for (let f = 0; f < 10; f++) fs.writeFileSync(path.join(host.projectDir, "Source", `Folder${d}`, `File${f}.h`), `// line\n`.repeat(50));
+    }
+  });
+  afterEach(() => setRipgrep(undefined));
+
+  const searching = (): ModelTurn => ({
+    content: [{ type: "tool_use", id: "g1", name: "grep", input: { pattern: "needle", path: "." } } as never],
+    stopReason: "tool_use",
+  });
+  const grepRunning = (sid: string) => {
+    const e = store.get(sid)!.transcript.find((t) => t.kind === "tool" && t.call.id === "g1");
+    return e?.kind === "tool" && e.call.outcome === "pending";
+  };
+
+  /** Run each step from a timer once the grep has started, and say whether each landed while it still ran. */
+  async function duringSearch(runner: AgentRunner, sid: string, steps: Array<() => void>): Promise<boolean[]> {
+    const landed: boolean[] = [];
+    const publish = host.events.publish;
+    let started = false;
+    host.events.publish = (type, data) => {
+      publish(type, data);
+      const entry = data?.entry as { kind?: string; call?: { id?: string } } | undefined;
+      if (started || type !== "transcript.added" || entry?.kind !== "tool" || entry.call?.id !== "g1") return;
+      started = true;
+      const next = (i: number) => setTimeout(() => {
+        steps[i]();
+        landed.push(grepRunning(sid));
+        if (i + 1 < steps.length) next(i + 1);
+      }, 0);
+      next(0);
+    };
+    await runner.send(sid, "find it");
+    host.events.publish = publish;
+    return landed;
+  }
+
+  it("takes a message queued while it searches, and sends it after", async () => {
+    const model = new ScriptedModel([searching, () => text("Not found."), () => text("answer two")]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    expect(await duringSearch(runner, s.id, [() => runner.enqueue(s.id, "two", [])])).toEqual([true]);
+    await until(() => model.requests.length === 3 && store.get(s.id)!.status === "idle");
+    expect(userTexts(model.requests[2].messages).at(-1)).toContain("two");
+  });
+
+  it("takes another message behind one already queued", async () => {
+    const model = new ScriptedModel([searching, () => text("Not found."), () => text("answer two"), () => text("answer three")]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    const landed = await duringSearch(runner, s.id, [() => runner.enqueue(s.id, "two", []), () => runner.enqueue(s.id, "three", [])]);
+    expect(landed).toEqual([true, true]);
+    await until(() => model.requests.length === 4 && store.get(s.id)!.status === "idle");
+    expect(store.get(s.id)!.transcript.filter((t) => t.kind === "user").map((t) => t.kind === "user" && t.text)).toEqual(["find it", "two", "three"]);
+  });
+
+  it("changes a queued message while it searches", async () => {
+    const model = new ScriptedModel([searching, () => text("Not found."), () => text("answer")]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    let id = "";
+    const landed = await duringSearch(runner, s.id, [() => (id = runner.enqueue(s.id, "two", []).id), () => expect(runner.editQueued(s.id, id, "two, changed")).toBe(true)]);
+    expect(landed).toEqual([true, true]);
+    await until(() => model.requests.length === 3 && store.get(s.id)!.status === "idle");
+    expect(userTexts(model.requests[2].messages).at(-1)).toContain("two, changed");
+  });
+
+  it("removes a queued message while it searches", async () => {
+    const model = new ScriptedModel([searching, () => text("Not found."), () => text("answer three")]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    let id = "";
+    const landed = await duringSearch(runner, s.id, [
+      () => (id = runner.enqueue(s.id, "two", []).id),
+      () => runner.enqueue(s.id, "three", []),
+      () => expect(runner.editQueued(s.id, id, null)).toBe(true),
+    ]);
+    expect(landed).toEqual([true, true, true]);
+    await until(() => model.requests.length === 3 && store.get(s.id)!.status === "idle");
+    expect(store.get(s.id)!.transcript.filter((t) => t.kind === "user").map((t) => t.kind === "user" && t.text)).toEqual(["find it", "three"]);
+  });
+});
+
+describe("a queued message that cannot be sent", () => {
+  it("is logged, and never rejects where nobody waits for it", async () => {
+    const warned: string[] = [];
+    host.log = { info() {}, warn: (m: string) => void warned.push(m) } as never;
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const s = store.create();
+    const first = runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    runner.enqueue(s.id, "two", []);
+    runner.stop(s.id);
+    await first.catch(() => {});
+    // The save that takes the message off the queue fails, as a locked file does on Windows.
+    const save = store.save.bind(store);
+    store.save = () => {
+      throw new Error("EPERM: operation not permitted, rename");
+    };
+    await expect(runner.sendQueued(s.id)).resolves.toBeUndefined();
+    store.save = save;
+    expect(warned.some((m) => m.includes(`a queued message in session ${s.id} failed`))).toBe(true);
   });
 });
 
