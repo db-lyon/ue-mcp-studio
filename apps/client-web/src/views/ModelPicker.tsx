@@ -81,6 +81,7 @@ export function ModelPicker({
   up = false,
   follow,
   merged = false,
+  disabled = false,
 }: {
   settings: StudioSettings;
   onSettings: (s: StudioSettings) => void;
@@ -89,6 +90,7 @@ export function ModelPicker({
   follow?: Follow<string>;
   /** The effort too: the button names both and the menu has an Effort section under the models. */
   merged?: boolean;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const catalog = useCatalog(settings);
@@ -161,6 +163,7 @@ export function ModelPicker({
         ref={button}
         className="picker-button"
         onClick={() => setOpen(!open)}
+        disabled={disabled}
         title={withEffort ? "Model and effort" : "Model"}
         aria-haspopup="true"
         aria-expanded={open}
@@ -487,7 +490,7 @@ function EffortSegments({ settings, onSettings }: { settings: StudioSettings; on
 }
 
 /** How long the model reasons. Every vendor gets the nearest level it has. */
-export function EffortPicker({ settings, onSettings, follow }: { settings: StudioSettings; onSettings: (s: StudioSettings) => void; follow?: Follow<Effort> }) {
+export function EffortPicker({ settings, onSettings, follow, disabled = false }: { settings: StudioSettings; onSettings: (s: StudioSettings) => void; follow?: Follow<Effort>; disabled?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const pick = (effort: Effort) => api.saveSettings({ effort }).then(onSettings, (e: Error) => setError(e.message));
   return (
@@ -497,7 +500,7 @@ export function EffortPicker({ settings, onSettings, follow }: { settings: Studi
         value={follow ? follow.value ?? "" : settings.effort}
         onChange={(e) => void (follow ? follow.onPick((e.target.value || null) as Effort | null).catch((x: Error) => setError(x.message)) : pick(e.target.value as Effort))}
         aria-label={follow?.label ?? "Effort"}
-        disabled={settings.route === null}
+        disabled={disabled || settings.route === null}
         title={settings.route === null ? "Pick a model that runs first" : undefined}
       >
         {follow && <option value="">{follow.same}</option>}

@@ -77,23 +77,26 @@ export function Card({ label, children, actions, className = "" }: { label?: Rea
 
 /**
  * A whole number typed into a box, saved on blur or Enter. Empty is null
- * where `nullable`; anything out of range shows why and is not saved.
+ * where `nullable`; `extra` is one more value accepted outside the range,
+ * such as -1 for no limit. Anything else shows why and is not saved.
  */
-export function NumberField({ value, onSave, min, max, nullable, label, placeholder = "none", className = "cfg-num" }: {
+export function NumberField({ value, onSave, min, max, extra, nullable, label, placeholder = "none", className = "cfg-num", disabled }: {
   value: number | null;
   onSave: (v: number | null) => void;
   min: number;
   max: number;
+  extra?: number;
   nullable?: boolean;
   label: string;
   placeholder?: string;
   className?: string;
+  disabled?: boolean;
 }) {
   const [text, setText] = useState(value === null ? "" : value.toLocaleString("en-US"));
   useEffect(() => setText(value === null ? "" : value.toLocaleString("en-US")), [value]);
   const raw = text.replace(/[,\s_]/g, "");
   const n = Number(raw);
-  const valid = raw === "" ? !!nullable : Number.isInteger(n) && n >= min && n <= max;
+  const valid = raw === "" ? !!nullable : Number.isInteger(n) && ((n >= min && n <= max) || n === extra);
   const save = () => {
     const next = raw === "" ? null : n;
     if (valid && next !== value) onSave(next);
@@ -104,7 +107,8 @@ export function NumberField({ value, onSave, min, max, nullable, label, placehol
       inputMode="numeric"
       aria-label={label}
       aria-invalid={!valid}
-      title={valid ? undefined : `${nullable ? "Empty for none, or " : ""}a whole number from ${min.toLocaleString("en-US")} to ${max.toLocaleString("en-US")}`}
+      title={valid ? undefined : `${nullable ? "Empty for none, or " : ""}a whole number from ${min.toLocaleString("en-US")} to ${max.toLocaleString("en-US")}${extra === undefined ? "" : `, or ${extra}`}`}
+      disabled={disabled}
       placeholder={placeholder}
       value={text}
       onChange={(e) => setText(e.target.value)}

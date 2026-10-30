@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { IMAGE_EDGES, MAX_SUBAGENTS_PER_TURN, anythingConnected, type ImageSize, type KeyProviderId, type NativeOverview, type StudioSettings, type SubagentMode, type UsageSettings } from "@ue-mcp-studio/shared";
+import { IMAGE_EDGES, MAX_SUBAGENTS_PER_TURN, UNLIMITED_SUBAGENTS, anythingConnected, type ImageSize, type KeyProviderId, type NativeOverview, type StudioSettings, type SubagentMode, type UsageSettings } from "@ue-mcp-studio/shared";
 import { api, notThere } from "../../api";
 import { EffortPicker, ModelPicker } from "../ModelPicker";
 import { Head, type SettingsSection } from "../SettingsHub";
@@ -14,7 +14,10 @@ export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
 
 const SAME = "Same as main agent";
 
-export const STARTS: ReadonlyArray<{ id: Exclude<SubagentMode, "off">; name: string }> = [
+export const CONCURRENCY_HELP = "Maximum number of active workers allowed at one time. Additional workers are queued. Use -1 for no limit.";
+
+export const STARTS: ReadonlyArray<{ id: SubagentMode; name: string }> = [
+  { id: "off", name: "Off" },
   { id: "asked", name: "When you ask" },
   { id: "automatic", name: "When work splits into independent parts" },
 ];
@@ -39,6 +42,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
   }, msg.fail);
   if (!settings) return <>{msg.node ?? <p className="muted">Loading</p>}</>;
   const anything = anythingConnected(settings);
+  const workerOff = settings.usage.subagents === "off";
   return (
     <>
       <Head title="Agents" lead="The chat model, and the project's agent files (read only)." />
@@ -70,6 +74,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
           <ModelPicker
             settings={settings}
             onSettings={setSettings}
+            disabled={workerOff}
             follow={{
               label: "Worker model",
               same: SAME,
@@ -81,19 +86,22 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
           <EffortPicker
             settings={settings}
             onSettings={setSettings}
+            disabled={workerOff}
             follow={{ label: "Worker effort", same: SAME, value: settings.usage.subagentEffort, onPick: (effort) => saveUsage({ subagentEffort: effort }) }}
           />
         </div>
-        <Row title="Starts">
-          {/* An "off" stored by an earlier version reads as When you ask. */}
-          <Seg label="Worker starts" value={settings.usage.subagents === "automatic" ? "automatic" : "asked"} options={STARTS} onChange={(v) => void saveUsage({ subagents: v })} />
+        <Row title="Starts" help="Off: the agent starts no workers, and the project's helper agents in .claude/agents do not run either.">
+          <Seg label="Worker starts" value={settings.usage.subagents} options={STARTS} onChange={(v) => void saveUsage({ subagents: v })} />
         </Row>
-        <Row inline title="Concurrency" help="Maximum number of active workers allowed at one time. Additional workers are queued.">
+        <Row inline title="Concurrency" help={CONCURRENCY_HELP}>
+          {settings.usage.subagentsPerTurn === UNLIMITED_SUBAGENTS && <span className="muted small">No limit</span>}
           <NumberField
             label="Concurrency"
             value={settings.usage.subagentsPerTurn}
             min={1}
             max={MAX_SUBAGENTS_PER_TURN}
+            extra={UNLIMITED_SUBAGENTS}
+            disabled={workerOff}
             onSave={(n) => n !== null && void saveUsage({ subagentsPerTurn: n })}
           />
         </Row>
