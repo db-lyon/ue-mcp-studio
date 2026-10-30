@@ -88,7 +88,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
           {/* An "off" stored by an earlier version reads as When you ask. */}
           <Seg label="Worker starts" value={settings.usage.subagents === "automatic" ? "automatic" : "asked"} options={STARTS} onChange={(v) => void saveUsage({ subagents: v })} />
         </Row>
-        <Row inline title="Concurrency" help={`The most subagents that run at the same time, 1 to ${MAX_SUBAGENTS_PER_TURN}. When the agent starts more, the extra ones wait and start as running ones finish.`}>
+        <Row inline title="Concurrency" help="Maximum number of active workers at one time.">
           <NumberField
             label="Concurrency"
             value={settings.usage.subagentsPerTurn}

@@ -182,7 +182,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     const field = screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement;
     expect(field.value).toBe("4");
     expect(screen.getByText("Concurrency")).toBeTruthy();
-    expect(screen.getByText("The most subagents that run at the same time, 1 to 16. When the agent starts more, the extra ones wait and start as running ones finish.")).toBeTruthy();
+    expect(screen.getByText("Maximum number of active workers at one time.")).toBeTruthy();
     fireEvent.change(field, { target: { value: "8" } });
     await act(async () => void fireEvent.keyDown(field, { key: "Enter" }));
     expect(m.saveSettings).toHaveBeenCalledWith({ usage: { subagentsPerTurn: 8 } });
