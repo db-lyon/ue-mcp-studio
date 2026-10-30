@@ -145,29 +145,29 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(m.saveSettings).not.toHaveBeenCalledWith(expect.objectContaining({ effort: expect.anything() }));
   });
 
-  it("offers Off beside the two starts, and Off disables the worker's model, effort and concurrency (#173)", async () => {
+  it("offers Never beside the two starts, and Never disables the worker's model, effort and concurrency (#173)", async () => {
     await show();
     const radios = screen.getAllByRole("radio").filter((r) => r.closest("[aria-label='Worker starts']"));
-    expect(radios.map((r) => r.textContent)).toEqual(["Off", "When you ask", "When work splits into independent parts"]);
+    expect(radios.map((r) => r.textContent)).toEqual(["Never", "When you ask", "When work splits into independent parts"]);
     const fields = () => [
       screen.getByRole("button", { name: "Worker model: Same as main agent" }) as HTMLButtonElement,
       screen.getByRole("combobox", { name: "Worker effort" }) as HTMLSelectElement,
       screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement,
     ];
     expect(fields().map((f) => f.disabled)).toEqual([false, false, false]);
-    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Off" })));
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Never" })));
     expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { subagents: "off" } });
-    expect(screen.getByRole("radio", { name: "Off" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "Never" }).getAttribute("aria-checked")).toBe("true");
     expect(fields().map((f) => f.disabled)).toEqual([true, true, true]);
-    expect(screen.getByText(/project's helper agents in \.claude\/agents do not run either/)).toBeTruthy();
+    expect(screen.getByText(/including subagents defined in the project's agent files/)).toBeTruthy();
     await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "When work splits into independent parts" })));
     expect(m.saveSettings).toHaveBeenLastCalledWith({ usage: { subagents: "automatic" } });
     expect(fields().map((f) => f.disabled)).toEqual([false, false, false]);
   });
 
-  it("shows a stored Off as Off, with the other fields disabled (#173)", async () => {
+  it("shows a stored off as Never, with the other fields disabled (#173)", async () => {
     await show({ subagents: "off" });
-    expect(screen.getByRole("radio", { name: "Off" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "Never" }).getAttribute("aria-checked")).toBe("true");
     expect((screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement).disabled).toBe(true);
   });
 

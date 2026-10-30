@@ -17,7 +17,7 @@ const SAME = "Same as main agent";
 export const CONCURRENCY_HELP = "Maximum number of active workers allowed at one time. Additional workers are queued. Use -1 for no limit.";
 
 export const STARTS: ReadonlyArray<{ id: SubagentMode; name: string }> = [
-  { id: "off", name: "Off" },
+  { id: "off", name: "Never" },
   { id: "asked", name: "When you ask" },
   { id: "automatic", name: "When work splits into independent parts" },
 ];
@@ -90,7 +90,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
             follow={{ label: "Worker effort", same: SAME, value: settings.usage.subagentEffort, onPick: (effort) => saveUsage({ subagentEffort: effort }) }}
           />
         </div>
-        <Row title="Starts" help="Off: the agent starts no workers, and the project's helper agents in .claude/agents do not run either.">
+        <Row title="Starts" help="Never: the agent starts no workers, including subagents defined in the project's agent files.">
           <Seg label="Worker starts" value={settings.usage.subagents} options={STARTS} onChange={(v) => void saveUsage({ subagents: v })} />
         </Row>
         <Row inline title="Concurrency" help={CONCURRENCY_HELP}>
