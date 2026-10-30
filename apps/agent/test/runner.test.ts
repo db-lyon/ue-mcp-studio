@@ -1178,33 +1178,136 @@ describe("Settings > Agent > Usage", () => {
     const prompt = model.requests[0].system[0].text;
     expect(prompt).toContain("only when the user asks for one");
     expect(prompt).not.toContain("several in one message");
-    expect(prompt).toContain("A turn starts at most 4 subagents.");
+    expect(prompt).toContain("4 subagents run at once");
   });
 
-  it("runs only the turn's allowance of subagents and refuses the rest", async () => {
-    const requests: ModelRequest[] = [];
-    const runner = new AgentRunner({ host, store, provider: () => fanOut(3, requests), model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: 2 }) });
+  /**
+   * A main agent that starts `n` subagents in one message. Each subagent holds
+   * until the test lets it go, so the queue can be watched; `live` counts the
+   * ones running now and `most` the highest that count reached.
+   */
+  function held(n: number) {
+    const gates = new Map<string, () => void>();
+    const track = { live: 0, most: 0, started: [] as string[], mainResults: null as null | Array<{ tool_use_id: string; content: string; is_error?: boolean }> };
+    const provider: ModelProvider = {
+      async run(req, _onText, signal) {
+        if (isSub(req)) {
+          const task = req.messages[0].content as string;
+          track.started.push(task);
+          track.live++;
+          track.most = Math.max(track.most, track.live);
+          try {
+            await new Promise<void>((resolve, reject) => {
+              gates.set(task, resolve);
+              signal?.addEventListener("abort", () => reject(new Error("aborted")));
+            });
+          } finally {
+            track.live--;
+          }
+          return text(`Report: ${task}`);
+        }
+        if (req.messages.length === 1) {
+          const uses = Array.from({ length: n }, (_, i) => ({ type: "tool_use", id: `a${i}`, name: "agent", input: { description: `Part ${i}`, prompt: `part ${i}` } }));
+          return { content: uses as never, stopReason: "tool_use" };
+        }
+        track.mainResults = req.messages[2].content as never;
+        return text("Done.");
+      },
+    };
+    const finish = (task: string) => {
+      const go = gates.get(task);
+      gates.delete(task);
+      go?.();
+    };
+    return { provider, track, finish };
+  }
+  const queuedIds = (id: string) => store.get(id)!.transcript.flatMap((t) => (t.kind === "tool" && t.call.queued ? [t.call.id] : []));
+
+  it("runs 2 of 5 subagents at once, queues the other 3, and returns all 5 reports (#164)", async () => {
+    const h = held(5);
+    const events: Array<{ type: string; data: Record<string, unknown> }> = [];
+    const publish = host.events.publish;
+    host.events.publish = (type: string, data: Record<string, unknown>) => {
+      events.push({ type, data });
+      return publish.call(host.events, type, data);
+    };
+    const runner = new AgentRunner({ host, store, provider: () => h.provider, model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: 2 }) });
     const s = store.create();
-    await runner.send(s.id, "three parts");
+    const turn = runner.send(s.id, "five parts");
+    await until(() => h.track.started.length === 2 && queuedIds(s.id).length === 3);
+    expect(h.track.live).toBe(2);
+    expect(queuedIds(s.id)).toEqual(["a2", "a3", "a4"]);
+    expect(SessionStore.summary(store.get(s.id)!).agents).toEqual({ total: 5, running: 2 });
+    expect(events.filter((e) => e.type === "tool.queued" && e.data.queued).map((e) => e.data.toolUseId)).toEqual(["a2", "a3", "a4"]);
+    // Each one that finishes lets the next waiting one start.
+    h.finish("part 0");
+    await until(() => h.track.started.length === 3);
+    expect(queuedIds(s.id)).toEqual(["a3", "a4"]);
+    for (const task of ["part 1", "part 2", "part 3", "part 4"]) {
+      await until(() => h.track.started.includes(task));
+      h.finish(task);
+    }
+    await turn;
+    host.events.publish = publish;
+
     const fin = store.get(s.id)!;
-    expect(requests.filter(isSub)).toHaveLength(2);
-    const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string; is_error?: boolean }>;
-    expect(results.map((r) => r.tool_use_id)).toEqual(["a0", "a1", "a2"]);
-    expect(results[2]).toMatchObject({ is_error: true, content: expect.stringContaining("the most Settings > Agents > Worker allows") });
-    expect(fin.turn?.agents).toBe(2);
+    expect(fin.status).toBe("idle");
+    expect(h.track.most).toBe(2);
+    expect(h.track.started).toEqual(["part 0", "part 1", "part 2", "part 3", "part 4"]);
+    expect(queuedIds(s.id)).toEqual([]);
+    const results = h.track.mainResults!;
+    expect(results.map((r) => [r.tool_use_id, r.content, !!r.is_error])).toEqual([0, 1, 2, 3, 4].map((i) => [`a${i}`, `Report: part ${i}`, false]));
+    expect(fin.transcript.filter((t) => t.kind === "tool" && t.call.name === "agent").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["done", "done", "done", "done", "done"]);
   });
 
-  it("runs past the default 4 when Settings raises the cap, and tells the model the new number (#164)", async () => {
+  it("tells the model how many subagents run at once and that more wait, never to do the work itself (#164)", async () => {
     const requests: ModelRequest[] = [];
     const runner = new AgentRunner({ host, store, provider: () => fanOut(7, requests), model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: 6 }) });
     const s = store.create();
     await runner.send(s.id, "seven parts");
     const fin = store.get(s.id)!;
-    expect(requests[0].system[0].text).toContain("A turn starts at most 6 subagents.");
-    expect(requests.filter(isSub)).toHaveLength(6);
+    expect(requests[0].system[0].text).toContain("6 subagents run at once; any more wait and start as running ones finish");
+    expect(requests.filter(isSub)).toHaveLength(7);
     const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string; is_error?: boolean }>;
-    expect(results.filter((r) => r.is_error).map((r) => r.tool_use_id)).toEqual(["a6"]);
-    expect(fin.turn?.agents).toBe(6);
+    expect(results.filter((r) => r.is_error)).toEqual([]);
+    expect(results.map((r) => r.content)).toEqual(Array.from({ length: 7 }, (_, i) => `Report: part ${i}`));
+    expect(JSON.stringify(fin.messages)).not.toMatch(/yourself|Settings > Agents > Worker allows/);
+    expect(fin.turn?.agents).toBe(7);
+  });
+
+  it("cancels the waiting subagents when the turn is stopped (#164)", async () => {
+    const h = held(5);
+    const runner = new AgentRunner({ host, store, provider: () => h.provider, model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: 2 }) });
+    const s = store.create();
+    const turn = runner.send(s.id, "five parts");
+    await until(() => h.track.started.length === 2 && queuedIds(s.id).length === 3);
+    runner.stop(s.id);
+    await turn;
+    // Nothing waiting starts after the stop.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(h.track.started).toEqual(["part 0", "part 1"]);
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("stopped");
+    expect(fin.transcript.filter((t) => t.kind === "tool" && t.call.name === "agent").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["stopped", "stopped", "stopped", "stopped", "stopped"]);
+    expect(queuedIds(s.id)).toEqual([]);
+  });
+
+  it("stops one waiting subagent on its own, and the rest still run (#164)", async () => {
+    const h = held(3);
+    const runner = new AgentRunner({ host, store, provider: () => h.provider, model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: 1 }) });
+    const s = store.create();
+    const turn = runner.send(s.id, "three parts");
+    await until(() => h.track.started.length === 1 && queuedIds(s.id).length === 2);
+    expect(runner.stopSubagent(s.id, "a1")).toBe(true);
+    h.finish("part 0");
+    await until(() => h.track.started.includes("part 2"));
+    h.finish("part 2");
+    await turn;
+    expect(h.track.started).toEqual(["part 0", "part 2"]);
+    const results = h.track.mainResults!;
+    expect(results.map((r) => r.tool_use_id)).toEqual(["a0", "a1", "a2"]);
+    expect(results[1]).toMatchObject({ is_error: true, content: expect.stringContaining("stopped this subagent before it started") });
+    expect(results[2].content).toBe("Report: part 2");
   });
 
   it("runs subagents on the chosen model and effort", async () => {

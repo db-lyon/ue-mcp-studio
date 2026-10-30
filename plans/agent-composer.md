@@ -53,7 +53,7 @@ Desktop: a left rail under three labels, Studio (General), Work (Agents, Models 
 | Sign-ins, API keys | Models & accounts | one name per route: "Claude sign-in", "ChatGPT sign-in", "<vendor> key" |
 | Ask before commands and files | Approvals & review | four rows: shell, files, editor restarts, destructive ue-mcp actions |
 | Subagents mode, model, effort | Agents > Worker | the built-in editor worker's start, model and effort, editable (2.7, #129) |
-| Subagents per turn | not editable | the stored value still caps helpers per turn |
+| Subagents at once | Agents > Worker | how many run at the same time; more wait and start as running ones finish (#164) |
 | Give the agent CLAUDE.md | Agents | "Read the project's own files", one switch for every convention |
 | Image size | Agents | |
 | Turn token limit | removed | dropped when old settings load |

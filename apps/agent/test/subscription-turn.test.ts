@@ -284,6 +284,86 @@ describe("stopping one subagent on the subscription route", () => {
   });
 });
 
+describe("subagents past the limit on the subscription route (#164)", () => {
+  type Hook = (input: unknown, id: string, o: { signal: AbortSignal }) => Promise<unknown>;
+  const hooks = () => (sdk.options.at(-1) as { hooks: Record<string, Array<{ hooks: Hook[] }>> }).hooks;
+  const queuedIn = (id: string) => store.get(id)!.transcript.flatMap((t) => (t.kind === "tool" && t.call.queued ? [t.call.id] : []));
+
+  /** Five Agent calls the way the binary makes them: each passes the PreToolUse hook, runs, then the PostToolUse hook. */
+  function fiveAgents(gates: Map<string, () => void>, started: string[], answers: Map<string, unknown>) {
+    return async (b: FakeBinary) => {
+      const ids = ["g0", "g1", "g2", "g3", "g4"];
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-q" });
+      b.emit(assistant("m_a", ids.map((id) => ({ type: "tool_use", id, name: "Agent", input: { description: id, prompt: id } }))));
+      await Promise.all(ids.map(async (id) => {
+        const pre = { hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: {}, tool_use_id: id };
+        const answer = await hooks().PreToolUse[0].hooks[0](pre, id, { signal: b.signal });
+        answers.set(id, answer);
+        if (JSON.stringify(answer) !== "{}") {
+          b.emit(results(id, { text: "denied", isError: true }));
+          return;
+        }
+        started.push(id);
+        b.emit({ type: "system", subtype: "task_started", tool_use_id: id, task_id: `task-${id}`, is_backgrounded: false });
+        await new Promise<void>((r) => gates.set(id, r));
+        b.emit({ type: "system", subtype: "task_notification", tool_use_id: id, task_id: `task-${id}`, status: "completed", summary: `Report ${id}` });
+        await hooks().PostToolUse[0].hooks[0]({ hook_event_name: "PostToolUse", tool_name: "Agent", tool_input: {}, tool_response: { agentId: id, content: [] }, tool_use_id: id }, id, { signal: b.signal });
+        b.emit(results(id, { text: `Report ${id}`, isError: false }));
+      }));
+      b.emit(assistant("m_end", [{ type: "text", text: "All five reported." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-q" });
+    };
+  }
+  const runnerAt = (n: number) =>
+    new AgentRunner({ host, store, provider: () => { throw new Error("the API route is not used"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false, usage: () => ({ ...DEFAULT_USAGE, subagents: "automatic", subagentsPerTurn: n }) });
+
+  it("runs 2 at once, shows the other 3 waiting to start, and all 5 return their reports", async () => {
+    const gates = new Map<string, () => void>();
+    const started: string[] = [];
+    const answers = new Map<string, unknown>();
+    sdk.script = fiveAgents(gates, started, answers);
+    const s = store.create();
+    const turn = runnerAt(2).send(s.id, "five parts");
+    await until(() => started.length === 2 && queuedIn(s.id).length === 3);
+    expect(started).toEqual(["g0", "g1"]);
+    expect(queuedIn(s.id)).toEqual(["g2", "g3", "g4"]);
+    gates.get("g1")!();
+    await until(() => started.length === 3);
+    expect(started[2]).toBe("g2");
+    expect(queuedIn(s.id)).toEqual(["g3", "g4"]);
+    for (const id of ["g0", "g2", "g3", "g4"]) {
+      await until(() => gates.has(id));
+      gates.get(id)!();
+    }
+    await turn;
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    expect([...answers.values()].every((a) => JSON.stringify(a) === "{}")).toBe(true);
+    const agentCalls = fin.transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call] : []));
+    expect(agentCalls.map((c) => [c.id, c.outcome, c.result, !!c.queued])).toEqual(["g0", "g1", "g2", "g3", "g4"].map((id) => [id, "done", `Report ${id}`, false]));
+  });
+
+  it("cancels the 3 waiting ones when the turn is stopped, and starts none of them", async () => {
+    const gates = new Map<string, () => void>();
+    const started: string[] = [];
+    const answers = new Map<string, unknown>();
+    sdk.script = fiveAgents(gates, started, answers);
+    const s = store.create();
+    const runner = runnerAt(2);
+    const turn = runner.send(s.id, "five parts");
+    await until(() => started.length === 2 && queuedIn(s.id).length === 3);
+    runner.stop(s.id);
+    await turn;
+    await until(() => answers.size === 5);
+    expect(started).toEqual(["g0", "g1"]);
+    for (const id of ["g2", "g3", "g4"]) expect(JSON.stringify(answers.get(id))).toContain("Stopped by the user.");
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("stopped");
+    expect(fin.transcript.filter((t) => t.kind === "tool" && t.call.name === "agent").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["stopped", "stopped", "stopped", "stopped", "stopped"]);
+    for (const g of gates.values()) g();
+  });
+});
+
 describe("a call's result on the subscription route", () => {
   it("goes back to the binary without indentation and stays as ue-mcp answered in the transcript", async () => {
     const answer = JSON.stringify({ success: true, actors: [{ label: "Sun" }] }, null, 2);

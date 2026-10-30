@@ -34,7 +34,7 @@
  *
  * Progress arrives on the daemon's event stream as studio.session.changed,
  * studio.transcript.added, studio.turn.delta, studio.tool.finished,
- * studio.approval.requested and studio.approval.resolved.
+ * studio.tool.queued, studio.approval.requested and studio.approval.resolved.
  */
 import { registerVersionNotice } from "./version-notice.js";
 import { readDiscovery, type DaemonExtensionApi, type ExtensionHandler } from "ue-mcp/daemon";

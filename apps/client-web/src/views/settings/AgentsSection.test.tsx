@@ -177,21 +177,21 @@ describe("Agents: what each vendor's own files give its models", () => {
 
 
 
-  it("shows the Worker's subagents per turn and saves a new number (#164)", async () => {
+  it("shows the Worker's subagents at once and saves a new number (#164)", async () => {
     await show();
-    const field = screen.getByRole("textbox", { name: "Most subagents per turn" }) as HTMLInputElement;
+    const field = screen.getByRole("textbox", { name: "Subagents at once" }) as HTMLInputElement;
     expect(field.value).toBe("4");
-    expect(screen.getByText("Subagents per turn")).toBeTruthy();
-    expect(screen.getByText("The most one turn can start, 1 to 16.")).toBeTruthy();
+    expect(screen.getByText("Subagents at once")).toBeTruthy();
+    expect(screen.getByText("How many run at the same time, 1 to 16. More wait and start as running ones finish.")).toBeTruthy();
     fireEvent.change(field, { target: { value: "8" } });
     await act(async () => void fireEvent.keyDown(field, { key: "Enter" }));
     expect(m.saveSettings).toHaveBeenCalledWith({ usage: { subagentsPerTurn: 8 } });
-    expect((screen.getByRole("textbox", { name: "Most subagents per turn" }) as HTMLInputElement).value).toBe("8");
+    expect((screen.getByRole("textbox", { name: "Subagents at once" }) as HTMLInputElement).value).toBe("8");
   });
 
-  it("keeps a subagents per turn outside 1 to 16 from being saved, and says why", async () => {
+  it("keeps a subagents at once outside 1 to 16 from being saved, and says why", async () => {
     await show({ subagentsPerTurn: 6 });
-    const field = screen.getByRole("textbox", { name: "Most subagents per turn" }) as HTMLInputElement;
+    const field = screen.getByRole("textbox", { name: "Subagents at once" }) as HTMLInputElement;
     expect(field.value).toBe("6");
     for (const bad of ["0", "17", "2.5", ""]) {
       fireEvent.change(field, { target: { value: bad } });

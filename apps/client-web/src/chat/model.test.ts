@@ -38,6 +38,14 @@ describe("a subagent's state", () => {
     expect(agentStatus(callOf(a), [a], false, T0 + QUIET_MS + 1).state).toBe("working");
   });
 
+  it("is waiting to start while past the limit of subagents at once, and finished once it ends (#164)", () => {
+    const call = { ...callOf(agent("w")), queued: true };
+    expect(agentStatus(call, [], false, T0 + 5000)).toEqual({ state: "queued", activity: null, secs: 5 });
+    expect(agentStatus(call, [], true, T0 + 5000).state).toBe("queued");
+    expect(agentStatus({ ...call, outcome: "stopped", endedAt: at(2) }, [], false, T0 + 5000).state).toBe("stopped");
+    expect(summarize(["working", "queued", "queued", "done"])).toBe("1 working, 2 waiting to start, 1 done");
+  });
+
   it("names the running call however long it takes", () => {
     const a = agent("a");
     expect(agentStatus(callOf(a), [a, step("a", "s1", "pending", 2)], false, T0 + 10 * QUIET_MS).state).toBe("working");
