@@ -101,7 +101,7 @@ function agentCounts(s: StoredSession): { total: number; running: number } {
   for (const t of s.transcript) {
     if (t.kind !== "tool" || t.call.name !== "agent") continue;
     total++;
-    if (t.call.outcome === "pending") running++;
+    if (t.call.outcome === "pending" && !t.call.queued) running++;
   }
   return { total, running };
 }

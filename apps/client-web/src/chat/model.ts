@@ -7,9 +7,10 @@ import type { ToolCallRecord, TranscriptEntry, TurnStatus } from "@ue-mcp-studio
 export type Call = ToolCallRecord;
 
 /** What a subagent is doing now. */
-export type AgentState = "working" | "approval" | "waiting" | "done" | "failed" | "unknown" | "stopped";
+export type AgentState = "queued" | "working" | "approval" | "waiting" | "done" | "failed" | "unknown" | "stopped";
 
 export const STATE_LABEL: Record<AgentState, string> = {
+  queued: "Waiting to start",
   working: "working",
   approval: "waiting on you",
   waiting: "waiting for editor",
@@ -20,7 +21,7 @@ export const STATE_LABEL: Record<AgentState, string> = {
 };
 
 /** The states that are still running; the rest are finished. */
-export const ACTIVE: readonly AgentState[] = ["working", "approval", "waiting"];
+export const ACTIVE: readonly AgentState[] = ["queued", "working", "approval", "waiting"];
 export const isActive = (state: AgentState): boolean => ACTIVE.includes(state);
 
 /**
@@ -127,6 +128,8 @@ export function agentStatus(call: Call, transcript: TranscriptEntry[], sessionWa
   if (call.outcome === "error") return { state: "failed", activity: null, secs };
   if (call.outcome === "unknown") return { state: "unknown", activity: null, secs };
   if (call.outcome === "stopped") return { state: "stopped", activity: null, secs };
+  // Past the limit of subagents at once: it starts when a running one finishes.
+  if (call.queued) return { state: "queued", activity: null, secs };
   const steps = transcript.filter((t) => t.parent === call.id);
   const held = steps.find((t) => t.kind === "tool" && t.call.outcome === "pending" && asked.has(t.call.id));
   if (held?.kind === "tool") return { state: "approval", activity: `approve ${toolLabel(held.call)}`, secs };
@@ -145,6 +148,7 @@ export function summarize(states: AgentState[]): string {
   return [
     n("approval") && `${n("approval")} waiting on you`,
     n("working") && `${n("working")} working`,
+    n("queued") && `${n("queued")} waiting to start`,
     n("waiting") && `${n("waiting")} waiting`,
     n("done") && `${n("done")} done`,
     n("stopped") && `${n("stopped")} stopped`,

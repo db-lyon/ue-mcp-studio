@@ -718,6 +718,8 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agents-new-count { color: var(--accent-hi); }
 .state-stopped .agents-dot, .agent-link.state-stopped::before { background: var(--muted); }
 .state-stopped .agents-state { color: var(--muted); }
+.state-queued .agents-dot, .agent-link.state-queued::before { background: var(--muted); }
+.state-queued .agents-state { color: var(--muted); }
 
 /* A subagent thread's header */
 .thread-head .thread-back { color: var(--text); background: var(--panel-2); border-color: transparent; }

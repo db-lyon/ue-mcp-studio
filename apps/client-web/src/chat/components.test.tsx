@@ -12,7 +12,7 @@ vi.mock("../api", () => ({
 import { api } from "../api";
 import { Threads } from "./Threads";
 import { SessionRow } from "./SessionRow";
-import { EditMessageContext, Entry, MainTranscript, ToolCall } from "./Transcript";
+import { EditMessageContext, Entry, MainTranscript, SubagentThread, ToolCall } from "./Transcript";
 import { AssetTranscriptContext } from "./asset-links";
 import { SessionIdContext } from "./attachments";
 
@@ -22,6 +22,10 @@ const agent = (id: string, outcome: ToolCallRecord["outcome"] = "pending", end?:
   kind: "tool",
   call: { id, name: "agent", input: { description: `Task ${id}`, prompt: `do ${id}` }, outcome, startedAt: at(0), endedAt: end === undefined ? undefined : at(end) },
 });
+const queuedAgent = (id: string): TranscriptEntry => {
+  const e = agent(id) as Extract<TranscriptEntry, { kind: "tool" }>;
+  return { ...e, call: { ...e.call, queued: true } };
+};
 const step = (parent: string, id: string, outcome: ToolCallRecord["outcome"]): TranscriptEntry => ({
   kind: "tool",
   parent,
@@ -115,6 +119,15 @@ describe("the thread list", () => {
     expect(screen.getByText("Task b")).toBeTruthy();
   });
 
+  it("shows a subagent past the limit as Waiting to start, still stoppable (#164)", () => {
+    const props = renderThreads({ transcript: [agent("a"), queuedAgent("w1"), queuedAgent("w2")] });
+    expect(screen.getByText("Subagents: 1 working, 2 waiting to start")).toBeTruthy();
+    expect(screen.getAllByText("Waiting to start")).toHaveLength(2);
+    expect(screen.getByText("Task w1").closest(".agents-row")!.className).toContain("state-queued");
+    fireEvent.click(screen.getByRole("button", { name: "Stop Task w1" }));
+    expect(props.onStop).toHaveBeenCalledWith("w1");
+  });
+
   it("keeps a quiet subagent working and says how long it has been quiet, never stuck", () => {
     renderThreads({ transcript: [agent("q")] });
     expect(screen.getByText("working")).toBeTruthy();
@@ -187,6 +200,20 @@ describe("the main thread", () => {
     render(<MainTranscript transcript={t} {...props} status="running" onOpen={onOpen} />);
     fireEvent.click(screen.getByText("Task a"));
     expect(onOpen).toHaveBeenCalledWith("a");
+  });
+
+  it("shows Waiting to start on a waiting subagent's card and in its thread (#164)", () => {
+    const t: TranscriptEntry[] = [{ kind: "user", text: "go", at: at(0) }, queuedAgent("w")];
+    render(<MainTranscript transcript={t} {...props} status="running" />);
+    const card = screen.getByText("Task w").closest(".agent-link")!;
+    expect(card.className).toContain("state-queued");
+    expect(card.textContent).toContain("Waiting to start");
+    cleanup();
+    const onStop = vi.fn();
+    render(<SubagentThread call={(t[1] as Extract<TranscriptEntry, { kind: "tool" }>).call} transcript={t} sessionWaiting={false} onBack={vi.fn()} onStop={onStop} />);
+    expect(screen.getByText("Waiting to start")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    expect(onStop).toHaveBeenCalledWith("w");
   });
 
   it("folds progress messages behind the final answer", () => {

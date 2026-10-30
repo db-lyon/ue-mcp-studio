@@ -115,7 +115,7 @@ export const SUBAGENT_MODES: readonly SubagentMode[] = ["off", "asked", "automat
 export type ImageSize = "full" | "standard" | "small";
 export const IMAGE_EDGES: Record<ImageSize, number> = { full: 2000, standard: 1568, small: 1024 };
 
-/** The most subagents a turn may start. */
+/** The most subagents a turn may run at once. */
 export const MAX_SUBAGENTS_PER_TURN = 16;
 
 /** How much a turn may spend, and on what. Settings > Agent > Usage. */
@@ -125,7 +125,7 @@ export interface UsageSettings {
   subagentModel: { provider: KeyProviderId; model: string } | null;
   /** How long subagents reason; null for the main effort. */
   subagentEffort: Effort | null;
-  /** The most subagents one turn starts; more are refused and the agent does the work itself. */
+  /** How many subagents a turn runs at once; more wait and start as running ones finish. */
   subagentsPerTurn: number;
   /** Put the project's CLAUDE.md in the agent's instructions, as a terminal client does. */
   projectInstructions: boolean;
@@ -290,6 +290,8 @@ export interface ToolCallRecord {
    * declined: the user did not allow it, so it never ran.
    */
   outcome: "pending" | "done" | "error" | "unknown" | "stopped" | "declined";
+  /** A subagent waiting for one of the turn's running subagents to finish before it starts. */
+  queued?: boolean;
   result?: string;
   /** The images the model was shown with the result, kept as the session's files. */
   images?: Attachment[];

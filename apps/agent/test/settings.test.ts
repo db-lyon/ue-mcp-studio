@@ -113,7 +113,7 @@ describe("usage settings", () => {
     expect(s.usage()).toMatchObject({ subagents: "automatic", imageSize: "small", subagentsPerTurn: 4 });
   });
 
-  it("save the Worker's subagents per turn across a restart, from 1 to 16 (#164)", () => {
+  it("save the Worker's subagents at once across a restart, from 1 to 16 (#164)", () => {
     const d = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
     const a = new SettingsStore(d, path.join(d, "keys"));
     a.update({ usage: { subagentsPerTurn: 9 } });

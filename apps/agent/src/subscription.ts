@@ -14,7 +14,7 @@ import { messagesUsage, usageTokens } from "./usage.js";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
-import { subagentLimitText } from "./subagent-limit.js";
+import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -103,7 +103,7 @@ export interface SubscriptionTurn {
   system: string;
   /** What each subagent the model starts is told. */
   subagentSystem: string;
-  /** Whether the model may start subagents, how many this turn, and what they run on. */
+  /** Whether the model may start subagents, how many run at once, and what they run on. */
   subagents: { mode: SubagentMode; perTurn: number; model: string; effort: Effort };
   /**
    * The project's own Claude Code files: the setting sources the SDK reads
@@ -129,6 +129,11 @@ export interface SubscriptionTurn {
   /** A subagent that can be stopped on its own, by its agent call id; null once it has finished. */
   onStopper: (callId: string, stop: (() => Promise<void>) | null) => void;
   onTask: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
+  /**
+   * A subagent past the concurrency limit is waiting to start, with how the
+   * user stops it while it waits; null once it starts.
+   */
+  onQueued?: (toolUseId: string, cancel: (() => void) | null) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
   /** Tokens the turn spent since the last report, as each model message arrives; `parent` is the agent call of a subagent's message. */
@@ -145,8 +150,8 @@ export interface SubscriptionTurn {
 
 /**
  * The SDK options for subagents: none at all when they are off, else the
- * subagent Studio defines, on its own model and effort, with a hook that
- * refuses the agent calls past the turn's allowance.
+ * subagent Studio defines, on its own model and effort, with hooks that hold
+ * an agent call past the concurrency limit until a running one finishes.
  */
 /** A project subagent as the SDK takes it, its tools already in Studio's names. */
 export interface NativeAgentDefinition {
@@ -160,16 +165,50 @@ export interface NativeAgentDefinition {
   background?: boolean;
 }
 
-export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string, native?: SubscriptionTurn["native"], editor?: string[]) {
+/**
+ * How the SDK route queues subagents: the slots the turn shares, and what the
+ * runner is told while one waits.
+ */
+export interface AgentQueue {
+  slots: SubagentSlots;
+  onQueued?: (toolUseId: string, cancel: (() => void) | null) => void;
+}
+
+/** A day, in seconds: a queued agent call waits as long as the running ones take. */
+const QUEUE_HOOK_TIMEOUT = 24 * 60 * 60;
+
+export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string, native?: SubscriptionTurn["native"], editor?: string[], queue: AgentQueue = { slots: new SubagentSlots(s.perTurn) }) {
   const studio = withEditor(STUDIO_TOOLS, editor);
   const projectAgents = Object.fromEntries(Object.entries(native ? native.agents : {}).map(([n, a]) => [n, a.tools ? { ...a, tools: withEditor(a.tools, editor) } : a]));
   const skill = native?.skills ? [SKILL] : [];
   if (s.mode === "off" && Object.keys(projectAgents).length === 0) return { tools: [SEARCH, ...skill], allowedTools: [...studio, SEARCH, ...skill] };
-  let started = 0;
-  const limit: HookCallback = async (input) => {
+  const { slots } = queue;
+  const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "deny" as const, permissionDecisionReason: reason } });
+  // Before an agent call starts: it waits here while the limit is reached, and starts when a slot frees.
+  const hold: HookCallback = async (input, toolUseId, { signal }) => {
     if (input.hook_event_name !== "PreToolUse") return {};
-    if (++started <= s.perTurn) return {};
-    return { hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "deny" as const, permissionDecisionReason: subagentLimitText(s.perTurn) } };
+    const id = input.tool_use_id ?? toolUseId ?? "";
+    let stoppedHere = false;
+    const onAbort = () => slots.cancel(id);
+    signal.addEventListener("abort", onAbort, { once: true });
+    const started = await slots.acquire(id, () => queue.onQueued?.(id, () => {
+      stoppedHere = true;
+      slots.cancel(id);
+    }));
+    signal.removeEventListener("abort", onAbort);
+    if (started) {
+      queue.onQueued?.(id, null);
+      return {};
+    }
+    return deny(stoppedHere ? QUEUED_STOP : "Stopped by the user.");
+  };
+  // A foreground agent call returns when its subagent ends; a background one's slot frees on its task notification.
+  const free: HookCallback = async (input, toolUseId) => {
+    if (input.hook_event_name === "PostToolUse") {
+      const r = input.tool_response as { status?: string } | null;
+      if (r?.status !== "async_launched") slots.release(input.tool_use_id ?? toolUseId ?? "");
+    } else if (input.hook_event_name === "PostToolUseFailure") slots.release(input.tool_use_id ?? toolUseId ?? "");
+    return {};
   };
   return {
     // Built-ins: the subagent tool, and web search, which runs on Anthropic's side and touches nothing here.
@@ -189,7 +228,11 @@ export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem
       ...Object.fromEntries(Object.entries(projectAgents).map(([name, a]) => [name, { ...a, prompt: `${subagentSystem}\n\n${a.prompt}` }])),
     },
     allowedTools: [...studio, AGENT, SEARCH, ...skill],
-    hooks: { PreToolUse: [{ matcher: AGENT, hooks: [limit] }] },
+    hooks: {
+      PreToolUse: [{ matcher: AGENT, hooks: [hold], timeout: QUEUE_HOOK_TIMEOUT }],
+      PostToolUse: [{ matcher: AGENT, hooks: [free] }],
+      PostToolUseFailure: [{ matcher: AGENT, hooks: [free] }],
+    },
   };
 }
 
@@ -309,6 +352,11 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   // turn ends when the binary reports it idle or on Stop; the ceiling is only a backstop.
   const env = claudeEnv({ MCP_TOOL_TIMEOUT: day, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: day });
 
+  // The turn's subagents share these slots; Stop cancels the ones still waiting.
+  const slots = new SubagentSlots(t.subagents.perTurn);
+  if (t.signal.aborted) slots.cancelAll();
+  else t.signal.addEventListener("abort", () => slots.cancelAll(), { once: true });
+
   try {
     const q = query({
       prompt: promptOf(t.prompt, t.resume),
@@ -316,7 +364,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         model: t.model,
         effort: t.effort,
         systemPrompt: t.system,
-        ...subagentOptions(t.subagents, t.subagentSystem, t.native, t.editor?.tools.map((p) => p.name)),
+        ...subagentOptions(t.subagents, t.subagentSystem, t.native, t.editor?.tools.map((p) => p.name), { slots, onQueued: t.onQueued }),
         mcpServers: { [SERVER]: server },
         // Only Studio's server: a project's .mcp.json (often its own ue-mcp) would show tools no call may use.
         strictMcpConfig: true,
@@ -360,6 +408,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       } else if (m.type === "system" && "subtype" in m && m.subtype === "task_notification") {
         if (m.tool_use_id) {
           t.onStopper(m.tool_use_id, null);
+          slots.release(m.tool_use_id);
           t.onTask(m.tool_use_id, m.status, { summary: m.summary });
         }
       }

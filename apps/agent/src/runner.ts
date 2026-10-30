@@ -38,7 +38,7 @@ import { keptName, toolResultContent } from "./images.js";
 import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
 import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
-import { subagentLimitText } from "./subagent-limit.js";
+import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, type ActionEffects } from "./approval-kind.js";
@@ -101,7 +101,8 @@ const where = (projectDir: string): string =>
 
 /** What the main agent is told about subagents, by the Subagents setting; nothing when they are off. */
 export function subagentLine(usage: Pick<UsageSettings, "subagents" | "subagentsPerTurn">): string | null {
-  const most = `A turn starts at most ${usage.subagentsPerTurn} subagent${usage.subagentsPerTurn === 1 ? "" : "s"}.`;
+  const n = usage.subagentsPerTurn;
+  const most = `${n} subagent${n === 1 ? " runs" : "s run"} at once; any more wait and start as running ones finish, each still returning its own report.`;
   if (usage.subagents === "off") return null;
   if (usage.subagents === "asked") return `Start a subagent with the agent tool only when the user asks for one; otherwise do the work yourself. ${most}`;
   return "For work that splits into independent parts, start a subagent per part with the agent tool, several in one message so they run at the same time. "
@@ -273,6 +274,8 @@ export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
   /** Each running subagent, by its agent call id, so one can be stopped without the turn. */
   private readonly subagents = new Map<string, () => void>();
+  /** Agent calls marked waiting to start before their transcript entry arrived. */
+  private readonly queuedEarly = new Set<string>();
   /** Subagents the user started from the chat rather than the agent, by their agent call id. */
   private readonly assigned = new Set<string>();
   /** Calls waiting for the user, by approval id, with how to answer each. */
@@ -860,6 +863,10 @@ ${result}`);
           if (stop) this.subagents.set(callId, () => void stop());
           else this.subagents.delete(callId);
         },
+        onQueued: (callId, cancel) => this.markQueued(s, callId, cancel && (() => {
+          cancel();
+          this.recordOutcome(s, { id: callId, name: "agent", input: {}, state: "done", result: QUEUED_STOP, isError: true }, "stopped");
+        })),
         runTool: (toolId, name, input) => this.subscriptionTool(s, controller, toolId, name, input),
       });
       if (controller.signal.aborted) return;
@@ -1376,6 +1383,7 @@ ${result}`);
   }
 
   private addEntry(s: StoredSession, entry: TranscriptEntry): void {
+    if (entry.kind === "tool" && this.queuedEarly.delete(entry.call.id)) entry.call.queued = true;
     s.transcript.push(entry);
     this.o.store.save(s);
     this.o.host.events.publish("transcript.added", { sessionId: s.id, entry: entry as unknown as Record<string, unknown> });
@@ -1465,7 +1473,6 @@ ${result}`);
     const pending = s.pending!;
     // Subagents run at the same time, before the calls the main agent makes itself.
     const queued = pending.filter((p) => p.name === "agent" && p.state === "queued");
-    // Past the turn's allowance an agent call is answered with the limit, and the model does that part itself.
     const usage = this.usage();
     // Studio's own worker can be off from earlier settings; the project's own helpers follow their files.
     const workerOff = usage.subagents === "off";
@@ -1477,26 +1484,39 @@ ${result}`);
       this.recordOutcome(s, p, "error");
     }
     const runnable = queued.filter((p) => !refusedWorker.includes(p));
-    const left = Math.max(0, usage.subagentsPerTurn - (s.turn?.agents ?? 0));
-    const agents = runnable.slice(0, left);
-    for (const p of runnable.slice(left)) {
-      p.state = "done";
-      p.result = subagentLimitText(usage.subagentsPerTurn);
-      p.isError = true;
-      this.recordOutcome(s, p, "error");
-    }
-    if (s.turn && agents.length > 0) s.turn.agents = (s.turn.agents ?? 0) + agents.length;
-    if (agents.length > 0) {
-      for (const p of agents) p.state = "running";
-      this.o.store.save(s);
-      await Promise.all(agents.map(async (p) => {
-        const r = await this.runSubagent(s, p, signal);
+    if (s.turn && runnable.length > 0) s.turn.agents = (s.turn.agents ?? 0) + runnable.length;
+    if (runnable.length > 0) {
+      // Past the limit a subagent waits for a running one to finish, and its call returns its own result.
+      const slots = new SubagentSlots(usage.subagentsPerTurn);
+      const cancel = () => slots.cancelAll();
+      signal.addEventListener("abort", cancel, { once: true });
+      await Promise.all(runnable.map(async (p) => {
+        const started = await slots.acquire(p.id, () => this.markQueued(s, p.id, () => slots.cancel(p.id)));
+        if (signal.aborted) return;
+        if (!started) {
+          // The user stopped this one while it waited.
+          p.state = "done";
+          p.result = QUEUED_STOP;
+          p.isError = true;
+          this.recordOutcome(s, p, "stopped");
+          return;
+        }
+        this.markQueued(s, p.id, null);
+        p.state = "running";
+        this.o.store.save(s);
+        let r: Awaited<ReturnType<AgentRunner["runSubagent"]>>;
+        try {
+          r = await this.runSubagent(s, p, signal);
+        } finally {
+          slots.release(p.id);
+        }
         if (signal.aborted) return;
         p.state = "done";
         p.result = r.text;
         p.isError = r.isError;
         this.recordOutcome(s, p, r.stopped ? "stopped" : r.isError ? "error" : "done");
       }));
+      signal.removeEventListener("abort", cancel);
       if (signal.aborted) return true;
     }
     for (const p of pending) {
@@ -1701,10 +1721,32 @@ ${result}`);
     return true;
   }
 
+  /**
+   * Mark an agent call as waiting to start, with how the user stops it while
+   * it waits, or clear the mark (null) once it starts.
+   */
+  private markQueued(s: StoredSession, callId: string, cancel: (() => void) | null): void {
+    const entry = [...s.transcript].reverse().find((t) => t.kind === "tool" && t.call.id === callId);
+    if (cancel) this.subagents.set(callId, cancel);
+    // The SDK can hold a call before Studio has read the message that holds its block: the entry takes the mark when it arrives.
+    if (entry?.kind !== "tool") {
+      if (cancel) this.queuedEarly.add(callId);
+      else if (this.queuedEarly.delete(callId)) this.subagents.delete(callId);
+      return;
+    }
+    if (!cancel && entry.call.queued) this.subagents.delete(callId);
+    if (!!entry.call.queued === !!cancel) return;
+    if (cancel) entry.call.queued = true;
+    else delete entry.call.queued;
+    this.o.store.save(s);
+    this.o.host.events.publish("tool.queued", { sessionId: s.id, toolUseId: callId, queued: !!cancel });
+  }
+
   private recordOutcome(s: StoredSession, p: PendingTool, outcome: "done" | "error" | "unknown" | "stopped" | "declined"): void {
     const entry = [...s.transcript].reverse().find((t) => t.kind === "tool" && t.call.id === p.id);
     if (entry && entry.kind === "tool") {
       entry.call.outcome = outcome === "done" && (p.isError || refused(p.result)) ? "error" : outcome;
+      delete entry.call.queued;
       entry.call.result = p.result;
       entry.call.endedAt = now();
       if (p.images?.length) entry.call.images = this.keepImages(s.id, p.images);
