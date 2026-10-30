@@ -179,19 +179,19 @@ describe("Agents: what each vendor's own files give its models", () => {
 
   it("shows the Worker's subagents at once and saves a new number (#164)", async () => {
     await show();
-    const field = screen.getByRole("textbox", { name: "Subagents at once" }) as HTMLInputElement;
+    const field = screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement;
     expect(field.value).toBe("4");
-    expect(screen.getByText("Subagents at once")).toBeTruthy();
-    expect(screen.getByText("How many run at the same time, 1 to 16. More wait and start as running ones finish.")).toBeTruthy();
+    expect(screen.getByText("Concurrency")).toBeTruthy();
+    expect(screen.getByText("The most subagents that run at the same time, 1 to 16. When the agent starts more, the extra ones wait and start as running ones finish.")).toBeTruthy();
     fireEvent.change(field, { target: { value: "8" } });
     await act(async () => void fireEvent.keyDown(field, { key: "Enter" }));
     expect(m.saveSettings).toHaveBeenCalledWith({ usage: { subagentsPerTurn: 8 } });
-    expect((screen.getByRole("textbox", { name: "Subagents at once" }) as HTMLInputElement).value).toBe("8");
+    expect((screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement).value).toBe("8");
   });
 
   it("keeps a subagents at once outside 1 to 16 from being saved, and says why", async () => {
     await show({ subagentsPerTurn: 6 });
-    const field = screen.getByRole("textbox", { name: "Subagents at once" }) as HTMLInputElement;
+    const field = screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement;
     expect(field.value).toBe("6");
     for (const bad of ["0", "17", "2.5", ""]) {
       fireEvent.change(field, { target: { value: bad } });
