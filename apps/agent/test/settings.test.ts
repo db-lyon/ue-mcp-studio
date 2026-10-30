@@ -113,6 +113,19 @@ describe("usage settings", () => {
     expect(s.usage()).toMatchObject({ subagents: "automatic", imageSize: "small", subagentsPerTurn: 4 });
   });
 
+  it("save the Worker's subagents per turn across a restart, from 1 to 16 (#164)", () => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
+    const a = new SettingsStore(d, path.join(d, "keys"));
+    a.update({ usage: { subagentsPerTurn: 9 } });
+    expect(new SettingsStore(d, path.join(d, "keys")).usage().subagentsPerTurn).toBe(9);
+    a.update({ usage: { subagentsPerTurn: 1 } });
+    expect(a.usage().subagentsPerTurn).toBe(1);
+    a.update({ usage: { subagentsPerTurn: 16 } });
+    expect(a.usage().subagentsPerTurn).toBe(16);
+    expect(() => a.update({ usage: { subagentsPerTurn: 2.5 } })).toThrow(/usage.subagentsPerTurn/);
+    expect(a.usage().subagentsPerTurn).toBe(16);
+  });
+
   it("read an off from an earlier version as When you ask, the choice Settings shows", () => {
     const s = store();
     s.update({ usage: { subagents: "off" } });

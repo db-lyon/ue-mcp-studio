@@ -1190,8 +1190,21 @@ describe("Settings > Agent > Usage", () => {
     expect(requests.filter(isSub)).toHaveLength(2);
     const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string; is_error?: boolean }>;
     expect(results.map((r) => r.tool_use_id)).toEqual(["a0", "a1", "a2"]);
-    expect(results[2]).toMatchObject({ is_error: true, content: expect.stringContaining("the most Settings > Agents > Delegation allows") });
+    expect(results[2]).toMatchObject({ is_error: true, content: expect.stringContaining("the most Settings > Agents > Worker allows") });
     expect(fin.turn?.agents).toBe(2);
+  });
+
+  it("runs past the default 4 when Settings raises the cap, and tells the model the new number (#164)", async () => {
+    const requests: ModelRequest[] = [];
+    const runner = new AgentRunner({ host, store, provider: () => fanOut(7, requests), model: () => "claude-opus-5-5", usage: () => withUsage({ subagents: "automatic", subagentsPerTurn: 6 }) });
+    const s = store.create();
+    await runner.send(s.id, "seven parts");
+    const fin = store.get(s.id)!;
+    expect(requests[0].system[0].text).toContain("A turn starts at most 6 subagents.");
+    expect(requests.filter(isSub)).toHaveLength(6);
+    const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string; is_error?: boolean }>;
+    expect(results.filter((r) => r.is_error).map((r) => r.tool_use_id)).toEqual(["a6"]);
+    expect(fin.turn?.agents).toBe(6);
   });
 
   it("runs subagents on the chosen model and effort", async () => {

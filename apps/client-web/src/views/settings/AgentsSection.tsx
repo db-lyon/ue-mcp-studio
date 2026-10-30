@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { IMAGE_EDGES, anythingConnected, type ImageSize, type KeyProviderId, type NativeOverview, type StudioSettings, type SubagentMode, type UsageSettings } from "@ue-mcp-studio/shared";
+import { IMAGE_EDGES, MAX_SUBAGENTS_PER_TURN, anythingConnected, type ImageSize, type KeyProviderId, type NativeOverview, type StudioSettings, type SubagentMode, type UsageSettings } from "@ue-mcp-studio/shared";
 import { api, notThere } from "../../api";
 import { EffortPicker, ModelPicker } from "../ModelPicker";
 import { Head, type SettingsSection } from "../SettingsHub";
 import { NativePanel } from "./NativePanel";
-import { Card, Row, Seg, Switch, useMessage } from "./controls";
+import { Card, NumberField, Row, Seg, Switch, useMessage } from "./controls";
 
 export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
   { id: "small", name: `Small ${IMAGE_EDGES.small} px` },
@@ -87,6 +87,15 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
         <Row title="Starts">
           {/* An "off" stored by an earlier version reads as When you ask. */}
           <Seg label="Worker starts" value={settings.usage.subagents === "automatic" ? "automatic" : "asked"} options={STARTS} onChange={(v) => void saveUsage({ subagents: v })} />
+        </Row>
+        <Row inline title="Subagents per turn" help={`The most one turn can start, 1 to ${MAX_SUBAGENTS_PER_TURN}.`}>
+          <NumberField
+            label="Most subagents per turn"
+            value={settings.usage.subagentsPerTurn}
+            min={1}
+            max={MAX_SUBAGENTS_PER_TURN}
+            onSave={(n) => n !== null && void saveUsage({ subagentsPerTurn: n })}
+          />
         </Row>
       </Card>
 
