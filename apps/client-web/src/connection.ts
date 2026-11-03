@@ -117,6 +117,19 @@ function next(s: Conn, at: number, failure: string): Conn {
   return { ...attempt(s, s.attempt + 1, at + BACKOFF_MS[Math.min(s.attempt - 1, BACKOFF_MS.length - 1)]), failure };
 }
 
+/**
+ * Whether the page runs in a paired browser, through the relay: no host
+ * binding, and not served from this computer. Such a page cannot start
+ * ue-mcp, and its owner cannot run a command on the computer from there.
+ */
+export function isRemotePage(hasHost: boolean, hostname: string): boolean {
+  if (hasHost) return false;
+  return !["127.0.0.1", "localhost", "::1", "[::1]"].includes(hostname.toLowerCase());
+}
+
+/** What a paired browser shows when ue-mcp on the computer stays away. */
+export const REMOTE_OFFLINE = "It may be restarting, or the computer may be asleep or offline. This page reconnects by itself as soon as ue-mcp answers again; there is nothing to run here.";
+
 /** "8s", "1m 05s". */
 export function elapsed(ms: number): string {
   const t = Math.max(0, Math.floor(ms / 1000));
@@ -124,7 +137,8 @@ export function elapsed(ms: number): string {
 }
 
 /** The head line for a phase. */
-export function headline(s: Conn, now: number): string {
+export function headline(s: Conn, now: number, remote = false): string {
+  if (remote && (s.phase === "lost" || s.phase === "needsYou")) return "ue-mcp on your computer is offline";
   switch (s.phase) {
     case "connected":
       return "Connected to ue-mcp";

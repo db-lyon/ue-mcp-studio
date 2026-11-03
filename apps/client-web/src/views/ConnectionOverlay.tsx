@@ -1,8 +1,9 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DaemonEvent } from "ue-mcp/daemon";
+import { reconnectEvents } from "../api";
 import { native } from "../native";
-import { QUIET_MS, connected, elapsed, headline, step, type Conn, type ConnEvent } from "../connection";
+import { QUIET_MS, REMOTE_OFFLINE, connected, elapsed, headline, isRemotePage, step, type Conn, type ConnEvent } from "../connection";
 
 interface HostStatus {
   node?: boolean;
@@ -30,6 +31,8 @@ export interface Connection {
   conn: Conn;
   now: number;
   log: string;
+  /** A paired browser, through the relay: it cannot start ue-mcp and only waits for it. */
+  remote: boolean;
   retry(): void;
 }
 
@@ -38,7 +41,14 @@ export interface Connection {
  * charge while ue-mcp is away: it tells Studio's window so, and the window
  * follows ue-mcp to its next address when one comes up.
  */
-export function useConnection(streaming: boolean, events: DaemonEvent[], updating: boolean, launcher: () => Promise<ConnEvent> = launch): Connection {
+export function useConnection(
+  streaming: boolean,
+  events: DaemonEvent[],
+  updating: boolean,
+  launcher: () => Promise<ConnEvent> = launch,
+  // The visual QA harness sets __studioRemotePage to show a paired browser's page from this computer.
+  remote: boolean = (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage ?? isRemotePage(!!window.ue, window.location.hostname),
+): Connection {
   const conn = useRef<Conn>(connected());
   const now = useRef(Date.now());
   const [, render] = useReducer((n: number) => n + 1, 0);
@@ -74,7 +84,16 @@ export function useConnection(streaming: boolean, events: DaemonEvent[], updatin
     if (phase === "needsYou") void hostStatus().then((s) => setLog(s.log ?? ""));
   }, [phase]);
 
-  return { conn: conn.current, now: now.current, log, retry: () => send({ type: "retry", at: Date.now() }) };
+  return {
+    conn: conn.current,
+    now: now.current,
+    log,
+    remote,
+    retry: () => {
+      reconnectEvents();
+      send({ type: "retry", at: Date.now() });
+    },
+  };
 }
 
 /** The page's state for Studio's window, which logs it and leaves the page in place. */
@@ -84,10 +103,12 @@ function report(c: Conn): void {
 
 /** What the panel shows while ue-mcp is away, from a short gap to the point it needs you. */
 export function ConnectionOverlay({ c }: { c: Connection }) {
-  const { conn, now, log } = c;
+  const { conn, now, log, remote } = c;
   if (conn.phase === "connected") return null;
   const down = conn.downSince === null ? "" : elapsed(now - conn.downSince);
   if (conn.phase === "reconnecting" && conn.downSince !== null && now - conn.downSince < QUIET_MS) return null;
+  // A paired browser cannot start ue-mcp: past the wait it only says so and keeps reconnecting.
+  const offline = remote && (conn.phase === "lost" || conn.phase === "needsYou");
   const needs = conn.phase === "needsYou";
   let body: string;
   switch (conn.phase) {
@@ -98,7 +119,7 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
       body = `Waiting for it to come back, ${down} so far. Studio loads it as soon as it is up.`;
       break;
     case "lost":
-      body = `${conn.why}. Studio starts it again in a moment.`;
+      body = remote ? `${conn.why}, ${down} ago.` : `${conn.why}. Studio starts it again in a moment.`;
       break;
     case "starting":
       body = `${conn.why}, ${down} ago.${conn.failure ? ` ${conn.failure}` : ""} Studio loads it as soon as it is up.`;
@@ -107,16 +128,16 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
       body = conn.why ? `${conn.why}, ${down} ago.` : "";
   }
   return createPortal(
-    <div className="overlay" role={needs ? "alertdialog" : "status"} aria-label={headline(conn, now)}>
+    <div className="overlay" data-phase={conn.phase} role={needs && !remote ? "alertdialog" : "status"} aria-label={headline(conn, now, remote)}>
       <div className="overlay-card">
         <div className="overlay-head">
-          {!needs && <span className="spinner" aria-hidden />}
-          {headline(conn, now)}
+          {(!needs || remote) && <span className="spinner" aria-hidden />}
+          {headline(conn, now, remote)}
         </div>
-        {body && <p className="muted small">{body}</p>}
-        {needs && <div className="banner bad small">{conn.failure}</div>}
-        {needs && log && <p className="dim small">Log: <code>{log}</code></p>}
-        {needs && (
+        {(body || offline) && <p className="muted small">{offline ? `${body} ${REMOTE_OFFLINE}`.trim() : body}</p>}
+        {needs && !remote && <div className="banner bad small">{conn.failure}</div>}
+        {needs && !remote && log && <p className="dim small">Log: <code>{log}</code></p>}
+        {(needs || offline) && (
           <div className="row">
             <span className="spacer" />
             {conn.noNode && native().opennodedownload && <button onClick={() => void native().opennodedownload!()}>Download Node.js</button>}

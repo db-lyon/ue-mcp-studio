@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
-import { LOST_PAUSE_MS, QUIET_MS, RECONNECT_MS } from "../connection";
+import { LOST_PAUSE_MS, QUIET_MS, RECONNECT_MS, isRemotePage } from "../connection";
 
 function Harness({ streaming, events }: { streaming: boolean; events: DaemonEvent[] }) {
   return <ConnectionOverlay c={useConnection(streaming, events, false)} />;
@@ -87,5 +87,33 @@ describe("the panel while ue-mcp is away", () => {
     await act(async () => void vi.advanceTimersByTime(0));
     expect(starts).toBe(4);
     expect(screen.getByText("Starting ue-mcp (attempt 1 of 3)")).toBeTruthy();
+  });
+
+  it("in a paired browser, waits for ue-mcp on the computer and never asks to run a command there", async () => {
+    delete window.ue;
+    function Remote({ streaming }: { streaming: boolean }) {
+      return <ConnectionOverlay c={useConnection(streaming, [], false, async () => ({ type: "started", ok: false, at: Date.now() }), true)} />;
+    }
+    const { rerender } = render(<Remote streaming />);
+    rerender(<Remote streaming={false} />);
+    await advance(RECONNECT_MS + LOST_PAUSE_MS + 2000);
+    expect(screen.getByText("ue-mcp on your computer is offline")).toBeTruthy();
+    expect(screen.getByText(/reconnects by itself/)).toBeTruthy();
+    expect(screen.queryByText(/npx/)).toBeNull();
+    expect(screen.queryByText(/cannot start ue-mcp/)).toBeNull();
+    expect(screen.getByText("Retry")).toBeTruthy();
+    // The computer's ue-mcp answers again: the overlay goes without a click.
+    rerender(<Remote streaming />);
+    await advance(0);
+    expect(screen.queryByText("ue-mcp on your computer is offline")).toBeNull();
+  });
+});
+
+describe("isRemotePage", () => {
+  it("is a paired browser only with no host binding and a page not served from this computer", () => {
+    expect(isRemotePage(false, "remote.ue-mcp.com")).toBe(true);
+    expect(isRemotePage(false, "127.0.0.1")).toBe(false);
+    expect(isRemotePage(false, "localhost")).toBe(false);
+    expect(isRemotePage(true, "remote.ue-mcp.com")).toBe(false);
   });
 });

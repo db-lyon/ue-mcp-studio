@@ -125,6 +125,10 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
   if (!url.pathname.startsWith("/v1/")) return realFetch(input, init);
   const method = (init?.method ?? "GET").toUpperCase();
+  // ue-mcp away: the stream and health refuse, as the relay does while the computer's daemon is down.
+  if (scenario.remoteOffline && (url.pathname === "/v1/events" || url.pathname === "/v1/health")) {
+    return new Response(JSON.stringify({ error: "The project is offline." }), { status: 503, headers: { "content-type": "application/json" } });
+  }
   // The event stream stays open and quiet: the page is streaming, and nothing changes under it.
   if (url.pathname === "/v1/events") {
     return new Response(new ReadableStream({
@@ -171,6 +175,8 @@ try {
   // Storage blocked: the page picks its own filter.
 }
 history.replaceState(null, "", `${location.pathname}${location.search}${scenario.hash}`);
+// A paired browser's page, though the harness is served from this computer.
+if (scenario.remoteOffline) (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = true;
 // A checkout or docs link opens nothing: a popup would take the page out of the foreground and stall the shot.
 window.open = () => null;
 // The runner reads the scenarios and what each shows from here, and what to click once the page settles.
@@ -184,6 +190,7 @@ window.open = () => null;
   type: scenario.type ?? null,
   afterType: scenario.afterType ?? null,
   fullPage: scenario.fullPage ?? false,
+  waitFor: scenario.waitFor ?? null,
 };
 
 void import("../App").then(({ App }) => {

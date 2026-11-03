@@ -198,6 +198,10 @@ export interface Scenario {
   endpoints?: CustomEndpoint[] | "error";
   /** Shoot the whole page, for a settings section taller than the window. */
   fullPage?: boolean;
+  /** The event stream refuses, as ue-mcp being away does, and the page runs as a paired browser through the relay. */
+  remoteOffline?: boolean;
+  /** Waited for before the shot, up to timeout milliseconds: a CSS selector for a state that takes a while to come. */
+  waitFor?: { selector: string; timeout: number };
 }
 
 const ENDPOINTS: CustomEndpoint[] = [
@@ -390,6 +394,13 @@ export const SCENARIOS: Record<string, Scenario> = {
   "remote-pair-expired": remotePair("/remote on a paid account once the pairing code has run out: New code", { state: "online", expired: true }),
   "remote-pair-error": remotePair("/remote on a paid account when the relay cannot be reached: the reason, plainly, and Retry", { state: "error" }),
   "remote-pair-approval": remotePair("/remote on a paid account after a device scanned the code: the device asks to control the project, with the six digits it also shows, Allow and Deny, and the paired browsers with Remove", { state: "online", asking: true }),
+  "remote-ue-mcp-offline": {
+    title: "A paired browser while ue-mcp on the computer is away: offline, reconnecting by itself, nothing to run, and Retry",
+    hash: "#/chat",
+    index: { playtests: [], listed: true },
+    remoteOffline: true,
+    waitFor: { selector: ".overlay[data-phase=needsYou]", timeout: 30_000 },
+  },
   "remote-approval-banner": {
     title: "A device asks to control the project while the owner is elsewhere in Studio: the request as a banner over every view",
     hash: "#/settings/general",
