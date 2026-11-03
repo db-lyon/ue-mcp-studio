@@ -32,6 +32,13 @@ describe("Settings sections", () => {
     expect(screen.getByText("ProjectSection body")).toBeTruthy();
   });
 
+  it("keeps Remote control out of Settings while STUDIO_PLAN_AVAILABLE is off, its name opening General", async () => {
+    await act(async () => void render(<SettingsHub daemon={daemon} section="remote" onSection={vi.fn()} onTheme={vi.fn()} />));
+    expect(screen.queryByText("Remote control")).toBeNull();
+    expect(screen.getByText("GeneralSection body")).toBeTruthy();
+    expect(sectionOf("remote")).toBe("general");
+  });
+
   it("reports the context strategy in effect, and marks Project when the environment overrides the saved one", async () => {
     const withStrategy = m as unknown as { contextStrategy?: () => Promise<unknown> };
     withStrategy.contextStrategy = vi.fn(async () => ({ strategy: "micro", fromFile: true, envOverride: "full", seeds: {} }));
