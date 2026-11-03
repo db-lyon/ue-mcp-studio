@@ -1,16 +1,24 @@
 /**
  * Remote control as the agent reports it at /v1/ext/studio/remote. It works
  * while the signed-in account has a paid plan; its routes answer 404
- * otherwise. With STUDIO_PLAN_AVAILABLE on, a free account is told it exists
- * (Settings and /remote); with it off, a free account never sees it.
+ * otherwise. With STUDIO_PLAN_AVAILABLE on, a signed-out or free account is
+ * told it exists (Settings and /remote); with it off, neither ever sees it.
  */
 
 /** What Studio says when the account's plan does not include remote control. */
 export const REMOTE_NO_PLAN = "Remote control needs a Pro or Studio plan on this account.";
 
-/** GET /remote/available: whether this account may use remote control now (a paid plan). */
+/** What the connector says when the relay no longer accepts the account's token. */
+export const REMOTE_SIGN_IN_AGAIN = "The relay did not accept this account. Sign in to your ue-mcp account again in Settings > General.";
+
+/**
+ * GET /remote/available: whether this account may use remote control now (a
+ * paid plan), and whether any ue-mcp account is signed in. An agent from
+ * before 0.1.25-beta.6 leaves `signedIn` out.
+ */
 export interface RemoteAvailability {
   available: boolean;
+  signedIn?: boolean;
 }
 
 /** Where a free account reads about the plans remote control needs. */
@@ -19,21 +27,26 @@ export const STUDIO_PLAN_URL = "https://ue-mcp.com/pricing";
 /** The one line on what remote control does. */
 export const REMOTE_SUMMARY = "Use this project from your phone or another computer.";
 
-/** What /remote answers a free account in the chat, before the plan link. */
+/** What /remote answers a signed-in account without a paid plan in the chat, above the Upgrade action. */
 export const REMOTE_COMMAND_REPLY = "Remote control lets you use this project from your phone. It needs a Pro or Studio plan.";
 
 /**
- * What remote control shows this account: the working thing on a paid plan,
- * the plan note to a free account while the plan is offered, nothing otherwise.
- * Null `paid` is not yet known: "pending" while the plan is offered (the
- * section is listed either way), "hidden" while it is not.
+ * What remote control shows this account: the working thing on a paid plan;
+ * while the plan is offered, a sign-in to a signed-out computer and the plan
+ * note to a free account; nothing otherwise. Null `paid` is not yet known:
+ * "pending" while the plan is offered (the section is listed either way),
+ * "hidden" while it is not. `signedIn` left out reads as signed in.
  */
-export type RemoteSurface = "working" | "upsell" | "pending" | "hidden";
-export function remoteSurface(planOffered: boolean, paid: boolean | null): RemoteSurface {
+export type RemoteSurface = "working" | "signin" | "upsell" | "pending" | "hidden";
+export function remoteSurface(planOffered: boolean, paid: boolean | null, signedIn = true): RemoteSurface {
   if (paid) return "working";
   if (!planOffered) return "hidden";
-  return paid === null ? "pending" : "upsell";
+  if (paid === null) return "pending";
+  return signedIn ? "upsell" : "signin";
 }
+
+/** Whether Settings lists remote control, and the slash menu lists /remote. */
+export const remoteShown = (s: RemoteSurface): boolean => s === "working" || s === "signin" || s === "upsell";
 
 /**
  * Why the connector is not online, when the reason is one the UI words itself.
@@ -69,4 +82,19 @@ export interface RemotePairing {
 export interface RemoteError {
   error: string;
   code?: RemoteRefusal;
+}
+
+/**
+ * What /remote does when typed: "open" opens Settings > Remote control (a
+ * paid plan, or a signed-out computer while the plan is offered, whose
+ * section holds the sign-in); "upgrade" answers in the chat with the Upgrade
+ * action, for any signed-in account without a paid plan whatever the flag
+ * says; null leaves it an ordinary message. Null `paid` is not yet known.
+ */
+export type RemoteCommandAction = "open" | "upgrade" | null;
+export function remoteCommand(planOffered: boolean, paid: boolean | null, signedIn = true): RemoteCommandAction {
+  if (paid) return "open";
+  if (paid === null) return null;
+  if (!signedIn) return planOffered ? "open" : null;
+  return "upgrade";
 }

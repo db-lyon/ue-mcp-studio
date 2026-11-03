@@ -55,6 +55,7 @@ import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
 import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, pickRoute, type SignInCoverage } from "./models.js";
 import { StudioSignInFlow } from "./signin.js";
+import { AccountSource } from "./account-source.js";
 import { AttachmentStore } from "./attachments.js";
 import { detectVcs, diffOf, listChanges } from "./vcs.js";
 import { Updater, readChannel, writeChannel } from "./updates.js";
@@ -89,8 +90,10 @@ import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, endpointVendor, type KeyProviderId, type VendorId } from "@ue-mcp-studio/shared";
 
-export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string): { runner: AgentRunner; dispose(): void } {
+export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string, sharedAccount?: AccountSource): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
+  // A sign-in from the panel wins; otherwise the account from `ue-mcp login`. Remote control reads the same source.
+  const account = sharedAccount ?? new AccountSource(settings, () => api.registryAccount());
   // Every image the model is shown, from a tool or the user, goes at the project's Image size.
   setImageEdge(() => IMAGE_EDGES[settings.usage().imageSize]);
   const store = new SessionStore(api.dataDir);
@@ -113,19 +116,17 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     }
   });
 
-  // The `ue-mcp login` account, kept fresh so a sign-in is picked up without a restart.
-  let registry: Awaited<ReturnType<DaemonExtensionApi["registryAccount"]>> = null;
   // The signed-in plan's models, once the gateway has said; the default plan's until then.
   let planModels: readonly string[] = DEFAULT_PLAN_MODELS;
+  // `ue-mcp login` is read again every minute, so a sign-in there is picked up without a restart.
   const refreshAccount = async (): Promise<void> => {
-    registry = await api.registryAccount().catch(() => null);
+    await account.refresh();
     const token = accountToken();
     if (!token) return;
     const res = await fetchUsage(token).catch(() => null);
     if (res?.ok) planModels = ((await res.json()) as AccountUsage).plan.models;
   };
-  // A sign-in from the panel wins; otherwise the account from `ue-mcp login`.
-  const accountToken = (): string | null => settings.accountToken() ?? registry?.token ?? null;
+  const accountToken = (): string | null => account.current();
   const fetchUsage = (token: string): Promise<Response> => fetchAccountUsage(settings.gatewayUrl(), token);
 
   const coverage = (): SignInCoverage => ({ planModels, chatgptModels: chatgpt.signedIn() ? chatgptList?.models ?? null : null });
@@ -188,7 +189,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       route: route(),
       connected: { ...signedIn(), ...keys },
       endpoints: endpoints.list().length,
-      account: login ? { login, via: "studio" } : registry ? { login: registry.login, via: "ue-mcp-login" } : null,
+      account: login ? { login, via: "studio" } : account.registryLogin() ? { login: account.registryLogin()!.login, via: "ue-mcp-login" } : null,
     };
   };
 
@@ -202,6 +203,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     }),
     studio: new StudioSignInFlow((token, login) => {
       settings.signIn(token, login);
+      account.changed();
       void refreshAccount().then(() => api.events.publish("settings.changed", {}));
     }),
   };
@@ -519,6 +521,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
         delete u.signOut;
       }
       settings.update(u);
+      if (u.signOut === "studio") {
+        account.changed();
+        api.events.publish("settings.changed", {});
+      }
       return { body: view() };
     } catch (e) {
       return bad(e instanceof Error ? e.message : String(e));

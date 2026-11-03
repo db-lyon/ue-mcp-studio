@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_URL, isLocalCommand, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_AVAILABLE, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { useRemoteAvailable } from "./settings/remote-available";
+import { UpgradeAction } from "./Upgrade";
 import type { SettingsSection } from "./settings/sections";
 import { native } from "../native";
 import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
@@ -220,15 +221,18 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   };
   // /remote and /rc: offered only where remoteSurface says, and answered here, never as a turn.
   const remote = useRemoteAvailable(false);
-  const remoteOffered = remote.surface === "working" || remote.surface === "upsell";
-  const commands = useMemo(() => (remoteOffered ? [...SLASH_COMMANDS, REMOTE_COMMAND] : SLASH_COMMANDS), [remoteOffered]);
+  // Listed in the menu only where Settings lists remote control; typed, it also answers any signed-in account without a paid plan.
+  const remoteListed = remoteShown(remote.surface);
+  const remoteAction = remoteCommand(STUDIO_PLAN_AVAILABLE, remote.available, remote.signedIn ?? true);
+  const commands = useMemo(() => (remoteListed ? [...SLASH_COMMANDS, REMOTE_COMMAND] : SLASH_COMMANDS), [remoteListed]);
   /** The session /remote was answered in, for a free account: the reply shows there until the next message. */
   const [remoteReply, setRemoteReply] = useState<string | null>(null);
   const runRemoteCommand = (): boolean => {
-    if (!selected || !remoteOffered || attach.ready.length > 0 || !isLocalCommand(draft, REMOTE_COMMAND)) return false;
+    if (!selected || !remoteAction || attach.ready.length > 0 || !isLocalCommand(draft, REMOTE_COMMAND)) return false;
     setDraft("");
     void api.saveDraft(selected, "").catch(() => {});
-    if (remote.surface === "working") onSettings?.("remote");
+    // A paid plan, or signed out with the plan offered: the section, which holds the sign-in.
+    if (remoteAction === "open") onSettings?.("remote");
     else setRemoteReply(selected);
     return true;
   };
@@ -505,8 +509,9 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             <FormCards forms={forms} runs={qaRuns} />
             {remoteReply === detail.id && (
               <div className="msg assistant local-reply" role="status">
-                <p>{REMOTE_COMMAND_REPLY} <a href={STUDIO_PLAN_URL} target="_blank" rel="noreferrer">See plans</a></p>
+                <p>{REMOTE_COMMAND_REPLY}</p>
                 <button className="ghost small-button" onClick={() => setRemoteReply(null)}>Dismiss</button>
+                <UpgradeAction />
               </div>
             )}
             {flowAsk && !busy && <FlowLauncher key={flowAsk} text={flowAsk} run={runFlow} onClose={() => setFlowAsk(null)} />}

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CONTEXT_STRATEGY_INFO, anythingConnected, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { CONTEXT_STRATEGY_INFO, anythingConnected, remoteShown, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import type { DaemonState } from "../state";
 import { api } from "../api";
 import { AgentsSection } from "./settings/AgentsSection";
@@ -7,7 +7,7 @@ import { ModelsSection } from "./settings/ModelsSection";
 import { ApprovalsSection } from "./settings/ApprovalsSection";
 import { ProjectSection } from "./settings/ProjectSection";
 import { GeneralSection } from "./settings/GeneralSection";
-import { RemoteSection, RemoteUpsell } from "./settings/RemoteSection";
+import { RemoteSection, RemoteSignIn, RemoteUpsell } from "./settings/RemoteSection";
 import { useRemoteAvailable } from "./settings/remote-available";
 import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
@@ -35,7 +35,7 @@ const REMOTE_ITEM = { id: "remote" as const, name: "Remote control", sub: "Use t
 const GROUPS: Array<{ label: string; items: Array<{ id: BuiltinSection; name: string; sub: string }> }> = [
   {
     label: "Studio",
-    items: [{ id: "general", name: "General", sub: "Appearance and updates" }, REMOTE_ITEM],
+    items: [{ id: "general", name: "General", sub: "Account, appearance and updates" }, REMOTE_ITEM],
   },
   {
     label: "Work",
@@ -135,9 +135,9 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   const { dots, lines } = useSectionStatus(updates, daemon);
   // Extension sections; one not registered (yet) shows the fallback, and the hash keeps it.
   const extensions = useSlot("settings.section");
-  // Remote control: working on a paid plan, a plan note for a free account while the plan is offered, else not there and its name opens General.
+  // Remote control: working on a paid plan; while the plan is offered, a sign-in when signed out and a plan note for a free account; else not there and its name opens General.
   const remote = useRemoteAvailable();
-  const shown = remote.surface === "working" || remote.surface === "upsell";
+  const shown = remoteShown(remote.surface);
   const groups = remote.surface !== "hidden" ? GROUPS : GROUPS.map((g) => ({ ...g, items: g.items.filter((s) => s.id !== "remote") }));
   const named = sectionOf(section);
   const asked = named === "remote" && remote.surface === "hidden" && remote.available !== null ? "general" : named;
@@ -154,6 +154,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
   else if (open === "remote" && remote.surface === "working") body = <RemoteSection onUnavailable={remote.recheck} />;
   else if (open === "remote" && remote.surface === "upsell") body = <RemoteUpsell />;
+  else if (open === "remote" && remote.surface === "signin") body = <RemoteSignIn onDone={remote.recheck} />;
   else if (open === "diagnostics") body = (
     <>
       <Head title="Diagnostics" lead="Editor and daemon status, and recent daemon events." />

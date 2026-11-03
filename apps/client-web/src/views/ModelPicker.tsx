@@ -309,7 +309,8 @@ const SIGN_IN_ABOUT: Record<SignInId, string> = {
   studio: "Runs your Studio plan's models. Sign in with GitHub.",
 };
 
-export function SignInForm(props: { id: SignInId; primary?: boolean; onDone: () => void }) {
+/** `name` and `about` reword the form for a sign-in shown somewhere other than Models (the ue-mcp account row). */
+export function SignInForm(props: { id: SignInId; primary?: boolean; onDone: () => void; name?: string; about?: string }) {
   return props.id === "claude" ? <ClaudeCodeLogin onDone={props.onDone} /> : <AppSignIn {...props} />;
 }
 
@@ -359,7 +360,7 @@ function ClaudeCodeLogin({ onDone }: { onDone: () => void }) {
 }
 
 /** One sign-in: a button, then the page to approve on, until it finishes. */
-function AppSignIn({ id, primary = true, onDone }: { id: SignInId; primary?: boolean; onDone: () => void }) {
+function AppSignIn({ id, primary = true, onDone, name = PROVIDERS[id].name, about = SIGN_IN_ABOUT[id] }: { id: SignInId; primary?: boolean; onDone: () => void; name?: string; about?: string }) {
   const [state, setState] = useState<StudioSignIn | null>(null);
   const done = useRef(false);
 
@@ -387,7 +388,6 @@ function AppSignIn({ id, primary = true, onDone }: { id: SignInId; primary?: boo
     if (s.state === "pending" && s.url) window.open(s.url, "_blank");
   }, (e: Error) => setState({ state: "error", error: e.message }));
 
-  const name = PROVIDERS[id].name;
   if (!state) return null;
   if (state.state === "pending") {
     return (
@@ -422,7 +422,7 @@ function AppSignIn({ id, primary = true, onDone }: { id: SignInId; primary?: boo
       {state.state === "error" && <div className="banner bad small">{state.error}</div>}
       {state.state === "error" && state.terminal && <TerminalSignIn command={state.terminal} />}
       <button className={primary ? "primary" : ""} onClick={() => void start()}>Sign in to {name}</button>
-      <p className="dim small">{SIGN_IN_ABOUT[id]}</p>
+      {about && <p className="dim small">{about}</p>}
     </div>
   );
 }

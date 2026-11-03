@@ -5,7 +5,8 @@
  *
  * Works only while the signed-in account has a paid plan by the gateway
  * (./plan.ts), rechecked every few minutes so a new plan starts it and a
- * lapsed one stops it without a daemon restart. Otherwise every /remote/*
+ * lapsed one stops it without a daemon restart. The account is the one chat
+ * uses (../account-source.ts); a sign-in or sign-out there asks again at once. Otherwise every /remote/*
  * route answers 404 and the connector stays down. STUDIO_PLAN_AVAILABLE only
  * decides whether the UI tells a free account about it.
  *
@@ -23,7 +24,8 @@ import { pairingFragment } from "@ue-mcp-studio/remote";
 import { type RemoteAvailability, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import type { ExtensionHandler } from "ue-mcp/daemon";
 import { SettingsStore } from "../settings.js";
-import { Connector, NO_PLAN, type ConnectorState } from "./connector.js";
+import { AccountSource } from "../account-source.js";
+import { Connector, NOT_SIGNED_IN, NO_PLAN, type ConnectorState } from "./connector.js";
 import { PLAN_CHECK_TTL_MS, RemotePlanCheck, type PlanCheck } from "./plan.js";
 import { ComputerKeys } from "./keys.js";
 import { RemoteService } from "./service.js";
@@ -36,7 +38,9 @@ interface RemoteConfig {
 }
 
 export interface RemoteOptions {
-  /** Whether the account has a paid plan. Default: the gateway, with the `ue-mcp login` token. */
+  /** The ue-mcp account: a panel sign-in, else `ue-mcp login`. Default: read from this project's settings. */
+  account?: AccountSource;
+  /** Whether the account has a paid plan. Default: the gateway, with the account's token. */
   plan?: PlanCheck;
   /** How often the plan is rechecked. */
   planRecheckMs?: number;
@@ -82,10 +86,11 @@ function projectName(projectDir: string): string {
 /** Registers /remote/* and starts the connector when it is on and remote control is offered. */
 export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): { dispose(): void } {
   const env = o.env ?? process.env;
+  const account = o.account ?? new AccountSource(new SettingsStore(api.dataDir), () => api.registryAccount());
   const plan =
     o.plan ??
     new RemotePlanCheck({
-      token: async () => (await api.registryAccount().catch(() => null))?.token ?? null,
+      token: () => account.token(),
       gatewayUrl: () => new SettingsStore(api.dataDir).gatewayUrl(),
     });
   const dir = path.join(api.dataDir, "remote");
@@ -115,7 +120,7 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
       deviceId: device,
       deviceName: `${projectName(api.projectDir)} on ${os.hostname()}`,
       computerPublic: (await keys.identity()).publicKey,
-      token: async () => (await api.registryAccount())?.token ?? null,
+      token: () => account.token(),
       handle: (kind, body, sink, signal) => (kind === "enroll" ? service.enroll(body, sink) : service.sealed(body, sink, signal)),
       onState: (s) => {
         state = s;
@@ -163,9 +168,19 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
   const route = (method: "GET" | "PUT" | "POST" | "DELETE", p: string, h: ExtensionHandler): void =>
     api.route(method, p, async (req) => ((await recheck()) ? h(req) : NOT_FOUND));
 
+  // A sign-in, sign-out or switch of account: ask the gateway again, and reconnect as the new account.
+  const unwatch = account.onChange(() => {
+    plan.invalidate();
+    const before = available;
+    void recheck(true).then(async () => {
+      if (before && available && !disposed) await apply();
+    });
+  });
+
   // Settings asks on open with ?refresh, so a plan bought a minute ago shows without waiting out the cache.
   api.route("GET", "/remote/available", async (req) => {
-    const body: RemoteAvailability = { available: await recheck(req.query?.refresh !== undefined) };
+    const ok = await recheck(req.query?.refresh !== undefined);
+    const body: RemoteAvailability = { available: ok, signedIn: account.current() !== null };
     return { body };
   });
   route("GET", "/remote/status", () => ({ body: status() }));
@@ -177,11 +192,11 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     return { body: status() };
   });
   route("POST", "/remote/pair", async () => {
-    const account = await api.registryAccount().catch(() => null);
-    if (!account) return { status: 401, body: { error: "Not signed in. Run `npx ue-mcp login` on this computer.", code: "signed-out" } };
+    const token = await account.token();
+    if (!token) return { status: 401, body: { error: NOT_SIGNED_IN, code: "signed-out" } };
     if (state.state === "error" && state.code === "no-plan") return { status: 403, body: { error: NO_PLAN, code: "no-plan" } };
     if (state.state !== "online") return { status: 409, body: { error: "Turn remote control on and wait for it to connect first." } };
-    const res = await fetch(new URL("/api/pair", relayUrl()), { method: "POST", headers: { authorization: `Bearer ${account.token}`, "x-ue-mcp-device": device } }).catch(() => null);
+    const res = await fetch(new URL("/api/pair", relayUrl()), { method: "POST", headers: { authorization: `Bearer ${token}`, "x-ue-mcp-device": device } }).catch(() => null);
     if (!res) return { status: 502, body: { error: "Could not reach the relay." } };
     const body = (await res.json().catch(() => ({}))) as { url?: string; code?: string; expiresAt?: string; error?: string };
     if (res.status === 403) {
@@ -213,6 +228,7 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
   return {
     dispose: () => {
       disposed = true;
+      unwatch();
       generation++;
       clearInterval(timer);
       connector?.stop();
