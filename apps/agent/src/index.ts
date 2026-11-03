@@ -5,8 +5,7 @@
  * installs the UI bundle it ships with when that is newer than what the daemon
  * serves, and registers Studio's routes under /v1/ext/studio/. On a ue-mcp
  * below its floor it registers only the refusal route (floor.ts). Remote
- * control is offered while STUDIO_PLAN_AVAILABLE is on or the signed-in
- * account has a paid plan (remote/routes.ts).
+ * control works while the signed-in account has a paid plan (remote/routes.ts).
  */
 import * as fs from "node:fs";
 import * as path from "node:path";

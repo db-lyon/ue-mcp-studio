@@ -27,7 +27,7 @@ import {
   type PlainRequest,
   type RelayFrame,
 } from "@ue-mcp-studio/remote";
-import { STUDIO_PLAN_AVAILABLE, type RemoteStatus } from "@ue-mcp-studio/shared";
+import type { RemoteStatus } from "@ue-mcp-studio/shared";
 import { registerRemote, deviceId } from "../src/remote/routes.js";
 import { NO_PLAN, PLAN_LAPSED_CLOSE } from "../src/remote/connector.js";
 import type { PlanCheck } from "../src/remote/plan.js";
@@ -157,8 +157,8 @@ interface Host {
 }
 const hosts: Host[] = [];
 
-/** Without a plan the flag is on, as before plans; with one the flag is off unless said, and "default" leaves it to STUDIO_PLAN_AVAILABLE. */
-function host(o: { flag?: boolean | "default"; plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; planRecheckMs?: number } = {}): Host {
+/** A paid account unless a plan is given. */
+function host(o: { plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; planRecheckMs?: number } = {}): Host {
   const projectDir = fs.mkdtempSync(path.join(root, "proj-"));
   fs.writeFileSync(path.join(projectDir, "Game.uproject"), "{}");
   const dataDir = path.join(root, "home", "data", path.basename(projectDir), "studio");
@@ -182,8 +182,7 @@ function host(o: { flag?: boolean | "default"; plan?: PlanCheck; signedIn?: bool
   } as unknown as DaemonExtensionApi;
   const port = (daemon.address() as AddressInfo).port;
   const r = registerRemote(shareBusy(api), {
-    flag: o.flag === "default" ? undefined : (o.flag ?? !o.plan),
-    plan: o.plan ?? new FakePlan(false),
+    plan: o.plan ?? new FakePlan(true),
     planRecheckMs: o.planRecheckMs,
     computerDir,
     daemon: () => ({ port, token: DAEMON_TOKEN }),
@@ -286,7 +285,7 @@ const available = async (h: Host, refresh = false) =>
 const settle = () => new Promise((r) => setTimeout(r, 100));
 
 describe("remote control, offered or not", () => {
-  it("with the flag off and no paid plan: every route answers 404, no socket even when turned on, no busy check", async () => {
+  it("without a paid plan: every route answers 404, no socket even when turned on, no busy check", async () => {
     const before = relay.upgrades.length;
     const h = host({ plan: new FakePlan(false), enabled: true });
     await settle();
@@ -297,27 +296,13 @@ describe("remote control, offered or not", () => {
     expect(h.events.some((e) => e.type === "remote.available")).toBe(false);
   });
 
-  it("with the flag off and a paid plan: the routes answer and a turned-on project connects", async () => {
+  it("with a paid plan: the routes answer and a turned-on project connects", async () => {
     const h = host({ plan: new FakePlan(true), enabled: true });
     await until(() => relay.socket !== null);
     await until(() => h.busy());
     expect(await available(h)).toBe(true);
     expect(await status(h)).toMatchObject({ enabled: true, state: "online" });
     expect(h.events).toContainEqual({ type: "remote.available", data: { available: true } });
-  });
-
-  it("with the flag on: offered whatever the plan says, and the gateway is never asked", async () => {
-    const plan = new FakePlan(false);
-    const h = host({ flag: true, plan });
-    expect(await available(h, true)).toBe(true);
-    expect((await h.call("GET /remote/status")).status).toBeUndefined();
-    expect(plan.asks).toEqual([]);
-  });
-
-  it("follows STUDIO_PLAN_AVAILABLE when the caller does not say", async () => {
-    const h = host({ flag: "default", plan: new FakePlan(false) });
-    await settle();
-    expect(await available(h)).toBe(STUDIO_PLAN_AVAILABLE);
   });
 
   it("asks the gateway afresh when Settings opens with ?refresh, and reads the cache otherwise", async () => {
@@ -480,7 +465,7 @@ describe("an account without remote control in its plan", () => {
     expect(await h.call("POST /remote/pair")).toEqual({ status: 403, body: { error: NO_PLAN, code: "no-plan" } });
   });
 
-  it("with the flag off, a 4003 asks the gateway again at once, and a lapsed plan takes remote control away", async () => {
+  it("a 4003 asks the gateway again at once, and a lapsed plan takes remote control away", async () => {
     const plan = new FakePlan(true);
     const h = host({ plan, enabled: true });
     await until(() => h.busy());
@@ -494,7 +479,7 @@ describe("an account without remote control in its plan", () => {
     expect(h.busy()).toBe(false);
   });
 
-  it("with the flag off, a 403 upgrade on an account the gateway still calls paid shows no-plan", async () => {
+  it("a 403 upgrade on an account the gateway still calls paid shows no-plan", async () => {
     relay.mode = "deny";
     const plan = new FakePlan(true);
     const h = host({ plan, enabled: true });

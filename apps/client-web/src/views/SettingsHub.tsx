@@ -7,7 +7,7 @@ import { ModelsSection } from "./settings/ModelsSection";
 import { ApprovalsSection } from "./settings/ApprovalsSection";
 import { ProjectSection } from "./settings/ProjectSection";
 import { GeneralSection } from "./settings/GeneralSection";
-import { RemoteSection } from "./settings/RemoteSection";
+import { RemoteSection, RemoteUpsell } from "./settings/RemoteSection";
 import { useRemoteAvailable } from "./settings/remote-available";
 import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
@@ -135,15 +135,16 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   const { dots, lines } = useSectionStatus(updates, daemon);
   // Extension sections; one not registered (yet) shows the fallback, and the hash keeps it.
   const extensions = useSlot("settings.section");
-  // Remote control shows only while it is offered; its name opens General otherwise.
+  // Remote control: working on a paid plan, a plan note for a free account while the plan is offered, else not there and its name opens General.
   const remote = useRemoteAvailable();
-  const groups = remote.available ? GROUPS : GROUPS.map((g) => ({ ...g, items: g.items.filter((s) => s.id !== "remote") }));
+  const shown = remote.surface === "working" || remote.surface === "upsell";
+  const groups = remote.surface !== "hidden" ? GROUPS : GROUPS.map((g) => ({ ...g, items: g.items.filter((s) => s.id !== "remote") }));
   const named = sectionOf(section);
-  const asked = named === "remote" && remote.available === false ? "general" : named;
+  const asked = named === "remote" && remote.surface === "hidden" && remote.available !== null ? "general" : named;
   const extOpen = isExtensionSection(asked) ? extensions.find((i) => extensionSection(i.ext, i.contribution.id) === asked) : undefined;
   // Wide always shows a section; narrow starts on the list. A name no version used opens General.
   const open: SettingsSection | null = (isExtensionSection(asked) && !extOpen ? null : asked) ?? (narrow ? null : "general");
-  const name = extOpen ? extOpen.contribution.title ?? extOpen.contribution.id : open === "remote" && !remote.available ? "" : open && !isExtensionSection(open) ? NAMES[open] : "";
+  const name = extOpen ? extOpen.contribution.title ?? extOpen.contribution.id : open === "remote" && !shown ? "" : open && !isExtensionSection(open) ? NAMES[open] : "";
   let body: ReactNode = null;
   if (extOpen) body = <Contribution item={extOpen} ctx={NO_CTX} />;
   else if (open === "agents") body = <AgentsSection onSection={onSection} />;
@@ -151,7 +152,8 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "approvals") body = <ApprovalsSection />;
   else if (open === "project") body = <ProjectSection onSection={onSection} />;
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
-  else if (open === "remote" && remote.available) body = <RemoteSection onUnavailable={remote.recheck} />;
+  else if (open === "remote" && remote.surface === "working") body = <RemoteSection onUnavailable={remote.recheck} />;
+  else if (open === "remote" && remote.surface === "upsell") body = <RemoteUpsell />;
   else if (open === "diagnostics") body = (
     <>
       <Head title="Diagnostics" lead="Editor and daemon status, and recent daemon events." />

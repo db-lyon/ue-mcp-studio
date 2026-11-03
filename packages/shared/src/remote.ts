@@ -1,15 +1,38 @@
 /**
- * Remote control as the agent reports it at /v1/ext/studio/remote. Available
- * while STUDIO_PLAN_AVAILABLE is on or the signed-in account has a paid plan;
- * hidden, routes included, otherwise.
+ * Remote control as the agent reports it at /v1/ext/studio/remote. It works
+ * while the signed-in account has a paid plan; its routes answer 404
+ * otherwise. With STUDIO_PLAN_AVAILABLE on, a free account is told it exists
+ * (Settings and /remote); with it off, a free account never sees it.
  */
 
 /** What Studio says when the account's plan does not include remote control. */
 export const REMOTE_NO_PLAN = "Remote control needs a Pro or Studio plan on this account.";
 
-/** GET /remote/available: whether remote control is offered to this account now. */
+/** GET /remote/available: whether this account may use remote control now (a paid plan). */
 export interface RemoteAvailability {
   available: boolean;
+}
+
+/** Where a free account reads about the plans remote control needs. */
+export const STUDIO_PLAN_URL = "https://ue-mcp.com/pricing";
+
+/** The one line on what remote control does. */
+export const REMOTE_SUMMARY = "Use this project from your phone or another computer.";
+
+/** What /remote answers a free account in the chat, before the plan link. */
+export const REMOTE_COMMAND_REPLY = "Remote control lets you use this project from your phone. It needs a Pro or Studio plan.";
+
+/**
+ * What remote control shows this account: the working thing on a paid plan,
+ * the plan note to a free account while the plan is offered, nothing otherwise.
+ * Null `paid` is not yet known: "pending" while the plan is offered (the
+ * section is listed either way), "hidden" while it is not.
+ */
+export type RemoteSurface = "working" | "upsell" | "pending" | "hidden";
+export function remoteSurface(planOffered: boolean, paid: boolean | null): RemoteSurface {
+  if (paid) return "working";
+  if (!planOffered) return "hidden";
+  return paid === null ? "pending" : "upsell";
 }
 
 /**

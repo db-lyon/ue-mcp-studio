@@ -3,10 +3,11 @@
  * connector keeps this project reachable from paired browsers through the
  * relay, and keeps the daemon from idling out while it is online.
  *
- * Offered while STUDIO_PLAN_AVAILABLE is on, or while the signed-in account
- * has a paid plan by the gateway (./plan.ts), rechecked every few minutes so a
- * new plan starts it and a lapsed one stops it without a daemon restart. Not
- * offered, every /remote/* route answers 404 and the connector stays down.
+ * Works only while the signed-in account has a paid plan by the gateway
+ * (./plan.ts), rechecked every few minutes so a new plan starts it and a
+ * lapsed one stops it without a daemon restart. Otherwise every /remote/*
+ * route answers 404 and the connector stays down. STUDIO_PLAN_AVAILABLE only
+ * decides whether the UI tells a free account about it.
  *
  * Per project, in <studio data dir>/remote/: remote.json (on or off, optional
  * relay override) and device.json (this project's stable id). Per computer,
@@ -19,7 +20,7 @@ import * as path from "node:path";
 import qrcode from "qrcode-generator";
 import { readLiveDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { pairingFragment } from "@ue-mcp-studio/remote";
-import { STUDIO_PLAN_AVAILABLE, type RemoteAvailability, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { type RemoteAvailability, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import type { ExtensionHandler } from "ue-mcp/daemon";
 import { SettingsStore } from "../settings.js";
 import { Connector, NO_PLAN, type ConnectorState } from "./connector.js";
@@ -35,11 +36,9 @@ interface RemoteConfig {
 }
 
 export interface RemoteOptions {
-  /** Offered to everyone, whatever the plan. Default STUDIO_PLAN_AVAILABLE. */
-  flag?: boolean;
   /** Whether the account has a paid plan. Default: the gateway, with the `ue-mcp login` token. */
   plan?: PlanCheck;
-  /** How often the plan is rechecked while the flag is off. */
+  /** How often the plan is rechecked. */
   planRecheckMs?: number;
   /** The per-computer key and paired-browser folder. Default <ue-mcp user dir>/remote. */
   computerDir?: string;
@@ -82,7 +81,6 @@ function projectName(projectDir: string): string {
 
 /** Registers /remote/* and starts the connector when it is on and remote control is offered. */
 export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): { dispose(): void } {
-  const flag = o.flag ?? STUDIO_PLAN_AVAILABLE;
   const env = o.env ?? process.env;
   const plan =
     o.plan ??
@@ -122,7 +120,7 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
       onState: (s) => {
         state = s;
         // The relay says the plan does not cover it: ask the gateway again rather than wait out the cache.
-        if (!flag && s.state === "error" && s.code === "no-plan") {
+        if (s.state === "error" && s.code === "no-plan") {
           plan.invalidate();
           void recheck(true);
         }
@@ -133,7 +131,7 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     });
   let generation = 0;
   let disposed = false;
-  let available = flag;
+  let available = false;
   const apply = async (): Promise<void> => {
     const mine = ++generation;
     connector?.stop();
@@ -146,9 +144,9 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     connector.start();
   };
 
-  /** Whether remote control is offered now; a change starts or stops the connector and tells the UI. */
+  /** Whether this account may use remote control now; a change starts or stops the connector and tells the UI. */
   const recheck = async (force = false): Promise<boolean> => {
-    if (flag || disposed) return available;
+    if (disposed) return available;
     const next = await plan.available(force);
     if (next !== available && !disposed) {
       available = next;
@@ -209,15 +207,14 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     return { status: 204 };
   });
 
-  if (flag) void apply();
-  else void recheck(true);
-  const timer = flag ? null : setInterval(() => void recheck(true), o.planRecheckMs ?? PLAN_CHECK_TTL_MS);
-  timer?.unref?.();
+  void recheck(true);
+  const timer = setInterval(() => void recheck(true), o.planRecheckMs ?? PLAN_CHECK_TTL_MS);
+  timer.unref?.();
   return {
     dispose: () => {
       disposed = true;
       generation++;
-      if (timer) clearInterval(timer);
+      clearInterval(timer);
       connector?.stop();
     },
   };

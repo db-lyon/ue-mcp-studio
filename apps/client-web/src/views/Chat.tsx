@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_URL, isLocalCommand, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import { useRemoteAvailable } from "./settings/remote-available";
+import type { SettingsSection } from "./settings/sections";
 import { native } from "../native";
 import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
@@ -58,11 +60,13 @@ const searchMentions: MentionSearchFn = (request, signal) => api.searchMentions(
 /** How long the session list may take before the panel says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
 
-export function ChatView({ daemon, nav, active = true }: {
+export function ChatView({ daemon, nav, active = true, onSettings }: {
   daemon: DaemonState;
   nav?: { session: string | null; n: number };
   /** False while another tab is up: the chat stays mounted but leaves the location alone. */
   active?: boolean;
+  /** Open a Settings section, for /remote on a paid plan. */
+  onSettings?: (section: SettingsSection) => void;
 }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   /** Whether the list has come back once: until then an empty list is not "no sessions". */
@@ -214,6 +218,20 @@ export function ChatView({ daemon, nav, active = true }: {
       setError(e.message);
     });
   };
+  // /remote and /rc: offered only where remoteSurface says, and answered here, never as a turn.
+  const remote = useRemoteAvailable(false);
+  const remoteOffered = remote.surface === "working" || remote.surface === "upsell";
+  const commands = useMemo(() => (remoteOffered ? [...SLASH_COMMANDS, REMOTE_COMMAND] : SLASH_COMMANDS), [remoteOffered]);
+  /** The session /remote was answered in, for a free account: the reply shows there until the next message. */
+  const [remoteReply, setRemoteReply] = useState<string | null>(null);
+  const runRemoteCommand = (): boolean => {
+    if (!selected || !remoteOffered || attach.ready.length > 0 || !isLocalCommand(draft, REMOTE_COMMAND)) return false;
+    setDraft("");
+    void api.saveDraft(selected, "").catch(() => {});
+    if (remote.surface === "working") onSettings?.("remote");
+    else setRemoteReply(selected);
+    return true;
+  };
   /** A /flow or /action message being run: its form, above the composer. */
   const [flowAsk, setFlowAsk] = useState<string | null>(null);
   const [actionAsk, setActionAsk] = useState<string | null>(null);
@@ -222,6 +240,8 @@ export function ChatView({ daemon, nav, active = true }: {
     setActionAsk(null);
   }, [selected]);
   const send = () => {
+    if (runRemoteCommand()) return;
+    setRemoteReply(null);
     // A /flow or /action opens its form rather than going out as a message.
     const command = selected && canSend && attach.ready.length === 0 ? parseSlashCommand(draft)?.name : undefined;
     if (selected && (command === "flow" || command === "action")) {
@@ -247,8 +267,8 @@ export function ChatView({ daemon, nav, active = true }: {
     setSent((n) => n + 1);
     return api.action(id, request).then(() => loadDetail(id));
   };
-  const sendNow = () => dispatch((id, text, files) => api.send(id, text, files, true), true);
-  const queue = () => dispatch((id, text, files) => api.queue(id, text, files), false);
+  const sendNow = () => runRemoteCommand() || dispatch((id, text, files) => api.send(id, text, files, true), true);
+  const queue = () => runRemoteCommand() || dispatch((id, text, files) => api.queue(id, text, files), false);
   const editMessage = useCallback((index: number, text: string, mode: EditMode) => {
     if (!selected) return;
     setThread(null);
@@ -483,6 +503,12 @@ export function ChatView({ daemon, nav, active = true }: {
             <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
             <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
             <FormCards forms={forms} runs={qaRuns} />
+            {remoteReply === detail.id && (
+              <div className="msg assistant local-reply" role="status">
+                <p>{REMOTE_COMMAND_REPLY} <a href={STUDIO_PLAN_URL} target="_blank" rel="noreferrer">See plans</a></p>
+                <button className="ghost small-button" onClick={() => setRemoteReply(null)}>Dismiss</button>
+              </div>
+            )}
             {flowAsk && !busy && <FlowLauncher key={flowAsk} text={flowAsk} run={runFlow} onClose={() => setFlowAsk(null)} />}
             {actionAsk && !busy && <ActionLauncher key={actionAsk} text={actionAsk} run={runAction} onClose={() => setActionAsk(null)} />}
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
@@ -495,6 +521,7 @@ export function ChatView({ daemon, nav, active = true }: {
               busy={busy}
               canSend={canSend}
               onSend={send}
+              commands={commands}
               flows={loadFlowNames}
               actions={loadActionNames}
               mentions={searchMentions}
