@@ -9,6 +9,7 @@ import {
   CONNECTOR_PATH,
   DEVICE_HEADER,
   DEVICE_NAME_HEADER,
+  encodeChunk,
   parseFrame,
   type ConnectorFrame,
   type RelayFrame,
@@ -58,6 +59,8 @@ export class Connector {
   private retry: NodeJS.Timeout | null = null;
   private readonly inflight = new Map<string, AbortController>();
   private current: ConnectorState = { state: "off" };
+  /** The relay said hello with `binary`: chunks go as binary frames instead of base64 JSON. */
+  private binary = false;
 
   constructor(private readonly o: ConnectorOptions) {}
 
@@ -111,6 +114,7 @@ export class Connector {
       maxPayload: 16 * 1024 * 1024,
     });
     this.socket = ws;
+    this.binary = false;
     let refused: { reason: string; code?: RemoteRefusal } | null = null;
     ws.on("unexpected-response", (_req, res) => {
       refused = refusal(res.statusCode ?? 0);
@@ -122,6 +126,7 @@ export class Connector {
       if (!frame) return;
       if (frame.t === "hello") {
         this.attempt = 0;
+        this.binary = frame.binary === true;
         this.set({ state: "online", login: frame.login, since: new Date().toISOString() });
         this.o.log(`remote control: online as ${frame.login}`);
       } else if (frame.t === "call") void this.call(ws, frame);
@@ -172,7 +177,9 @@ export class Connector {
     const sink: CallSink = {
       head: (status, headers) => this.send(ws, { t: "head", id: frame.id, status, headers }),
       chunk: async (bytes) => {
-        this.send(ws, { t: "chunk", id: frame.id, data: Buffer.from(bytes).toString("base64") });
+        if (this.binary) {
+          if (ws.readyState === WebSocket.OPEN) ws.send(encodeChunk(frame.id, bytes), { binary: true });
+        } else this.send(ws, { t: "chunk", id: frame.id, data: Buffer.from(bytes).toString("base64") });
         while (ws.readyState === WebSocket.OPEN && ws.bufferedAmount > HIGH_WATER) await new Promise((r) => setTimeout(r, 20));
         if (ws.readyState !== WebSocket.OPEN) controller.abort();
       },

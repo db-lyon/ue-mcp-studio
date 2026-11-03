@@ -5,6 +5,7 @@
  * sealed back.
  */
 import {
+  ACCEPT_GZIP,
   FORWARDED_REQUEST_HEADERS,
   FORWARDED_RESPONSE_HEADERS,
   MAX_REQUEST_BYTES,
@@ -158,10 +159,14 @@ export class RemoteService {
     }
     const location = res.headers.get("location");
     if (location && location.startsWith("/")) out["location"] = location;
+    // A browser that opens gzip itself gets text compressed before sealing; event streams stay as they are, chunk by chunk.
+    const gzip = !!res.body && req.accept?.includes(ACCEPT_GZIP) === true && compressible(out["content-type"]);
+    if (gzip) out["content-encoding"] = "gzip";
     try {
       await sink.chunk(await sealer.head({ status: res.status, headers: out }));
       if (res.body) {
-        const reader = res.body.getReader();
+        const body = gzip ? res.body.pipeThrough(new CompressionStream("gzip") as unknown as ReadableWritablePair<Uint8Array, Uint8Array>) : res.body;
+        const reader = body.getReader();
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -176,6 +181,14 @@ export class RemoteService {
       else sink.end();
     }
   }
+}
+
+/** Text worth compressing: JSON, scripts, styles, markup. Images, archives and event streams are not. */
+export function compressible(contentType: string | undefined): boolean {
+  if (!contentType) return false;
+  const t = contentType.split(";")[0].trim().toLowerCase();
+  if (t === "text/event-stream") return false;
+  return t.startsWith("text/") || t === "application/json" || t === "application/javascript" || t === "image/svg+xml" || t.endsWith("+json");
 }
 
 function forwardHeaders(req: PlainRequest): Record<string, string> {

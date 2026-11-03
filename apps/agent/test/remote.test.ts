@@ -9,11 +9,13 @@ import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
+import * as zlib from "node:zlib";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { DaemonExtensionApi, ExtensionHandler } from "ue-mcp/daemon";
 import {
   ResponseOpener,
+  decodeChunk,
   exportPublic,
   generateKeyPair,
   keyId,
@@ -55,11 +57,22 @@ class FakePlan implements PlanCheck {
 
 const listen = (server: http.Server): Promise<number> => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port)));
 
+/** Resolved by every frame the fake relay receives, so a wait wakes when there is something to see rather than on a timer. */
+let wake: Array<() => void> = [];
+function woken(): void {
+  for (const w of wake.splice(0)) w();
+}
+/** The next frame, or 20 ms, whichever is first. */
+const tick = () => new Promise<void>((r) => {
+  wake.push(r);
+  setTimeout(r, 20);
+});
+
 async function until(check: () => boolean, ms = 5000): Promise<void> {
   const end = Date.now() + ms;
   while (!check()) {
     if (Date.now() > end) throw new Error("timed out");
-    await new Promise((r) => setTimeout(r, 20));
+    await tick();
   }
 }
 
@@ -94,6 +107,8 @@ interface Call {
   failed?: { status: number; error: string };
 }
 const relay = {
+  /** Say hello with `binary`, as the deployed relay does, so chunks come as binary frames. */
+  binary: false,
   mode: "allow" as "allow" | "deny",
   pairMode: "allow" as "allow" | "deny",
   upgrades: [] as http.IncomingHttpHeaders[],
@@ -118,7 +133,16 @@ relayServer.on("upgrade", (req, socket, head) => {
   if (relay.mode === "deny") return void socket.end("HTTP/1.1 403 Forbidden\r\nContent-Length: 9\r\n\r\nForbidden");
   wss.handleUpgrade(req, socket, head, (ws) => {
     relay.socket = ws;
-    ws.on("message", (data) => {
+    ws.on("message", (data, isBinary) => {
+      woken();
+      if (isBinary) {
+        const bytes = Buffer.from(data as Buffer);
+        relay.wire.push(bytes.toString("latin1"));
+        const chunk = decodeChunk(new Uint8Array(bytes));
+        const c = chunk && relay.calls.get(chunk.id);
+        if (c) c.bytes.push(Buffer.from(chunk.data));
+        return;
+      }
       relay.wire.push(String(data));
       const f = parseFrame<ConnectorFrame>(data);
       const c = f && relay.calls.get(f.id);
@@ -129,7 +153,7 @@ relayServer.on("upgrade", (req, socket, head) => {
       else c.failed = { status: f.status, error: f.error };
     });
     ws.on("close", () => relay.socket === ws && (relay.socket = null));
-    send({ t: "hello", deviceId: String(req.headers["x-ue-mcp-device"]), login: "dev" });
+    send({ t: "hello", deviceId: String(req.headers["x-ue-mcp-device"]), login: "dev", ...(relay.binary ? { binary: true } : {}) });
   });
 });
 function send(frame: RelayFrame): void {
@@ -252,7 +276,7 @@ class Browser {
       await pump();
       if (wait(frames, c)) break;
       if (Date.now() > end) throw new Error("timed out");
-      await new Promise((r) => setTimeout(r, 20));
+      await tick();
     }
     const head = frames.find((f) => f.kind === "head") as Extract<OpenedFrame, { kind: "head" }> | undefined;
     const text = () => Buffer.concat(frames.filter((f) => f.kind === "data").map((f) => Buffer.from((f as { data: Uint8Array }).data))).toString();
@@ -269,6 +293,7 @@ beforeAll(async () => {
 
 afterEach(() => {
   for (const h of hosts.splice(0)) h.dispose();
+  relay.binary = false;
   relay.mode = "allow";
   relay.pairMode = "allow";
 });
@@ -465,6 +490,37 @@ describe("remote control, sealed end to end", () => {
     expect((await h.call("PUT /remote/config", { enabled: false })).body).toEqual({ enabled: false, relay: relay.base, state: "off" });
     await until(() => relay.socket === null);
     expect(h.busy()).toBe(false);
+    // About 30 sealed round trips with key agreement; alone it takes under a second, beside the full suite's workers several.
+  }, 20_000);
+
+  it("with a relay that reads binary frames, sends chunks as binary, and gzips text for a browser that opens it", async () => {
+    relay.binary = true;
+    const h = host();
+    await h.call("PUT /remote/config", { enabled: true });
+    await until(() => relay.socket !== null && h.busy());
+    const device = JSON.parse(fs.readFileSync(path.join(h.dataDir, "remote", "device.json"), "utf-8")).id as string;
+    const pairing = (await h.call("POST /remote/pair")).body as { url: string };
+    const browser = await Browser.make();
+    expect((await browser.pair(pairing.url, device)).failed).toBeUndefined();
+    const before = relay.wire.length;
+
+    // Asked for gzip: the head says so, the body opens to the page, and chunks went as binary frames.
+    const zipped = await browser.request({ path: "/ui/", accept: ["gzip"] });
+    expect(zipped.head).toEqual({ status: 200, headers: { "content-type": "text/html", "content-encoding": "gzip" } });
+    const raw = Buffer.concat(zipped.frames.filter((f) => f.kind === "data").map((f) => Buffer.from((f as { data: Uint8Array }).data)));
+    expect(zlib.gunzipSync(raw).toString()).toContain(MARKER);
+    expect(relay.wire.slice(before).some((w) => w.startsWith('{"t":"chunk"'))).toBe(false);
+    expect(relay.wire.join("\n")).not.toContain(MARKER);
+
+    // Not asked: sent as the daemon wrote it.
+    const plain = await browser.request({ path: "/ui/" });
+    expect(plain.head).toEqual({ status: 200, headers: { "content-type": "text/html" } });
+    expect(plain.text()).toContain(MARKER);
+
+    // An event stream is never compressed, so each event arrives as it is written.
+    const stream = await browser.request({ path: "/v1/events", headers: { accept: "text/event-stream" }, accept: ["gzip"] }, (f) => f.some((x) => x.kind === "data"));
+    expect(stream.head?.headers["content-encoding"]).toBeUndefined();
+    expect(stream.text()).toContain("event: hello");
   });
 });
 
