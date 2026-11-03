@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CONTEXT_STRATEGY_INFO, anythingConnected, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { CONTEXT_STRATEGY_INFO, STUDIO_PLAN_AVAILABLE, anythingConnected, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import type { DaemonState } from "../state";
 import { api } from "../api";
 import { AgentsSection } from "./settings/AgentsSection";
@@ -7,6 +7,7 @@ import { ModelsSection } from "./settings/ModelsSection";
 import { ApprovalsSection } from "./settings/ApprovalsSection";
 import { ProjectSection } from "./settings/ProjectSection";
 import { GeneralSection } from "./settings/GeneralSection";
+import { RemoteSection } from "./settings/RemoteSection";
 import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
 
@@ -22,13 +23,20 @@ const ICONS: Record<BuiltinSection, string> = {
   approvals: "M8 1.5l5 2v4c0 3.2-2.2 5.6-5 7-2.8-1.4-5-3.8-5-7v-4zM5.5 8l1.7 1.7L10.7 6",
   project: "M1.5 4.5h4l1.5 1.5h7.5v7.5h-13z",
   general: "M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
+  remote: "M5 1.5h6v13H5zM7.3 12.5h1.4",
   diagnostics: "M1.5 8.5h3l2-5 3 9 2-4h3",
 };
 const EXTENSION_ICON = "M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z";
 const NO_CTX = {};
 
 const GROUPS: Array<{ label: string; items: Array<{ id: BuiltinSection; name: string; sub: string }> }> = [
-  { label: "Studio", items: [{ id: "general", name: "General", sub: "Appearance and updates" }] },
+  {
+    label: "Studio",
+    items: [
+      { id: "general", name: "General", sub: "Appearance and updates" },
+      ...(STUDIO_PLAN_AVAILABLE ? [{ id: "remote" as const, name: "Remote control", sub: "Use this project from a phone or browser" }] : []),
+    ],
+  },
   {
     label: "Work",
     items: [
@@ -139,6 +147,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "approvals") body = <ApprovalsSection />;
   else if (open === "project") body = <ProjectSection onSection={onSection} />;
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
+  else if (open === "remote" && STUDIO_PLAN_AVAILABLE) body = <RemoteSection />;
   else if (open === "diagnostics") body = (
     <>
       <Head title="Diagnostics" lead="Editor and daemon status, and recent daemon events." />
