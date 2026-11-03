@@ -21,6 +21,7 @@ import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from 
 import { usageTokens } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
 import type { QueuedMessage } from "@ue-mcp-studio/shared";
+import type { CardEntry, CardPost } from "@ue-mcp-studio/extension-api";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
 import type { QaBroker } from "./qa.js";
@@ -271,6 +272,11 @@ export function carryOver(messages: MessageParam[], max = 60_000): string {
   if (text.length > max) text = `(earlier part left out)\n\n${text.slice(text.length - max)}`;
   return `[Studio] This session continues a conversation that ran on other models. Here it is so far:\n\n${text}\n\n[Studio] End of the earlier conversation. The user's new message follows.`;
 }
+
+/** Card extension names and types: the same rule the client's slot registry applies. */
+const CARD_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+/** A card is a summary for the panel; anything bigger belongs behind the extension's own route. */
+const MAX_CARD_BYTES = 64 * 1024;
 
 export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
@@ -1382,6 +1388,30 @@ ${result}`);
   private busy(s: StoredSession): boolean {
     return this.active.has(s.id) || s.status === "running" || s.status === "waiting";
   }
+
+  /**
+   * Cards extensions post into a session: kept in the transcript and drawn by the client's
+   * chat.card slot, never in what a model is sent. Main thread only; data must be JSON.
+   */
+  readonly cards = {
+    post: (sessionId: string, card: CardPost & { ext: string }): CardEntry => {
+      const s = this.o.store.get(sessionId);
+      if (!s) throw new Error(`no session ${sessionId}`);
+      if (!CARD_NAME.test(card.ext)) throw new Error(`invalid extension name "${card.ext}"`);
+      if (!CARD_NAME.test(card.type)) throw new Error(`invalid card type "${card.type}"`);
+      let json: string | undefined;
+      try {
+        json = JSON.stringify(card.data);
+      } catch {
+        json = undefined;
+      }
+      if (json === undefined) throw new Error("card data must be JSON");
+      if (json.length > MAX_CARD_BYTES) throw new Error(`card data is over ${MAX_CARD_BYTES} bytes`);
+      const entry: CardEntry = { kind: "card", ext: card.ext, type: card.type, data: JSON.parse(json), at: now() };
+      this.addEntry(s, entry);
+      return entry;
+    },
+  };
 
   private addEntry(s: StoredSession, entry: TranscriptEntry): void {
     if (entry.kind === "tool" && this.queuedEarly.delete(entry.call.id)) entry.call.queued = true;
