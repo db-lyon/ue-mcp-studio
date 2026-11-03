@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
-import { LOST_PAUSE_MS, RECONNECT_MS } from "../connection";
+import { LOST_PAUSE_MS, QUIET_MS, RECONNECT_MS } from "../connection";
 
 function Harness({ streaming, events }: { streaming: boolean; events: DaemonEvent[] }) {
   return <ConnectionOverlay c={useConnection(streaming, events, false)} />;
@@ -48,9 +48,12 @@ describe("the panel while ue-mcp is away", () => {
     expect(reported[0]).toMatchObject({ phase: "connected" });
     rerender(<Harness streaming={false} events={[]} />);
     expect(screen.queryByText("Reconnecting to ue-mcp")).toBeNull();
+    // A drop shorter than the quiet window, such as a stream through the relay resuming, shows nothing.
+    await advance(QUIET_MS - 1000);
+    expect(screen.queryByText("Reconnecting to ue-mcp")).toBeNull();
     await advance(2000);
     expect(screen.getByText("Reconnecting to ue-mcp")).toBeTruthy();
-    expect(screen.getByText(/No answer for 2s/)).toBeTruthy();
+    expect(screen.getByText(/No answer for 5s/)).toBeTruthy();
     rerender(<Harness streaming events={[]} />);
     expect(screen.queryByText("Reconnecting to ue-mcp")).toBeNull();
   });

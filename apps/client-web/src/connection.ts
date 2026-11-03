@@ -34,8 +34,8 @@ export type ConnEvent =
   | { type: "started"; ok: boolean; noNode?: boolean; error?: string; at: number }
   | { type: "retry"; at: number };
 
-/** Stream down this long before the panel says so. */
-export const QUIET_MS = 1500;
+/** Stream down this long before the panel says so. A stream through the relay that drops usually resumes within a second or two, unseen. */
+export const QUIET_MS = 4000;
 /** Stream down with no reason this long: ue-mcp is lost. */
 export const RECONNECT_MS = 10_000;
 /** A restart this long without a successor: ue-mcp is lost. */

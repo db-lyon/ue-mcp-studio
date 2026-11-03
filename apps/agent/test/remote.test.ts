@@ -83,6 +83,12 @@ const daemon = http.createServer((req, res) => {
   daemonHits.push({ method: req.method!, url: req.url!, auth: req.headers.authorization, cookie: req.headers.cookie });
   if (req.headers.authorization !== `Bearer ${DAEMON_TOKEN}`) return void res.writeHead(401).end();
   if (req.url === "/ui/") return void res.writeHead(200, { "content-type": "text/html", "set-cookie": "leak=1" }).end(`<!doctype html><title>Studio ${MARKER}</title>`);
+  if (req.url === "/v1/events?silent=1") {
+    // A quiet project: the stream opens and then says nothing.
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.flushHeaders();
+    return;
+  }
   if (req.url === "/v1/events") {
     res.writeHead(200, { "content-type": "text/event-stream" });
     res.write(`id: 1\nevent: hello\ndata: {"m":"${MARKER}"}\n\n`);
@@ -185,7 +191,7 @@ interface Host {
 const hosts: Host[] = [];
 
 /** A paid account unless a plan is given. */
-function host(o: { plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; planRecheckMs?: number; account?: AccountSource } = {}): Host {
+function host(o: { plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; planRecheckMs?: number; account?: AccountSource; owns?: () => boolean; keepaliveMs?: number } = {}): Host {
   const projectDir = fs.mkdtempSync(path.join(root, "proj-"));
   fs.writeFileSync(path.join(projectDir, "Game.uproject"), "{}");
   const dataDir = path.join(root, "home", "data", path.basename(projectDir), "studio");
@@ -216,6 +222,8 @@ function host(o: { plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; plan
     daemon: () => ({ port, token: DAEMON_TOKEN }),
     env: { UE_MCP_REMOTE_RELAY: relay.base },
     refusedRetryMs: 60_000,
+    owns: o.owns,
+    keepaliveMs: o.keepaliveMs,
   });
   const h: Host = {
     routes,
@@ -559,6 +567,22 @@ function keys(h: Host): string[] {
   const file = path.join(h.computerDir, "phones.json");
   return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, "utf-8")) as Array<{ id: string }>).map((p) => p.id) : [];
 }
+
+describe("a quiet event stream through the relay", () => {
+  it("gets a keepalive comment while the project has nothing to say, so no proxy closes it as idle", async () => {
+    const h = host({ keepaliveMs: 60 });
+    await h.call("PUT /remote/config", { enabled: true });
+    await until(() => relay.socket !== null);
+    await until(() => h.events.some((e) => e.data.state === "online"));
+    const device = JSON.parse(fs.readFileSync(path.join(h.dataDir, "remote", "device.json"), "utf-8")).id as string;
+    const pairing = (await h.call("POST /remote/pair")).body as { url: string };
+    const browser = await Browser.make();
+    expect((await browser.pair(pairing.url, device, h)).failed).toBeUndefined();
+    const stream = await browser.request({ path: "/v1/events?silent=1", headers: { accept: "text/event-stream" } }, (f) => f.filter((x) => x.kind === "data").length >= 2);
+    expect(stream.head?.status).toBe(200);
+    expect(stream.text()).toContain(": keepalive\n\n");
+  }, 20_000);
+});
 
 describe("an account without remote control in its plan", () => {
   it("shows as no-plan when the relay refuses the socket with 403, and pairing says the same", async () => {

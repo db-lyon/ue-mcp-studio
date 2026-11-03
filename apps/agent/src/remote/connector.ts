@@ -20,12 +20,18 @@ import type { CallSink } from "./service.js";
 export type ConnectorState = RemoteConnection;
 
 /** The words for a relay that refused the connection, by HTTP status. 403 is an account without remote control in its plan. */
-export function refusal(status: number): { reason: string; code?: RemoteRefusal } {
+export function refusal(status: number): { reason: string; code?: RemoteRefusal } | null {
   if (status === 401) return { reason: REMOTE_SIGN_IN_AGAIN, code: "signed-out" };
   if (status === 403) return { reason: NO_PLAN, code: "no-plan" };
   if (status === 409) return { reason: "This project's id belongs to another account.", code: "other-account" };
-  return { reason: `The relay refused the connection (HTTP ${status}).` };
+  // Anything else (a 5xx while the relay redeploys, a proxy error) is passing: retry on the normal backoff.
+  return null;
 }
+
+/** The relay closes the older socket with this code when another connection for the same project arrives. */
+export const TAKEN_OVER_CLOSE = 4000;
+/** After a takeover, wait this long before trying again, so two processes for one project cannot trade places every second. */
+export const TAKEOVER_RETRY_MS = 60_000;
 
 export const NO_PLAN = REMOTE_NO_PLAN;
 export const NOT_SIGNED_IN = ACCOUNT_SIGNED_OUT;
@@ -47,6 +53,8 @@ export interface ConnectorOptions {
   log: (message: string) => void;
   /** How long to wait after the relay refused this account. */
   refusedRetryMs?: number;
+  /** Checked before each connection: false when another process now runs this project, and this one stands down. */
+  owns?: () => boolean;
 }
 
 /** Pause sending while the socket holds more than this unsent. */
@@ -93,6 +101,12 @@ export class Connector {
 
   private async connect(): Promise<void> {
     if (this.stopped) return;
+    if (this.o.owns && !this.o.owns()) {
+      this.o.log("remote control: another ue-mcp process runs this project; this one stays off");
+      this.stopped = true;
+      this.set({ state: "off" });
+      return;
+    }
     const token = await this.o.token().catch(() => null);
     if (this.stopped) return;
     if (!token) {
@@ -116,8 +130,10 @@ export class Connector {
     this.socket = ws;
     this.binary = false;
     let refused: { reason: string; code?: RemoteRefusal } | null = null;
+    let failedStatus = 0;
     ws.on("unexpected-response", (_req, res) => {
-      refused = refusal(res.statusCode ?? 0);
+      failedStatus = res.statusCode ?? 0;
+      refused = refusal(failedStatus);
       res.resume();
       ws.terminate();
     });
@@ -143,10 +159,19 @@ export class Connector {
       // A lapsed plan closes a live socket; it is the same refusal as a 403 upgrade.
       const r = (refused as { reason: string; code?: RemoteRefusal } | null) ?? (code === PLAN_LAPSED_CLOSE ? refusal(403) : null);
       // A refusal will not fix itself on the next try; wait longer before asking again.
-      const delay = r ? this.o.refusedRetryMs ?? 5 * 60_000 : Math.min(60_000, 1000 * 2 ** this.attempt) * (0.5 + Math.random() * 0.5);
+      const backoff = Math.min(60_000, 1000 * 2 ** this.attempt) * (0.5 + Math.random() * 0.5);
+      const delay = r ? this.o.refusedRetryMs ?? 5 * 60_000 : code === TAKEN_OVER_CLOSE ? TAKEOVER_RETRY_MS : backoff;
       this.attempt++;
       if (r) this.set({ state: "error", ...r });
-      else this.set({ state: "connecting", attempt: this.attempt, reason: code === 4000 ? "Another connection for this project took over." : reason.toString() || "Connection lost." });
+      else {
+        const why =
+          code === TAKEN_OVER_CLOSE
+            ? "Another connection for this project took over."
+            : failedStatus
+              ? `The relay answered HTTP ${failedStatus}; trying again.`
+              : reason.toString() || "Connection lost.";
+        this.set({ state: "connecting", attempt: this.attempt, reason: why });
+      }
       this.schedule(delay);
     });
   }
