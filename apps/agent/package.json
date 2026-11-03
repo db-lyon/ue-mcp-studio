@@ -22,11 +22,14 @@
     "@jsquash/webp": "^1.5.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@ue-mcp-studio/extension-api": "*",
+    "@ue-mcp-studio/remote": "*",
     "@ue-mcp-studio/shared": "*",
     "jpeg-js": "^0.4.4",
     "omggif": "^1.0.10",
     "pngjs": "^7.0.0",
+    "qrcode-generator": "^1.4.4",
     "smol-toml": "^1.3.1",
+    "ws": "^8.18.0",
     "yaml": "^2.6.1",
     "zod": "^4.6.6"
   },
@@ -34,6 +37,7 @@
     "@types/node": "^22.20.5",
     "@types/omggif": "^1.0.5",
     "@types/pngjs": "^6.0.5",
+    "@types/ws": "^8.5.13",
     "ue-mcp": "1.4.11"
   }
 }

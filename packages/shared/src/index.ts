@@ -484,6 +484,7 @@ export interface SessionChangedEvent {
   waitingCause: string | null;
 }
 export * from "./account.js";
+export * from "./remote.js";
 
 /** GET /v1/ext/studio/vcs: the project's source control, or null when it has none Studio can see. */
 export interface VcsStatus {
