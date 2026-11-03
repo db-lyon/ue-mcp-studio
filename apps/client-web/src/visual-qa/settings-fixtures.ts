@@ -100,6 +100,9 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     focus: ".yaml-editor textarea",
   }),
   "settings-general": page("General: themes and updates", "general"),
+  "settings-remote-free": page("Remote control for an account without a paid plan, while STUDIO_PLAN_AVAILABLE is on: what it does and the plan link. With the flag off it is not listed and this opens General", "remote", {
+    get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false } : undefined),
+  }),
   ...OLD_DATA_SCENARIOS,
   "settings-diagnostics": page("Diagnostics: the editor and daemon, and the event log, empty because the harness sends no events", "diagnostics"),
 };

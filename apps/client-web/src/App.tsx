@@ -167,7 +167,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
         {chatShown.current && (
           <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
             <ErrorBoundary what="Chat">
-              <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} />
+              <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={(s) => { setSection(s); setTab("Settings"); }} />
             </ErrorBoundary>
           </main>
         )}

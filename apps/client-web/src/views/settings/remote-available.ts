@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { STUDIO_PLAN_AVAILABLE } from "@ue-mcp-studio/shared";
+import { STUDIO_PLAN_AVAILABLE, remoteSurface, type RemoteSurface } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 
-/** Whether remote control is offered, asked of the agent: null until it answers. */
+/** Whether this account may use remote control (a paid plan), asked of the agent. */
 export async function remoteAvailable(refresh: boolean): Promise<boolean> {
-  if (STUDIO_PLAN_AVAILABLE) return true;
   try {
     return (await api.remoteAvailable(refresh)).available === true;
   } catch (e) {
@@ -14,22 +13,23 @@ export async function remoteAvailable(refresh: boolean): Promise<boolean> {
 }
 
 /**
- * Remote control's place in Settings: on with STUDIO_PLAN_AVAILABLE, otherwise
- * while the agent says the account's plan covers it, asked fresh each time
- * Settings opens. Anything else, an error included, leaves it out silently.
+ * What remote control shows this account (remoteSurface): the working section
+ * on a paid plan, the plan note to a free account while STUDIO_PLAN_AVAILABLE
+ * is on, nothing otherwise. An error reads as a free account, silently.
+ * `refresh` asks the gateway past the agent's cache, as Settings does on open.
  */
-export function useRemoteAvailable(): { available: boolean | null; recheck: () => void } {
-  const [available, setAvailable] = useState<boolean | null>(STUDIO_PLAN_AVAILABLE ? true : null);
+export function useRemoteAvailable(refresh = true): { available: boolean | null; surface: RemoteSurface; recheck: () => void } {
+  const [available, setAvailable] = useState<boolean | null>(null);
   const alive = useRef(true);
   const recheck = useCallback(() => {
     void remoteAvailable(true).then((a) => alive.current && setAvailable(a));
   }, []);
   useEffect(() => {
     alive.current = true;
-    recheck();
+    void remoteAvailable(refresh).then((a) => alive.current && setAvailable(a));
     return () => {
       alive.current = false;
     };
-  }, [recheck]);
-  return { available, recheck };
+  }, [refresh]);
+  return { available, surface: remoteSurface(STUDIO_PLAN_AVAILABLE, available), recheck };
 }

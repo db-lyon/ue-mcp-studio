@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { REMOTE_NO_PLAN, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { REMOTE_NO_PLAN, REMOTE_SUMMARY, STUDIO_PLAN_URL, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 import { Head } from "../SettingsHub";
 import { Card, Row, Switch } from "./controls";
@@ -21,6 +21,18 @@ function detail(s: RemoteStatus): string {
   if (s.state === "off") return "Nothing reaches this project from outside this computer.";
   if (s.state === "error" && s.code === "no-plan") return s.relay;
   return s.reason ?? s.relay;
+}
+
+/** Remote control for an account without a paid plan, while the plan is offered: what it does and where the plans are. Nothing that runs. */
+export function RemoteUpsell() {
+  return (
+    <>
+      <Head title="Remote control" lead={REMOTE_SUMMARY} />
+      <p className="remote-plan-note">
+        Needs a Pro or Studio plan. <a href={STUDIO_PLAN_URL} target="_blank" rel="noreferrer">See plans</a>
+      </p>
+    </>
+  );
 }
 
 /** Remote control: reach this project from a phone or another browser, through the relay, sealed end to end. */
