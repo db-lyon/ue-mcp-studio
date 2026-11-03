@@ -409,6 +409,9 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 .msg { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 13px; border-radius: 10px; max-width: 86%; }
 .msg.user { align-self: flex-end; background: var(--accent-wash); border: 1px solid var(--accent-line); }
 .msg.assistant { align-self: flex-start; background: transparent; padding-left: 2px; max-width: 92%; }
+.msg.assistant.local-reply { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 0 14px 8px; }
+.msg.assistant.local-reply p { margin: 0; }
+.msg.assistant.local-reply a { color: var(--accent); }
 .note { white-space: pre-wrap; }
 .tool { font: 12px/1.6 var(--mono); padding: 0 2px; }
 .tool summary { cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px; color: var(--muted); }
@@ -1659,3 +1662,8 @@ button.icon-button[aria-expanded="true"] { color: var(--accent-hi); border-color
 }
 .qa-edit-map { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .qa-edit-map input { flex: 1; min-width: 0; }
+
+/* Extension slots: bar controls sit in the bar's own row; panels share the queue's frame. */
+.ext-slot[data-slot="toolbar.action"], .ext-slot[data-slot="composer.action"] { display: contents; }
+.ext-panel { padding: 4px 16px; border-top: 1px solid var(--line); background: var(--composer-bg); max-height: 28vh; overflow: auto; }
+.ext-panel > summary { cursor: pointer; padding: 2px 0; color: var(--muted); font-size: 12.5px; }

@@ -51,6 +51,10 @@ import type {
   Convention,
   MentionSearchRequest,
   MentionSearchResponse,
+  RemoteAvailability,
+  RemoteBrowser,
+  RemotePairing,
+  RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
@@ -147,6 +151,12 @@ export const api = {
   about: () => call<StudioAbout>("GET", "/v1/ext/studio/about"),
   openWindow: () => call<WindowLaunch>("POST", "/v1/ext/studio/window", {}),
   config: () => call<StudioConfigFile>("GET", "/v1/ext/studio/config"),
+  remoteAvailable: (refresh = false) => call<RemoteAvailability>("GET", `/v1/ext/studio/remote/available${refresh ? "?refresh=1" : ""}`),
+  remoteStatus: () => call<RemoteStatus>("GET", "/v1/ext/studio/remote/status"),
+  setRemote: (enabled: boolean) => call<RemoteStatus>("PUT", "/v1/ext/studio/remote/config", { enabled }),
+  pairRemote: () => call<RemotePairing>("POST", "/v1/ext/studio/remote/pair"),
+  remoteBrowsers: () => call<{ browsers: RemoteBrowser[] }>("GET", "/v1/ext/studio/remote/browsers"),
+  revokeRemoteBrowser: (id: string) => call<void>("DELETE", `/v1/ext/studio/remote/browsers/${encodeURIComponent(id)}`),
   saveConfig: (text: string) => call<StudioConfigFile>("PUT", "/v1/ext/studio/config", { text }),
   flows: () => call<{ flows: FlowSummary[] }>("GET", "/v1/flows"),
   planFlow: (name: string) => call<unknown>("GET", `/v1/flows/${encodeURIComponent(name)}/plan`),

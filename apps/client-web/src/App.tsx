@@ -26,6 +26,9 @@ import { focusRun, useAttention } from "./attention";
 import { replaceStaleWindow } from "./window-version";
 import { RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
+import { Slot } from "./extensions/Slot";
+
+const NO_CTX = {};
 
 // Playtests is hidden for now; its view stays for when it comes back.
 const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
@@ -99,6 +102,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   // The bar's tools: in the bar when wide, at the foot of the drawer when narrow, never both.
   const tools = (
     <div className="bar-tools">
+      <Slot name="toolbar.action" ctx={NO_CTX} />
       <DockToggle />
       <button className="ghost docs-link" onClick={() => setFeedback(true)} title="Report a problem or suggest an idea">Feedback</button>
       <button className="ghost docs-link" onClick={() => void openDocs()} title="The ue-mcp documentation">Docs</button>
@@ -163,7 +167,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
         {chatShown.current && (
           <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
             <ErrorBoundary what="Chat">
-              <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} />
+              <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={(s) => { setSection(s); setTab("Settings"); }} />
             </ErrorBoundary>
           </main>
         )}

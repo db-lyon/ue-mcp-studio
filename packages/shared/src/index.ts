@@ -11,6 +11,7 @@ import type { TimelineMark, TurnReview } from "./review.js";
 import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
 import type { Approvals } from "./composer.js";
+import type { CardEntry } from "@ue-mcp-studio/extension-api";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -19,6 +20,8 @@ export interface StudioAbout {
   /** Version of the UI bundle the daemon is serving, or null. */
   uiVersion: string | null;
   projectDir: string;
+  /** The extension API versions this Studio offers. Absent from an older agent. */
+  extensionApi?: { agent: number; ui: number };
 }
 
 /** GET and PUT /v1/ext/studio/config: ue-mcp.yml as text. */
@@ -353,6 +356,8 @@ export type TranscriptEntry = (
   | { kind: "flow"; name: string; params: Record<string, unknown>; state: FlowRunState; steps: FlowStepProgress[]; summary?: string; errors?: string[]; duration?: number; at: string }
   /** A failed /playtest from an older Studio, which ran it as a forced turn. */
   | { kind: "playtest-failed"; reason: string; request: PlaytestRequest; at: string }
+  /** A card an extension posted: kept in the transcript only, drawn by its chat.card contribution, never sent to a model. */
+  | CardEntry
 ) & { parent?: string };
 
 export interface SessionSummary {
@@ -479,6 +484,7 @@ export interface SessionChangedEvent {
   waitingCause: string | null;
 }
 export * from "./account.js";
+export * from "./remote.js";
 
 /** GET /v1/ext/studio/vcs: the project's source control, or null when it has none Studio can see. */
 export interface VcsStatus {

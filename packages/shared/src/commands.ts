@@ -12,6 +12,8 @@ export interface SlashCommand {
   args?: string;
   /** One line on what it does. */
   summary: string;
+  /** Other names that run it. */
+  aliases?: readonly string[];
 }
 
 export const SLASH_COMMANDS: readonly SlashCommand[] = [
@@ -19,6 +21,19 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "flow", args: "flow name, then key=value (optional)", summary: "Run one of the project's flows, with a form for its inputs" },
   { name: "action", args: "category.method, then key=value (optional)", summary: "Run one ue-mcp action directly, with a form for its parameters" },
 ];
+
+/**
+ * /remote (or /rc): the client answers it itself, never the agent, and offers
+ * it only to an account that may use remote control or, while the plan is
+ * offered, may read about it (remoteSurface).
+ */
+export const REMOTE_COMMAND: SlashCommand = { name: "remote", aliases: ["rc"], summary: "Use this project from your phone or another computer" };
+
+/** Whether a message is exactly this client-side command, by its name or an alias. */
+export function isLocalCommand(text: string, command: SlashCommand): boolean {
+  const m = /^\/([a-z][a-z-]*)$/.exec(text.trim());
+  return !!m && (m[1] === command.name || (command.aliases ?? []).includes(m[1]));
+}
 
 /** The command a message runs, and the text after its name. Null for an ordinary message. */
 export function parseSlashCommand(text: string): { name: string; args: string } | null {
@@ -40,7 +55,7 @@ export function slashQuery(draft: string): string | null {
 /** The commands whose names start with what was typed, in the registry's order. */
 export function matchCommands(query: string, commands: readonly SlashCommand[] = SLASH_COMMANDS): SlashCommand[] {
   const q = query.toLowerCase();
-  return commands.filter((c) => c.name.startsWith(q));
+  return commands.filter((c) => c.name.startsWith(q) || (c.aliases ?? []).some((a) => a.startsWith(q)));
 }
 
 /** Where a /playtest's flow is: gathering context, drafting, checking the draft, created. */

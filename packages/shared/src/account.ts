@@ -36,6 +36,20 @@ export interface AccountUsage {
   remaining: number;
 }
 
+/** Plans that pay for hosted services, remote control among them. */
+export const PAID_PLAN_IDS: readonly string[] = ["pro", "studio"];
+
+/**
+ * Whether the account holds a paid plan at `now`: plan pro or studio, status
+ * active or past_due, period end not passed. The gateway's own rule.
+ */
+export function hasPaidPlan(u: Pick<AccountUsage, "plan" | "status" | "periodEnd">, now: Date = new Date()): boolean {
+  if (u.status !== "active" && u.status !== "past_due") return false;
+  const end = new Date(u.periodEnd).getTime();
+  if (!Number.isFinite(end) || end < now.getTime()) return false;
+  return PAID_PLAN_IDS.includes(u.plan?.id);
+}
+
 /**
  * GET /v1/ext/studio/account on the daemon: the agent's view of the account,
  * read with the token the agent holds. The UI never sees the token.

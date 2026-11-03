@@ -7,24 +7,36 @@ import { ModelsSection } from "./settings/ModelsSection";
 import { ApprovalsSection } from "./settings/ApprovalsSection";
 import { ProjectSection } from "./settings/ProjectSection";
 import { GeneralSection } from "./settings/GeneralSection";
+import { RemoteSection, RemoteUpsell } from "./settings/RemoteSection";
+import { useRemoteAvailable } from "./settings/remote-available";
 import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
 
-import { sectionOf, type SettingsSection } from "./settings/sections";
+import { extensionSection, isExtensionSection, sectionOf, type BuiltinSection, type SettingsSection } from "./settings/sections";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { useSlot } from "../extensions/registry";
+import { Contribution } from "../extensions/Slot";
 export type { SettingsSection } from "./settings/sections";
 
-const ICONS: Record<SettingsSection, string> = {
+const ICONS: Record<BuiltinSection, string> = {
   agents: "M5.5 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM2 13c0-2 1.6-3.5 3.5-3.5S9 11 9 13M11 7.5a1.7 1.7 0 1 0 0-3.4M12 9.6c1.3.4 2 1.6 2 3.4",
   models: "M4 4h8v8H4zM6 1.5V4M10 1.5V4M6 12v2.5M10 12v2.5M1.5 6H4M1.5 10H4M12 6h2.5M12 10h2.5",
   approvals: "M8 1.5l5 2v4c0 3.2-2.2 5.6-5 7-2.8-1.4-5-3.8-5-7v-4zM5.5 8l1.7 1.7L10.7 6",
   project: "M1.5 4.5h4l1.5 1.5h7.5v7.5h-13z",
   general: "M8 10a2 2 0 1 0 0-4 2 2 0 0 0 0 4zM8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4",
+  remote: "M5 1.5h6v13H5zM7.3 12.5h1.4",
   diagnostics: "M1.5 8.5h3l2-5 3 9 2-4h3",
 };
+const EXTENSION_ICON = "M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z";
+const NO_CTX = {};
 
-const GROUPS: Array<{ label: string; items: Array<{ id: SettingsSection; name: string; sub: string }> }> = [
-  { label: "Studio", items: [{ id: "general", name: "General", sub: "Appearance and updates" }] },
+const REMOTE_ITEM = { id: "remote" as const, name: "Remote control", sub: "Use this project from a phone or browser" };
+
+const GROUPS: Array<{ label: string; items: Array<{ id: BuiltinSection; name: string; sub: string }> }> = [
+  {
+    label: "Studio",
+    items: [{ id: "general", name: "General", sub: "Appearance and updates" }, REMOTE_ITEM],
+  },
   {
     label: "Work",
     items: [
@@ -42,7 +54,7 @@ const GROUPS: Array<{ label: string; items: Array<{ id: SettingsSection; name: s
   },
 ];
 
-const NAMES = Object.fromEntries(GROUPS.flatMap((g) => g.items.map((s) => [s.id, s.name]))) as Record<SettingsSection, string>;
+const NAMES = Object.fromEntries(GROUPS.flatMap((g) => g.items.map((s) => [s.id, s.name]))) as Record<BuiltinSection, string>;
 
 function Icon({ d }: { d: string }) {
   return (
@@ -121,14 +133,27 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   narrow?: boolean;
 }) {
   const { dots, lines } = useSectionStatus(updates, daemon);
+  // Extension sections; one not registered (yet) shows the fallback, and the hash keeps it.
+  const extensions = useSlot("settings.section");
+  // Remote control: working on a paid plan, a plan note for a free account while the plan is offered, else not there and its name opens General.
+  const remote = useRemoteAvailable();
+  const shown = remote.surface === "working" || remote.surface === "upsell";
+  const groups = remote.surface !== "hidden" ? GROUPS : GROUPS.map((g) => ({ ...g, items: g.items.filter((s) => s.id !== "remote") }));
+  const named = sectionOf(section);
+  const asked = named === "remote" && remote.surface === "hidden" && remote.available !== null ? "general" : named;
+  const extOpen = isExtensionSection(asked) ? extensions.find((i) => extensionSection(i.ext, i.contribution.id) === asked) : undefined;
   // Wide always shows a section; narrow starts on the list. A name no version used opens General.
-  const open: SettingsSection | null = sectionOf(section) ?? (narrow ? null : "general");
+  const open: SettingsSection | null = (isExtensionSection(asked) && !extOpen ? null : asked) ?? (narrow ? null : "general");
+  const name = extOpen ? extOpen.contribution.title ?? extOpen.contribution.id : open === "remote" && !shown ? "" : open && !isExtensionSection(open) ? NAMES[open] : "";
   let body: ReactNode = null;
-  if (open === "agents") body = <AgentsSection onSection={onSection} />;
+  if (extOpen) body = <Contribution item={extOpen} ctx={NO_CTX} />;
+  else if (open === "agents") body = <AgentsSection onSection={onSection} />;
   else if (open === "models") body = <ModelsSection />;
   else if (open === "approvals") body = <ApprovalsSection />;
   else if (open === "project") body = <ProjectSection onSection={onSection} />;
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
+  else if (open === "remote" && remote.surface === "working") body = <RemoteSection onUnavailable={remote.recheck} />;
+  else if (open === "remote" && remote.surface === "upsell") body = <RemoteUpsell />;
   else if (open === "diagnostics") body = (
     <>
       <Head title="Diagnostics" lead="Editor and daemon status, and recent daemon events." />
@@ -139,7 +164,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   return (
     <div className={`cfg ${open ? "has-section" : ""}`}>
       <nav className="cfg-rail" aria-label="Settings sections">
-        {GROUPS.map((g) => (
+        {groups.map((g) => (
           <div key={g.label} className="cfg-rail-group">
             <div className="cfg-rail-label">{g.label}</div>
             {g.items.map((s) => (
@@ -159,12 +184,29 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
             ))}
           </div>
         ))}
+        {extensions.length > 0 && (
+          <div className="cfg-rail-group">
+            <div className="cfg-rail-label">Extensions</div>
+            {extensions.map((i) => {
+              const id = extensionSection(i.ext, i.contribution.id);
+              return (
+                <button key={id} className={`cfg-rail-item ${open === id ? "active" : ""}`} aria-current={open === id ? "page" : undefined} onClick={() => onSection(id)}>
+                  <Icon d={EXTENSION_ICON} />
+                  <span className="cfg-rail-text">
+                    <span>{i.contribution.title ?? i.contribution.id}</span>
+                    <span className="cfg-rsub">{i.ext}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </nav>
       {open && (
         <div className="cfg-content">
           <button className="ghost cfg-back" onClick={() => onSection(null)}>{"‹"} All settings</button>
           {/* A section that throws shows why in its place; the rail and the other sections keep working. */}
-          <ErrorBoundary what="This section" where={`Settings > ${NAMES[open]}`} resetKey={open}>
+          <ErrorBoundary what="This section" where={`Settings > ${name}`} resetKey={open}>
             {body}
           </ErrorBoundary>
         </div>
