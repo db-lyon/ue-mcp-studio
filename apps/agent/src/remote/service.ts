@@ -47,6 +47,8 @@ export interface ServiceOptions {
   /** The owner allowed a browser and it is paired now. */
   onPaired?: (phone: PairedPhone) => void;
   now?: () => number;
+  /** Silence on an event stream before a keepalive comment goes out. Default STREAM_KEEPALIVE_MS. */
+  keepaliveMs?: number;
 }
 
 /** A browser that proved it read this computer's code, waiting for the owner to allow it. */
@@ -73,6 +75,10 @@ function writePrivate(file: string, value: unknown): void {
   fs.writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
+
+/** An event stream with nothing to say for this long gets a comment line, so no proxy closes it as idle. */
+export const STREAM_KEEPALIVE_MS = 20_000;
+const KEEPALIVE = new TextEncoder().encode(": keepalive\n\n");
 
 /** Large daemon responses are sealed in pieces this size. */
 const FRAME_BYTES = 256 * 1024;
@@ -300,9 +306,21 @@ export class RemoteService {
       if (res.body) {
         const body = gzip ? res.body.pipeThrough(new CompressionStream("gzip") as unknown as ReadableWritablePair<Uint8Array, Uint8Array>) : res.body;
         const reader = body.getReader();
+        // An event stream can sit silent for minutes; a comment line every so often keeps proxies on the way from closing it as idle.
+        const stream = (out["content-type"] ?? "").split(";")[0].trim().toLowerCase() === "text/event-stream";
+        let next = reader.read();
         for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
+          let timer: NodeJS.Timeout | undefined;
+          const idle = stream ? new Promise<"idle">((r) => (timer = setTimeout(() => r("idle"), this.o.keepaliveMs ?? STREAM_KEEPALIVE_MS))) : null;
+          const got = idle ? await Promise.race([next, idle]) : await next;
+          if (timer) clearTimeout(timer);
+          if (got === "idle") {
+            await sink.chunk(await sealer.data(KEEPALIVE));
+            continue;
+          }
+          if (got.done) break;
+          next = reader.read();
+          const value = got.value;
           for (let i = 0; i < value.byteLength; i += FRAME_BYTES) await sink.chunk(await sealer.data(value.subarray(i, i + FRAME_BYTES)));
         }
       }

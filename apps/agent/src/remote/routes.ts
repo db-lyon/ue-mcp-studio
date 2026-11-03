@@ -50,6 +50,10 @@ export interface RemoteOptions {
   daemon?: () => { port: number; token: string } | null;
   env?: NodeJS.ProcessEnv;
   refusedRetryMs?: number;
+  /** Whether this process is the project's daemon. Default: no live discovery record names another process. */
+  owns?: () => boolean;
+  /** Silence on a browser's event stream before a keepalive comment goes out. */
+  keepaliveMs?: number;
 }
 
 function readJson<T>(file: string): T | null {
@@ -105,6 +109,7 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     keys,
     deviceId: device,
     pendingFile: path.join(dir, "pairing-secrets.json"),
+    keepaliveMs: o.keepaliveMs,
     onApproval: (a) => api.events.publish("remote.approval", { ...a, project }),
     onPaired: (p) => api.events.publish("remote.paired", { id: p.id, label: p.label, addedAt: p.addedAt }),
     daemon:
@@ -137,6 +142,13 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
       },
       log: (m) => api.log.info(m),
       refusedRetryMs: o.refusedRetryMs,
+      // A daemon whose discovery record a newer one replaced must not keep the project's relay connection.
+      owns:
+        o.owns ??
+        (() => {
+          const d = readLiveDiscovery(api.projectDir);
+          return !d || d.pid === process.pid;
+        }),
     });
   let generation = 0;
   let disposed = false;
