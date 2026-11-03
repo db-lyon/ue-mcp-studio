@@ -171,6 +171,8 @@ try {
   // Storage blocked: the page picks its own filter.
 }
 history.replaceState(null, "", `${location.pathname}${location.search}${scenario.hash}`);
+// A checkout or docs link opens nothing: a popup would take the page out of the foreground and stall the shot.
+window.open = () => null;
 // The runner reads the scenarios and what each shows from here, and what to click once the page settles.
 (window as unknown as { __visualQa: unknown }).__visualQa = {
   scenarios: Object.fromEntries(Object.entries(SCENARIOS).map(([name, s]) => [name, s.title])),
@@ -180,6 +182,7 @@ history.replaceState(null, "", `${location.pathname}${location.search}${scenario
   heights: Object.fromEntries(Object.entries(SCENARIOS).flatMap(([name, s]) => (s.height ? [[name, s.height]] : []))),
   focus: scenario.focus ?? null,
   type: scenario.type ?? null,
+  afterType: scenario.afterType ?? null,
   fullPage: scenario.fullPage ?? false,
 };
 

@@ -191,6 +191,8 @@ export interface Scenario {
   post?: (path: string, body?: unknown) => { status: number; body: unknown } | undefined;
   /** Typed from the keyboard into an element after the page settles: a CSS selector and the keys. */
   type?: { into: string; text: string };
+  /** Clicked one after another once the typing settles, then left for wait milliseconds: for a state a typed command leads to. */
+  afterType?: { clicks: string[]; wait: number };
   /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */
   endpoints?: CustomEndpoint[] | "error";
   /** Shoot the whole page, for a settings section taller than the window. */
@@ -320,6 +322,19 @@ export const SCENARIOS: Record<string, Scenario> = {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
     type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
   },
+  "remote-now-on-reply": (() => {
+    let bought = false;
+    return {
+      ...inSession("/remote typed by a free account, then Upgrade: once the plan shows, which Studio asks every few seconds after a checkout opens, the reply says remote control is on and opens its settings", "Door playtest", []),
+      get: (p: string) => (p === "/v1/ext/studio/remote/available" ? { available: bought, signedIn: true } : undefined),
+      post: (p: string) =>
+        p === "/v1/ext/studio/billing/checkout" ? ((bought = true), { status: 200, body: { url: "https://checkout.stripe.test/c/1", provider: "stripe" } })
+        : p.endsWith("/draft") ? { status: 200, body: {} }
+        : undefined,
+      type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
+      afterType: { clicks: [".local-reply .upgrade button.primary"], wait: 4000 },
+    };
+  })(),
   "session-empty": inSession("A session with no playtest: Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
   "draft-asset-links": { ...inSession("A draft opened: asset names in its steps, its script path and its arrange and act targets as links; a name that does not resolve stays plain", "Broken bridge", [RUNS.linked], ".thread-stage .qa-toggle"), post: resolveLinked, focus: ".thread-stage .qa-instruction .asset-link:not(.code)" },

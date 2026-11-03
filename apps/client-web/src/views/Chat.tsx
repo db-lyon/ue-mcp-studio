@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_AVAILABLE, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { useRemoteAvailable } from "./settings/remote-available";
-import { UpgradeAction } from "./Upgrade";
+import { REMOTE_NOW_ON, UpgradeAction } from "./Upgrade";
 import type { SettingsSection } from "./settings/sections";
 import { native } from "../native";
 import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
@@ -509,9 +509,15 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             <FormCards forms={forms} runs={qaRuns} />
             {remoteReply === detail.id && (
               <div className="msg assistant local-reply" role="status">
-                <p>{REMOTE_COMMAND_REPLY}</p>
-                <button className="ghost small-button" onClick={() => setRemoteReply(null)}>Dismiss</button>
-                <UpgradeAction />
+                <p>{remote.available ? REMOTE_NOW_ON : REMOTE_COMMAND_REPLY}</p>
+                <button className="icon-button reply-close" aria-label="Dismiss" title="Dismiss" onClick={() => setRemoteReply(null)}>{"×"}</button>
+                {remote.available ? (
+                  <div className="reply-actions">
+                    <button className="primary" onClick={() => { setRemoteReply(null); onSettings?.("remote"); }}>Open remote control settings</button>
+                  </div>
+                ) : (
+                  <UpgradeAction />
+                )}
               </div>
             )}
             {flowAsk && !busy && <FlowLauncher key={flowAsk} text={flowAsk} run={runFlow} onClose={() => setFlowAsk(null)} />}
