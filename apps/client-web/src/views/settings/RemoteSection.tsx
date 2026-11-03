@@ -6,6 +6,7 @@ import { Card, Row, Switch } from "./controls";
 import { SignInForm } from "../ModelPicker";
 import { UpgradeAction } from "../Upgrade";
 import { ACCOUNT_NAME } from "./AccountCard";
+import { PairingCode } from "../remote/PairingCode";
 
 /** How often the section rereads the connection and the paired browsers while it is open. */
 export const REMOTE_POLL_MS = 3000;
@@ -158,12 +159,7 @@ export function RemoteSection({ onUnavailable }: { onUnavailable?: () => void } 
       </Card>
       <Card label="Pair a phone or browser" actions={<button className="primary" disabled={!online || busy === "pair"} onClick={pair}>{busy === "pair" ? "Making a code" : "New code"}</button>}>
         <p className="muted small">Scan the code on the device, or open the link there. It works once, for ten minutes, and pairs the device with every project on this computer.{online ? "" : " Turn remote control on and wait for it to connect first."}</p>
-        {pairing && (
-          <div className="remote-qr">
-            <div className="qr" role="img" aria-label="Pairing QR code" dangerouslySetInnerHTML={{ __html: pairing.svg }} />
-            <a className="path" href={pairing.url} target="_blank" rel="noreferrer">{pairing.url}</a>
-          </div>
-        )}
+        {pairing && <PairingCode pairing={pairing} onRenew={pair} busy={busy === "pair"} />}
       </Card>
       <Card label="Paired browsers">
         {!browsers && !error && <p className="muted small">Loading</p>}

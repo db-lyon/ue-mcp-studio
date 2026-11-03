@@ -4,6 +4,7 @@
  * The runs are built with the same shared helpers the agent uses, so the UI
  * draws them exactly as it would draw a live run in that state.
  */
+import qrcode from "qrcode-generator";
 import {
   qaActive,
   qaDraftFromScript,
@@ -276,6 +277,39 @@ function withAgents(): SessionDetail {
   };
 }
 
+/** A pairing link of the relay's shape, and its QR drawn as the agent draws it. */
+const PAIR_URL = "https://remote.ue-mcp.com/pair#K7Q2-9XWD.BOx3dLq0p5T9vYc1rA8eF2hJ6kM4nP7sW0zC3gU5iX8.aZ4tR1wQ9yV6bN2mL7kJ5hG3fD8sA0pO";
+function pairingSvg(url: string): string {
+  const qr = qrcode(0, "L");
+  qr.addData(url);
+  qr.make();
+  return qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
+}
+
+/** /remote typed by a paid account, with the agent's remote control answering in the given state. */
+function remotePair(title: string, o: { state: "connecting" | "online" | "error"; expired?: boolean }): Scenario {
+  const relay = "https://remote.ue-mcp.com";
+  const status =
+    o.state === "online" ? { enabled: true, relay, state: "online", login: "dev", since: ago(1) }
+    : o.state === "error" ? { enabled: true, relay, state: "error", reason: "The relay refused the connection (HTTP 502). Remote control tries again in 30 seconds." }
+    : { enabled: true, relay, state: "connecting" };
+  // An expired code is one that runs out a moment after it is shown.
+  const expiresAt = () => new Date(Date.now() + (o.expired ? 500 : 9 * 60_000 + 41_000)).toISOString();
+  return {
+    ...inSession(title, "Door playtest", []),
+    get: (p) =>
+      p === "/v1/ext/studio/remote/available" ? { available: true, signedIn: true }
+      : p === "/v1/ext/studio/remote/status" ? status
+      : undefined,
+    post: (p) =>
+      p === "/v1/ext/studio/remote/pair" ? { status: 200, body: { url: PAIR_URL, expiresAt: expiresAt(), svg: pairingSvg(PAIR_URL) } }
+      : p.endsWith("/draft") ? { status: 200, body: {} }
+      : undefined,
+    type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
+    afterType: { clicks: [], wait: o.expired ? 2000 : 1200 },
+  };
+}
+
 export const SCENARIOS: Record<string, Scenario> = {
   "version-notice": {
     title: "Another project installed a newer Studio: Update this project and Keep (ue-mcp#1619)",
@@ -345,6 +379,10 @@ export const SCENARIOS: Record<string, Scenario> = {
       afterType: { clicks: [".local-reply .upgrade button.primary"], wait: 4000 },
     };
   })(),
+  "remote-pair-connecting": remotePair("/remote on a paid account with remote control off: turned on, and Connecting while the relay answers", { state: "connecting" }),
+  "remote-pair-code": remotePair("/remote on a paid account: the pairing code to scan, its link, Copy link and how long it has left, with Manage paired browsers in Settings", { state: "online" }),
+  "remote-pair-expired": remotePair("/remote on a paid account once the pairing code has run out: New code", { state: "online", expired: true }),
+  "remote-pair-error": remotePair("/remote on a paid account when the relay cannot be reached: the reason, plainly, and Retry", { state: "error" }),
   "session-empty": inSession("A session with no playtest: Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
   "draft-asset-links": { ...inSession("A draft opened: asset names in its steps, its script path and its arrange and act targets as links; a name that does not resolve stays plain", "Broken bridge", [RUNS.linked], ".thread-stage .qa-toggle"), post: resolveLinked, focus: ".thread-stage .qa-instruction .asset-link:not(.code)" },

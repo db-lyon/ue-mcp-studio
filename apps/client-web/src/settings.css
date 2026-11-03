@@ -248,10 +248,16 @@
 }
 
 /* Remote control. The QR code keeps a white field in every theme so phones can read it. */
-.cfg .remote-qr { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 12px; }
-.cfg .remote-qr .qr { background: #fff; padding: 8px; border-radius: 8px; width: 220px; max-width: 100%; }
-.cfg .remote-qr .qr svg { display: block; width: 100%; height: auto; }
-.cfg .remote-qr a.path { color: var(--accent); text-align: center; max-width: 100%; word-break: break-all; }
+.remote-qr { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 12px; }
+.remote-qr .qr { background: #fff; padding: 8px; border-radius: 8px; width: 220px; max-width: 100%; box-sizing: border-box; }
+.remote-qr .qr svg { display: block; width: 100%; height: auto; }
+.remote-qr a.path { color: var(--accent); text-align: center; max-width: 100%; word-break: break-all; font-size: 12px; }
+.remote-qr-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.remote-qr.expired { padding: 12px 0; }
+.remote-chat-card { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.remote-chat-card p { margin: 0; text-align: left; align-self: stretch; }
+.remote-chat-card .dot { display: inline-block; vertical-align: middle; margin: 0 6px 0 0; }
+.remote-chat-card .remote-manage { align-self: flex-start; color: var(--accent); }
 .cfg .remote-plan-note { margin: 4px 0 0; }
 .cfg .remote-plan-note a { color: var(--accent); }
 .upgrade { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }

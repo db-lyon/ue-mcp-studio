@@ -16,6 +16,9 @@ export const CHECKOUT_OPENED = "Checkout opened in your browser. Remote control 
 /** The /remote reply once the plan shows. */
 export const REMOTE_NOW_ON = "Remote control is on for this account.";
 
+/** The /remote reply on a computer with no ue-mcp account signed in. */
+export const REMOTE_SIGN_IN = "Sign in to your ue-mcp account to use remote control.";
+
 /**
  * Buy the Pro plan: monthly or yearly, then the provider's checkout in the
  * system browser. An account that already has a subscription gets its portal

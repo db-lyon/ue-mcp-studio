@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_AVAILABLE, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { useRemoteAvailable } from "./settings/remote-available";
-import { REMOTE_NOW_ON, UpgradeAction } from "./Upgrade";
+import { REMOTE_NOW_ON, REMOTE_SIGN_IN, UpgradeAction } from "./Upgrade";
+import { RemoteChatCard } from "./remote/RemoteChatCard";
 import type { SettingsSection } from "./settings/sections";
 import { native } from "../native";
-import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
+import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
+import { ACCOUNT_NAME } from "./settings/AccountCard";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "../chat/model";
 import { useDismissed, useSeen } from "../chat/hooks";
@@ -225,15 +227,17 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const remoteListed = remoteShown(remote.surface);
   const remoteAction = remoteCommand(STUDIO_PLAN_AVAILABLE, remote.available, remote.signedIn ?? true);
   const commands = useMemo(() => (remoteListed ? [...SLASH_COMMANDS, REMOTE_COMMAND] : SLASH_COMMANDS), [remoteListed]);
-  /** The session /remote was answered in, for a free account: the reply shows there until the next message. */
+  /**
+   * The session /remote was answered in: the pairing code on a paid plan, the
+   * sign-in when signed out, the Upgrade action otherwise. Always in the chat,
+   * never by opening Settings; it shows there until the next message.
+   */
   const [remoteReply, setRemoteReply] = useState<string | null>(null);
   const runRemoteCommand = (): boolean => {
     if (!selected || !remoteAction || attach.ready.length > 0 || !isLocalCommand(draft, REMOTE_COMMAND)) return false;
     setDraft("");
     void api.saveDraft(selected, "").catch(() => {});
-    // A paid plan, or signed out with the plan offered: the section, which holds the sign-in.
-    if (remoteAction === "open") onSettings?.("remote");
-    else setRemoteReply(selected);
+    setRemoteReply(selected);
     return true;
   };
   /** A /flow or /action message being run: its form, above the composer. */
@@ -509,11 +513,13 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             <FormCards forms={forms} runs={qaRuns} />
             {remoteReply === detail.id && (
               <div className="msg assistant local-reply" role="status">
-                <p>{remote.available ? REMOTE_NOW_ON : REMOTE_COMMAND_REPLY}</p>
+                <p>{remote.available ? REMOTE_NOW_ON : remote.signedIn === false ? REMOTE_SIGN_IN : REMOTE_COMMAND_REPLY}</p>
                 <button className="icon-button reply-close" aria-label="Dismiss" title="Dismiss" onClick={() => setRemoteReply(null)}>{"×"}</button>
                 {remote.available ? (
-                  <div className="reply-actions">
-                    <button className="primary" onClick={() => { setRemoteReply(null); onSettings?.("remote"); }}>Open remote control settings</button>
+                  <RemoteChatCard onSettings={onSettings && (() => { setRemoteReply(null); onSettings("remote"); })} />
+                ) : remote.signedIn === false ? (
+                  <div className="remote-chat-card">
+                    <SignInForm id="studio" name={ACCOUNT_NAME} about="Sign in with GitHub." onDone={remote.recheck} />
                   </div>
                 ) : (
                   <UpgradeAction />

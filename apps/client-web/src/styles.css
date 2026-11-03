@@ -410,9 +410,9 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 .msg.user { align-self: flex-end; background: var(--accent-wash); border: 1px solid var(--accent-line); }
 .msg.assistant { align-self: flex-start; background: transparent; padding-left: 2px; max-width: 92%; }
 .msg.assistant.local-reply { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px 10px; margin: 0 14px 8px; white-space: normal; }
-.msg.assistant.local-reply p { margin: 0; align-self: center; }
+.msg.assistant.local-reply > p { margin: 0; align-self: center; }
 .msg.assistant.local-reply .reply-close { width: 24px; height: 24px; }
-.msg.assistant.local-reply .upgrade, .msg.assistant.local-reply .reply-actions { grid-column: 1 / -1; margin-top: 0; }
+.msg.assistant.local-reply .upgrade, .msg.assistant.local-reply .remote-chat-card { grid-column: 1 / -1; margin-top: 0; }
 .msg.assistant.local-reply a { color: var(--accent); }
 .note { white-space: pre-wrap; }
 .tool { font: 12px/1.6 var(--mono); padding: 0 2px; }
