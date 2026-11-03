@@ -50,6 +50,7 @@ import { MENTION_KINDS, splitActionName, type MentionKind } from "@ue-mcp-studio
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
 import { DEFAULT_MODEL, SettingsStore } from "./settings.js";
+import { fetchAccountUsage } from "./account-usage.js";
 import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
 import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, pickRoute, type SignInCoverage } from "./models.js";
@@ -125,8 +126,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   };
   // A sign-in from the panel wins; otherwise the account from `ue-mcp login`.
   const accountToken = (): string | null => settings.accountToken() ?? registry?.token ?? null;
-  const fetchUsage = async (token: string): Promise<Response> =>
-    fetch(`${settings.gatewayUrl()}/v1/account/usage`, { headers: { authorization: `Bearer ${token}` } });
+  const fetchUsage = (token: string): Promise<Response> => fetchAccountUsage(settings.gatewayUrl(), token);
 
   const coverage = (): SignInCoverage => ({ planModels, chatgptModels: chatgpt.signedIn() ? chatgptList?.models ?? null : null });
   const chatgpt = new ChatGptAuth();

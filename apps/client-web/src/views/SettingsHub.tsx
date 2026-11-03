@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CONTEXT_STRATEGY_INFO, STUDIO_PLAN_AVAILABLE, anythingConnected, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { CONTEXT_STRATEGY_INFO, anythingConnected, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import type { DaemonState } from "../state";
 import { api } from "../api";
 import { AgentsSection } from "./settings/AgentsSection";
@@ -8,6 +8,7 @@ import { ApprovalsSection } from "./settings/ApprovalsSection";
 import { ProjectSection } from "./settings/ProjectSection";
 import { GeneralSection } from "./settings/GeneralSection";
 import { RemoteSection } from "./settings/RemoteSection";
+import { useRemoteAvailable } from "./settings/remote-available";
 import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
 
@@ -29,13 +30,12 @@ const ICONS: Record<BuiltinSection, string> = {
 const EXTENSION_ICON = "M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z";
 const NO_CTX = {};
 
+const REMOTE_ITEM = { id: "remote" as const, name: "Remote control", sub: "Use this project from a phone or browser" };
+
 const GROUPS: Array<{ label: string; items: Array<{ id: BuiltinSection; name: string; sub: string }> }> = [
   {
     label: "Studio",
-    items: [
-      { id: "general", name: "General", sub: "Appearance and updates" },
-      ...(STUDIO_PLAN_AVAILABLE ? [{ id: "remote" as const, name: "Remote control", sub: "Use this project from a phone or browser" }] : []),
-    ],
+    items: [{ id: "general", name: "General", sub: "Appearance and updates" }, REMOTE_ITEM],
   },
   {
     label: "Work",
@@ -135,11 +135,15 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   const { dots, lines } = useSectionStatus(updates, daemon);
   // Extension sections; one not registered (yet) shows the fallback, and the hash keeps it.
   const extensions = useSlot("settings.section");
-  const asked = sectionOf(section);
+  // Remote control shows only while it is offered; its name opens General otherwise.
+  const remote = useRemoteAvailable();
+  const groups = remote.available ? GROUPS : GROUPS.map((g) => ({ ...g, items: g.items.filter((s) => s.id !== "remote") }));
+  const named = sectionOf(section);
+  const asked = named === "remote" && remote.available === false ? "general" : named;
   const extOpen = isExtensionSection(asked) ? extensions.find((i) => extensionSection(i.ext, i.contribution.id) === asked) : undefined;
   // Wide always shows a section; narrow starts on the list. A name no version used opens General.
   const open: SettingsSection | null = (isExtensionSection(asked) && !extOpen ? null : asked) ?? (narrow ? null : "general");
-  const name = extOpen ? extOpen.contribution.title ?? extOpen.contribution.id : open && !isExtensionSection(open) ? NAMES[open] : "";
+  const name = extOpen ? extOpen.contribution.title ?? extOpen.contribution.id : open === "remote" && !remote.available ? "" : open && !isExtensionSection(open) ? NAMES[open] : "";
   let body: ReactNode = null;
   if (extOpen) body = <Contribution item={extOpen} ctx={NO_CTX} />;
   else if (open === "agents") body = <AgentsSection onSection={onSection} />;
@@ -147,7 +151,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "approvals") body = <ApprovalsSection />;
   else if (open === "project") body = <ProjectSection onSection={onSection} />;
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
-  else if (open === "remote" && STUDIO_PLAN_AVAILABLE) body = <RemoteSection />;
+  else if (open === "remote" && remote.available) body = <RemoteSection onUnavailable={remote.recheck} />;
   else if (open === "diagnostics") body = (
     <>
       <Head title="Diagnostics" lead="Editor and daemon status, and recent daemon events." />
@@ -158,7 +162,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   return (
     <div className={`cfg ${open ? "has-section" : ""}`}>
       <nav className="cfg-rail" aria-label="Settings sections">
-        {GROUPS.map((g) => (
+        {groups.map((g) => (
           <div key={g.label} className="cfg-rail-group">
             <div className="cfg-rail-label">{g.label}</div>
             {g.items.map((s) => (

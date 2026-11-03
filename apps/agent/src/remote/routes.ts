@@ -3,6 +3,11 @@
  * connector keeps this project reachable from paired browsers through the
  * relay, and keeps the daemon from idling out while it is online.
  *
+ * Offered while STUDIO_PLAN_AVAILABLE is on, or while the signed-in account
+ * has a paid plan by the gateway (./plan.ts), rechecked every few minutes so a
+ * new plan starts it and a lapsed one stops it without a daemon restart. Not
+ * offered, every /remote/* route answers 404 and the connector stays down.
+ *
  * Per project, in <studio data dir>/remote/: remote.json (on or off, optional
  * relay override) and device.json (this project's stable id). Per computer,
  * in <ue-mcp user dir>/remote/: the key pair and paired browsers (./keys.ts).
@@ -14,8 +19,11 @@ import * as path from "node:path";
 import qrcode from "qrcode-generator";
 import { readLiveDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { pairingFragment } from "@ue-mcp-studio/remote";
-import { STUDIO_PLAN_AVAILABLE, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { STUDIO_PLAN_AVAILABLE, type RemoteAvailability, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import type { ExtensionHandler } from "ue-mcp/daemon";
+import { SettingsStore } from "../settings.js";
 import { Connector, NO_PLAN, type ConnectorState } from "./connector.js";
+import { PLAN_CHECK_TTL_MS, RemotePlanCheck, type PlanCheck } from "./plan.js";
 import { ComputerKeys } from "./keys.js";
 import { RemoteService } from "./service.js";
 
@@ -27,8 +35,12 @@ interface RemoteConfig {
 }
 
 export interface RemoteOptions {
-  /** Whether remote control is offered at all. Off: no routes, no connector. */
-  offered?: boolean;
+  /** Offered to everyone, whatever the plan. Default STUDIO_PLAN_AVAILABLE. */
+  flag?: boolean;
+  /** Whether the account has a paid plan. Default: the gateway, with the `ue-mcp login` token. */
+  plan?: PlanCheck;
+  /** How often the plan is rechecked while the flag is off. */
+  planRecheckMs?: number;
   /** The per-computer key and paired-browser folder. Default <ue-mcp user dir>/remote. */
   computerDir?: string;
   /** This project's daemon, for the requests a browser sends. Default: its discovery file. */
@@ -68,10 +80,16 @@ function projectName(projectDir: string): string {
   return uproject ? uproject.replace(/\.uproject$/, "") : path.basename(projectDir);
 }
 
-/** Registers /remote/* and starts the connector when it is on. Registers nothing unless remote control is offered. */
+/** Registers /remote/* and starts the connector when it is on and remote control is offered. */
 export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): { dispose(): void } {
-  if (!(o.offered ?? STUDIO_PLAN_AVAILABLE)) return { dispose: () => {} };
+  const flag = o.flag ?? STUDIO_PLAN_AVAILABLE;
   const env = o.env ?? process.env;
+  const plan =
+    o.plan ??
+    new RemotePlanCheck({
+      token: async () => (await api.registryAccount().catch(() => null))?.token ?? null,
+      gatewayUrl: () => new SettingsStore(api.dataDir).gatewayUrl(),
+    });
   const dir = path.join(api.dataDir, "remote");
   const configFile = path.join(dir, "remote.json");
   const config = (): RemoteConfig => ({ enabled: false, ...readJson<RemoteConfig>(configFile) });
@@ -103,36 +121,64 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
       handle: (kind, body, sink, signal) => (kind === "enroll" ? service.enroll(body, sink) : service.sealed(body, sink, signal)),
       onState: (s) => {
         state = s;
+        // The relay says the plan does not cover it: ask the gateway again rather than wait out the cache.
+        if (!flag && s.state === "error" && s.code === "no-plan") {
+          plan.invalidate();
+          void recheck(true);
+        }
         api.events.publish("remote.status", { ...status() });
       },
       log: (m) => api.log.info(m),
       refusedRetryMs: o.refusedRetryMs,
     });
   let generation = 0;
+  let disposed = false;
+  let available = flag;
   const apply = async (): Promise<void> => {
     const mine = ++generation;
     connector?.stop();
     connector = null;
     state = { state: "off" };
-    if (!config().enabled) return;
+    if (!config().enabled || !available || disposed) return;
     const next = await build();
     if (mine !== generation) return;
     connector = next;
     connector.start();
   };
 
+  /** Whether remote control is offered now; a change starts or stops the connector and tells the UI. */
+  const recheck = async (force = false): Promise<boolean> => {
+    if (flag || disposed) return available;
+    const next = await plan.available(force);
+    if (next !== available && !disposed) {
+      available = next;
+      api.events.publish("remote.available", { available });
+      await apply();
+    }
+    return available;
+  };
+
   // While a browser can reach this project, the daemon must not idle out under it.
   api.setBusy(() => state.state === "online");
 
-  api.route("GET", "/remote/status", () => ({ body: status() }));
-  api.route("PUT", "/remote/config", async (req) => {
+  const NOT_FOUND = { status: 404, body: { error: "Not found." } };
+  const route = (method: "GET" | "PUT" | "POST" | "DELETE", p: string, h: ExtensionHandler): void =>
+    api.route(method, p, async (req) => ((await recheck()) ? h(req) : NOT_FOUND));
+
+  // Settings asks on open with ?refresh, so a plan bought a minute ago shows without waiting out the cache.
+  api.route("GET", "/remote/available", async (req) => {
+    const body: RemoteAvailability = { available: await recheck(req.query?.refresh !== undefined) };
+    return { body };
+  });
+  route("GET", "/remote/status", () => ({ body: status() }));
+  route("PUT", "/remote/config", async (req) => {
     const b = (req.body ?? {}) as { enabled?: unknown };
     if (typeof b.enabled !== "boolean") return { status: 400, body: { error: "enabled must be true or false" } };
     writeJson(configFile, { ...config(), enabled: b.enabled });
     await apply();
     return { body: status() };
   });
-  api.route("POST", "/remote/pair", async () => {
+  route("POST", "/remote/pair", async () => {
     const account = await api.registryAccount().catch(() => null);
     if (!account) return { status: 401, body: { error: "Not signed in. Run `npx ue-mcp login` on this computer.", code: "signed-out" } };
     if (state.state === "error" && state.code === "no-plan") return { status: 403, body: { error: NO_PLAN, code: "no-plan" } };
@@ -140,7 +186,10 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     const res = await fetch(new URL("/api/pair", relayUrl()), { method: "POST", headers: { authorization: `Bearer ${account.token}`, "x-ue-mcp-device": device } }).catch(() => null);
     if (!res) return { status: 502, body: { error: "Could not reach the relay." } };
     const body = (await res.json().catch(() => ({}))) as { url?: string; code?: string; expiresAt?: string; error?: string };
-    if (res.status === 403) return { status: 403, body: { error: NO_PLAN, code: "no-plan" } };
+    if (res.status === 403) {
+      plan.invalidate();
+      return { status: 403, body: { error: NO_PLAN, code: "no-plan" } };
+    }
     if (!res.ok || !body.url || !body.code) return { status: res.ok ? 502 : res.status, body: { error: body.error ?? `The relay answered HTTP ${res.status}.` } };
     // The fragment never reaches the relay: it carries this computer's key and the secret that proves a browser scanned it.
     const url = `${body.url.split("#")[0]}#${pairingFragment(body.code, (await keys.identity()).publicKey, service.newPairingSecret())}`;
@@ -150,20 +199,25 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     const pairing: RemotePairing = { url, ...(body.expiresAt ? { expiresAt: body.expiresAt } : {}), svg: qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) };
     return { body: pairing };
   });
-  api.route("GET", "/remote/browsers", () => {
+  route("GET", "/remote/browsers", () => {
     const browsers: RemoteBrowser[] = keys.phones().map(({ id, label, addedAt }) => ({ id, label, addedAt }));
     return { body: { browsers } };
   });
-  api.route("DELETE", "/remote/browsers/:id", (req) => {
+  route("DELETE", "/remote/browsers/:id", (req) => {
     if (!keys.removePhone(req.params.id)) return { status: 404, body: { error: "No such browser." } };
     service.cutOff(req.params.id);
     return { status: 204 };
   });
 
-  void apply();
+  if (flag) void apply();
+  else void recheck(true);
+  const timer = flag ? null : setInterval(() => void recheck(true), o.planRecheckMs ?? PLAN_CHECK_TTL_MS);
+  timer?.unref?.();
   return {
     dispose: () => {
+      disposed = true;
       generation++;
+      if (timer) clearInterval(timer);
       connector?.stop();
     },
   };

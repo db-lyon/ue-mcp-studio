@@ -100,6 +100,19 @@ describe("Settings > Remote control", () => {
     expect(screen.getByText("Off")).toBeTruthy();
   });
 
+  it("tells Settings when the agent no longer offers it (404), and shows no error", async () => {
+    m.remoteStatus.mockRejectedValue(new e.ApiError(404, "Not found."));
+    m.remoteBrowsers.mockRejectedValue(new e.ApiError(404, "Not found."));
+    const onUnavailable = vi.fn();
+    await act(async () => void render(<RemoteSection onUnavailable={onUnavailable} />));
+    expect(onUnavailable).toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("words no-plan the way the relay does", () => {
+    expect(NO_PLAN_TEXT).toBe("Remote control needs a Pro or Studio plan on this account.");
+  });
+
   it("from a paired browser, which is refused these routes, says they are set up on the computer", async () => {
     m.remoteStatus.mockRejectedValue(new e.ApiError(403, "Not available remotely."));
     m.remoteBrowsers.mockRejectedValue(new e.ApiError(403, "Not available remotely."));

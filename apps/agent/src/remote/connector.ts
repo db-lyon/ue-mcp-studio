@@ -13,7 +13,7 @@ import {
   type ConnectorFrame,
   type RelayFrame,
 } from "@ue-mcp-studio/remote";
-import type { RemoteConnection, RemoteRefusal } from "@ue-mcp-studio/shared";
+import { REMOTE_NO_PLAN, type RemoteConnection, type RemoteRefusal } from "@ue-mcp-studio/shared";
 import type { CallSink } from "./service.js";
 
 export type ConnectorState = RemoteConnection;
@@ -26,7 +26,10 @@ export function refusal(status: number): { reason: string; code?: RemoteRefusal 
   return { reason: `The relay refused the connection (HTTP ${status}).` };
 }
 
-export const NO_PLAN = "Remote control is not part of this account's plan.";
+export const NO_PLAN = REMOTE_NO_PLAN;
+
+/** The relay closes a live socket with this code when the account's plan lapsed. */
+export const PLAN_LAPSED_CLOSE = 4003;
 
 export type CallHandler = (kind: "sealed" | "enroll", body: string, sink: CallSink, signal: AbortSignal) => Promise<void>;
 
@@ -131,7 +134,8 @@ export class Connector {
       this.socket = null;
       this.abortAll();
       if (this.stopped) return;
-      const r = refused as { reason: string; code?: RemoteRefusal } | null;
+      // A lapsed plan closes a live socket; it is the same refusal as a 403 upgrade.
+      const r = (refused as { reason: string; code?: RemoteRefusal } | null) ?? (code === PLAN_LAPSED_CLOSE ? refusal(403) : null);
       // A refusal will not fix itself on the next try; wait longer before asking again.
       const delay = r ? this.o.refusedRetryMs ?? 5 * 60_000 : Math.min(60_000, 1000 * 2 ** this.attempt) * (0.5 + Math.random() * 0.5);
       this.attempt++;
