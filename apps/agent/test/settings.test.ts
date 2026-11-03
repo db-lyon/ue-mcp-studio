@@ -187,7 +187,7 @@ describe("settings files every earlier Studio wrote (#151)", () => {
     const v = fromFile({ provider: "anthropic", model: "claude-sonnet-5-5", effort: "high", gatewayUrl: "https://gateway.ue-mcp.com", theme: "editor" });
     expect(v.usage).toEqual(DEFAULT_USAGE);
     expect(v.approvals).toEqual({ shell: "ask", files: "ask", editorRestart: "allow", destructive: "allow" });
-    expect(v).toMatchObject({ reviewTurns: true, routeOrder: "signins-first", theme: "editor", model: "claude-sonnet-5-5" });
+    expect(v).toMatchObject({ reviewTurns: true, routeOrder: "signins-first", theme: "editor", model: "claude-sonnet-5-5", gatewayUrl: "https://api.ue-mcp.com" });
   });
 
   it("usage with removed fields, an off, and old approval shapes", () => {
