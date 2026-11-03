@@ -116,6 +116,26 @@ export async function verifyPairingMac(secret: string, phonePublic: string, comp
   }
 }
 
+/** How long a browser waits for the owner to allow it on the computer. */
+export const PAIR_APPROVAL_TTL_MS = 2 * 60_000;
+
+/**
+ * The six digits both screens show while the owner decides whether to allow a
+ * browser: derived from the code's secret and the browser's key, so a browser
+ * that is not the owner's shows a different number than the computer does.
+ */
+export async function pairingCode(secret: string, phonePublic: string): Promise<string> {
+  const key = await subtle.importKey("raw", unb64u(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = new Uint8Array(await subtle.sign("HMAC", key, concat(enc.encode("uemcp-remote/pair-code/"), unb64u(phonePublic))));
+  const n = ((mac[0] << 24) | (mac[1] << 16) | (mac[2] << 8) | mac[3]) >>> 0;
+  return String(n % 1_000_000).padStart(6, "0");
+}
+
+/** "123456" as "123 456", the way both screens show it. */
+export function formatPairingCode(code: string): string {
+  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+}
+
 /** The pairing link's fragment: relay code, computer public key, one-time secret. */
 export function pairingFragment(code: string, computerPublic: string, secret: string): string {
   return `${code}.${computerPublic}.${secret}`;

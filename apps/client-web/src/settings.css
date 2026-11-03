@@ -264,3 +264,17 @@
 .upgrade-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .upgrade p { margin: 0; }
 .cfg .remote-browser { align-items: center; }
+
+/* A browser asking to be allowed on this computer: in the /remote reply and as a Studio-wide banner. */
+.remote-approvals { display: flex; flex-direction: column; gap: 6px; margin: 6px 12px; }
+.remote-approval { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.remote-approval-text { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.remote-approval-code-line { display: flex; align-items: baseline; gap: 8px; }
+.remote-approval-code { font: 600 22px/1.2 var(--mono, ui-monospace, Consolas, monospace); letter-spacing: 0.06em; color: var(--text); }
+.remote-approval-actions { display: flex; gap: 8px; }
+.remote-err { color: var(--bad-text); }
+.remote-paired { display: flex; align-items: center; gap: 10px; }
+.remote-browsers { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.remote-browsers-title { color: var(--muted, inherit); text-transform: uppercase; letter-spacing: 0.04em; }
+.remote-browser-row { display: flex; align-items: center; gap: 10px; }
+.remote-chat-card .remote-approval { margin-bottom: 10px; }

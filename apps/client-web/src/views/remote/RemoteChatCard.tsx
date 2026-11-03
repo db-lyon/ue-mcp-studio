@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { REMOTE_NO_PLAN, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
+import { ApprovalPrompt, PairedBrowsers, useApprovalsInCard, useRemoteApprovals } from "./approvals";
 import { PairingCode } from "./PairingCode";
 
 /** How often the card rereads the connection while it waits for it, and how long it waits. */
@@ -28,6 +29,8 @@ export function RemoteChatCard({ onSettings }: { onSettings?: () => void }) {
   const [state, setState] = useState<ChatCardState>({ at: "connecting" });
   const [busy, setBusy] = useState(false);
   const run = useRef(0);
+  const { approvals, decide } = useRemoteApprovals();
+  useApprovalsInCard();
 
   const start = useCallback(async () => {
     const mine = ++run.current;
@@ -78,12 +81,14 @@ export function RemoteChatCard({ onSettings }: { onSettings?: () => void }) {
           <button onClick={() => void start()}>Retry</button>
         </div>
       )}
+      {approvals.map((a) => <ApprovalPrompt key={a.id} approval={a} onDecide={decide} />)}
       {state.at === "code" && (
         <>
-          <p className="small">Scan the code with your phone, or open the link on it. It pairs the device with every project on this computer.</p>
+          <p className="small">Scan the code with your phone, or open the link on it. Then allow the device here: it shows a code that must match. It pairs the device with every project on this computer.</p>
           <PairingCode pairing={state.pairing} onRenew={renew} busy={busy} />
         </>
       )}
+      {state.at !== "connecting" && <PairedBrowsers />}
       {onSettings && <button className="ghost small-button remote-manage" onClick={onSettings}>Manage paired browsers in Settings</button>}
     </div>
   );

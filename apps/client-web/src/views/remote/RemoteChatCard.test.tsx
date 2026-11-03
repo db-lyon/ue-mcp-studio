@@ -4,11 +4,19 @@
  * a wait for the relay, the pairing code, its expiry and a new one, and the
  * relay's error said plainly.
  */
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { REMOTE_NO_PLAN } from "@ue-mcp-studio/shared";
 
-const m = vi.hoisted(() => ({ remoteStatus: vi.fn(), setRemote: vi.fn(), pairRemote: vi.fn() }));
+const m = vi.hoisted(() => ({
+  remoteStatus: vi.fn(),
+  setRemote: vi.fn(),
+  pairRemote: vi.fn(),
+  remoteApprovals: vi.fn(),
+  decideRemoteApproval: vi.fn(),
+  remoteBrowsers: vi.fn(),
+  revokeRemoteBrowser: vi.fn(),
+}));
 vi.mock("../../api", () => {
   class ApiError extends Error {
     constructor(readonly status: number, message: string) {
@@ -26,6 +34,11 @@ const connecting = { enabled: true, relay: RELAY, state: "connecting" };
 const online = { enabled: true, relay: RELAY, state: "online", login: "dev", since: "2026-01-01T00:00:00Z" };
 const code = (ms: number, n = 1) => ({ url: `${RELAY}/pair#CODE${n}`, expiresAt: new Date(Date.now() + ms).toISOString(), svg: `<svg data-n="${n}"></svg>` });
 const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+
+beforeEach(() => {
+  m.remoteApprovals.mockResolvedValue({ approvals: [] });
+  m.remoteBrowsers.mockResolvedValue({ browsers: [] });
+});
 
 afterEach(() => {
   cleanup();

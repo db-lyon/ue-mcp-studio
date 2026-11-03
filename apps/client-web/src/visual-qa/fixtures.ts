@@ -286,8 +286,12 @@ function pairingSvg(url: string): string {
   return qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true });
 }
 
+/** A browser that scanned the code and waits for the owner, and the one already paired. */
+const ASKING = { id: "a1", label: "iPhone (Safari)", code: "482913", expiresAt: new Date(Date.now() + 110_000).toISOString(), project: "Vale" };
+const PAIRED = [{ id: "KKFspqyVlDozkcbPOh9SZA", label: "Android", addedAt: "2026-11-03T19:15:57.234Z" }];
+
 /** /remote typed by a paid account, with the agent's remote control answering in the given state. */
-function remotePair(title: string, o: { state: "connecting" | "online" | "error"; expired?: boolean }): Scenario {
+function remotePair(title: string, o: { state: "connecting" | "online" | "error"; expired?: boolean; asking?: boolean }): Scenario {
   const relay = "https://remote.ue-mcp.com";
   const status =
     o.state === "online" ? { enabled: true, relay, state: "online", login: "dev", since: ago(1) }
@@ -300,6 +304,8 @@ function remotePair(title: string, o: { state: "connecting" | "online" | "error"
     get: (p) =>
       p === "/v1/ext/studio/remote/available" ? { available: true, signedIn: true }
       : p === "/v1/ext/studio/remote/status" ? status
+      : p === "/v1/ext/studio/remote/approvals" ? { approvals: o.asking ? [ASKING] : [] }
+      : p === "/v1/ext/studio/remote/browsers" ? { browsers: PAIRED }
       : undefined,
     post: (p) =>
       p === "/v1/ext/studio/remote/pair" ? { status: 200, body: { url: PAIR_URL, expiresAt: expiresAt(), svg: pairingSvg(PAIR_URL) } }
@@ -383,6 +389,13 @@ export const SCENARIOS: Record<string, Scenario> = {
   "remote-pair-code": remotePair("/remote on a paid account: the pairing code to scan, its link, Copy link and how long it has left, with Manage paired browsers in Settings", { state: "online" }),
   "remote-pair-expired": remotePair("/remote on a paid account once the pairing code has run out: New code", { state: "online", expired: true }),
   "remote-pair-error": remotePair("/remote on a paid account when the relay cannot be reached: the reason, plainly, and Retry", { state: "error" }),
+  "remote-pair-approval": remotePair("/remote on a paid account after a device scanned the code: the device asks to control the project, with the six digits it also shows, Allow and Deny, and the paired browsers with Remove", { state: "online", asking: true }),
+  "remote-approval-banner": {
+    title: "A device asks to control the project while the owner is elsewhere in Studio: the request as a banner over every view",
+    hash: "#/settings/general",
+    index: { playtests: [], listed: true },
+    get: (p) => (p === "/v1/ext/studio/remote/approvals" ? { approvals: [ASKING] } : undefined),
+  },
   "session-empty": inSession("A session with no playtest: Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
   "draft-asset-links": { ...inSession("A draft opened: asset names in its steps, its script path and its arrange and act targets as links; a name that does not resolve stays plain", "Broken bridge", [RUNS.linked], ".thread-stage .qa-toggle"), post: resolveLinked, focus: ".thread-stage .qa-instruction .asset-link:not(.code)" },
