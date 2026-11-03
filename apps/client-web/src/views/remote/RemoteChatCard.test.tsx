@@ -26,7 +26,8 @@ vi.mock("../../api", () => {
   return { api: m, ApiError };
 });
 import { ApiError } from "../../api";
-import { CONNECT_POLL_MS, CONNECT_WAIT_MS, RemoteChatCard } from "./RemoteChatCard";
+import { publishEvent } from "../../extensions/events";
+import { CONNECT_POLL_MS, CONNECT_WAIT_MS, RECOVER_POLL_MS, RemoteChatCard } from "./RemoteChatCard";
 
 const RELAY = "https://remote.test";
 const off = { enabled: false, relay: RELAY, state: "off" };
@@ -86,6 +87,43 @@ describe("the /remote pairing card", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("The relay refused the connection (HTTP 502).");
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Retry" })));
     expect(await screen.findByRole("img", { name: "Pairing QR code" })).toBeTruthy();
+  });
+
+  it("recovers to the code by itself when the connector reports online, without Retry", async () => {
+    const failed = { enabled: true, relay: RELAY, state: "error", reason: "The relay refused the connection (HTTP 500)." };
+    m.remoteStatus.mockResolvedValue(failed);
+    m.pairRemote.mockResolvedValue(code(600_000));
+    render(<RemoteChatCard />);
+    expect((await screen.findByRole("alert")).textContent).toContain("once it connects");
+    m.remoteStatus.mockResolvedValue(online);
+    act(() => publishEvent({ type: "studio.remote.status", data: { state: "online" } } as never));
+    expect(await screen.findByRole("img", { name: "Pairing QR code" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("recovers by asking again when no status event comes, as after a daemon restart", async () => {
+    vi.useFakeTimers();
+    m.remoteStatus.mockResolvedValue({ enabled: true, relay: RELAY, state: "error", reason: "The relay refused the connection (HTTP 500)." });
+    m.pairRemote.mockResolvedValue(code(600_000));
+    render(<RemoteChatCard />);
+    await tick(0);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    m.remoteStatus.mockResolvedValue(online);
+    await tick(RECOVER_POLL_MS + 10);
+    await tick(0);
+    expect(screen.getByRole("img", { name: "Pairing QR code" })).toBeTruthy();
+  });
+
+  it("does not wait for recovery when the plan is what refused", async () => {
+    vi.useFakeTimers();
+    m.remoteStatus.mockResolvedValue(online);
+    m.pairRemote.mockRejectedValue(new ApiError(403, "no"));
+    render(<RemoteChatCard />);
+    await tick(0);
+    expect(screen.getByRole("alert").textContent).not.toContain("once it connects");
+    const asked = m.remoteStatus.mock.calls.length;
+    await tick(RECOVER_POLL_MS * 3);
+    expect(m.remoteStatus.mock.calls.length).toBe(asked);
   });
 
   it("gives up after the wait with the relay named, and reads a refused pairing as the plan", async () => {
