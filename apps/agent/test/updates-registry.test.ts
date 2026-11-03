@@ -249,6 +249,19 @@ describe("updates through an age-gated npm", () => {
     expect(recorded()).toContainEqual(["daemon", "stop", uproject]);
   }, 90_000);
 
+  it("starts the new daemon only after the old one's process has exited", async () => {
+    const dir = project();
+    const uproject = path.join(dir, "Game.uproject");
+    // Stands in for the daemon Studio runs in: it outlives the stop by several seconds.
+    const old = spawn(process.execPath, ["-e", "setTimeout(()=>{},10000)"], { stdio: "ignore", windowsHide: true });
+    const exited = new Promise<number>((resolve) => old.on("exit", () => resolve(Date.now())));
+    const r = await new Updater({ ...host(dir), daemonPid: old.pid }, "0.0.1", () => {}, manifestNaming(`ue-mcp@${TODAY}`), () => "stable").restartDaemon();
+    expect(r).toEqual({ started: true });
+    await until(() => recorded().find((c) => c[0] === "daemon" && c[1] === "start" && c[2] === uproject));
+    const startedAt = Date.now();
+    expect(startedAt).toBeGreaterThanOrEqual(await exited);
+  }, 90_000);
+
   it("reports a background update that failed, with npm's error", async () => {
     const failures: Array<[string, string]> = [];
     const studio = new Updater(host(project()), "0.0.1", () => {}, manifestNaming("ue-mcp@9.9.9"), () => "stable", (step, e) => failures.push([step, e]));
