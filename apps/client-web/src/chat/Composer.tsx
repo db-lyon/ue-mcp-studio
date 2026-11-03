@@ -43,7 +43,7 @@ export function fitHeight({ content, line, chrome, floor, room }: { content: num
  * the dragged height is a minimum the content can still grow past. A double
  * click on the divider forgets it. `height` is the saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, stage, height, onHeight, commands, flows, actions, mentions, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, extras, stage, height, onHeight, commands, flows, actions, mentions, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -60,6 +60,8 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   onAddFiles: (files: FileList | File[]) => void;
   onRemoveFile: (key: string) => void;
   picker: ReactNode;
+  /** More bar controls, after Attach: the composer.action slot. */
+  extras?: ReactNode;
   stage?: RefObject<HTMLElement>;
   height?: number | null;
   onHeight?: (h: number | null) => void;
@@ -278,6 +280,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         <BarTierContext.Provider value={tier}>
           {picker}
           <BarButton className="attach-button" label="Attach" title="Attach files (or drop or paste them)" icon={<AttachGlyph />} disabled={busy && !onQueue} onClick={() => input.current?.click()} />
+          {extras}
         </BarTierContext.Provider>
         <input
           ref={input}

@@ -32,6 +32,8 @@ import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext, remarkAssets } from "./asset-links";
 import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";
 import type { Components } from "react-markdown";
+import { useSlot } from "../extensions/registry";
+import { Contribution } from "../extensions/Slot";
 
 /** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
 const positions = new WeakMap<readonly unknown[], Map<unknown, number>>();
@@ -75,10 +77,19 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "playtest-failed") return <PlaytestFailed errors={[entry.reason]} request={entry.request} />;
   if (entry.kind === "flow") return <FlowCard entry={entry} />;
+  if (entry.kind === "card") return <ExtensionCard entry={entry} />;
   // A kind this client no longer draws, such as an older session's per-turn usage line.
   if (entry.kind !== "tool") return null;
   return <ToolCall call={entry.call} />;
 });
+
+/** A card an extension posted, drawn by the chat.card contribution for `${ext}:${type}`; nothing when none is registered. */
+function ExtensionCard({ entry }: { entry: Extract<TranscriptEntry, { kind: "card" }> }) {
+  const sessionId = useContext(SessionIdContext);
+  const item = useSlot("chat.card").find((i) => i.ext === entry.ext && i.contribution.id === entry.type);
+  const ctx = useMemo(() => ({ sessionId: sessionId ?? "", data: entry.data }), [sessionId, entry.data]);
+  return item ? <Contribution item={item} ctx={ctx} /> : null;
+}
 
 /**
  * Runs a /playtest from a button: Retry on a failed one. `busy` while a turn
@@ -277,7 +288,8 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   /** Counts the reader's sends; each one snaps the thread to its newest line. */
   sent?: number;
 }) {
-  const items = useMemo(() => mainTimeline(transcript, status), [transcript, status]);
+  const cards = useSlot("chat.card");
+  const items = useMemo(() => mainTimeline(transcript, status, (t) => t.kind !== "card" || cards.some((i) => i.ext === t.ext && i.contribution.id === t.type)), [transcript, status, cards]);
   const follow = useFollow<HTMLDivElement>(`${transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = useAsked().size;

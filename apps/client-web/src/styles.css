@@ -1659,3 +1659,8 @@ button.icon-button[aria-expanded="true"] { color: var(--accent-hi); border-color
 }
 .qa-edit-map { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .qa-edit-map input { flex: 1; min-width: 0; }
+
+/* Extension slots: bar controls sit in the bar's own row; panels share the queue's frame. */
+.ext-slot[data-slot="toolbar.action"], .ext-slot[data-slot="composer.action"] { display: contents; }
+.ext-panel { padding: 4px 16px; border-top: 1px solid var(--line); background: var(--composer-bg); max-height: 28vh; overflow: auto; }
+.ext-panel > summary { cursor: pointer; padding: 2px 0; color: var(--muted); font-size: 12.5px; }

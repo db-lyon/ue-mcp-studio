@@ -32,6 +32,7 @@ import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../chat/TurnReview";
 import { useSessionRuns } from "../chat/sessionRuns";
 import { NARROW, useMedia } from "../layout";
+import { Slot } from "../extensions/Slot";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -460,6 +461,17 @@ export function ChatView({ daemon, nav, active = true }: {
               )}
             </div>
             </div>
+            <Slot
+              key={detail.id}
+              name="session.panel"
+              ctx={{ sessionId: detail.id, status: detail.status }}
+              wrap={(item, host) => (
+                <details className="ext-panel" open>
+                  <summary>{item.contribution.title ?? item.contribution.id}</summary>
+                  {host}
+                </details>
+              )}
+            />
             <QueuedMessages
               queue={detail.queue ?? []}
               busy={busy}
@@ -492,6 +504,7 @@ export function ChatView({ daemon, nav, active = true }: {
               files={attach.files}
               onAddFiles={attach.add}
               onRemoveFile={attach.remove}
+              extras={<Slot name="composer.action" ctx={{ sessionId: detail.id, draft, setDraft, busy, addFiles: attach.add }} />}
               stage={stage}
               height={settings?.composerHeight ?? null}
               onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
