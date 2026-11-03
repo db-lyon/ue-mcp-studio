@@ -318,6 +318,19 @@ describe("remote control, offered or not", () => {
     expect(plan.asks).toEqual([false, true]);
   });
 
+  it("connects as soon as ?refresh finds a plan bought after start, without waiting for the recheck timer", async () => {
+    const plan = new FakePlan(false);
+    const h = host({ plan, enabled: true, planRecheckMs: 3_600_000 });
+    await settle();
+    expect(relay.socket).toBeNull();
+    plan.paid = true;
+    expect(await available(h, true)).toBe(true);
+    expect(plan.asks.at(-1)).toBe(true);
+    await until(() => relay.socket !== null);
+    expect(await status(h)).toMatchObject({ enabled: true, state: "online" });
+    expect(h.events).toContainEqual({ type: "remote.available", data: { available: true } });
+  });
+
   it("starts the connector when the plan appears and stops it when it lapses, without a restart", async () => {
     const plan = new FakePlan(false);
     const h = host({ plan, enabled: true, planRecheckMs: 30 });

@@ -38,7 +38,8 @@ vi.mock("./UpdateOverlay", () => ({ UpdateRunner: () => null }));
 import { App } from "../App";
 import { REMOTE_COMMAND_REPLY, STUDIO_PLAN_URL } from "@ue-mcp-studio/shared";
 import { ApiError } from "../api";
-import { CHECKOUT_OPENED } from "./Upgrade";
+import { CHECKOUT_OPENED, REMOTE_NOW_ON } from "./Upgrade";
+import { CHECKOUT_POLL_MS, CHECKOUT_WATCH_MS, stopCheckoutWatch } from "./settings/remote-available";
 
 const COMPOSER = "Ask for something in the editor, or drop files here";
 
@@ -185,6 +186,62 @@ describe("the Upgrade action", () => {
     expect(m.remoteAvailable).toHaveBeenCalledWith(true);
     await type(box, "/");
     expect(menu()).toContain("/remote");
+  });
+});
+
+describe("after checkout opens", () => {
+  afterEach(() => {
+    stopCheckoutWatch();
+    vi.useRealTimers();
+  });
+
+  async function checkout() {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    m.billingCheckout.mockResolvedValue({ url: "https://checkout.stripe.test/c/1", provider: "stripe" });
+    const box = await open({ flag: false, account: "free" });
+    await type(box, "/remote ");
+    await enter(box);
+    vi.useFakeTimers();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Pro" })));
+    m.remoteAvailable.mockClear();
+    return box;
+  }
+
+  const tick = (ms: number) => act(async () => void (await vi.advanceTimersByTimeAsync(ms)));
+
+  it("asks the gateway every few seconds without a focus event, and the reply turns into the confirmation once paid", async () => {
+    await checkout();
+    await tick(CHECKOUT_POLL_MS);
+    expect(m.remoteAvailable).toHaveBeenCalledWith(true);
+    expect(screen.getByRole("button", { name: "Upgrade to Pro" })).toBeTruthy();
+    m.remoteAvailable.mockResolvedValue({ available: true, signedIn: true });
+    await tick(CHECKOUT_POLL_MS);
+    expect(screen.getByText(REMOTE_NOW_ON)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Upgrade to Pro" })).toBeNull();
+    // Paid: the watch stops.
+    m.remoteAvailable.mockClear();
+    await tick(CHECKOUT_POLL_MS * 5);
+    expect(m.remoteAvailable).not.toHaveBeenCalled();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Open remote control settings" })));
+    expect(screen.getByText("Settings view remote")).toBeTruthy();
+  });
+
+  it("keeps watching after the reply is dismissed, and gives up after the watch window", async () => {
+    await checkout();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Dismiss" })));
+    await tick(CHECKOUT_POLL_MS);
+    expect(m.remoteAvailable).toHaveBeenCalledWith(true);
+    await tick(CHECKOUT_WATCH_MS + CHECKOUT_POLL_MS);
+    m.remoteAvailable.mockClear();
+    await tick(CHECKOUT_POLL_MS * 5);
+    expect(m.remoteAvailable).not.toHaveBeenCalled();
+  });
+
+  it("asks again when the panel becomes visible", async () => {
+    await open({ flag: false, account: "free" });
+    m.remoteAvailable.mockClear();
+    await act(async () => void document.dispatchEvent(new Event("visibilitychange")));
+    expect(m.remoteAvailable).toHaveBeenCalledWith(true);
   });
 });
 

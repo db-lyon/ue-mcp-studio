@@ -135,6 +135,16 @@ try {
           await page.waitForTimeout(700);
         }
       }
+      const after = await page.evaluate(() => window.__visualQa.afterType);
+      if (after) {
+        for (const sel of after.clicks) {
+          const el = await page.waitForSelector(sel, { timeout: 3000 }).catch(() => null);
+          if (!el) errors.push(`nothing matched ${sel}`);
+          else await el.click();
+        }
+        await page.mouse.move(1, 1);
+        await page.waitForTimeout(after.wait);
+      }
       const file = `${scenario}-${theme}-${label}.png`;
       await page.screenshot({ path: path.join(out, file), animations: "disabled" });
       lines.push(`- [${theme}, ${label} (${width}px)](${file})${errors.length ? ` errors: ${errors.join("; ")}` : ""}`);

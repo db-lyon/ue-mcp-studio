@@ -24,6 +24,45 @@ export async function remoteAvailable(refresh: boolean): Promise<RemoteAnswer> {
 /** Events after which the answer may have changed: the plan, or a sign-in or sign-out. */
 const ACCOUNT_EVENTS = new Set(["studio.remote.available", "studio.settings.changed"]);
 
+/** How often, and for how long, the plan is asked after a checkout opens. */
+export const CHECKOUT_POLL_MS = 3000;
+export const CHECKOUT_WATCH_MS = 15 * 60_000;
+
+/** Every mounted useRemoteAvailable, so one answer reaches them all at once. */
+const answerListeners = new Set<(a: RemoteAnswer) => void>();
+let checkoutWatch: { timer: ReturnType<typeof setInterval>; until: number } | null = null;
+
+function shareAnswer(a: RemoteAnswer): void {
+  for (const l of [...answerListeners]) l(a);
+}
+
+/** Stop asking after a checkout. */
+export function stopCheckoutWatch(): void {
+  if (checkoutWatch) clearInterval(checkoutWatch.timer);
+  checkoutWatch = null;
+}
+
+/**
+ * A checkout is open in the browser: ask the gateway every few seconds until
+ * the plan shows, for up to CHECKOUT_WATCH_MS. It outlives the view that
+ * started it, so dismissing the chat reply does not lose the pickup; a second
+ * call restarts the window. The window's focus event is not relied on,
+ * because the editor's host does not always send it.
+ */
+export function watchForCheckout(): void {
+  stopCheckoutWatch();
+  const until = Date.now() + CHECKOUT_WATCH_MS;
+  const timer = setInterval(() => {
+    if (Date.now() > until) return stopCheckoutWatch();
+    void remoteAvailable(true).then((a) => {
+      if (checkoutWatch?.timer !== timer) return;
+      shareAnswer(a);
+      if (a.available) stopCheckoutWatch();
+    });
+  }, CHECKOUT_POLL_MS);
+  checkoutWatch = { timer, until };
+}
+
 /**
  * What remote control shows this account (remoteSurface): the working section
  * on a paid plan; while STUDIO_PLAN_AVAILABLE is on, a sign-in when no account
@@ -31,7 +70,7 @@ const ACCOUNT_EVENTS = new Set(["studio.remote.available", "studio.settings.chan
  * error reads as a free account, silently. `refresh` asks the gateway past the
  * agent's cache, as Settings does on open. A sign-in or sign-out anywhere in
  * Studio asks again, and so does Studio's window coming back into focus, after
- * a checkout in the browser.
+ * a checkout in the browser, and every answer watchForCheckout gets.
  */
 export function useRemoteAvailable(refresh = true): { available: boolean | null; signedIn: boolean | null; surface: RemoteSurface; recheck: () => void } {
   const [answer, setAnswer] = useState<RemoteAnswer | null>(null);
@@ -47,11 +86,17 @@ export function useRemoteAvailable(refresh = true): { available: boolean | null;
     });
     // Back from a checkout in the browser: ask the gateway at once rather than wait for the agent's recheck.
     const onFocus = () => recheck();
+    const onVisible = () => document.visibilityState === "visible" && recheck();
+    const onShared = (a: RemoteAnswer) => alive.current && setAnswer(a);
     window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    answerListeners.add(onShared);
     return () => {
       alive.current = false;
       unsubscribe();
       window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+      answerListeners.delete(onShared);
     };
   }, [refresh]);
   return {
