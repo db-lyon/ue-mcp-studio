@@ -21,6 +21,7 @@
     "@anthropic-ai/sdk": "^0.133.0",
     "@jsquash/webp": "^1.5.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@ue-mcp-studio/extension-api": "*",
     "@ue-mcp-studio/shared": "*",
     "jpeg-js": "^0.4.4",
     "omggif": "^1.0.10",
