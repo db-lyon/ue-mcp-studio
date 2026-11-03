@@ -17,6 +17,9 @@ import { shareBusy } from "./busy-sources.js";
 import { registerRemote } from "./remote/routes.js";
 import { studioAbout } from "./about.js";
 import { registerChat } from "./chat-routes.js";
+import { AccountSource } from "./account-source.js";
+import { registerBilling } from "./billing-routes.js";
+import { SettingsStore } from "./settings.js";
 import { isNewer } from "./updates.js";
 import { floorRefusal, registerRefusal } from "./floor.js";
 
@@ -98,8 +101,11 @@ const extension: DaemonExtension = {
     });
 
     const host = shareBusy(api);
-    const chat = registerChat(host, agentVersion, packageDir);
-    const remote = registerRemote(host);
+    // One account for chat and remote control, so a panel sign-in or sign-out reaches both.
+    const account = new AccountSource(new SettingsStore(host.dataDir), () => host.registryAccount());
+    const chat = registerChat(host, agentVersion, packageDir, account);
+    const remote = registerRemote(host, { account });
+    registerBilling(host, { account, gatewayUrl: () => new SettingsStore(host.dataDir).gatewayUrl() });
     return {
       dispose: () => {
         remote.dispose();

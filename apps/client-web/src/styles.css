@@ -411,6 +411,7 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 .msg.assistant { align-self: flex-start; background: transparent; padding-left: 2px; max-width: 92%; }
 .msg.assistant.local-reply { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin: 0 14px 8px; }
 .msg.assistant.local-reply p { margin: 0; }
+.msg.assistant.local-reply .upgrade { flex-basis: 100%; margin-top: 0; }
 .msg.assistant.local-reply a { color: var(--accent); }
 .note { white-space: pre-wrap; }
 .tool { font: 12px/1.6 var(--mono); padding: 0 2px; }

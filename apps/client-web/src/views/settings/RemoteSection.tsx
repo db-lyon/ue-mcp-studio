@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { REMOTE_NO_PLAN, REMOTE_SUMMARY, STUDIO_PLAN_URL, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { REMOTE_NO_PLAN, REMOTE_SUMMARY, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 import { Head } from "../SettingsHub";
 import { Card, Row, Switch } from "./controls";
+import { SignInForm } from "../ModelPicker";
+import { UpgradeAction } from "../Upgrade";
+import { ACCOUNT_NAME } from "./AccountCard";
 
 /** How often the section rereads the connection and the paired browsers while it is open. */
 export const REMOTE_POLL_MS = 3000;
@@ -23,14 +26,28 @@ function detail(s: RemoteStatus): string {
   return s.reason ?? s.relay;
 }
 
-/** Remote control for an account without a paid plan, while the plan is offered: what it does and where the plans are. Nothing that runs. */
+/** Remote control for an account without a paid plan, while the plan is offered: what it does and the Upgrade action. Nothing that runs. */
 export function RemoteUpsell() {
   return (
     <>
       <Head title="Remote control" lead={REMOTE_SUMMARY} />
-      <p className="remote-plan-note">
-        Needs a Pro or Studio plan. <a href={STUDIO_PLAN_URL} target="_blank" rel="noreferrer">See plans</a>
-      </p>
+      <Card label="Plan">
+        <p className="remote-plan-note">Needs a Pro or Studio plan.</p>
+        <UpgradeAction />
+      </Card>
+    </>
+  );
+}
+
+/** Remote control on a computer with no ue-mcp account signed in, while the plan is offered: the account sign-in, inline. */
+export function RemoteSignIn({ onDone }: { onDone: () => void }) {
+  return (
+    <>
+      <Head title="Remote control" lead={REMOTE_SUMMARY} />
+      <Card label="Account">
+        <p className="cfg-note">Sign in to your ue-mcp account to use remote control.</p>
+        <SignInForm id="studio" name={ACCOUNT_NAME} about="Sign in with GitHub." onDone={onDone} />
+      </Card>
     </>
   );
 }

@@ -4,6 +4,7 @@ import { api } from "../../api";
 import { UpdatesCard } from "../Updates";
 import { Head } from "../SettingsHub";
 import { Card, useMessage } from "./controls";
+import { AccountCard } from "./AccountCard";
 
 export const THEMES: { id: StudioTheme; name: string; about: string }[] = [
   { id: "ue-mcp", name: "ue-mcp", about: "Dark, ue-mcp orange." },
@@ -11,7 +12,7 @@ export const THEMES: { id: StudioTheme; name: string; about: string }[] = [
   { id: "editor", name: "Editor", about: "Unreal colors and type." },
 ];
 
-/** General: how Studio looks, and its updates. */
+/** General: the ue-mcp account, how Studio looks, and its updates. */
 export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void }) {
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const msg = useMessage();
@@ -25,7 +26,7 @@ export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void 
   };
   return (
     <>
-      <Head title="General" lead="Theme, and updates for Studio and the editor plugin." />
+      <Head title="General" lead="Your ue-mcp account, theme, and updates for Studio and the editor plugin." />
       {msg.node}
       <Card label="Appearance">
         <div className="themes">
@@ -39,6 +40,7 @@ export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void 
         </div>
       </Card>
       <UpdatesCard />
+      <AccountCard />
     </>
   );
 }

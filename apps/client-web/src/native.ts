@@ -76,3 +76,11 @@ export async function openDocs(path = "/docs/"): Promise<void> {
   const opened = await native().opendocs?.(path).catch(() => false);
   if (!opened) window.open(`https://ue-mcp.com${path}`, "_blank", "noopener");
 }
+
+/**
+ * A web page in the system browser, never inside Studio: Studio's window and
+ * the editor's panel both hand a new-window request to the system browser.
+ */
+export function openExternal(url: string): void {
+  window.open(url, "_blank", "noopener");
+}

@@ -32,6 +32,8 @@ import { registerRemote, deviceId } from "../src/remote/routes.js";
 import { NO_PLAN, PLAN_LAPSED_CLOSE } from "../src/remote/connector.js";
 import type { PlanCheck } from "../src/remote/plan.js";
 import { shareBusy } from "../src/busy-sources.js";
+import { AccountSource } from "../src/account-source.js";
+import { ACCOUNT_SIGNED_OUT, REMOTE_SIGN_IN_AGAIN } from "@ue-mcp-studio/shared";
 
 const DAEMON_TOKEN = "d".repeat(32);
 const MARKER = "PLAINTEXT-MARKER-c0ffee";
@@ -158,7 +160,7 @@ interface Host {
 const hosts: Host[] = [];
 
 /** A paid account unless a plan is given. */
-function host(o: { plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; planRecheckMs?: number } = {}): Host {
+function host(o: { plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; planRecheckMs?: number; account?: AccountSource } = {}): Host {
   const projectDir = fs.mkdtempSync(path.join(root, "proj-"));
   fs.writeFileSync(path.join(projectDir, "Game.uproject"), "{}");
   const dataDir = path.join(root, "home", "data", path.basename(projectDir), "studio");
@@ -182,6 +184,7 @@ function host(o: { plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; plan
   } as unknown as DaemonExtensionApi;
   const port = (daemon.address() as AddressInfo).port;
   const r = registerRemote(shareBusy(api), {
+    account: o.account,
     plan: o.plan ?? new FakePlan(true),
     planRecheckMs: o.planRecheckMs,
     computerDir,
@@ -501,8 +504,106 @@ describe("an account without remote control in its plan", () => {
     const h = host({ signedIn: false });
     await h.call("PUT /remote/config", { enabled: true });
     await until(() => h.events.some((e) => e.data.state === "error"));
-    expect(await status(h)).toMatchObject({ state: "error", code: "signed-out" });
-    expect((await h.call("POST /remote/pair")).status).toBe(401);
+    expect(await status(h)).toMatchObject({ state: "error", code: "signed-out", reason: ACCOUNT_SIGNED_OUT });
+    expect(await h.call("POST /remote/pair")).toEqual({ status: 401, body: { error: ACCOUNT_SIGNED_OUT, code: "signed-out" } });
+  });
+});
+
+/** A panel sign-in that tests change, beside a `ue-mcp login` account. */
+class Panel {
+  token: string | null = null;
+  login: string | null = null;
+  accountToken = () => this.token;
+  accountLogin = () => this.login;
+}
+
+/** The gateway's answer for whichever token the account source holds: paid for the tokens listed. */
+class TokenPlan implements PlanCheck {
+  invalidated = 0;
+  constructor(private readonly account: AccountSource, public paid = new Set(["uemcp_dev"])) {}
+  async available(): Promise<boolean> {
+    const t = await this.account.token();
+    return t !== null && this.paid.has(t);
+  }
+  invalidate(): void {
+    this.invalidated++;
+  }
+}
+
+describe("the account remote control uses", () => {
+  it("the connector sends the panel sign-in's token ahead of the ue-mcp login one", async () => {
+    const panel = new Panel();
+    panel.token = "uemcp_dev";
+    const registry = { login: "cli", token: "uemcp_cli" };
+    const account = new AccountSource(panel, async () => registry);
+    const h = host({ account, plan: new FakePlan(true), enabled: true });
+    await until(() => h.busy());
+    expect(relay.upgrades.at(-1)!.authorization).toBe("Bearer uemcp_dev");
+    expect(await status(h)).toMatchObject({ state: "online" });
+  });
+
+  it("the ue-mcp login token when the panel has none", async () => {
+    const account = new AccountSource(new Panel(), async () => ({ login: "dev", token: "uemcp_dev" }));
+    const h = host({ account, plan: new FakePlan(true), enabled: true });
+    await until(() => h.busy());
+    expect(relay.upgrades.at(-1)!.authorization).toBe("Bearer uemcp_dev");
+  });
+
+  it("a panel sign-in starts it and a sign-out stops it, without a restart, asking the gateway afresh each time", async () => {
+    const panel = new Panel();
+    const account = new AccountSource(panel, async () => null);
+    const plan = new TokenPlan(account);
+    const h = host({ account, plan, enabled: true });
+    await settle();
+    expect(relay.socket).toBeNull();
+    expect((await h.routes.get("GET /remote/available")!({ query: {} } as never))!.body).toEqual({ available: false, signedIn: false });
+
+    panel.token = "uemcp_dev";
+    account.changed();
+    await until(() => h.busy());
+    expect(plan.invalidated).toBe(1);
+    expect((await h.routes.get("GET /remote/available")!({ query: {} } as never))!.body).toEqual({ available: true, signedIn: true });
+
+    panel.token = null;
+    account.changed();
+    await until(() => relay.socket === null && !h.busy());
+    expect(plan.invalidated).toBe(2);
+    expect((await h.call("GET /remote/status")).status).toBe(404);
+    expect(h.events.filter((e) => e.type === "remote.available").map((e) => e.data.available)).toEqual([true, false]);
+  });
+
+  it("a switch to another paid account reconnects as that account", async () => {
+    const panel = new Panel();
+    panel.token = "uemcp_dev";
+    const account = new AccountSource(panel, async () => null);
+    const h = host({ account, plan: new TokenPlan(account, new Set(["uemcp_dev", "uemcp_other"])), enabled: true });
+    await until(() => h.busy());
+    const before = relay.upgrades.length;
+    panel.token = "uemcp_other";
+    account.changed();
+    await until(() => relay.upgrades.length > before);
+    expect(relay.upgrades.at(-1)!.authorization).toBe("Bearer uemcp_other");
+    // The fake relay knows only uemcp_dev, so the new account's refusal shows: proof the connector reconnected.
+    await until(() => h.events.some((e) => e.data.state === "error"));
+    expect(await status(h)).toMatchObject({ state: "error", code: "signed-out", reason: REMOTE_SIGN_IN_AGAIN });
+  });
+
+  it("a new ue-mcp login is picked up on the next read, without a restart", async () => {
+    let registry: { login: string; token: string } | null = null;
+    const account = new AccountSource(new Panel(), async () => registry);
+    const h = host({ account, plan: new TokenPlan(account), enabled: true });
+    await settle();
+    expect(relay.socket).toBeNull();
+    registry = { login: "dev", token: "uemcp_dev" };
+    await account.refresh();
+    await until(() => h.busy());
+  });
+
+  it("points at the in-app sign-in, never a terminal command", () => {
+    for (const m of [ACCOUNT_SIGNED_OUT, REMOTE_SIGN_IN_AGAIN]) {
+      expect(m).toMatch(/Settings > General/);
+      expect(m).not.toMatch(/npx|ue-mcp login/);
+    }
   });
 });
 

@@ -52,6 +52,8 @@ import type {
   MentionSearchRequest,
   MentionSearchResponse,
   RemoteAvailability,
+  BillingCheckoutRequest,
+  BillingLink,
   RemoteBrowser,
   RemotePairing,
   RemoteStatus,
@@ -152,6 +154,9 @@ export const api = {
   openWindow: () => call<WindowLaunch>("POST", "/v1/ext/studio/window", {}),
   config: () => call<StudioConfigFile>("GET", "/v1/ext/studio/config"),
   remoteAvailable: (refresh = false) => call<RemoteAvailability>("GET", `/v1/ext/studio/remote/available${refresh ? "?refresh=1" : ""}`),
+  /** The payment provider's checkout, or customer portal, for the signed-in account: open it with openExternal. */
+  billingCheckout: (r: BillingCheckoutRequest) => call<BillingLink>("POST", "/v1/ext/studio/billing/checkout", r),
+  billingPortal: () => call<BillingLink>("GET", "/v1/ext/studio/billing/portal"),
   remoteStatus: () => call<RemoteStatus>("GET", "/v1/ext/studio/remote/status"),
   setRemote: (enabled: boolean) => call<RemoteStatus>("PUT", "/v1/ext/studio/remote/config", { enabled }),
   pairRemote: () => call<RemotePairing>("POST", "/v1/ext/studio/remote/pair"),

@@ -315,6 +315,11 @@ export const SCENARIOS: Record<string, Scenario> = {
       },
     };
   })(),
+  "remote-upgrade-reply": {
+    ...inSession("/remote typed by a signed-in account without a paid plan: the reply with the Upgrade action (Pro, monthly or yearly), with STUDIO_PLAN_AVAILABLE off", "Door playtest", []),
+    get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
+    type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
+  },
   "session-empty": inSession("A session with no playtest: Checkpoints in the composer bar", "Door playtest", []),
   "draft": inSession("A draft: collapsed card in the transcript with Start playtest on it", "Door playtest", [RUNS.draft]),
   "draft-asset-links": { ...inSession("A draft opened: asset names in its steps, its script path and its arrange and act targets as links; a name that does not resolve stays plain", "Broken bridge", [RUNS.linked], ".thread-stage .qa-toggle"), post: resolveLinked, focus: ".thread-stage .qa-instruction .asset-link:not(.code)" },

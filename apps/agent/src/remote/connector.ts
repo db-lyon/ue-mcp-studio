@@ -13,20 +13,21 @@ import {
   type ConnectorFrame,
   type RelayFrame,
 } from "@ue-mcp-studio/remote";
-import { REMOTE_NO_PLAN, type RemoteConnection, type RemoteRefusal } from "@ue-mcp-studio/shared";
+import { REMOTE_NO_PLAN, ACCOUNT_SIGNED_OUT, REMOTE_SIGN_IN_AGAIN, type RemoteConnection, type RemoteRefusal } from "@ue-mcp-studio/shared";
 import type { CallSink } from "./service.js";
 
 export type ConnectorState = RemoteConnection;
 
 /** The words for a relay that refused the connection, by HTTP status. 403 is an account without remote control in its plan. */
 export function refusal(status: number): { reason: string; code?: RemoteRefusal } {
-  if (status === 401) return { reason: "The relay did not accept this account. Run `npx ue-mcp login` again.", code: "signed-out" };
+  if (status === 401) return { reason: REMOTE_SIGN_IN_AGAIN, code: "signed-out" };
   if (status === 403) return { reason: NO_PLAN, code: "no-plan" };
   if (status === 409) return { reason: "This project's id belongs to another account.", code: "other-account" };
   return { reason: `The relay refused the connection (HTTP ${status}).` };
 }
 
 export const NO_PLAN = REMOTE_NO_PLAN;
+export const NOT_SIGNED_IN = ACCOUNT_SIGNED_OUT;
 
 /** The relay closes a live socket with this code when the account's plan lapsed. */
 export const PLAN_LAPSED_CLOSE = 4003;
@@ -92,7 +93,7 @@ export class Connector {
     const token = await this.o.token().catch(() => null);
     if (this.stopped) return;
     if (!token) {
-      this.set({ state: "error", reason: "Not signed in. Run `npx ue-mcp login` on this computer.", code: "signed-out" });
+      this.set({ state: "error", reason: NOT_SIGNED_IN, code: "signed-out" });
       this.schedule(60_000);
       return;
     }

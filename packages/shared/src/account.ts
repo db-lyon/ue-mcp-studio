@@ -65,3 +65,39 @@ export const GATEWAY_CLIENT_HEADER = "x-ue-mcp-client";
 export const GATEWAY_CLIENT_PREFIX = "studio-agent/";
 /** The tool every agent request declares: the agent's single entry into ue-mcp. */
 export const STUDIO_AGENT_TOOL = "ue_mcp";
+
+/** Where remote control and billing send a computer with no ue-mcp account signed in. */
+export const ACCOUNT_SIGNED_OUT = "Not signed in. Sign in to your ue-mcp account in Settings > General.";
+
+/** The plans and billing intervals the gateway sells. */
+export type BillingPlan = "pro" | "studio";
+export type BillingInterval = "month" | "year";
+export const BILLING_PLANS: readonly BillingPlan[] = ["pro", "studio"];
+export const BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
+
+/** POST /v1/ext/studio/billing/checkout on the daemon, passed on to the gateway with the account token. */
+export interface BillingCheckoutRequest {
+  plan: BillingPlan;
+  interval: BillingInterval;
+}
+
+/**
+ * What /billing/checkout and /billing/portal answer: a page on the payment
+ * provider, opened in the system browser, never inside Studio.
+ */
+export interface BillingLink {
+  url: string;
+  provider?: string;
+}
+
+/**
+ * Why a billing route refused, when the UI acts on it: "signed-out" (no
+ * account), "subscribed" (checkout for an account that already has a
+ * subscription: open the portal instead), "no-subscription" (portal for an
+ * account without one), "unavailable" (billing is not set up on the gateway).
+ */
+export type BillingRefusal = "signed-out" | "subscribed" | "no-subscription" | "unavailable";
+export interface BillingError {
+  error: string;
+  code?: BillingRefusal;
+}
