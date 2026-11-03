@@ -293,10 +293,45 @@ export const api = {
   sendFeedback: (report: FeedbackReport) => call<FeedbackResult>("POST", "/v1/ext/studio/feedback", report),
 };
 
+/** A stream whose response head has not come back this long is stalled: abort and ask again. */
+export const EVENTS_HEAD_TIMEOUT_MS = 6000;
+
+/** Asked of the stream's owner: drop a stalled or waiting attempt and connect again now. */
+let wakeEvents: (() => void) | null = null;
+
+/** Reconnect the event stream at once, as Retry and a page coming back into view do. */
+export function reconnectEvents(): void {
+  wakeEvents?.();
+}
+
+interface DaemonIdentity {
+  startedAt: string;
+  lastEventId: number;
+}
+
+async function daemonIdentity(): Promise<DaemonIdentity | null> {
+  try {
+    const res = await fetch("/v1/health", { credentials: "same-origin" });
+    if (!res.ok) return null;
+    const h = (await res.json()) as { startedAt?: unknown; lastEventId?: unknown };
+    return { startedAt: String(h.startedAt ?? ""), lastEventId: Number(h.lastEventId ?? 0) || 0 };
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Follow the daemon's event stream, every event type, resuming from the last
  * id after a drop. Read with fetch rather than EventSource, which only delivers
  * named events to listeners registered for each exact name.
+ *
+ * A restarted daemon numbers its events from 1 again, and asked to resume
+ * past its newest id it sends nothing, not even its response head, until its
+ * next event. So before resuming the stream asks the daemon who it is: a new
+ * daemon (another start time, or fewer events than the last id seen) is
+ * followed from its start. An attempt whose head does not arrive in
+ * EVENTS_HEAD_TIMEOUT_MS is dropped and tried again, and the page coming back
+ * into view, regaining focus or going back online retries at once.
  */
 export function subscribeEvents(
   onEvent: (e: DaemonEvent) => void,
@@ -304,20 +339,46 @@ export function subscribeEvents(
 ): () => void {
   let stopped = false;
   let lastId = 0;
+  let daemonStarted = "";
   let controller: AbortController | null = null;
+  let wake: (() => void) | null = null;
+  let connected = false;
+  let skipWait = false;
+
+  const kick = (): void => {
+    if (connected) return;
+    skipWait = true;
+    controller?.abort();
+    wake?.();
+  };
 
   const run = async (): Promise<void> => {
     for (let attempt = 0; !stopped; attempt++) {
       controller = new AbortController();
+      const signal = controller.signal;
       try {
-        const res = await fetch("/v1/events", {
-          headers: lastId > 0 ? { "last-event-id": String(lastId) } : {},
-          credentials: "same-origin",
-          signal: controller.signal,
-        });
+        if (lastId > 0) {
+          const who = await daemonIdentity();
+          if (who && ((daemonStarted && who.startedAt !== daemonStarted) || who.lastEventId < lastId)) lastId = 0;
+        }
+        const headTimer = setTimeout(() => controller?.abort(), EVENTS_HEAD_TIMEOUT_MS);
+        let res: Response;
+        try {
+          res = await fetch("/v1/events", {
+            headers: lastId > 0 ? { "last-event-id": String(lastId) } : {},
+            credentials: "same-origin",
+            signal,
+          });
+        } finally {
+          clearTimeout(headTimer);
+        }
         if (!res.ok || !res.body) throw new Error(`events: ${res.status}`);
+        connected = true;
         onStatus?.(true);
         attempt = 0;
+        void daemonIdentity().then((who) => {
+          if (who && !signal.aborted) daemonStarted = who.startedAt;
+        });
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
@@ -339,16 +400,47 @@ export function subscribeEvents(
           }
         }
       } catch {
-        // Dropped or refused; reconnect below.
+        // Dropped, refused or stalled; reconnect below.
       }
+      connected = false;
       onStatus?.(false);
       if (stopped) return;
-      await new Promise((r) => setTimeout(r, Math.min(5000, 250 * 2 ** attempt)));
+      if (skipWait) {
+        skipWait = false;
+        continue;
+      }
+      await new Promise<void>((r) => {
+        const t = setTimeout(done, Math.min(5000, 250 * 2 ** attempt));
+        function done(): void {
+          clearTimeout(t);
+          wake = null;
+          skipWait = false;
+          r();
+        }
+        wake = done;
+      });
     }
   };
+
+  const onVisible = (): void => {
+    if (typeof document === "undefined" || document.visibilityState === "visible") kick();
+  };
+  if (typeof window !== "undefined") {
+    window.addEventListener("focus", kick);
+    window.addEventListener("online", kick);
+    document.addEventListener("visibilitychange", onVisible);
+  }
+  wakeEvents = kick;
   void run();
   return () => {
     stopped = true;
     controller?.abort();
+    wake?.();
+    if (wakeEvents === kick) wakeEvents = null;
+    if (typeof window !== "undefined") {
+      window.removeEventListener("focus", kick);
+      window.removeEventListener("online", kick);
+      document.removeEventListener("visibilitychange", onVisible);
+    }
   };
 }
