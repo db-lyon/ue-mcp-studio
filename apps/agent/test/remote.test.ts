@@ -347,6 +347,20 @@ describe("remote control, offered or not", () => {
     expect(h.events.filter((e) => e.type === "remote.available").map((e) => e.data.available)).toEqual([true, false]);
   });
 
+  it("from /remote in the chat: turned on, refuses a code until online, then hands one out", async () => {
+    const h = host();
+    expect(await status(h)).toMatchObject({ enabled: false, state: "off" });
+    await h.call("PUT /remote/config", { enabled: true });
+    const early = await h.call("POST /remote/pair");
+    if (early.status !== undefined) expect(early.status).toBe(409);
+    await until(() => relay.socket !== null);
+    await until(() => h.busy());
+    expect(await status(h)).toMatchObject({ enabled: true, state: "online" });
+    const pairing = (await h.call("POST /remote/pair")).body as { url: string; svg: string; expiresAt: string };
+    expect(pairing.svg).toMatch(/^<svg/);
+    expect(pairing.expiresAt).toBe("2030-01-01T00:00:00.000Z");
+  });
+
   it("is off until turned on: no socket to the relay, and pairing waits for it", async () => {
     const before = relay.upgrades.length;
     const h = host();

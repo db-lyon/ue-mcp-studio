@@ -19,7 +19,7 @@ vi.mock("@ue-mcp-studio/shared", async (original) => {
   };
 });
 const sessions = [{ id: "s1", title: "First", status: "idle", createdAt: 1, updatedAt: 1, archived: false, agents: { total: 0, running: 0 }, awaiting: 0 }];
-const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), saveDraft: vi.fn(), send: vi.fn(), remoteAvailable: vi.fn(), billingCheckout: vi.fn(), billingPortal: vi.fn() }));
+const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), saveDraft: vi.fn(), send: vi.fn(), remoteAvailable: vi.fn(), billingCheckout: vi.fn(), billingPortal: vi.fn(), remoteStatus: vi.fn(), setRemote: vi.fn(), pairRemote: vi.fn() }));
 vi.mock("../api", () => {
   const pending = () => new Promise(() => {});
   const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => t[k] ?? pending });
@@ -38,10 +38,17 @@ vi.mock("./UpdateOverlay", () => ({ UpdateRunner: () => null }));
 import { App } from "../App";
 import { REMOTE_COMMAND_REPLY, STUDIO_PLAN_URL } from "@ue-mcp-studio/shared";
 import { ApiError } from "../api";
-import { CHECKOUT_OPENED, REMOTE_NOW_ON } from "./Upgrade";
+import { CHECKOUT_OPENED, REMOTE_NOW_ON, REMOTE_SIGN_IN } from "./Upgrade";
 import { CHECKOUT_POLL_MS, CHECKOUT_WATCH_MS, stopCheckoutWatch } from "./settings/remote-available";
 
 const COMPOSER = "Ask for something in the editor, or drop files here";
+const PAIRING = { url: "https://remote.test/pair#CODE", expiresAt: new Date(Date.now() + 600_000).toISOString(), svg: "<svg></svg>" };
+const STATUS = { enabled: true, relay: "https://remote.test", state: "online", login: "dev", since: "2026-01-01T00:00:00Z" };
+/** Remote control on and connected, and a pairing code to hand out. */
+function online() {
+  m.remoteStatus.mockResolvedValue(STATUS);
+  m.pairRemote.mockResolvedValue(PAIRING);
+}
 
 beforeEach(() => {
   window.matchMedia = ((query: string) => ({ matches: false, media: query, addEventListener: () => {}, removeEventListener: () => {} })) as never;
@@ -96,17 +103,19 @@ describe("/remote and /rc", () => {
     expect(document.querySelector(".local-reply")).toBeNull();
   });
 
-  it("signed out, flag on: listed, and opens Settings > Remote control, which holds the sign-in", async () => {
+  it("signed out, flag on: listed, and answered in the chat with the account sign-in, never by opening Settings", async () => {
     const box = await open({ flag: true, account: "signed-out" });
     await type(box, "/re");
     expect(menu()).toEqual(["/remote"]);
     await type(box, "/remote ");
     await enter(box);
     expect(m.send).not.toHaveBeenCalled();
-    expect(screen.getByText("Settings view remote")).toBeTruthy();
+    expect(screen.queryByText(/Settings view/)).toBeNull();
+    expect(document.querySelector(".local-reply")!.textContent).toContain(REMOTE_SIGN_IN);
   });
 
-  it.each([false, true])("paid account (flag %s): listed, also under /rc, and opens Settings > Remote control without a turn", async (on) => {
+  it.each([false, true])("paid account (flag %s): listed, also under /rc, and answered in the chat with a pairing code, no turn", async (on) => {
+    online();
     const box = await open({ flag: on, account: "paid" });
     await type(box, "/");
     expect(menu()).toContain("/remote");
@@ -115,6 +124,13 @@ describe("/remote and /rc", () => {
     await type(box, "/rc ");
     await enter(box);
     expect(m.send).not.toHaveBeenCalled();
+    expect(await screen.findByRole("img", { name: "Pairing QR code" })).toBeTruthy();
+    // The code is in the session's chat; Settings is never opened for it.
+    expect(screen.queryByText(/Settings view/)).toBeNull();
+    expect(screen.getByRole("link", { name: PAIRING.url })).toBeTruthy();
+    // Already on: not turned on again.
+    expect(m.setRemote).not.toHaveBeenCalled();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Manage paired browsers in Settings" })));
     expect(screen.getByText("Settings view remote")).toBeTruthy();
   });
 
@@ -196,6 +212,7 @@ describe("after checkout opens", () => {
   });
 
   async function checkout() {
+    online();
     vi.spyOn(window, "open").mockReturnValue(null);
     m.billingCheckout.mockResolvedValue({ url: "https://checkout.stripe.test/c/1", provider: "stripe" });
     const box = await open({ flag: false, account: "free" });
@@ -222,8 +239,9 @@ describe("after checkout opens", () => {
     m.remoteAvailable.mockClear();
     await tick(CHECKOUT_POLL_MS * 5);
     expect(m.remoteAvailable).not.toHaveBeenCalled();
-    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Open remote control settings" })));
-    expect(screen.getByText("Settings view remote")).toBeTruthy();
+    // And the reply goes straight to the pairing code, in the chat.
+    expect(screen.getByRole("img", { name: "Pairing QR code" })).toBeTruthy();
+    expect(screen.queryByText(/Settings view/)).toBeNull();
   });
 
   it("keeps watching after the reply is dismissed, and gives up after the watch window", async () => {
