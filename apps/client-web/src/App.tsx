@@ -15,6 +15,7 @@ import { VcsChip } from "./chat/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
 import { VersionNotice } from "./views/VersionNotice";
+import { RemoteApprovalBanner } from "./views/remote/approvals";
 import { DockToggle } from "./views/DockToggle";
 import { NavDrawer } from "./views/NavDrawer";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
@@ -162,6 +163,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
       {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
       <DialogBanner daemon={daemon} />
       <VersionNotice daemon={daemon} />
+      <RemoteApprovalBanner />
       {!narrow && <EditorBanner daemon={daemon} />}
       <div className="stage">
         {chatShown.current && (

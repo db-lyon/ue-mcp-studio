@@ -71,6 +71,27 @@ export interface RemoteBrowser {
   addedAt: string;
 }
 
+/**
+ * A browser that scanned a pairing code and waits for the owner to allow it:
+ * GET /remote/approvals, answered with POST /remote/approvals/:id { allow }.
+ * The browser shows the same six-digit code; one that does not match is not
+ * the owner's. Event studio.remote.approval when one arrives, and
+ * studio.remote.paired { label } once a browser is allowed.
+ */
+export interface RemoteApproval {
+  id: string;
+  label: string;
+  code: string;
+  expiresAt: string;
+  /** This project's name, for "<label> wants to control <project>". */
+  project: string;
+}
+
+/** "123456" as "123 456", the way Studio and the paired device both show it. */
+export function formatPairingCode(code: string): string {
+  return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;
+}
+
 /** POST /remote/pair: the link to open on the device, and the same link as a QR code. */
 export interface RemotePairing {
   url: string;

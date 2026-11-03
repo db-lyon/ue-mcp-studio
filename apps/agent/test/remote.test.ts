@@ -19,6 +19,7 @@ import {
   exportPublic,
   generateKeyPair,
   keyId,
+  pairingCode,
   pairingMac,
   parseFrame,
   parsePairingFragment,
@@ -246,14 +247,40 @@ class Browser {
     return b;
   }
 
-  /** What a scanned link leads to: the MAC under the fragment's secret, sent as the relay sends an enrollment. */
-  async pair(url: string, device: string): Promise<Call> {
+  /** The code from the scanned link, kept for the six digits this browser shows. */
+  codeSecret = "";
+
+  /** What a scanned link leads to: the MAC under the fragment's secret, sent as the relay sends an enrollment. Answers 202 until the owner decides. */
+  async enroll(url: string, device: string): Promise<Call> {
     const parts = parsePairingFragment(new URL(url).hash)!;
     this.device = device;
+    this.codeSecret = parts.secret;
     this.secret = await sharedSecret(this.keyPair.privateKey, parts.computerPublic);
     const { c } = call("enroll", JSON.stringify({ phonePublic: this.publicKey, mac: await pairingMac(parts.secret, this.publicKey, parts.computerPublic), label: "Android" }));
     await until(() => c.ended || !!c.failed);
     return c;
+  }
+
+  /** Ask the computer again how the owner answered. */
+  async poll(approval: string): Promise<Call> {
+    const { c } = call("enroll", JSON.stringify({ poll: approval }));
+    await until(() => c.ended || !!c.failed);
+    return c;
+  }
+
+  /** The six digits this browser shows while it waits. */
+  code(): Promise<string> {
+    return pairingCode(this.codeSecret, this.publicKey);
+  }
+
+  /** Scan, have the owner allow it on host h, and return the computer's final answer. */
+  async pair(url: string, device: string, h: Host): Promise<Call> {
+    const first = await this.enroll(url, device);
+    if (first.failed || first.status !== 202) return first;
+    const { approval } = JSON.parse(Buffer.concat(first.bytes).toString()) as { approval: string };
+    const allowed = await h.call("POST /remote/approvals/:id", { allow: true }, { id: approval });
+    if (allowed.status) throw new Error(`approval refused: ${JSON.stringify(allowed.body)}`);
+    return this.poll(approval);
   }
 
   async seal(over: Partial<PlainRequest>) {
@@ -307,7 +334,7 @@ afterAll(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-const REMOTE_ROUTES = ["DELETE /remote/browsers/:id", "GET /remote/browsers", "GET /remote/status", "POST /remote/pair", "PUT /remote/config"];
+const REMOTE_ROUTES = ["DELETE /remote/browsers/:id", "GET /remote/approvals", "GET /remote/browsers", "POST /remote/approvals/:id", "GET /remote/status", "POST /remote/pair", "PUT /remote/config"];
 const available = async (h: Host, refresh = false) =>
   ((await h.routes.get("GET /remote/available")!({ method: "GET", path: "", params: {}, query: refresh ? { refresh: "1" } : {}, headers: {}, body: undefined } as never))!.body as { available: boolean }).available;
 const settle = () => new Promise((r) => setTimeout(r, 100));
@@ -423,13 +450,13 @@ describe("remote control, sealed end to end", () => {
     expect(pairing.url.startsWith(`${relay.base}/pair#RELAYCODE.${computerKey}.`)).toBe(true);
     expect(pairing.expiresAt).toBe("2030-01-01T00:00:00.000Z");
     const browser = await Browser.make();
-    const enrolled = await browser.pair(pairing.url, device);
+    const enrolled = await browser.pair(pairing.url, device, h);
     expect(enrolled.failed).toBeUndefined();
     expect(JSON.parse(Buffer.concat(enrolled.bytes).toString())).toEqual({ phoneId: browser.id, computerPublic: computerKey });
     expect(((await h.call("GET /remote/browsers")).body as { browsers: unknown[] }).browsers).toEqual([{ id: browser.id, label: "Android", addedAt: expect.any(String) }]);
 
     // The code works once.
-    const again = await (await Browser.make()).pair(pairing.url, device);
+    const again = await (await Browser.make()).pair(pairing.url, device, h);
     expect(again.failed?.status).toBe(403);
 
     // Requests reach the daemon with its token, and nothing of theirs crosses the relay in the clear.
@@ -453,6 +480,10 @@ describe("remote control, sealed end to end", () => {
       ["DELETE", `/v1/ext/studio/remote/browsers/${browser.id}`],
       ["GET", "/v1/ext/studio/remote/browsers"],
       ["GET", "/v1/ext/studio/remote/status"],
+      // Nor answer another browser's request to be allowed.
+      ["GET", "/v1/ext/studio/remote/approvals"],
+      ["POST", "/v1/ext/studio/remote/approvals/anything"],
+      ["POST", "/v1/ext/studio/Remote/approvals/anything"],
       ["POST", "/v1/ext/studio/Remote/pair"],
       ["POST", "/v1/ext/studio/x/../remote/pair"],
     ]) {
@@ -501,7 +532,7 @@ describe("remote control, sealed end to end", () => {
     const device = JSON.parse(fs.readFileSync(path.join(h.dataDir, "remote", "device.json"), "utf-8")).id as string;
     const pairing = (await h.call("POST /remote/pair")).body as { url: string };
     const browser = await Browser.make();
-    expect((await browser.pair(pairing.url, device)).failed).toBeUndefined();
+    expect((await browser.pair(pairing.url, device, h)).failed).toBeUndefined();
     const before = relay.wire.length;
 
     // Asked for gzip: the head says so, the body opens to the page, and chunks went as binary frames.

@@ -25,6 +25,21 @@ export interface EnrollRequest {
   label: string;
 }
 
+/** A browser asking again how the owner answered its enrollment. */
+export interface EnrollPoll {
+  poll: string;
+}
+
+/**
+ * The computer's answer to an enrollment the owner has not decided yet: HTTP
+ * 202 with this. The browser asks again with EnrollPoll until a 200 (allowed)
+ * or a refusal (denied, or no answer by expiresAt).
+ */
+export interface EnrollPending {
+  approval: string;
+  expiresAt: string;
+}
+
 /** Connector to relay. Chunk data is base64; for a sealed call it is response frames. */
 export type ConnectorFrame =
   | { t: "head"; id: string; status: number; headers: Record<string, string> }

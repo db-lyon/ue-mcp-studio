@@ -21,7 +21,7 @@ import * as path from "node:path";
 import qrcode from "qrcode-generator";
 import { readLiveDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { pairingFragment } from "@ue-mcp-studio/remote";
-import { type RemoteAvailability, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { type RemoteApproval, type RemoteAvailability, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import type { ExtensionHandler } from "ue-mcp/daemon";
 import { SettingsStore } from "../settings.js";
 import { AccountSource } from "../account-source.js";
@@ -100,9 +100,13 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
   // dataDir is <user dir>/data/<project key>/studio; the computer's identity sits beside "data".
   const keys = new ComputerKeys(o.computerDir ?? path.resolve(api.dataDir, "..", "..", "..", "remote"));
   const device = deviceId(dir, path.resolve(api.dataDir, "..", "remote"));
+  const project = projectName(api.projectDir);
   const service = new RemoteService({
     keys,
     deviceId: device,
+    pendingFile: path.join(dir, "pairing-secrets.json"),
+    onApproval: (a) => api.events.publish("remote.approval", { ...a, project }),
+    onPaired: (p) => api.events.publish("remote.paired", { id: p.id, label: p.label, addedAt: p.addedAt }),
     daemon:
       o.daemon ??
       (() => {
@@ -118,7 +122,7 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     new Connector({
       relayUrl: relayUrl(),
       deviceId: device,
-      deviceName: `${projectName(api.projectDir)} on ${os.hostname()}`,
+      deviceName: `${project} on ${os.hostname()}`,
       computerPublic: (await keys.identity()).publicKey,
       token: () => account.token(),
       handle: (kind, body, sink, signal) => (kind === "enroll" ? service.enroll(body, sink) : service.sealed(body, sink, signal)),
@@ -211,6 +215,19 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     qr.make();
     const pairing: RemotePairing = { url, ...(body.expiresAt ? { expiresAt: body.expiresAt } : {}), svg: qr.createSvgTag({ cellSize: 6, margin: 2, scalable: true }) };
     return { body: pairing };
+  });
+  // The owner allows or denies a browser that scanned a code. Under /remote, so a paired browser can never reach them (remotePath).
+  route("GET", "/remote/approvals", () => {
+    const approvals: RemoteApproval[] = service.pendingApprovals().map((a) => ({ ...a, project }));
+    return { body: { approvals } };
+  });
+  route("POST", "/remote/approvals/:id", async (req) => {
+    const allow = (req.body as { allow?: unknown } | undefined)?.allow;
+    if (typeof allow !== "boolean") return { status: 400, body: { error: "allow must be true or false" } };
+    const r = await service.decide(req.params.id, allow);
+    if (!r.ok) return { status: 409, body: { error: r.error } };
+    api.events.publish("remote.approval", { id: req.params.id, decided: allow ? "allowed" : "denied" });
+    return { body: { ok: true, ...(r.phone ? { browser: { id: r.phone.id, label: r.phone.label, addedAt: r.phone.addedAt } } : {}) } };
   });
   route("GET", "/remote/browsers", () => {
     const browsers: RemoteBrowser[] = keys.phones().map(({ id, label, addedAt }) => ({ id, label, addedAt }));

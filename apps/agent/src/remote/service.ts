@@ -9,19 +9,24 @@ import {
   FORWARDED_REQUEST_HEADERS,
   FORWARDED_RESPONSE_HEADERS,
   MAX_REQUEST_BYTES,
+  PAIR_APPROVAL_TTL_MS,
   PAIR_SECRET_TTL_MS,
   ReplayGuard,
   ResponseSealer,
   b64u,
   openRequest,
+  pairingCode,
   randomBytes,
   remotePath,
   verifyPairingMac,
+  type EnrollPending,
   type EnrollRequest,
   type PlainRequest,
   type SealedRequest,
 } from "@ue-mcp-studio/remote";
-import type { ComputerKeys } from "./keys.js";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { ComputerKeys, PairedPhone } from "./keys.js";
 
 /** Where a call's answer goes. `chunk` resolves once the bytes may be sent on. */
 export interface CallSink {
@@ -35,25 +40,114 @@ export interface ServiceOptions {
   keys: ComputerKeys;
   deviceId: string;
   daemon: () => { port: number; token: string } | null;
+  /** Where the secrets of pairing codes still on screen are kept, so a daemon restart does not void them. Memory only when absent. */
+  pendingFile?: string;
+  /** A browser asks to be allowed; the owner answers with decide(). */
+  onApproval?: (a: PairingApproval) => void;
+  /** The owner allowed a browser and it is paired now. */
+  onPaired?: (phone: PairedPhone) => void;
+  now?: () => number;
+}
+
+/** A browser that proved it read this computer's code, waiting for the owner to allow it. */
+export interface PairingApproval {
+  id: string;
+  label: string;
+  /** Six digits; the browser shows the same ones. */
+  code: string;
+  expiresAt: string;
+}
+
+interface Approval extends PairingApproval {
+  phonePublic: string;
+  state: "pending" | "allowed" | "denied";
+  phoneId?: string;
+}
+
+/** How long a decided approval is kept so the browser's next poll still learns the answer. */
+const DECIDED_KEEP_MS = 5 * 60_000;
+
+function writePrivate(file: string, value: unknown): void {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
+  fs.renameSync(tmp, file);
 }
 
 /** Large daemon responses are sealed in pieces this size. */
 const FRAME_BYTES = 256 * 1024;
 
 export class RemoteService {
-  private readonly pending = new Map<string, number>();
+  private readonly approvals = new Map<string, Approval>();
+  private memory: Record<string, number> = {};
   private readonly guard = new ReplayGuard();
   private readonly calls = new Map<string, Set<AbortController>>();
 
   constructor(private readonly o: ServiceOptions) {}
 
-  /** A one-time pairing secret for a QR code. Only this process can redeem it. */
+  private now(): number {
+    return this.o.now ? this.o.now() : Date.now();
+  }
+
+  /** The secrets of codes still on screen and unexpired, from disk when there is a file. */
+  private secrets(): Map<string, number> {
+    let saved: Record<string, number> = this.memory;
+    if (this.o.pendingFile) {
+      try {
+        saved = JSON.parse(fs.readFileSync(this.o.pendingFile, "utf-8")) as Record<string, number>;
+      } catch {
+        saved = {};
+      }
+    }
+    const now = this.now();
+    return new Map(Object.entries(saved).filter(([, until]) => typeof until === "number" && until > now));
+  }
+
+  private saveSecrets(m: Map<string, number>): void {
+    const obj = Object.fromEntries(m);
+    if (this.o.pendingFile) writePrivate(this.o.pendingFile, obj);
+    else this.memory = obj;
+  }
+
+  /** A one-time pairing secret for a QR code, kept until it is used or expires, so a daemon restart does not void a code on screen. */
   newPairingSecret(): string {
-    const now = Date.now();
-    for (const [s, until] of this.pending) if (until < now) this.pending.delete(s);
+    const m = this.secrets();
     const secret = b64u(randomBytes(32));
-    this.pending.set(secret, now + PAIR_SECRET_TTL_MS);
+    m.set(secret, this.now() + PAIR_SECRET_TTL_MS);
+    this.saveSecrets(m);
     return secret;
+  }
+
+  /** Browsers waiting for the owner, oldest first. */
+  pendingApprovals(): PairingApproval[] {
+    const now = this.now();
+    return [...this.approvals.values()]
+      .filter((a) => a.state === "pending" && Date.parse(a.expiresAt) > now)
+      .map(({ id, label, code, expiresAt }) => ({ id, label, code, expiresAt }));
+  }
+
+  /** The owner's answer. Only a pending, unexpired request can be allowed; the browser learns it on its next poll. */
+  async decide(id: string, allow: boolean): Promise<{ ok: true; phone?: PairedPhone } | { ok: false; error: string }> {
+    const a = this.approvals.get(id);
+    if (!a || a.state !== "pending") return { ok: false, error: "That request is no longer waiting." };
+    if (Date.parse(a.expiresAt) <= this.now()) {
+      a.state = "denied";
+      return { ok: false, error: "That request ran out of time. Make a new code." };
+    }
+    if (!allow) {
+      a.state = "denied";
+      return { ok: true };
+    }
+    const phone = await this.o.keys.addPhone(a.phonePublic, a.label);
+    a.state = "allowed";
+    a.phoneId = phone.id;
+    this.o.onPaired?.(phone);
+    return { ok: true, phone };
+  }
+
+  private prune(): void {
+    const now = this.now();
+    for (const [id, a] of this.approvals) if (Date.parse(a.expiresAt) + DECIDED_KEEP_MS < now) this.approvals.delete(id);
   }
 
   /** End the calls a browser has open here, its event stream included. Revoking it stops new ones. */
@@ -62,27 +156,66 @@ export class RemoteService {
     this.calls.delete(phoneId);
   }
 
+  /**
+   * A browser that scanned this computer's code. Proving it read the code is not
+   * enough: the code is spent and the browser waits (202) until the owner allows
+   * it here. It asks again with { poll } until allowed (200), denied or timed out.
+   */
   async enroll(body: string, sink: CallSink): Promise<void> {
-    let e: Partial<EnrollRequest>;
+    let e: Partial<EnrollRequest> & { poll?: unknown };
     try {
-      e = JSON.parse(body) as Partial<EnrollRequest>;
+      e = JSON.parse(body) as Partial<EnrollRequest> & { poll?: unknown };
     } catch {
       return sink.fail(400, "Malformed enrollment.");
     }
+    this.prune();
+    if (typeof e.poll === "string") return this.answerPoll(e.poll, sink);
     if (typeof e.phonePublic !== "string" || typeof e.mac !== "string") return sink.fail(400, "Malformed enrollment.");
     const me = await this.o.keys.identity();
-    const now = Date.now();
-    for (const [secret, until] of this.pending) {
-      if (until < now) continue;
+    const secrets = this.secrets();
+    for (const secret of secrets.keys()) {
       if (await verifyPairingMac(secret, e.phonePublic, me.publicKey, e.mac)) {
-        this.pending.delete(secret);
-        const phone = await this.o.keys.addPhone(e.phonePublic, typeof e.label === "string" ? e.label : "Browser");
-        sink.head(200, { "content-type": "application/json" });
-        await sink.chunk(new TextEncoder().encode(JSON.stringify({ phoneId: phone.id, computerPublic: me.publicKey })));
-        return sink.end();
+        // Spent whatever the owner answers: a denied or timed-out browser needs a new code.
+        secrets.delete(secret);
+        this.saveSecrets(secrets);
+        const approval: Approval = {
+          id: b64u(randomBytes(16)),
+          label: (typeof e.label === "string" ? e.label : "Browser").slice(0, 120) || "Browser",
+          code: await pairingCode(secret, e.phonePublic),
+          expiresAt: new Date(this.now() + PAIR_APPROVAL_TTL_MS).toISOString(),
+          phonePublic: e.phonePublic,
+          state: "pending",
+        };
+        this.approvals.set(approval.id, approval);
+        this.o.onApproval?.({ id: approval.id, label: approval.label, code: approval.code, expiresAt: approval.expiresAt });
+        const pending: EnrollPending = { approval: approval.id, expiresAt: approval.expiresAt };
+        return this.json(sink, 202, pending);
       }
     }
     sink.fail(403, "That pairing code is used, expired, or for another computer. Make a new one.");
+  }
+
+  private async answerPoll(id: string, sink: CallSink): Promise<void> {
+    const a = this.approvals.get(id);
+    if (!a) return sink.fail(403, "The computer no longer knows this request. Make a new code.");
+    if (a.state === "allowed" && a.phoneId) {
+      const me = await this.o.keys.identity();
+      this.approvals.delete(id);
+      return this.json(sink, 200, { phoneId: a.phoneId, computerPublic: me.publicKey });
+    }
+    if (a.state === "denied") return sink.fail(403, "The computer denied this browser.");
+    if (Date.parse(a.expiresAt) <= this.now()) {
+      a.state = "denied";
+      return sink.fail(403, "Nobody allowed this browser on the computer in time. Make a new code.");
+    }
+    const pending: EnrollPending = { approval: a.id, expiresAt: a.expiresAt };
+    return this.json(sink, 202, pending);
+  }
+
+  private async json(sink: CallSink, status: number, value: unknown): Promise<void> {
+    sink.head(status, { "content-type": "application/json" });
+    await sink.chunk(new TextEncoder().encode(JSON.stringify(value)));
+    sink.end();
   }
 
   async sealed(body: string, sink: CallSink, relaySignal: AbortSignal): Promise<void> {
