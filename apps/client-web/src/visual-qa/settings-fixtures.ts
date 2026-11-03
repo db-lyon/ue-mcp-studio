@@ -46,7 +46,7 @@ const shotTheme = () => new URL(location.href).searchParams.get("theme") ?? "ue-
 const OLD_AGENT: Partial<Scenario> = {
   missing: ["/v1/ext/studio/native", "/v1/ext/studio/context-strategy", "/v1/ext/studio/endpoints"],
   get: (p) => {
-    if (p === "/v1/ext/studio/settings") return { provider: "anthropic", model: "claude-sonnet-5-5", route: "claude", effort: "high", gatewayUrl: "https://gateway.ue-mcp.com", theme: shotTheme(), askBeforeChanges: true, composerHeight: null, dialogPolicy: { kind: "wait" }, connected: { claude: true }, account: null };
+    if (p === "/v1/ext/studio/settings") return { provider: "anthropic", model: "claude-sonnet-5-5", route: "claude", effort: "high", gatewayUrl: "https://api.ue-mcp.com", theme: shotTheme(), askBeforeChanges: true, composerHeight: null, dialogPolicy: { kind: "wait" }, connected: { claude: true }, account: null };
     if (p === "/v1/ext/studio/agent-settings") return { feedbackTool: true, feedbackMode: { mode: "interactive", project: false }, dialogMode: { mode: null, project: false } };
     if (p === "/v1/ext/studio/models") return { providers: [{ id: "anthropic", name: "Anthropic", connected: false, source: "default", models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5" }] }, { id: "openai", name: "OpenAI" }] };
     if (p === "/v1/install") return { ok: false, plugin: { deployed: true, installedVersion: "1.4.0", enabledInUproject: true }, problems: [{ code: "bridge_version_mismatch", what: "The installed plugin is v1.4.0." }] };

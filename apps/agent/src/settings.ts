@@ -44,7 +44,10 @@ import {
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
 export const DEFAULT_EFFORT: Effort = "high";
-export const DEFAULT_GATEWAY_URL = "https://gateway.ue-mcp.com";
+export const DEFAULT_GATEWAY_URL = "https://api.ue-mcp.com";
+
+/** The default before api.ue-mcp.com. A file holding it is moved to the new default; a custom URL is kept. */
+const OLD_DEFAULT_GATEWAY_URL = /^https:\/\/gateway\.ue-mcp\.com\/?$/;
 
 interface StoredSettings {
   provider: VendorId;
@@ -163,6 +166,10 @@ export class SettingsStore {
   private stored(): StoredSettings {
     try {
       const raw = JSON.parse(fs.readFileSync(this.file("settings.json"), "utf-8")) as Record<string, unknown>;
+      if (typeof raw.gatewayUrl === "string" && OLD_DEFAULT_GATEWAY_URL.test(raw.gatewayUrl)) {
+        raw.gatewayUrl = DEFAULT_GATEWAY_URL;
+        fs.writeFileSync(this.file("settings.json"), JSON.stringify(raw, null, 2));
+      }
       return {
         provider: vendorOf(raw.provider),
         model: typeof raw.model === "string" && raw.model ? raw.model : DEFAULT_MODEL,
