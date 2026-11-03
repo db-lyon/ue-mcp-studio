@@ -13,7 +13,8 @@ export * from "./e2e.js";
  * "sealed", an EnrollRequest for "enroll".
  */
 export type RelayFrame =
-  | { t: "hello"; deviceId: string; login: string }
+  /** `binary`: this relay reads chunks as binary frames (encodeChunk); an older relay leaves it out and gets base64 `chunk` frames. */
+  | { t: "hello"; deviceId: string; login: string; binary?: boolean }
   | { t: "call"; id: string; kind: "sealed" | "enroll"; body: string }
   | { t: "abort"; id: string };
 
@@ -84,6 +85,32 @@ export function remotePath(method: string, rawPath: string): string | null {
   if (!ALLOW.some((a) => (a.methods === "any" || a.methods.includes(m)) && a.path.test(pathname))) return null;
   return pathname + url.search;
 }
+
+/** A binary chunk frame: this tag byte, the call id's length, the id, then the bytes. */
+const BINARY_CHUNK = 1;
+
+/** One response chunk as a binary WebSocket frame, without base64's third more bytes. */
+export function encodeChunk(id: string, bytes: Uint8Array): Uint8Array {
+  const idBytes = new TextEncoder().encode(id);
+  if (idBytes.byteLength > 255) throw new Error("call id too long");
+  const out = new Uint8Array(2 + idBytes.byteLength + bytes.byteLength);
+  out[0] = BINARY_CHUNK;
+  out[1] = idBytes.byteLength;
+  out.set(idBytes, 2);
+  out.set(bytes, 2 + idBytes.byteLength);
+  return out;
+}
+
+/** A binary frame back into its call id and bytes, or null when it is not one. */
+export function decodeChunk(frame: Uint8Array): { id: string; data: Uint8Array } | null {
+  if (frame.byteLength < 2 || frame[0] !== BINARY_CHUNK) return null;
+  const n = frame[1];
+  if (frame.byteLength < 2 + n) return null;
+  return { id: new TextDecoder().decode(frame.subarray(2, 2 + n)), data: frame.subarray(2 + n) };
+}
+
+/** What a browser's request says it can open: `gzip` lets the computer compress the body before sealing it. */
+export const ACCEPT_GZIP = "gzip";
 
 export function parseFrame<T>(data: unknown): T | null {
   try {

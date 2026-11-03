@@ -7,7 +7,7 @@ import type { SlotContribution, SlotName } from "@ue-mcp-studio/extension-api";
 const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), saveDraft: vi.fn() }));
 vi.mock("../api", () => {
   const pending = () => new Promise(() => {});
-  const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => t[k] ?? pending });
+  const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => (k === "sessionSync" ? (id: string) => m.session(id) : t[k] ?? pending) });
   return { api, ApiError: class extends Error {} };
 });
 vi.mock("../state", () => ({ useDaemon: () => ({ events: [], health: null, streaming: true, error: null, refresh: () => {} }) }));

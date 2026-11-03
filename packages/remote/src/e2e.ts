@@ -139,6 +139,8 @@ export interface PlainRequest {
   path: string;
   headers: Record<string, string>;
   body?: string;
+  /** Encodings this browser opens itself (["gzip"]); a body sent compressed says so in its head's content-encoding. */
+  accept?: string[];
 }
 
 /** What crosses the relay for one request. */

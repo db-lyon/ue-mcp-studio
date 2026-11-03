@@ -9,7 +9,7 @@ const sessions = [
 const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), saveDraft: vi.fn(), events: [] as unknown[], settingsCrash: false }));
 vi.mock("./api", () => {
   const pending = () => new Promise(() => {});
-  const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => (k === "events" ? undefined : t[k]) ?? pending });
+  const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => (k === "sessionSync" ? (id: string) => m.session(id) : (k === "events" ? undefined : t[k]) ?? pending) });
   return { api, ApiError: class extends Error {} };
 });
 vi.mock("./state", () => ({ useDaemon: () => ({ events: m.events, health: null, streaming: true, error: null, refresh: () => {} }) }));

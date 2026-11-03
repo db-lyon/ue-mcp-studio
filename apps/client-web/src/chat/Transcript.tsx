@@ -1,4 +1,5 @@
-import { createContext, memo, useContext, useMemo, useState } from "react";
+import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
+import { api } from "../api";
 import { MentionText } from "./MentionMenu";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -447,6 +448,25 @@ function ShownImages({ files }: { files: Attachment[] }) {
   );
 }
 
+/** The full result of a call whose long result the session left out, once it is opened; null until then. */
+function useLazyResult(call: Call, open: boolean): string | null {
+  const sessionId = useContext(SessionIdContext);
+  const [fetched, setFetched] = useState<{ id: string; text: string } | null>(null);
+  const want = open && call.result === undefined && call.resultSize !== undefined && !!sessionId && fetched?.id !== call.id;
+  useEffect(() => {
+    if (!want || !sessionId) return;
+    let alive = true;
+    api.callResult(sessionId, call.id).then(
+      (r) => alive && setFetched({ id: call.id, text: r.result }),
+      (e: Error) => alive && setFetched({ id: call.id, text: `Could not load the result: ${e.message}` }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [want, sessionId, call.id]);
+  return fetched?.id === call.id ? fetched.text : null;
+}
+
 /** How many lines of a written file the transcript shows. */
 const WRITE_PREVIEW_LINES = 40;
 
@@ -457,8 +477,11 @@ export function ToolCall({ call }: { call: Call }) {
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
   const [copied, setCopied] = useState(false);
+  // A long result was left out of the session: fetched the first time the call is opened.
+  const fetched = useLazyResult(call, open);
+  const text = call.result ?? fetched ?? undefined;
   // A machine tool's result is text as it came; ue-mcp's is JSON, indented.
-  const result = useMemo(() => (call.result ? (call.name === "ue_mcp" ? formatResult(call.result) : { text: call.result, lines: call.result.split("\n").length }) : null), [call.name, call.result]);
+  const result = useMemo(() => (text ? (call.name === "ue_mcp" ? formatResult(text) : { text, lines: text.split("\n").length }) : null), [call.name, text]);
   const shown = result && !all && result.lines > RESULT_PREVIEW_LINES
     ? result.text.split("\n").slice(0, RESULT_PREVIEW_LINES).join("\n")
     : result?.text;
@@ -477,6 +500,7 @@ export function ToolCall({ call }: { call: Call }) {
         <span className="dim">{OUTCOME_LABEL[call.outcome]}</span>
       </summary>
       <CallInput call={call} links={open} />
+      {!result && call.resultSize !== undefined && open && <div className="dim small call-note" role="status">Loading the result, {formatBytes(call.resultSize)}</div>}
       {result && (
         <div className="result">
           <div className="result-bar">
