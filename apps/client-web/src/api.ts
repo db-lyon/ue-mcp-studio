@@ -24,6 +24,7 @@ import type {
   PlaytestRequest,
   QueuedMessage,
   SessionDetail,
+  SessionSync,
   Attachment,
   AttachmentUpload,
   SessionSummary,
@@ -190,6 +191,12 @@ export const api = {
   sessions: () => call<{ sessions: SessionSummary[] }>("GET", "/v1/ext/studio/sessions"),
   newSession: () => call<SessionDetail>("POST", "/v1/ext/studio/sessions"),
   session: (id: string) => call<SessionDetail>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
+  /** The session as what changed since the hashes held (see SessionSync); whole without them. */
+  sessionSync: (id: string, have?: string) =>
+    call<SessionSync | SessionDetail>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}?sync=1${have !== undefined ? `&have=${have}` : ""}`),
+  /** A tool call's full result, when the session left a long one out. */
+  callResult: (id: string, callId: string) =>
+    call<{ result: string }>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/calls/${encodeURIComponent(callId)}/result`),
   updateSession: (id: string, u: SessionUpdate) => call<SessionSummary>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`, u),
   deleteSession: (id: string) => call<void>("DELETE", `/v1/ext/studio/sessions/${encodeURIComponent(id)}`),
   markSeen: (id: string, threadId: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/seen`, { id: threadId }),

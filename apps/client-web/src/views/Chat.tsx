@@ -32,6 +32,8 @@ import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../cha
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
+import { DetailLoader } from "../chat/session-sync";
+import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../chat/TurnReview";
@@ -120,10 +122,16 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     // A session the location names but that is gone (deleted elsewhere) is not opened.
     setSelected((cur) => (cur && !r.sessions.some((x) => x.id === cur) ? null : cur));
   }, (e: Error) => setError(e.message));
-  const loadDetail = (id: string) => api.session(id).then((d) => {
-    setDetail(d);
-    setDraft((cur) => (cur ? cur : d.draft));
-  }, (e: Error) => setError(e.message));
+  // Only what changed since the last answer, one request at a time however many events ask.
+  const detailLoader = useMemo(() => new DetailLoader(
+    (id, have) => api.sessionSync(id, have),
+    (d) => {
+      setDetail(d);
+      setDraft((cur) => (cur ? cur : d.draft));
+    },
+    (e) => setError(e.message),
+  ), []);
+  const loadDetail = (id: string) => detailLoader.load(id);
 
   // The panel's navigation asked for a session, or for the list (null).
   const navSeen = useRef(nav?.n ?? 0);
@@ -159,6 +167,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
 
   useEffect(() => {
     if (!selected) return;
+    // The last session's transcript does not stand in for this one while it loads.
+    setDetail((d) => (d && d.id === selected ? d : null));
     // Another session opens on its main thread, with no drawer sliding out over it.
     setThread(null);
     setDrawerId(null);
@@ -413,7 +423,9 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
           <span className="spacer" />
           <button className="primary" onClick={() => void create()}>New</button>
         </div>
-        {!listed && <p className="dim small">{slow ? "Studio is not answering yet. Your sessions are kept and show here when it does." : "Loading sessions"}</p>}
+        {!listed && (slow
+          ? <p className="dim small">Studio is not answering yet. Your sessions are kept and show here when it does.</p>
+          : <SessionRowsLoading />)}
         {listed && sessions.length === 0 && <p className="dim small">No sessions yet.</p>}
         {live.map((s) => <SessionRow key={s.id} s={s} selected={s.id === selected} onOpen={() => setSelected(s.id)} onChanged={changed} />)}
         {archived.length > 0 && (
@@ -443,7 +455,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
           />
         )}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
-        {!detail && (
+        {!detail && selected && <SessionLoading />}
+        {!detail && !selected && (
           <div className="empty">
             <h1 className="display"><em>Start</em> a session.</h1>
             <p className="muted">The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project's files, and read the web, asking you first before a command or an edit.</p>

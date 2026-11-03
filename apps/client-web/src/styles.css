@@ -1669,3 +1669,23 @@ button.icon-button[aria-expanded="true"] { color: var(--accent-hi); border-color
 .ext-slot[data-slot="toolbar.action"], .ext-slot[data-slot="composer.action"] { display: contents; }
 .ext-panel { padding: 4px 16px; border-top: 1px solid var(--line); background: var(--composer-bg); max-height: 28vh; overflow: auto; }
 .ext-panel > summary { cursor: pointer; padding: 2px 0; color: var(--muted); font-size: 12.5px; }
+
+/* Loading placeholders (chat/Skeleton.tsx): grey bars that shimmer, flat under reduced motion. */
+.skeleton-bar {
+  display: block;
+  height: 11px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--panel-2) 0%, var(--panel-3) 50%, var(--panel-2) 100%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+.skeleton-bar.thin { height: 8px; margin-top: 7px; opacity: 0.7; }
+.skeleton-rows .skeleton-row { cursor: default; }
+.skeleton-rows .skeleton-row:hover { background: transparent; }
+.skeleton-session { gap: 16px; }
+.skeleton-msg { display: flex; flex-direction: column; gap: 8px; align-self: flex-start; width: min(560px, 86%); }
+.skeleton-msg.user { align-self: flex-end; width: min(280px, 60%); }
+.skeleton-msg.user .skeleton-bar { height: 34px; border-radius: 10px; }
+.skeleton-msg.tool .skeleton-bar { height: 30px; border-radius: 8px; }
+@keyframes skeleton-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-bar { animation: none; } }

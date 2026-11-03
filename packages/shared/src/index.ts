@@ -298,6 +298,8 @@ export interface ToolCallRecord {
   /** A subagent waiting for one of the turn's running subagents to finish before it starts. */
   queued?: boolean;
   result?: string;
+  /** Set instead of `result` when a long one was left out of the session: its length, fetched with GET /sessions/:id/calls/:callId/result. */
+  resultSize?: number;
   /** The images the model was shown with the result, kept as the session's files. */
   images?: Attachment[];
   startedAt: string;
@@ -419,6 +421,18 @@ export interface SessionDetail extends SessionSummary {
   timeline?: TimelineMark[];
   /** Input and output tokens each agent spent this session: "main", or a subagent's agent call id. */
   tokens?: Record<string, number>;
+}
+
+/**
+ * GET /sessions/:id?sync=1[&have=<hashes>]: the detail with long tool results
+ * left out, and a hash per transcript entry. Without `have`, `transcript` is
+ * whole; with it, `changed` holds only the entries whose hash differs and the
+ * transcript's new length.
+ */
+export interface SessionSync extends Omit<SessionDetail, "transcript"> {
+  hashes: string;
+  transcript?: TranscriptEntry[];
+  changed?: { length: number; entries: Array<[number, TranscriptEntry]> };
 }
 
 /**

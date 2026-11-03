@@ -22,7 +22,8 @@ const sessions = [{ id: "s1", title: "First", status: "idle", createdAt: 1, upda
 const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), saveDraft: vi.fn(), send: vi.fn(), remoteAvailable: vi.fn(), billingCheckout: vi.fn(), billingPortal: vi.fn(), remoteStatus: vi.fn(), setRemote: vi.fn(), pairRemote: vi.fn() }));
 vi.mock("../api", () => {
   const pending = () => new Promise(() => {});
-  const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => t[k] ?? pending });
+  // The chat asks for the session by sync; the plain detail these mocks give is read as it is.
+  const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => (k === "sessionSync" ? (id: string) => m.session(id) : t[k] ?? pending) });
   class ApiError extends Error {
     constructor(readonly status: number, message: string) {
       super(message);

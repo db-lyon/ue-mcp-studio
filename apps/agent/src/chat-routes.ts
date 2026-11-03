@@ -63,6 +63,7 @@ import { DEFERRED_STEPS, UpdateQueue, type DeferredStep } from "./update-queue.j
 import { issueBody, submitFeedback, validate, type Environment } from "./feedback.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { resultOf, syncOf } from "./session-delta.js";
 import { ClaudeLoginCheck, claudeHome, claudeLogin, refreshClaudeLogin, studioClaudeHome } from "./claude-auth.js";
 import { deleteTranscripts, restoreTranscripts } from "./claude-sessions.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
@@ -167,8 +168,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     },
   });
   // Who is signed in to Claude comes from the runtime's own `auth status`.
+  /** When the Claude login was last asked: the model list waits for it only when that is a minute old. */
+  let claudeCheckedAt = 0;
   const refreshClaude = async (): Promise<void> => {
     if (!CLAUDE_SIGN_IN_AVAILABLE) return;
+    claudeCheckedAt = Date.now();
     const before = claudeLogin()?.method ?? null;
     if (((await refreshClaudeLogin())?.method ?? null) !== before) api.events.publish("settings.changed", {});
   };
@@ -315,10 +319,22 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("GET", "/settings", () => ({ body: view() }));
 
   // The project's source control, read at most every few seconds however often the panel asks.
-  let vcs: { at: number; value: Promise<VcsStatus | null> } | null = null;
+  // A read older than that answers at once while a fresh one runs; only the first read is waited for.
+  let vcs: { at: number; value: Promise<VcsStatus | null>; last?: VcsStatus | null } | null = null;
+  const readVcs = () => {
+    const prior = vcs;
+    const next: NonNullable<typeof vcs> = { at: Date.now(), value: detectVcs(api.projectDir).catch(() => null), last: prior?.last };
+    void next.value.then((v) => void (next.last = v));
+    vcs = next;
+    return next;
+  };
+  void readVcs();
   api.route("GET", "/vcs", async () => {
-    if (!vcs || Date.now() - vcs.at > 5000) vcs = { at: Date.now(), value: detectVcs(api.projectDir).catch(() => null) };
-    return { body: { vcs: await vcs.value } };
+    const cur = vcs && Date.now() - vcs.at <= 5000 ? vcs : null;
+    if (cur) return { body: { vcs: await cur.value } };
+    const stale = vcs?.last;
+    const next = readVcs();
+    return { body: { vcs: stale !== undefined ? stale : await next.value } };
   });
 
   // Studio's own updates: the extension and the editor plugin, against the release channel.
@@ -473,7 +489,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
 
   api.route("GET", "/models", async () => {
-    await Promise.all([refreshChatgptModels(), refreshClaude()]);
+    // The login check runs a process; the minute timer keeps it fresh, so the list only waits for a stale one.
+    const claude = Date.now() - claudeCheckedAt > 60_000 ? refreshClaude() : Promise.resolve();
+    await Promise.all([refreshChatgptModels(), claude]);
     return { body: await catalog.catalog(signedIn(), coverage(), { endpoints: endpoints.list(), routeOrder: settings.routeOrder() }) };
   });
 
@@ -543,7 +561,16 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/sessions", () => ({ status: 201, body: SessionStore.detail(store.blank()) }));
   api.route("GET", "/sessions/:id", (req) => {
     const s = store.get(req.params.id);
-    return s ? { body: SessionStore.detail(s) } : missing(req.params.id);
+    if (!s) return missing(req.params.id);
+    const detail = SessionStore.detail(s);
+    if (req.query.sync === undefined) return { body: detail };
+    return { body: syncOf(detail, typeof req.query.have === "string" ? req.query.have : undefined) };
+  });
+  api.route("GET", "/sessions/:id/calls/:callId/result", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const result = resultOf(SessionStore.detail(s).transcript, req.params.callId);
+    return result === null ? { status: 404, body: { error: `no call ${req.params.callId}` } } : { body: { result } };
   });
   api.route("DELETE", "/sessions/:id", (req) => {
     const s = store.get(req.params.id);

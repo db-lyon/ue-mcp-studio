@@ -26,7 +26,7 @@ describe("the session list", () => {
     vi.useFakeTimers();
     stubFetch((url) => (url.includes("/sessions") ? undefined : OTHER));
     render(<ChatView daemon={daemon} />);
-    expect(screen.getByText("Loading sessions")).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Loading sessions" })).toBeTruthy();
     expect(screen.queryByText("No sessions yet.")).toBeNull();
     await act(async () => void vi.advanceTimersByTime(LIST_SLOW_MS + 1));
     expect(screen.getByText(/Studio is not answering yet/)).toBeTruthy();
@@ -36,6 +36,6 @@ describe("the session list", () => {
     stubFetch((url) => (url.includes("/sessions") ? { sessions: [] } : OTHER));
     render(<ChatView daemon={daemon} />);
     expect(await screen.findByText("No sessions yet.")).toBeTruthy();
-    expect(screen.queryByText("Loading sessions")).toBeNull();
+    expect(screen.queryByRole("status", { name: "Loading sessions" })).toBeNull();
   });
 });
