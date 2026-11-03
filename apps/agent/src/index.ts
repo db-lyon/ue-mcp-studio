@@ -4,7 +4,8 @@
  * On activation it trusts the UI signing keys built into this package,
  * installs the UI bundle it ships with when that is newer than what the daemon
  * serves, and registers Studio's routes under /v1/ext/studio/. On a ue-mcp
- * below its floor it registers only the refusal route (floor.ts).
+ * below its floor it registers only the refusal route (floor.ts). Remote
+ * control registers only while STUDIO_PLAN_AVAILABLE is on (remote/routes.ts).
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -12,6 +13,8 @@ import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 import type { DaemonExtension, DaemonExtensionApi } from "ue-mcp/daemon";
 import type { StudioConfigFile } from "@ue-mcp-studio/shared";
+import { shareBusy } from "./busy-sources.js";
+import { registerRemote } from "./remote/routes.js";
 import { studioAbout } from "./about.js";
 import { registerChat } from "./chat-routes.js";
 import { isNewer } from "./updates.js";
@@ -94,8 +97,15 @@ const extension: DaemonExtension = {
       return { body: readConfig(api) };
     });
 
-    const chat = registerChat(api, agentVersion, packageDir);
-    return { dispose: () => chat.dispose() };
+    const host = shareBusy(api);
+    const chat = registerChat(host, agentVersion, packageDir);
+    const remote = registerRemote(host);
+    return {
+      dispose: () => {
+        remote.dispose();
+        chat.dispose();
+      },
+    };
   },
 };
 
