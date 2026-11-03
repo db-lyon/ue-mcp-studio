@@ -19,6 +19,8 @@ export interface StudioAbout {
   /** Version of the UI bundle the daemon is serving, or null. */
   uiVersion: string | null;
   projectDir: string;
+  /** The extension API versions this Studio offers. Absent from an older agent. */
+  extensionApi?: { agent: number; ui: number };
 }
 
 /** GET and PUT /v1/ext/studio/config: ue-mcp.yml as text. */

@@ -11,7 +11,8 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 import type { DaemonExtension, DaemonExtensionApi } from "ue-mcp/daemon";
-import type { StudioAbout, StudioConfigFile } from "@ue-mcp-studio/shared";
+import type { StudioConfigFile } from "@ue-mcp-studio/shared";
+import { studioAbout } from "./about.js";
 import { registerChat } from "./chat-routes.js";
 import { isNewer } from "./updates.js";
 import { floorRefusal, registerRefusal } from "./floor.js";
@@ -76,15 +77,7 @@ const extension: DaemonExtension = {
       return { dispose: () => {} };
     }
 
-    api.route("GET", "/about", () => {
-      const about: StudioAbout = {
-        agentVersion,
-        daemonVersion: api.version,
-        uiVersion: api.ui.active()?.version ?? null,
-        projectDir: api.projectDir,
-      };
-      return { body: about };
-    });
+    api.route("GET", "/about", () => ({ body: studioAbout(agentVersion, api) }));
 
     api.route("GET", "/config", () => ({ body: readConfig(api) }));
 
