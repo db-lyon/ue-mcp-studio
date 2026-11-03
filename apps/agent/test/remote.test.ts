@@ -29,12 +29,27 @@ import {
 } from "@ue-mcp-studio/remote";
 import { STUDIO_PLAN_AVAILABLE, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { registerRemote, deviceId } from "../src/remote/routes.js";
-import { NO_PLAN } from "../src/remote/connector.js";
+import { NO_PLAN, PLAN_LAPSED_CLOSE } from "../src/remote/connector.js";
+import type { PlanCheck } from "../src/remote/plan.js";
 import { shareBusy } from "../src/busy-sources.js";
 
 const DAEMON_TOKEN = "d".repeat(32);
 const MARKER = "PLAINTEXT-MARKER-c0ffee";
-const NO_PLAN_BODY = { error: "Remote is not enabled for this account." };
+const NO_PLAN_BODY = { error: "Remote control needs a Pro or Studio plan on this account." };
+
+/** The gateway's answer, as the routes see it: paid or not, and how it was asked. */
+class FakePlan implements PlanCheck {
+  asks: boolean[] = [];
+  invalidated = 0;
+  constructor(public paid = false) {}
+  async available(force = false): Promise<boolean> {
+    this.asks.push(force);
+    return this.paid;
+  }
+  invalidate(): void {
+    this.invalidated++;
+  }
+}
 
 const listen = (server: http.Server): Promise<number> => new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve((server.address() as AddressInfo).port)));
 
@@ -142,12 +157,17 @@ interface Host {
 }
 const hosts: Host[] = [];
 
-function host(o: { offered?: boolean | "default"; signedIn?: boolean } = {}): Host {
+/** Without a plan the flag is on, as before plans; with one the flag is off unless said, and "default" leaves it to STUDIO_PLAN_AVAILABLE. */
+function host(o: { flag?: boolean | "default"; plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; planRecheckMs?: number } = {}): Host {
   const projectDir = fs.mkdtempSync(path.join(root, "proj-"));
   fs.writeFileSync(path.join(projectDir, "Game.uproject"), "{}");
   const dataDir = path.join(root, "home", "data", path.basename(projectDir), "studio");
   fs.mkdirSync(dataDir, { recursive: true });
   const computerDir = path.join(root, "home", "remote");
+  if (o.enabled) {
+    fs.mkdirSync(path.join(dataDir, "remote"), { recursive: true });
+    fs.writeFileSync(path.join(dataDir, "remote", "remote.json"), JSON.stringify({ enabled: true }));
+  }
   const routes = new Map<string, ExtensionHandler>();
   const events: Host["events"] = [];
   let busy: () => boolean = () => false;
@@ -162,7 +182,9 @@ function host(o: { offered?: boolean | "default"; signedIn?: boolean } = {}): Ho
   } as unknown as DaemonExtensionApi;
   const port = (daemon.address() as AddressInfo).port;
   const r = registerRemote(shareBusy(api), {
-    offered: o.offered === "default" ? undefined : (o.offered ?? true),
+    flag: o.flag === "default" ? undefined : (o.flag ?? !o.plan),
+    plan: o.plan ?? new FakePlan(false),
+    planRecheckMs: o.planRecheckMs,
     computerDir,
     daemon: () => ({ port, token: DAEMON_TOKEN }),
     env: { UE_MCP_REMOTE_RELAY: relay.base },
@@ -258,21 +280,76 @@ afterAll(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
+const REMOTE_ROUTES = ["DELETE /remote/browsers/:id", "GET /remote/browsers", "GET /remote/status", "POST /remote/pair", "PUT /remote/config"];
+const available = async (h: Host, refresh = false) =>
+  ((await h.routes.get("GET /remote/available")!({ method: "GET", path: "", params: {}, query: refresh ? { refresh: "1" } : {}, headers: {}, body: undefined } as never))!.body as { available: boolean }).available;
+const settle = () => new Promise((r) => setTimeout(r, 100));
+
 describe("remote control, offered or not", () => {
-  it("registers no route and keeps no busy check while it is not offered", async () => {
-    const h = host({ offered: false });
-    expect(h.routes.size).toBe(0);
+  it("with the flag off and no paid plan: every route answers 404, no socket even when turned on, no busy check", async () => {
+    const before = relay.upgrades.length;
+    const h = host({ plan: new FakePlan(false), enabled: true });
+    await settle();
+    expect(await available(h)).toBe(false);
+    for (const key of REMOTE_ROUTES) expect((await h.call(key, { enabled: true }, { id: "x" })).status, key).toBe(404);
+    expect(relay.upgrades.length).toBe(before);
     expect(h.busy()).toBe(false);
+    expect(h.events.some((e) => e.type === "remote.available")).toBe(false);
+  });
+
+  it("with the flag off and a paid plan: the routes answer and a turned-on project connects", async () => {
+    const h = host({ plan: new FakePlan(true), enabled: true });
+    await until(() => relay.socket !== null);
+    await until(() => h.busy());
+    expect(await available(h)).toBe(true);
+    expect(await status(h)).toMatchObject({ enabled: true, state: "online" });
+    expect(h.events).toContainEqual({ type: "remote.available", data: { available: true } });
+  });
+
+  it("with the flag on: offered whatever the plan says, and the gateway is never asked", async () => {
+    const plan = new FakePlan(false);
+    const h = host({ flag: true, plan });
+    expect(await available(h, true)).toBe(true);
+    expect((await h.call("GET /remote/status")).status).toBeUndefined();
+    expect(plan.asks).toEqual([]);
   });
 
   it("follows STUDIO_PLAN_AVAILABLE when the caller does not say", async () => {
-    expect(host({ offered: "default" }).routes.size).toBe(STUDIO_PLAN_AVAILABLE ? 5 : 0);
+    const h = host({ flag: "default", plan: new FakePlan(false) });
+    await settle();
+    expect(await available(h)).toBe(STUDIO_PLAN_AVAILABLE);
+  });
+
+  it("asks the gateway afresh when Settings opens with ?refresh, and reads the cache otherwise", async () => {
+    const plan = new FakePlan(false);
+    const h = host({ plan });
+    await settle();
+    plan.asks = [];
+    await available(h);
+    await available(h, true);
+    expect(plan.asks).toEqual([false, true]);
+  });
+
+  it("starts the connector when the plan appears and stops it when it lapses, without a restart", async () => {
+    const plan = new FakePlan(false);
+    const h = host({ plan, enabled: true, planRecheckMs: 30 });
+    await settle();
+    expect(relay.socket).toBeNull();
+    plan.paid = true;
+    await until(() => relay.socket !== null);
+    await until(() => h.busy());
+    expect(await status(h)).toMatchObject({ enabled: true, state: "online" });
+    plan.paid = false;
+    await until(() => relay.socket === null);
+    expect(h.busy()).toBe(false);
+    expect((await h.call("GET /remote/status")).status).toBe(404);
+    expect(h.events.filter((e) => e.type === "remote.available").map((e) => e.data.available)).toEqual([true, false]);
   });
 
   it("is off until turned on: no socket to the relay, and pairing waits for it", async () => {
     const before = relay.upgrades.length;
     const h = host();
-    expect([...h.routes.keys()].sort()).toEqual(["DELETE /remote/browsers/:id", "GET /remote/browsers", "GET /remote/status", "POST /remote/pair", "PUT /remote/config"]);
+    expect([...h.routes.keys()].sort()).toEqual(["GET /remote/available", ...REMOTE_ROUTES].sort());
     expect(await status(h)).toEqual({ enabled: false, relay: relay.base, state: "off" });
     expect((await h.call("POST /remote/pair")).status).toBe(409);
     expect((await h.call("PUT /remote/config", { enabled: "yes" })).status).toBe(400);
@@ -390,6 +467,41 @@ describe("an account without remote control in its plan", () => {
     expect(await status(h)).toEqual({ enabled: true, relay: relay.base, state: "error", reason: NO_PLAN, code: "no-plan" });
     expect(h.busy()).toBe(false);
     expect(await h.call("POST /remote/pair")).toEqual({ status: 403, body: { error: NO_PLAN, code: "no-plan" } });
+  });
+
+  it("shows as no-plan when the relay drops a live socket with close code 4003", async () => {
+    const h = host();
+    await h.call("PUT /remote/config", { enabled: true });
+    await until(() => h.busy());
+    relay.socket!.close(PLAN_LAPSED_CLOSE, "plan lapsed");
+    await until(() => h.events.some((e) => e.data.state === "error"));
+    expect(await status(h)).toEqual({ enabled: true, relay: relay.base, state: "error", reason: NO_PLAN, code: "no-plan" });
+    expect(h.busy()).toBe(false);
+    expect(await h.call("POST /remote/pair")).toEqual({ status: 403, body: { error: NO_PLAN, code: "no-plan" } });
+  });
+
+  it("with the flag off, a 4003 asks the gateway again at once, and a lapsed plan takes remote control away", async () => {
+    const plan = new FakePlan(true);
+    const h = host({ plan, enabled: true });
+    await until(() => h.busy());
+    plan.paid = false;
+    relay.socket!.close(PLAN_LAPSED_CLOSE, "plan lapsed");
+    await until(() => h.events.some((e) => e.type === "remote.available" && e.data.available === false));
+    expect(plan.invalidated).toBeGreaterThan(0);
+    expect(plan.asks.at(-1)).toBe(true);
+    expect((await h.call("GET /remote/status")).status).toBe(404);
+    expect(await available(h)).toBe(false);
+    expect(h.busy()).toBe(false);
+  });
+
+  it("with the flag off, a 403 upgrade on an account the gateway still calls paid shows no-plan", async () => {
+    relay.mode = "deny";
+    const plan = new FakePlan(true);
+    const h = host({ plan, enabled: true });
+    await until(() => h.events.some((e) => e.data.state === "error"));
+    await settle();
+    expect(await status(h)).toMatchObject({ state: "error", code: "no-plan", reason: NO_PLAN });
+    expect(plan.invalidated).toBeGreaterThan(0);
   });
 
   it("shows as no-plan when the relay refuses /api/pair with 403", async () => {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { RemoteBrowser, RemotePairing, RemoteStatus } from "@ue-mcp-studio/shared";
+import { REMOTE_NO_PLAN, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 import { Head } from "../SettingsHub";
 import { Card, Row, Switch } from "./controls";
@@ -7,7 +7,7 @@ import { Card, Row, Switch } from "./controls";
 /** How often the section rereads the connection and the paired browsers while it is open. */
 export const REMOTE_POLL_MS = 3000;
 
-export const NO_PLAN_TEXT = "Remote control is not part of this account's plan.";
+export const NO_PLAN_TEXT = REMOTE_NO_PLAN;
 
 const STATE: Record<RemoteStatus["state"], { name: string; dot: string }> = {
   off: { name: "Off", dot: "" },
@@ -24,7 +24,7 @@ function detail(s: RemoteStatus): string {
 }
 
 /** Remote control: reach this project from a phone or another browser, through the relay, sealed end to end. */
-export function RemoteSection() {
+export function RemoteSection({ onUnavailable }: { onUnavailable?: () => void } = {}) {
   const [status, setStatus] = useState<RemoteStatus | null>(null);
   const [browsers, setBrowsers] = useState<RemoteBrowser[] | null>(null);
   const [pairing, setPairing] = useState<RemotePairing | null>(null);
@@ -44,6 +44,8 @@ export function RemoteSection() {
       if (!alive.current) return;
       // A paired browser is refused these routes: they are set up on the computer itself.
       if (e instanceof ApiError && e.status === 403) setRemoteOnly(true);
+      // The agent stopped offering it (the plan lapsed): Settings asks again and drops the section.
+      else if (e instanceof ApiError && e.status === 404 && onUnavailable) onUnavailable();
       else setError(e instanceof Error ? e.message : String(e));
     }
   };
