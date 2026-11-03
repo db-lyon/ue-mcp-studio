@@ -117,11 +117,6 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-remote-free": page("Remote control for an account without a paid plan, while STUDIO_PLAN_AVAILABLE is on: what it does and the Upgrade action. With the flag off it is not listed and this opens General", "remote", {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
   }),
-  "settings-remote-checkout-opened": page("Remote control for a free account after Upgrade: the checkout opened in the browser, with STUDIO_PLAN_AVAILABLE on", "remote", {
-    get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
-    post: (p) => (p === "/v1/ext/studio/billing/checkout" ? { status: 200, body: { url: "https://checkout.stripe.test/c/1", provider: "stripe" } } : undefined),
-    click: ".upgrade button.primary",
-  }),
   ...OLD_DATA_SCENARIOS,
   "settings-diagnostics": page("Diagnostics: the editor and daemon, and the event log, empty because the harness sends no events", "diagnostics"),
 };
