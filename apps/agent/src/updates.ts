@@ -102,7 +102,12 @@ export interface UpdaterHost {
   projectDir: string;
   editors(): Array<{ connected: boolean }>;
   editorOperation(op: "start" | "stop" | "restart" | "rebuild"): Promise<Record<string, unknown>>;
+  /** The daemon process Studio runs in; a restart waits for it to exit. Unset means this process. */
+  daemonPid?: number;
 }
+
+/** How long a restart waits for the old daemon's process to exit before starting the new one. */
+export const RESTART_EXIT_WAIT_MS = 30_000;
 
 /** The editor plugin the project loads, and where it came from. */
 export interface InstalledPlugin {
@@ -414,6 +419,10 @@ export class Updater {
     if (!npx) return { started: false, error: "npx was not found beside Node" };
     const script = `const {execFileSync}=require("child_process");const a=${JSON.stringify(npxArgs(npx, await this.ueMcpPackage()))};` +
       `try{execFileSync(process.execPath,[...a,"daemon","stop",${JSON.stringify(uproject)}],{stdio:"ignore",windowsHide:true})}catch{}` +
+      // Older ue-mcp returns from stop before the daemon exits; a start beside it leaves two daemons on one editor.
+      `const pid=${this.host.daemonPid ?? process.pid},until=Date.now()+${RESTART_EXIT_WAIT_MS},nap=new Int32Array(new SharedArrayBuffer(4));` +
+      `const alive=()=>{try{process.kill(pid,0);return true}catch(e){return e.code==="EPERM"}};` +
+      `while(alive()&&Date.now()<until)Atomics.wait(nap,0,0,200);` +
       `try{execFileSync(process.execPath,[...a,"daemon","start",${JSON.stringify(uproject)}],{stdio:["ignore","ignore","inherit"],windowsHide:true})}catch(e){process.exit(e.status||1)}`;
     runHidden(["-e", script], this.host.projectDir, (error) => this.onBackgroundFailure("restart", error));
     return { started: true };
