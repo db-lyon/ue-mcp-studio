@@ -1,0 +1,32 @@
+{
+  "name": "@ue-mcp-studio/remote",
+  "version": "0.1.0",
+  "description": "Remote control for UE-MCP Studio: the relay wire types, end-to-end sealing between a paired browser and a computer, and the paths a remote browser may reach.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/db-lyon/ue-mcp-studio.git",
+    "directory": "packages/remote"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  }
+}
