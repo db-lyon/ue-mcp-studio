@@ -165,12 +165,12 @@ export type MainItem =
   | { kind: "progress"; entries: TranscriptEntry[] };
 
 /**
- * The main thread: the entries without a parent, with neighbouring agent calls
- * grouped, and in a finished turn that ran subagents, every message the main
- * agent wrote before its final one folded into one progress line.
+ * The main thread: entries without a parent that `shown` accepts (a card nothing draws is not),
+ * neighbouring agent calls grouped, and in a finished turn that ran subagents, every
+ * message the main agent wrote before its final one folded into one progress line.
  */
-export function mainTimeline(transcript: TranscriptEntry[], status: TurnStatus): MainItem[] {
-  const main = transcript.filter((t) => !t.parent);
+export function mainTimeline(transcript: TranscriptEntry[], status: TurnStatus, shown?: (t: TranscriptEntry) => boolean): MainItem[] {
+  const main = transcript.filter((t) => !t.parent && (!shown || shown(t)));
   // Turns: each starts at a user message.
   const turns: TranscriptEntry[][] = [];
   for (const t of main) {

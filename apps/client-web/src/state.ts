@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { DaemonEvent, DaemonHealth } from "ue-mcp/daemon";
 import { api, subscribeEvents } from "./api";
+import { publishEvent } from "./extensions/events";
 
 const KEEP = 500;
 
@@ -47,6 +48,7 @@ export function useDaemon(): DaemonState {
           next.push(e);
           return next;
         });
+        publishEvent(e);
         if (e.type.startsWith("editor.") || e.type.startsWith("client.") || e.type.startsWith("daemon.")) refresh();
       },
       (connected) => {

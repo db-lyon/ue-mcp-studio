@@ -15,20 +15,21 @@ export interface PanelLocation {
 
 const TABS: Record<string, Tab> = { chat: "Chat", playtests: "Playtests", plugins: "Plugins", settings: "Settings" };
 
-/** A session id or section name as it may appear in the hash. */
+/** A session id or section name as it may appear in the hash; a section may also be an extension's. */
 const SAFE = /^[A-Za-z0-9_-]{1,128}$/;
+const SECTION = /^(?:[A-Za-z0-9_-]{1,128}|ext:[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{1,64})$/;
 
 export function parseLocation(hash: string): PanelLocation {
   const parts = hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   const tab = TABS[parts[0]?.toLowerCase() ?? ""] ?? "Chat";
-  const rest = parts[1] && SAFE.test(parts[1]) ? parts[1] : null;
-  return { tab, session: tab === "Chat" ? rest : null, section: tab === "Settings" ? rest : null };
+  const rest = parts[1] ?? "";
+  return { tab, session: tab === "Chat" && SAFE.test(rest) ? rest : null, section: tab === "Settings" && SECTION.test(rest) ? rest : null };
 }
 
 export function formatLocation(l: PanelLocation): string {
   const head = `#/${l.tab.toLowerCase()}`;
   const rest = l.tab === "Chat" ? l.session : l.tab === "Settings" ? l.section : null;
-  return rest && SAFE.test(rest) ? `${head}/${rest}` : head;
+  return rest && (l.tab === "Settings" ? SECTION : SAFE).test(rest) ? `${head}/${rest}` : head;
 }
 
 export function readLocation(): PanelLocation {
