@@ -322,6 +322,16 @@ export const SCENARIOS: Record<string, Scenario> = {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
     type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
   },
+  "remote-checkout-opened-reply": {
+    ...inSession("/remote typed by a free account, then Upgrade: the checkout opened in the browser, said under the action while Studio waits for the plan. With STUDIO_PLAN_AVAILABLE off this reply is where a free account buys; Settings lists remote control only on a paid plan", "Door playtest", []),
+    get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
+    post: (p) =>
+      p === "/v1/ext/studio/billing/checkout" ? { status: 200, body: { url: "https://checkout.stripe.test/c/1", provider: "stripe" } }
+      : p.endsWith("/draft") ? { status: 200, body: {} }
+      : undefined,
+    type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
+    afterType: { clicks: [".local-reply .upgrade button.primary"], wait: 700 },
+  },
   "remote-now-on-reply": (() => {
     let bought = false;
     return {
