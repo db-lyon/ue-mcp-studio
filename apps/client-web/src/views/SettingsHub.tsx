@@ -113,7 +113,8 @@ function statusOf(updates: number, daemon: DaemonState, settings: StudioSettings
     if (rules.length) lines.approvals = `${rules.filter((r) => r === "ask").length} ask first, review ${settings.reviewTurns === false ? "off" : "on"}`;
   }
   if (extra.ready !== undefined || extra.strategy) lines.project = [extra.ready === undefined ? null : extra.ready ? "Ready" : "Needs attention", extra.strategy ?? null].filter(Boolean).join(", ");
-  lines.general = updates > 0 ? dots.general : "Up to date";
+  // A count of 0 is also what a failed check reads, so it never claims up to date.
+  if (updates > 0) lines.general = dots.general;
   const editor = daemon?.health?.editors?.find((e) => e.connected);
   if (daemon?.health) lines.diagnostics = editor ? `Editor connected, ue-mcp ${daemon.health.version}` : `No editor connected, ue-mcp ${daemon.health.version}`;
   return { dots, lines };

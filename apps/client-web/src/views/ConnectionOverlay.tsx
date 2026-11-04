@@ -34,6 +34,8 @@ export interface Connection {
   log: string;
   /** A paired browser, through the relay: it cannot start ue-mcp and only waits for it. */
   remote: boolean;
+  /** The host can start ue-mcp: lost goes on to a start, otherwise to needs you. */
+  canStart?: boolean;
   retry(): void;
 }
 
@@ -109,6 +111,7 @@ export function useConnection(
     now: now.current,
     log,
     remote,
+    canStart,
     retry: () => {
       reconnectEvents();
       send({ type: "retry", at: Date.now() });
@@ -123,7 +126,7 @@ function report(c: Conn): void {
 
 /** What the panel shows while ue-mcp is away, from a short gap to the point it needs you. */
 export function ConnectionOverlay({ c }: { c: Connection }) {
-  const { conn, now, log, remote } = c;
+  const { conn, now, log, remote, canStart = true } = c;
   if (conn.phase === "connected") return null;
   const down = conn.downSince === null ? "" : elapsed(now - conn.downSince);
   if (waking(conn, now)) {
@@ -148,7 +151,7 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
       body = `Waiting for it to come back, ${down} so far. Studio loads it as soon as it is up.`;
       break;
     case "lost":
-      body = remote ? `${conn.why}, ${down} ago.` : `${conn.why}. Studio starts it again in a moment.`;
+      body = remote ? `${conn.why}, ${down} ago.` : canStart ? `${conn.why}. Studio starts it again in a few seconds.` : `${conn.why}.`;
       break;
     case "starting":
       body = `${conn.why}, ${down} ago.${conn.failure ? ` ${conn.failure}` : ""} Studio loads it as soon as it is up.`;

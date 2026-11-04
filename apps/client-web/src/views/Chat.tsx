@@ -491,7 +491,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
         {!detail && !selected && (
           <div className="empty">
             <h1 className="display"><em>Start</em> a session.</h1>
-            <p className="muted">The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project's files, and read the web, asking you first before a command or an edit.</p>
+            <p className="muted">The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project's files, and read the web. Approvals in Settings set what it asks you first.</p>
             {settings && disconnected && <ConnectCard settings={settings} onSettings={setSettings} />}
             {settings && !disconnected && <ModelPicker settings={settings} onSettings={setSettings} />}
             <button className="primary large" onClick={() => void create()}>New session</button>
