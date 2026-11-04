@@ -8,7 +8,7 @@
 import { Pressable, View } from "react-native";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { STATE_LABEL, agentStatus, describe, isActive, type AgentState, type Call } from "@ue-mcp-studio/client-core";
-import { font, T, useTheme, type Theme } from "../ui";
+import { font, lineBox, T, useTheme, type Theme } from "../ui";
 import { useNow } from "./hooks";
 import { useAsked } from "./asked";
 import { buttonText } from "./styles";
@@ -50,6 +50,18 @@ export function AgentsGlyph({ color }: { color: string }) {
   );
 }
 
+/**
+ * .chat-back on a touch screen: the coarse-pointer rule trims it to 44 px with
+ * no vertical padding, so its buttons' 44 px targets set the height.
+ */
+export const HEADER_ROW = (t: Theme) => ({ flexDirection: "row" as const, alignItems: "center" as const, gap: 6, minHeight: 44, paddingLeft: 4, paddingRight: 8, borderBottomWidth: 1, borderBottomColor: t.c.line, flexShrink: 0 });
+
+/**
+ * The back button's 0.02em at its 16 px font size, which the label inherits.
+ * The editor themes' button rule outranks the 16 px and sets no spacing.
+ */
+const backSpacing = (t: Theme) => (t.editor ? 0 : 0.32);
+
 export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, onSessions, onMain, onStop, onAgents, onReview }: {
   title: string;
   thread: Call | null;
@@ -70,10 +82,10 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
   const st = thread ? agentStatus(thread, transcript, sessionWaiting, now, asked) : null;
   const ghost = ({ pressed }: { pressed: boolean }) => ({ minHeight: 44, flexDirection: "row" as const, alignItems: "center" as const, borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.line : "transparent", backgroundColor: pressed ? t.c.panel2 : "transparent" });
   return (
-    <View style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 48, paddingVertical: 4, paddingLeft: 4, paddingRight: 8, borderBottomWidth: 1, borderBottomColor: t.c.line, flexShrink: 0 }}>
+    <View style={HEADER_ROW(t)}>
       <Pressable accessibilityRole="button" accessibilityLabel={thread ? "Back to the main thread" : "Back to sessions"} onPress={thread ? onMain : onSessions} style={(s) => [ghost(s), { gap: 4, paddingVertical: 6, paddingHorizontal: 8 }]}>
-        <T style={[buttonText(t), { fontSize: 16, lineHeight: 19.2, color: t.c.muted }]}>{"‹"}</T>
-        <T style={[font(t, "mono", 500, 12, 1), { color: t.c.muted }]}>{thread ? "Main" : "Sessions"}</T>
+        <T style={[buttonText(t), t.editor ? null : { fontSize: 16, lineHeight: lineBox(16, 1.2), letterSpacing: backSpacing(t) }, { color: t.c.muted }]}>{"‹"}</T>
+        <T style={[font(t, "mono", 500, 12, 1), { letterSpacing: backSpacing(t), color: t.c.muted }]}>{thread ? "Main" : "Sessions"}</T>
       </Pressable>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         {thread ? (
