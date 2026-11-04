@@ -3,7 +3,8 @@
  * grouped by type, each with a one-line summary and Keep or Revert, and Revert
  * all; each item's diff (text for config and source; for a package, Unreal's
  * own diff records with before and after values and a picture of each
- * version), a button that opens Unreal's own diff in the editor; and the
+ * version; the engine records are the whole diff, so blueprint(diff)'s
+ * structural summary is not repeated under them), a button that opens Unreal's own diff in the editor; and the
  * session's checkpoint timeline with Restore to here and Undo.
  */
 import { useContext, useEffect, useState } from "react";
@@ -183,7 +184,6 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
           asset={item.asset}
           status={item.status}
           nativeNote={native}
-          blueprintTree={c.assetDiff.blueprint ? <details className="small"><summary>Structure (blueprint diff)</summary><BlueprintDiff diff={c.assetDiff.blueprint} /></details> : undefined}
         />
       </div>
     );
