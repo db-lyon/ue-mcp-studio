@@ -11,3 +11,4 @@ export * from "./location.js";
 export * from "./plugins.js";
 export * from "./normalize.js";
 export * from "./settings-api.js";
+export * from "./settings-status.js";
