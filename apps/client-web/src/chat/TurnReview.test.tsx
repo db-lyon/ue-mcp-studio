@@ -19,7 +19,7 @@ const m = vi.hoisted(() => ({
 vi.mock("../api", () => ({ api: m }));
 import { ItemDiff, ReviewPanel, TurnReviewCard } from "./TurnReview";
 import { SessionIdContext } from "./attachments";
-import { isFlatPicture } from "./AssetDiff";
+import { isFlatPicture, numberStruct } from "./AssetDiff";
 
 afterEach(() => {
   cleanup();
@@ -186,10 +186,10 @@ describe("the diff view", () => {
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph(added) } });
     await diffOf(REVIEW.items[1]);
     // The added node's values sit under After, one pin per line; Before says it was not there.
-    const row = screen.getByText("Added Node Constant").closest("tr")!;
+    const row = screen.getByText("Node Constant").closest("tr")!;
     const [change, before, after] = [...row.children] as HTMLElement[];
     expect(row.children).toHaveLength(3);
-    expect(change.textContent).toBe("AddedAdded Node Constant");
+    expect(change.textContent).toBe("AddedNode Constant");
     expect(before.className).toContain("cmp-absent");
     expect(before.textContent).toBe("not there");
     expect([...after.querySelectorAll(".cmp-kv > div")].map((d) => d.textContent)).toEqual(["Value0.35", "B0.5"]);
@@ -207,7 +207,8 @@ describe("the diff view", () => {
     expect(table.querySelector("[colspan]")).toBeNull();
     for (const tr of table.querySelectorAll("tbody tr")) expect(tr.children).toHaveLength(3);
     const cells = (text: string) => [...screen.getByText(text).closest("tr")!.children] as HTMLElement[];
-    const [rc, rb, ra] = cells("Removed Node Print String");
+    // The badge says Removed, so the message drops the verb.
+    const [rc, rb, ra] = cells("Node Print String");
     expect(rc.querySelector(".cmp-subtitle")!.textContent).toBe("Print String, Target is Kismet System Library");
     expect([...rb.querySelectorAll(".cmp-kv dt")].map((d) => d.textContent)).toEqual(["Duration", "Text Color"]);
     // A colour keeps its text, with a swatch beside it.
@@ -239,7 +240,7 @@ describe("the diff view", () => {
     expect((screen.getByAltText("BP_Door.uasset before") as HTMLImageElement).src).toContain(`/v1/ext/studio/review/thumbnails/${"a".repeat(40)}`);
     expect(screen.getByText(/No picture: Unreal has no thumbnail renderer for Material/)).toBeTruthy();
     const graph = screen.getByRole("region", { name: "Material Graph" });
-    expect(within(graph).getByText("Added Node Constant")).toBeTruthy();
+    expect(within(graph).getByText("Node Constant").closest("tr")!.querySelector(".diff-kind")!.textContent).toBe("Added");
     expect(within(graph).getByText("0.2")).toBeTruthy();
     expect(within(graph).getByText("0.7")).toBeTruthy();
     const details = screen.getByRole("region", { name: "Details" });
@@ -285,7 +286,8 @@ describe("the diff view", () => {
     const row = within(tree).getByText("Hide when Full").closest("tr")!;
     expect(row.querySelector("td[data-label='Before']")!.textContent).toBe("False");
     expect(row.querySelector("td[data-label='After']")!.textContent).toBe("True");
-    expect(within(tree).getByText("Warning: This may be missing changes to Animations and Bindings")).toBeTruthy();
+    // The engine's own caveat is on the section heading's hover, not a line of its own.
+    expect(tree.querySelector(".diff-section-head")!.getAttribute("title")).toContain("Warning: This may be missing changes to Animations and Bindings");
     // Every fact is the same: no Before and After for them, one folded line that counts them.
     expect(screen.queryByRole("region", { name: "Facts" })).toBeNull();
     const same = screen.getByText("5 unchanged facts").closest("details")!;
@@ -396,7 +398,8 @@ describe("the diff view", () => {
     expect(facts).toEqual(["Duration1.250 s to 0.980 s"]);
     expect(screen.queryByRole("region", { name: "Facts" })).toBeNull();
     expect(screen.getByText("1 unchanged fact").closest("details")!.open).toBe(false);
-    expect(tile.textContent).toContain("No picture: Unreal has no thumbnail renderer for SoundWave");
+    // Why a changed asset has no picture is not news; the tile says what changed.
+    expect(tile.textContent).not.toContain("No picture");
   });
 
   it("says why a side's thumbnail failed to load, and drops the pictures when neither loads", async () => {
@@ -447,6 +450,15 @@ describe("a flat picture", () => {
     expect(isFlatPicture(px([8, 8, 8, 255], [120, 60, 20, 255]))).toBe(false);
     // A transparent pixel does not count against the opaque ones.
     expect(isFlatPicture(px([8, 8, 8, 255], [250, 250, 250, 0]))).toBe(true);
+  });
+});
+
+describe("a struct of numbers", () => {
+  it("reads as its fields and short numbers, and any other text is left alone", () => {
+    expect(numberStruct("(X=1200.000000,Y=-280.000000,Z=0.000000)")).toBe("X 1200, Y -280, Z 0");
+    expect(numberStruct("(R=0.500000,G=0.100000,B=0.000000,A=1.000000)")).toBe("R 0.5, G 0.1, B 0, A 1");
+    expect(numberStruct("(Name=\"Tint\",Value=1)")).toBeNull();
+    expect(numberStruct("600.000000")).toBeNull();
   });
 });
 

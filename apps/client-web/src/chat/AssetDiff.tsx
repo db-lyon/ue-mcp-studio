@@ -42,8 +42,23 @@ const CHANGE_KIND: Record<string, string> = {
   PropertyValueChanged: "Changed",
 };
 
+/** The engine's message without the verb the badge beside it already says: "Added Node Branch" under ADDED reads "Node Branch". */
+const withoutVerb = (text: string, kind: string): string => {
+  const verb = kind === "Added" ? /^Added\s+/ : kind === "Removed" ? /^Removed\s+/ : null;
+  return verb && verb.test(text) ? text.replace(verb, "").replace(/^\w/, (c) => c.toUpperCase()) : text;
+};
+
 const kindOf = (r: AssetDiffRecord): string => CHANGE_KIND[r.category ?? ""] ?? CHANGE_KIND[r.diffType] ?? "Changed";
 const kindClass = (k: string): string => (k === "Added" ? "add" : k === "Removed" ? "del" : k === "Minor" || k === "Moved" ? "minor" : "mod");
+
+/** A struct of numbers as ExportText writes it, (X=1200.000000,Y=-280.000000,Z=0.000000), as "X 1200, Y -280, Z 0"; null for any other text. */
+export function numberStruct(v: string): string | null {
+  const m = /^\(([^()]*)\)$/.exec(v.trim());
+  if (!m) return null;
+  const parts = m[1].split(",").map((p) => /^\s*(\w+)=(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)\s*$/i.exec(p));
+  if (!parts.length || parts.some((p) => !p)) return null;
+  return parts.map((p) => `${p![1]}\u00a0${Number(p![2])}`).join(", ");
+}
 
 /** A value as ExportText wrote it, a parameter struct in words, or what its absence means. */
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
@@ -51,7 +66,7 @@ function Value({ v, side }: { v: string | null | undefined; side: "before" | "af
   if (v === "") return <span className="dim">empty</span>;
   const parts = readableParts(v);
   if (parts && parts.length > 1) return <span className="mono diff-value diff-parts" title={v}>{parts.map((x, i) => <span key={i}><EngineText text={x} /></span>)}</span>;
-  const words = parts?.[0] ?? (exportNumber(v) !== v ? exportNumber(v) : null);
+  const words = parts?.[0] ?? numberStruct(v) ?? (exportNumber(v) !== v ? exportNumber(v) : null);
   return <span className="mono diff-value" title={words ? v : undefined}><Swatch text={v} /><EngineText text={words ?? v} /></span>;
 }
 
@@ -143,7 +158,7 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
     const tile = tileOf(diff, name, asset, status);
     // Beside the other version, the tile names only the facts that changed; the rest are counted below.
     if (diff.before && diff.after) tile.facts = tile.facts.filter((f) => f.was !== undefined);
-    return <AssetTile {...tile} note={errors.length ? <>No picture: <EngineText text={errors.join("; ")} /></> : undefined} />;
+    return <AssetTile {...tile} note={errors.length && status !== "modified" ? <>No picture: <EngineText text={errors.join("; ")} /></> : undefined} />;
   }
   return (
     <div className="review-pictures">
@@ -160,7 +175,7 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
                 onLoad={(e) => loaded(s.label, e.currentTarget)}
                 onError={() => setFailed((f) => ({ ...f, [s.label]: "unreadable" }))}
               />
-              <figcaption className="small dim"><span className="picture-label">{s.label}</span><span className="picture-class"><EngineText text={s.v!.class} /></span></figcaption>
+              <figcaption className="small dim"><span className="picture-label">{s.label}</span></figcaption>
             </figure>
           );
         }
@@ -228,7 +243,7 @@ function RecordRows({ entries, sub }: { entries: AssetDiffRecord[]; sub?: boolea
             <span className={`diff-kind ${tone}`}>{k}</span>
             {values && r.path !== undefined
               ? <span className="diff-path" title={r.label && r.label !== r.path ? `${r.path}: ${r.displayString}` : r.displayString}><EngineText text={r.label ?? r.path} /></span>
-              : <span className="diff-message" title={r.toolTip}><EngineText text={r.displayString} /></span>}
+              : <span className="diff-message" title={r.toolTip ?? r.displayString}><EngineText text={withoutVerb(r.displayString, k)} /></span>}
             {node && !r.displayString.includes(node) && <span className="dim"> on <EngineText text={node} /></span>}
             {subtitle && <div className="cmp-subtitle dim small"><EngineText text={subtitle} /></div>}
           </>
@@ -277,11 +292,10 @@ function Section({ s }: { s: AssetDiffSection }) {
   const [openHidden, setOpenHidden] = useState(shown.length === 0);
   return (
     <section className="diff-section" aria-label={s.category}>
-      <div className="diff-section-head" title={`From Unreal's ${s.engineSource}`}>
+      <div className="diff-section-head" title={[`From Unreal's ${s.engineSource}`, ...(s.notes ?? [])].join("\n")}>
         <span className="diff-section-title"><EngineText text={s.category} /></span>
         <span className="dim small">{shown.length === 1 ? "1 difference" : `${shown.length} differences`}</span>
       </div>
-      {(s.notes ?? []).map((n) => <div key={n} className="diff-section-note dim small"><EngineText text={n} /></div>)}
       {shown.length > 0 && <RecordTable entries={shown} graph={s.kind === "graph"} />}
       {hidden.length > 0 && (
         <div className="diff-hidden">
@@ -347,7 +361,8 @@ function Facts({ before, after, tiled, covered }: { before: AssetVersion | null 
       </div>
     );
   }
-  const changed = rows.filter((r) => r.changed && !covered.has(r.name));
+  const isCovered = (name: string) => covered.has(name) || [...covered].some((c) => / parameter$/.test(c) && name.startsWith(`${c} `));
+  const changed = rows.filter((r) => r.changed && !isCovered(r.name));
   const same = rows.filter((r) => !r.changed);
   return (
     <>
@@ -409,6 +424,10 @@ function coveredFacts(sections: AssetDiffSection[]): Set<string> {
       for (const e of s.entries) if (e.group) out.add(`Variable ${e.group}`);
     }
     if (s.category === "Components") out.add("Components");
+    for (const e of s.entries) {
+      const kind = /^(Scalar|Vector|Texture) Parameter Values$/.exec(e.path ?? "");
+      if (kind) out.add(`${kind[1]} parameter`);
+    }
     if (s.category.startsWith("Graph: ")) out.add("Graphs");
   }
   return out;
