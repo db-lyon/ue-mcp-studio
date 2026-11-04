@@ -1,6 +1,6 @@
 // Screenshot the playtest UI, the review card and Settings in every state, theme and width, with no daemon and no editor.
 //
-//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>] [--widths <px,px,...>] [--remote]
+//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>] [--widths <px,px,...>] [--remote] [--grayscale-text]
 //
 // --remote draws every scenario as a paired browser sees it through the relay: the
 // reference scripts/parity-mobile.mjs compares the mobile app against.
@@ -69,7 +69,9 @@ const pictures = {
 const server = await createServer({ root: web, configFile: path.join(web, "vite.config.ts"), server: { port: 0, strictPort: false }, logLevel: "warn", plugins: [pictures] });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, "");
-const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+// --grayscale-text draws text without subpixel (LCD) antialiasing, as react-native-web's text is drawn in the
+// mobile parity shots, so the two compare glyph for glyph.
+const browser = await chromium.launch({ executablePath: browserPath, headless: true, args: process.argv.includes("--grayscale-text") ? ["--disable-lcd-text"] : [] });
 fs.mkdirSync(out, { recursive: true });
 
 // --audit also measures each shot for what breaks on a phone, into <out>/audit.json:
@@ -253,6 +255,14 @@ try {
         if (!(await page.$(focus))) errors.push(`nothing matched ${focus}`);
         else await page.focus(focus);
         await page.waitForTimeout(200);
+      }
+      for (const each of await page.evaluate(() => window.__visualQa.types ?? [])) {
+        if (!(await page.$(each.into))) errors.push(`nothing matched ${each.into}`);
+        else {
+          await page.focus(each.into);
+          await page.keyboard.press("End");
+          await page.keyboard.type(each.text, { delay: 10 });
+        }
       }
       const typed = await page.evaluate(() => window.__visualQa.type);
       if (typed) {

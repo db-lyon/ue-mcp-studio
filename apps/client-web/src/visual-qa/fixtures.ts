@@ -198,6 +198,8 @@ export interface Scenario {
   post?: (path: string, body?: unknown) => { status: number; body: unknown } | undefined;
   /** Typed from the keyboard into an element after the page settles: a CSS selector and the keys. */
   type?: { into: string; text: string };
+  /** Typed into several elements one after another, as `type` does for one. */
+  types?: Array<{ into: string; text: string }>;
   /** Clicked one after another once the typing settles, then left for wait milliseconds: for a state a typed command leads to. */
   afterType?: { clicks: string[]; wait: number };
   /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */

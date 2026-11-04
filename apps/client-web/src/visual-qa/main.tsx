@@ -16,6 +16,8 @@ import "../styles.css";
 import "../settings.css";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { SCENARIOS, daemonFor } from "./daemon";
+// The computer's own rule for what a paired browser may reach, so ?remote=1 is refused what a paired browser is.
+import { remoteBodyAllowed, remotePath } from "../../../../packages/remote/src/index.js";
 
 const params = new URLSearchParams(location.search);
 const scenario = SCENARIOS[params.get("scenario") ?? ""] ?? SCENARIOS["session-empty"];
@@ -29,6 +31,12 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url, location.href);
   if (!url.pathname.startsWith("/v1/")) return realFetch(input, init);
   const method = (init?.method ?? "GET").toUpperCase();
+  if (params.get("remote") === "1") {
+    const body = typeof init?.body === "string" ? new TextEncoder().encode(init.body) : undefined;
+    if (!remotePath(method, `${url.pathname}${url.search}`) || !remoteBodyAllowed(method, url.pathname, body)) {
+      return new Response(JSON.stringify({ error: "Not available remotely." }), { status: 403, headers: { "content-type": "application/json" } });
+    }
+  }
   // ue-mcp away: the stream and health refuse, as the relay does while the computer's daemon is down.
   if (scenario.remoteOffline && (url.pathname === "/v1/events" || url.pathname === "/v1/health")) {
     return new Response(JSON.stringify({ error: "The project is offline." }), { status: 503, headers: { "content-type": "application/json" } });
@@ -115,6 +123,7 @@ window.open = () => null;
   heights: Object.fromEntries(Object.entries(SCENARIOS).flatMap(([name, s]) => (s.height ? [[name, s.height]] : []))),
   focus: scenario.focus ?? null,
   type: scenario.type ?? null,
+  types: scenario.types ?? [],
   afterType: scenario.afterType ?? null,
   fullPage: scenario.fullPage ?? false,
   waitFor: scenario.waitFor ?? null,
