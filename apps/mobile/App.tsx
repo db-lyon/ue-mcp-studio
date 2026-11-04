@@ -91,7 +91,7 @@ function Root() {
 
   useEffect(() => {
     void (async () => {
-      // Opened from a pairing link (the system camera, or a tap on the link): pair first.
+      // Opened through the app's own uemcpstudio://pair link (an explicit Open in app): pair first.
       const initial = await Linking.getInitialURL().catch(() => null);
       if (initial && isPairLink(initial)) return startPairing(initial);
       const t = await trusted();
