@@ -49,14 +49,17 @@ export function KeyValues({ values }: { values: Array<{ name: string; value: str
       {values.map((v) => (
         <View key={v.name} style={{ flexDirection: tiny ? "column" : "row", columnGap: 10, marginBottom: tiny ? 3 : 0 }}>
           <T
-            onLayout={nameWidth === undefined ? (e) => { const w = Math.ceil(e.nativeEvent.layout.width) + 1;setWidest((cur) => Math.max(cur, w)); } : undefined}
+            onLayout={nameWidth === undefined ? (e) => { // max-content: the widest name as laid out, a hair over so it does not wrap on a rounding.
+              const w = e.nativeEvent.layout.width + 0.05;
+              setWidest((cur) => Math.max(cur, w)); } : undefined}
             style={{ fontSize: size, lineHeight: size * lh, color: t.c.muted, ...(tiny ? {} : nameWidth === undefined ? { flexShrink: 0 } : { width: nameWidth }) }}
           >
             {engineText(v.name)}
           </T>
           <View style={{ flexDirection: "row", flex: tiny ? undefined : 1, minWidth: 0 }}>
             <Swatch text={v.value} />
-            <T style={[font(t, "mono", 400, size * 0.92), { lineHeight: size * lh, color: t.c.text, flexShrink: 1 }]}>{engineText(v.value)}</T>
+            {/* dd.mono: the mono size at the inherited 1.55, so its line is shorter than the name's beside it. */}
+            <T style={[font(t, "mono", 400, size * 0.92), { lineHeight: Math.round(size * 0.92 * lh * 100) / 100, color: t.c.text, flexShrink: 1 }]}>{engineText(v.value)}</T>
           </View>
         </View>
       ))}
@@ -137,7 +140,9 @@ export function CompareRow({ tone, change, before, after, sub, index = 0 }: {
     if (tier === "medium" && bare) return null;
     const bg = label === "Before" ? t.c.diffBefore : t.c.diffAfter;
     return (
-      <View key={label} style={{ flex: stacked ? undefined : 1, minWidth: 0, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: bg, opacity: minor ? 0.75 : 1, ...(stacked ? { borderTopWidth: 1, borderTopColor: t.c.line, borderStyle: "dashed" as const } : { borderLeftWidth: first && tier === "medium" ? 0 : 1, borderLeftColor: t.c.lineStrong }) }}>
+      <View key={label} style={{ flex: stacked ? undefined : 1, minWidth: 0, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: bg, opacity: minor ? 0.75 : 1, ...(stacked ? { borderTopWidth: 1, borderTopColor: t.c.line, borderStyle: "dashed" as const, paddingLeft: first ? 8 : 9 } : { borderLeftWidth: first && tier === "medium" ? 0 : 1, borderLeftColor: t.c.lineStrong }) }}>
+        {/* Stacked, the After cell keeps the solid line on its left that td.cmp-side + td.cmp-side draws; one View cannot mix a dashed top with a solid side. */}
+        {stacked && !first ? <View style={{ position: "absolute", left: 0, top: -1, bottom: 0, width: 1, backgroundColor: t.c.lineStrong }} /> : null}
         {tier !== "wide" ? <T style={{ fontSize: 10, lineHeight: 15.5, letterSpacing: 0.5, textTransform: "uppercase", color: t.c.dim }}>{label}</T> : null}
         {side === null ? null : side === "absent" ? <T size={12} tone="dim">{label === "Before" ? "not there" : "gone"}</T> : side.content}
       </View>

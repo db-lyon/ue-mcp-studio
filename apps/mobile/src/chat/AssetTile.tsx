@@ -23,6 +23,8 @@ export function AssetIcon({ family, color }: { family: AssetFamily; color?: stri
 
 const small = (t: Theme, color: string): TextStyle => ({ ...baseFont(t), fontSize: 12, lineHeight: 12 * (t.base.lineHeight / t.base.size), color });
 /** `.mono.small`: the mono face at 0.92em of 12px. */
+/** `.mono.small` on one element: .mono's 0.92em is of the body's size (the tile's path). */
+const monoBody = (t: Theme, color: string): TextStyle => ({ ...font(t, "mono", 400, Math.round(t.base.size * 0.92 * 100) / 100), lineHeight: Math.round(t.base.lineHeight * 0.92 * 100) / 100, color });
 const monoSmall = (t: Theme, color: string): TextStyle => ({ ...font(t, "mono", 400, 12 * 0.92), lineHeight: 12 * (t.base.lineHeight / t.base.size), color });
 
 /**
@@ -45,7 +47,7 @@ export function AssetTile({ cls, fileName, path, status, changes, facts, note }:
   const toneColor = (tone: string) => (tone === "add" ? t.c.ok : tone === "del" ? t.c.bad : tone === "mod" ? t.c.warn : t.c.muted);
   const statusColor = status === "added" ? t.c.ok : status === "deleted" ? t.c.bad : t.c.muted;
   // fit-content(45%): the names' column is as wide as its widest name, at most 45% of the body.
-  const nameCol = bodyWidth ? Math.min(nameWidth, (bodyWidth - 12) * 0.45) : undefined;
+  const nameCol = bodyWidth ? Math.min(nameWidth, bodyWidth * 0.45) : undefined;
   return (
     <View accessibilityRole="none" accessibilityLabel={`${cls ?? "Asset"} ${fileName}`} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start", minWidth: 0, paddingVertical: 8, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.line, borderLeftWidth: 3, borderLeftColor: t.c.accentLine, borderRadius: 4 }}>
       <View style={{ marginTop: 1 }}>
@@ -56,7 +58,7 @@ export function AssetTile({ cls, fileName, path, status, changes, facts, note }:
           <Text style={{ ...baseFont(t), ...font(t, "sans", 600, t.base.size), lineHeight: t.base.lineHeight, flexShrink: 1 }}>{cls ? <EngineText text={cls} /> : "Asset"}</Text>
           <Text style={small(t, statusColor)}>{TILE_STATUS_LINE[status]}</Text>
         </View>
-        {path ? <Text style={monoSmall(t, t.c.muted)}><EngineText text={path} /></Text> : null}
+        {path ? <Text style={monoBody(t, t.c.muted)}><EngineText text={path} /></Text> : null}
         {changes && changes.length > 0 ? (
           <View accessibilityLabel="What changed" style={{ flexDirection: "row", flexWrap: "wrap", rowGap: 4, columnGap: 6 }}>
             {changes.map((c) => (

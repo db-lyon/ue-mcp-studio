@@ -27,7 +27,8 @@ export { outcomeNote };
 const lh = (t: Theme): number => (t.editor ? 1.5 : 1.55);
 
 /** A small-button's text: the body's size in the button font (the editor themes keep 12px). */
-const smallButtonText = (t: Theme) => [buttonText(t), { fontSize: t.editor ? 12 : 13.5, lineHeight: (t.editor ? 12 : 13.5) * 1.2 }];
+/** A small-button's text: the font size of where it sits (the body's, or .small's 12px inside a small banner); the editor themes keep 12px. */
+const smallButtonText = (t: Theme, size = t.editor ? 12 : 13.5) => [buttonText(t), { fontSize: size, lineHeight: size * 1.2 }];
 
 /**
  * A button inside the conversation at a finger's size, outlined as every
@@ -35,7 +36,9 @@ const smallButtonText = (t: Theme) => [buttonText(t), { fontSize: t.editor ? 12 
  * `kind` picks primary or danger; `small` the small-button text; `left` aligns
  * a long label to the start, wrapping.
  */
-export function OutlineButton({ title, onPress, disabled, expanded, kind, small: isSmall = true, left, fill, label, children, faded }: {
+export function OutlineButton({ title, onPress, disabled, expanded, kind, small: isSmall = true, left, fill, label, children, faded, fontSize }: {
+  /** The text size where it sits, when that is not the body's (a button inside .banner.small is 12px). */
+  fontSize?: number;
   title?: string;
   onPress: () => void;
   disabled?: boolean;
@@ -64,7 +67,7 @@ export function OutlineButton({ title, onPress, disabled, expanded, kind, small:
       onPress={onPress}
       style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: isSmall ? 10 : 12, paddingVertical: isSmall ? 0 : 6, justifyContent: "center", alignItems: left ? "flex-start" : "center", alignSelf: fill ? "stretch" : left ? "flex-start" : undefined, borderRadius: t.radius, borderWidth: 1, borderColor: pressed && !disabled ? t.c.accentLine : line, backgroundColor: pressed && !disabled ? (primary ? t.c.accentHi : t.c.panel3) : bg, opacity: disabled && faded ? 0.4 : 1 })}
     >
-      {children ?? <T style={[...(isSmall ? smallButtonText(t) : [buttonText(t, primary ? 600 : 500)]), { color, textAlign: left ? "left" : "center" }]}>{title}</T>}
+      {children ?? <T style={[...(isSmall ? smallButtonText(t, fontSize) : [buttonText(t, primary ? 600 : 500)]), { color, textAlign: left ? "left" : "center" }]}>{title}</T>}
     </Pressable>
   );
 }
@@ -184,8 +187,8 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
         );
       })}
       {review.dirty && review.dirty.length > 0 ? <T style={dimSmall}>{`Unsaved in the editor, so not recorded: ${review.dirty.join(", ")}`}</T> : null}
-      {note ? <Banner kind="warn" style={{ marginBottom: 0 }}><T style={[small(t), { color: t.c.warnText }]}>{note}</T></Banner> : null}
-      {error ? <Banner kind="bad" style={{ marginBottom: 0 }}><T style={[small(t), { color: t.c.badText }]}>{error}</T></Banner> : null}
+      {note ? <Banner kind="warn"><T style={[small(t), { color: t.c.warnText }]}>{note}</T></Banner> : null}
+      {error ? <Banner kind="bad"><T style={[small(t), { color: t.c.badText }]}>{error}</T></Banner> : null}
     </View>
   );
 }
@@ -243,19 +246,19 @@ function Item({ it, open, busy, opened, confirming, onToggle, onNative, onKeep, 
       </View>
       {it.summary ? <T style={[small(t), { color: it.diffError ? t.c.bad : t.c.text }]}>{engineText(it.summary)}</T> : null}
       {/* .small.mono on one element: .mono's 0.92em is of the body's size, not of .small's 12px. */}
-      <T style={[font(t, "mono", 400, Math.round(t.base.size * 0.92 * 100) / 100), { lineHeight: 12 * lh(t), color: t.c.dim }]} accessibilityHint={nativeTitle(it)}>{engineText(it.path)}</T>
+      <T style={[font(t, "mono", 400, Math.round(t.base.size * 0.92 * 100) / 100), { lineHeight: Math.round(t.base.size * 0.92 * lh(t) * 100) / 100, color: t.c.dim }]} accessibilityHint={nativeTitle(it)}>{engineText(it.path)}</T>
       {opened ? <T accessibilityLiveRegion="polite" style={[small(t), { color: opened.bad ? t.c.bad : t.c.dim }]}>{opened.text}</T> : null}
       {it.conflict && it.state !== "reverted" ? (
-        <Banner kind="warn" role="alert" style={{ marginBottom: 0 }}>
+        <Banner kind="warn" role="alert">
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
             <T style={[small(t), { color: t.c.warnText }]}>You edited this file after the agent, so Revert left it alone.</T>
             {confirming ? (
               <>
-                <OutlineButton title="Revert and lose my edits" kind="danger" disabled={busy} onPress={() => onRevert(true)} />
-                <OutlineButton title="Keep my edits" onPress={() => onConfirm(false)} />
+                <OutlineButton title="Revert and lose my edits" kind="danger" fontSize={12} disabled={busy} onPress={() => onRevert(true)} />
+                <OutlineButton title="Keep my edits" fontSize={12} onPress={() => onConfirm(false)} />
               </>
             ) : (
-              <OutlineButton title="Revert anyway" disabled={busy} onPress={() => onConfirm(true)} />
+              <OutlineButton title="Revert anyway" fontSize={12} disabled={busy} onPress={() => onConfirm(true)} />
             )}
           </View>
         </Banner>
@@ -282,7 +285,7 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
     };
   }, [api, sessionId, reviewId, item.path]);
   const dimSmall = [small(t), { color: t.c.dim }];
-  if (error) return <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}><T style={[small(t), { color: t.c.badText }]}>{`Could not read the diff: ${error}`}</T></Banner>;
+  if (error) return <Banner kind="bad" role="alert"><T style={[small(t), { color: t.c.badText }]}>{`Could not read the diff: ${error}`}</T></Banner>;
   if (!diff) return <T style={dimSmall}>Reading the diff.</T>;
   const c = diff.change;
   const name = fileName(item.path);
@@ -433,12 +436,12 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
       </Check>
       </View>
       {note ? (
-        <Banner kind="warn" style={{ marginBottom: 0 }}>
+        <Banner kind="warn">
           <T style={[small(t), { color: t.c.warnText }]}>{note.text}</T>
           {note.retry ? <OutlineButton title="Restore those too" disabled={busy} onPress={note.retry} /> : null}
         </Banner>
       ) : null}
-      {error ? <Banner kind="bad" style={{ marginBottom: 0 }}><T style={[small(t), { color: t.c.badText }]}>{error}</T></Banner> : null}
+      {error ? <Banner kind="bad"><T style={[small(t), { color: t.c.badText }]}>{error}</T></Banner> : null}
       {marks.length === 0 ? (
         <T style={dimSmall}>No checkpoints in this session yet.</T>
       ) : (

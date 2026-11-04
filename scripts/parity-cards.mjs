@@ -27,7 +27,8 @@ const out = path.resolve(arg("out") ?? path.join(os.tmpdir(), "studio-card-parit
 const only = arg("only")?.split(",");
 const THEMES = (arg("themes") ?? "ue-mcp,editor-orange,editor").split(",");
 const WIDTH = 390;
-const TALL = 3200;
+// Taller than any card: a card taller than the window makes Playwright resize it for the shot, which drops the touch emulation (pointer: coarse).
+const TALL = 6000;
 
 /** The card each scenario is about: on the web client by selector, in the app by testID. */
 const CARDS = [
@@ -137,6 +138,34 @@ async function press(page, what) {
   throw new Error(`nothing visible to press: ${what}`);
 }
 
+
+/** With --texts: each line of text in the card, its words and its box, relative to the card, for matching the two sides line by line. */
+const TEXTS = process.argv.includes("--texts");
+const textBoxes = (card) =>
+  card.evaluate((root) => {
+    const r0 = root.getBoundingClientRect();
+    const out = [];
+    const seen = new Set();
+    const walk = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+      // A name broken at its parts (<wbr>) is several text nodes in one element: one entry per element.
+      const el = n.parentElement;
+      if (seen.has(el)) continue;
+      seen.add(el);
+      const own = [...el.childNodes].filter((c) => c.nodeType === 3);
+      const text = own.map((c) => c.textContent).join("").replace(/​/g, "").trim();
+      if (!text) continue;
+      const range = document.createRange();
+      range.setStartBefore(own[0]);
+      range.setEndAfter(own[own.length - 1]);
+      const rects = [...range.getClientRects()].filter((r) => r.width > 0);
+      if (!rects.length) continue;
+      const r = rects[0];
+      out.push({ text: text.slice(0, 40), x: Math.round((r.left - r0.left) * 10) / 10, y: Math.round((r.top - r0.top) * 10) / 10, h: Math.round(r.height * 10) / 10, lines: new Set(rects.map((q) => Math.round(q.top))).size, size: getComputedStyle(el).fontSize });
+    }
+    return out;
+  });
+
 /** The web client's card, after the scenario's narrow clicks. */
 async function webCard(name, theme, selector, file) {
   const page = await browser.newPage({ viewport: { width: WIDTH, height: TALL }, hasTouch: true });
@@ -158,7 +187,10 @@ async function webCard(name, theme, selector, file) {
   }
   const el = page.locator(selector).first();
   if (!(await el.count())) errors.push(`web: no ${selector}`);
-  else await el.screenshot({ path: file, animations: "disabled" });
+  else {
+    await el.screenshot({ path: file, animations: "disabled" });
+    if (TEXTS) fs.writeFileSync(file.replace(/.png$/, ".json"), JSON.stringify(await textBoxes(el), null, 1));
+  }
   await page.close();
   return errors;
 }
@@ -181,7 +213,10 @@ async function appCard(name, theme, testId, file) {
   await page.waitForTimeout(500);
   const el = page.locator(`[data-testid="${testId}"]`).first();
   if (!(await el.count())) errors.push(`app: no testID ${testId}`);
-  else await el.screenshot({ path: file });
+  else {
+    await el.screenshot({ path: file });
+    if (TEXTS) fs.writeFileSync(file.replace(/.png$/, ".json"), JSON.stringify(await textBoxes(el), null, 1));
+  }
   await page.close();
   return errors;
 }

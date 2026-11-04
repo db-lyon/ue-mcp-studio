@@ -5,7 +5,7 @@
  * The web client's chat/AssetDiff.tsx; what it decides is client-core's.
  */
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { Image, View } from "react-native";
+import { Image, Platform, Pressable, View } from "react-native";
 import {
   exportNumber,
   factRows,
@@ -63,7 +63,8 @@ function Value({ v, side }: { v: string | null | undefined; side: "before" | "af
     return (
       <View style={{ gap: 2 }}>
         {parts.map((x, i) => (
-          <T key={i} style={monoCell(t)}>{engineText(x)}</T>
+          // .diff-parts: each part a block line of its own, at the mono size's own line height.
+          <T key={i} style={[monoCell(t), { lineHeight: Math.round(12 * 0.92 * lh(t) * 100) / 100 }]}>{engineText(x)}</T>
         ))}
       </View>
     );
@@ -183,7 +184,8 @@ function Kind({ k, tone }: { k: string; tone: string }) {
   const t = useTheme();
   const color = tone === "add" ? t.c.ok : tone === "del" ? t.c.bad : tone === "mod" ? t.c.warn : t.c.muted;
   const line = tone === "add" ? t.c.ok : tone === "del" ? t.c.bad : tone === "mod" ? t.c.warn : t.c.lineStrong;
-  return <T style={{ fontSize: 10, letterSpacing: 0.5, textTransform: "uppercase", color, borderWidth: 1, borderColor: line, borderRadius: 3, paddingHorizontal: 5, opacity: tone === "minor" ? 0.7 : 1 }}>{k}</T>;
+  // margin-right: 6px, which an inline span keeps on the web build; native text takes two spaces after it instead.
+  return <T style={{ fontSize: 10, lineHeight: 15.5, letterSpacing: 0.5, textTransform: "uppercase", color, borderWidth: 1, borderColor: line, borderRadius: 3, paddingHorizontal: 5, opacity: tone === "minor" ? 0.7 : 1, ...(Platform.OS === "web" ? { marginRight: 6 } : null) }}>{k}</T>;
 }
 
 /**
@@ -214,9 +216,9 @@ function RecordRows({ entries, sub, owner }: { entries: AssetDiffRecord[]; sub?:
           <View>
             <T style={{ fontSize: size, lineHeight: size * lh(t), color: tone === "minor" ? t.c.muted : t.c.text }}>
               <Kind k={k} tone={tone} />
-              {"  "}
+              {Platform.OS === "web" ? null : "  "}
               {engineText(text)}
-              {node && !r.displayString.includes(node) ? <T style={{ fontSize: size, color: t.c.dim }}>{` on ${engineText(node)}`}</T> : null}
+              {node && !r.displayString.includes(node) ? <T style={{ fontSize: size, lineHeight: size * lh(t), color: t.c.dim }}>{` on ${engineText(node)}`}</T> : null}
             </T>
             {subtitle ? <T style={[small(t), { marginTop: 2, color: t.c.dim }]}>{engineText(subtitle)}</T> : null}
           </View>
@@ -300,14 +302,27 @@ function FactName({ name }: { name: string }) {
   return <T style={cellText(t)}>{engineText(name)}</T>;
 }
 
-/** <details>: a caret summary that opens what follows. */
+/** The browser's disclosure triangle on a <summary>: right while closed, down while open, in the summary's colour. */
+function Disclosure({ open, color }: { open: boolean; color: string }) {
+  return open ? (
+    <View style={{ width: 0, height: 0, marginTop: 7, borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 6, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: color, marginRight: 5.7 }} />
+  ) : (
+    <View style={{ width: 0, height: 0, marginTop: 6, borderTopWidth: 4, borderBottomWidth: 4, borderLeftWidth: 6, borderTopColor: "transparent", borderBottomColor: "transparent", borderLeftColor: color, marginRight: 6.7 }} />
+  );
+}
+
+/**
+ * <details class="diff-unchanged small dim">: a summary 44 pixels tall (a finger's size) with the browser's
+ * triangle that opens what follows. Closed, the flex gap before the hidden body still counts, so 4 pixels follow it.
+ */
 function Fold({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: ReactNode }) {
   const t = useTheme();
   return (
     <View style={{ gap: 4, minWidth: 0 }}>
-      <T accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={[small(t), { color: t.c.dim, alignSelf: "flex-start", marginBottom: open ? 2 : 0 }]}>
-        {`${open ? "▾" : "▸"} ${title}`}
-      </T>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={{ flexDirection: "row", alignItems: "flex-start", alignSelf: "flex-start", minHeight: 44, marginBottom: open ? 2 : 4 }}>
+        <Disclosure open={open} color={t.c.dim} />
+        <T style={[small(t), { color: t.c.dim }]}>{title}</T>
+      </Pressable>
       {open ? children : null}
     </View>
   );
@@ -376,7 +391,7 @@ export function AssetDiffView({ diff, name, asset, status, nativeNote }: { diff:
   const t = useTheme();
   if (diff.state === "error") {
     return (
-      <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
+      <Banner kind="bad" role="alert">
         <T style={[small(t), { color: t.c.badText }]}>Unreal could not load this asset to diff it, so there is no before and after to show.</T>
         <T style={[font(t, "mono", 400, 12 * 0.92), { color: t.c.badText }]}>{engineText(diff.error ?? "No reason was given.")}</T>
         <T style={[small(t), { color: t.c.badText }]}>{diffErrorConsequence(status)}</T>
@@ -402,7 +417,7 @@ function ReadyDiff({ diff, name, asset, status, nativeNote }: { diff: AssetDiff;
       {nativeNote}
       <Pictures diff={diff} name={name} asset={asset} status={status} failed={failed} setFailed={setFailed} />
       {diff.classChanged ? (
-        <Banner kind="warn" style={{ marginBottom: 0 }}>
+        <Banner kind="warn">
           <T style={[small(t), { color: t.c.warnText }]}>{`The asset's class changed: ${diff.classChanged}.`}</T>
         </Banner>
       ) : null}
