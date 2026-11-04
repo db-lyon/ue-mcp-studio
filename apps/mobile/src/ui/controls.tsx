@@ -9,7 +9,7 @@ import { Animated, Modal, Pressable, ScrollView, StyleSheet, TextInput, View, ty
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { font, labelFont, T } from "./Text";
 import { useStyles, useTheme } from "./ThemeProvider";
-import type { Theme } from "./theme";
+import { lineBox, type Theme } from "./theme";
 
 /** button, button.primary, button.ghost, button.small-button, button.large. */
 export function Button({
@@ -63,7 +63,8 @@ const buttonStyles = (t: Theme) => ({
   primaryDisabled: { backgroundColor: "transparent" },
   text: t.editor ? { ...font(t, "sans", 400, 12, 1.2) } : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23 },
   primaryText: t.editor ? {} : font(t, "mono", 600, 11.5, 1.2),
-  largeText: { fontSize: 12.5 },
+  // button.large's 12.5px keeps the button's 1.2 and 0.02em; the editor themes' button rule outranks it, so 12px stays.
+  largeText: t.editor ? {} : { fontSize: 12.5, lineHeight: lineBox(12.5, 1.2), letterSpacing: 0.25 },
 });
 
 /** .card: the panel, its hairline, the large radius; 12px padding at phone width. */

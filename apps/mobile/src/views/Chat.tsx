@@ -632,7 +632,9 @@ function Display({ t }: { t: Theme }) {
   const size = t.editor ? 24 : 28;
   return (
     <T accessibilityRole="header" style={{ ...font(t, "sans", 700, size, 1.1), letterSpacing: t.editor ? 0 : -0.03 * size, marginBottom: 10, textAlign: "center", color: t.c.text }}>
-      <T style={t.editor ? { ...font(t, "sans", 700, 24, 1.1), color: t.c.text } : { ...font(t, "serif", 400, 42, 1, true), letterSpacing: -0.42, color: t.c.accent }}>Start</T>
+      <T style={t.editor ? { ...font(t, "sans", 700, 24, 1.1), letterSpacing: -0.24, color: t.c.text } : { ...font(t, "serif", 400, 42, 1, true), letterSpacing: -0.42, color: t.c.accent }}>Start</T>
+      {/* .display em's padding-right: 2px, which a nested text cannot take on a phone. */}
+      <View testID="display-em-pad" style={{ width: 2, height: 1 }} />
       {" a session."}
     </T>
   );
@@ -659,8 +661,12 @@ function Empty({ settings, onSettings, onCreate }: { settings: StudioSettings | 
         <T style={[labelFont(t, t.c.dim), { marginBottom: 4, textAlign: "center" }]}>or try</T>
         {EXAMPLES.map((x) => (
           <Pressable key={x} accessibilityRole="button" accessibilityLabel={x} onPress={() => onCreate(x)} style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", paddingVertical: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: t.c.line, borderRadius: t.radius, backgroundColor: pressed ? t.c.accentWash : t.c.tint })}>
-            {t.editor ? null : <T style={{ ...font(t, "mono", 400, 13.5, 1.45), color: t.c.accent, marginRight: 10 }}>{"›"}</T>}
-            <T style={{ flex: 1, ...(t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "sans", 400, 13.5, 1.45)), color: t.c.muted }}>{x}</T>
+            {/* The caret is inline with the text, as the web's ::before: a second line wraps under it, and the mono glyph shares the line box. */}
+            <T style={{ flex: 1, ...(t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "sans", 400, 13.5, 1.45)), color: t.c.muted }}>
+              {t.editor ? null : <T testID="example-caret" style={{ ...font(t, "mono", 400, 13.5, 1.45), color: t.c.accent }}>{"›"}</T>}
+              {t.editor ? null : <View style={{ width: 10, height: 1 }} />}
+              {x}
+            </T>
           </Pressable>
         ))}
       </View>
