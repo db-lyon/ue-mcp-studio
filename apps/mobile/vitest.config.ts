@@ -20,6 +20,9 @@ export default defineConfig({
       { find: /^react\/(.*)$/, replacement: `${mod("react")}/$1` },
       { find: /^react-dom$/, replacement: mod("react-dom") },
       { find: /^react-dom\/(.*)$/, replacement: `${mod("react-dom")}/$1` },
+      { find: /^react-native-svg$/, replacement: mod("react-native-svg/lib/module/elements.web.js") },
+      // Android only: the touch sound the web build never plays.
+      { find: /fabric\/NativeSvgSoundModule(\.js)?$/, replacement: mock("svg-sound.ts") },
       { find: /^expo-secure-store$/, replacement: mock("secure-store.ts") },
       { find: /^expo-camera$/, replacement: mock("camera.tsx") },
       { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
@@ -35,6 +38,6 @@ export default defineConfig({
     environment: "jsdom",
     include: ["ui-test/**/*.test.tsx"],
     setupFiles: ["ui-test/setup.ts"],
-    server: { deps: { inline: [/react-native-web/, /@testing-library/] } },
+    server: { deps: { inline: [/react-native-web/, /react-native-svg/, /@testing-library/] } },
   },
 });
