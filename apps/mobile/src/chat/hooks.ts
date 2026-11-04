@@ -23,6 +23,10 @@ export function useNow(active: boolean): number {
 /** Within this many pixels of the bottom counts as at the bottom. */
 export const BOTTOM_SLACK = 48;
 
+/** How long after a change of content its first layout may take to arrive, and how long after one layout pass the next may. */
+export const SETTLE_FIRST_MS = 600;
+export const SETTLE_GAP_MS = 150;
+
 /**
  * Keep a scrolling list at its newest line while the reader is there. Once
  * they scroll up it stays put, and `behind` says new lines arrived below.
@@ -43,21 +47,28 @@ export function useFollow(content: unknown, snap?: unknown) {
 
   // New content follows the reader down while they are at the bottom; up the thread, it says so instead.
   // Only a change of `content` moves them (and the list getting shorter): opening a call in place does not.
+  // The web scrolls once the new line is laid out; here layout arrives in passes after the commit, so the
+  // size changes that settle it are followed, and growth after that is not, as on the web.
   const following = useRef(true);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const settleIn = (ms: number) => {
+    if (settle.current) clearTimeout(settle.current);
+    settle.current = setTimeout(() => (following.current = false), ms);
+  };
   const first = useRef(true);
   useLayoutEffect(() => {
     if (first.current) first.current = false;
     else if (!atBottom.current) return void setBehind(true);
     following.current = true;
     toEnd();
-    if (settle.current) clearTimeout(settle.current);
-    settle.current = setTimeout(() => (following.current = false), 600);
+    settleIn(SETTLE_FIRST_MS);
   }, [content]);
   useEffect(() => () => void (settle.current && clearTimeout(settle.current)), []);
 
   const onContentSizeChange = useCallback(() => {
-    if (following.current && atBottom.current) toEnd();
+    if (!following.current) return;
+    if (atBottom.current) toEnd();
+    settleIn(SETTLE_GAP_MS);
   }, []);
   const height = useRef(0);
   const onLayout = useCallback((e: LayoutChangeEvent) => {

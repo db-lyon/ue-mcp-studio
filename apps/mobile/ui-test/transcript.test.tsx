@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen } from "@testing-library/react";
+import { SETTLE_FIRST_MS, SETTLE_GAP_MS, useFollow } from "../src/chat/hooks";
 import type { ApprovalRequest, EditorDialog, PendingForm, TranscriptEntry } from "@ue-mcp-studio/shared";
 import { AssetLinks } from "@ue-mcp-studio/client-core";
 import { Markdown } from "../src/ui";
@@ -357,5 +358,35 @@ describe("AssetToken", () => {
     fireEvent.click(screen.getByLabelText("/Game/BP_Door.BP_Door"));
     await settle();
     expect(api.openAsset).toHaveBeenCalledWith("/Game/BP_Door.BP_Door");
+  });
+});
+
+describe("useFollow", () => {
+  /** The hook over a stand-in scroll view, at the bottom. */
+  function follow() {
+    const scrollToEnd = vi.fn();
+    const r = renderHook(({ content }: { content: string }) => useFollow(content), { initialProps: { content: "1" } });
+    (r.result.current.ref as { current: unknown }).current = { scrollToEnd };
+    return { ...r, scrollToEnd, sized: () => act(() => r.result.current.props.onContentSizeChange()) };
+  }
+
+  it("follows the layout passes that settle a new line, and not growth after them, as the web follows a new line but not text that reflows later", () => {
+    vi.useFakeTimers();
+    try {
+      const f = follow();
+      f.rerender({ content: "2" });
+      f.scrollToEnd.mockClear();
+      act(() => void vi.advanceTimersByTime(SETTLE_FIRST_MS - 100));
+      f.sized();
+      act(() => void vi.advanceTimersByTime(SETTLE_GAP_MS - 50));
+      f.sized();
+      expect(f.scrollToEnd).toHaveBeenCalledTimes(2);
+      // A call opened in place a moment later: the reader stays where they are.
+      act(() => void vi.advanceTimersByTime(SETTLE_GAP_MS + 10));
+      f.sized();
+      expect(f.scrollToEnd).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
