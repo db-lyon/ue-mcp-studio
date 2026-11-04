@@ -240,12 +240,15 @@ export function PinSheet({ lock, bio, onUnlocked }: { lock: Lock; bio: Biometric
 }
 
 /** After a typed PIN opened the lock: offered once, the fingerprint keeps it for next time. */
-function RememberOffer({ onYes, onNo }: { onYes: () => void; onNo: () => void }) {
+export function RememberOffer({ onYes, onNo }: { onYes: () => void; onNo: () => void }) {
   const s = useStyles(styles);
   return (
     <View style={s.backdrop}>
       <View style={s.sheet} accessibilityViewIsModal accessibilityLabel="Use fingerprint next time">
-        <T style={s.sheetLead}>Unlock with your fingerprint next time? The PIN stays on this phone, and your computer still checks it.</T>
+        <T style={s.sheetTitle} accessibilityRole="header">
+          Unlock with your fingerprint?
+        </T>
+        <T style={s.sheetLead}>Next time, your fingerprint can enter the PIN for you. The PIN stays on this phone, and your computer still checks it.</T>
         <View style={{ flexDirection: "row", justifyContent: "center", gap: 8 }}>
           <Button title="Not now" variant="ghost" onPress={onNo} />
           <Button title="Use fingerprint next time" variant="primary" onPress={onYes} />
