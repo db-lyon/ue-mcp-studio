@@ -221,14 +221,32 @@ export function Radio({ on, disabled, style, width = 20 }: { on: boolean; disabl
   const t = useTheme();
   const d = Math.min(width, 20);
   const ring = disabled ? (on ? "#757575" : "#626262") : on ? t.c.accent : "#838383";
+  // A chosen radio whose accent reads too dark on the dark disc (the editor theme's blue) is drawn light, a white disc.
+  const disc = on && !disabled && lightRadio(t.c.accent) ? "#ffffff" : "#3b3b3b";
   return (
     // The browser's own margin around a radio: 3px above and right, 5px left.
     <View style={[{ width, height: 20, marginTop: 3, marginRight: 3, marginLeft: 5, alignItems: "center", justifyContent: "center", flexShrink: 0 }, style]}>
-      <View style={{ width: d, height: d, borderRadius: d / 2, borderWidth: 1, borderColor: ring, backgroundColor: "#3b3b3b", alignItems: "center", justifyContent: "center" }}>
+      <View style={{ width: d, height: d, borderRadius: d / 2, borderWidth: 1, borderColor: ring, backgroundColor: disc, alignItems: "center", justifyContent: "center" }}>
         {on ? <View style={{ width: d * 0.6, height: d * 0.6, borderRadius: d * 0.3, backgroundColor: disabled ? "#757575" : t.c.accent }} /> : null}
       </View>
     </View>
   );
+}
+
+/**
+ * Whether Chrome draws a chosen radio of this accent in its light form: when the accent's contrast with the
+ * dark control's #3b3b3b disc is under 3:1.
+ */
+export function lightRadio(accent: string): boolean {
+  const n = parseInt(accent.slice(1, 7), 16);
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (r: number, g: number, b: number) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  const a = lum((n >> 16) & 255, (n >> 8) & 255, n & 255);
+  const disc = lum(0x3b, 0x3b, 0x3b);
+  return (Math.max(a, disc) + 0.05) / (Math.min(a, disc) + 0.05) < 3;
 }
 
 /** input[type=checkbox] at 20px. */
