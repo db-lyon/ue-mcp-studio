@@ -246,7 +246,7 @@ describe("the @-mention menu", () => {
     // An asset chip opens the asset in the editor, so it is drawn inside a project.
     renderInProject(<MentionText text={text} />);
     expect(screen.getByText("Front Door")).toBeTruthy();
-    expect(screen.getByText("BP_Door")).toBeTruthy();
+    expect(screen.getByText(/^BP_​?Door$/)).toBeTruthy();
     expect(screen.getByText("Actor")).toBeTruthy();
     expect(screen.getByText("Asset")).toBeTruthy();
     expect(screen.getByText(/Swap the mesh on/)).toBeTruthy();
