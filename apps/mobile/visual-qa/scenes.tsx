@@ -16,7 +16,7 @@ import { Settings } from "../src/screens/Settings";
 import { SessionScreen } from "../src/screens/Session";
 import { ReviewItemScreen, ReviewScreen } from "../src/screens/Review";
 import { CheckpointsScreen } from "../src/screens/Checkpoints";
-import { ChangeScreen, ChangesScreen } from "../src/screens/Changes";
+import { ChangesSheet } from "../src/screens/git/ChangesSheet";
 import { PinPad } from "../src/PinPad";
 import { s } from "../src/ui";
 
@@ -189,6 +189,8 @@ function api(over: Partial<Record<keyof StudioApi, unknown>> = {}): StudioApi {
   });
 }
 
+const vcsStatus = { kind: "git", name: "Git", branch: "feature/door", changes: 6, ahead: 2, behind: 0, root: "D:/Projects/Lyra" } as const;
+
 const okTransport: Transport = async () => ({ status: 200, headers: {}, body: null });
 
 function project(): Project {
@@ -247,9 +249,9 @@ export const SCENES: Record<string, { render: () => ReactNode; click?: string }>
     ),
   },
   checkpoints: { render: () => <InProject><CheckpointsScreen sessionId="s1" /></InProject> },
-  changes: { render: () => <InProject><ChangesScreen /></InProject> },
-  "changes-tree": { render: () => <InProject><ChangesScreen /></InProject>, click: "Tree" },
-  change: { render: () => <InProject><ChangeScreen path="Config/DefaultGame.ini" /></InProject> },
+  changes: { render: () => <InProject><ChangesSheet vcs={vcsStatus} onClose={() => undefined} /></InProject> },
+  "changes-tree": { render: () => <InProject><ChangesSheet vcs={vcsStatus} onClose={() => undefined} /></InProject>, click: "Tree" },
+  change: { render: () => <InProject><ChangesSheet vcs={vcsStatus} onClose={() => undefined} /></InProject>, click: "DefaultGame.ini" },
   "lock-screen": { render: () => <PinPad lock={createLock(okTransport)} view={{ state: lockState, screen: true, prompt: false, removed: false }} onRemoved={() => undefined} /> },
   "lock-sheet": { render: () => <PinPad lock={createLock(okTransport)} view={{ state: { ...lockState, locked: false, pinLength: undefined }, screen: false, prompt: true, removed: false }} onRemoved={() => undefined} /> },
 };

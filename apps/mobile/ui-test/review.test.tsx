@@ -4,7 +4,6 @@ import { Alert } from "react-native";
 import type { ReviewItem, TurnReview } from "@ue-mcp-studio/shared";
 import { ReviewItemScreen, ReviewScreen } from "../src/screens/Review";
 import { CheckpointsScreen } from "../src/screens/Checkpoints";
-import { ChangeScreen, ChangesScreen } from "../src/screens/Changes";
 import { fakeApi, renderInProject, session, settle } from "./helpers";
 
 const item = (path: string, over: Partial<ReviewItem> = {}): ReviewItem => ({ path, status: "modified", kind: "package", group: "blueprint", state: "pending", ...over });
@@ -137,57 +136,5 @@ describe("CheckpointsScreen", () => {
     await settle();
     fireEvent.click(screen.getByText("Undo restore"));
     expect(api.timelineUndo).toHaveBeenCalledWith("s1", "c3");
-  });
-});
-
-describe("ChangesScreen", () => {
-  const changes = [
-    { path: "Content/Props/Door.uasset", status: "modified" as const },
-    { path: "Content/Props/Lamp.uasset", status: "added" as const },
-    { path: "Source/Game/Door.cpp", status: "deleted" as const },
-  ];
-
-  it("shows the branch and changed files, and switches to a folder tree", async () => {
-    const api = fakeApi();
-    api.vcs.mockResolvedValue({ vcs: { kind: "git", name: "Git", branch: "main", changes: 3, ahead: 1, root: "D:/Game" } });
-    api.vcsChanges.mockResolvedValue({ changes, truncated: false });
-    renderInProject(<ChangesScreen />, api);
-    await settle();
-    await settle();
-    expect(screen.getByText("Git: main, 3 changed, 1 ahead")).toBeTruthy();
-    expect(screen.getByText("Door.uasset")).toBeTruthy();
-    expect(screen.getAllByText("Content/Props")).toHaveLength(2);
-    fireEvent.click(screen.getByText("Tree"));
-    expect(screen.getByText("Source/Game")).toBeTruthy();
-    fireEvent.click(screen.getByText("Content/Props"));
-    expect(screen.queryByText("Lamp.uasset")).toBeNull();
-  });
-
-  it("opens a file's diff", async () => {
-    const api = fakeApi();
-    api.vcs.mockResolvedValue({ vcs: { kind: "git", name: "Git", branch: "main", changes: 1, root: "D:/Game" } });
-    api.vcsChanges.mockResolvedValue({ changes: changes.slice(2), truncated: true });
-    const { pushed } = renderInProject(<ChangesScreen />, api);
-    await settle();
-    await settle();
-    expect(screen.getByText("The list was cut short; more files changed.")).toBeTruthy();
-    fireEvent.click(screen.getByText("Door.cpp"));
-    expect(pushed).toEqual([{ name: "change", path: "Source/Game/Door.cpp" }]);
-  });
-
-  it("says when the project has no source control", async () => {
-    const api = fakeApi();
-    api.vcs.mockResolvedValue({ vcs: null });
-    renderInProject(<ChangesScreen />, api);
-    await settle();
-    expect(screen.getByText("This project has no source control Studio can read.")).toBeTruthy();
-  });
-
-  it("shows a file's diff, or why there is none", async () => {
-    const api = fakeApi();
-    api.vcsDiff.mockResolvedValue({ diff: null, reason: "Binary file." });
-    renderInProject(<ChangeScreen path="Content/Props/Door.uasset" />, api);
-    await settle();
-    expect(screen.getByText("Binary file.")).toBeTruthy();
   });
 });

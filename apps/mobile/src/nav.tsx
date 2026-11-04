@@ -11,9 +11,7 @@ export type Route =
   | { name: "session"; id: string }
   | { name: "review"; sessionId: string; review: TurnReview }
   | { name: "reviewItem"; sessionId: string; reviewId: string; path: string }
-  | { name: "checkpoints"; sessionId: string }
-  | { name: "changes" }
-  | { name: "change"; path: string };
+  | { name: "checkpoints"; sessionId: string };
 
 export interface ProjectNav {
   project: Project;
