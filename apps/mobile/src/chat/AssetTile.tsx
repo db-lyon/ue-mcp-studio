@@ -72,7 +72,7 @@ export function AssetTile({ cls, fileName, path, status, changes, facts, note }:
           <View style={{ gap: 2 }}>
             {facts.map((f) => (
               <View key={f.name} style={{ flexDirection: "row", columnGap: 12 }}>
-                <Text style={[small(t, t.c.muted), nameCol !== undefined ? { width: nameCol } : { maxWidth: "45%" }]} onLayout={nameCol === undefined ? (e) => setNameWidth((w) => Math.max(w, Math.ceil(e.nativeEvent.layout.width))) : undefined}>
+                <Text style={[small(t, t.c.muted), nameCol !== undefined ? { width: nameCol } : { flexShrink: 0 }]} onLayout={nameCol === undefined ? (e) => setNameWidth((w) => Math.max(w, e.nativeEvent.layout.width + 0.5)) : undefined}>
                   <EngineText text={f.name} />
                 </Text>
                 <Text style={[monoSmall(t, t.c.text), { flex: 1, minWidth: 0, lineHeight: Math.round(12 * 0.92 * (t.base.lineHeight / t.base.size) * 100) / 100 }]}>

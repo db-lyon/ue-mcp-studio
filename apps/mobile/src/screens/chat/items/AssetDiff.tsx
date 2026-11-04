@@ -215,7 +215,7 @@ function RecordRows({ entries, sub, owner }: { entries: AssetDiffRecord[]; sub?:
         const change = (
           <View>
             {/* A minor row's 11px line is shorter than its badge, which sits inline-block on the web and stretches the line to 18 pixels. */}
-            <T style={{ fontSize: size, lineHeight: tone === "minor" ? 18 : size * lh(t), color: tone === "minor" ? t.c.muted : t.c.text }}>
+            <T style={{ fontSize: size, lineHeight: tone === "minor" ? (t.editor ? 17 : 18) : size * lh(t), color: tone === "minor" ? t.c.muted : t.c.text }}>
               <Kind k={k} tone={tone} />
               {Platform.OS === "web" ? null : "  "}
               {engineText(text)}
