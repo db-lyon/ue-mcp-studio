@@ -13,7 +13,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { haptic } from "../native/haptics";
-import { Banner, Button, font, Loading, T, useTheme } from "../ui";
+import { Banner, Button, font, T, useTheme, Waiting } from "../ui";
 import { Page, StateView } from "./StudioPage";
 import { Code } from "./Pairing";
 
@@ -68,7 +68,9 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
   if (!permission)
     return (
       <Page stage title="Scan pairing code" onBack={onCancel}>
-        <Loading>Opening the camera</Loading>
+        <StateView glyph="camera" title="Opening the camera" lead="Studio reads the pairing code on your computer's screen with the camera.">
+          <Waiting>Asking for the camera</Waiting>
+        </StateView>
       </Page>
     );
 

@@ -10,7 +10,7 @@ import { View } from "react-native";
 import { formatPairingCode } from "@ue-mcp-studio/remote";
 import { isPairLink, type PairFailureKind, type PairStep } from "../relay";
 import { readText } from "../native/clipboard";
-import { Banner, Button, font, Input, Panel, T, useTheme, Waiting } from "../ui";
+import { Banner, bannerText, Button, font, Input, Panel, T, useTheme, Waiting } from "../ui";
 import { Page, StateView } from "./StudioPage";
 
 /** The one way on from a pairing that cannot go further. */
@@ -64,7 +64,7 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
         note={
           error ? (
             <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
-              {error}
+              <T style={{ color: bannerText(t, "bad"), textAlign: "center" }}>{error}</T>
             </Banner>
           ) : null
         }
@@ -106,7 +106,7 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
           />
           {wrong ? (
             <T accessibilityRole="alert" style={{ ...font(t, "sans", 400, 12.5, t.base.lineHeight / t.base.size), color: t.editor ? t.c.bad : t.c.badText }}>
-              That is not a pairing link. A pairing link starts with https://remote.ue-mcp.com/pair#
+              That is not a pairing link. Pairing links start with <T style={{ ...font(t, "mono", 500, 12, 1.4) }}>remote.ue-mcp.com/pair</T>.
             </T>
           ) : null}
         </Panel>
@@ -179,9 +179,9 @@ function wording(f: PairFailure): { head: string; text: string; note: string } {
     case "network":
       return { head: "The relay could not be reached", text: "This phone could not reach remote.ue-mcp.com. Either this phone is offline or the relay is down.", note: "Check this phone's connection, then try again." };
     case "plan":
-      return { head: "Remote control is not available", text: "The account Studio is signed in with on your computer has no remote control in its plan.", note: "Upgrade to a Pro or Studio plan in Studio on your computer, then make a new code." };
+      return { head: "Remote control is not available", text: "The account Studio is signed in with on your computer has no remote control in its plan.", note: "Remote control comes with the Pro and Studio plans. Upgrade the account on your computer, then make a new code there." };
     case "mismatch":
-      return { head: "The answer did not match the code", text: "Your computer's answer did not match the pairing code, so this phone did not pair, to be safe.", note: NEW_CODE };
+      return { head: "The answer did not match the code", text: "Your computer's answer did not match the code. This phone was not paired.", note: NEW_CODE };
     default:
       // The relay's and the computer's words often end on the same advice the note gives.
       return { head: "Pairing did not finish", text: f.message.replace(/\s*Make a new (code|one)[^.]*\.\s*$/i, "") || f.message, note: NEW_CODE };
@@ -194,11 +194,13 @@ function wording(f: PairFailure): { head: string; text: string; note: string } {
  */
 export function PairFailed({ failure, onScan, onStart, onRetry }: { failure: PairFailure; onScan: () => void; onStart: () => void; onRetry?: () => void }) {
   // Every stopped pairing ends on the same two actions in the same order: the way on, then back to the start.
-  const way = failure.kind === "network" && onRetry ? <Button title="Try again" variant="primary" size="large" onPress={onRetry} /> : <Button title="Scan a new code" variant="primary" size="large" onPress={onScan} />;
+  // Scanning again cannot help an account without the plan: there Start over is the only way.
+  const way =
+    failure.kind === "plan" ? null : failure.kind === "network" && onRetry ? <Button title="Try again" variant="primary" size="large" onPress={onRetry} /> : <Button title="Scan a new code" variant="primary" size="large" onPress={onScan} />;
   const actions = (
     <View style={{ flex: 1, gap: 8 }}>
       {way}
-      <Button title="Start over" size="large" onPress={onStart} />
+      <Button title="Start over" variant={way ? "default" : "primary"} size="large" onPress={onStart} />
     </View>
   );
   if (failure.kind === "expired" || failure.kind === "timeout")
