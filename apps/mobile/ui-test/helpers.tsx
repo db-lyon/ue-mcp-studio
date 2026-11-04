@@ -17,11 +17,15 @@ const NAMES: Array<keyof StudioApi> = [
   "health", "sessions", "newSession", "sessionSync", "callResult", "send", "queue", "removeQueued", "sendQueued", "stop", "saveDraft", "approve", "dialogs", "answerDialog",
   "settings", "saveSettings", "models", "reviewStatus", "setSessionReview", "reviewDiff", "reviewKeep", "reviewRevert", "reviewUndo", "timelineRestore", "timelineUndo", "vcs", "vcsChanges", "vcsDiff",
   "versionNotice", "keepStudio", "useInstalledStudio", "busy", "stopBusy", "editor", "refusal", "saveUpdateRun", "updatesDeferredNow",
+  "editQueued", "updateSession", "deleteSession", "markSeen", "dismissAgents", "editMessage", "uploadAttachment", "stopSubagent", "compact", "flow", "action", "playtest",
+  "flows", "actions", "searchMentions", "forms", "answerForm", "bytes", "reviewNativeDiff",
 ];
 
 export function fakeApi(): FakeApi {
   const api = {} as FakeApi;
   for (const n of NAMES) api[n] = vi.fn(() => new Promise(() => undefined));
+  api.reviewImageUrl = vi.fn((name: string) => `/v1/ext/studio/review/images/${name}`);
+  api.reviewThumbnailUrl = vi.fn((id: string) => `/v1/ext/studio/review/thumbnails/${id}`);
   api.saveDraft.mockResolvedValue({});
   api.dialogs.mockResolvedValue({ now: Date.now(), dialogs: [] });
   return api;

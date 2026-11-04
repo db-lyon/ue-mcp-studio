@@ -11,7 +11,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, ty
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
 import { compactLine, contextLabel, contextWarningText, dollars, pct, tokenCount } from "@ue-mcp-studio/client-core";
 import { font, labelFont, T, useTheme, type Theme } from "../../../ui";
-import { buttonText, small } from "./styles";
+import { buttonText, small } from "../../../chat/styles";
 
 export { dollars };
 
