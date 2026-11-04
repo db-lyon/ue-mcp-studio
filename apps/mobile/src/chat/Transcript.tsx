@@ -25,7 +25,7 @@ import {
   type AgentState,
   type Call,
 } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, ContentButton, buttonFont, font, labelFont, Markdown, Output, Pulse, useTheme, type AssetMark, type Theme } from "../ui";
+import { Banner, baseFont, ContentButton, buttonFont, font, labelFont, lineBox, Markdown, Output, Pulse, useTheme, type AssetMark, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import { copyText } from "../native/clipboard";
 import { MentionText } from "./MentionMenu";
@@ -592,7 +592,7 @@ function CallInput({ call, links, maxHeight }: { call: Call; links: boolean; max
   if (call.name === "edit_file") {
     return (
       <>
-        {i.replace_all ? <Text style={[small(t, t.c.dim), font(t, "mono", 400, 12), { lineHeight: 19.2 }, indent]}>every occurrence</Text> : null}
+        {i.replace_all ? <Text style={[small(t, t.c.dim), font(t, "mono", 400, 12), { lineHeight: lineBox(12, 1.6) }, indent]}>every occurrence</Text> : null}
         <DiffView lines={lineDiff(i.old_string ?? "", i.new_string ?? "")} label={`Edit to ${i.path ?? ""}`} maxHeight={maxHeight} style={indent} />
       </>
     );

@@ -624,8 +624,8 @@ const searchMentions = memo((api): MentionSearchFn => (request, signal) => api.s
 function Display({ t }: { t: Theme }) {
   const size = t.editor ? 24 : 28;
   return (
-    <T accessibilityRole="header" style={{ ...font(t, "sans", 700, size), lineHeight: size * 1.1, letterSpacing: t.editor ? 0 : -0.03 * size, marginBottom: 10, textAlign: "center", color: t.c.text }}>
-      <T style={t.editor ? { ...font(t, "sans", 700, 24), lineHeight: 26.4, color: t.c.text } : { ...font(t, "serif", 400, 42, 1, true), letterSpacing: -0.42, color: t.c.accent }}>Start</T>
+    <T accessibilityRole="header" style={{ ...font(t, "sans", 700, size, 1.1), letterSpacing: t.editor ? 0 : -0.03 * size, marginBottom: 10, textAlign: "center", color: t.c.text }}>
+      <T style={t.editor ? { ...font(t, "sans", 700, 24, 1.1), color: t.c.text } : { ...font(t, "serif", 400, 42, 1, true), letterSpacing: -0.42, color: t.c.accent }}>Start</T>
       {" a session."}
     </T>
   );

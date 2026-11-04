@@ -75,6 +75,17 @@ export interface Theme {
 export type Weight = 400 | 500 | 600 | 700;
 export type FontFamily = "jakarta" | "jetbrains" | "instrument" | "roboto" | "system-mono";
 
+/**
+ * A CSS line-height written as a multiple (`13.5px/1.55`), in the px a browser
+ * lays it out at: the product cut down to Chrome's 1/64 px layout unit. A px
+ * line-height is rounded to that unit instead, so passing the raw product
+ * (19.2 for 12px/1.6) puts each line 1/64 px lower than the web client's and
+ * a long transcript drifts by a pixel. Write px line-heights from the CSS as is.
+ */
+export function lineBox(size: number, multiple: number): number {
+  return Math.floor(size * multiple * 64 + 1e-6) / 64;
+}
+
 /** The loaded font's name for a family at a weight: React Native picks faces by name, not by weight. */
 export function fontName(family: FontFamily, weight: Weight = 400, italic = false): string | undefined {
   switch (family) {
@@ -221,8 +232,8 @@ const ueMcp: Theme = {
   sans: "jakarta",
   mono: "jetbrains",
   serif: "instrument",
-  label: { family: "jetbrains", weight: 600, size: 10.5, lineHeight: 13.65, upper: true, spacing: 0.16 * 10.5, color: UE_MCP.accent },
-  base: { size: 13.5, lineHeight: 13.5 * 1.55 },
+  label: { family: "jetbrains", weight: 600, size: 10.5, lineHeight: lineBox(10.5, 1.3), upper: true, spacing: 0.16 * 10.5, color: UE_MCP.accent },
+  base: { size: 13.5, lineHeight: lineBox(13.5, 1.55) },
   editor: false,
   shadow: true,
   markGlow: true,
@@ -236,8 +247,8 @@ const editorBase = (c: Tokens, name: ThemeName): Theme => ({
   sans: "roboto",
   mono: "system-mono",
   serif: "roboto",
-  label: { family: "roboto", weight: 700, size: 12, lineHeight: 15.6, upper: false, spacing: 0, color: UE.foregroundHeader },
-  base: { size: 12.5, lineHeight: 12.5 * 1.5 },
+  label: { family: "roboto", weight: 700, size: 12, lineHeight: lineBox(12, 1.3), upper: false, spacing: 0, color: UE.foregroundHeader },
+  base: { size: 12.5, lineHeight: lineBox(12.5, 1.5) },
   editor: true,
   shadow: false,
   markGlow: false,
