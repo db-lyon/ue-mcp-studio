@@ -39,11 +39,20 @@ export function KeyValues({ values }: { values: Array<{ name: string; value: str
   const tiny = useTier() === "tiny";
   const size = 12;
   const lh = t.editor ? 1.5 : 1.55;
+  // grid-template-columns: minmax(0, max-content) 1fr: the names' column is as wide as the widest name, at most half.
+  const [box, setBox] = useState(0);
+  const [widest, setWidest] = useState(0);
+  const nameWidth = widest > 0 && box > 0 ? Math.min(widest, (box - 10) / 2) : undefined;
   return (
-    <View style={{ gap: tiny ? 0 : 2 }}>
+    <View style={{ gap: tiny ? 0 : 2 }} onLayout={(e) => setBox(e.nativeEvent.layout.width)}>
       {values.map((v) => (
         <View key={v.name} style={{ flexDirection: tiny ? "column" : "row", columnGap: 10, marginBottom: tiny ? 3 : 0 }}>
-          <T style={{ fontSize: size, lineHeight: size * lh, color: t.c.muted, ...(tiny ? {} : { flexShrink: 1, maxWidth: "50%" }) }}>{engineText(v.name)}</T>
+          <T
+            onLayout={nameWidth === undefined ? (e) => { const w = Math.ceil(e.nativeEvent.layout.width); setWidest((cur) => Math.max(cur, w)); } : undefined}
+            style={{ fontSize: size, lineHeight: size * lh, color: t.c.muted, ...(tiny ? {} : nameWidth === undefined ? { flexShrink: 0 } : { width: nameWidth }) }}
+          >
+            {engineText(v.name)}
+          </T>
           <View style={{ flexDirection: "row", flex: tiny ? undefined : 1, minWidth: 0 }}>
             <Swatch text={v.value} />
             <T style={[font(t, "mono", 400, size * 0.92), { lineHeight: size * lh, color: t.c.text, flexShrink: 1 }]}>{engineText(v.value)}</T>

@@ -227,14 +227,21 @@ function Item({ it, open, busy, opened, confirming, onToggle, onNative, onKeep, 
           >
             <T style={[buttonText(t, 600), { color: it.state === "reverted" ? t.c.muted : t.c.text, textDecorationLine: it.state === "reverted" ? "line-through" : "none" }]}>{engineText(fileName(it.path))}</T>
           </Pressable>
-          <Pill>{REVIEW_STATUS[it.status]}</Pill>
-          {it.untracked ? <Pill kind="warn">Outside the agent</Pill> : null}
+          <View style={{ alignSelf: "center" }}>
+            <Pill>{REVIEW_STATUS[it.status]}</Pill>
+          </View>
+          {it.untracked ? (
+            <View style={{ alignSelf: "center" }}>
+              <Pill kind="warn">Outside the agent</Pill>
+            </View>
+          ) : null}
         </View>
         <OutlineButton title="Open in Unreal diff" label="Open in Unreal diff" disabled={!it.native?.available} faded onPress={onNative} />
         <Pairs items={actions} />
       </View>
       {it.summary ? <T style={[small(t), { color: it.diffError ? t.c.bad : t.c.text }]}>{engineText(it.summary)}</T> : null}
-      <T style={[font(t, "mono", 400, 12 * 0.92), { lineHeight: 12 * lh(t), color: t.c.dim }]} accessibilityHint={nativeTitle(it)}>{engineText(it.path)}</T>
+      {/* .small.mono on one element: .mono's 0.92em is of the body's size, not of .small's 12px. */}
+      <T style={[font(t, "mono", 400, Math.round(t.base.size * 0.92 * 100) / 100), { lineHeight: 12 * lh(t), color: t.c.dim }]} accessibilityHint={nativeTitle(it)}>{engineText(it.path)}</T>
       {opened ? <T accessibilityLiveRegion="polite" style={[small(t), { color: opened.bad ? t.c.bad : t.c.dim }]}>{opened.text}</T> : null}
       {it.conflict && it.state !== "reverted" ? (
         <Banner kind="warn" role="alert" style={{ marginBottom: 0 }}>
@@ -431,12 +438,15 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
   const dimSmall = [small(t), { color: t.c.dim }];
   return (
     <View style={{ gap: 10 }}>
+      {/* label.toggle: the checkbox's own 4 px and 3 px margins, and the label's 14 px on the right. */}
+      <View style={{ paddingLeft: 4, marginRight: 14 }}>
       <Check checked={on} disabled={busy || !status} onChange={toggle} label="Review this session's turns">
-        <T>
+        <T style={{ marginLeft: 3 }}>
           {"Review this session's turns "}
           <T style={dimSmall}>{`A checkpoint before and after each turn, and a card to keep or revert its changes.${review === null ? " Following Settings." : ""}`}</T>
         </T>
       </Check>
+      </View>
       {note ? (
         <Banner kind="warn" style={{ marginBottom: 0 }}>
           <T style={[small(t), { color: t.c.warnText }]}>{note.text}</T>
