@@ -32,7 +32,7 @@ const BROWSERS = [
 const browserPath = BROWSERS.find((p) => fs.existsSync(p));
 if (!browserPath) throw new Error("no Chrome or Edge found: pass --browser <path> or set STUDIO_QA_BROWSER");
 
-const THEMES = ["ue-mcp", "editor-orange", "editor"];
+const THEMES = arg("themes") ? arg("themes").split(",") : ["ue-mcp", "editor-orange", "editor"];
 // --widths 320,590,1280 shoots those widths instead, each file named by its width.
 const WIDTHS = arg("widths") ? arg("widths").split(",").map((w) => [`${Number(w)}`, Number(w)]) : [["wide", 1280], ["narrow", 380]];
 
@@ -69,8 +69,98 @@ const base = server.resolvedUrls.local[0].replace(/\/$/, "");
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
 fs.mkdirSync(out, { recursive: true });
 
+// --audit also measures each shot for what breaks on a phone, into <out>/audit.json:
+// the page scrolling sideways, an element past the window's right edge, and, at
+// 760 pixels and below, a control smaller than 44 pixels in either direction.
+const audit = process.argv.includes("--audit");
+const findings = [];
+const auditPage = (page) =>
+  page.evaluate(() => {
+    const vw = document.documentElement.clientWidth;
+    const out = [];
+    const label = (el) => {
+      const cls = typeof el.className === "string" ? el.className.trim().split(/\s+/).slice(0, 3).join(".") : "";
+      const text = (el.getAttribute("aria-label") || el.textContent || "").trim().replace(/\s+/g, " ").slice(0, 40);
+      return `${el.tagName.toLowerCase()}${cls ? "." + cls : ""}${text ? ` "${text}"` : ""}`;
+    };
+    // Inside a box that scrolls sideways on purpose (code, diffs, tables) nothing counts as overflow.
+    const inScroller = (el) => {
+      for (let p = el.parentElement; p; p = p.parentElement) {
+        const s = getComputedStyle(p);
+        if ((s.overflowX === "auto" || s.overflowX === "scroll") && p.scrollWidth > p.clientWidth) return true;
+        if (s.overflowX === "hidden" || s.overflowX === "clip") return true;
+      }
+      return false;
+    };
+    const visible = (el) => {
+      const r = el.getBoundingClientRect();
+      const s = getComputedStyle(el);
+      return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none";
+    };
+    const scrollers = [document.documentElement, ...document.querySelectorAll(".app, main, [class*=pane], [class*=scroll]")];
+    for (const s of scrollers) {
+      const st = getComputedStyle(s);
+      if (s.scrollWidth > s.clientWidth + 1 && st.overflowX !== "hidden" && st.overflowX !== "clip" && (s === document.documentElement || st.overflowX !== "visible"))
+        out.push({ kind: "page-scrolls-sideways", el: label(s), by: s.scrollWidth - s.clientWidth });
+    }
+    for (const el of document.querySelectorAll("body *")) {
+      if (!visible(el) || inScroller(el)) continue;
+      const r = el.getBoundingClientRect();
+      if (r.right > vw + 1 && r.width < vw * 3) out.push({ kind: "past-right-edge", el: label(el), by: Math.round(r.right - vw) });
+      if (r.left < -1 && r.width < vw * 3) out.push({ kind: "past-left-edge", el: label(el), by: Math.round(-r.left) });
+    }
+    // Text cut off at a box's edge with no ellipsis to say so: a line too long for a narrow panel.
+    for (const el of document.querySelectorAll("body *")) {
+      // Screen-reader-only text is clipped on purpose.
+      if (!visible(el) || !el.childNodes.length || el.children.length > 2 || el.classList.contains("sr-only")) continue;
+      const st = getComputedStyle(el);
+      if (st.overflowX !== "hidden" && st.overflowX !== "clip") continue;
+      if (el.scrollWidth > el.clientWidth + 2 && st.textOverflow !== "ellipsis" && st.whiteSpace.startsWith("nowrap") && el.textContent.trim())
+        out.push({ kind: "clipped-text", el: label(el), by: el.scrollWidth - el.clientWidth });
+    }
+    // A flex row whose content runs past the panel's right edge inside a clipping ancestor.
+    for (const el of document.querySelectorAll("summary, .row, [class*=-row], [class*=-head]")) {
+      if (!visible(el)) continue;
+      const r = el.getBoundingClientRect();
+      for (const c of el.children) {
+        const cr = c.getBoundingClientRect();
+        if (cr.width > 0 && cr.left >= vw - 1) { out.push({ kind: "child-off-screen", el: label(c), by: Math.round(cr.left - vw) }); break; }
+      }
+      if (r.right > vw + 1 && el.scrollWidth > el.clientWidth + 2) out.push({ kind: "row-overflows", el: label(el), by: Math.round(r.right - vw) });
+    }
+    if (vw <= 760) {
+      const controls = document.querySelectorAll("button, a[href], input:not([type=hidden]), select, textarea, summary, label:has(> input[type=checkbox]), label:has(> input[type=radio]), [role=button], [role=tab], [role=switch], [role=checkbox], [role=radio], [role=menuitem]");
+      for (const el of controls) {
+        if (!visible(el) || el.closest("[aria-hidden=true]")) continue;
+        // A link inside a sentence is exempt, as WCAG exempts inline targets; a box of its own is not.
+        if (getComputedStyle(el).display === "inline") continue;
+        if ([...(el.parentElement?.childNodes ?? [])].some((n) => n.nodeType === 3 && n.textContent.trim())) continue;
+        // A checkbox or radio inside its label is reached through the label, which is measured instead.
+        if ((el.type === "checkbox" || el.type === "radio") && el.closest("label")) continue;
+        const r = el.getBoundingClientRect();
+        // The hit area counts, not the drawn box: a ::before that pads it out is measured by elementFromPoint at the edges.
+        const reach = (dx, dy) => {
+          const hit = document.elementFromPoint(r.left + r.width / 2 + dx, r.top + r.height / 2 + dy);
+          return !!hit && (hit === el || el.contains(hit));
+        };
+        const w = r.width >= 44 || (reach(-22 + 1, 0) && reach(22 - 1, 0));
+        const h = r.height >= 44 || (reach(0, -22 + 1) && reach(0, 22 - 1));
+        if (!w || !h) out.push({ kind: "small-target", el: label(el), size: `${Math.round(r.width)}x${Math.round(r.height)}` });
+      }
+    }
+    // One finding per distinct element and kind.
+    const seen = new Set();
+    return out.filter((f) => {
+      const k = `${f.kind}|${f.el}`;
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  });
+
 const open = async (scenario, theme, width, height = 860) => {
-  const page = await browser.newPage({ viewport: { width, height } });
+  // Phone widths are shot as a touch screen, so styles for a finger (pointer: coarse) apply as they would on a phone.
+  const page = await browser.newPage({ viewport: { width, height }, hasTouch: width <= 760 });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(`${base}/visual-qa.html?scenario=${encodeURIComponent(scenario)}&theme=${theme}`);
@@ -95,12 +185,16 @@ try {
         await page.setViewportSize({ width, height: 2600 });
         await page.waitForTimeout(400);
       }
-      const { click, clicks } = await page.evaluate(() => ({ click: window.__visualQa.click, clicks: window.__visualQa.clicks ?? [] }));
+      const { click, clicks: wide, narrowClicks } = await page.evaluate(() => ({ click: window.__visualQa.click, clicks: window.__visualQa.clicks ?? [], narrowClicks: window.__visualQa.narrowClicks }));
+      const clicks = width <= 760 && narrowClicks ? narrowClicks : wide;
       for (const sel of [click, ...clicks].filter(Boolean)) {
-        const el = await page.$(sel);
-        if (!el) errors.push(`nothing matched ${sel}`);
+        // The first visible match: a narrow layout keeps some controls in a drawer, hidden until opened.
+        let el = null;
+        for (const h of await page.$$(sel)) if (await h.isVisible()) { el = h; break; }
+        if (!el) errors.push(`nothing visible matched ${sel}`);
         else {
-          await el.click();
+          // A drawer still sliding in can sit over its own controls for a moment; then the click goes in regardless.
+          await el.click({ timeout: 5000 }).catch(() => el.click({ force: true }));
           await page.mouse.move(1, 1);
           await page.waitForTimeout(700);
         }
@@ -151,6 +245,7 @@ try {
         if (!el) errors.push(`nothing matched ${waitFor.selector} within ${waitFor.timeout} ms`);
         await page.waitForTimeout(300);
       }
+      if (audit) findings.push(...(await auditPage(page)).map((f) => ({ scenario, theme, width, ...f })));
       const file = `${scenario}-${theme}-${label}.png`;
       await page.screenshot({ path: path.join(out, file), animations: "disabled" });
       lines.push(`- [${theme}, ${label} (${width}px)](${file})${errors.length ? ` errors: ${errors.join("; ")}` : ""}`);
@@ -160,6 +255,10 @@ try {
     lines.push("");
   }
   fs.writeFileSync(path.join(out, "index.md"), lines.join("\n"));
+  if (audit) {
+    fs.writeFileSync(path.join(out, "audit.json"), JSON.stringify(findings, null, 2));
+    console.log(`audit: ${findings.length} finding(s) in ${path.join(out, "audit.json")}`);
+  }
   console.log(`wrote ${path.join(out, "index.md")}`);
 } finally {
   await browser.close();

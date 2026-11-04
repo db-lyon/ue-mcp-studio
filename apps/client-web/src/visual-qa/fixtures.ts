@@ -178,6 +178,12 @@ export interface Scenario {
   arrives?: TranscriptEntry;
   /** Clicked one after another after the page settles, each a CSS selector; after click, when both are given. */
   clicks?: string[];
+  /** Clicked instead of `clicks` at 760 pixels and below, where some controls sit in the menu drawer. */
+  narrowClicks?: string[];
+  /** Shown as a paired browser's page, through the relay. */
+  remotePage?: boolean;
+  /** Daemon events sent as the event stream opens, oldest first. */
+  events?: Array<{ type: string; at: string; data: Record<string, unknown> }>;
   /** Scrolled to the top of its scroller after the clicks, to show what lies below the fold: a CSS selector. */
   scroll?: string;
   /** The window's height for the shot, for a page taller than the default 860 pixels. */
@@ -281,6 +287,95 @@ function withAgents(): SessionDetail {
   };
 }
 
+/** A turn of ordinary tool calls: a command and its output, an edit, a new file, an editor call and a failed one. */
+function withTools(): SessionDetail {
+  const d = detail("Door hinge fix", []);
+  const call = (id: string, name: string, input: unknown, outcome: "done" | "error", result: string, minutes: number): TranscriptEntry =>
+    ({ kind: "tool", call: { id, name, input, outcome, result, startedAt: ago(minutes), endedAt: ago(minutes) } });
+  return {
+    ...d,
+    transcript: [
+      { kind: "user", text: "The door pops open instead of swinging. Fix the hinge timeline and rebuild.", at: ago(9) },
+      call("t-grep", "shell", { command: 'git grep -n "OpenAngle" -- Source/StudioE2E/Door' }, "done", 'Source/StudioE2E/Door/DoorComponent.cpp:41:    OpenAngle = FMath::FInterpTo(OpenAngle, TargetAngle, DeltaTime, InterpSpeed);\nSource/StudioE2E/Door/DoorComponent.h:28:    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Door|Motion") float OpenAngle = 0.f;', 8),
+      call("t-edit", "edit_file", { path: "C:/Users/dev/Projects/StudioE2E/Source/StudioE2E/Door/DoorComponent.cpp", old_string: "    OpenAngle = FMath::FInterpTo(OpenAngle, TargetAngle, DeltaTime, InterpSpeed);", new_string: "    // Ease in and out so the door swings instead of snapping to its target angle on the first frame.\n    OpenAngle = FMath::FInterpTo(OpenAngle, TargetAngle, DeltaTime, FMath::Max(InterpSpeed * HingeCurve->GetFloatValue(Alpha), 0.5f));" }, "done", "Edited 1 place.", 7),
+      call("t-write", "write_file", { path: "C:/Users/dev/Projects/StudioE2E/Config/DefaultDoor.ini", content: "[/Script/StudioE2E.DoorComponent]\nInterpSpeed=2.5\nHingeCurve=/Game/Props/Door/Curves/C_DoorHinge.C_DoorHinge\n" }, "done", "Wrote 3 lines.", 6),
+      call("t-ue", "ue_mcp", { action: "call", category: "blueprint", method: "set_component_property", args: { blueprint: "/Game/Props/Door/BP_Door", component: "DoorComponent", property: "HingeCurve", value: "/Game/Props/Door/Curves/C_DoorHinge.C_DoorHinge" } }, "done", '{\n  "ok": true,\n  "updated": "HingeCurve"\n}', 5),
+      call("t-build", "shell", { command: "npx ue-mcp project build_project" }, "error", "Build failed: DoorComponent.cpp(43): error C2065: 'Alpha': undeclared identifier", 4),
+      { kind: "assistant", text: "The build failed on an undeclared Alpha. I will compute it from the elapsed time and build again.", at: ago(3) },
+    ],
+  };
+}
+
+/** Two approvals waiting at once: a file edit with its diff, and a build command. */
+function withApprovals(): SessionDetail {
+  const d = detail("Door hinge fix", []);
+  return {
+    ...d,
+    status: "waiting",
+    waitingCause: "approval",
+    awaiting: 2,
+    transcript: [
+      { kind: "user", text: "Make the door ease open and rebuild.", at: ago(4) },
+      { kind: "tool", call: { id: "a-edit", name: "edit_file", input: {}, outcome: "pending", startedAt: ago(2) } },
+      { kind: "tool", call: { id: "a-sh", name: "shell", input: {}, outcome: "pending", startedAt: ago(1) } },
+    ],
+    approvals: [
+      {
+        id: "ap-edit", toolUseId: "a-edit", tool: "edit_file", parent: null, at: ago(2),
+        path: "C:/Users/dev/Projects/StudioE2E/Source/StudioE2E/Door/DoorComponent.cpp",
+        diff: [
+          { op: " ", text: "void UDoorComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)" },
+          { op: "-", text: "    OpenAngle = FMath::FInterpTo(OpenAngle, TargetAngle, DeltaTime, InterpSpeed);" },
+          { op: "+", text: "    // Ease in and out so the door swings instead of snapping to its target angle on the first frame." },
+          { op: "+", text: "    OpenAngle = FMath::FInterpTo(OpenAngle, TargetAngle, DeltaTime, FMath::Max(InterpSpeed * HingeCurve->GetFloatValue(Alpha), 0.5f));" },
+          { op: "gap", count: 12 },
+        ],
+      },
+      { id: "ap-sh", toolUseId: "a-sh", tool: "shell", parent: null, at: ago(1), command: "npx ue-mcp project build_project --target StudioE2EEditor --configuration Development", cwd: "C:/Users/dev/Projects/StudioE2E" },
+    ],
+  };
+}
+
+/** The project's source control with changed files, for the changes panel. */
+const VCS = { kind: "git", name: "Git", root: "C:/Users/dev/Projects/StudioE2E", branch: "feat/door-hinge-easing", changes: 4, ahead: 2, behind: 0 };
+const VCS_CHANGES = [
+  { path: "Source/StudioE2E/Door/DoorComponent.cpp", status: "modified" },
+  { path: "Config/DefaultDoor.ini", status: "added" },
+  { path: "Content/Props/Door/Curves/C_DoorHinge.uasset", status: "added" },
+  { path: "Content/Props/Door/BP_Door_Old.uasset", status: "deleted" },
+];
+const VCS_DIFF = [
+  "diff --git a/Source/StudioE2E/Door/DoorComponent.cpp b/Source/StudioE2E/Door/DoorComponent.cpp",
+  "--- a/Source/StudioE2E/Door/DoorComponent.cpp",
+  "+++ b/Source/StudioE2E/Door/DoorComponent.cpp",
+  "@@ -38,7 +38,8 @@ void UDoorComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)",
+  "     Super::TickComponent(DeltaTime, TickType, ThisTickFunction);",
+  "     if (!bOpening) return;",
+  "-    OpenAngle = FMath::FInterpTo(OpenAngle, TargetAngle, DeltaTime, InterpSpeed);",
+  "+    // Ease in and out so the door swings instead of snapping to its target angle on the first frame.",
+  "+    OpenAngle = FMath::FInterpTo(OpenAngle, TargetAngle, DeltaTime, FMath::Max(InterpSpeed * HingeCurve->GetFloatValue(Alpha), 0.5f));",
+  "     SetRelativeRotation(FRotator(0.f, OpenAngle, 0.f));",
+].join("\n");
+const vcsGet = (p: string) =>
+  p === "/v1/ext/studio/vcs" ? { vcs: VCS }
+  : p === "/v1/ext/studio/vcs/changes" ? { changes: VCS_CHANGES, truncated: false }
+  : p === "/v1/ext/studio/vcs/diff" ? { diff: VCS_DIFF }
+  : undefined;
+
+/** A session's checkpoints: a turn, a restore that can be undone, and a loop attempt. */
+function withTimeline(): SessionDetail {
+  const d = withTools();
+  return {
+    ...d,
+    review: true,
+    timeline: [
+      { checkpoint: "cp-1", label: "The door pops open instead of swinging. Fix the hinge timeline and rebuild.", at: ago(9), kind: "turn", turn: 0 },
+      { checkpoint: "cp-2", label: "Restored to before the hinge edit", at: ago(5), kind: "restore", undo: "cp-1b" },
+      { checkpoint: "cp-3", label: "Attempt 2 of the gate trigger loop", at: ago(2), kind: "attempt" },
+    ],
+  };
+}
+
 /** A pairing link of the relay's shape, and its QR drawn as the agent draws it. */
 const PAIR_URL = "https://remote.ue-mcp.com/pair#K7Q2-9XWD.BOx3dLq0p5T9vYc1rA8eF2hJ6kM4nP7sW0zC3gU5iX8.aZ4tR1wQ9yV6bN2mL7kJ5hG3fD8sA0pO";
 function pairingSvg(url: string): string {
@@ -327,6 +422,29 @@ export const SCENARIOS: Record<string, Scenario> = {
     session: withAgents(),
     index: { playtests: [], listed: true },
     get: (p) => (p === "/v1/ext/studio/version-notice" ? { notice: { installed: "0.1.25", current: "0.1.23" } } : undefined),
+  },
+  "tools-open": { title: "A turn's tool calls, the command and its output opened", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, click: ".thread-stage details.tool > summary" },
+  "tools-open-edit": { title: "An edit_file call opened: its diff, long lines wrapped under their text", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, click: ".thread-stage details.tool:nth-of-type(2) > summary", scroll: ".thread-stage details.tool:nth-of-type(2)" },
+  "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },
+  "vcs-changes": { title: "The source control chip opened: the changed files and the picked file's diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-list li button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li button"] },
+  "checkpoints": { title: "Checkpoints opened from the session header: the review switch and the timeline", hash: `#/chat/${SESSION_ID}`, session: withTimeline(), index: { playtests: [], listed: true }, clicks: [".composer-checkpoints"], narrowClicks: [".chat-review-button"] },
+  "plugins-remote": {
+    title: "Plugins in a paired browser: the installed list and the catalog read only, with the note that changes run on the computer",
+    hash: "#/plugins",
+    index: { playtests: [], listed: true },
+    remotePage: true,
+    get: (p) =>
+      p === "/v1/plugins" ? { plugins: [
+        { name: "ue-mcp-meshy", version: "1.2.0", pinned: null, status: "ok", categories: ["meshy"], problems: [] },
+        { name: "pie-studio", version: "0.4.1", pinned: "0.4.1", status: "ok", categories: ["qa"], problems: [] },
+        { name: "ue-mcp-fab-sync", version: null, pinned: null, status: "missing", categories: [], problems: ["Not installed in node_modules: run npx ue-mcp plugin install ue-mcp-fab-sync"] },
+      ] }
+      : p === "/v1/plugins/catalog" ? { plugins: [
+        { slug: "meshy", name: "Meshy", packageName: "ue-mcp-meshy", tagline: "Generate meshes from text and images", category: "assets", tags: ["ai"] },
+        { slug: "pie-studio", name: "PIE Studio", packageName: "pie-studio", tagline: "Record and replay play-in-editor sessions as playtests", category: "gameplay" },
+        { slug: "level-dresser", name: "Level Dresser", packageName: "ue-mcp-level-dresser", tagline: "Scatter props along splines and surfaces with rules", category: "levels" },
+      ] }
+      : undefined,
   },
   "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
   "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], fullPage: true },
@@ -434,8 +552,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   "page-failing": { title: "Playtests page, Failing", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "failing" },
   "page-all": { title: "Playtests page, All", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all" },
   "page-row-open": { title: "Playtests page, a row's full card opened in place", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
-  "page-row-edit": { title: "Playtests page, Edit on a script run outside Studio: the step editor in place", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-row:nth-child(4) .qa-toggle", ".playtests-row:nth-child(4) .qa-script-edit"] },
-  "page-row-delete": { title: "Playtests page, Delete waiting for its second click", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-row:nth-child(4) .qa-toggle", ".playtests-row:nth-child(4) .qa-script-delete"] },
+  "page-row-edit": { title: "Playtests page, Edit on a script run outside Studio: the step editor in place", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-list > :nth-child(4) .qa-toggle", ".playtests-list > :nth-child(4) button[aria-label='Edit']"] },
+  "page-row-delete": { title: "Playtests page, Delete waiting for its second click", hash: "#/playtests", index: { playtests: PROJECT, listed: true }, filter: "all", clicks: [".playtests-list > :nth-child(4) .qa-toggle", ".playtests-list > :nth-child(4) button[aria-label='Delete']"] },
   "page-row-offline-open": { title: "Playtests page, an open row while the editor is away: Edit and Delete disabled", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
   "page-empty": { title: "Playtests page with no playtests in the project", hash: "#/playtests", index: { playtests: [], listed: true }, filter: "all" },
   "page-editor-offline": { title: "Playtests page while the editor cannot list scripts", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all" },

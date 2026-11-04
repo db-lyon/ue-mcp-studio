@@ -131,8 +131,19 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
   }
   // The event stream stays open and quiet: the page is streaming, and nothing changes under it.
   if (url.pathname === "/v1/events") {
+    const eventsSent = sentEvents;
+    sentEvents = true;
     return new Response(new ReadableStream({
       start(controller) {
+        // Events the scenario sends as soon as the stream opens, for the Diagnostics log; once, though a dev
+        // double mount opens the stream twice.
+        if (!eventsSent) (scenario.events ?? []).forEach((e, n) => {
+          controller.enqueue(new TextEncoder().encode(`id: ${n + 1}
+event: ${e.type}
+data: ${JSON.stringify({ ...e.data, at: e.at })}
+
+`));
+        });
         if (!scenario.arrives || !scenario.session) return;
         // The reader scrolls up, then a line arrives below them.
         setTimeout(() => {
@@ -176,7 +187,8 @@ try {
 }
 history.replaceState(null, "", `${location.pathname}${location.search}${scenario.hash}`);
 // A paired browser's page, though the harness is served from this computer.
-if (scenario.remoteOffline) (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = true;
+let sentEvents = false;
+if (scenario.remoteOffline || scenario.remotePage) (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = true;
 // A checkout or docs link opens nothing: a popup would take the page out of the foreground and stall the shot.
 window.open = () => null;
 // The runner reads the scenarios and what each shows from here, and what to click once the page settles.
@@ -184,6 +196,7 @@ window.open = () => null;
   scenarios: Object.fromEntries(Object.entries(SCENARIOS).map(([name, s]) => [name, s.title])),
   click: scenario.click ?? null,
   clicks: scenario.clicks ?? [],
+  narrowClicks: scenario.narrowClicks ?? null,
   scroll: scenario.scroll ?? null,
   heights: Object.fromEntries(Object.entries(SCENARIOS).flatMap(([name, s]) => (s.height ? [[name, s.height]] : []))),
   focus: scenario.focus ?? null,

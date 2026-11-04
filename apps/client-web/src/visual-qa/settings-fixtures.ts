@@ -119,6 +119,19 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   }),
   ...OLD_DATA_SCENARIOS,
   "settings-diagnostics": page("Diagnostics: the editor and daemon, and the event log, empty because the harness sends no events", "diagnostics"),
+  "settings-diagnostics-events": {
+    ...page("Diagnostics: the event log with events, short and long payloads, one opened", "diagnostics"),
+    events: [
+      { type: "editor.connected", at: new Date(Date.now() - 240_000).toISOString(), data: { project: "StudioE2E", port: 64666 } },
+      { type: "studio.session.changed", at: new Date(Date.now() - 180_000).toISOString(), data: { sessionId: "qa-session", status: "running", waitingCause: null } },
+      { type: "studio.transcript.added", at: new Date(Date.now() - 120_000).toISOString(), data: { sessionId: "qa-session", entry: { kind: "tool", call: { id: "t-build", name: "shell", input: { command: "npx ue-mcp project build_project --target StudioE2EEditor --configuration Development" }, outcome: "error", result: "Build failed: DoorComponent.cpp(43): error C2065: 'Alpha': undeclared identifier" } } } },
+      { type: "studio.remote.available", at: new Date(Date.now() - 60_000).toISOString(), data: {} },
+      { type: "client.attached", at: new Date(Date.now() - 30_000).toISOString(), data: { client: "studio-window", version: "0.1.25-beta.15" } },
+    ],
+    // Newest first: the transcript event, with the long payload, is third.
+    clicks: [".log-event:nth-child(3) .log-data > summary"],
+    scroll: ".log",
+  },
 };
 
 export const INSTALL = {
