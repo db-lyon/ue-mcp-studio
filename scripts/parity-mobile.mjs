@@ -1,7 +1,7 @@
 // Compare the mobile app with the web client, scenario by scenario, pixel by pixel.
 //
 //   node scripts/visual-qa.mjs --remote --widths 390 --out <web>     (the reference, once per change to client-web)
-//   node scripts/parity-mobile.mjs --web <web> [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell]
+//   node scripts/parity-mobile.mjs --web <web> [--web-computer <computer shots>] [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell]
 //   node scripts/parity-mobile.mjs --list                                (the scenarios and who owns each)
 //
 // Serves apps/mobile/visual-qa with Vite: the app's own screens, drawn by
@@ -24,6 +24,8 @@ const arg = (name) => {
 };
 const list = process.argv.includes("--list");
 const webDir = arg("web") ? path.resolve(arg("web")) : null;
+// Scenarios whose reference is the computer's own capture (parity.ts reference: "computer"): node scripts/visual-qa.mjs --widths 390 without --remote.
+const computerDir = arg("web-computer") ? path.resolve(arg("web-computer")) : webDir;
 const out = path.resolve(arg("out") ?? path.join(os.tmpdir(), "studio-mobile-parity"));
 const only = arg("only")?.split(",");
 const THEMES = (arg("themes") ?? "ue-mcp,editor-orange,editor").split(",");
@@ -73,6 +75,7 @@ const server = await createServer({
       { find: /^expo-camera$/, replacement: mock("camera.tsx") },
       { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
       { find: /^expo-(constants|application)$/, replacement: mock("expo-modules.ts") },
+      { find: /^expo-clipboard$/, replacement: mock("clipboard.ts") },
       { find: /^expo-font$/, replacement: mock("expo-font.ts") },
       { find: new RegExp("^@expo-google-fonts/.*$"), replacement: mock("google-fonts.ts") },
       { find: /^expo-status-bar$/, replacement: mock("status-bar.tsx") },
@@ -80,6 +83,7 @@ const server = await createServer({
       { find: /^react-native-svg$/, replacement: mock("svg-web.tsx") },
       { find: /^expo-image-picker$/, replacement: mock("image-picker.ts") },
       { find: /^expo-document-picker$/, replacement: mock("document-picker.ts") },
+      { find: /^expo-clipboard$/, replacement: mock("clipboard.ts") },
       { find: /^@ue-mcp-studio\/(remote|client-core|shared|extension-api)$/, replacement: `${root}/packages/$1/src/index.ts` },
     ],
   },
@@ -133,6 +137,8 @@ for (const name of picked) {
     const page = await browser.newPage({ viewport: { width: WIDTH, height }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    // A link the app opens in the browser (Upgrade's checkout) is closed at once, as the web harness never opens one.
+    page.on("popup", (p) => void p.close().catch(() => undefined));
     await page.goto(`${base}/${PAGE}?scenario=${encodeURIComponent(name)}&theme=${theme}`);
     await page.waitForTimeout(1500);
     for (const c of parity[name].clicks ?? []) {
@@ -185,19 +191,23 @@ for (const name of picked) {
       await page.mouse.move(1, 1);
       await page.waitForTimeout(afterType.wait);
     }
-    // The web scenario's scroll: the element with this label at the top of its scroller.
     if (parity[name].scroll) {
-      const target = page.locator(`[aria-label="${parity[name].scroll.replace(/"/g, '\\"')}"]`).first();
-      if (await target.count()) {
-        await target.evaluate((el) => el.scrollIntoView({ block: "start" }));
-        await page.waitForTimeout(300);
-      } else errors.push(`nothing to scroll to: ${parity[name].scroll}`);
+      // The web scenario's scroll: the element brought to the top of its scrolling list, by its row (the pressable around a text).
+      const what = parity[name].scroll;
+      const found = await page.evaluate((w) => {
+        const all = [...document.querySelectorAll(`[aria-label="${w.replace(/"/g, '\\"')}"]`), ...[...document.querySelectorAll("div, span")].filter((e) => e.childElementCount === 0 && e.textContent === w)];
+        const el = all.find((e) => e.getBoundingClientRect().height > 0);
+        (el?.closest('[role="button"]') ?? el)?.scrollIntoView({ block: "start" });
+        return !!el;
+      }, what);
+      if (!found) errors.push(`nothing to scroll to: ${what}`);
+      await page.waitForTimeout(200);
     }
     const appPng = path.join(out, `${name}-${theme}-app.png`);
     await page.screenshot({ path: appPng });
     await page.close();
 
-    const webPng = path.join(webDir, `${name}-${theme}-390.png`);
+    const webPng = path.join(parity[name].reference === "computer" ? computerDir : webDir, `${name}-${theme}-390.png`);
     let mismatch = null;
     if (fs.existsSync(webPng)) {
       const a = PNG.sync.read(fs.readFileSync(webPng));

@@ -575,6 +575,7 @@ button.picker-item:hover:not(:disabled) { background: var(--panel-2); border-col
 button.picker-item.current { background: var(--accent-wash); color: var(--text); }
 button.picker-item.current > span:first-child::before { content: "\2713"; color: var(--accent); margin-right: 6px; }
 button.picker-item.locked > span:first-child { color: var(--muted); }
+button.picker-item.locked.remote > span:first-child, button.picker-item.locked.remote > .picker-via.off { color: var(--dim); }
 .picker-connect { padding: 6px 8px; }
 .picker-connect p { margin: 6px 0; }
 .connect { display: flex; flex-direction: column; gap: 6px; width: 100%; }
@@ -1310,6 +1311,14 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .asset-diff .review-pictures { flex-wrap: nowrap; }
 .asset-diff .review-pictures figure, .asset-diff .review-pictures .review-picture-side { flex: 1 1 0; min-width: 0; max-width: 220px; }
 .asset-diff .review-pictures img { width: 100%; height: auto; }
+/* A picture is shown once it has loaded and is known not to be one flat colour. */
+.review-pictures img.picture-pending { visibility: hidden; }
+.diff-section-note { overflow-wrap: break-word; }
+/* Facts the same in both versions: listed once, uncoloured. */
+.diff-table td.cmp-plain { background: none; }
+.diff-unchanged { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.diff-unchanged summary { cursor: pointer; width: max-content; max-width: 100%; }
+.diff-unchanged[open] summary { margin-bottom: 2px; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
 .review-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; white-space: nowrap; max-width: 100%; }
@@ -1326,9 +1335,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-parts { display: flex; flex-direction: column; gap: 2px; }
 .review-diff .output.diff { white-space: pre-wrap; overflow-wrap: break-word; }
 .diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }
-.engine-note summary { cursor: pointer; }
 .asset-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.engine-note { overflow-wrap: break-word; }
 .diff-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .diff-section-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .diff-section-head .mono { overflow-wrap: break-word; }
@@ -1351,6 +1358,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-table tr.diff-row.minor { font-size: 11px; color: var(--muted); }
 .diff-table tr.diff-row.minor .diff-kind { opacity: 0.7; }
 .diff-table tr.diff-row.minor .cmp-side { opacity: 0.75; }
+/* A change with nothing on either side (a pin's link count, a node moved): its message says it all, so its cells are not coloured as values. */
+.diff-table tr.diff-row.bare > td.cmp-side { background: none; }
 .diff-table td.cmp-absent { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--tint) 6px 7px); }
 .diff-table td.cmp-side { color: var(--text); }
 .cmp-subtitle { margin-top: 2px; overflow-wrap: anywhere; }

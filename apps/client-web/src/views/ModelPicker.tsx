@@ -14,7 +14,7 @@ import {
   type StudioSettings,
   type StudioSignIn,
 } from "@ue-mcp-studio/shared";
-import { findModel as find, runsVia, viaName, VIA_LABEL, type Via } from "@ue-mcp-studio/client-core";
+import { findModel as find, lockedVia, runsVia, viaName, VIA_LABEL, type Via } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { atMost, useBarTier } from "../chat/barTier";
 import { onRemotePage } from "../connection";
@@ -179,16 +179,18 @@ export function ModelPicker({
                 {p.models.map((m) => {
                   const selected = follow ? follow.value === m.id : settings.provider === p.id && settings.model === m.id;
                   const runs = runsVia(catalog!, p, m);
+                  // A paired browser cannot add a sign-in or a key: a model nothing runs is greyed and says where to connect it.
+                  const remote = !runs && onRemotePage();
                   return (
                     <button
                       key={m.id}
                       role="option"
                       aria-selected={selected}
-                      className={`picker-item ${selected ? "current" : ""} ${runs ? "" : "locked"}`}
+                      className={`picker-item ${selected ? "current" : ""} ${runs ? "" : "locked"} ${remote ? "remote" : ""}`}
                       onClick={() => (runs ? void select(p.id, m.id) : setConnecting({ vendor: p.id, model: m.id }))}
                     >
                       <span>{m.name}</span>
-                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs ? viaName(runs, p.name) : m.signIns.length ? "sign in" : "connect"}</span>
+                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs ? viaName(runs, p.name) : lockedVia(m, remote)}</span>
                     </button>
                   );
                 })}

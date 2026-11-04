@@ -28,15 +28,29 @@ export interface AssetDiffRecord {
   node2?: AssetDiffNode;
   /** The property path, as the details panel names it. */
   path?: string;
+  /** The path with the details panel's label for its property: "Hide when Full" for bHideWhenFull (ue-mcp 1.4.13). */
+  label?: string;
   property?: string;
   /** Both values as FProperty::ExportText writes them; null where the property does not exist on that side. */
   before?: string | null;
   after?: string | null;
   graph?: string;
+  /** The pins a pin record names: pin1 in the version before, pin2 in the version after. */
+  pin1?: AssetDiffPin;
+  pin2?: AssetDiffPin;
   /** The property records behind a NODE_PROPERTY graph record. */
   properties?: AssetDiffRecord[];
   /** An added or removed actor's class, label and transform. */
   facts?: AssetFact[];
+}
+
+/** A pin a graph record names, as the graph has it in that version. */
+export interface AssetDiffPin {
+  name: string;
+  direction: string;
+  nodeGuid?: string;
+  defaultValue: string;
+  linkedTo: string[];
 }
 
 /**
@@ -90,6 +104,8 @@ export interface AssetDiffSection {
   engineSource: string;
   entries: AssetDiffRecord[];
   hiddenChanges?: number;
+  /** What the engine says about the section as a whole, such as what a Widget Blueprint diff does not cover. */
+  notes?: string[];
 }
 
 export interface AssetFact {
@@ -114,7 +130,15 @@ export interface AssetDiff {
   assetClass?: string;
   status?: "added" | "modified" | "deleted";
   /** Which of Unreal's diffs serves this class, and what the records are. */
-  engine?: { tool: string; note: string; native: "window" | "details" | "text"; nativeAvailable?: boolean; nativeReason?: string };
+  engine?: {
+    tool: string;
+    note: string;
+    native: "window" | "details" | "text";
+    nativeAvailable?: boolean;
+    nativeReason?: string;
+    /** A Blueprint: whether the type's own diff ran (UBlueprint::FindDiffs, a Widget Blueprint's widget tree). Absent from bridges before ue-mcp 1.4.13. */
+    blueprintTypeDiff?: boolean;
+  };
   /** null: that version did not exist. */
   before?: AssetVersion | null;
   after?: AssetVersion | null;
@@ -442,14 +466,31 @@ const clip = (v: string, max = 60): string => {
   return one.length > max ? `${one.slice(0, max - 3)}...` : one;
 };
 
+/** A property record's name: the widget, component or row it belongs to, then the property as the details panel labels it. */
+export function recordName(r: AssetDiffRecord): string {
+  const name = r.label ?? r.path ?? r.displayString;
+  return r.group && r.group !== r.path && r.group !== name ? `${r.group} > ${name}` : name;
+}
+
+/**
+ * A Widget Blueprint diffed by a bridge that does not run UBlueprint::FindDiffs,
+ * which is where its widget tree is compared. Its "no difference" means "not
+ * compared": a widget's property changes are in the widget tree.
+ */
+export const widgetTreeNotCompared = (d: Pick<AssetDiff, "assetClass" | "engine">): boolean =>
+  /WidgetBlueprint/.test(d.assetClass ?? "") && d.engine?.blueprintTypeDiff === undefined;
+
+/** The summary of a Widget Blueprint whose widget tree was not compared and whose other parts show no difference. */
+export const WIDGET_TREE_NOT_COMPARED = "Widget Blueprint changed. This ue-mcp bridge cannot compare widget properties. Open in Unreal diff to see them.";
+
 /** A record in a line, its values in words where the engine wrote a struct. */
 function recordLine(r: AssetDiffRecord): string {
-  const label = r.path ? (r.group && r.group !== r.path ? `${r.group} ${r.path}` : r.path) : r.displayString;
+  const label = r.path ? recordName(r) : r.displayString;
   if (!r.path || (r.before === undefined && r.after === undefined)) return r.displayString;
   const v = (x: string | null | undefined) => (x === null || x === undefined ? "none" : clip(readableValue(x) ?? x));
   if (r.diffType === "PropertyAddedToB") return `${label} added: ${v(r.after)}`;
   if (r.diffType === "PropertyAddedToA") return `${label} removed: ${v(r.before)}`;
-  return `${label} ${v(r.before)} to ${v(r.after)}`;
+  return `${label}: ${v(r.before)} to ${v(r.after)}`;
 }
 
 /**
@@ -460,7 +501,19 @@ function recordLine(r: AssetDiffRecord): string {
  * says, the summary is written again from the records.
  */
 export function refineAssetDiff(d: AssetDiff): AssetDiff {
-  if (d.state !== "ready" || !d.sections?.length) return d;
+  if (d.state !== "ready") return d;
+  const records = (d.sections ?? []).reduce((n, s) => n + s.entries.length, 0);
+  if (d.status === "modified" && records === 0 && !d.textDiff) {
+    if (widgetTreeNotCompared(d)) return { ...d, summary: WIDGET_TREE_NOT_COMPARED };
+    // No property differs, but a fact does (a sound's duration, a mesh's triangles): that is the change.
+    const facts = factRows(d.before, d.after).filter((f) => f.changed);
+    if (facts.length) {
+      const shown = facts.slice(0, 2).map((f) => `${f.name}: ${clip(f.before ?? "none", 40)} to ${clip(f.after ?? "none", 40)}`);
+      const more = facts.length - shown.length;
+      return { ...d, summary: `${d.assetClass ?? "Asset"} changed. ${shown.join("; ")}${more > 0 ? `; and ${plural(more, "more fact")}` : ""}` };
+    }
+  }
+  if (!d.sections?.length) return d;
   const variables = new Set(d.sections.filter((s) => s.category === "My Blueprint").flatMap((s) => s.entries.map((e) => e.group).filter((g): g is string => !!g)));
   let folded = 0;
   const sections = d.sections.flatMap((s) => {
@@ -475,7 +528,7 @@ export function refineAssetDiff(d: AssetDiff): AssetDiff {
   });
   const all = sections.flatMap((s) => s.entries);
   const visible = all.filter((r) => !r.hidden);
-  const reworded = visible.some((r) => readableValue(r.before) !== null || readableValue(r.after) !== null);
+  const reworded = visible.some((r) => r.label !== undefined || readableValue(r.before) !== null || readableValue(r.after) !== null);
   if (!folded && !reworded) return d;
   const out: AssetDiff = { ...d, sections, ...(d.recordCount !== undefined ? { recordCount: d.recordCount - folded } : {}) };
   if (d.status !== "modified" || visible.length === 0) return out;

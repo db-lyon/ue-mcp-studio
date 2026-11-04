@@ -30,3 +30,15 @@ export function findModel(catalog: ModelCatalog | null, vendor: VendorId, model:
   const m = v?.models.find((x) => x.id === model);
   return v && m ? { vendor: v, model: m } : null;
 }
+
+/** What a model nothing connected can run says beside it on a paired device, where sign-ins and keys cannot be added. */
+export const CONNECT_ON_COMPUTER = "Connect on your computer";
+
+/**
+ * The word beside a model nothing connected runs: "sign in" or "connect" on
+ * the computer; on a paired device, which cannot add either, CONNECT_ON_COMPUTER.
+ */
+export function lockedVia(m: Pick<ModelOption, "signIns">, remote: boolean): string {
+  if (remote) return CONNECT_ON_COMPUTER;
+  return m.signIns.length ? "sign in" : "connect";
+}

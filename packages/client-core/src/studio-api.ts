@@ -19,6 +19,9 @@ import type {
   ApprovalDecision,
   BusyState,
   StudioRefusal,
+  AssetOpenResponse,
+  AssetRef,
+  AssetResolveResponse,
   CheckpointChange,
   DialogAnswer,
   DialogsState,
@@ -35,6 +38,13 @@ import type {
   TurnReview,
   VcsChange,
   VcsStatus,
+  BillingCheckoutRequest,
+  BillingLink,
+  RemoteApproval,
+  RemoteAvailability,
+  RemoteBrowser,
+  RemotePairing,
+  RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { HttpError, readAll, requestJson, type Transport } from "./transport.js";
 import type { UpdateRun } from "./update-run.js";
@@ -111,6 +121,9 @@ export function studioApi(t: Transport) {
     timelineUndo: (id: string, checkpoint: string) => send<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `${session(id)}/timeline/undo`, { checkpoint }),
     vcs: () => get<{ vcs: VcsStatus | null }>(`${S}/vcs`),
     vcsChanges: () => get<{ changes: VcsChange[]; truncated: boolean }>(`${S}/vcs/changes`),
+    resolveAssets: (refs: AssetRef[], sessionId: string | null) => send<AssetResolveResponse>("POST", `${S}/assets/resolve`, sessionId ? { refs, sessionId } : { refs }),
+    reportAssetMiss: (name: string, candidates: number) => send<void>("POST", `${S}/assets/missed`, { name, candidates }),
+    openAsset: (path: string) => send<AssetOpenResponse>("POST", `${S}/assets/open`, { path }),
     vcsDiff: (path: string) => get<{ diff: string | null; reason?: string }>(`${S}/vcs/diff?path=${enc(path)}`),
     versionNotice: () => get<{ notice: StudioVersionNotice | null }>(`${S}/version-notice`),
     keepStudio: (version: string) => send<{ notice: StudioVersionNotice | null }>("POST", `${S}/version-notice/keep`, { version }),
@@ -130,6 +143,17 @@ export function studioApi(t: Transport) {
     actions: () => get<{ actions: ActionListing[] }>(`${S}/actions`),
     describeAction: (name: string) => get<ActionDescription>(`${S}/actions/${enc(name)}`),
     action: (id: string, request: ActionRunRequest) => send<{ sessionId: string }>("POST", `${session(id)}/action`, request),
+    // Remote control and the plan it needs, for /remote: the computer answers these; a paired browser is refused them.
+    remoteAvailable: (refresh = false) => get<RemoteAvailability>(`${S}/remote/available${refresh ? "?refresh=1" : ""}`),
+    billingCheckout: (r: BillingCheckoutRequest) => send<BillingLink>("POST", `${S}/billing/checkout`, r),
+    billingPortal: () => get<BillingLink>(`${S}/billing/portal`),
+    remoteStatus: () => get<RemoteStatus>(`${S}/remote/status`),
+    setRemote: (enabled: boolean) => send<RemoteStatus>("PUT", `${S}/remote/config`, { enabled }),
+    pairRemote: () => send<RemotePairing>("POST", `${S}/remote/pair`),
+    remoteBrowsers: () => get<{ browsers: RemoteBrowser[] }>(`${S}/remote/browsers`),
+    remoteApprovals: () => get<{ approvals: RemoteApproval[] }>(`${S}/remote/approvals`),
+    decideRemoteApproval: (id: string, allow: boolean) => send<{ ok: true }>("POST", `${S}/remote/approvals/${enc(id)}`, { allow }),
+    revokeRemoteBrowser: (id: string) => send<void>("DELETE", `${S}/remote/browsers/${enc(id)}`),
   };
 }
 

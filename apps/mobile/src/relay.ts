@@ -111,7 +111,12 @@ export function fragmentOf(scanned: string): string {
   return hash >= 0 ? s.slice(hash + 1) : s;
 }
 
-/** Whether a link is a pairing link for this relay (what the system camera hands the app). */
+/**
+ * Whether a link is a pairing link: the relay's /pair link pasted into the app,
+ * or the app's own uemcpstudio://pair# link. The app never claims the relay's
+ * https links, so a code scanned with the camera or opened in a browser stays
+ * in the browser.
+ */
 export function isPairLink(url: string): boolean {
   return url.startsWith(`${RELAY}/pair#`) || url.startsWith("uemcpstudio://pair#");
 }

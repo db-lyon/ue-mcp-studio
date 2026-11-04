@@ -130,7 +130,7 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
                 </View>
                 {isOpen ? (
                   <ScrollView nestedScrollEnabled style={{ maxHeight: 420, paddingVertical: 8, paddingHorizontal: 12, borderTopWidth: 1, borderTopColor: t.c.line }}>
-                    <Markdown page paragraphGap={0} text={c.readme ?? c.description ?? "No description."} />
+                    <Markdown page breaks={false} paragraphMargin={0} text={c.readme ?? c.description ?? "No description."} />
                   </ScrollView>
                 ) : null}
               </View>
