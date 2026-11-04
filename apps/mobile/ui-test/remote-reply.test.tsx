@@ -249,3 +249,49 @@ describe("useRemoteCommand", () => {
     expect(free.result.current.cmd.commands.some((c) => c.name === "remote")).toBe(false);
   });
 });
+
+describe("/remote on a paired phone", () => {
+  /** The computer refuses a paired client every remote control route (packages/remote DENY), as it does a paired browser. */
+  function pairedApi() {
+    const api = remoteApi();
+    for (const n of REMOTE_ROUTES) api[n].mockRejectedValue(new HttpError(403, "Not available remotely."));
+    return api;
+  }
+
+  it("lists /remote and takes it, as a paired browser does: the refused plan check reads as a paid plan", async () => {
+    const api = pairedApi();
+    const nav: ProjectNav = { project: fakeProject().project, api: api as unknown as StudioApi, push: () => undefined, pop: vi.fn() };
+    const { result } = renderHook(
+      () => {
+        const [draft, setDraft] = useState("/remote");
+        return { draft, cmd: useRemoteCommand({ sessionId: "s1", draft, setDraft, readyFiles: 0, saveDraft: () => Promise.resolve() }) };
+      },
+      { wrapper: ({ children }) => <ProjectContext.Provider value={nav}>{children}</ProjectContext.Provider> },
+    );
+    await waitFor(() => expect(result.current.cmd.remote.available).toBe(true));
+    expect(result.current.cmd.remote.surface).toBe("working");
+    expect(result.current.cmd.commands.some((c) => c.name === "remote")).toBe(true);
+    let took = false;
+    act(() => {
+      took = result.current.cmd.runRemoteCommand();
+    });
+    expect(took).toBe(true);
+    expect(result.current.cmd.reply).toBe("s1");
+  });
+
+  it("answers with the refused status as the no-plan error and the refused approvals line, never a code, a sign-in or Upgrade", async () => {
+    const api = pairedApi();
+    renderInProject(<RemoteReply remote={state({ available: true, surface: "working" })} onDismiss={() => undefined} onSettings={() => undefined} />, api);
+    await settle();
+    expect(screen.getByText("This account's plan includes remote control.")).toBeTruthy();
+    expect(screen.getByText("Remote control needs a Pro or Studio plan on this account.")).toBeTruthy();
+    expect(screen.getByText("Not available remotely.")).toBeTruthy();
+    expect(button("Retry")).toBeTruthy();
+    expect(button("Manage paired devices in Settings")).toBeTruthy();
+    expect(api.setRemote).not.toHaveBeenCalled();
+    expect(api.pairRemote).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Pairing QR code")).toBeNull();
+    expect(screen.queryByText("Upgrade to Pro")).toBeNull();
+    expect(screen.queryByText("Sign in to your ue-mcp account to use remote control.")).toBeNull();
+  });
+});
