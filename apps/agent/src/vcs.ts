@@ -204,7 +204,7 @@ export async function diffOf(projectDir: string, file: string, r: Run = run): Pr
   const vcs = await detectVcs(projectDir, r);
   if (!vcs) return { diff: null, reason: "The project is not under source control." };
   if (BINARY_EXT.test(file)) return { diff: null, reason: "A binary file: open it in the editor to see it." };
-  if (file.includes("\0") || /(^|[\/])\.\.([\/]|$)/.test(file)) return { diff: null, reason: "Not a path in this project." };
+  if (file.includes("\0") || /(^|[\\/])\.\.([\\/]|$)/.test(file) || path.isAbsolute(file) || /^[a-zA-Z]:/.test(file)) return { diff: null, reason: "Not a path in this project." };
   let out: string | null = null;
   if (vcs.kind === "git") {
     out = await r("git", ["diff", "--no-color", "HEAD", "--", file], vcs.root);
