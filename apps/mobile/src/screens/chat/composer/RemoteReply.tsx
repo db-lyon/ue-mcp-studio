@@ -64,12 +64,13 @@ export function useRemoteCommand({ sessionId, draft, setDraft, readyFiles, saveD
 /** .msg.assistant.local-reply: the words and a 24 px close, then the card across the width, at most 60% of the screen tall. */
 export function RemoteReply({ remote, onDismiss, onSettings }: { remote: RemoteState; onDismiss: () => void; onSettings?: () => void }) {
   const t = useTheme();
-  const { height } = useWindowDimensions();
+  const { height, width } = useWindowDimensions();
   const text = remote.available ? REMOTE_NOW_ON : remote.signedIn === false ? REMOTE_SIGN_IN : REMOTE_COMMAND_REPLY;
   return (
     <ScrollView
       accessibilityLiveRegion="polite"
-      style={{ flexGrow: 0, flexShrink: 0, alignSelf: "stretch", marginHorizontal: 14, marginBottom: 8, maxHeight: height * 0.6 }}
+      // .msg.assistant: as wide as what it holds, up to the conversation's width.
+      style={{ flexGrow: 0, flexShrink: 0, alignSelf: "flex-start", maxWidth: width - 28, marginHorizontal: 14, marginBottom: 8, maxHeight: height * 0.6 }}
       contentContainerStyle={{ paddingVertical: 10, paddingRight: 13, paddingLeft: 2, gap: 8 }}
     >
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>

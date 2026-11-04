@@ -4,7 +4,7 @@
  * and onRenew offers a new one.
  */
 import { useEffect, useState } from "react";
-import { Linking, Pressable, View } from "react-native";
+import { Linking, Platform, Pressable, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import type { RemotePairing } from "@ue-mcp-studio/shared";
 import { pairingExpired, timeLeft } from "@ue-mcp-studio/client-core";
@@ -31,7 +31,8 @@ export function PairingCode({ pairing, onRenew, busy }: { pairing: RemotePairing
   if (pairingExpired(pairing, now)) {
     return (
       <View accessibilityLiveRegion="polite" style={[column, { paddingVertical: 12 }]}>
-        <T style={[small(t), { color: t.c.muted }]}>This code has expired.</T>
+        {/* .remote-chat-card p: across the card, from the left. */}
+        <T style={[small(t), { color: t.c.muted, alignSelf: "stretch", textAlign: "left" }]}>This code has expired.</T>
         <Button title={busy ? "Making a code" : "New code"} variant="primary" disabled={busy} onPress={onRenew} />
       </View>
     );
@@ -45,7 +46,8 @@ export function PairingCode({ pairing, onRenew, busy }: { pairing: RemotePairing
       </View>
       {/* a.path at a phone's 44 pixel target. */}
       <Pressable accessibilityRole="link" onPress={() => void Linking.openURL(pairing.url)} style={{ minHeight: 44, paddingVertical: 4, maxWidth: "100%", justifyContent: "center" }}>
-        <T style={{ ...small(t), fontSize: 12, color: t.c.accent, textAlign: "center" }}>{pairing.url}</T>
+        {/* a.path { word-break: break-all }: the link fills each line. The web build does it; a phone breaks where its text engine can. */}
+        <T style={{ ...small(t), fontSize: 12, color: t.c.accent, textAlign: "center", ...(Platform.OS === "web" ? ({ wordBreak: "break-all" } as object) : {}) }}>{pairing.url}</T>
       </Pressable>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
         {left ? <T style={[small(t), { color: t.c.muted }]}>{`Works once, for ${left} more.`}</T> : null}
