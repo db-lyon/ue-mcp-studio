@@ -145,7 +145,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
           <div className="context-pop-head">
             <span className="eyebrow">{owner ? `${owner} agent's context` : "Context"}</span>
             <span className="context-pop-actions">
-              <button disabled={busy || compacting || !view} onClick={() => { setOpen(false); onCompact(); }} title={busy ? "Compact when the turn ends" : "Summarize the conversation to free context; the transcript stays"}>
+              <button disabled={busy || compacting || !view} onClick={() => { setOpen(false); onCompact(); }} title={busy ? "Available when the turn ends" : "Summarize the conversation to free context; the transcript stays"}>
                 Compact now
               </button>
               <button className="icon-button" aria-label="Close" title="Close" onClick={() => setOpen(false)}>{"\u00d7"}</button>
@@ -205,7 +205,7 @@ export function ContextWarning({ view, runtime, busy, onCompact, onDismiss }: { 
           ? <>Context is past this model's window: {tokenCount(view.used)} of {tokenCount(view.window)}. {runtime ? "Claude's runtime compacts it" : "Studio compacts it before the next request"}, or compact now.</>
           : <>Context is {pct(view.fraction)} full. {runtime ? "Claude's runtime" : "Studio"} compacts it at {pct(view.compactAt)}; compact now to choose the moment.</>}
       </span>
-      <button className="primary" disabled={busy} onClick={onCompact} title={busy ? "Compact when the turn ends" : undefined}>Compact now</button>
+      <button className="primary" disabled={busy} onClick={onCompact} title={busy ? "Available when the turn ends" : undefined}>Compact now</button>
       <button className="icon-button" aria-label="Dismiss" title="Dismiss" onClick={onDismiss}>{"×"}</button>
     </div>
   );
