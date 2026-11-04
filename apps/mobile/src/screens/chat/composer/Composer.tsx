@@ -6,15 +6,15 @@
  * .composer-bar, at a phone's width and coarse pointer.
  */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Image, PanResponder, Text, TextInput, View, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
+import { Image, PanResponder, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, extOf, fitHeight, formatBytes } from "@ue-mcp-studio/client-core";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 import { Button, font, RemoveButton, Sheet, useStyles, useTheme, type Theme } from "../../../ui";
-import { KeyboardStickyView } from "../../../native/keyboard";
+import { useKeyboardOpen } from "./keyboard";
 import { haptic } from "../../../native/haptics";
-import { pickFiles, type PendingFile, type PickedFile } from "./attachments";
+import { clipboardHasImage, pastedImage, pickFiles, type PendingFile, type PickSource, type PickedFile } from "./attachments";
 import { useSlashMenu, type MenuKey } from "./SlashMenu";
 import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
 import { BarTierContext, atMost, barTier, useBarTier, type BarTier } from "./barTier";
@@ -94,6 +94,9 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     onStop();
   };
   const insets = useSafeAreaInsets();
+  // The chat's KeyboardAvoidingView lifts the whole composer; with the keyboard up, the home indicator's inset is under it.
+  const keyboard = useKeyboardOpen();
+  const bottomInset = keyboard ? 0 : insets.bottom;
   const box = useRef<TextInputInstance>(null);
   const slash = useSlashMenu(draft, onDraft, commands, flows, actions);
   const mention = useMentionMenu(draft, onDraft, box, mentions);
@@ -102,6 +105,22 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   const [handleFocus, setHandleFocus] = useState(false);
   const [focused, setFocused] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [canPaste, setCanPaste] = useState(false);
+  const window = useWindowDimensions();
+  const openAttach = () => {
+    setAttachError(null);
+    setAttachOpen(true);
+    void clipboardHasImage().then(setCanPaste);
+  };
+  const take = (from: PickSource | "paste") => {
+    setAttachOpen(false);
+    const got = from === "paste" ? pastedImage() : pickFiles(from);
+    void got.then((picked) => picked.length && onAddFiles(picked), (e: Error) => {
+      setAttachError(e.message);
+      setAttachOpen(true);
+    });
+  };
   useEffect(() => setFloor(height ?? null), [height]);
 
   /** The text's height as the hidden mirror lays it out: the RN form of the web client's mirror textarea. */
@@ -228,8 +247,8 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   const textFont: TextStyle = { ...font(t, "sans", 400, 16), lineHeight: LINE };
 
   return (
-    <KeyboardStickyView>
-      <View style={[s.composer, { paddingBottom: Math.max(10, insets.bottom), paddingLeft: Math.max(10, insets.left), paddingRight: Math.max(10, insets.right) }]}>
+    <>
+      <View style={[s.composer, { paddingBottom: Math.max(10, bottomInset), paddingLeft: Math.max(10, insets.left), paddingRight: Math.max(10, insets.right) }]}>
         <View
           style={s.divider}
           accessible
@@ -300,10 +319,12 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         <View style={s.bar} onLayout={onBar}>
           <BarTierContext.Provider value={tier}>
             {picker}
-            <BarButton label="Attach" title="Attach files" icon={<AttachGlyph />} disabled={closed} onClick={() => setAttachOpen(true)} />
+            <BarButton label="Attach" title="Attach files" icon={<AttachGlyph />} disabled={closed} onClick={openAttach} />
             {extras}
           </BarTierContext.Provider>
           <View style={s.spacer} />
+          {/* A phone has no keyboard shortcuts to hint at: the hint is for a tablet's width, with a hardware keyboard. */}
+          {onQueue && tier === "full" && window.width > 760 && <Text style={s.hint} numberOfLines={1}>{busy ? "Enter to queue, Ctrl+Enter to stop and send now" : "Enter to send, Shift+Enter for a new line"}</Text>}
           {busy && onQueue && <Button title="Queue" label="Queue" disabled={!canSend} onPress={queue} />}
           {busy ? <Button title="Stop" onPress={stop} /> : <Button title="Send" variant="primary" disabled={!canSend} onPress={send} />}
         </View>
@@ -311,17 +332,14 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
       </View>
       <Sheet open={attachOpen} title="Attach" onClose={() => setAttachOpen(false)}>
         <View style={{ gap: 8, paddingHorizontal: 4, paddingBottom: 4 }}>
-          <Button title="Photos" label="Attach photos" onPress={() => {
-            setAttachOpen(false);
-            void pickFiles("images").then((picked) => picked.length && onAddFiles(picked));
-          }} />
-          <Button title="Files" label="Attach files" onPress={() => {
-            setAttachOpen(false);
-            void pickFiles("files").then((picked) => picked.length && onAddFiles(picked));
-          }} />
+          {attachError ? <Text role="alert" style={s.attachError}>{attachError}</Text> : null}
+          <Button title="Photos" label="Attach photos" onPress={() => take("images")} />
+          <Button title="Camera" label="Take a photo" onPress={() => take("camera")} />
+          <Button title="Files" label="Attach files" onPress={() => take("files")} />
+          {canPaste ? <Button title="Paste image" label="Paste the copied image" onPress={() => take("paste")} /> : null}
         </View>
       </Sheet>
-    </KeyboardStickyView>
+    </>
   );
 }
 
@@ -393,4 +411,6 @@ const styles = (t: Theme) => ({
   boxFocus: { borderColor: t.c.accentLine, boxShadow: `0 0 0 3px ${t.c.accentWash}` },
   bar: { flexDirection: "row" as const, flexWrap: "nowrap" as const, alignItems: "center" as const, gap: 6, minWidth: 0, position: "relative" as const },
   spacer: { flex: 1, minWidth: 0 },
+  hint: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.dim, flexShrink: 1000, minWidth: 0, textAlign: "right" as const },
+  attachError: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.badText },
 });
