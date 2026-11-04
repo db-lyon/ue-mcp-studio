@@ -5,7 +5,7 @@
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Pressable, Text, View } from "react-native";
 import { HttpError, type StudioApi } from "@ue-mcp-studio/client-core";
-import { font, Sheet, T, useTheme } from "../ui";
+import { font, inlineCode, Sheet, T, useTheme } from "../ui";
 import { useProjectNav } from "../nav";
 import { breakable } from "./breakable";
 import { splitText, stepParts, useAssetLink } from "./asset-links";
@@ -43,7 +43,8 @@ export function AssetToken({ token, code }: { token: string; code: boolean }) {
   return <AssetButton token={token} code={code} paths={state.paths} />;
 }
 
-const codeStyle = (t: ReturnType<typeof useTheme>) => ({ ...font(t, "mono", 400, 12), backgroundColor: t.c.panel2, paddingVertical: 1, paddingHorizontal: 4, borderRadius: 4 });
+/** `.md code` and `.asset-link.code`: the markdown's inline code, at the mono font's own line height. */
+const codeStyle = inlineCode;
 
 function AssetButton({ token, code, paths }: { token: string; code: boolean; paths: string[] }) {
   const t = useTheme();

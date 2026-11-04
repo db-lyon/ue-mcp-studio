@@ -11,7 +11,7 @@ import { RemoteLock } from "../src/views/remote/RemoteLock";
 import { ConnectionOverlay, useConnection } from "../src/views/ConnectionOverlay";
 import { RefusedScreen } from "../src/views/Refused";
 import { VersionNotice } from "../src/views/VersionNotice";
-import { NavDrawer } from "../src/views/NavDrawer";
+import { DrawerTool, NavDrawer } from "../src/views/NavDrawer";
 import { EditorBanner } from "../src/views/EditorBanner";
 import { DialogBanner } from "../src/views/DialogBanner";
 import { resetRunForTests, UpdateRunner } from "../src/views/UpdateOverlay";
@@ -247,6 +247,32 @@ describe("the navigation drawer", () => {
     fireEvent.click(screen.getByText("New session"));
     expect(picked).toEqual(["Settings", "a", "new"]);
     expect(onClose).toHaveBeenCalledTimes(3);
+  });
+
+  it("draws the tabs, New session and the recents at the editor themes' 12px button size, and the foot tools at 14px", async () => {
+    const api = fakeApi();
+    api.sessions.mockResolvedValue({ sessions: [summary("a", "Dress the cave")] });
+    // react-native-web draws a style as an atomic class; jsdom does not order those rules, so read the class's own rule.
+    const size = (text: string) => {
+      const cls = Array.from(screen.getByText(text).classList).find((c) => c.startsWith("r-fontSize-"));
+      for (const sheet of Array.from(document.styleSheets))
+        for (const rule of Array.from(sheet.cssRules)) if (rule.cssText.includes(`.${cls}`)) return /font-size:\s*([^;}]+)/.exec(rule.cssText)?.[1].trim();
+      return null;
+    };
+    for (const [theme, item, foot] of [["editor", "12px", "14px"], ["ue-mcp", "14.5px", "14px"]] as const) {
+      const view = renderInProject(
+        <ThemeProvider name={theme}>
+          <NavDrawer open onClose={() => undefined} tab="Chat" session="a" updates={0} onTab={() => undefined} onSession={() => undefined} onNewSession={() => undefined}>
+            <DrawerTool title="Feedback" onPress={() => undefined} />
+          </NavDrawer>
+        </ThemeProvider>,
+        api,
+      );
+      await settle();
+      expect([size("Chat"), size("New session"), size("Feedback")]).toEqual([item, item, foot]);
+      expect(size("Dress the cave")).toBe(theme === "editor" ? "12px" : "14px");
+      view.unmount();
+    }
   });
 
   it("says so when there are no sessions", async () => {

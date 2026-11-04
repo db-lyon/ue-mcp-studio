@@ -8,6 +8,7 @@ export * from "./Text";
 export * from "./controls";
 export * from "./DiffView";
 export * from "./Markdown";
+export * from "./glyphs";
 export * from "./Spinner";
 export * from "./RemoveButton";
 export * from "./Pulse";

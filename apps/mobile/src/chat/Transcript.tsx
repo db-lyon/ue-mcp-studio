@@ -7,6 +7,7 @@
  */
 import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type TextStyle } from "react-native";
+import Svg, { Path } from "react-native-svg";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
   OUTCOME_LABEL,
@@ -25,7 +26,7 @@ import {
   type AgentState,
   type Call,
 } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, ContentButton, buttonFont, font, labelFont, Markdown, Output, Pulse, useTheme, type AssetMark, type Theme } from "../ui";
+import { Banner, baseFont, ContentButton, buttonFont, font, labelFont, lineBox, Markdown, Output, Pulse, useTheme, type AssetMark, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import { copyText } from "../native/clipboard";
 import { MentionText } from "./MentionMenu";
@@ -171,18 +172,13 @@ function PlaytestFailed({ errors, request }: { errors: string[]; request: Playte
   );
 }
 
-/** The pencil of Edit this message: the web's 16px path at 14px, stroked in the button's colour. */
+/** The pencil of Edit this message: the web's own 16px path drawn at 14px, stroked in the button's colour. */
 function PencilGlyph({ color }: { color: string }) {
-  const k = 14 / 16;
-  const w = 1.5 * k;
   return (
     <View style={{ width: 14, height: 14 }} importantForAccessibility="no-hide-descendants">
-      {/* The pencil's body: the rectangle from (10.5,2.5) to (13.5,5.5) to (6,13), open at its tip end. */}
-      {/* A stroke is centred on the path, so the box grows by half a stroke each way. */}
-      <View style={{ position: "absolute", left: 8.25 * k - (4.24 * k + w) / 2, top: 7.75 * k - (10.6 * k + w) / 2, width: 4.24 * k + w, height: 10.6 * k + w, borderWidth: w, borderBottomWidth: 0, borderColor: color, borderTopLeftRadius: w / 2, borderTopRightRadius: w / 2, transform: [{ rotate: "45deg" }] }} />
-      {/* The tip: H3 then v-3 from (6,13). */}
-      <View style={{ position: "absolute", left: 3 * k - w / 2, top: 13 * k - w / 2, width: 3 * k + w / 2, height: w, backgroundColor: color, borderRadius: w / 2 }} />
-      <View style={{ position: "absolute", left: 3 * k - w / 2, top: 10 * k, width: w, height: 3 * k + w / 2, backgroundColor: color, borderRadius: w / 2 }} />
+      <Svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M10.5 2.5l3 3L6 13H3v-3z" />
+      </Svg>
     </View>
   );
 }
@@ -347,8 +343,14 @@ function JumpLatest({ onPress }: { onPress: () => void }) {
   );
 }
 
-/** .transcript: the scrolling column, 12px between lines, 14px 12px 10px inside. */
+/**
+ * .transcript: the scrolling column, 12px between lines, 14px 12px 10px inside.
+ * It paints the panel it sits on: a scroller Chrome scrolls on the GPU keeps
+ * subpixel text only over an opaque background, and react-native-web's
+ * ScrollViews scroll there.
+ */
 function Column({ follow, hidden, children }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; children: ReactNode }) {
+  const t = useTheme();
   const [width, setWidth] = useState<number | null>(null);
   const window = useWindowDimensions().width;
   const onLayout = (e: LayoutChangeEvent) => {
@@ -363,7 +365,7 @@ function Column({ follow, hidden, children }: { follow: ReturnType<typeof useFol
         onLayout={onLayout}
         accessibilityElementsHidden={hidden}
         importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
-        style={{ flex: 1 }}
+        style={{ flex: 1, backgroundColor: t.c.panel }}
         contentContainerStyle={{ gap: 12, paddingTop: 14, paddingHorizontal: 12, paddingBottom: 10 }}
       >
         {children}
@@ -459,7 +461,10 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? (running || calls.length <= GROUP_OPEN_MAX);
   if (calls.length === 1) return <AgentLink row={rows[0]} transcript={transcript} onOpen={onOpen} />;
-  const head = { ...font(t, "mono", 400, 12, 1.6) };
+  // .agent-group-head: 12px/1.6 mono with the button's 0.02em; the editor themes' button rule outranks it with 12px/1.2 sans.
+  const role = t.editor ? "sans" : "mono";
+  const lh = t.editor ? 1.2 : 1.6;
+  const head: TextStyle = { ...font(t, role, 400, 12, lh), letterSpacing: t.editor ? 0 : 0.24 };
   return (
     <View style={{ gap: 6 }}>
       <Pressable
@@ -469,7 +474,7 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
         style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, minWidth: 44, paddingVertical: 4, paddingHorizontal: 6, borderRadius: t.radius, backgroundColor: pressed ? t.c.panel2 : "transparent" })}
       >
         <Text style={[head, { color: t.c.muted, width: 10 }]}>{open ? "▾" : "▸"}</Text>
-        <Text style={[head, font(t, "mono", 600, 12, 1.6), { color: t.c.text }]}>{`${calls.length} subagents`}</Text>
+        <Text style={[head, font(t, role, 600, 12, lh), { color: t.c.text }]}>{`${calls.length} subagents`}</Text>
         <Text style={[head, { color: t.c.dim, flexShrink: 1 }]}>{summarize(rows.map((r) => r.state))}</Text>
       </Pressable>
       {open ? rows.map((r) => <View key={r.call.id} style={{ marginLeft: 16 }}><AgentLink row={r} transcript={transcript} onOpen={onOpen} /></View>) : null}
@@ -514,7 +519,10 @@ export function StateDot({ state, size = 6 }: { state: AgentState; size?: number
 function AgentLink({ row, transcript, onOpen }: { row: Row; transcript: TranscriptEntry[]; onOpen: (id: string) => void }) {
   const t = useTheme();
   const calls = callsIn(transcript, row.call.id);
-  const text = buttonFont(t);
+  // .tool's 12px/1.6 mono with the button's 0.02em; the editor themes' button rule outranks it with 12px/1.2 sans.
+  const lh = t.editor ? 1.2 : 1.6;
+  const role = t.editor ? "sans" : "mono";
+  const text: TextStyle = { ...font(t, role, 400, 12, lh), letterSpacing: t.editor ? 0 : 0.24 };
   const colors = stateColors(t, row.state);
   const meta = `${row.activity ? `${row.activity}, ` : ""}${calls} ${calls === 1 ? "call" : "calls"}, ${formatDuration(row.secs)}`;
   return (
@@ -525,8 +533,8 @@ function AgentLink({ row, transcript, onOpen }: { row: Row; transcript: Transcri
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <StateDot state={row.state} />
-        <Text style={[text, { color: t.c.text }, t.editor ? null : font(t, "mono", 600, 11.5, 1.2)]}>subagent</Text>
-        <Text style={[text, { fontSize: 11, color: colors.label }]}>{STATE_LABEL[row.state]}</Text>
+        <Text style={[text, font(t, role, 600, 12, lh), { color: t.c.text }]}>subagent</Text>
+        <Text style={[text, { fontSize: 11, lineHeight: lineBox(11, lh), color: colors.label }]}>{STATE_LABEL[row.state]}</Text>
         <View style={{ flex: 1 }} />
         <View style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.accentLine, borderRadius: t.radius }}>
           <Text style={[text, { color: t.c.accentHi }]}>{"Open thread ›"}</Text>
@@ -592,7 +600,7 @@ function CallInput({ call, links, maxHeight }: { call: Call; links: boolean; max
   if (call.name === "edit_file") {
     return (
       <>
-        {i.replace_all ? <Text style={[small(t, t.c.dim), font(t, "mono", 400, 12), { lineHeight: 19.2 }, indent]}>every occurrence</Text> : null}
+        {i.replace_all ? <Text style={[small(t, t.c.dim), font(t, "mono", 400, 12), { lineHeight: lineBox(12, 1.6) }, indent]}>every occurrence</Text> : null}
         <DiffView lines={lineDiff(i.old_string ?? "", i.new_string ?? "")} label={`Edit to ${i.path ?? ""}`} maxHeight={maxHeight} style={indent} />
       </>
     );

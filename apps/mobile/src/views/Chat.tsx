@@ -26,6 +26,7 @@ import { ContextMeter, ContextWarning } from "../chat/ContextMeter";
 import { CompactContext } from "../screens/chat/items";
 import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
+import { RemoteReply, useRemoteCommand } from "../screens/chat/composer/RemoteReply";
 import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../screens/chat/items";
 import { AskedContext } from "../chat/asked";
@@ -79,7 +80,6 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
   /** Open a Settings section. */
   onSettings?: (section: string) => void;
 }) {
-  void onSettings;
   const t = useTheme();
   const { project, api } = useProjectNav();
   const daemon = useDaemonState(project);
@@ -265,7 +265,11 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
     setFlowAsk(null);
     setActionAsk(null);
   }, [selected]);
+  // /remote and /rc: offered only where remoteSurface says, and answered here, never as a turn.
+  const remoteCmd = useRemoteCommand({ sessionId: selected, draft, setDraft, readyFiles: attach.ready.length, saveDraft: (id, text) => api.saveDraft(id, text) });
   const send = () => {
+    if (remoteCmd.runRemoteCommand()) return;
+    remoteCmd.dismiss();
     // A /flow or /action opens its form rather than going out as a message.
     const parsed = selected && canSend && attach.ready.length === 0 ? parseSlashCommand(draft) : null;
     const command = parsed?.name;
@@ -320,8 +324,8 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
   // Dismissed per session, until it reaches the next level.
   const [warnDismissed, setWarnDismissed] = useState<string | null>(null);
   const warnKey = detail && meterView ? `${detail.id}:${meterView.level}` : null;
-  const sendNow = () => dispatch((id, text, files) => api.send(id, text, files, true), true);
-  const queue = () => dispatch((id, text, files) => api.queue(id, text, files), false);
+  const sendNow = () => remoteCmd.runRemoteCommand() || dispatch((id, text, files) => api.send(id, text, files, true), true);
+  const queue = () => remoteCmd.runRemoteCommand() || dispatch((id, text, files) => api.queue(id, text, files), false);
   const editMessage = useCallback(
     (index: number, text: string, mode: EditMode) => {
       if (!selected) return;
@@ -530,6 +534,9 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
                         <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
                         <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
                         <FormCards forms={forms} runs={qaRuns} />
+                        {remoteCmd.reply === detail.id ? (
+                          <RemoteReply remote={remoteCmd.remote} onDismiss={remoteCmd.dismiss} onSettings={onSettings && (() => { remoteCmd.dismiss(); onSettings("remote"); })} />
+                        ) : null}
                         {flowAsk && !busy ? <FlowLauncher key={flowAsk} text={flowAsk} run={runFlow} onClose={() => setFlowAsk(null)} /> : null}
                         {actionAsk && !busy ? <ActionLauncher key={actionAsk} text={actionAsk} run={runAction} onClose={() => setActionAsk(null)} /> : null}
                         {settings && disconnected ? (
@@ -549,7 +556,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
                           busy={busy}
                           canSend={canSend}
                           onSend={send}
-                          commands={SLASH_COMMANDS}
+                          commands={remoteCmd.commands}
                           flows={loadFlowNames(api)}
                           actions={loadActionNames(api)}
                           mentions={searchMentions(api)}
@@ -624,8 +631,8 @@ const searchMentions = memo((api): MentionSearchFn => (request, signal) => api.s
 function Display({ t }: { t: Theme }) {
   const size = t.editor ? 24 : 28;
   return (
-    <T accessibilityRole="header" style={{ ...font(t, "sans", 700, size), lineHeight: size * 1.1, letterSpacing: t.editor ? 0 : -0.03 * size, marginBottom: 10, textAlign: "center", color: t.c.text }}>
-      <T style={t.editor ? { ...font(t, "sans", 700, 24), lineHeight: 26.4, color: t.c.text } : { ...font(t, "serif", 400, 42, 1, true), letterSpacing: -0.42, color: t.c.accent }}>Start</T>
+    <T accessibilityRole="header" style={{ ...font(t, "sans", 700, size, 1.1), letterSpacing: t.editor ? 0 : -0.03 * size, marginBottom: 10, textAlign: "center", color: t.c.text }}>
+      <T style={t.editor ? { ...font(t, "sans", 700, 24, 1.1), color: t.c.text } : { ...font(t, "serif", 400, 42, 1, true), letterSpacing: -0.42, color: t.c.accent }}>Start</T>
       {" a session."}
     </T>
   );
@@ -638,7 +645,7 @@ function Empty({ settings, onSettings, onCreate }: { settings: StudioSettings | 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", paddingVertical: 28, paddingHorizontal: 14 }}>
       <Display t={t} />
-      <T style={{ ...font(t, "sans", 400, t.editor ? 12.5 : 13.5), lineHeight: t.base.lineHeight, color: t.c.muted, textAlign: "center", maxWidth: 460, marginBottom: 20 }}>
+      <T style={{ ...font(t, "sans", 400, 13.5, t.base.lineHeight / t.base.size), color: t.c.muted, textAlign: "center", maxWidth: 460, marginBottom: 20 }}>
         The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project&apos;s files, and read the web, asking you first before a command or an edit.
       </T>
       {settings && disconnected ? <ConnectCard settings={settings} onSettings={onSettings} /> : null}
@@ -649,9 +656,9 @@ function Empty({ settings, onSettings, onCreate }: { settings: StudioSettings | 
       ) : null}
       <Button title="New session" variant="primary" size="large" onPress={() => onCreate()} />
       <View style={{ gap: 8, marginTop: 28, width: "100%", maxWidth: 520 }}>
-        <T style={[labelFont(t, t.c.dim), { marginBottom: 4 }]}>or try</T>
+        <T style={[labelFont(t, t.c.dim), { marginBottom: 4, textAlign: "center" }]}>or try</T>
         {EXAMPLES.map((x) => (
-          <Pressable key={x} accessibilityRole="button" accessibilityLabel={x} onPress={() => onCreate(x)} style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", paddingVertical: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: t.c.line, borderRadius: t.radius, backgroundColor: pressed ? t.c.accentWash : t.c.tint })}>
+          <Pressable key={x} accessibilityRole="button" accessibilityLabel={x} onPress={() => onCreate(x)} style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", paddingVertical: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: t.c.line, borderRadius: t.radius, backgroundColor: pressed ? t.c.accentWash : t.c.tint })}>
             {t.editor ? null : <T style={{ ...font(t, "mono", 400, 13.5, 1.45), color: t.c.accent, marginRight: 10 }}>{"›"}</T>}
             <T style={{ flex: 1, ...(t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "sans", 400, 13.5, 1.45)), color: t.c.muted }}>{x}</T>
           </Pressable>

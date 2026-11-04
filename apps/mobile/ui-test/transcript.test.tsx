@@ -89,6 +89,11 @@ describe("MainTranscript", () => {
     expect(screen.getByText("The editor restarted.")).toBeTruthy();
   });
 
+  it("paints its scroller in the panel colour, so a GPU-scrolled list keeps subpixel text", () => {
+    const { container } = renderInProject(<MainTranscript {...transcriptProps(talk)} />);
+    expect(getComputedStyle(container.querySelector("#transcript")!).backgroundColor).toBe("rgb(19, 19, 18)");
+  });
+
   it("opens a call to its command, output and Copy", async () => {
     renderInProject(<MainTranscript {...transcriptProps(talk)} />);
     fireEvent.click(screen.getByText("shell"));

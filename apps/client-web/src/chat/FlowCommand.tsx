@@ -12,16 +12,9 @@ import {
   type FlowRunRequest,
   type TranscriptEntry,
 } from "@ue-mcp-studio/shared";
-import { STEP_SCOPED_UNREACHABLE, flowParamsFrom as paramsFrom, flowPrefillValue as prefillValue } from "@ue-mcp-studio/client-core";
+import { FLOW_STATE_LABEL, STEP_SCOPED_UNREACHABLE, flowParamsFrom, flowPrefillValue as prefillValue, flowStateLine, type FlowLoaded as Loaded } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { FieldsForm } from "./Forms";
-
-type Loaded =
-  | { kind: "loading" }
-  | { kind: "unnamed"; flows: FlowListing[] }
-  | { kind: "unknown"; closest: string[] }
-  | { kind: "error"; message: string }
-  | { kind: "ready"; flow: FlowListing | null; inputs: FlowInput[]; scope: "flat" | "step" };
 
 /**
  * What a /flow message opens above the composer: the flow's inputs as a form,
@@ -135,7 +128,7 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
           submitLabel="Run"
           declineLabel="Cancel"
           requireFilled
-          onSubmit={(content) => submit(paramsFrom(inputs, content, typed))}
+          onSubmit={(content) => submit(flowParamsFrom(inputs, content, typed))}
           onDecline={onClose}
         />
       </>
@@ -151,13 +144,6 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
   );
 }
 
-const STATE_LABEL: Record<Extract<TranscriptEntry, { kind: "flow" }>["state"], string> = {
-  running: "Running",
-  succeeded: "Succeeded",
-  failed: "Failed",
-  stopped: "Stopped",
-};
-
 /** A /flow's card in the transcript: its steps as they run, then its summary or errors. */
 export function FlowCard({ entry }: { entry: Extract<TranscriptEntry, { kind: "flow" }> }) {
   const tone = entry.state === "failed" ? "bad" : entry.state === "stopped" ? "warn" : "";
@@ -165,7 +151,7 @@ export function FlowCard({ entry }: { entry: Extract<TranscriptEntry, { kind: "f
     <div className={`banner flow-card ${tone}`} role="status" aria-label={`Flow ${entry.name}`}>
       <div className="row">
         <strong className="mono">{entry.name}</strong>
-        <span className="dim small">{STATE_LABEL[entry.state]}{entry.duration !== undefined ? ` in ${(entry.duration / 1000).toFixed(1)} s` : ""}</span>
+        <span className="dim small">{flowStateLine(entry)}</span>
       </div>
       {entry.steps.length > 0 && (
         <ol className="small flow-steps">

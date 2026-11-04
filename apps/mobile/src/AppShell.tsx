@@ -35,7 +35,6 @@ import { RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { RemoteLock } from "./views/remote/RemoteLock";
 import { CompatBanner } from "./native/CompatBanner";
-import { ChangeScreen, ChangesScreen } from "./screens/Changes";
 
 const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
@@ -78,8 +77,6 @@ export function AppShell({ device, onBack, onUnpaired, transport, initial }: App
         <Root initial={initial} onBack={onBack} />
         {top ? (
           <View style={StyleSheet.absoluteFill}>
-            {top.name === "changes" ? <ChangesScreen /> : null}
-            {top.name === "change" ? <ChangeScreen path={top.path} /> : null}
           </View>
         ) : null}
         <RemoteLock lock={project.lock} computerKey={device.computerKey} onRemoved={() => onUnpaired("This phone was removed after too many wrong PINs. Pair it again.")} />
@@ -172,7 +169,8 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
           </View>
         ) : null}
         {tab !== "Chat" ? (
-          <View style={[s.main, s.padded]}>
+          // The Playtests page pads inside its own scroller, as the web main scrolls with its padding.
+          <View style={[s.main, tab !== "Playtests" && s.padded]}>
             <ErrorBoundary what={tab} resetKey={tab}>
               {tab === "Playtests" ? <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} /> : null}
               {tab === "Plugins" ? <PluginsView daemon={daemon} remote /> : null}

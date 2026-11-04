@@ -146,7 +146,8 @@ export function Seg<K extends string>({ value, options, onChange, label }: { val
   return (
     <View accessibilityRole="tablist" accessibilityLabel={label} style={{ flexDirection: "row", borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, overflow: "hidden", alignSelf: "flex-start" }}>
       {options.map((o, i) => (
-        <Pressable key={o.key} accessibilityRole="tab" accessibilityState={{ selected: o.key === value }} onPress={() => onChange(o.key)} style={{ paddingVertical: 5, paddingHorizontal: 12, minHeight: 44, justifyContent: "center", backgroundColor: o.key === value ? t.c.accentWash : "transparent", borderLeftWidth: i ? 1 : 0, borderLeftColor: t.c.lineStrong }}>
+        // .seg button: 6px 11px; .seg button.on: the accent wash with a 2 px accent line along its foot (box-shadow inset 0 -2px 0).
+        <Pressable key={o.key} accessibilityRole="tab" accessibilityState={{ selected: o.key === value }} onPress={() => onChange(o.key)} style={{ paddingVertical: 6, paddingHorizontal: 11, minHeight: 44, justifyContent: "center", backgroundColor: o.key === value ? t.c.accentWash : "transparent", borderLeftWidth: i ? 1 : 0, borderLeftColor: t.c.lineStrong, ...(o.key === value ? { boxShadow: `inset 0 -2px 0 ${t.c.accent}` } : {}) }}>
           <T style={[t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23 }, { color: o.key === value ? t.c.text : t.c.muted }]}>{o.title}</T>
         </Pressable>
       ))}
