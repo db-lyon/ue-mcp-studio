@@ -20,9 +20,7 @@
       "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#0c0c0b",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundImage": "./assets/android-icon-background.png"
       },
       "permissions": [
         "android.permission.CAMERA"
@@ -39,6 +37,11 @@
       ],
       "expo-secure-store",
       "./plugins/with-release-signing"
-    ]
+    ],
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0c0c0b"
+    }
   }
 }
