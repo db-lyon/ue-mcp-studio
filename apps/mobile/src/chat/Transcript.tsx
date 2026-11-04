@@ -7,6 +7,7 @@
  */
 import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Image, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type TextStyle } from "react-native";
+import Svg, { Path } from "react-native-svg";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
   OUTCOME_LABEL,
@@ -171,18 +172,13 @@ function PlaytestFailed({ errors, request }: { errors: string[]; request: Playte
   );
 }
 
-/** The pencil of Edit this message: the web's 16px path at 14px, stroked in the button's colour. */
+/** The pencil of Edit this message: the web's own 16px path drawn at 14px, stroked in the button's colour. */
 function PencilGlyph({ color }: { color: string }) {
-  const k = 14 / 16;
-  const w = 1.5 * k;
   return (
     <View style={{ width: 14, height: 14 }} importantForAccessibility="no-hide-descendants">
-      {/* The pencil's body: the rectangle from (10.5,2.5) to (13.5,5.5) to (6,13), open at its tip end. */}
-      {/* A stroke is centred on the path, so the box grows by half a stroke each way. */}
-      <View style={{ position: "absolute", left: 8.25 * k - (4.24 * k + w) / 2, top: 7.75 * k - (10.6 * k + w) / 2, width: 4.24 * k + w, height: 10.6 * k + w, borderWidth: w, borderBottomWidth: 0, borderColor: color, borderTopLeftRadius: w / 2, borderTopRightRadius: w / 2, transform: [{ rotate: "45deg" }] }} />
-      {/* The tip: H3 then v-3 from (6,13). */}
-      <View style={{ position: "absolute", left: 3 * k - w / 2, top: 13 * k - w / 2, width: 3 * k + w / 2, height: w, backgroundColor: color, borderRadius: w / 2 }} />
-      <View style={{ position: "absolute", left: 3 * k - w / 2, top: 10 * k, width: w, height: 3 * k + w / 2, backgroundColor: color, borderRadius: w / 2 }} />
+      <Svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        <Path d="M10.5 2.5l3 3L6 13H3v-3z" />
+      </Svg>
     </View>
   );
 }
