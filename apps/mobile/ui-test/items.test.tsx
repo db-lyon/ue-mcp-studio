@@ -168,15 +168,14 @@ describe("AssetDiffView: only what changed", () => {
   const view = (path: string, status: "added" | "modified" | "deleted" = "modified") =>
     renderInProject(<AssetDiffView diff={change(path).assetDiff!} name={path.split("/").pop()!} status={status} />);
 
-  it("a widget property by its details-panel label; the facts that are the same fold into one line", () => {
+  it("a widget property by its details-panel label; the facts that are the same are not shown at all", () => {
     view("Content/UI/HUD/WBP_GameHUD.uasset");
     expect(screen.getByText(reads(/^Changed\s*Hide when Full$/))).toBeTruthy();
     expect(screen.getByText("False")).toBeTruthy();
     expect(screen.getByText("True")).toBeTruthy();
-    expect(screen.getByText("5 unchanged facts")).toBeTruthy();
+    expect(screen.queryByText(/unchanged fact/)).toBeNull();
     expect(screen.queryByText(reads("Parent class"))).toBeNull();
-    fireEvent.click(screen.getByText("5 unchanged facts"));
-    expect(screen.getByText(reads("Parent class"))).toBeTruthy();
+    expect(screen.queryByLabelText("Facts")).toBeNull();
   });
 
   it("a graph: the verb its badge says is dropped, a pin's defaults are its before and after", () => {
@@ -193,12 +192,12 @@ describe("AssetDiffView: only what changed", () => {
     expect(screen.getAllByText(reads(/Roughness > /))[0]).toBeTruthy();
   });
 
-  it("a sound with no records and no picture: its tile names the one fact that changed, the rest fold into one line", () => {
+  it("a sound with no records and no picture: its tile names the one fact that changed, and nothing counts the rest", () => {
     view("Content/Audio/SW_WardChime.uasset");
     expect(screen.getByLabelText(/SoundWave SW_WardChime/)).toBeTruthy();
     expect(screen.getByText(reads("Duration"))).toBeTruthy();
     expect(screen.queryByText("Facts")).toBeNull();
-    expect(screen.getByText("2 unchanged facts")).toBeTruthy();
+    expect(screen.queryByText(/unchanged fact/)).toBeNull();
   });
 
   it("an added asset with no picture: its tile, and the details of this version", () => {
