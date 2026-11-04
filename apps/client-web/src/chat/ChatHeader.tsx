@@ -1,5 +1,5 @@
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
-import { STATE_LABEL, agentStatus, describe, formatDuration, isActive, type Call } from "./model";
+import { STATE_LABEL, agentStatus, describe, formatDuration, isActive, type Call } from "@ue-mcp-studio/client-core";
 import { useNow } from "./hooks";
 import { useAsked } from "./asked";
 

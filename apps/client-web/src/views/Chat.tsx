@@ -9,7 +9,7 @@ import { native } from "../native";
 import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
 import { ACCOUNT_NAME } from "./settings/AccountCard";
 import type { DaemonState } from "../state";
-import { agentCalls, finishedTurns } from "../chat/model";
+import { agentCalls, finishedTurns } from "@ue-mcp-studio/client-core";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
@@ -32,7 +32,7 @@ import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../cha
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
-import { DetailLoader } from "../chat/session-sync";
+import { DetailLoader } from "@ue-mcp-studio/client-core";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
