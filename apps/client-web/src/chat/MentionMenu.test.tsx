@@ -208,7 +208,7 @@ describe("the @-mention menu", () => {
     type("@actor:Cu");
     await settle();
     expect(calls[0].request).toEqual({ query: "Cu", kinds: ["actor"] });
-    expect(screen.getByText("Actors need a running editor.")).toBeTruthy();
+    expect(screen.getByText("Actors need the editor connected and not busy.")).toBeTruthy();
     // Nothing could be asked, so the menu does not claim nothing matched.
     expect(screen.queryByText(/No actors match/)).toBeNull();
   });

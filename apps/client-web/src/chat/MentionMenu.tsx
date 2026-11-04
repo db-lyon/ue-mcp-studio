@@ -131,7 +131,7 @@ export function useMentionMenu(draft: string, onDraft: (text: string) => void, b
   const optionId = (i: number) => `${MENTION_MENU_ID}-${i}`;
   const sources = fresh ? answer!.response.sources : {};
   const notes = [
-    sources.actor === "unavailable" ? "Actors need a running editor." : null,
+    sources.actor === "unavailable" ? "Actors need the editor connected and not busy." : null,
     sources.asset === "disk" ? "Assets are read from disk while the editor is not answering." : null,
   ].filter((n): n is string => !!n);
 

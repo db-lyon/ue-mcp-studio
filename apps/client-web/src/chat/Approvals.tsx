@@ -16,8 +16,16 @@ const KIND: Record<ApprovalRequest["tool"], string> = {
   shell: "commands",
   write_file: "file changes",
   edit_file: "file changes",
-  editor_restart: "editor restarts",
+  editor_restart: "editor starts, stops and restarts",
   ue_mcp: "ue-mcp actions that delete or overwrite",
+};
+
+/** The card's title for each editor operation. */
+const OPERATION_TITLE: Record<NonNullable<ApprovalRequest["operation"]>, string> = {
+  restart: "Restart the editor?",
+  rebuild: "Rebuild and restart the editor?",
+  stop: "Stop the editor?",
+  start: "Start the editor?",
 };
 
 const OPERATION: Record<NonNullable<ApprovalRequest["operation"]>, string> = {
@@ -49,7 +57,7 @@ export function ApprovalCard({ sessionId, approval: a }: { sessionId: string; ap
       setError(e.message);
     });
   };
-  const title = a.tool === "write_file" && a.creates ? "Create this file?" : a.tool === "editor_restart" && a.operation === "rebuild" ? "Rebuild and restart the editor?" : TITLE[a.tool];
+  const title = a.tool === "write_file" && a.creates ? "Create this file?" : a.tool === "editor_restart" ? OPERATION_TITLE[a.operation ?? "restart"] : TITLE[a.tool];
   const kind = KIND[a.tool];
   return (
     <div className="approval card" role="group" aria-label={title}>
@@ -64,7 +72,7 @@ export function ApprovalCard({ sessionId, approval: a }: { sessionId: string; ap
         </>
       ) : a.tool === "editor_restart" ? (
         <>
-          <div>{OPERATION[a.operation ?? "restart"]}. Unsaved work in the editor is lost.</div>
+          <div>{OPERATION[a.operation ?? "restart"]}.{a.operation === "start" ? "" : " Unsaved work gets the editor's save prompt first."}</div>
           {a.reason && <div className="dim small">Why: {a.reason}</div>}
         </>
       ) : a.tool === "ue_mcp" ? (

@@ -22,6 +22,16 @@ const edit: ApprovalRequest = {
 };
 
 describe("an approval card", () => {
+  it("titles an editor stop or start by what it does, and warns of lost work only when the editor is running", () => {
+    const op = (operation: "stop" | "start", id: string): ApprovalRequest => ({ id, toolUseId: id, tool: "editor_restart", parent: null, operation, at });
+    render(<Approvals sessionId="s1" approvals={[op("stop", "ap5"), op("start", "ap6")]} />);
+    expect(screen.getByText("Stop the editor?")).toBeTruthy();
+    expect(screen.getByText("Stop the editor. Unsaved work gets the editor's save prompt first.")).toBeTruthy();
+    expect(screen.getByText("Start the editor?")).toBeTruthy();
+    expect(screen.getByText("Start the editor.")).toBeTruthy();
+    expect(screen.queryByText("Restart the editor?")).toBeNull();
+  });
+
   it("shows the command and where it runs, and sends Allow", async () => {
     render(<Approvals sessionId="s1" approvals={[shell]} />);
     expect(screen.getByText("Run this command?")).toBeTruthy();
