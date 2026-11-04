@@ -218,7 +218,9 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
       <MentionText text={entry.text} />
       {entry.source !== undefined && <span className="dim small msg-source"> from the agent's message above</span>}
       {onEdit && at !== undefined && entry.source === undefined && (
-        <button className="msg-edit ghost small-button" aria-label="Edit this message" title="Edit and send again from here" onClick={() => setText(entry.text)}>Edit</button>
+        <button className="msg-edit icon-button" aria-label="Edit this message" title="Edit and send again from here" onClick={() => setText(entry.text)}>
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.5 2.5l3 3L6 13H3v-3z" /></svg>
+        </button>
       )}
     </div>
   );

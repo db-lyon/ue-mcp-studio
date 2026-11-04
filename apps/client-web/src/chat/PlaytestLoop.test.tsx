@@ -97,6 +97,14 @@ describe("the loop on the playtest card", () => {
     expect(onThread).toHaveBeenCalledWith("studio_1");
   });
 
+  it("gives every attempt its actions on a row of their own, in the same order", () => {
+    mount(runOf(loopOf({ state: "passed", attempts: [attempt(1, [{ path: "/Game/A", status: "modified" }]), attempt(2, [])] })), { onThread: vi.fn() });
+    const rows = [...document.querySelectorAll(".qa-attempt-actions")];
+    expect(rows).toHaveLength(2);
+    expect([...rows[0].querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Open attempt 1's thread", "Revert attempt 1"]);
+    expect([...rows[1].querySelectorAll("button")].map((b) => b.getAttribute("aria-label"))).toEqual(["Open attempt 2's thread"]);
+  });
+
   it("says where the loop is", () => {
     expect(loopHeadline(loopOf({ attempts: [attempt(1, [], { endedAt: undefined })] }))).toMatch(/Attempt 1 is running: the subagent runs the playtest/);
     expect(loopHeadline(loopOf({ attempts: [attempt(1, []), attempt(2, [])] }))).toMatch(/Attempt 2 is running: the subagent fixes what failed/);

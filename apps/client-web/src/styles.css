@@ -9,7 +9,7 @@
   --line-strong: rgba(255, 255, 255, 0.12);
   --text: #ece9e3;
   --muted: #b3b0a8;
-  --dim: #7b7871;
+  --dim: #8a8985;
   --accent: #e8720c;
   --accent-hi: #f28a2e;
   --accent-deep: #8f4507;
@@ -64,7 +64,7 @@
   --line-strong: var(--ue-dropdownOutline, #4c4c4c);
   --text: var(--ue-foreground, #c0c0c0);
   --muted: color-mix(in srgb, var(--ue-foreground, #c0c0c0) 75%, var(--ue-panel, #242424));
-  --dim: color-mix(in srgb, var(--ue-foreground, #c0c0c0) 50%, var(--ue-panel, #242424));
+  --dim: color-mix(in srgb, var(--ue-foreground, #c0c0c0) 68%, var(--ue-panel, #242424));
   --accent: var(--ue-primary, #0070e0);
   --accent-hi: var(--ue-primaryHover, #0e86ff);
   --accent-wash: color-mix(in srgb, var(--ue-select, #0070e0) 18%, transparent);
@@ -158,7 +158,7 @@ button {
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 button:hover:not(:disabled) { border-color: var(--accent-line); background: var(--panel-3); }
-button:disabled { opacity: 0.4; cursor: default; }
+button:disabled { opacity: 0.6; cursor: default; }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 button.primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
 button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
@@ -288,7 +288,7 @@ main.parked { position: absolute; inset: 0; visibility: hidden; pointer-events: 
 .crashed-error { margin: 6px 0 0; font-family: var(--mono); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 9em; overflow: auto; color: var(--text); }
 .banner.warn { background: color-mix(in srgb, var(--warn) 9%, transparent); border-color: color-mix(in srgb, var(--warn) 30%, transparent); color: var(--warn-text); }
 .editor-banner { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.editor-banner-text { flex: 1; min-width: 0; }
+.editor-banner-text { flex: 1 1 220px; min-width: 0; }
 .editor-banner .elapsed { margin-left: 10px; font-variant-numeric: tabular-nums; }
 .update-waiting { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .app > .banner.update-waiting { margin: 0 18px 10px; }
@@ -438,8 +438,7 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 
 /* Diffs: an edit's removed and added lines. */
 .output.diff { padding: 8px 0; }
-.output.diff span { display: block; padding: 0 12px 0 calc(12px + 2ch); text-indent: -2ch; }
-/* A wrapped diff line continues under its text, not under the + or - sign. */
+.output.diff > span { display: block; padding: 0 12px; }
 .diff-add { background: rgba(108, 192, 139, 0.12); color: var(--ok); }
 .diff-del { background: rgba(229, 96, 79, 0.12); color: var(--bad-text); }
 .diff-ctx { color: var(--muted); }
@@ -862,10 +861,7 @@ pre.diff .add { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, 
 pre.diff .del { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); display: block; }
 pre.diff .hunk { color: var(--accent-hi); display: block; }
 /* Narrow: the file diff wraps instead of scrolling sideways, each wrapped line hanging under its text. */
-@media (max-width: 760px) {
-  pre.diff { white-space: pre-wrap; overflow-wrap: anywhere; }
-  pre.diff > span { display: block; padding-left: 1ch; text-indent: -1ch; }
-}
+@media (max-width: 760px) { pre.diff { white-space: pre-wrap; overflow-wrap: anywhere; } }
 
 /* Whole-panel states: an update in progress, ue-mcp away. */
 .overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.55); }
@@ -964,6 +960,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-agent-evidence p { margin: 4px 0; white-space: pre-wrap; }
 .qa-captures { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
 .qa-capture-missing { display: inline-block; padding: 2px 0; overflow-wrap: anywhere; }
+.qa-captures > a { display: inline-flex; flex-direction: column; gap: 4px; max-width: 100%; }
 .qa-captures img { display: block; width: 240px; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel-2); }
 .qa-agent-evidence ul { margin: 4px 0; padding-left: 16px; overflow-wrap: anywhere; }
 .qa-override { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -978,7 +975,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .qa-edit-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .qa-edit-step { display: flex; flex-direction: column; gap: 4px; border-left: 2px solid var(--line-strong); padding-left: 8px; }
 .qa-edit-step .row { gap: 6px; flex-wrap: wrap; align-items: center; }
-.qa-edit-instruction { flex: 1 1 200px; min-width: 0; }
+.qa-edit-instruction { flex: 1 1 200px; min-width: 0; resize: none; field-sizing: content; min-height: 2.4em; line-height: 1.4; padding: 6px 10px; font: inherit; }
 .qa-edit-short { width: 6.5em; }
 .qa-summary { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; border-top: 1px solid var(--line); padding-top: 8px; }
 
@@ -1291,6 +1288,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .asset-tile-facts > div { display: contents; }
 .asset-tile-facts dt { color: var(--muted); overflow-wrap: break-word; min-width: 0; }
 .asset-tile-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
+/* The name column takes at most half the tile, so a long value is not squeezed into a sliver beside it. */
+.asset-tile-facts { grid-template-columns: fit-content(45%) minmax(0, 1fr); }
 .asset-tile-note { overflow-wrap: break-word; }
 .review-item-summary { color: var(--text); overflow-wrap: break-word; }
 .review-item-summary.bad { color: var(--bad); }
@@ -1752,4 +1751,89 @@ button.icon-button[aria-expanded="true"] { color: var(--accent-hi); border-color
   /* The step path: a 44 pixel tall hit, the bars drawn where they were, and no extra space under them. */
   .qa-path-hit { min-height: 44px; height: 44px; margin-block: -10px; }
   .qa-path-hit::before, .qa-path-hit::after { transform: translateY(10px); }
+}
+
+/* Phone pass 2. */
+
+/* Diffs: the sign in a gutter, the text beside it with a rule between, so a wrapped line visibly
+   continues under its text. A git file header stays one line, cut with an ellipsis. */
+.output.diff > .diff-line, pre.diff > .diff-line { display: grid; grid-template-columns: 2ch minmax(0, 1fr); }
+pre.diff > .diff-line { grid-template-columns: 1.5ch minmax(0, 1fr); }
+.diff-line > .diff-op { user-select: none; }
+.diff-line > .diff-text { min-width: 0; padding-left: 6px; border-left: 1px solid color-mix(in srgb, currentColor 30%, transparent); }
+pre.diff > .meta, pre.diff > .hunk { display: block; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+pre.diff > .meta { color: var(--dim); }
+.approval .output { max-height: 50vh; }
+/* On a phone the diff gives way, so Allow and Deny show without scrolling the approval. */
+@media (max-width: 760px) { .approval .output { max-height: 28vh; } }
+
+/* A tall card under the transcript scrolls inside itself, so the message box always stays on screen. */
+.msg.assistant.local-reply { max-height: 60vh; overflow-y: auto; overscroll-behavior: contain; }
+
+/* Event payloads and ue-mcp.yml wrap on a phone rather than scroll out of sight, with no resize grip. */
+@media (max-width: 760px) {
+  .log-data > pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+@media (pointer: coarse) {
+  textarea { resize: none; }
+}
+@media (pointer: coarse) and (max-width: 760px) {
+  .yaml-editor .editor, .yaml-layer { white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+
+@media (max-width: 760px) {
+  /* A subagent: its title on a line of its own, its state and activity under it, the whole row the target. */
+  .agent-link { display: grid; grid-template-columns: 6px auto auto minmax(0, 1fr); grid-template-areas: "dot name state open" ". title title title" ". meta meta meta"; align-items: center; gap: 2px 8px; min-height: 44px; padding: 8px 10px; }
+  .agent-link::before { grid-area: dot; }
+  .agent-link .tool-name { grid-area: name; }
+  .agent-link .agents-state { grid-area: state; }
+  .agent-link .agent-open { grid-area: open; justify-self: end; white-space: nowrap; }
+  .agent-link .tool-call { grid-area: title; min-width: 0; overflow-wrap: anywhere; }
+  .agent-link > .dim { grid-area: meta; min-width: 0; }
+
+  /* The step editor: every field full width and stacked, the same widths on every step. */
+  .qa-edit-map { flex-direction: column; align-items: stretch; gap: 4px; }
+  .qa-edit-map input { width: 100%; }
+  .qa-edit-step > .row:first-child { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; }
+  .qa-edit-step > .row.small { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .qa-edit-step > .row.small > * { width: 100%; min-width: 0; }
+  .qa-edit-step > .row.small > input:not(.qa-edit-short), .qa-edit-step > .row.small > label { grid-column: 1 / -1; }
+  .qa-edit-short { width: 100%; }
+
+  /* The changes sheet: Close beside the title, the status under them, and a file list no taller than it needs. */
+  .changes-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; row-gap: 2px; }
+  .changes-head > h2 { grid-column: 1; grid-row: 1; }
+  .changes-head > button { grid-column: 2; grid-row: 1; }
+  .changes-head > .dim { grid-column: 1 / -1; grid-row: 2; }
+  .changes-head > .spacer { display: none; }
+  .changes-body { grid-template-rows: auto minmax(0, 1fr); }
+  .changes-list { max-height: 40vh; }
+
+  /* A playtest card's toolbar starts at the same place on every card: under the title, from the left. */
+  .qa-head .qa-box-actions { margin-left: 0; justify-content: flex-start; }
+
+  /* A loop attempt's actions share a row, the same on every attempt. */
+  .qa-attempt-actions > button { flex: 1 1 0; }
+
+  /* A setting with a field: the explanation first, the field under it. */
+  .cfg .toggle-row.inline:has(> input:not([type="checkbox"]):not([type="radio"])) { flex-direction: column; align-items: stretch; gap: 8px; }
+
+  /* The account: the name on its own line, the buttons under it. */
+  .account-row { flex-wrap: wrap; }
+  .account-row > .grow { flex: 1 1 calc(100% - 24px); }
+
+  /* The phone has no keyboard shortcuts to hint at. */
+  .composer-hint { display: none; }
+
+  /* Tighter header rows, so an approval card or a reply gets the height. */
+  .chat-back { min-height: 44px; padding-top: 0; padding-bottom: 0; }
+}
+.qa-attempt-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.cfg select { padding-right: 28px; text-overflow: ellipsis; max-width: 100%; }
+
+/* A finger: every button at least 44 pixels wide too, not only tall. */
+@media (pointer: coarse) {
+  button:not(.asset-link):not(.link):not(.qa-path-hit):not(.switch):not(.chip) { min-width: 44px; }
+  .msg.user .msg-edit { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .qa-edit-instruction { min-height: 44px; }
 }

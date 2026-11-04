@@ -104,9 +104,7 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
               {diff?.reason && <p className="muted">{diff.reason}</p>}
               {diff?.diff && (
                 <pre className="diff">
-                  {diff.diff.split("\n").map((l, i) => (
-                    <span key={i} className={l.startsWith("+") && !l.startsWith("+++") ? "add" : l.startsWith("-") && !l.startsWith("---") ? "del" : l.startsWith("@@") ? "hunk" : ""}>{l}{"\n"}</span>
-                  ))}
+                  {diff.diff.split("\n").map((l, i) => <GitDiffLine key={i} line={l} />)}
                 </pre>
               )}
             </div>
@@ -114,5 +112,25 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
         )}
       </div>
     </div>
+  );
+}
+
+/** The file header lines of a git diff, cut to one line: their paths repeat what the panel already names. */
+const GIT_HEADER = /^(diff --git |index |--- |\+\+\+ |new file mode |deleted file mode |similarity index |rename (from|to) )/;
+
+/**
+ * One line of a git diff. A header or hunk line stays one line, cut with an ellipsis; a change
+ * or context line is its sign in a gutter and its text beside it, so a wrapped line continues
+ * under its text.
+ */
+export function GitDiffLine({ line }: { line: string }) {
+  if (GIT_HEADER.test(line)) return <span className="meta" title={line}>{line}{"\n"}</span>;
+  if (line.startsWith("@@")) return <span className="hunk" title={line}>{line}{"\n"}</span>;
+  const op = line[0] === "+" || line[0] === "-" || line[0] === " " ? line[0] : "";
+  return (
+    <span className={`diff-line ${op === "+" ? "add" : op === "-" ? "del" : ""}`}>
+      <span className="diff-op">{op}</span>
+      <span className="diff-text">{(op ? line.slice(1) : line) + "\n"}</span>
+    </span>
   );
 }

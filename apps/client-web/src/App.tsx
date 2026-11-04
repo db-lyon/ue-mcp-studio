@@ -160,7 +160,8 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           {tools}
         </NavDrawer>
       )}
-      {daemon.error && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
+      {/* While the connection overlay is up it says the same thing; the banner is for a stream that is up but health failing. */}
+      {daemon.error && daemon.streaming && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
       <DialogBanner daemon={daemon} />
       <VersionNotice daemon={daemon} />
       <RemoteApprovalBanner />

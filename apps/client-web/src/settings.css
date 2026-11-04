@@ -293,3 +293,8 @@
   .cfg button.link { padding-block: 13px; margin-block: -13px; }
   .cfg label:has(> input[type="checkbox"]), .cfg label:has(> input[type="radio"]) { min-height: 44px; display: inline-flex; align-items: center; }
 }
+
+/* A collapsed Advanced card: its summary reaches 44 pixels without a 44 pixel row of empty space under the text. */
+@media (pointer: coarse) {
+  .cfg details.card.advanced > summary { min-height: 0; padding-block: 13px; margin-block: -13px; }
+}

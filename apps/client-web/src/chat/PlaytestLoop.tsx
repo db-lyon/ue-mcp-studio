@@ -63,12 +63,16 @@ export function LoopPanel({ loop, busy, onRevert, onThread, showReason = false }
                 <strong className="small">Attempt {a.n}</strong>
                 <span className="dim small">{a.endedAt ? (a.changes.length ? plural(a.changes.length, "change") : "no changes") : "running"}</span>
                 {a.reverted && <span className="pill small">Reverted</span>}
-                <span className="spacer" />
-                {!running && !a.reverted && a.changes.length > 0 && (
-                  <button className="small-button" disabled={busy} onClick={() => onRevert(a.n)} aria-label={`Revert attempt ${a.n}`} title="Undo the changes this attempt made">Undo its changes</button>
-                )}
-                {onThread && <button className="small-button" onClick={() => onThread(a.callId)} aria-label={`Open attempt ${a.n}'s thread`} title="The subagent's messages and tool calls in this attempt">See what it did</button>}
               </div>
+              {/* Every attempt's actions on one row of their own, in the same order, so attempts line up. */}
+              {(onThread || (!running && !a.reverted && a.changes.length > 0)) && (
+                <div className="qa-attempt-actions">
+                  {onThread && <button className="small-button" onClick={() => onThread(a.callId)} aria-label={`Open attempt ${a.n}'s thread`} title="The subagent's messages and tool calls in this attempt">See what it did</button>}
+                  {!running && !a.reverted && a.changes.length > 0 && (
+                    <button className="small-button" disabled={busy} onClick={() => onRevert(a.n)} aria-label={`Revert attempt ${a.n}`} title="Undo the changes this attempt made">Undo its changes</button>
+                  )}
+                </div>
+              )}
               {(a.changes.length > 0 || a.failing.length > 0) && (
                 <details className="small">
                   <summary>{a.failing.length ? `${plural(a.failing.length, "step")} failed` : "What it changed"}</summary>

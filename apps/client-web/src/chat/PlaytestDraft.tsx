@@ -127,8 +127,9 @@ export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun
           <li key={i} className="qa-edit-step">
             <div className="row">
               <span className="qa-num mono dim">{i + 1}</span>
-              <input className="qa-edit-instruction" aria-label={`Step ${i + 1} instruction`} value={r.instruction} onChange={(e) => set(i, { instruction: e.target.value })} />
-              <button className="ghost small-button" aria-label={`Remove step ${i + 1}`} onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button>
+              {/* A box that grows with the instruction, so a long one is read whole on a phone; it stays one line of text. */}
+              <textarea className="qa-edit-instruction" rows={1} aria-label={`Step ${i + 1} instruction`} value={r.instruction} onChange={(e) => set(i, { instruction: e.target.value.replace(/\r?\n/g, " ") })} />
+              <button className="small-button qa-edit-remove" aria-label={`Remove step ${i + 1}`} onClick={() => setRows(rows.filter((_, j) => j !== i))}>Remove</button>
             </div>
             <div className="row small">
               <select aria-label={`Step ${i + 1} player`} value={r.player} onChange={(e) => set(i, { player: e.target.value })}>
