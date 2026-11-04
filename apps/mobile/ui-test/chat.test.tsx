@@ -259,7 +259,7 @@ describe("ReviewPanel", () => {
     renderInProject(<ReviewPanel sessionId="s1" review={null} timeline={timeline} onChanged={onChanged} />, api);
     await settle();
     // Following the Settings default, which is on: the box is ticked.
-    expect(screen.getByRole("checkbox").textContent).toContain("✓");
+    expect(screen.getByRole("checkbox").querySelector("polyline")).toBeTruthy();
     expect(screen.getByText(/Following Settings\./)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Restore to here"));
     fireEvent.click(screen.getByLabelText("Restore every file"));

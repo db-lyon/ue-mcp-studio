@@ -14,3 +14,4 @@ export const Path = el("path");
 export const Rect = el("rect");
 export const Circle = el("circle");
 export const G = el("g");
+export const Polyline = el("polyline");

@@ -429,7 +429,7 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
       {/* label.row.toggle: .row's 6 px above and below, the checkbox's own 4 px and 3 px margins, and the label's 14 px on the right. */}
       <View style={{ paddingLeft: 4, marginRight: 14, marginVertical: 6 }}>
       <Check checked={on} disabled={busy || !status} onChange={toggle} label="Review this session's turns">
-        <T style={{ marginLeft: 3 }}>
+        <T style={{ marginLeft: 3, color: t.c.muted }}>
           {"Review this session's turns "}
           <T style={dimSmall}>{`A checkpoint before and after each turn, and a card to keep or revert its changes.${review === null ? " Following Settings." : ""}`}</T>
         </T>

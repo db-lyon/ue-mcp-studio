@@ -5,7 +5,7 @@
  * The web client's chat/AssetDiff.tsx; what it decides is client-core's.
  */
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { Image, Platform, Pressable, View } from "react-native";
+import { Image, Pressable, View } from "react-native";
 import {
   exportNumber,
   factRows,
@@ -71,10 +71,11 @@ function Value({ v, side }: { v: string | null | undefined; side: "before" | "af
   }
   const words = parts?.[0] ?? numberStruct(v) ?? (exportNumber(v) !== v ? exportNumber(v) : null);
   return (
-    <View style={{ flexDirection: "row", minWidth: 0 }}>
+    // The swatch sits inline in the text, so a long value wraps flush with it.
+    <T style={monoCell(t)}>
       <Swatch text={v} />
-      <T style={[monoCell(t), { flexShrink: 1 }]}>{engineText(words ?? v)}</T>
-    </View>
+      {engineText(words ?? v)}
+    </T>
   );
 }
 
@@ -179,13 +180,19 @@ function HeldValues({ values, dropped }: { values: Array<{ name: string; value: 
 
 const sideOf = (v: string | null | undefined, side: "before" | "after"): CompareSide => (v === null ? "absent" : v === undefined ? null : { content: <Value v={v} side={side} /> });
 
-/** .diff-kind: the change's badge, inline before its text. */
+/**
+ * .diff-kind: the change's badge, an inline block before its text: a box of its
+ * own line height and border, sitting on the text's baseline, 6 pixels before it.
+ */
 function Kind({ k, tone }: { k: string; tone: string }) {
   const t = useTheme();
   const color = tone === "add" ? t.c.ok : tone === "del" ? t.c.bad : tone === "mod" ? t.c.warn : t.c.muted;
   const line = tone === "add" ? t.c.ok : tone === "del" ? t.c.bad : tone === "mod" ? t.c.warn : t.c.lineStrong;
-  // margin-right: 6px, which an inline span keeps on the web build; native text takes two spaces after it instead.
-  return <T style={{ fontSize: 10, lineHeight: 15.5, letterSpacing: 0.5, textTransform: "uppercase", color, borderWidth: 1, borderColor: line, borderRadius: 3, paddingHorizontal: 5, opacity: tone === "minor" ? 0.7 : 1, ...(Platform.OS === "web" ? { marginRight: 6 } : null) }}>{k}</T>;
+  return (
+    <View style={{ borderWidth: 1, borderColor: line, borderRadius: 3, paddingHorizontal: 5, marginRight: 6, opacity: tone === "minor" ? 0.7 : 1 }}>
+      <T style={{ fontSize: 10, lineHeight: 10 * lh(t), letterSpacing: 0.5, textTransform: "uppercase", color }}>{k}</T>
+    </View>
+  );
 }
 
 /**
@@ -217,7 +224,6 @@ function RecordRows({ entries, sub, owner }: { entries: AssetDiffRecord[]; sub?:
             {/* A minor row's 11px line is shorter than its badge, which sits inline-block on the web and stretches the line to 18 pixels. */}
             <T style={{ fontSize: size, lineHeight: tone === "minor" ? (t.editor ? 17 : 18) : size * lh(t), color: tone === "minor" ? t.c.muted : t.c.text }}>
               <Kind k={k} tone={tone} />
-              {Platform.OS === "web" ? null : "  "}
               {engineText(text)}
               {node && !r.displayString.includes(node) ? <T style={{ fontSize: size, lineHeight: size * lh(t), color: t.c.dim }}>{` on ${engineText(node)}`}</T> : null}
             </T>
