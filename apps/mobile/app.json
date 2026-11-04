@@ -13,11 +13,14 @@
       "bundleIdentifier": "com.uemcp.studio.remote",
       "infoPlist": {
         "NSCameraUsageDescription": "UE-MCP Studio scans the pairing code your computer shows."
-      }
+      },
+      "associatedDomains": [
+        "applinks:remote.ue-mcp.com"
+      ]
     },
     "android": {
       "package": "com.uemcp.studio.remote",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "backgroundColor": "#0c0c0b",
         "backgroundImage": "./assets/android-icon-background.png"
@@ -25,7 +28,24 @@
       "permissions": [
         "android.permission.CAMERA"
       ],
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": true,
+          "data": [
+            {
+              "scheme": "https",
+              "host": "remote.ue-mcp.com",
+              "pathPrefix": "/pair"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "plugins": [
       [

@@ -9,5 +9,6 @@ export const colors = {
   accent: "#e8720c",
   onAccent: "#140a02",
   ok: "#6cc08b",
+  warn: "#e0a43a",
   danger: "#e5604f",
 } as const;
