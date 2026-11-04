@@ -99,8 +99,41 @@ export const select = (d: Device) => writeStored("selected", d);
 
 const relayHeaders = { origin: RELAY, "content-type": "application/json", accept: "application/json" };
 
+/**
+ * Why pairing stopped, by what the phone can do about it: a link that is not a
+ * code, a code that ran out, the owner saying no or not answering in time,
+ * the computer or the relay out of reach, an account without remote control,
+ * an answer that did not match the code, or anything else the relay said.
+ */
+export type PairFailureKind = "bad-link" | "expired" | "denied" | "timeout" | "offline" | "network" | "plan" | "mismatch" | "failed";
+
+export class PairError extends Error {
+  constructor(
+    readonly kind: PairFailureKind,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** The kind of a refusal from the relay or the computer, by its status and its words. */
+export function pairFailureOf(status: number, error: unknown, code?: unknown): PairError {
+  const text = typeof error === "string" && error ? error : `Pairing failed (${status}).`;
+  if (code === "expired" || /used,? (or )?expired|no longer knows this request/i.test(text)) return new PairError("expired", text);
+  if (/denied/i.test(text)) return new PairError("denied", text);
+  if (/Nobody allowed/i.test(text)) return new PairError("timeout", text);
+  if (/plan/i.test(text)) return new PairError("plan", text);
+  if (status === 503 || /offline/i.test(text)) return new PairError("offline", text);
+  return new PairError("failed", text);
+}
+
 async function post(path: string, body: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
-  const res = await fetch(RELAY + path, { method: "POST", headers: relayHeaders, credentials: "include", body: JSON.stringify(body) });
+  let res: Response;
+  try {
+    res = await fetch(RELAY + path, { method: "POST", headers: relayHeaders, credentials: "include", body: JSON.stringify(body) });
+  } catch (e) {
+    throw new PairError("network", String((e as Error)?.message ?? e));
+  }
   return { status: res.status, body: ((await res.json().catch(() => ({}))) ?? {}) as Record<string, unknown> };
 }
 
@@ -123,16 +156,16 @@ export function isPairLink(url: string): boolean {
 
 export type PairStep = { kind: "status"; text: string } | { kind: "code"; code: string };
 
-/** Pairs with the computer whose QR code was scanned. Resolves once the owner allowed this phone; throws with the reason otherwise. */
+/** Pairs with the computer whose QR code was scanned. Resolves once the owner allowed this phone; throws a PairError with the reason otherwise. */
 export async function pair(scanned: string, onStep: (s: PairStep) => void): Promise<void> {
   const parts = parsePairingFragment(fragmentOf(scanned));
-  if (!parts) throw new Error("That is not a UE-MCP Studio pairing code. Make a new one on your computer.");
+  if (!parts) throw new PairError("bad-link", "That is not a whole UE-MCP Studio pairing code.");
   onStep({ kind: "status", text: "Contacting the relay" });
   const redeemed = await post("/api/pair/redeem", { code: parts.code, label: LABEL });
   const deviceId = redeemed.body.deviceId;
-  if (redeemed.status !== 200 || typeof deviceId !== "string") throw new Error(String(redeemed.body.error ?? `Pairing failed (${redeemed.status}). Make a new code and try again.`));
+  if (redeemed.status !== 200 || typeof deviceId !== "string") throw pairFailureOf(redeemed.status, redeemed.body.error, redeemed.body.code);
 
-  onStep({ kind: "status", text: "Pairing with your computer" });
+  onStep({ kind: "status", text: "Connecting to your computer" });
   const me = await phoneKey();
   let a = await post("/api/pair/enroll", { deviceId, phonePublic: me.publicKey, mac: await pairingMac(parts.secret, me.publicKey, parts.computerPublic), label: LABEL });
   if (a.status === 202 && typeof a.body.approval === "string") {
@@ -143,9 +176,9 @@ export async function pair(scanned: string, onStep: (s: PairStep) => void): Prom
       a = await post("/api/pair/enroll", { deviceId, poll: approval });
     }
   }
-  if (a.status !== 200) throw new Error(String(a.body.error ?? "Your computer did not accept this phone. Make a new code and try again."));
+  if (a.status !== 200) throw pairFailureOf(a.status, a.body.error ?? "Your computer did not accept this phone.");
   // The relay could answer for the computer; what matters is that the key we trust is the one the code carried.
-  if (a.body.computerPublic !== parts.computerPublic || a.body.phoneId !== me.id) throw new Error("The answer did not match the pairing code. Make a new code and try again.");
+  if (a.body.computerPublic !== parts.computerPublic || a.body.phoneId !== me.id) throw new PairError("mismatch", "The answer did not match the pairing code, so this phone does not trust it.");
   await trust(parts.computerPublic);
 }
 
