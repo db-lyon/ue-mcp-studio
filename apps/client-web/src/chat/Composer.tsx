@@ -180,30 +180,46 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     }, NUDGE_SAVE_MS);
     else onHeight?.(h);
   };
-  const startDrag = (e: React.MouseEvent) => {
-    if (e.button !== 0) return;
+  /** Drag with a mouse, a finger or a pen: the pointer is captured so the drag follows it off the handle. */
+  const startDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
+    const handle = e.currentTarget;
+    const id = e.pointerId;
+    handle.setPointerCapture?.(id);
     const startY = e.clientY;
     const startH = current();
     const r = room();
     let last: number | null = floor;
     setDragging(true);
     document.body.classList.add("row-resizing");
-    const move = (m: MouseEvent) => {
+    const move = (m: PointerEvent) => {
+      if (m.pointerId !== id) return;
+      m.preventDefault();
       last = clampHeight(startH + startY - m.clientY, r);
       setFloor(last);
     };
-    const up = () => {
-      window.removeEventListener("mousemove", move);
-      window.removeEventListener("mouseup", up);
+    const up = (u: PointerEvent) => {
+      if (u.pointerId !== id) return;
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      handle.releasePointerCapture?.(id);
       setDragging(false);
       document.body.classList.remove("row-resizing");
       if (last !== floor) save(last);
     };
-    window.addEventListener("mousemove", move);
-    window.addEventListener("mouseup", up);
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
   };
   const nudge = (e: React.KeyboardEvent) => {
+    // Home forgets the dragged height, as a double click does.
+    if (e.key === "Home") {
+      e.preventDefault();
+      save(null);
+      return;
+    }
     const step = e.key === "ArrowUp" ? NUDGE : e.key === "ArrowDown" ? -NUDGE : 0;
     if (!step) return;
     e.preventDefault();
@@ -218,13 +234,16 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         aria-orientation="horizontal"
         aria-label="Resize the message box"
         aria-valuemin={MIN_HEIGHT}
+        aria-valuemax={Math.round(room())}
         aria-valuenow={floor ?? undefined}
         tabIndex={0}
         title="Drag to resize, double-click to reset"
-        onMouseDown={startDrag}
+        onPointerDown={startDrag}
         onDoubleClick={() => save(null)}
         onKeyDown={nudge}
-      />
+      >
+        <span className="composer-grip" aria-hidden="true" />
+      </div>
       {files.length > 0 && (
         <div className="attach-list" aria-label="Attached files">
           {files.map((f) => (

@@ -19,7 +19,8 @@ vi.mock("../api", async () => {
   return { api: m, ApiError };
 });
 import { ApiError } from "../api";
-import { PluginsView, isInstalled, searchCatalog } from "./Plugins";
+import { PluginsView, REMOTE_PLUGINS_NOTE, isInstalled, searchCatalog } from "./Plugins";
+import { isRemotePage } from "../connection";
 
 const daemon = { events: [], health: null, streaming: true, error: null } as never;
 const catalog = [
@@ -96,5 +97,30 @@ describe("the Plugins tab", () => {
     m.pluginCatalog.mockRejectedValue(new ApiError(404, "Not Found"));
     render(<PluginsView daemon={daemon} />);
     await waitFor(() => expect(screen.getByText(/needs ue-mcp 1.4.0-beta.2 or later/)).toBeTruthy());
+  });
+});
+
+describe("the Plugins tab in a paired browser", () => {
+  it("shows the installed plugins and the catalog read only, with a note where the changes are made", async () => {
+    m.plugins.mockResolvedValue({ plugins: [{ name: "ue-mcp-meshy", version: "1.0.0", pinned: null, status: "ok", categories: ["meshy"], problems: [] }] });
+    m.pluginCatalog.mockResolvedValue({ plugins: catalog });
+    render(<PluginsView daemon={daemon} remote />);
+    await screen.findByText("ue-mcp-meshy");
+    expect(screen.getByText("1.0.0")).toBeTruthy();
+    expect(screen.getByText(REMOTE_PLUGINS_NOTE)).toBeTruthy();
+    await screen.findByText("PIE Studio");
+    expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Install" })).toBeNull();
+    expect(screen.getByText("installed")).toBeTruthy();
+    // Reading the catalog's details still works.
+    expect(screen.getAllByRole("button", { name: "Details" }).length).toBeGreaterThan(0);
+    expect(m.installPlugin).not.toHaveBeenCalled();
+  });
+
+  it("is a paired browser's page only without a host binding and away from this computer", () => {
+    expect(isRemotePage(false, "remote.ue-mcp.com")).toBe(true);
+    expect(isRemotePage(false, "127.0.0.1")).toBe(false);
+    expect(isRemotePage(true, "remote.ue-mcp.com")).toBe(false);
   });
 });

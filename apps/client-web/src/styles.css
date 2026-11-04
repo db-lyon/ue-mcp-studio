@@ -345,12 +345,21 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
   color: var(--code-text);
 }
 .events { max-height: 180px; overflow: auto; margin-bottom: 10px; }
-.log { width: 100%; border-collapse: collapse; font: 12px/1.55 var(--mono); }
-.log td { padding: 5px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
-.log tr:hover td { background: var(--tint); }
-.log td:first-child { color: var(--dim); white-space: nowrap; }
-.log td:nth-child(2) { color: var(--accent-hi); white-space: nowrap; }
-.log td:last-child { overflow-wrap: anywhere; color: var(--muted); }
+/* The event log: one entry per event, its time and type on one line and its payload under them. */
+.log-top { flex-wrap: wrap; gap: 8px; }
+.log-top input { min-width: 0; flex: 1 1 160px; max-width: 280px; }
+.log { list-style: none; margin: 0; padding: 0; font: 12px/1.55 var(--mono); min-width: 0; }
+.log-event { padding: 6px 8px; border-bottom: 1px solid var(--line); min-width: 0; }
+.log-event:hover { background: var(--tint); }
+.log-head { display: flex; gap: 10px; align-items: baseline; min-width: 0; }
+.log-time { color: var(--dim); white-space: nowrap; flex-shrink: 0; }
+.log-type { color: var(--accent-hi); min-width: 0; overflow-wrap: anywhere; }
+.log-data { margin-top: 2px; min-width: 0; }
+.log-data > summary { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; list-style: none; }
+.log-data > summary::-webkit-details-marker { display: none; }
+.log-data[open] > summary { color: var(--dim); }
+.log-data > pre { margin: 4px 0 0; padding: 8px 10px; max-height: 40vh; overflow: auto; white-space: pre; background: var(--code-bg); border: 1px solid var(--line); border-radius: 6px; color: var(--code-text); }
+@media (pointer: coarse) { .log-data > summary { padding-block: 13px; margin-block: -6px; } }
 .editor {
   width: 100%;
   min-height: 360px;
@@ -429,7 +438,8 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 
 /* Diffs: an edit's removed and added lines. */
 .output.diff { padding: 8px 0; }
-.output.diff span { display: block; padding: 0 12px; }
+.output.diff span { display: block; padding: 0 12px 0 calc(12px + 2ch); text-indent: -2ch; }
+/* A wrapped diff line continues under its text, not under the + or - sign. */
 .diff-add { background: rgba(108, 192, 139, 0.12); color: var(--ok); }
 .diff-del { background: rgba(229, 96, 79, 0.12); color: var(--bad-text); }
 .diff-ctx { color: var(--muted); }
@@ -448,6 +458,10 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 label.toggle { gap: 10px; cursor: pointer; }
 .tool summary .tool-name { color: var(--accent-hi); }
 .tool summary .tool-call { color: var(--text); }
+/* A long command or path ends in an ellipsis instead of running off the panel, and its outcome stays in view. */
+.tool summary { min-width: 0; }
+.tool summary .tool-call { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tool summary .tool-name, .tool summary .tool-call + .dim { flex-shrink: 0; }
 .tool .output { margin: 6px 0 0 14px; }
 .tool-images { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px 16px; }
 .tool-image { display: block; border: 1px solid var(--line-strong); border-radius: 6px; overflow: hidden; background: var(--panel-2); }
@@ -459,9 +473,21 @@ label.toggle { gap: 10px; cursor: pointer; }
 .composer textarea { flex: none; resize: none; padding: 10px 12px; border-radius: 8px; line-height: 1.5; }
 .composer textarea.composer-mirror { position: absolute; top: 0; left: 0; height: 0; min-height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
 /* The divider between the transcript and the composer: drag, arrow keys, double-click to reset. */
-.composer-divider { position: absolute; left: 0; right: 0; top: -5px; height: 9px; cursor: row-resize; z-index: 2; outline: none; }
-.composer-divider::after { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 1px; background: transparent; transition: background 0.15s; }
-.composer-divider:hover::after, .composer-divider:focus-visible::after, .composer.resizing .composer-divider::after { background: var(--accent); height: 2px; top: 3px; }
+.composer-divider { position: absolute; left: 0; right: 0; top: -9px; height: 18px; cursor: row-resize; z-index: 2; outline: none; touch-action: none; }
+.composer-divider::after { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 1px; background: transparent; transition: background 0.15s; }
+.composer-divider:hover::after, .composer-divider:focus-visible::after, .composer.resizing .composer-divider::after { background: var(--accent); height: 2px; top: 8px; }
+/* The visible handle: a pill on the composer's top edge, so the box reads as resizable. */
+.composer-grip { position: absolute; left: 50%; top: 5px; width: 36px; height: 8px; margin-left: -18px; border-radius: 4px; background: var(--composer-bg); border: 1px solid var(--line); box-sizing: border-box; transition: background 0.15s, border-color 0.15s; }
+.composer-grip::before { content: ""; position: absolute; left: 9px; right: 9px; top: 2px; height: 2px; border-radius: 1px; background: var(--dim, currentColor); opacity: 0.7; }
+.composer-divider:hover .composer-grip, .composer-divider:focus-visible .composer-grip, .composer.resizing .composer-grip { border-color: var(--accent); }
+.composer-divider:hover .composer-grip::before, .composer-divider:focus-visible .composer-grip::before, .composer.resizing .composer-grip::before { background: var(--accent); opacity: 1; }
+/* A finger needs a taller target than a cursor: 44 pixels, centred on the edge, with a wider handle. */
+@media (pointer: coarse) {
+  .composer-divider { top: -22px; height: 44px; }
+  .composer-divider::after { top: 21px; }
+  .composer-grip { top: 16px; width: 48px; height: 12px; margin-left: -24px; border-radius: 6px; }
+  .composer-grip::before { left: 12px; right: 12px; top: 4px; }
+}
 body.row-resizing, body.row-resizing * { cursor: row-resize !important; user-select: none; }
 .composer button { height: 36px; }
 
@@ -835,6 +861,11 @@ pre.diff { margin: 0; font: 12px/1.5 var(--mono); white-space: pre; }
 pre.diff .add { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); display: block; }
 pre.diff .del { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); display: block; }
 pre.diff .hunk { color: var(--accent-hi); display: block; }
+/* Narrow: the file diff wraps instead of scrolling sideways, each wrapped line hanging under its text. */
+@media (max-width: 760px) {
+  pre.diff { white-space: pre-wrap; overflow-wrap: anywhere; }
+  pre.diff > span { display: block; padding-left: 1ch; text-indent: -1ch; }
+}
 
 /* Whole-panel states: an update in progress, ue-mcp away. */
 .overlay { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.55); }
@@ -1010,6 +1041,8 @@ button.drawer-session.active { color: var(--text); }
 .drawer-foot .bar-tools > button { min-height: 40px; font-size: 14px; color: var(--muted); }
 .drawer-foot .bar-tool-label { display: inline; }
 .drawer-foot .chip.vcs { max-width: none; white-space: normal; overflow-wrap: anywhere; border-radius: var(--radius-lg); padding: 8px 10px; margin: 4px 0 0; justify-content: flex-start; }
+/* The tool's name stays whole; the branch and counts wrap after it. */
+.drawer-foot .chip.vcs .vcs-kind { flex-shrink: 0; white-space: nowrap; overflow-wrap: normal; }
 .drawer-foot .chip + .chip { margin-left: 0; }
 
 /* Narrow chat: a back bar over the conversation, and tighter page margins. */
@@ -1101,8 +1134,7 @@ label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"
   .session-more, .msg.user .msg-edit, .agents-stop, .agents-dismiss { opacity: 1; }
 }
 
-/* Coarse pointers: 44px touch targets, 16px fields (smaller ones make a phone zoom on focus),
-   and no drag divider, which only follows a mouse. */
+/* Coarse pointers: 44px touch targets, and 16px fields (smaller ones make a phone zoom on focus). */
 @media (pointer: coarse) {
   button:not(.asset-link), select, summary,
   input:not([type="checkbox"]):not([type="radio"]):not([type="file"]) { min-height: 44px; }
@@ -1110,7 +1142,6 @@ label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"
   input[type="checkbox"], input[type="radio"] { width: 20px; height: 20px; }
   button.small-button { padding: 0 10px; }
   p > button.small-button { min-height: 0; padding: 0 4px; }
-  .composer-divider { display: none; }
   .bar { height: calc(50px + env(safe-area-inset-top)); }
   .bar-menu-button { width: 44px; height: 44px; }
   button.drawer-session, .drawer-foot .bar-tools > button { min-height: 44px; }
@@ -1123,6 +1154,8 @@ label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"
   .queue-remove, .attach-remove, .agents-stop, .agents-dismiss { min-width: 44px; min-height: 44px; }
   .composer .attach-remove { height: 44px; }
   .msg.user .msg-edit { min-width: 44px; min-height: 44px; left: -50px; top: 0; }
+  /* The Edit button sits left of the bubble, so a long message leaves it room on screen. */
+  .msg.user:not(.editing) { max-width: min(92%, calc(100% - 52px)); }
   label.toggle, label.check { min-height: 44px; padding: 10px 0; }
   label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"] { margin-top: 1px; }
   .tool summary { align-items: center; }
@@ -1266,7 +1299,12 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .asset-diff .review-pictures img { width: 100%; height: auto; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
-.review-actions { display: inline-flex; gap: 6px; flex-wrap: wrap; margin-left: auto; white-space: nowrap; max-width: 100%; }
+.review-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; white-space: nowrap; max-width: 100%; }
+/* Narrow: an item's actions take their own row under its name, side by side, instead of wrapping one by one. */
+@media (max-width: 760px) {
+  .review-actions { display: flex; width: 100%; margin-left: 0; }
+  .review-actions > button { flex: 1 1 auto; }
+}
 .review-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
 .review-opened.bad { color: var(--bad); }
 .diff-toggle { text-align: left; white-space: normal; }
@@ -1689,3 +1727,29 @@ button.icon-button[aria-expanded="true"] { color: var(--accent-hi); border-color
 .skeleton-msg.tool .skeleton-bar { height: 30px; border-radius: 8px; }
 @keyframes skeleton-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
 @media (prefers-reduced-motion: reduce) { .skeleton-bar { animation: none; } }
+
+/* Phone pass: every control a finger uses has a 44 pixel target. Bars and links that must keep their
+   drawn size get the extra reach as padding pulled back by a negative margin, so nothing moves. */
+@media (pointer: coarse) {
+  button.icon-button { width: 44px; height: 44px; }
+  button.filter-chip { min-height: 44px; }
+  .msg.assistant.local-reply .reply-close { width: 44px; height: 44px; }
+  .composer-bar > .bar-button.icon-only { width: 44px; }
+  .effort select { min-height: 44px; }
+  button.chip.editor-chip { min-height: 44px; }
+  button.qa-meta-session.link { padding-block: 13px; margin-block: -13px; }
+  p > button.small-button { padding-block: 14px; margin-block: -14px; }
+  /* An asset link, and the results file, reach 44 pixels past their line without moving it. */
+  button.asset-link:not(.code) { padding-block: 13px; margin-block: -13px; }
+  /* A code-styled link keeps its drawn chip; an invisible layer around it takes the taps. */
+  button.asset-link.code { position: relative; }
+  button.asset-link.code::after { content: ""; position: absolute; inset: -14px -4px; }
+  /* The script path stands alone above the steps: room under it so its tap area clears the first step. */
+  .qa-script-path { margin-bottom: 10px; }
+  .qa-summary > a { padding-block: 13px; margin-block: -13px; }
+  .qa-captures > a { min-height: 44px; display: inline-flex; align-items: center; }
+  .remote-qr > a.path { display: inline-block; padding-block: 4px; min-height: 44px; }
+  /* The step path: a 44 pixel tall hit, the bars drawn where they were, and no extra space under them. */
+  .qa-path-hit { min-height: 44px; height: 44px; margin-block: -10px; }
+  .qa-path-hit::before, .qa-path-hit::after { transform: translateY(10px); }
+}

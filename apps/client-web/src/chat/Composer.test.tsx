@@ -150,10 +150,24 @@ describe("the composer's height", () => {
   const boxHeight = () => parseFloat(textbox().style.height);
   const overflow = () => textbox().style.overflowY;
   const divider = () => screen.getByRole("separator", { name: "Resize the message box" });
-  const drag = (from: number, to: number) => {
-    fireEvent.mouseDown(divider(), { clientY: from, button: 0 });
-    fireEvent.mouseMove(window, { clientY: to });
-    fireEvent.mouseUp(window, { clientY: to });
+  // jsdom has no PointerEvent; this one carries what the handle reads, as a browser's does.
+  if (typeof window.PointerEvent === "undefined") {
+    class PointerEventShim extends MouseEvent {
+      readonly pointerId: number;
+      readonly pointerType: string;
+      constructor(type: string, init: PointerEventInit = {}) {
+        super(type, init);
+        this.pointerId = init.pointerId ?? 0;
+        this.pointerType = init.pointerType ?? "mouse";
+      }
+    }
+    (window as unknown as { PointerEvent: unknown }).PointerEvent = PointerEventShim;
+  }
+  /** A drag on the handle with a mouse, a finger or a pen: pointer events, captured by the handle. */
+  const drag = (from: number, to: number, pointerType = "mouse", pointerId = 1) => {
+    fireEvent.pointerDown(divider(), { clientY: from, button: 0, pointerType, pointerId });
+    fireEvent.pointerMove(divider(), { clientY: to, pointerType, pointerId });
+    fireEvent.pointerUp(divider(), { clientY: to, pointerType, pointerId });
   };
 
   it("grows with its content up to 15 lines, then scrolls", () => {
@@ -194,6 +208,49 @@ describe("the composer's height", () => {
     expect(boxHeight()).toBe(MIN_HEIGHT + 100);
     expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT + 100);
     expect(divider().getAttribute("aria-valuenow")).toBe(String(MIN_HEIGHT + 100));
+  });
+
+  it("drags with a finger the same way, and shows a handle to drag", () => {
+    const onHeight = vi.fn();
+    render(<Laid draft="" onHeight={onHeight} />);
+    expect(divider().querySelector(".composer-grip")).not.toBeNull();
+    drag(500, 350, "touch", 7);
+    expect(boxHeight()).toBe(MIN_HEIGHT + 150);
+    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT + 150);
+  });
+
+  it("follows only the pointer that started the drag", () => {
+    const onHeight = vi.fn();
+    render(<Laid draft="" onHeight={onHeight} />);
+    fireEvent.pointerDown(divider(), { clientY: 500, pointerType: "touch", pointerId: 1 });
+    // A second finger moving elsewhere does not move the box.
+    fireEvent.pointerMove(divider(), { clientY: 100, pointerType: "touch", pointerId: 2 });
+    expect(boxHeight()).toBe(MIN_HEIGHT);
+    fireEvent.pointerMove(divider(), { clientY: 450, pointerType: "touch", pointerId: 1 });
+    fireEvent.pointerCancel(divider(), { clientY: 450, pointerType: "touch", pointerId: 1 });
+    expect(boxHeight()).toBe(MIN_HEIGHT + 50);
+    expect(onHeight).toHaveBeenLastCalledWith(MIN_HEIGHT + 50);
+  });
+
+  it("ignores a right-button press", () => {
+    const onHeight = vi.fn();
+    render(<Laid draft="" onHeight={onHeight} />);
+    fireEvent.pointerDown(divider(), { clientY: 500, button: 2, pointerType: "mouse", pointerId: 1 });
+    fireEvent.pointerMove(divider(), { clientY: 300, pointerType: "mouse", pointerId: 1 });
+    fireEvent.pointerUp(divider(), { clientY: 300, pointerType: "mouse", pointerId: 1 });
+    expect(boxHeight()).toBe(MIN_HEIGHT);
+    expect(onHeight).not.toHaveBeenCalled();
+  });
+
+  it("states its range for assistive technology, and Home resets it", () => {
+    const onHeight = vi.fn();
+    render(<Laid draft="" height={200} stageHeight={400} onHeight={onHeight} />);
+    expect(divider().getAttribute("tabindex")).toBe("0");
+    expect(divider().getAttribute("aria-valuemin")).toBe(String(MIN_HEIGHT));
+    expect(Number(divider().getAttribute("aria-valuemax"))).toBeGreaterThanOrEqual(200);
+    fireEvent.keyDown(divider(), { key: "Home" });
+    expect(onHeight).toHaveBeenCalledWith(null);
+    expect(divider().getAttribute("aria-valuenow")).toBeNull();
   });
 
   it("clamps a drag so the transcript and the box both stay usable", () => {

@@ -121,7 +121,7 @@
   .cfg .hide-narrow { display: none; }
   .cfg-sheet { top: auto; bottom: 0; left: 0; right: 0; transform: none; width: auto; max-height: 88vh; border-radius: 14px 14px 0 0; }
 }
-@media (pointer: coarse) { .cfg button { min-height: 34px; } .cfg button.switch { min-height: 20px; } }
+}
 @media (prefers-reduced-motion: reduce) { .cfg button.switch::after { transition: none; } }
 
 /* Links inside settings copy read as text, not as buttons. */
@@ -174,12 +174,15 @@
 /* Editor themes: table heads in the editor's own type, like the card titles. */
 :root[data-theme="editor"] .cfg table.cfg-table th, :root[data-theme="editor-orange"] .cfg table.cfg-table th { font: 600 11.5px/1.4 var(--sans); text-transform: none; letter-spacing: 0; }
 
-/* A choice of three or more, or long names: one option per line on a narrow panel. */
+/* Narrow: a choice is a row the panel's width, in equal segments whose names wrap inside them.
+   Only names too long to share a row stack one per line, still the panel's width. */
 @media (max-width: 760px) {
-  .cfg .seg.many { display: flex; flex-direction: column; align-self: stretch; }
-  .cfg .seg.many button { text-align: left; }
-  .cfg .seg.many button + button { border-left: 0; border-top: 1px solid var(--line-strong); }
-  .cfg .seg.many button.on { box-shadow: inset 3px 0 0 var(--accent); }
+  .cfg .toggle-row:not(.inline) > .seg, .cfg .seg { display: flex; flex-wrap: nowrap; width: 100%; align-self: stretch; }
+  .cfg .seg button { flex: 1 1 0; min-width: min-content; white-space: normal; text-align: center; overflow-wrap: normal; }
+  .cfg .seg.stack { flex-direction: column; }
+  .cfg .seg.stack button { flex: none; text-align: left; }
+  .cfg .seg.stack button + button { border-left: 0; border-top: 1px solid var(--line-strong); }
+  .cfg .seg.stack button.on { box-shadow: inset 3px 0 0 var(--accent); }
   .cfg { padding: 0 10px; }
 }
 .cfg .nowrap { white-space: nowrap; }
@@ -278,3 +281,15 @@
 .remote-browsers-title { color: var(--muted, inherit); text-transform: uppercase; letter-spacing: 0.04em; }
 .remote-browser-row { display: flex; align-items: center; gap: 10px; }
 .remote-chat-card .remote-approval { margin-bottom: 10px; }
+
+/* A finger: every settings control is 44 pixels tall. The switch keeps its drawn size and gets a
+   44 pixel hit area around it; a link in settings copy, and a checkbox or radio row, reach 44 pixels
+   without moving what is around them. Last in the file, so it wins over the rules above. */
+@media (pointer: coarse) {
+  .cfg button { min-height: 44px; }
+  .cfg button:not(.switch):not(.link) { min-width: 44px; }
+  .cfg button.switch { min-height: 20px; overflow: visible; }
+  .cfg button.switch::before { content: ""; position: absolute; inset: -13px -6px; }
+  .cfg button.link { padding-block: 13px; margin-block: -13px; }
+  .cfg label:has(> input[type="checkbox"]), .cfg label:has(> input[type="radio"]) { min-height: 44px; display: inline-flex; align-items: center; }
+}

@@ -2,6 +2,14 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 /** One choice of a few, shown side by side. */
+/**
+ * Whether a choice is one option per line on a narrow panel: only when its names are too long to
+ * share a row, wrapped, in equal segments. Short ones stay a horizontal control the panel's width.
+ */
+export function segStacks(names: string[]): boolean {
+  return names.some((n) => n.length > 22) || names.reduce((n, s) => n + s.length, 0) > 48;
+}
+
 export function Seg<T extends string>({ value, options, onChange, label, disabled, compact }: {
   value: T | null;
   options: ReadonlyArray<{ id: T; name: string; title?: string; disabled?: boolean }>;
@@ -11,9 +19,9 @@ export function Seg<T extends string>({ value, options, onChange, label, disable
   /** Short names that stay side by side on a narrow panel, wrapping, rather than one per line. */
   compact?: boolean;
 }) {
-  const many = !compact && (options.length >= 3 || options.reduce((n, o) => n + o.name.length, 0) > 24);
+  const stack = !compact && segStacks(options.map((o) => o.name));
   return (
-    <div className={`seg${many ? " many" : ""}${compact ? " compact" : ""}`} role="radiogroup" aria-label={label}>
+    <div className={`seg${stack ? " stack" : ""}${compact ? " compact" : ""}`} role="radiogroup" aria-label={label}>
       {options.map((o) => (
         <button
           key={o.id}
