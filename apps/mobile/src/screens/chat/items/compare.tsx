@@ -1,4 +1,4 @@
-// HANDED OVER: owned by area-c from here; ported on mobile/chat-core as a starting point.
+
 /**
  * The Change | Before | After comparison every change card uses: Blueprint
  * graphs, a level's actors, material parameters, a version's facts. Its
@@ -13,8 +13,8 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import { colorOf, compareTier, COMPARE_TIERS, type CompareTier } from "@ue-mcp-studio/client-core";
-import { font, T, useTheme } from "../ui";
-import { engineText } from "./breakable";
+import { font, T, useTheme } from "../../../ui";
+import { engineText } from "../../../chat/breakable";
 
 export { colorOf, compareTier, COMPARE_TIERS, type CompareTier };
 
@@ -49,14 +49,17 @@ export function KeyValues({ values }: { values: Array<{ name: string; value: str
       {values.map((v) => (
         <View key={v.name} style={{ flexDirection: tiny ? "column" : "row", columnGap: 10, marginBottom: tiny ? 3 : 0 }}>
           <T
-            onLayout={nameWidth === undefined ? (e) => { const w = Math.ceil(e.nativeEvent.layout.width) + 1;setWidest((cur) => Math.max(cur, w)); } : undefined}
+            onLayout={nameWidth === undefined ? (e) => { // max-content: the widest name as laid out. The web build reports a whole pixel, up to half a pixel under the text, so half a pixel more keeps it on one line.
+              const w = e.nativeEvent.layout.width + 0.5;
+              setWidest((cur) => Math.max(cur, w)); } : undefined}
             style={{ fontSize: size, lineHeight: size * lh, color: t.c.muted, ...(tiny ? {} : nameWidth === undefined ? { flexShrink: 0 } : { width: nameWidth }) }}
           >
             {engineText(v.name)}
           </T>
           <View style={{ flexDirection: "row", flex: tiny ? undefined : 1, minWidth: 0 }}>
             <Swatch text={v.value} />
-            <T style={[font(t, "mono", 400, size * 0.92), { lineHeight: size * lh, color: t.c.text, flexShrink: 1 }]}>{engineText(v.value)}</T>
+            {/* dd.mono: the mono size at the inherited 1.55, so its line is shorter than the name's beside it. */}
+            <T style={[font(t, "mono", 400, size * 0.92), { lineHeight: Math.round(size * 0.92 * lh * 100) / 100, color: t.c.text, flexShrink: 1 }]}>{engineText(v.value)}</T>
           </View>
         </View>
       ))}
@@ -100,6 +103,22 @@ export function CompareGroup({ children }: { children: string }) {
   );
 }
 
+/**
+ * A fact listed once, uncoloured: .diff-row.fact-same, its name and one value
+ * (td.cmp-plain, no label), side by side when wide and stacked otherwise.
+ */
+export function PlainRow({ name, value, index = 0 }: { name: ReactNode; value: ReactNode; index?: number }) {
+  const t = useTheme();
+  const tier = useTier();
+  const wide = tier === "wide";
+  return (
+    <View style={{ borderBottomWidth: 1, borderBottomColor: t.c.line, flexDirection: wide ? "row" : "column" }}>
+      <View style={{ width: wide ? "40%" : undefined, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: wide && index % 2 === 1 ? t.c.tint : undefined }}>{name}</View>
+      <View style={{ flex: wide ? 1 : undefined, minWidth: 0, paddingVertical: 5, paddingHorizontal: 8, ...(wide ? { borderLeftWidth: 1, borderLeftColor: t.c.lineStrong } : { borderTopWidth: 1, borderTopColor: t.c.line, borderStyle: "dashed" as const }) }}>{value}</View>
+    </View>
+  );
+}
+
 /** A row of the comparison: the change, and each side in its column or stacked under it by tier. */
 export function CompareRow({ tone, change, before, after, sub, index = 0 }: {
   tone: string;
@@ -121,7 +140,9 @@ export function CompareRow({ tone, change, before, after, sub, index = 0 }: {
     if (tier === "medium" && bare) return null;
     const bg = label === "Before" ? t.c.diffBefore : t.c.diffAfter;
     return (
-      <View key={label} style={{ flex: stacked ? undefined : 1, minWidth: 0, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: bg, opacity: minor ? 0.75 : 1, ...(stacked ? { borderTopWidth: 1, borderTopColor: t.c.line, borderStyle: "dashed" as const } : { borderLeftWidth: first && tier === "medium" ? 0 : 1, borderLeftColor: t.c.lineStrong }) }}>
+      <View key={label} style={{ flex: stacked ? undefined : 1, minWidth: 0, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: bg, opacity: minor ? 0.75 : 1, ...(stacked ? { borderTopWidth: 1, borderTopColor: t.c.line, borderStyle: "dashed" as const, paddingLeft: first ? 8 : 9 } : { borderLeftWidth: first && tier === "medium" ? 0 : 1, borderLeftColor: t.c.lineStrong }) }}>
+        {/* Stacked, the After cell keeps the solid line on its left that td.cmp-side + td.cmp-side draws; one View cannot mix a dashed top with a solid side. */}
+        {stacked && !first ? <View style={{ position: "absolute", left: 0, top: -1, bottom: 0, width: 1, backgroundColor: t.c.lineStrong }} /> : null}
         {tier !== "wide" ? <T style={{ fontSize: 10, lineHeight: 15.5, letterSpacing: 0.5, textTransform: "uppercase", color: t.c.dim }}>{label}</T> : null}
         {side === null ? null : side === "absent" ? <T size={12} tone="dim">{label === "Before" ? "not there" : "gone"}</T> : side.content}
       </View>

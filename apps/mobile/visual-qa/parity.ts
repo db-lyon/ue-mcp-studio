@@ -25,7 +25,7 @@ export interface ParityEntry {
   reference?: "computer";
   /** Pressed one after another once the typing settles, then left for wait milliseconds: the web scenario's afterType. */
   afterType?: { clicks: string[]; wait: number };
-  /** Scrolled to the top of the window after the clicks, by accessibility label: the web scenario's scroll. */
+  /** Scrolled to the top of the conversation before the shot, by accessibility label (or text): the web scenario's `scroll`. */
   scroll?: string;
 }
 
@@ -147,9 +147,6 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-diagnostics": {owner: "agent-b"},
   "settings-diagnostics-events": {owner: "agent-b"},
   "review-card": {owner: "chat"},
-  "review-widget": {owner: "chat"},
-  "review-widget-old-bridge": {owner: "chat"},
-  "review-binary": {owner: "chat"},
   "review-blueprint": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "Content/Characters/Player/BP_PlayerCharacterMovementComponent.uasset"},
   "review-blueprint-variables": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "My Blueprint"},
   "review-material-instance": {owner: "chat", clicks: ["MI_RockMossyCliffFace_Variant02.uasset"], scroll: "Content/Environment/Materials/MI_RockMossyCliffFace_Variant02.uasset"},
@@ -157,6 +154,9 @@ export const PARITY: Record<string, ParityEntry> = {
   "review-level": {owner: "chat", clicks: ["L_Playtest.umap"], scroll: "Content/Maps/L_Playtest.umap"},
   "review-input-action": {owner: "chat", clicks: ["IA_WallRunWhileCrouched.uasset"], scroll: "Content/Input/Actions/IA_WallRunWhileCrouched.uasset"},
   "review-config": {owner: "chat", clicks: ["DefaultEngine.ini"], scroll: "Config/DefaultEngine.ini"},
+  "review-widget": {owner: "chat", clicks: ["WBP_GameHUD.uasset"], scroll: "Content/UI/HUD/WBP_GameHUD.uasset"},
+  "review-widget-old-bridge": {owner: "chat", clicks: ["WBP_PauseMenu.uasset"], scroll: "Content/UI/HUD/WBP_PauseMenu.uasset"},
+  "review-binary": {owner: "chat", clicks: ["SW_WardChime.uasset"], scroll: "Content/Audio/SW_WardChime.uasset"},
   "refused-by-daemon": {owner: "shell"},
   "refused-by-studio": {owner: "shell"},
   "refused-update-failed": {owner: "shell"},

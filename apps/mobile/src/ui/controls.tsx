@@ -6,6 +6,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Animated, Modal, Pressable, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Polyline } from "react-native-svg";
 import { font, labelFont, T } from "./Text";
 import { useStyles, useTheme } from "./ThemeProvider";
 import type { Theme } from "./theme";
@@ -160,8 +161,13 @@ export function Check({ checked, onChange, disabled, children, label }: { checke
   const t = useTheme();
   return (
     <Pressable accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} onPress={() => onChange(!checked)} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, minHeight: 44, paddingVertical: 10 }}>
-      <View style={{ width: 20, height: 20, marginTop: 1, borderRadius: 3, borderWidth: checked ? 0 : 1.5, borderColor: disabled ? t.c.disabledLine : t.c.muted, backgroundColor: checked ? (disabled ? t.c.disabledLine : t.c.accent) : "transparent", alignItems: "center", justifyContent: "center" }}>
-        {checked ? <T style={{ color: t.c.onAccent, fontSize: 14, lineHeight: 16, fontWeight: "700" }}>{"✓"}</T> : null}
+      <View style={{ width: 20, height: 20, marginTop: 1, borderRadius: 2, borderWidth: checked ? 0 : 1.5, borderColor: disabled ? t.c.disabledLine : t.c.muted, backgroundColor: checked ? (disabled ? t.c.disabledLine : t.c.accent) : "transparent", alignItems: "center", justifyContent: "center" }}>
+        {/* The browser's own tick on an accent-coloured checkbox: a stroked check in the accent's contrast colour. */}
+        {checked ? (
+          <Svg width={20} height={20} viewBox="0 0 20 20" style={{ position: "absolute", left: 0, top: 0 }}>
+            <Polyline points="4.6,10.6 7.6,13.6 15.2,5.2" fill="none" stroke={t.c.onAccent} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+          </Svg>
+        ) : null}
       </View>
       <View style={{ flex: 1, minWidth: 0 }}>{typeof children === "string" ? <T tone="muted">{children}</T> : children}</View>
     </Pressable>

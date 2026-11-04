@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import type { DialogAnswer, EditorDialog } from "@ue-mcp-studio/shared";
 import { decider, outcomeLine, readyIn, statusLine, whoLine } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, Check, ContentButton, font, labelFont, Output, useTheme, type Theme } from "../ui";
-import { useProjectNav } from "../nav";
-import { haptic } from "../native/haptics";
+import { Banner, baseFont, Check, ContentButton, font, labelFont, Output, useTheme, type Theme } from "../../../ui";
+import { useProjectNav } from "../../../nav";
+import { haptic } from "../../../native/haptics";
 import { approvalCard, CardsRegion } from "./Approvals";
 
 const small = (t: Theme) => ({ ...baseFont(t), fontSize: 12, lineHeight: 12 * (t.base.lineHeight / t.base.size) });
@@ -13,7 +13,7 @@ const small = (t: Theme) => ({ ...baseFont(t), fontSize: 12, lineHeight: 12 * (t
 export function DialogCards({ dialogs, now }: { dialogs: EditorDialog[]; now: number }) {
   if (dialogs.length === 0) return null;
   return (
-    <CardsRegion label="Editor dialogs">
+    <CardsRegion label="Editor dialogs" testID="dialogs">
       {dialogs.map((d) => <DialogCard key={d.id} dialog={d} now={now} />)}
     </CardsRegion>
   );

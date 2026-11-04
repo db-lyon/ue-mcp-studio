@@ -2,7 +2,7 @@ import { createContext, useContext, useState } from "react";
 import { Pressable, ScrollView, Text, View, useWindowDimensions, type TextStyle } from "react-native";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { formatDuration, tokenCount } from "@ue-mcp-studio/client-core";
-import { baseFont, ContentButton, font, Markdown, Pulse, useTheme, type Theme } from "../ui";
+import { baseFont, ContentButton, font, Markdown, Pulse, useTheme, type Theme } from "../../../ui";
 
 type CompactionEntry = Extract<TranscriptEntry, { kind: "compaction" }>;
 
@@ -53,7 +53,7 @@ export function CompactionMarker({ entry }: { entry: CompactionEntry }) {
   const meta: TextStyle = { ...font(t, "mono", t.editor ? 400 : 500, 11.5, lh), color: t.c.muted };
   const small: TextStyle = { ...baseFont(t), fontSize: 12, lineHeight: 12 * (t.base.lineHeight / t.base.size), color: t.c.dim };
   return (
-    <View accessibilityRole="none" accessibilityLabel={`${title}, ${numbers}, ${time(entry.at)}`} style={{ marginVertical: 14 }}>
+    <View testID="compaction" accessibilityRole="none" accessibilityLabel={`${title}, ${numbers}, ${time(entry.at)}`} style={{ marginVertical: 14 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={title}

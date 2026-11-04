@@ -8,7 +8,7 @@ import { Threads } from "../src/chat/Threads";
 import { QueuedMessages } from "../src/chat/Queue";
 import { ContextMeter, ContextWarning } from "../src/chat/ContextMeter";
 import { SessionLoading, SessionRowsLoading } from "../src/chat/Skeleton";
-import { ReviewPanel, TurnReviewCard } from "../src/chat/TurnReview";
+import { ReviewPanel, TurnReviewCard } from "../src/screens/chat/items";
 import { SessionIdContext } from "../src/chat/attachments";
 import { Chat } from "../src/views/Chat";
 import { fakeApi, renderInProject, session, settle } from "./helpers";
@@ -259,7 +259,7 @@ describe("ReviewPanel", () => {
     renderInProject(<ReviewPanel sessionId="s1" review={null} timeline={timeline} onChanged={onChanged} />, api);
     await settle();
     // Following the Settings default, which is on: the box is ticked.
-    expect(screen.getByRole("checkbox").textContent).toContain("✓");
+    expect(screen.getByRole("checkbox").querySelector("polyline")).toBeTruthy();
     expect(screen.getByText(/Following Settings\./)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Restore to here"));
     fireEvent.click(screen.getByLabelText("Restore every file"));

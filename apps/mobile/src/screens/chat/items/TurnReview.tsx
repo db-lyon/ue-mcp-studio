@@ -1,4 +1,4 @@
-// HANDED OVER: owned by area-c from here; ported on mobile/chat-core as a starting point.
+
 /**
  * Per-turn review in the chat: the turn card listing what a turn changed,
  * grouped by type, each with a one-line summary and Keep or Revert, and Revert
@@ -11,23 +11,24 @@ import { useContext, useEffect, useState, type ReactNode } from "react";
 import { Image, Pressable, View } from "react-native";
 import { REVIEW_GROUPS, unifiedLines, type CheckpointChange, type RestoreOutcome, type ReviewItem, type ReviewStatus, type TimelineMark, type TurnReview } from "@ue-mcp-studio/shared";
 import { REVIEW_STATUS, blueprintLines, fileName, markKind, markTime, nativeTitle, openedText, outcomeNote } from "@ue-mcp-studio/client-core";
-import { useProjectNav } from "../nav";
-import { haptic } from "../native/haptics";
-import { Banner, Check, font, labelFont, Pill, T, useTheme, type Theme } from "../ui";
+import { useProjectNav } from "../../../nav";
+import { haptic } from "../../../native/haptics";
+import { Banner, Check, font, labelFont, Pill, T, useTheme, type Theme } from "../../../ui";
 import { AssetDiffView } from "./AssetDiff";
-import { AssetTile } from "./AssetTile";
-import { DiffView } from "./Diff";
-import { SessionIdContext } from "./attachments";
-import { engineText } from "./breakable";
-import { useDaemonImage } from "./daemon-image";
-import { buttonText, small } from "./styles";
+import { AssetTile } from "../../../chat/AssetTile";
+import { DiffView } from "../../../chat/Diff";
+import { SessionIdContext } from "../../../chat/attachments";
+import { engineText } from "../../../chat/breakable";
+import { useDaemonImage } from "../../../chat/daemon-image";
+import { buttonText, small } from "../../../chat/styles";
 
 export { outcomeNote };
 
 const lh = (t: Theme): number => (t.editor ? 1.5 : 1.55);
 
 /** A small-button's text: the body's size in the button font (the editor themes keep 12px). */
-const smallButtonText = (t: Theme) => [buttonText(t), { fontSize: t.editor ? 12 : 13.5, lineHeight: (t.editor ? 12 : 13.5) * 1.2 }];
+/** A small-button's text: the font size of where it sits (the body's, or .small's 12px inside a small banner); the editor themes keep 12px. */
+const smallButtonText = (t: Theme, size = t.editor ? 12 : 13.5) => [buttonText(t), { fontSize: size, lineHeight: size * 1.2 }];
 
 /**
  * A button inside the conversation at a finger's size, outlined as every
@@ -35,7 +36,9 @@ const smallButtonText = (t: Theme) => [buttonText(t), { fontSize: t.editor ? 12 
  * `kind` picks primary or danger; `small` the small-button text; `left` aligns
  * a long label to the start, wrapping.
  */
-export function OutlineButton({ title, onPress, disabled, expanded, kind, small: isSmall = true, left, fill, label, children, faded }: {
+export function OutlineButton({ title, onPress, disabled, expanded, kind, small: isSmall = true, left, fill, label, children, faded, fontSize }: {
+  /** The text size where it sits, when that is not the body's (a button inside .banner.small is 12px). */
+  fontSize?: number;
   title?: string;
   onPress: () => void;
   disabled?: boolean;
@@ -64,7 +67,7 @@ export function OutlineButton({ title, onPress, disabled, expanded, kind, small:
       onPress={onPress}
       style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: isSmall ? 10 : 12, paddingVertical: isSmall ? 0 : 6, justifyContent: "center", alignItems: left ? "flex-start" : "center", alignSelf: fill ? "stretch" : left ? "flex-start" : undefined, borderRadius: t.radius, borderWidth: 1, borderColor: pressed && !disabled ? t.c.accentLine : line, backgroundColor: pressed && !disabled ? (primary ? t.c.accentHi : t.c.panel3) : bg, opacity: disabled && faded ? 0.4 : 1 })}
     >
-      {children ?? <T style={[...(isSmall ? smallButtonText(t) : [buttonText(t, primary ? 600 : 500)]), { color, textAlign: left ? "left" : "center" }]}>{title}</T>}
+      {children ?? <T style={[...(isSmall ? smallButtonText(t, fontSize) : [buttonText(t, primary ? 600 : 500)]), { color, textAlign: left ? "left" : "center" }]}>{title}</T>}
     </Pressable>
   );
 }
@@ -145,6 +148,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
   return (
     <View
       accessibilityRole="none"
+      testID="review-card"
       accessibilityLabel="Changes in this turn"
       style={{ paddingVertical: 12, paddingHorizontal: 14, gap: 8, marginVertical: 8, minWidth: 0, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.editor ? "transparent" : t.c.line, borderRadius: t.radiusLg }}
     >
@@ -183,8 +187,8 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
         );
       })}
       {review.dirty && review.dirty.length > 0 ? <T style={dimSmall}>{`Unsaved in the editor, so not recorded: ${review.dirty.join(", ")}`}</T> : null}
-      {note ? <Banner kind="warn" style={{ marginBottom: 0 }}><T style={[small(t), { color: t.c.warnText }]}>{note}</T></Banner> : null}
-      {error ? <Banner kind="bad" style={{ marginBottom: 0 }}><T style={[small(t), { color: t.c.badText }]}>{error}</T></Banner> : null}
+      {note ? <Banner kind="warn"><T style={[small(t), { color: t.c.warnText }]}>{note}</T></Banner> : null}
+      {error ? <Banner kind="bad"><T style={[small(t), { color: t.c.badText }]}>{error}</T></Banner> : null}
     </View>
   );
 }
@@ -242,19 +246,19 @@ function Item({ it, open, busy, opened, confirming, onToggle, onNative, onKeep, 
       </View>
       {it.summary ? <T style={[small(t), { color: it.diffError ? t.c.bad : t.c.text }]}>{engineText(it.summary)}</T> : null}
       {/* .small.mono on one element: .mono's 0.92em is of the body's size, not of .small's 12px. */}
-      <T style={[font(t, "mono", 400, Math.round(t.base.size * 0.92 * 100) / 100), { lineHeight: 12 * lh(t), color: t.c.dim }]} accessibilityHint={nativeTitle(it)}>{engineText(it.path)}</T>
+      <T style={[font(t, "mono", 400, Math.round(t.base.size * 0.92 * 100) / 100), { lineHeight: Math.round(t.base.size * 0.92 * lh(t) * 100) / 100, color: t.c.dim }]} accessibilityHint={nativeTitle(it)}>{engineText(it.path)}</T>
       {opened ? <T accessibilityLiveRegion="polite" style={[small(t), { color: opened.bad ? t.c.bad : t.c.dim }]}>{opened.text}</T> : null}
       {it.conflict && it.state !== "reverted" ? (
-        <Banner kind="warn" role="alert" style={{ marginBottom: 0 }}>
+        <Banner kind="warn" role="alert">
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
             <T style={[small(t), { color: t.c.warnText }]}>You edited this file after the agent, so Revert left it alone.</T>
             {confirming ? (
               <>
-                <OutlineButton title="Revert and lose my edits" kind="danger" disabled={busy} onPress={() => onRevert(true)} />
-                <OutlineButton title="Keep my edits" onPress={() => onConfirm(false)} />
+                <OutlineButton title="Revert and lose my edits" kind="danger" fontSize={12} disabled={busy} onPress={() => onRevert(true)} />
+                <OutlineButton title="Keep my edits" fontSize={12} onPress={() => onConfirm(false)} />
               </>
             ) : (
-              <OutlineButton title="Revert anyway" disabled={busy} onPress={() => onConfirm(true)} />
+              <OutlineButton title="Revert anyway" fontSize={12} disabled={busy} onPress={() => onConfirm(true)} />
             )}
           </View>
         </Banner>
@@ -270,7 +274,6 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
   const { api } = useProjectNav();
   const [diff, setDiff] = useState<{ change: CheckpointChange; before?: string; after?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [treeOpen, setTreeOpen] = useState(false);
   useEffect(() => {
     let live = true;
     api.reviewDiff(sessionId, reviewId, item.path).then(
@@ -282,33 +285,17 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
     };
   }, [api, sessionId, reviewId, item.path]);
   const dimSmall = [small(t), { color: t.c.dim }];
-  if (error) return <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}><T style={[small(t), { color: t.c.badText }]}>{`Could not read the diff: ${error}`}</T></Banner>;
+  if (error) return <Banner kind="bad" role="alert"><T style={[small(t), { color: t.c.badText }]}>{`Could not read the diff: ${error}`}</T></Banner>;
   if (!diff) return <T style={dimSmall}>Reading the diff.</T>;
   const c = diff.change;
   const name = fileName(item.path);
   // A failed diff's reason is already the banner; the native view's reason would repeat it.
   const native = item.native && !item.native.available && c.assetDiff?.state !== "error" ? <T style={dimSmall}>{`No Unreal diff view: ${item.native.reason}`}</T> : null;
+  // The engine records are the whole diff, so blueprint(diff)'s structural summary is not repeated under them.
   if (c.assetDiff) {
-    const bp = c.assetDiff.blueprint;
     return (
       <View style={{ gap: 6, minWidth: 0 }}>
-        <AssetDiffView
-          diff={c.assetDiff}
-          name={name}
-          asset={item.asset}
-          status={item.status}
-          nativeNote={native}
-          blueprintTree={
-            bp ? (
-              <View>
-                <Pressable accessibilityRole="button" accessibilityState={{ expanded: treeOpen }} onPress={() => setTreeOpen(!treeOpen)} style={{ minHeight: 44, justifyContent: "center" }}>
-                  <T style={small(t)}>{`${treeOpen ? "▾" : "▸"} Structure (blueprint diff)`}</T>
-                </Pressable>
-                {treeOpen ? <BlueprintDiff diff={bp} /> : null}
-              </View>
-            ) : undefined
-          }
-        />
+        <AssetDiffView diff={c.assetDiff} name={name} asset={item.asset} status={item.status} nativeNote={native} />
       </View>
     );
   }
@@ -438,23 +425,23 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
   const marks = [...timeline].reverse();
   const dimSmall = [small(t), { color: t.c.dim }];
   return (
-    <View style={{ gap: 10 }}>
-      {/* label.toggle: the checkbox's own 4 px and 3 px margins, and the label's 14 px on the right. */}
-      <View style={{ paddingLeft: 4, marginRight: 14 }}>
+    <View testID="review-panel" style={{ gap: 10 }}>
+      {/* label.row.toggle: .row's 6 px above and below, the checkbox's own 4 px and 3 px margins, and the label's 14 px on the right. */}
+      <View style={{ paddingLeft: 4, marginRight: 14, marginVertical: 6 }}>
       <Check checked={on} disabled={busy || !status} onChange={toggle} label="Review this session's turns">
-        <T style={{ marginLeft: 3 }}>
+        <T style={{ marginLeft: 3, color: t.c.muted }}>
           {"Review this session's turns "}
           <T style={dimSmall}>{`A checkpoint before and after each turn, and a card to keep or revert its changes.${review === null ? " Following Settings." : ""}`}</T>
         </T>
       </Check>
       </View>
       {note ? (
-        <Banner kind="warn" style={{ marginBottom: 0 }}>
+        <Banner kind="warn">
           <T style={[small(t), { color: t.c.warnText }]}>{note.text}</T>
           {note.retry ? <OutlineButton title="Restore those too" disabled={busy} onPress={note.retry} /> : null}
         </Banner>
       ) : null}
-      {error ? <Banner kind="bad" style={{ marginBottom: 0 }}><T style={[small(t), { color: t.c.badText }]}>{error}</T></Banner> : null}
+      {error ? <Banner kind="bad"><T style={[small(t), { color: t.c.badText }]}>{error}</T></Banner> : null}
       {marks.length === 0 ? (
         <T style={dimSmall}>No checkpoints in this session yet.</T>
       ) : (
