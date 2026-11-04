@@ -38,18 +38,18 @@ describe("Approvals & review: before it acts", () => {
   it("shows a row per kind with its rule, and saves one row on its own", async () => {
     await show();
     expect(checked("Shell commands", "Ask")).toBe(true);
-    expect(checked("Restart or rebuild the editor", "Allow")).toBe(true);
-    const restart = screen.getByRole("radiogroup", { name: "Restart or rebuild the editor" });
+    expect(checked("Stop, start, restart or rebuild the editor", "Allow")).toBe(true);
+    const restart = screen.getByRole("radiogroup", { name: "Stop, start, restart or rebuild the editor" });
     await act(async () => void fireEvent.click(restart.querySelector("button")!));
     expect(m.saveSettings).toHaveBeenCalledWith({ approvals: { editorRestart: "ask" } });
-    expect(checked("Restart or rebuild the editor", "Ask")).toBe(true);
+    expect(checked("Stop, start, restart or rebuild the editor", "Ask")).toBe(true);
   });
 
   it("offers In project and Anywhere for commands and file changes only", async () => {
     await show();
     const shell = screen.getByRole("radiogroup", { name: "Shell commands" });
     expect([...shell.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Ask", "In project", "Anywhere"]);
-    const restart = screen.getByRole("radiogroup", { name: "Restart or rebuild the editor" });
+    const restart = screen.getByRole("radiogroup", { name: "Stop, start, restart or rebuild the editor" });
     expect([...restart.querySelectorAll("button")].map((b) => b.textContent)).toEqual(["Ask", "Allow"]);
     await act(async () => void fireEvent.click(shell.querySelectorAll("button")[1]));
     expect(m.saveSettings).toHaveBeenCalledWith({ approvals: { shell: "project" } });

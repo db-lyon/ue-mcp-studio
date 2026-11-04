@@ -182,7 +182,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
                   <dt>Model</dt><dd>{a.runs.model}{a.model ? <> (file says <code>{a.model}</code>)</> : null}</dd>
                   <dt>Tools</dt><dd>{a.tools}</dd>
                   <dt>Turns</dt><dd>{a.maxTurns ? `${a.maxTurns} max` : "no limit"}</dd>
-                  <dt>Effort</dt><dd>{a.effort ? EFFORT_NAMES[a.effort as Effort] ?? a.effort : "the main agent's"}</dd>
+                  <dt>Effort</dt><dd>{a.effort ? EFFORT_NAMES[a.effort as Effort] ?? a.effort : "not set in the file"}</dd>
                   <dt>Size</dt><dd>{tokens(a.tokens)} tokens</dd>
                 </dl>
                 {a.runs.note && <div className="cfg-note warn-text">{a.runs.note}</div>}
