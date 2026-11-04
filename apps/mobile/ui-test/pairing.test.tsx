@@ -139,8 +139,7 @@ describe("pairing stopped", () => {
     ["denied", "Pairing did not finish", "The computer's owner denied this phone."],
     ["offline", "Your computer went offline", "It stopped answering while this phone was pairing."],
     ["bad-link", "This is not a pairing code", "The code was cut short, or it is not one Studio made for pairing."],
-    ["mismatch", "The answer did not match the code", "Your computer's answer did not match the pairing code, so this phone did not pair, to be safe."],
-    ["plan", "Remote control is not available", "The account Studio is signed in with on your computer has no remote control in its plan."],
+    ["mismatch", "The answer did not match the code", "Your computer's answer did not match the code. This phone was not paired."],
     ["failed", "Pairing did not finish", "The computer no longer knows this request."],
   ] as const)("%s is the error panel with what happened", (kind, head, text) => {
     const seen = show({ kind, message: "The computer no longer knows this request. Make a new code." });
@@ -150,6 +149,14 @@ describe("pairing stopped", () => {
     fireEvent.click(screen.getByText("Scan a new code"));
     fireEvent.click(screen.getByText("Start over"));
     expect(seen).toEqual(["scan", "start"]);
+  });
+
+  it("offers only Start over when the account has no remote control", () => {
+    const seen = show({ kind: "plan", message: "Remote control needs a Pro or Studio plan on this account." });
+    expect(screen.getByText("Remote control is not available")).toBeTruthy();
+    expect(screen.queryByText("Scan a new code")).toBeNull();
+    fireEvent.click(screen.getByText("Start over"));
+    expect(seen).toEqual(["start"]);
   });
 
   it("offers Try again when the relay could not be reached", () => {
@@ -309,21 +316,29 @@ describe("Projects and Devices", () => {
     relay.account.mockRejectedValueOnce(new Error("The relay answered 503."));
     render(<Projects onOpen={() => undefined} onPair={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
     await settle();
-    expect(screen.getByText("Could not reach the relay")).toBeTruthy();
-    expect(screen.getByText("The relay answered 503.")).toBeTruthy();
+    expect(screen.getByText("The relay had a problem")).toBeTruthy();
+    expect(screen.queryByText("The relay answered 503.")).toBeNull();
     fireEvent.click(screen.getByText("Try again"));
     await settle();
-    expect(screen.queryByText("Could not reach the relay")).toBeNull();
+    expect(screen.queryByText("The relay had a problem")).toBeNull();
     expect(screen.getByText("Lyra")).toBeTruthy();
   });
 
-  it("keeps what it last read when the relay fails on Paired devices", async () => {
+  it("tells a phone that cannot reach the relay from a relay in trouble", async () => {
+    relay.account.mockRejectedValueOnce(new TypeError("Network request failed"));
+    render(<Projects onOpen={() => undefined} onPair={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
+    await settle();
+    expect(screen.getByText("Could not reach the relay")).toBeTruthy();
+  });
+
+  it("keeps what it can when the relay fails on Paired devices", async () => {
     relay.account.mockRejectedValueOnce(new Error("The relay answered 503."));
     render(<Settings onBack={() => undefined} onRemoved={() => undefined} />);
     await settle();
-    expect(screen.getByText("Could not reach the relay")).toBeTruthy();
+    expect(screen.getByText("The relay had a problem")).toBeTruthy();
     expect(screen.queryByText("None yet")).toBeNull();
-    expect(screen.getByText("A paired computer")).toBeTruthy();
+    expect(screen.queryByText("Phones and browsers")).toBeNull();
+    expect(screen.getByText("Your computer")).toBeTruthy();
   });
 
   it("writes the paired date the same on every phone", async () => {
@@ -351,7 +366,8 @@ describe("Projects and Devices", () => {
     const buttons = spy.mock.calls.at(-1)?.[2] ?? [];
     buttons.find((b) => b.text === "Remove")?.onPress?.();
     expect(relay.removeViewer).toHaveBeenCalledWith(expect.objectContaining({ id: "v2" }));
-    expect(screen.getByText("Lyra, Asleep")).toBeTruthy();
+    expect(screen.getByText("Your computer")).toBeTruthy();
+    expect(screen.getByText(/^Lyra, Asleep\. Paired /)).toBeTruthy();
     spy.mockRestore();
   });
 
@@ -361,7 +377,8 @@ describe("Projects and Devices", () => {
     let about = false;
     render(<Settings onBack={() => undefined} onRemoved={() => undefined} onAbout={() => (about = true)} />);
     await settle();
-    fireEvent.click(screen.getByLabelText("Forget Lyra, Asleep"));
+    fireEvent.click(screen.getByLabelText("Forget Your computer"));
+    expect(spy.mock.calls.at(-1)?.[0]).toBe("Forget your computer?");
     spy.mock.calls.at(-1)?.[2]?.find((b) => b.text === "Forget")?.onPress?.();
     expect(relay.forgetComputer).toHaveBeenCalledWith("keyA");
     fireEvent.click(screen.getByText("About"));
@@ -406,13 +423,18 @@ describe("About", () => {
     expect(screen.getByText(/this app needs 0\.1\.25-beta\.30 or newer/)).toBeTruthy();
   });
 
-  it("says when the computer does not answer, and when no project was opened", async () => {
+  it("says when the computer does not answer, asks again, and says when no project was opened", async () => {
     store.set("selected", JSON.stringify({ id: "d1", name: "Lyra", online: true, computerKey: "k", lastSeen: "" }));
-    const first = render(<About onBack={() => undefined} transport={() => async () => Promise.reject(new Error("offline"))} />);
+    let calls = 0;
+    const first = render(<About onBack={() => undefined} transport={() => async () => (calls++, Promise.reject(new Error("offline")))} />);
     expect(screen.getByText("Asking the computer")).toBeTruthy();
     await settle();
     await settle();
-    expect(screen.getByText(/did not answer/)).toBeTruthy();
+    expect(screen.getByText("The computer did not answer")).toBeTruthy();
+    fireEvent.click(screen.getByText("Try again"));
+    await settle();
+    await settle();
+    expect(calls).toBe(2);
     first.unmount();
     store.clear();
     render(<About onBack={() => undefined} />);
@@ -429,7 +451,7 @@ describe("phone-only banners and prompts", () => {
     expect(container.textContent).toBe("");
     g.__qaOffline = true;
     render(<OfflineBanner />);
-    expect(screen.getByText("This phone is offline. Studio reconnects when it is back.")).toBeTruthy();
+    expect(screen.getByText("This phone is offline. Studio reconnects on its own.")).toBeTruthy();
   });
 
   it("offers the fingerprint after a typed PIN", () => {
