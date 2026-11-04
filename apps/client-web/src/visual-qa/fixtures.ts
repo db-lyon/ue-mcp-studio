@@ -430,9 +430,12 @@ function remotePair(title: string, o: { state: "connecting" | "online" | "error"
   };
 }
 
-/** The daemon's health with the editor connected or not, and how it last dropped. */
+/**
+ * The daemon's health with the editor connected or not, and how it last dropped. Diagnostics prints its
+ * times, so they are fixed: shots taken minutes apart (the web reference and the mobile app's) match.
+ */
 const health = (connected: boolean, lastDisconnect: { cause: string; at: string } | null = null) => ({
-  ok: true, pid: 4120, version: "1.4.11-beta.4", apiVersion: 1, projectRoot: "C:/Users/dev/Projects/StudioE2E", startedAt: ago(95),
+  ok: true, pid: 4120, version: "1.4.11-beta.4", apiVersion: 1, projectRoot: "C:/Users/dev/Projects/StudioE2E", startedAt: "2026-11-04T21:30:00Z",
   editors: [{ name: "StudioE2E", connected, port: 9877, pid: connected ? 22816 : null, lastDisconnect }],
   clients: 2, inflight: connected ? 1 : 0, lastEventId: 0, extensions: [{ name: "studio", version: "0.1.25-beta.31" }], ui: "0.1.25-beta.31", features: ["checkpoints"],
 });
@@ -519,7 +522,7 @@ export const EDITOR_SCENARIOS: Record<string, Scenario> = {
   "editor-chip-off-open": editorState("The editor chip opened with the editor not running: Start", {}, { connected: false, open: true }),
   "editor-chip-failed-open": editorState("The editor chip opened after a restart that did not bring the editor back: the step and the reason", FAILED, { connected: false, open: true }),
   "diagnostics": { title: "Settings, Diagnostics: the editor connected, its controls and the daemon", hash: "#/settings/diagnostics", index: { playtests: [], listed: true }, get: (p) => (p === "/v1/health" ? health(true) : undefined), fullPage: true },
-  "diagnostics-disconnected": { title: "Settings, Diagnostics: the editor crashed, only Start offered", hash: "#/settings/diagnostics", index: { playtests: [], listed: true }, get: (p) => (p === "/v1/health" ? health(false, { cause: "crashed", at: ago(6) }) : undefined), fullPage: true },
+  "diagnostics-disconnected": { title: "Settings, Diagnostics: the editor crashed, only Start offered", hash: "#/settings/diagnostics", index: { playtests: [], listed: true }, get: (p) => (p === "/v1/health" ? health(false, { cause: "crashed", at: "2026-11-04T23:01:00Z" }) : undefined), fullPage: true },
   "flow-launcher-unnamed": flowTyped("/flow with no name: the project's flows to pick from", "/flow ", {}, true),
   "flow-launcher-unknown": flowTyped("/flow with a name that is no flow: the closest names", "/flow bake-lightng "),
   "flow-launcher-error": flowTyped("/flow whose plan cannot be read: the reason and Close", "/flow playtest-smoke "),
