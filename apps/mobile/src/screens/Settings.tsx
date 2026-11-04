@@ -6,8 +6,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, View } from "react-native";
 import { account, forgetComputer, removeViewer, trusted, type Device, type Viewer } from "../relay";
-import { Button, font, Loading, Panel, T, useTheme } from "../ui";
-import { Chevron, ListCard, ListRow, Page, SectionLabel } from "./StudioPage";
+import { Button, font, Loading, T, useTheme } from "../ui";
+import { Chevron, ListCard, ListRow, Page, RelayProblem, SectionLabel } from "./StudioPage";
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
@@ -53,7 +53,7 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
     ]);
 
   const forgetKey = (key: string, name: string) =>
-    Alert.alert(`Forget ${name}?`, "This phone stops trusting that computer until you scan its pairing code again.", [
+    Alert.alert(`Forget ${name.charAt(0).toLowerCase()}${name.slice(1)}?`,"This phone stops trusting that computer until you scan its pairing code again.", [
       { text: "Cancel", style: "cancel" },
       { text: "Forget", style: "destructive", onPress: () => void forgetComputer(key).then(load) },
     ]);
@@ -69,11 +69,13 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
   return (
     <Page title="Paired devices" back="Projects" onBack={onBack}>
       <T style={{ color: t.c.dim }}>The phones and browsers that reach your projects, and the computers this phone trusts.</T>
-      {error ? <Panel bad head="Could not reach the relay" text={error} note="The lists below are what this phone last read." actions={<Button title="Try again" variant="primary" onPress={() => void load()} />} /> : null}
-      <SectionLabel>Phones and browsers</SectionLabel>
-      {viewers === null ? (
-        <View style={{ alignItems: "center", paddingVertical: 12 }}>{error ? <T style={{ color: t.c.dim }}>Not loaded.</T> : <Loading>Loading paired devices</Loading>}</View>
+      {error ? <RelayProblem error={error} note={viewers ? "The lists below are what this phone last read." : "The computers this phone trusts are below; the rest shows once the relay answers."} onRetry={() => void load()} /> : null}
+      {viewers === null && !error ? (
+        <View style={{ alignItems: "center", paddingVertical: 12 }}>
+          <Loading>Loading paired devices</Loading>
+        </View>
       ) : null}
+      {viewers ? <SectionLabel>Phones and browsers</SectionLabel> : null}
       {viewers ? (
         <ListCard>
           {viewers.length === 0 ? <ListRow title="None yet" sub="Phones and browsers you pair show here." /> : null}
@@ -85,11 +87,11 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
       <SectionLabel>Computers this phone trusts</SectionLabel>
       <ListCard>
         {trustedKeys.length === 0 ? <ListRow title="None yet" sub="A computer shows here once this phone has scanned its pairing code." /> : null}
-        {trustedKeys.map(([key, info]) => {
+        {trustedKeys.map(([key, info], i) => {
+          // A computer has no name of its own at the relay: it is numbered, and its projects say which it is once the relay has answered.
+          const name = trustedKeys.length > 1 ? `Computer ${i + 1}` : "Your computer";
           const names = devices.filter((d) => d.computerKey === key).map((d) => d.name);
-          // The relay knows a computer by its projects; until it has answered, it is just a paired computer.
-          const name = names.length ? names.join(", ") : "A paired computer";
-          return <ListRow key={key} title={name} sub={paired(info.pairedAt)} right={danger("Forget", () => forgetKey(key, name), `Forget ${name}`)} />;
+          return <ListRow key={key} title={name} sub={names.length ? `${names.join(", ")}. ${paired(info.pairedAt)}` : paired(info.pairedAt)} right={danger("Forget", () => forgetKey(key, name), `Forget ${name}`)} />;
         })}
       </ListCard>
       {onAbout ? (

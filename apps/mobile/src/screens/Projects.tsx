@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, View } from "react-native";
 import { account, NotPairedError, selected, trusted, type Device } from "../relay";
 import { Button, Dot, font, Loading, Panel, T, useTheme } from "../ui";
-import { Chevron, ListCard, ListRow, Page, PageHead } from "./StudioPage";
+import { Chevron, ListCard, ListRow, Page, PageHead, RelayProblem } from "./StudioPage";
 
 /** "Offline, last seen 5 min ago": how long ago, in the largest whole unit. */
 export function lastSeen(iso: string, now = Date.now()): string {
@@ -58,15 +58,7 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
       footer={rows !== null || error ? <Button title="Pair another computer" onPress={onPair} /> : undefined}
     >
       <PageHead eyebrow="Projects" lead={rows?.length === 0 ? undefined : "Choose the project to open in Studio."} />
-      {error ? (
-        <Panel
-          bad
-          head="Could not reach the relay"
-          text={error}
-          note="This page checks again every 10 seconds."
-          actions={<Button title="Try again" variant="primary" onPress={() => void load()} />}
-        />
-      ) : null}
+      {error ? <RelayProblem error={error} note="Studio asks again every 10 seconds." onRetry={() => void load()} /> : null}
       {rows === null && !error ? (
         <View style={{ alignItems: "center", paddingTop: 24 }}>
           <Loading>Loading your projects</Loading>
@@ -82,7 +74,7 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
               return (
                 <ListRow
                   key={d.id}
-                  lead={<Dot />}
+                  lead={<View style={{ width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: t.c.dim }} />}
                   title={d.name}
                   sub={d.online ? "Not paired with this phone. Scan its computer's code to open it." : lastSeen(d.lastSeen)}
                   label={`Scan the code for ${d.name}`}
@@ -105,7 +97,6 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
           })}
         </ListCard>
       ) : null}
-      {rows?.length ? <T style={{ ...font(t, "sans", 400, 12, 1.3), color: t.c.dim, textAlign: "center" }}>Pull down to check again.</T> : null}
     </Page>
   );
 }

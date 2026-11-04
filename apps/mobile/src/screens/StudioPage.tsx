@@ -9,7 +9,7 @@ import type { ReactElement, ReactNode } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View, type RefreshControlProps, type StyleProp, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
-import { Card, font, Label, PageGlow, StateGlyph, T, useTheme, type StateGlyphName } from "../ui";
+import { Button, Card, font, Label, PageGlow, Panel, StateGlyph, T, useTheme, type StateGlyphName } from "../ui";
 import { Brand } from "../views/NavDrawer";
 import { OFFLINE_STRIP } from "../views/OfflineBanner";
 import { useDeviceOnline } from "../native/online";
@@ -129,6 +129,28 @@ export function StateView({ glyph, title, lead, children, note, actions }: { gly
       {note ? <View style={{ alignSelf: "stretch" }}>{note}</View> : null}
       {actions ? <View style={{ alignSelf: "stretch", gap: 8, marginTop: 8 }}>{actions}</View> : null}
     </View>
+  );
+}
+
+/**
+ * The relay failed to list the account: the relay's error panel in plain
+ * words (a status code is no use to anyone here), what happens next, and Try
+ * again at full width as every error panel in the app has it.
+ */
+export function RelayProblem({ error, note, onRetry }: { error: string; note: string; onRetry: () => void }) {
+  const answered = /answered \d+/.test(error);
+  return (
+    <Panel
+      bad
+      head={answered ? "The relay had a problem" : "Could not reach the relay"}
+      text={answered ? "It did not answer as it should. It is usually back within a minute." : "This phone could not reach remote.ue-mcp.com. Check its connection."}
+      note={note}
+      actions={
+        <View style={{ flex: 1 }}>
+          <Button title="Try again" variant="primary" size="large" onPress={onRetry} />
+        </View>
+      }
+    />
   );
 }
 
