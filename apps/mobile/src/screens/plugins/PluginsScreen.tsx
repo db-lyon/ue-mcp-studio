@@ -41,7 +41,7 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
 
   if (unsupported) {
     return (
-      <ScrollView testID="plugins" style={{ flex: 1 }} contentContainerStyle={{ padding: 6 }}>
+      <ScrollView testID="plugins" style={{ flex: 1 }} contentContainerStyle={{}}>
         <Card>
           <CardLabel>Plugins</CardLabel>
           <Txt tone="muted" style={{ marginBottom: para }}>
@@ -53,7 +53,7 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
   }
 
   return (
-    <ScrollView testID="plugins" style={{ flex: 1 }} contentContainerStyle={{ padding: 6, gap: 14 }} keyboardShouldPersistTaps="handled">
+    <ScrollView testID="plugins" style={{ flex: 1 }} contentContainerStyle={{ gap: 14 }} keyboardShouldPersistTaps="handled">
       {error ? (
         <Pressable accessibilityRole="alert" onPress={() => setError(null)}>
           <Banner kind="bad">
