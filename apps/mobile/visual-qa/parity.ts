@@ -18,6 +18,11 @@ export interface ParityEntry {
   focus?: string;
   /** Typed key by key at the end of an element (a CSS selector in the app's page) after the focus: the web scenario's type. */
   type?: { into: string; text: string };
+  /**
+   * Compared with the computer's capture (scripts/visual-qa.mjs without --remote), not a paired browser's:
+   * the state is the computer's own, and the app draws it the same way (the /remote reply).
+   */
+  reference?: "computer";
   /** Pressed one after another once the typing settles, then left for wait milliseconds: the web scenario's afterType. */
   afterType?: { clicks: string[]; wait: number };
   /** Scrolled to the top of the window after the clicks, by accessibility label: the web scenario's scroll. */
@@ -59,17 +64,17 @@ export const PARITY: Record<string, ParityEntry> = {
   "mention-actor": {owner: "chat", type: { into: BOX, text: "@actor:Fro" }},
   "mention-empty": {owner: "chat", type: { into: BOX, text: "@Zebra" }},
   "mention-sent": {owner: "chat"},
-  "remote-upgrade-reply": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
-  "remote-checkout-opened-reply": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
-  "remote-now-on-reply": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
-  "remote-pair-connecting": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
-  "remote-pair-code": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
-  "remote-pair-expired": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
-  "remote-pair-error": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
-  "remote-pair-approval": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
+  "remote-upgrade-reply": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }},
+  "remote-checkout-opened-reply": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: ["Upgrade to Pro"], wait: 700 }},
+  "remote-now-on-reply": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: ["Upgrade to Pro"], wait: 4000 }},
+  "remote-pair-connecting": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 1200 }},
+  "remote-pair-code": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 1200 }},
+  "remote-pair-expired": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 2000 }},
+  "remote-pair-error": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 1200 }},
+  "remote-pair-approval": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 1200 }},
   "remote-ue-mcp-offline": {owner: "shell"},
   "remote-waking": {owner: "shell"},
-  "remote-approval-banner": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
+  "remote-approval-banner": {notOnPhone: "The Studio-wide banner for a device asking to be allowed shows on the computer, the only place that can allow it; the app shows the request inside its /remote reply (remote-pair-approval)."},
   "session-empty": {owner: "chat"},
   "draft": {owner: "agent-a"},
   "draft-asset-links": {owner: "agent-a"},
@@ -138,6 +143,9 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-diagnostics": {owner: "agent-b"},
   "settings-diagnostics-events": {owner: "agent-b"},
   "review-card": {owner: "chat"},
+  "review-widget": {owner: "chat"},
+  "review-widget-old-bridge": {owner: "chat"},
+  "review-binary": {owner: "chat"},
   "review-blueprint": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "Content/Characters/Player/BP_PlayerCharacterMovementComponent.uasset"},
   "review-blueprint-variables": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "My Blueprint"},
   "review-material-instance": {owner: "chat", clicks: ["MI_RockMossyCliffFace_Variant02.uasset"], scroll: "Content/Environment/Materials/MI_RockMossyCliffFace_Variant02.uasset"},

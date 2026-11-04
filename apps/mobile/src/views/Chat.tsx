@@ -26,6 +26,7 @@ import { ContextMeter, ContextWarning } from "../chat/ContextMeter";
 import { CompactContext } from "../chat/Compaction";
 import { SessionRow } from "../chat/SessionRow";
 import { Composer } from "../chat/Composer";
+import { RemoteReply, useRemoteCommand } from "../screens/chat/composer/RemoteReply";
 import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../chat/Approvals";
 import { AskedContext } from "../chat/asked";
@@ -79,7 +80,6 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
   /** Open a Settings section. */
   onSettings?: (section: string) => void;
 }) {
-  void onSettings;
   const t = useTheme();
   const { project, api } = useProjectNav();
   const daemon = useDaemonState(project);
@@ -265,7 +265,11 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
     setFlowAsk(null);
     setActionAsk(null);
   }, [selected]);
+  // /remote and /rc: offered only where remoteSurface says, and answered here, never as a turn.
+  const remoteCmd = useRemoteCommand({ sessionId: selected, draft, setDraft, readyFiles: attach.ready.length, saveDraft: (id, text) => api.saveDraft(id, text) });
   const send = () => {
+    if (remoteCmd.runRemoteCommand()) return;
+    remoteCmd.dismiss();
     // A /flow or /action opens its form rather than going out as a message.
     const parsed = selected && canSend && attach.ready.length === 0 ? parseSlashCommand(draft) : null;
     const command = parsed?.name;
@@ -320,8 +324,8 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
   // Dismissed per session, until it reaches the next level.
   const [warnDismissed, setWarnDismissed] = useState<string | null>(null);
   const warnKey = detail && meterView ? `${detail.id}:${meterView.level}` : null;
-  const sendNow = () => dispatch((id, text, files) => api.send(id, text, files, true), true);
-  const queue = () => dispatch((id, text, files) => api.queue(id, text, files), false);
+  const sendNow = () => remoteCmd.runRemoteCommand() || dispatch((id, text, files) => api.send(id, text, files, true), true);
+  const queue = () => remoteCmd.runRemoteCommand() || dispatch((id, text, files) => api.queue(id, text, files), false);
   const editMessage = useCallback(
     (index: number, text: string, mode: EditMode) => {
       if (!selected) return;
@@ -530,6 +534,9 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
                         <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
                         <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
                         <FormCards forms={forms} runs={qaRuns} />
+                        {remoteCmd.reply === detail.id ? (
+                          <RemoteReply remote={remoteCmd.remote} onDismiss={remoteCmd.dismiss} onSettings={onSettings && (() => { remoteCmd.dismiss(); onSettings("remote"); })} />
+                        ) : null}
                         {flowAsk && !busy ? <FlowLauncher key={flowAsk} text={flowAsk} run={runFlow} onClose={() => setFlowAsk(null)} /> : null}
                         {actionAsk && !busy ? <ActionLauncher key={actionAsk} text={actionAsk} run={runAction} onClose={() => setActionAsk(null)} /> : null}
                         {settings && disconnected ? (
@@ -549,7 +556,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
                           busy={busy}
                           canSend={canSend}
                           onSend={send}
-                          commands={SLASH_COMMANDS}
+                          commands={remoteCmd.commands}
                           flows={loadFlowNames(api)}
                           actions={loadActionNames(api)}
                           mentions={searchMentions(api)}

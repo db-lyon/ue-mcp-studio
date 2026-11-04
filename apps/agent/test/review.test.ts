@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
-import { assetPathOf, readableValue, refineAssetDiff, reviewGroupOf, unifiedLines, type AssetDiff, type TurnReview } from "@ue-mcp-studio/shared";
+import { assetPathOf, readableValue, refineAssetDiff, reviewGroupOf, unifiedLines, WIDGET_TREE_NOT_COMPARED, type AssetDiff, type TurnReview } from "@ue-mcp-studio/shared";
 import { ReviewBroker, type ReviewHost } from "../src/review.js";
 import { SessionStore, type StoredSession } from "../src/sessions.js";
 import { AgentRunner } from "../src/runner.js";
@@ -323,7 +323,7 @@ describe("the review model", () => {
     };
     const r = refineAssetDiff(d);
     expect(r.sections!.flatMap((s) => s.entries.map((e) => e.path))).toEqual(["Default Value", "Walk Speed"]);
-    expect(r.summary).toBe("2 differences: Health Default Value 100 to 150; Walk Speed 600.000000 to 450.000000");
+    expect(r.summary).toBe("2 differences: Health > Default Value: 100 to 150; Walk Speed: 600.000000 to 450.000000");
     // A diff with nothing to fold keeps the summary ue-mcp wrote.
     const plain = { ...d, sections: [d.sections![1]] };
     expect(refineAssetDiff(plain)).toBe(plain);
@@ -335,7 +335,37 @@ describe("the review model", () => {
       state: "ready", status: "modified", assetClass: "MaterialInstanceConstant", summary: "1 difference: Scalar Parameter Values ((ParameterInfo=(Name=\"Roughness\",Association=Glo...", nativeDiff: { available: true },
       sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [{ path: "Scalar Parameter Values", property: "ScalarParameterValues", diffType: "PropertyValueChanged", displayString: "", before, after: before.replace("0.500000", "0.800000") }] }],
     };
-    expect(refineAssetDiff(d).summary).toBe("1 difference: Scalar Parameter Values Roughness = 0.5 to Roughness = 0.8");
+    expect(refineAssetDiff(d).summary).toBe("1 difference: Scalar Parameter Values: Roughness = 0.5 to Roughness = 0.8");
+  });
+
+  it("names a widget's property by the widget and the details panel's label", () => {
+    const d: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "WidgetBlueprint", summary: "1 difference: Widget WardMeter > Hide when Full False to True", nativeDiff: { available: true },
+      engine: { tool: "SBlueprintDiff", note: "", native: "window", blueprintTypeDiff: true },
+      sections: [{ category: "Widget Blueprint", kind: "properties", engineSource: "UBlueprint::FindDiffs", entries: [{ group: "Widget WardMeter", path: "bHideWhenFull", label: "Hide when Full", property: "bHideWhenFull", diffType: "PropertyValueChanged", displayString: "bHideWhenFull changed value in WardMeter", before: "False", after: "True" }] }],
+    };
+    expect(refineAssetDiff(d).summary).toBe("1 difference: Widget WardMeter > Hide when Full: False to True");
+  });
+
+  it("never says a Widget Blueprint has no difference when the bridge did not compare its widget tree", () => {
+    const old: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "WidgetBlueprint", summary: "WidgetBlueprint: the file changed, and Unreal's diff finds no difference", nativeDiff: { available: true },
+      engine: { tool: "SBlueprintDiff", note: "", native: "window" }, sections: [],
+    };
+    expect(refineAssetDiff(old).summary).toBe(WIDGET_TREE_NOT_COMPARED);
+    expect(refineAssetDiff(old).summary).not.toMatch(/no difference/);
+    // A bridge that compared the widget tree and found nothing may say so.
+    const compared = { ...old, engine: { ...old.engine!, blueprintTypeDiff: true } };
+    expect(refineAssetDiff(compared).summary).toBe(old.summary);
+  });
+
+  it("names the fact that changed when no property record does", () => {
+    const sound: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "SoundWave", summary: "SoundWave: the file changed, and Unreal's diff finds no difference", nativeDiff: { available: true }, sections: [],
+      before: { class: "SoundWave", facts: [{ name: "Duration", value: "1.250 s" }, { name: "Channels", value: "2" }] },
+      after: { class: "SoundWave", facts: [{ name: "Duration", value: "0.980 s" }, { name: "Channels", value: "2" }] },
+    };
+    expect(refineAssetDiff(sound).summary).toBe("SoundWave changed. Duration: 1.250 s to 0.980 s");
   });
 });
 

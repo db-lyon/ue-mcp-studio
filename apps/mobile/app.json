@@ -15,10 +15,7 @@
         "NSCameraUsageDescription": "UE-MCP Studio scans the pairing code your computer shows.",
         "NSFaceIDUsageDescription": "UE-MCP Studio uses Face ID to unlock with the PIN you set on your computer.",
         "NSPhotoLibraryUsageDescription": "UE-MCP Studio attaches the images you pick to a message, and reads a pairing code from a saved picture."
-      },
-      "associatedDomains": [
-        "applinks:remote.ue-mcp.com"
-      ]
+      }
     },
     "android": {
       "package": "com.uemcp.studio.remote",
@@ -34,23 +31,6 @@
         "android.permission.VIBRATE"
       ],
       "predictiveBackGestureEnabled": true,
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "autoVerify": true,
-          "data": [
-            {
-              "scheme": "https",
-              "host": "remote.ue-mcp.com",
-              "pathPrefix": "/pair"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        }
-      ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.SYSTEM_ALERT_WINDOW"
