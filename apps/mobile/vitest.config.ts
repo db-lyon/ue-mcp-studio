@@ -12,6 +12,8 @@ const mock = (name: string) => path.join(here, "ui-test/mocks", name);
 export default defineConfig({
   root: here,
   resolve: {
+    // A module's .web.tsx build first, as Expo web and the visual QA pages pick it.
+    extensions: [".web.tsx", ".web.ts", ".tsx", ".ts", ".mjs", ".js", ".json"],
     alias: [
       { find: /^react-native$/, replacement: path.join(root, "node_modules/react-native-web/dist/index.js") },
       // The ESM build, so its own imports of react-dom go through the aliases below.

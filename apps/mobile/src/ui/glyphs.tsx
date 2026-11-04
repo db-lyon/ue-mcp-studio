@@ -43,7 +43,7 @@ export function OptionsGlyph({ color = css.muted, knob = css.panel2 }: { color?:
 /** The disclosure mark: a chevron that points right, or down when open. */
 export function Chevron({ open, color = css.muted, size = 12 }: { open: boolean; color?: string; size?: number }) {
   return (
-    <Svg width={size} height={size} viewBox="0 0 12 12" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={{ transform: [{ rotate: open ? "90deg" : "0deg" }] }} aria-hidden>
+    <Svg width={size} height={size} viewBox="0 0 12 12" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={{ transform: [{ rotate: open ? "90deg" : "0deg" }], opacity: 0.85 }} aria-hidden>
       <Path d="M4.5 2.5 8 6l-3.5 3.5" />
     </Svg>
   );
