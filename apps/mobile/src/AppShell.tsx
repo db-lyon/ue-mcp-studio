@@ -110,8 +110,6 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
     return readLocation().tab;
   });
   const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
-  // The session the location names when the app opens (a deep link, the web client's hash), opened first as the web client's chat does.
-  const firstSession = useRef(readLocation().session);
   useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
   useSessionFocus(daemon.events, (session) => {
     writeLocation({ tab: "Chat", session });
@@ -163,7 +161,7 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
             <ErrorBoundary what="Chat">
               <Chat
                 nav={chatNav}
-                initialSession={firstSession.current}
+                initialSession={initial?.tab === "Chat" ? initial.session : null}
                 active={tab === "Chat"}
                 onSettings={(x) => {
                   setSection(sectionOf(x));

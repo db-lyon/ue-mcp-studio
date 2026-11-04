@@ -1,6 +1,9 @@
-/** expo-clipboard for component tests and the parity page: a test sets `clip` to what the clipboard holds. */
+/** expo-clipboard in memory, for component tests and the parity page. A test sets `clip` to what the clipboard holds. */
 export const clip: { text: string; image: { data: string; size: { width: number; height: number } } | null } = { text: "", image: null };
+/** The last text copied. */
+export let copied: string | null = null;
 export const setStringAsync = async (text: string) => {
+  copied = text;
   clip.text = text;
   return true;
 };
