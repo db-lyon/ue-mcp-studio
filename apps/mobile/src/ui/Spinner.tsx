@@ -6,14 +6,16 @@ import { useEffect, useRef } from "react";
 import { Animated, Easing, type StyleProp, type ViewStyle } from "react-native";
 import { useTheme } from "./ThemeProvider";
 
-export function Spinner({ small = false, style }: { small?: boolean; style?: StyleProp<ViewStyle> }) {
+/** `still` holds it at rest, for a still picture of the screen. */
+export function Spinner({ small = false, still = false, style }: { small?: boolean; still?: boolean; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
   const turn = useRef(new Animated.Value(0)).current;
   useEffect(() => {
+    if (still) return;
     const loop = Animated.loop(Animated.timing(turn, { toValue: 1, duration: 800, easing: Easing.linear, useNativeDriver: true }));
     loop.start();
     return () => loop.stop();
-  }, [turn]);
+  }, [turn, still]);
   const size = small ? 12 : 16;
   return (
     <Animated.View

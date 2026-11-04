@@ -21,10 +21,17 @@ const NAMES: Array<keyof StudioApi> = [
   "flows", "actions", "searchMentions", "forms", "answerForm", "bytes", "reviewNativeDiff",
   "resolveAssets", "reportAssetMiss", "openAsset", 
 ];
+/** The editor and flow routes. */
+const EDITOR_NAMES: Array<keyof StudioApi> = ["daemonHealth", "busy", "stopBusy", "editor", "flows", "planFlow", "flow"];
+/** The playtest, form and asset routes. */
+const PLAYTEST_NAMES: Array<keyof StudioApi> = [
+  "forms", "answerForm", "qaRuns", "qaPlaytests", "qaPlaytestCard", "qaPlaytestScript", "qaPlaytestSave", "qaPlaytestDelete", "qaStatus", "qaVerdict", "qaAssign", "qaCancelAssign",
+  "qaRevertLoop", "qaStop", "qaRun", "qaSaveScript", "qaDeleteScript", "qaDismiss", "resolveAssets", "reportAssetMiss", "openAsset",
+];
 
 export function fakeApi(): FakeApi {
   const api = {} as FakeApi;
-  for (const n of NAMES) api[n] = vi.fn(() => new Promise(() => undefined));
+  for (const n of new Set([...NAMES, ...EDITOR_NAMES, ...PLAYTEST_NAMES])) api[n] = vi.fn(() => new Promise(() => undefined));
   api.reviewImageUrl = vi.fn((name: string) => `/v1/ext/studio/review/images/${name}`);
   api.reviewThumbnailUrl = vi.fn((id: string) => `/v1/ext/studio/review/thumbnails/${id}`);
   api.saveDraft.mockResolvedValue({});

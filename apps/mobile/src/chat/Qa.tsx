@@ -1,32 +1,7 @@
-// STUB: owned by the playtest team
-import { createContext } from "react";
-import type { PendingForm, QaRun } from "@ue-mcp-studio/shared";
-import { newerRun, type StreamEvent } from "@ue-mcp-studio/client-core";
-
-export { newerRun };
-
-export interface QaLive {
-  events: StreamEvent[];
-  streaming: boolean;
-  forms: PendingForm[];
-  sessionId: string | null;
-  onThread: (id: string | null) => void;
-}
-
-export const QaContext = createContext<QaLive | null>(null);
-
-export function useOutsideRuns(_events: StreamEvent[], _streaming: boolean): { runs: QaRun[]; dismiss: (runId: string) => void } {
-  return { runs: [], dismiss: () => undefined };
-}
-
-export function OutsideRuns(_props: { runs: QaRun[]; onDismiss: (runId: string) => void }) {
-  return null;
-}
-
-export function QaCard(_props: { run: QaRun; form?: PendingForm; onDismiss?: () => void; offline?: boolean }) {
-  return null;
-}
-
-export function qaRunFromForm(_form: PendingForm): QaRun | null {
-  return null;
-}
+// The playtest card and its context, as the chat mounts them (web: chat/Qa.tsx).
+export { newerRun, qaRunFromForm } from "@ue-mcp-studio/client-core";
+export { QaContext, useLiveRun, type QaLive } from "../screens/playtests/live";
+export { QaCard, type QaCardActions } from "../screens/playtests/QaCard";
+export { PathLegend, StepPath } from "../screens/playtests/StepPath";
+export { FailNote } from "../screens/playtests/parts";
+export { OutsideRuns, useOutsideRuns } from "../screens/playtests/OutsideRuns";
