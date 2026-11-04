@@ -4,20 +4,32 @@
  * Native chooses a custom font's weight by its name.
  */
 import { Text, type TextProps, type TextStyle } from "react-native";
-import { fontName, type Theme, type Weight } from "./theme";
+import { fontName, lineBox, type Theme, type Weight } from "./theme";
 import { useTheme } from "./ThemeProvider";
 
 export type Role = "sans" | "mono" | "serif";
 
-/** A text style in a theme's family for `role` at `weight`, `size` px, `lh` line-height multiple (as CSS writes it). */
+/** A text style in a theme's family for `role` at `weight`, `size` px, `lh` line-height multiple (as CSS writes it, laid out as `lineBox` says). */
 export function font(t: Theme, role: Role, weight: Weight, size: number, lh?: number, italic = false): TextStyle {
   const family = role === "sans" ? t.sans : role === "mono" ? t.mono : t.serif;
   return {
     fontFamily: fontName(family, weight, italic),
     fontSize: size,
-    ...(lh ? { lineHeight: Math.round(size * lh * 100) / 100 } : {}),
+    ...(lh ? { lineHeight: lineBox(size, lh) } : {}),
     ...(family === "system-mono" && weight >= 600 ? { fontWeight: "700" } : {}),
   };
+}
+
+/**
+ * `line-height: normal` for the theme's mono font at `size`, as Chrome lays it
+ * out: ascent and descent each rounded to whole px. A CSS `font` shorthand
+ * without a line height (`.md code { font: 12px var(--mono) }`) sets this,
+ * not the paragraph's height, so inline code must not inherit the parent's.
+ * JetBrains Mono's hhea metrics; the editor themes' Consolas by its Windows ones.
+ */
+export function monoNormal(t: Theme, size: number): number {
+  const [ascent, descent] = t.mono === "jetbrains" ? [1.02, 0.3] : [0.92, 0.251];
+  return Math.round(size * ascent) + Math.round(size * descent);
 }
 
 /** --base-font in the text colour. */

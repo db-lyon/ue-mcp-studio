@@ -11,6 +11,25 @@ import { PARITY } from "./parity";
 // Animations are shot at full strength, as the web harness freezes them (ui/Pulse reads this).
 (globalThis as { __studioFreezeAnimations?: boolean }).__studioFreezeAnimations = true;
 
+// react-native-web gives every ScrollView translateZ(0) for scrolling speed. That puts the
+// list on its own GPU layer, where Chrome draws text greyscale instead of with the
+// subpixel antialiasing the web client's plain scrollers keep, so every line of the
+// transcript would differ from the reference by its antialiasing alone. A phone draws
+// neither, so the harness drops the hint.
+function dropScrollLayers() {
+  for (const sheet of document.styleSheets) {
+    let rules: CSSRuleList;
+    try {
+      rules = sheet.cssRules;
+    } catch {
+      continue;
+    }
+    for (const r of rules) if (r instanceof CSSStyleRule && /^translateZ\(0(px)?\)$/.test(r.style.transform)) r.style.transform = "none";
+  }
+}
+dropScrollLayers();
+requestAnimationFrame(dropScrollLayers);
+
 const params = new URLSearchParams(location.search);
 const name = params.get("scenario") ?? "session-empty";
 const theme = (params.get("theme") ?? "ue-mcp") as StudioTheme;
