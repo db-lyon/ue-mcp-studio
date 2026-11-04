@@ -1,5 +1,2 @@
-// STUB: owned by agent-b; replaced at merge.
-/** How many parts have an update, for the dot on Settings. */
-export function useUpdateCount(): number {
-  return 0;
-}
+/** The Updates card and the count of updates waiting, for the dot on Settings (client-web views/Updates.tsx). */
+export { UpdatesCard, useUpdateCount } from "../screens/updates/UpdatesCard";

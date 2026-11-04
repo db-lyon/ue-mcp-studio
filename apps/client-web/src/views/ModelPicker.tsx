@@ -21,7 +21,6 @@ import { onRemotePage } from "../connection";
 import { REMOTE_CHANGE_NOTE } from "./settings/RemoteReadOnly";
 
 type Catalog = ModelCatalog;
-type Vendor = Catalog["providers"][number];
 
 // How a model runs, in words, is client-core's, shared with the mobile app.
 export { runsVia, viaName, VIA_LABEL };

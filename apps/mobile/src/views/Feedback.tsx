@@ -1,4 +1,2 @@
-// STUB: owned by agent-b; replaced at merge.
-export function FeedbackDialog(_props: { onClose: () => void; initial?: { title: string; description: string } }) {
-  return null;
-}
+/** Send feedback, from the drawer or a crash (client-web views/Feedback.tsx). */
+export { FeedbackSheet as FeedbackDialog } from "../screens/feedback/FeedbackSheet";

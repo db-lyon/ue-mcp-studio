@@ -36,6 +36,13 @@ export interface MarkdownProps {
   /** Inline code that names no asset: its text, for a caller that allows breaks inside it. */
   renderCode?: (text: string) => ReactNode;
   renderLink?: (href: string, children: ReactNode, key: number) => ReactNode | null;
+  /**
+   * A document rather than a chat message (a plugin's readme): the first and
+   * last blocks keep their margins, as `.md` outside `.msg` keeps them.
+   */
+  page?: boolean;
+  /** The margin under a paragraph: 8, or what the page sets (a plugin card's p is 0). */
+  paragraphMargin?: number;
 }
 
 interface HNode {
@@ -66,7 +73,7 @@ export function markdownTree(text: string, breaks = true, assets = false): HNode
   return p.runSync(p.parse(text));
 }
 
-export const Markdown = memo(function Markdown({ text, tone, breaks = true, assets = false, renderAsset, renderCode, renderLink }: MarkdownProps) {
+export const Markdown = memo(function Markdown({ text, tone, breaks = true, assets = false, renderAsset, renderCode, renderLink, page, paragraphMargin = 8 }: MarkdownProps) {
   const t = useTheme();
   const tree = useMemo(() => {
     try {
@@ -77,8 +84,10 @@ export const Markdown = memo(function Markdown({ text, tone, breaks = true, asse
   }, [text, breaks, assets]);
   const body: TextStyle = { ...baseFont(t), ...tone };
   if (!tree) return <Text style={body}>{text}</Text>;
-  const ctx: Ctx = { t, body, renderAsset, renderCode, renderLink, depth: 0 };
-  return <View>{place(flow(ctx, tree.children ?? []), true)}</View>;
+  const ctx: Ctx = { t, body, renderAsset, renderCode, renderLink, depth: 0, paragraphMargin };
+  const blocks = flow(ctx, tree.children ?? []);
+  const edges = page && blocks.length ? { marginTop: blocks[0].mt, marginBottom: blocks[blocks.length - 1].mb } : null;
+  return <View style={edges}>{place(blocks, true)}</View>;
 });
 
 interface Ctx {
@@ -89,6 +98,7 @@ interface Ctx {
   renderLink?: MarkdownProps["renderLink"];
   /** List nesting, for the marker: disc, circle, square. */
   depth: number;
+  paragraphMargin?: number;
 }
 
 /** A block and the margins CSS gives it above and below, before collapsing. */
@@ -148,7 +158,7 @@ function block(ctx: Ctx, n: HNode): Block | null {
   const kids = n.children ?? [];
   switch (tag) {
     case "p":
-      return { el: (s) => <Text style={[body, s as TextStyle]} selectable>{inlines(ctx, kids, true)}</Text>, mt: 0, mb: 8 };
+      return { el: (s) => <Text style={[body, s as TextStyle]} selectable>{inlines(ctx, kids, true)}</Text>, mt: 0, mb: ctx.paragraphMargin ?? 8 };
     case "h2":
       return { el: (s) => <Text accessibilityRole="header" style={[labelFont(t), s as TextStyle]} selectable>{inlines({ ...ctx, body: labelFont(t) }, kids, true)}</Text>, mt: 0, mb: 12 };
     case "h1":

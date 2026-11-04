@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
 import type { StudioSettings, StudioTheme } from "@ue-mcp-studio/shared";
+import { THEME_CHOICES } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { UpdatesCard } from "../Updates";
 import { Head } from "../SettingsHub";
 import { Card, useMessage } from "./controls";
 import { AccountCard } from "./AccountCard";
 
-export const THEMES: { id: StudioTheme; name: string; about: string }[] = [
-  { id: "ue-mcp", name: "ue-mcp", about: "Dark, ue-mcp orange." },
-  { id: "editor-orange", name: "Editor orange", about: "Unreal colors and type, ue-mcp orange." },
-  { id: "editor", name: "Editor", about: "Unreal colors and type." },
-];
+export const THEMES = THEME_CHOICES;
 
 /** General: the ue-mcp account, how Studio looks, and its updates. */
 export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void }) {

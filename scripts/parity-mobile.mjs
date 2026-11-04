@@ -52,7 +52,10 @@ const { mobileQaServer } = await import("./mobile-qa-server.mjs");
 const server = await mobileQaServer(root);
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, "");
-const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+// Grayscale text antialiasing: react-native-web's text is drawn without subpixel antialiasing beside the
+// web client's, so the web shots are taken with visual-qa.mjs --grayscale-text and these the same way.
+const browser = await chromium.launch({ executablePath: browserPath, headless: true, args: ["--disable-lcd-text"] });
+const PAGE = "index.html";
 
 const first = await browser.newPage();
 await first.goto(`${base}/index.html?scenario=session-empty`);
@@ -85,13 +88,15 @@ async function press(page, what) {
 const rows = [];
 for (const name of picked) {
   for (const theme of THEMES) {
-    const height = scenarios[name].height ?? 860;
+    // The web shot's own height: a full-page scenario is shot in a taller window than its height says.
+    const webShot = path.join(webDir ?? "", `${name}-${theme}-390.png`);
+    const height = fs.existsSync(webShot) ? PNG.sync.read(fs.readFileSync(webShot)).height : scenarios[name].height ?? 860;
     const page = await browser.newPage({ viewport: { width: WIDTH, height }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
     // A link the app opens in the browser (Upgrade's checkout) is closed at once, as the web harness never opens one.
     page.on("popup", (p) => void p.close().catch(() => undefined));
-    await page.goto(`${base}/index.html?scenario=${encodeURIComponent(name)}&theme=${theme}`);
+    await page.goto(`${base}/${PAGE}?scenario=${encodeURIComponent(name)}&theme=${theme}`);
     await page.waitForTimeout(1500);
     for (const c of parity[name].clicks ?? []) {
       try {
@@ -122,6 +127,16 @@ for (const name of picked) {
         await page.waitForTimeout(700);
       }
     }
+    // Several fields typed one after another (the web scenario's types), each found by its label.
+    for (const each of parity[name].types ?? []) {
+      const el = page.locator(`[aria-label="${each.into.replace(/"/g, '\\"')}"]`).first();
+      if (!(await el.count())) errors.push(`nothing to type into: ${each.into}`);
+      else {
+        await el.focus();
+        await page.keyboard.type(each.text, { delay: 10 });
+      }
+    }
+    if (parity[name].types?.length) await page.waitForTimeout(500);
     for (const c of afterType?.clicks ?? []) {
       try {
         await press(page, c);

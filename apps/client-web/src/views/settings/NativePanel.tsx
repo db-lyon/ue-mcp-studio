@@ -1,20 +1,8 @@
 import { Fragment, useEffect, useState } from "react";
-import { CONVENTIONS, CONVENTION_INFO, EFFORT_NAMES, type Effort, type Convention, type NativeFile, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
+import { CONVENTION_INFO, EFFORT_NAMES, type Effort, type Convention, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
+import { INSTRUCTION_FILE, SKILL_DIR, SOURCE_NAME, SUBAGENT_DIR, conventionOrder, fileCount, firstTab, scopeLine, sharedWith } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
 import { Card, tokens, useMessage } from "./controls";
-
-function scopeLine(f: NativeFile): string {
-  if (f.scope.kind === "globs") return `when the agent touches ${f.scope.globs.join(", ")}`;
-  if (f.scope.kind === "folder") return `when the agent works in ${f.scope.folder}`;
-  return f.source === "user" ? "yours, every project" : f.source === "local" ? "this machine only" : "every call";
-}
-
-const SOURCE: Record<string, string> = { user: "User", project: "Project", local: "This machine", plugin: "Plugin" };
-
-/** Where each convention keeps its subagents and skills, for the empty states. */
-const SUBAGENT_DIR: Record<Convention, string | null> = { claude: ".claude/agents and ~/.claude/agents", codex: ".codex/agents and ~/.codex/agents", gemini: ".gemini/agents and ~/.gemini/agents", agents: null };
-const SKILL_DIR: Record<Convention, string> = { claude: ".claude/skills and ~/.claude/skills", codex: ".agents/skills and ~/.agents/skills", gemini: ".agents/skills, .gemini/skills, ~/.agents/skills and ~/.gemini/skills", agents: ".agents/skills and ~/.agents/skills" };
-const INSTRUCTION_FILE: Record<Convention, string> = { claude: "CLAUDE.md", codex: "AGENTS.md", gemini: "GEMINI.md", agents: "AGENTS.md" };
 
 /** A path that wraps only after its slashes, never inside a name. */
 export function Path({ p, className = "path" }: { p: string; className?: string }) {
@@ -31,19 +19,9 @@ function OpenFile({ path, onError }: { path: string; onError: (e: Error) => void
   return <button className="small-button open-file" onClick={() => void api.openFile(path).catch(onError)} aria-label={`Open ${path}`} title={`Open ${path} in its default app`}>Open file</button>;
 }
 
-const count = (v: NativeView) => v.instructions.length + v.subagents.length + v.skills.length;
-
-/** Tabs in one fixed order, the vendors' order everywhere in Settings; a dot marks those a route reads. */
-export function conventionOrder(o: NativeOverview): NativeView[] {
-  return [...o.conventions].sort((a, b) => CONVENTIONS.indexOf(a.convention) - CONVENTIONS.indexOf(b.convention));
-}
-
-/** The tab open first: the main agent's convention, else one a route reads, else the first in the fixed order. */
-export function firstTab(o: NativeOverview): Convention {
-  if (o.main) return o.main;
-  const ordered = conventionOrder(o);
-  return (ordered.find((v) => v.routes.length) ?? ordered[0])?.convention ?? "claude";
-}
+const count = fileCount;
+const SOURCE = SOURCE_NAME;
+export { conventionOrder, firstTab, sharedWith };
 
 /**
  * Agents > the project's agent files: what each vendor's own files give its
@@ -83,18 +61,6 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
       {view && <ConventionView view={view} main={overview.main} preview={preview} shared={sharedWith(view, overview)} onPick={setTab} onConnect={onConnect} onError={msg.fail} />}
     </>
   );
-}
-
-/**
- * The same files read under another tab by a connected route: an AGENTS.md or
- * a skill folder can belong to several vendors' conventions at once.
- */
-export function sharedWith(view: NativeView, o: NativeOverview): Array<{ convention: Convention; paths: string[]; routes: string[] }> {
-  const mine = new Set([...view.instructions.map((f) => f.path), ...view.skills.map((s) => s.path)]);
-  return conventionOrder(o)
-    .filter((v) => v.convention !== view.convention && v.routes.length)
-    .map((v) => ({ convention: v.convention, paths: [...v.instructions.map((f) => f.path), ...v.skills.map((s) => s.path)].filter((p) => mine.has(p)), routes: v.routes }))
-    .filter((x) => x.paths.length);
 }
 
 function ConventionView({ view, main, preview, shared, onPick, onConnect, onError }: { view: NativeView; main: Convention | null; preview: NativePreview | null; shared: ReturnType<typeof sharedWith>; onPick: (c: Convention) => void; onConnect: () => void; onError: (e: Error) => void }) {

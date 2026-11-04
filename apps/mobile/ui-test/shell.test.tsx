@@ -345,7 +345,8 @@ describe("the app shell", () => {
     await settle();
     await settle();
     expect(themes).toEqual(["editor"]);
-    expect(screen.getByText("Plugins")).toBeTruthy();
+    // The bar names the tab; the page under it says Plugins too, as an older ue-mcp has no plugins route.
+    expect(screen.getAllByText("Plugins").length).toBe(2);
     expect(screen.getByLabelText("Open navigation")).toBeTruthy();
   });
 });
