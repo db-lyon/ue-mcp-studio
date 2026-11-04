@@ -83,19 +83,26 @@ function Code({ children }: { children: ReactNode }) {
   return <Text style={{ fontFamily: fontName("system-mono"), fontWeight: "400" }}>{children}</Text>;
 }
 
+/**
+ * dl.fields: names in a max-content column, values beside them. Each name's cell also holds every
+ * name at no height, so it is exactly as wide as the widest, unrounded, as the grid column is.
+ */
 function Fields({ rows }: { rows: Array<[string, ReactNode]> }) {
-  const [widths, setWidths] = useState<Record<string, number>>({});
-  const w = Object.keys(widths).length === rows.length ? Math.max(...Object.values(widths)) : undefined;
-  // Each name's own width, once: with the column's width applied every name measures as wide as the widest.
-  const record = (k: string, width: number) => setWidths((x) => (k in x ? x : { ...x, [k]: width }));
   return (
     <View style={{ marginVertical: 2, gap: 2 }}>
       {rows.map(([k, v]) => (
         <View key={k} style={{ flexDirection: "row", columnGap: 10 }}>
-          <View style={{ minWidth: w, flexShrink: 0 }} onLayout={(e) => record(k, e.nativeEvent.layout.width)}>
+          <View style={{ flexShrink: 0 }}>
             <Txt size={12} tone="dim">
               {k}
             </Txt>
+            <View aria-hidden importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ height: 0, overflow: "hidden" }}>
+              {rows.map(([n]) => (
+                <Txt key={n} size={12}>
+                  {n}
+                </Txt>
+              ))}
+            </View>
           </View>
           <Txt size={12} tone="muted" style={{ flex: 1 }}>
             {v}
