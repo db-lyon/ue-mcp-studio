@@ -25,9 +25,10 @@ const MIN_PIN = 4;
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
 
 /**
- * A phone-style number pad: dots for the digits entered, 1 to 9, then delete,
- * 0 and enter. No text field, so the device keyboard never opens. A hardware
- * keyboard still types digits, Backspace and Enter.
+ * A phone-style number pad: a dot per digit of the PIN, 1 to 9, then delete
+ * and 0. It submits on the last digit. No text field, so the device keyboard
+ * never opens; a hardware keyboard still types digits and Backspace. An enter
+ * key shows only while the computer does not know the PIN's length yet.
  */
 function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: () => void }) {
   const lock = useLock();
@@ -39,13 +40,14 @@ function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: ()
   const left = useCountdown(waitMs);
   const remaining = lock.state?.remaining;
   const blocked = busy || left > 0 || lock.removed;
+  const length = lock.state?.pinLength;
+  const max = length ?? MAX_PIN;
 
-  const state = useRef({ pin, blocked });
-  state.current = { pin, blocked };
+  const state = useRef({ pin, blocked, max });
+  state.current = { pin, blocked, max };
 
-  const submit = () => {
-    const { pin: p, blocked: b } = state.current;
-    if (b || p.length < MIN_PIN) return;
+  const submit = (p = state.current.pin) => {
+    if (state.current.blocked || p.length < MIN_PIN) return;
     setBusy(true);
     setError(null);
     void unlockWith(p).then((r) => {
@@ -58,12 +60,18 @@ function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: ()
     });
   };
   const press = (d: string) => {
-    if (state.current.blocked) return;
+    const { pin: p, blocked: b, max: m } = state.current;
+    if (b || p.length >= m) return;
+    const next = p + d;
+    state.current.pin = next;
     setError(null);
-    setPin((p) => (p.length < MAX_PIN ? p + d : p));
+    setPin(next);
+    if (length && next.length === length) submit(next);
   };
   const back = () => {
-    if (!state.current.blocked) setPin((p) => p.slice(0, -1));
+    if (state.current.blocked) return;
+    state.current.pin = state.current.pin.slice(0, -1);
+    setPin(state.current.pin);
   };
 
   useEffect(() => {
@@ -71,7 +79,7 @@ function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: ()
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (/^\d$/.test(e.key)) press(e.key);
       else if (e.key === "Backspace") back();
-      else if (e.key === "Enter") submit();
+      else if (e.key === "Enter" && !length) submit();
       else return;
       e.preventDefault();
     };
@@ -79,16 +87,16 @@ function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: ()
     return () => window.removeEventListener("keydown", onKey);
     // press, back and submit read the latest state through the ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [length]);
 
-  const dots = Math.max(MIN_PIN, pin.length);
+  const dots = length ?? Math.max(MIN_PIN, pin.length);
   return (
     <div className="pin-form">
       <div
         key={shake}
         className={`pin-dots${shake ? " shake" : ""}`}
         role="status"
-        aria-label={`${pin.length} of up to ${MAX_PIN} digits entered`}
+        aria-label={`${pin.length} of ${length ?? `up to ${MAX_PIN}`} digits entered`}
       >
         {Array.from({ length: dots }, (_, i) => (
           <span key={i} className={`pin-dot${i < pin.length ? " on" : ""}`} />
@@ -111,11 +119,15 @@ function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: ()
           </svg>
         </button>
         <button type="button" className="pin-key" onClick={() => press("0")} disabled={blocked}>0</button>
-        <button type="button" className="pin-key pin-key-go" onClick={submit} disabled={blocked || pin.length < MIN_PIN} aria-label={submitLabel}>
-          <svg width="24" height="20" viewBox="0 0 24 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 10.5l6 6L21 4" />
-          </svg>
-        </button>
+        {length ? (
+          <span className="pin-key-gap" aria-hidden="true" />
+        ) : (
+          <button type="button" className="pin-key pin-key-go" onClick={() => submit()} disabled={blocked || pin.length < MIN_PIN} aria-label={submitLabel}>
+            <svg width="24" height="20" viewBox="0 0 24 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 10.5l6 6L21 4" />
+            </svg>
+          </button>
+        )}
       </div>
       {onCancel && (
         <button type="button" className="pin-cancel" onClick={onCancel} disabled={busy}>Cancel</button>

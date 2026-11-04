@@ -126,6 +126,8 @@ export interface RemoteLockState {
   remaining?: number;
   /** Wait this long before the next try. */
   retryAfterMs?: number;
+  /** How many digits the PIN has, so the keypad submits on the last one. Unknown for a PIN set before this was kept, until it is next entered right. */
+  pinLength?: number;
 }
 
 /** A 423 from the computer: why the PIN is asked for. */
