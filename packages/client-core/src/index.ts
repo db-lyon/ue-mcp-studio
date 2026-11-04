@@ -6,3 +6,4 @@ export * from "./session-sync.js";
 export * from "./studio-api.js";
 export * from "./dialogs.js";
 export * from "./approvals.js";
+export * from "./vcs.js";

@@ -5,7 +5,8 @@ import type { VcsStatus } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({ vcs: vi.fn(), vcsChanges: vi.fn(), vcsDiff: vi.fn() }));
 vi.mock("../api", () => ({ api: m }));
-import { VcsChip, buildTree, folderPaths, readView, treeRows, vcsLine } from "./VcsChip";
+import { buildTree, folderPaths, treeRows, vcsLine } from "@ue-mcp-studio/client-core";
+import { VcsChip, readView } from "./VcsChip";
 
 afterEach(() => {
   cleanup();
