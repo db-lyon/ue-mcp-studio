@@ -9,15 +9,14 @@ import { useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { Camera, CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { haptic } from "../native/haptics";
-import { Button, Label, T, useTheme } from "../ui";
+import { Button, edgePadding, Label, T, useInsets, useTheme } from "../ui";
 
 const FRAME = 248;
 
 export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; onCancel: () => void }) {
   const t = useTheme();
-  const insets = useSafeAreaInsets();
+  const insets = useInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [torch, setTorch] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -41,7 +40,7 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
     setNote("No pairing code in that picture. Pick one that shows the whole code.");
   };
 
-  const page = { flex: 1, backgroundColor: t.c.bg, paddingTop: insets.top + 18, paddingBottom: insets.bottom + 18, paddingHorizontal: 18 };
+  const page = { flex: 1, backgroundColor: t.c.bg, ...edgePadding(insets, 18) };
 
   if (!permission) return <View style={page} />;
   if (!permission.granted)
@@ -82,7 +81,7 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
           ))}
         </View>
       </View>
-      <View style={{ position: "absolute", top: insets.top + 6, left: 6, right: 6, flexDirection: "row", justifyContent: "space-between" }}>
+      <View style={{ position: "absolute", top: insets.top + 6, left: 6 + insets.left, right: 6 + insets.right, flexDirection: "row", justifyContent: "space-between" }}>
         <Pressable accessibilityRole="button" accessibilityLabel="Close" onPress={onCancel} style={round(t.c.bg)}>
           <T size={22} lh={1}>
             {"×"}
@@ -94,7 +93,8 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
           </T>
         </Pressable>
       </View>
-      <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 16, paddingBottom: insets.bottom + 18, backgroundColor: t.c.barBg, borderTopWidth: 1, borderTopColor: t.c.line, gap: 10 }}>
+      {/* The foot above the navigation bar. */}
+      <View testID="scanner-foot" style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingLeft: 18 + insets.left, paddingRight: 18 + insets.right, paddingTop: 16, paddingBottom: insets.bottom + 18, backgroundColor: t.c.barBg, borderTopWidth: 1, borderTopColor: t.c.line, gap: 10 }}>
         <T tone="text" style={{ textAlign: "center" }}>
           Point the camera at the pairing code Studio shows on your computer.
         </T>

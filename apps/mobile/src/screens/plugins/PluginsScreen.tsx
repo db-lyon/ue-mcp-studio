@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, ScrollView, View } from "react-native";
 import { HttpError, REMOTE_PLUGINS_NOTE, isInstalled, searchCatalog, type CatalogPlugin, type InstalledPlugin } from "@ue-mcp-studio/client-core";
-import { Banner, Button, Card, Input, labelFont, Markdown, Pill, Spacer, T, bannerText, useTheme } from "../../ui";
+import { Banner, Button, Card, Input, labelFont, Markdown, Pill, Spacer, T, bannerText, useSheetInsets, useTheme } from "../../ui";
 import { CardLabel, Span, Txt, pageScroll } from "../settings/controls";
 import { useSettingsApi } from "../settings/hooks";
 import type { DaemonState } from "../../state";
@@ -15,6 +15,8 @@ import type { DaemonState } from "../../state";
 export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
   const api = useSettingsApi();
   const t = useTheme();
+  // The page's end scrolls clear of the navigation bar, or of the keyboard while the search has it up.
+  const end = 6 + useSheetInsets().bottom;
   const [installed, setInstalled] = useState<InstalledPlugin[] | null>(null);
   const [catalog, setCatalog] = useState<CatalogPlugin[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
 
   if (unsupported) {
     return (
-      <ScrollView testID="plugins" style={[{ flex: 1, margin: -6 }, pageScroll]} contentContainerStyle={{ padding: 6 }}>
+      <ScrollView testID="plugins" style={[{ flex: 1, margin: -6 }, pageScroll]} contentContainerStyle={{ padding: 6, paddingBottom: end }}>
         <Card>
           <CardLabel>Plugins</CardLabel>
           <Txt tone="muted" style={{ marginBottom: para }}>
@@ -55,7 +57,7 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
 
   return (
     // The page scrolls under the shell's 6px padding, as the web page's main does: the padding goes inside the scroller.
-    <ScrollView testID="plugins" style={[{ flex: 1, margin: -6 }, pageScroll]} contentContainerStyle={{ padding: 6, gap: 14 }} keyboardShouldPersistTaps="handled">
+    <ScrollView testID="plugins" style={[{ flex: 1, margin: -6 }, pageScroll]} contentContainerStyle={{ padding: 6, paddingBottom: end, gap: 14 }} keyboardShouldPersistTaps="handled">
       {error ? (
         <Pressable accessibilityRole="alert" onPress={() => setError(null)}>
           <Banner kind="bad">

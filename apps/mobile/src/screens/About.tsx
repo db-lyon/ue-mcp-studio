@@ -5,11 +5,10 @@
 import { useEffect, useState } from "react";
 import { Platform, ScrollView, View } from "react-native";
 import * as Application from "expo-application";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { studioApi } from "@ue-mcp-studio/client-core";
 import { APP_VERSION, MIN_STUDIO, studioTooOld, versionsOf, type Versions } from "../native/compat";
 import { RELAY, selected, transportFor, type Device } from "../relay";
-import { Banner, Button, Card, Label, T, font, useTheme } from "../ui";
+import { Banner, Button, Card, Label, T, font, useInsets, useTheme } from "../ui";
 
 function Line({ name, value }: { name: string; value: string }) {
   const t = useTheme();
@@ -24,7 +23,7 @@ function Line({ name, value }: { name: string; value: string }) {
 }
 
 export function About({ onBack }: { onBack: () => void }) {
-  const insets = useSafeAreaInsets();
+  const insets = useInsets();
   const [device, setDevice] = useState<Device | null>(null);
   const [versions, setVersions] = useState<Versions | null>(null);
   const [reach, setReach] = useState<"checking" | "ok" | "unreachable" | "none">("checking");
@@ -50,7 +49,7 @@ export function About({ onBack }: { onBack: () => void }) {
 
   const tooOld = studioTooOld(versions?.studio ?? null);
   return (
-    <ScrollView contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 18, paddingHorizontal: 12, gap: 14 }}>
+    <ScrollView contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 18, paddingLeft: 12 + insets.left, paddingRight: 12 + insets.right, gap: 14 }}>
       <View style={{ flexDirection: "row", alignItems: "center" }}>
         <Button title={"‹ Devices"} variant="ghost" onPress={onBack} />
       </View>
