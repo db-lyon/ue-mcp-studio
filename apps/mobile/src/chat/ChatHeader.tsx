@@ -6,6 +6,7 @@
  * adds a button for the session's subagents.
  */
 import { Pressable, View } from "react-native";
+import Svg, { Circle, Path } from "react-native-svg";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { STATE_LABEL, agentStatus, describe, isActive, type AgentState, type Call } from "@ue-mcp-studio/client-core";
 import { font, lineBox, T, useTheme, type Theme } from "../ui";
@@ -36,16 +37,13 @@ export function stateColors(t: Theme, state: AgentState | "main"): { dot: string
 
 /** Two people: the subagents button's glyph, 16 px in currentColor. */
 export function AgentsGlyph({ color }: { color: string }) {
-  const head = (left: number) => <View style={{ position: "absolute", left, top: 2.3, width: 5.4, height: 5.4, borderRadius: 2.7, borderWidth: 1.4, borderColor: color }} />;
-  const body = (left: number) => <View style={{ position: "absolute", left, top: 9.5 - 0.7, width: 8.4, height: 8.4, borderRadius: 4.2, borderWidth: 1.4, borderColor: color, borderBottomColor: "transparent", borderLeftColor: color, borderRightColor: color, transform: [{ scaleY: 1 }] }} />;
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 16, height: 16, overflow: "hidden" }}>
-      {head(2.3)}
-      {head(8.3)}
-      <View style={{ position: "absolute", left: 0, top: 0, width: 16, height: 13.7, overflow: "hidden" }}>
-        {body(0.8)}
-        {body(6.8)}
-      </View>
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 16, height: 16 }}>
+      <Svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={1.4} strokeLinecap="round">
+        <Circle cx={5} cy={5} r={2} />
+        <Circle cx={11} cy={5} r={2} />
+        <Path d="M1.5 13c0-2 1.6-3.5 3.5-3.5S8.5 11 8.5 13M7.5 13c0-2 1.6-3.5 3.5-3.5s3.5 1.5 3.5 3.5" />
+      </Svg>
     </View>
   );
 }
