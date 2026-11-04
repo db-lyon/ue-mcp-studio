@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { account, forgetComputer, removeViewer, trusted, type Device, type Viewer } from "../relay";
-import { Header, s, Spinner, tap } from "../ui";
+import { Header, s, Spinner, tap } from "../legacy-ui";
 import { colors } from "../theme";
 
 export function Settings({ onBack, onRemoved }: { onBack: () => void; onRemoved: () => void }) {

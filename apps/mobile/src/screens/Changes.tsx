@@ -9,8 +9,8 @@ import * as SecureStore from "expo-secure-store";
 import { VCS_LETTER, baseName, buildTree, dirName, treeRows, vcsLine, type TreeRow } from "@ue-mcp-studio/client-core";
 import { unifiedLines, type VcsChange, type VcsStatus } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../nav";
-import { DiffView } from "../Diff";
-import { Header, s as ui, Spinner } from "../ui";
+import { DiffView } from "../ui";
+import { Header, s as ui, Spinner } from "../legacy-ui";
 import { colors, mono } from "../theme";
 
 const VIEW_KEY = "changes.view";
