@@ -5,7 +5,6 @@
  * draws them exactly as it would draw a live run in that state.
  */
 import qrcode from "qrcode-generator";
-import { LOST_PAUSE_MS, REMOTE_RECONNECT_MS } from "../connection";
 import {
   qaActive,
   qaDraftFromScript,
@@ -596,8 +595,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     hash: "#/chat",
     index: { playtests: [], listed: true },
     remoteOffline: true,
-    // needsYou comes a lost pause after the remote reconnect wait, so the wait is longer than both.
-    waitFor: { selector: ".overlay[data-phase=needsYou]", timeout: REMOTE_RECONNECT_MS + LOST_PAUSE_MS + 10_000 },
+    waitFor: { selector: ".overlay[data-phase=needsYou]", timeout: 30_000 },
   },
   "remote-waking": {
     title: "A paired browser's tab back from the background while ue-mcp is still away: a quiet Reconnecting line over the page, no offline panel yet",
