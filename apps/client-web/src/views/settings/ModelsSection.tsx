@@ -6,6 +6,7 @@ import { AccountView } from "../Account";
 import { Head } from "../SettingsHub";
 import { Card, Row, Seg, useMessage } from "./controls";
 import { EndpointsCard } from "./EndpointsCard";
+import { RemoteReadOnly } from "./RemoteReadOnly";
 
 const ROUTE_ORDER_OPTIONS: ReadonlyArray<{ id: RouteOrder; name: string; title: string }> = [
   { id: "signins-first", name: "Sign-ins first", title: "Use the plan; fall back to the key." },
@@ -49,6 +50,7 @@ export function ModelsSection() {
     <>
       <Head title="Models & accounts" lead="How models are reached on this machine." />
       {msg.node}
+      <RemoteReadOnly>
       <div className="cfg-cols">
         <Card label="Sign-ins">
           <p className="cfg-note">Runs the vendor's models on your plan.</p>
@@ -61,6 +63,7 @@ export function ModelsSection() {
         </Card>
       </div>
       <EndpointsCard onChange={refresh} />
+      </RemoteReadOnly>
       <Card label="Models">
         <Row title="Route order" help="For models a sign-in and a key can both run.">
           <Seg label="Route order" value={order} options={ROUTE_ORDER_OPTIONS} onChange={(o) => void setOrder(o)} />
@@ -105,11 +108,13 @@ export function ModelsSection() {
           <AccountView />
           <details className="card advanced">
             <summary className="muted small">Advanced</summary>
+            <RemoteReadOnly>
             <div className="cfg-inline">
               <span className="muted">Studio gateway</span>
               <input value={gatewayUrl} onChange={(e) => setGatewayUrl(e.target.value)} aria-label="Studio gateway URL" />
               <button onClick={() => api.saveSettings({ gatewayUrl }).then(() => msg.ok("Saved."), msg.fail)}>Save</button>
             </div>
+            </RemoteReadOnly>
           </details>
         </>
       )}

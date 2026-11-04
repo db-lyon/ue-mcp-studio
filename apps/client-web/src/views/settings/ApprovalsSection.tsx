@@ -15,6 +15,7 @@ import {
 import { api } from "../../api";
 import { Head } from "../SettingsHub";
 import { Card, NumberField, Opt, Row, Seg, Switch, useMessage } from "./controls";
+import { RemoteReadOnly } from "./RemoteReadOnly";
 
 
 const RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [{ id: "ask", name: "Ask" }, { id: "allow", name: "Allow" }];
@@ -72,11 +73,13 @@ export function ApprovalsSection() {
       <Head title="Approvals & review" lead="What needs your approval. Applies to every agent." />
       {msg.node}
       <Card label="Ask first">
+        <RemoteReadOnly>
         {APPROVAL_ROWS.map((r) => (
           <Row key={r.kind} title={r.label} help={r.help}>
             <Seg label={r.label} value={rule(r.kind)} options={PROJECT_SCOPED_KINDS.includes(r.kind) ? SCOPED_RULES : RULES} onChange={(v) => void save({ approvals: { [r.kind]: v } })} />
           </Row>
         ))}
+        </RemoteReadOnly>
         <Row title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
           <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
         </Row>
@@ -101,7 +104,7 @@ export function ApprovalsSection() {
             <div key={d.id}>
               <Opt name="dialog-mode" on={dialogMode === d.id} onPick={() => void saveAgent({ dialogMode: d.id })} title={d.name} desc={d.about} />
               {d.id === "interactive" && (dialogMode === "interactive" || dialogMode === null) && (
-                <DialogPolicyField policy={settings.dialogPolicy} onSave={(dialogPolicy) => void save({ dialogPolicy })} />
+                <RemoteReadOnly><DialogPolicyField policy={settings.dialogPolicy} onSave={(dialogPolicy) => void save({ dialogPolicy })} /></RemoteReadOnly>
               )}
             </div>
           ))}
