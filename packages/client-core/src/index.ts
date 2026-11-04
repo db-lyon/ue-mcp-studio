@@ -15,3 +15,4 @@ export * from "./composer-menus.js";
 export * from "./pill-providers.js";
 export * from "./launchers.js";
 export * from "./model-route.js";
+export * from "./remote-pairing.js";
