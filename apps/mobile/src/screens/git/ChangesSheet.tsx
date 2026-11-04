@@ -5,22 +5,30 @@
  * diff to the list, then closes.
  */
 import { useEffect, useMemo, useState } from "react";
-import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import type { VcsChange, VcsStatus } from "@ue-mcp-studio/shared";
 import { VCS_LETTER, baseName, buildTree, dirName, folderPaths, treeRows, vcsLine } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../nav";
-import { WebButton } from "../../ui/controls";
-import { base, card, css, fonts, shadow, small } from "../../ui/css";
+import { Button, font, labelFont, useStyles, useTheme, type Theme } from "../../ui";
 
 export type ChangesView = "list" | "tree";
 export const VIEW_KEY = "changes.view";
 
-const STATUS_COLOR: Record<VcsChange["status"], string> = { modified: css.warn, renamed: css.warn, added: css.ok, untracked: css.ok, deleted: css.bad, conflicted: css.bad };
+/** color-mix(in srgb, <hex> pct%, transparent). */
+const mix = (hex: string, pct: number): string => {
+  if (!hex.startsWith("#")) return hex;
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${pct / 100})`;
+};
+
+const statusColor = (t: Theme, s: VcsChange["status"]): string => (s === "modified" || s === "renamed" ? t.c.warn : s === "added" || s === "untracked" ? t.c.ok : t.c.bad);
 
 export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => void }) {
   const { api } = useProjectNav();
+  const t = useTheme();
+  const s = useStyles(styles);
   const insets = useSafeAreaInsets();
   const [changes, setChanges] = useState<VcsChange[] | null>(null);
   const [truncated, setTruncated] = useState(false);
@@ -72,30 +80,30 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
   const pad = Platform.OS === "web" ? { top: 0, bottom: 0, left: 0, right: 0 } : insets;
 
   return (
-    <Modal transparent animationType="none" visible onRequestClose={() => (drilled ? setPicked(null) : onClose())}>
+    <Modal transparent animationType="none" visible statusBarTranslucent onRequestClose={() => (drilled ? setPicked(null) : onClose())}>
       <View style={[s.backdrop, { paddingTop: 8 + pad.top, paddingBottom: 8 + pad.bottom, paddingLeft: 8 + pad.left, paddingRight: 8 + pad.right }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close the changes" />
-        <View style={s.panel} testID="changes-panel" accessibilityRole="none" aria-label="Changes" role="dialog">
+        <View style={s.panel} testID="changes-panel" aria-label="Changes" role="dialog">
           {drilled ? (
             <View style={s.detailHead}>
-              <WebButton kind="ghost" bare label="Back to the changed files" onPress={() => setPicked(null)} style={s.back}>
+              <Button variant="ghost" label="Back to the changed files" onPress={() => setPicked(null)} style={s.back}>
                 <Text style={s.backMark}>{"‹"}</Text>
                 <Text style={s.backLabel}>Changes</Text>
-              </WebButton>
+              </Button>
               <Text style={s.detailName} numberOfLines={1}>
                 {baseName(picked)}
               </Text>
-              <WebButton kind="ghost" bare title="Close" onPress={onClose} />
+              <Button variant="ghost" title="Close" onPress={onClose} />
             </View>
           ) : (
             <View style={s.head}>
               <View style={s.headTop}>
-                <Text style={s.h2} accessibilityRole="header">
+                <Text style={[labelFont(t), { flexShrink: 1 }]} accessibilityRole="header">
                   Changes
                 </Text>
-                <WebButton kind="ghost" bare title="Close" onPress={onClose} />
+                <Button variant="ghost" title="Close" onPress={onClose} />
               </View>
-              <Text style={[base, small, { color: css.dim }]}>
+              <Text style={s.small}>
                 {vcs.name}, {vcsLine(vcs)}
               </Text>
             </View>
@@ -104,7 +112,7 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
           {changes?.length === 0 ? <Text style={s.note}>No changes.</Text> : null}
           {changes && changes.length > 0 && !drilled ? (
             <View style={s.toolbar}>
-              <View style={s.seg} accessibilityRole="radiogroup" aria-label="Show changes as">
+              <View style={s.seg} aria-label="Show changes as" role="group">
                 {(["list", "tree"] as const).map((k, i) => (
                   <Pressable
                     key={k}
@@ -114,14 +122,18 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
                     onPress={() => pickView(k)}
                     style={[s.segButton, i > 0 && s.segNext, view === k && s.segOn]}
                   >
-                    <Text style={[s.segText, view === k && { color: css.text }]}>{k === "list" ? "List" : "Tree"}</Text>
+                    <Text style={[s.segText, view === k && { color: t.c.text }]}>{k === "list" ? "List" : "Tree"}</Text>
                   </Pressable>
                 ))}
               </View>
               {view === "tree" && folders.length > 0 ? (
                 <>
-                  <WebButton kind="ghost" bare small title="Expand all" onPress={() => setCollapsed(new Set())} style={s.toolButton} textStyle={s.toolText} />
-                  <WebButton kind="ghost" bare small title="Collapse all" onPress={() => setCollapsed(new Set(folders))} style={s.toolButton} textStyle={s.toolText} />
+                  <Button variant="ghost" size="small" label="Expand all" onPress={() => setCollapsed(new Set())}>
+                    <Text style={s.toolText}>Expand all</Text>
+                  </Button>
+                  <Button variant="ghost" size="small" label="Collapse all" onPress={() => setCollapsed(new Set(folders))}>
+                    <Text style={s.toolText}>Collapse all</Text>
+                  </Button>
                 </>
               ) : null}
             </View>
@@ -147,7 +159,7 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
                 {view === "list"
                   ? changes.map((c) => (
                       <Pressable key={c.path} accessibilityRole="button" accessibilityLabel={`${c.status} ${c.path}`} onPress={() => setPicked(c.path)} style={s.row}>
-                        <Text style={[s.rowText, s.status, { color: STATUS_COLOR[c.status] }]}>{VCS_LETTER[c.status]}</Text>
+                        <Text style={[s.rowText, s.status, { color: statusColor(t, c.status) }]}>{VCS_LETTER[c.status]}</Text>
                         <Text style={[s.rowText, { flexShrink: 0 }]}>{baseName(c.path)}</Text>
                         <Text style={[s.rowText, s.dir]} numberOfLines={1}>
                           {dirName(c.path)}
@@ -165,8 +177,8 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
                           onPress={() => toggle(r.path)}
                           style={[s.row, { paddingLeft: 8 + r.depth * 14 }]}
                         >
-                          <Text style={[s.rowText, s.status, { color: css.dim }]}>{collapsed.has(r.path) ? "▸" : "▾"}</Text>
-                          <Text style={[s.rowText, s.shrink, { color: css.muted }]} numberOfLines={1}>
+                          <Text style={[s.rowText, s.status, s.chevron]}>{collapsed.has(r.path) ? "▸" : "▾"}</Text>
+                          <Text style={[s.rowText, s.shrink, { color: t.c.muted }]} numberOfLines={1}>
                             {r.name}
                           </Text>
                           <View style={s.count}>
@@ -181,14 +193,14 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
                           onPress={() => setPicked(r.change.path)}
                           style={[s.row, { paddingLeft: 8 + r.depth * 14 }]}
                         >
-                          <Text style={[s.rowText, s.status, { color: STATUS_COLOR[r.change.status] }]}>{VCS_LETTER[r.change.status]}</Text>
+                          <Text style={[s.rowText, s.status, { color: statusColor(t, r.change.status) }]}>{VCS_LETTER[r.change.status]}</Text>
                           <Text style={[s.rowText, s.shrink]} numberOfLines={1}>
                             {baseName(r.change.path)}
                           </Text>
                         </Pressable>
                       ),
                     )}
-                {truncated ? <Text style={[base, small, { color: css.dim }]}>More files changed than are listed.</Text> : null}
+                {truncated ? <Text style={s.small}>More files changed than are listed.</Text> : null}
               </ScrollView>
             )
           ) : null}
@@ -203,58 +215,74 @@ const GIT_HEADER = /^(diff --git |index |--- |\+\+\+ |new file mode |deleted fil
 
 /** One line of a git diff: a header or hunk on one line, or a change with its sign in a gutter and its text wrapped beside it. */
 export function GitDiffLine({ line }: { line: string }) {
-  if (GIT_HEADER.test(line)) return <Text style={[s.diff, { color: css.dim }]} numberOfLines={1}>{line}</Text>;
-  if (line.startsWith("@@")) return <Text style={[s.diff, { color: css.accentHi }]} numberOfLines={1}>{line}</Text>;
+  const t = useTheme();
+  const s = useStyles(styles);
+  if (GIT_HEADER.test(line)) return <Text style={[s.diff, { color: t.c.dim }]} numberOfLines={1}>{line}</Text>;
+  if (line.startsWith("@@")) return <Text style={[s.diff, { color: t.c.accentHi }]} numberOfLines={1}>{line}</Text>;
   const op = line[0] === "+" || line[0] === "-" || line[0] === " " ? line[0] : "";
-  const tone = op === "+" ? s.add : op === "-" ? s.del : null;
-  const color = op === "+" ? css.ok : op === "-" ? css.bad : css.text;
+  const color = op === "+" ? t.c.ok : op === "-" ? t.c.bad : t.c.text;
   return (
-    <View style={[s.diffLine, tone]}>
+    <View style={[s.diffLine, op === "+" && { backgroundColor: t.c.okWash }, op === "-" && { backgroundColor: t.c.badWash }]}>
       <Text style={[s.diff, s.op, { color }]}>{op}</Text>
-      <Text style={[s.diff, s.diffText, { color, borderLeftColor: op === "+" ? "rgba(108, 192, 139, 0.3)" : op === "-" ? "rgba(229, 96, 79, 0.3)" : "rgba(236, 233, 227, 0.3)" }]} selectable>
+      <Text style={[s.diff, s.diffText, { color, borderLeftColor: mix(color, 30) }]} selectable>
         {op ? line.slice(1) : line}
       </Text>
     </View>
   );
 }
 
-const mono12 = { fontFamily: fonts.mono, fontSize: 12, letterSpacing: 0.24 } as const;
-
-const s = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.5)" },
-  panel: { ...card, flex: 1, padding: 12, gap: 10, ...shadow("0 16px 48px rgba(0, 0, 0, 0.45)") },
-  head: { marginVertical: 6, gap: 2 },
-  headTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  h2: { fontFamily: fonts.mono, fontSize: 10.5, lineHeight: 13.65, fontWeight: "600", letterSpacing: 1.68, textTransform: "uppercase", color: css.accent, flexShrink: 1 },
-  detailHead: { flexDirection: "row", alignItems: "center", gap: 8, marginVertical: 6 },
-  back: { paddingHorizontal: 8, gap: 4 },
-  backMark: { fontFamily: fonts.mono, fontSize: 16, lineHeight: 19.2, fontWeight: "500", letterSpacing: 0.32, color: css.muted },
-  backLabel: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 12, fontWeight: "500", letterSpacing: 0.32, color: css.muted },
-  detailName: { ...base, flex: 1, minWidth: 0, fontWeight: "600", textAlign: "center" },
-  note: { ...base, color: css.muted, marginVertical: 13.5 },
-  // The path line's 6 point margin and the note's 13.5 collapse on the web: 13.5 in all.
-  afterFile: { marginTop: 7.5 },
-  toolbar: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginVertical: 6 },
-  seg: { flexDirection: "row", borderWidth: 1, borderColor: css.lineStrong, borderRadius: css.radius, overflow: "hidden" },
-  segButton: { minHeight: 44, minWidth: 44, paddingHorizontal: 12, paddingVertical: 5, justifyContent: "center", alignItems: "center" },
-  segNext: { borderLeftWidth: 1, borderLeftColor: css.lineStrong },
-  segOn: { backgroundColor: css.accentWash, ...shadow(`inset 0 -2px 0 ${css.accent}`) },
-  segText: { fontFamily: fonts.mono, fontSize: 11.5, lineHeight: 13.8, fontWeight: "500", letterSpacing: 0.23, color: css.muted },
-  toolButton: { paddingHorizontal: 10 },
-  toolText: { marginTop: 1, fontSize: 13.5, lineHeight: 16.2, letterSpacing: 0.27, color: css.muted },
-  body: { flex: 1, minHeight: 0 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingVertical: 4, paddingHorizontal: 8, borderRadius: css.radius },
-  rowText: { ...mono12, lineHeight: 16, color: css.text },
-  status: { width: 16, textAlign: "center", fontWeight: "700", flexShrink: 0 },
-  shrink: { flexShrink: 1, minWidth: 0 },
-  dir: { flexShrink: 1, minWidth: 0, fontSize: 11, lineHeight: 14, color: css.dim },
-  count: { marginLeft: "auto", paddingHorizontal: 6, borderWidth: 1, borderColor: css.lineStrong, borderRadius: 9, flexShrink: 0 },
-  countText: { fontSize: 11, lineHeight: 16, color: css.dim },
-  file: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 18.6, color: css.dim, marginBottom: 6 },
-  diff: { fontFamily: fonts.mono, fontSize: 12, lineHeight: 18 },
-  diffLine: { flexDirection: "row" },
-  op: { width: 10.8 },
-  diffText: { flex: 1, minWidth: 0, paddingLeft: 6, borderLeftWidth: 1 },
-  add: { backgroundColor: "rgba(108, 192, 139, 0.1)" },
-  del: { backgroundColor: "rgba(229, 96, 79, 0.1)" },
-});
+const styles = (t: Theme) => {
+  const lh = t.base.lineHeight / t.base.size;
+  // A button's own type: mono in the ue-mcp theme, the editor's sans in the others.
+  const button = t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23 };
+  // The rows are buttons too: 12px mono at its normal line in ue-mcp, the editor's button type otherwise.
+  const row = t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 400, 12), lineHeight: 16, letterSpacing: 0.24 };
+  const tint = `linear-gradient(180deg, ${t.c.tint}, transparent 120px)`;
+  return {
+    backdrop: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.5)" },
+    panel: {
+      flex: 1,
+      padding: 12,
+      gap: 10,
+      backgroundColor: t.c.panel,
+      borderWidth: 1,
+      borderColor: t.editor ? "transparent" : t.c.line,
+      borderRadius: t.radiusLg,
+      ...(Platform.OS === "web" ? { backgroundImage: tint } : { experimental_backgroundImage: tint }),
+      boxShadow: "0 16px 48px rgba(0, 0, 0, 0.45)",
+    } as ViewStyle,
+    head: { marginVertical: 6, gap: 2 },
+    headTop: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const, gap: 10 },
+    small: { ...font(t, "sans", 400, 12, lh), color: t.c.dim },
+    detailHead: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, marginVertical: 6 },
+    back: { paddingHorizontal: 8, gap: 4 },
+    backMark: t.editor ? { ...button, color: t.c.muted } : { ...font(t, "mono", 500, 16, 1.2), letterSpacing: 0.32, color: t.c.muted },
+    backLabel: { ...font(t, "mono", 500, 12), lineHeight: 12, letterSpacing: t.editor ? 0 : 0.32, color: t.c.muted },
+    detailName: { ...font(t, "sans", 600, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text, flex: 1, minWidth: 0, textAlign: "center" as const },
+    note: { ...font(t, "sans", 400, t.base.size), lineHeight: t.base.lineHeight, color: t.c.muted, marginVertical: t.base.size },
+    // The path line's 6px margin and the note's collapse on the web into the note's own.
+    afterFile: { marginTop: t.base.size - 6 },
+    toolbar: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, gap: 8, marginVertical: 6 },
+    seg: { flexDirection: "row" as const, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, overflow: "hidden" as const },
+    segButton: { minHeight: 44, minWidth: 44, paddingHorizontal: 12, paddingVertical: 5, justifyContent: "center" as const, alignItems: "center" as const },
+    segNext: { borderLeftWidth: 1, borderLeftColor: t.c.lineStrong },
+    segOn: { backgroundColor: t.c.accentWash, boxShadow: `inset 0 -2px 0 ${t.c.accent}` } as ViewStyle,
+    segText: { ...button, color: t.c.muted },
+    // small-button takes the panel's font size in ue-mcp; the editor themes set every button's.
+    toolText: t.editor ? { ...button, color: t.c.muted } : { ...font(t, "mono", 500, t.base.size, 1.2), letterSpacing: 0.27, color: t.c.muted, marginTop: 1 },
+    body: { flex: 1, minHeight: 0 },
+    row: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, minHeight: 44, paddingVertical: 4, paddingHorizontal: 8, borderRadius: t.radius },
+    rowText: { ...row, color: t.c.text },
+    status: { width: 16, textAlign: "center" as const, flexShrink: 0, ...font(t, t.editor ? "sans" : "mono", 700, 12) },
+    chevron: { color: t.c.dim, ...font(t, t.editor ? "sans" : "mono", 400, 12) },
+    shrink: { flexShrink: 1, minWidth: 0 },
+    dir: { flexShrink: 1, minWidth: 0, fontSize: 11, lineHeight: t.editor ? 13.2 : 14, color: t.c.dim },
+    count: { marginLeft: "auto" as const, paddingHorizontal: 6, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 9, flexShrink: 0 },
+    countText: { fontSize: 11, lineHeight: 16, color: t.c.dim },
+    file: { ...font(t, "mono", 400, 12), lineHeight: 12 * lh, color: t.c.dim, marginBottom: 6 },
+    diff: { ...font(t, "mono", 400, 12), lineHeight: 18 },
+    diffLine: { flexDirection: "row" as const },
+    op: { width: t.editor ? 9.9 : 10.8 },
+    diffText: { flex: 1, minWidth: 0, paddingLeft: 6, borderLeftWidth: 1 },
+  };
+};

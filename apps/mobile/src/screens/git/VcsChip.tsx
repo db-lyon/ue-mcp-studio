@@ -6,11 +6,11 @@
  * press opens the changes sheet.
  */
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, Text, View } from "react-native";
 import type { VcsStatus } from "@ue-mcp-studio/shared";
 import { vcsLine } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../nav";
-import { css, fonts } from "../../ui/css";
+import { font, useStyles, useTheme, type Theme } from "../../ui";
 import { ChangesSheet } from "./ChangesSheet";
 
 export const VCS_POLL_MS = 30_000;
@@ -19,11 +19,13 @@ export function VcsChip({ onOpen }: { onOpen?: () => void }) {
   const { api, project } = useProjectNav();
   const [vcs, setVcs] = useState<VcsStatus | null>(null);
   const [open, setOpen] = useState(false);
+  const t = useTheme();
+  const s = useStyles(styles);
   const load = useCallback(() => api.vcs().then((r) => setVcs(r.vcs), () => setVcs(null)), [api]);
   useEffect(() => {
     void load();
-    const t = setInterval(() => void load(), VCS_POLL_MS);
-    return () => clearInterval(t);
+    const timer = setInterval(() => void load(), VCS_POLL_MS);
+    return () => clearInterval(timer);
   }, [load]);
   useEffect(() => project.onEvent((e) => void (e.type === "studio.session.changed" && load())), [project, load]);
   if (!vcs) return null;
@@ -42,7 +44,7 @@ export function VcsChip({ onOpen }: { onOpen?: () => void }) {
       >
         <View style={s.dot} />
         <Text style={[s.text, s.kind]}>{vcs.name}</Text>
-        <Text style={[s.text, s.line, dirty && { color: css.warn }]}>{vcsLine(vcs)}</Text>
+        <Text style={[s.text, s.line, dirty && { color: t.c.warn }]}>{vcsLine(vcs)}</Text>
       </Pressable>
       {open ? (
         <ChangesSheet
@@ -57,12 +59,13 @@ export function VcsChip({ onOpen }: { onOpen?: () => void }) {
   );
 }
 
-const s = StyleSheet.create({
-  chip: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 44, paddingVertical: 8, paddingHorizontal: 10, marginTop: 4, borderRadius: 10 },
-  dot: { width: 3.65625, height: 6, borderRadius: 3, backgroundColor: css.dim },
+/** The drawer item's 14px sans in ue-mcp, the chip's 11px in the editor themes. Every item shrinks by its width, as CSS flex does, so a two-line status squeezes the dot as on the web. */
+const styles = (t: Theme) => ({
+  chip: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, minHeight: 44, paddingVertical: 8, paddingHorizontal: 10, marginTop: 4, borderRadius: t.radiusLg },
+  dot: { width: 6, height: 6, borderRadius: 3, flexShrink: 1, backgroundColor: t.c.dim },
   kind: { flexShrink: 0 },
-  line: { flex: 1, minWidth: 0 },
-  text: { fontFamily: fonts.sans, fontSize: 14, lineHeight: 16.8, fontWeight: "500", color: css.muted, textTransform: "uppercase" },
+  line: { flexShrink: 1 },
+  text: t.editor ? { ...font(t, "sans", 400, 11, 1.4), color: t.c.muted } : { ...font(t, "sans", 500, 14, 1.2), color: t.c.muted, textTransform: "uppercase" as const },
 });
 
 /**
