@@ -12,19 +12,10 @@
  * - tiny: narrow, with each key above its value in a pin list.
  */
 import { useLayoutEffect, useState, type ReactNode, type RefObject } from "react";
+import { COMPARE_TIERS, colorOf, compareTier, type CompareTier } from "@ue-mcp-studio/client-core";
 import { EngineText } from "./breakable";
 
-export type CompareTier = "wide" | "medium" | "narrow" | "tiny";
-
-/** Each tier's least card width in ems of the card's font, so a larger UI font steps down sooner. */
-export const COMPARE_TIERS: readonly [CompareTier, number][] = [["wide", 47], ["medium", 31], ["narrow", 20]];
-
-/** The tier for a card this wide. An unmeasured card (no layout yet) is wide. */
-export function compareTier(width: number, em: number): CompareTier {
-  if (!(width > 0)) return "wide";
-  const ems = width / (em > 0 ? em : 13.5);
-  return COMPARE_TIERS.find(([, min]) => ems >= min)?.[0] ?? "tiny";
-}
+export { COMPARE_TIERS, compareTier, type CompareTier };
 
 /** The tier of the element `ref` holds, kept as it resizes. */
 export function useCompareTier(ref: RefObject<HTMLElement>): CompareTier {
@@ -42,31 +33,7 @@ export function useCompareTier(ref: RefObject<HTMLElement>): CompareTier {
   return tier;
 }
 
-const toSrgb = (c: number): number => {
-  const v = Math.min(1, Math.max(0, c));
-  return Math.round(255 * (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055));
-};
-
-/**
- * The CSS colour of a colour value as ExportText writes it: an FLinearColor,
- * (R=0.5,G=0.1,B=0,A=1), converted from linear, or an FColor, (B=0,G=0,R=255,A=255).
- * Null for any other text.
- */
-export function colorOf(text: string): string | null {
-  const m = /^\(([^()]*)\)$/.exec(text.trim());
-  if (!m) return null;
-  const f = new Map<string, number>();
-  for (const part of m[1].split(",")) {
-    const kv = /^\s*([RGBA])=(-?\d+(?:\.\d+)?)\s*$/.exec(part);
-    if (!kv) return null;
-    f.set(kv[1], Number(kv[2]));
-  }
-  if (!["R", "G", "B"].every((k) => f.has(k)) || f.size !== m[1].split(",").length) return null;
-  const linear = /\./.test(m[1]);
-  const [r, g, b] = ["R", "G", "B"].map((k) => (linear ? toSrgb(f.get(k)!) : Math.min(255, Math.max(0, Math.round(f.get(k)!)))));
-  const a = f.has("A") ? Math.min(1, Math.max(0, linear ? f.get("A")! : f.get("A")! / 255)) : 1;
-  return `rgba(${r}, ${g}, ${b}, ${Number(a.toFixed(3))})`;
-}
+export { colorOf };
 
 /** A small swatch of a colour value, beside its text, which stays as the engine wrote it. */
 export function Swatch({ text }: { text: string }) {
