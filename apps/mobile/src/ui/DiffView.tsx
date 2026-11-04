@@ -35,7 +35,8 @@ export function Output({ children, maxHeight, style, label, color, padding, raw 
   const t = useTheme();
   return (
     <View accessibilityLabel={label} style={[{ backgroundColor: t.c.codeBg, borderColor: t.c.line, borderWidth: 1, borderRadius: 8, maxHeight, overflow: "hidden" }, style]}>
-      <ScrollView nestedScrollEnabled style={{ maxHeight: maxHeight !== undefined ? maxHeight - 2 : undefined }} contentContainerStyle={padding ?? { paddingVertical: 10, paddingHorizontal: 12 }}>
+      {/* The scroller paints the code background itself: a scroller Chrome puts on a layer keeps subpixel text only over an opaque one. */}
+      <ScrollView nestedScrollEnabled style={{ maxHeight: maxHeight !== undefined ? maxHeight - 2 : undefined, backgroundColor: t.c.codeBg }} contentContainerStyle={padding ?? { paddingVertical: 10, paddingHorizontal: 12 }}>
         {raw ? children : <T style={{ ...outputFont(t), color: color ?? t.c.codeText }} selectable>{children}</T>}
       </ScrollView>
     </View>

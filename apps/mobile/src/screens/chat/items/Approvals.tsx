@@ -13,8 +13,10 @@ import { DiffView } from "../../../chat/Diff";
  */
 export function CardsRegion({ label, children, testID }: { label: string; children: ReactNode; testID?: string }) {
   const vh = useWindowDimensions().height;
+  const t = useTheme();
+  // It paints the panel it sits on, as the transcript does: a scroller on a layer keeps subpixel text only over an opaque background.
   return (
-    <ScrollView testID={testID} accessibilityRole="none" accessibilityLabel={label} style={{ maxHeight: vh * 0.5, flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 10, paddingTop: 8, paddingHorizontal: 10 }} nestedScrollEnabled>
+    <ScrollView testID={testID} accessibilityRole="none" accessibilityLabel={label} style={{ maxHeight: vh * 0.5, flexGrow: 0, flexShrink: 0, backgroundColor: t.c.panel }} contentContainerStyle={{ gap: 10, paddingTop: 8, paddingHorizontal: 10 }} nestedScrollEnabled>
       {children}
     </ScrollView>
   );
