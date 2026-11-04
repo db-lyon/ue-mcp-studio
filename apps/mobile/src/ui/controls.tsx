@@ -67,8 +67,9 @@ export function Card({ children, style, padded = true }: { children: ReactNode; 
 /** .banner, .banner.warn, .banner.bad, .banner.ok. */
 export function Banner({ kind, children, style, role }: { kind?: "warn" | "bad" | "ok"; children: ReactNode; style?: StyleProp<ViewStyle>; role?: "alert" | "status" }) {
   const t = useTheme();
-  const bg = kind === "warn" ? t.c.warnWash : kind === "bad" ? t.c.badWash : kind === "ok" ? t.c.okWash : "transparent";
-  const line = kind === "warn" ? t.c.warnLine : kind === "bad" ? t.c.badLine : kind === "ok" ? t.c.okLine : "transparent";
+  // The editor themes draw a warn banner on panel-2 with a full warn outline.
+  const bg = kind === "warn" ? (t.editor ? t.c.panel2 : t.c.warnWash) : kind === "bad" ? t.c.badWash : kind === "ok" ? t.c.okWash : "transparent";
+  const line = kind === "warn" ? (t.editor ? t.c.warn : t.c.warnLine) : kind === "bad" ? t.c.badLine : kind === "ok" ? t.c.okLine : "transparent";
   const color = kind === "warn" ? t.c.warnText : kind === "bad" ? t.c.badText : t.c.text;
   return (
     <View accessibilityRole={role === "alert" ? "alert" : undefined} accessibilityLiveRegion={role ? "polite" : undefined} style={[{ paddingVertical: 9, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, backgroundColor: bg, borderColor: line, marginBottom: 10 }, style]}>
