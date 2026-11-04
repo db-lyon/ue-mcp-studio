@@ -326,7 +326,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   );
 
   return (
-    <View ref={cardRef as never} style={[s.card, draft && s.draft, border]} accessibilityLabel={`Playtest ${run.scriptName}`} testID={testID ?? `qa-card-${run.runId}`}>
+    <View ref={cardRef as never} style={[s.card, !slotted && s.spaced, draft && s.draft, border]} accessibilityLabel={`Playtest ${run.scriptName}`} testID={testID ?? `qa-card-${run.runId}`}>
       <View style={s.head}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} aria-expanded={open} accessibilityLabel={`${open ? "Close" : "Open"} ${run.scriptName}`} onPress={() => (open ? setOpen(false) : openAt(null))} style={s.toggle}>
           <Chevron open={open} color={t.c.text} />
@@ -597,6 +597,8 @@ const styles = (t: Theme) => {
       // .card: the faint tint fading out over the top 120 pixels.
       ...(Platform.OS === "web" ? { backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent 120px)` } : { experimental_backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent 120px)` }),
     } as ViewStyle,
+    /** .qa-card's margin: 8px 0, which a Playtests page row sets to 0. */
+    spaced: { marginVertical: 8 },
     draft: { borderStyle: "dashed" as const },
     head: { flexDirection: "row" as const, alignItems: "center" as const, flexWrap: "wrap" as const, rowGap: 6, columnGap: 8, minWidth: 0 },
     toggle: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, minHeight: 44, width: "100%" as const, minWidth: 0, borderRadius: t.radius },
