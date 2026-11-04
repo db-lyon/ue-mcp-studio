@@ -87,7 +87,7 @@ export function UpdateWaiting({ run }: { run: UpdateRun }) {
   return (
     <Banner kind="warn" role="status" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginTop: 0, marginHorizontal: 6, marginBottom: 6 }}>
       <T style={{ flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0, color: t.c.warnText }}>
-        <T weight={700} style={{ color: t.c.warnText }}>Update ready.</T> {waitingWho(steps)} once no turn is in progress.
+        <T weight={700} lh={t.editor ? 1.5 : 1.55} style={{ color: t.c.warnText }}>Update ready.</T> {waitingWho(steps)} once no turn is in progress.
         {sure ? <T style={{ color: t.c.dim }}> Restarting now stops every turn in progress.</T> : null}
       </T>
       {sure ? <Button title="Cancel" variant="ghost" onPress={() => setSure(false)} /> : null}
@@ -135,7 +135,8 @@ export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boo
         </View>
         {slow && !failed ? <T style={[s.small, { color: t.c.dim }]}>Taking longer than it should. If Studio does not reload, close Studio and open it again.</T> : null}
         {failed ? (
-          <Banner kind="bad" style={{ marginBottom: 0 }}>
+          // .banner { margin-bottom: 10px } stays in the card's flex column, on top of its 12 px gap.
+          <Banner kind="bad" style={{ marginBottom: 10 }}>
             <T style={[s.smallFlat, { color: t.c.badText }]}>{run.error}</T>
           </Banner>
         ) : null}
