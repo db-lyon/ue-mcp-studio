@@ -12,6 +12,8 @@ const mock = (name: string) => path.join(here, "ui-test/mocks", name);
 export default defineConfig({
   root: here,
   resolve: {
+    // The app's web variants (src/native/*.web.ts) stand in for native modules here, as on the web harness.
+    extensions: [".web.tsx", ".web.ts", ".web.js", ".tsx", ".ts", ".mjs", ".js", ".json"],
     alias: [
       { find: /^react-native$/, replacement: path.join(root, "node_modules/react-native-web/dist/index.js") },
       // The ESM build, so its own imports of react-dom go through the aliases below.
@@ -23,6 +25,7 @@ export default defineConfig({
       { find: /^expo-secure-store$/, replacement: mock("secure-store.ts") },
       { find: /^expo-camera$/, replacement: mock("camera.tsx") },
       { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
+      { find: /^expo-(constants|application|image-picker|document-picker)$/, replacement: mock("expo-modules.ts") },
       { find: /^expo-font$/, replacement: mock("expo-font.ts") },
       { find: new RegExp("^@expo-google-fonts/.*$"), replacement: mock("google-fonts.ts") },
       { find: /^expo-status-bar$/, replacement: mock("status-bar.tsx") },
