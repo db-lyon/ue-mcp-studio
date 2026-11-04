@@ -9,7 +9,7 @@ import * as Clipboard from "expo-clipboard";
 import type { RemotePairing } from "@ue-mcp-studio/shared";
 import { pairingExpired, timeLeft } from "@ue-mcp-studio/client-core";
 import { Button, T, useTheme } from "../../../../ui";
-import { small } from "../styles";
+import { small } from "../../../../chat/styles";
 import { QrSvg } from "./QrSvg";
 
 export { pairingExpired, timeLeft };

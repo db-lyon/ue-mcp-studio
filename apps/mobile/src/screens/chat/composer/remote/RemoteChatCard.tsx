@@ -10,7 +10,7 @@ import { HttpError } from "@ue-mcp-studio/client-core";
 import { REMOTE_NO_PLAN, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../../nav";
 import { Banner, Button, Dot, T, useTheme } from "../../../../ui";
-import { buttonText, small } from "../styles";
+import { buttonText, small } from "../../../../chat/styles";
 import { ApprovalPrompt, PairedBrowsers, useApprovalsInCard, useRemoteApprovals } from "./approvals";
 import { PairingCode } from "./PairingCode";
 

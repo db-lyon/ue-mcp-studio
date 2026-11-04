@@ -144,7 +144,7 @@ describe("RemoteReply", () => {
   it("a free signed-in account gets the plan note and Upgrade, which opens the checkout in the browser", async () => {
     const api = remoteApi();
     api.billingCheckout.mockResolvedValue({ url: "https://checkout.stripe.test/c/1", provider: "stripe" });
-    const open = vi.spyOn(Linking, "openURL").mockResolvedValue(true);
+    const open = vi.spyOn(Linking, "openURL").mockResolvedValue(undefined as never);
     const dismiss = vi.fn();
     renderInProject(<RemoteReply remote={state({ available: false, signedIn: true })} onDismiss={dismiss} />, api);
     expect(screen.getByText("Remote control lets you use this project from your phone. It needs a Pro or Studio plan.")).toBeTruthy();
@@ -164,7 +164,7 @@ describe("RemoteReply", () => {
     const api = remoteApi();
     api.billingCheckout.mockRejectedValue(new HttpError(409, "has a subscription"));
     api.billingPortal.mockResolvedValue({ url: "https://portal.stripe.test/p/1", provider: "stripe" });
-    const open = vi.spyOn(Linking, "openURL").mockResolvedValue(true);
+    const open = vi.spyOn(Linking, "openURL").mockResolvedValue(undefined as never);
     renderInProject(<RemoteReply remote={state({})} onDismiss={() => undefined} />, api);
     fireEvent.click(button("Upgrade to Pro"));
     await settle();

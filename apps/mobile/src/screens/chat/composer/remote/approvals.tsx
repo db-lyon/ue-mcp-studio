@@ -7,7 +7,7 @@ import { View } from "react-native";
 import { formatPairingCode, type RemoteApproval, type RemoteBrowser } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../../nav";
 import { Banner, Button, T, font, useTheme } from "../../../../ui";
-import { small } from "../styles";
+import { small } from "../../../../chat/styles";
 
 /** How often the open approvals are read again besides the events that announce them. */
 export const APPROVAL_POLL_MS = 10_000;

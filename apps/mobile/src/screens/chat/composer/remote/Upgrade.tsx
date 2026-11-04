@@ -8,7 +8,7 @@ import { HttpError } from "@ue-mcp-studio/client-core";
 import type { BillingInterval } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../../nav";
 import { Banner, Button, Seg, T, useTheme } from "../../../../ui";
-import { small } from "../styles";
+import { small } from "../../../../chat/styles";
 import { watchForCheckout } from "./remote-available";
 
 const INTERVALS: Array<{ key: BillingInterval; title: string }> = [
