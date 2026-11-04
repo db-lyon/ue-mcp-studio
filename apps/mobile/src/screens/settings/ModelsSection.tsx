@@ -5,7 +5,7 @@
  * computer, which refuses those writes to a paired client; the route order
  * and the table of what each model runs on, which a paired client may change.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { REMOTE_CHANGE_NOTE, notThere } from "@ue-mcp-studio/client-core";
 import { DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, routesInOrder, type CustomEndpoint, type ModelCatalog, type ProviderId, type RouteOrder, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
@@ -14,6 +14,7 @@ import { CardLabel, Head, Seg, SettingRow, Span, Tag, Txt, useMessage } from "./
 import { Message } from "./GeneralSection";
 import { PathText } from "./NativePanel";
 import { useSettingsApi } from "./hooks";
+import { RemoteReadOnly } from "../../views/settings/RemoteReadOnly";
 
 const ROUTE_ORDER_OPTIONS: ReadonlyArray<{ id: RouteOrder; name: string }> = [
   { id: "signins-first", name: "Sign-ins first" },
@@ -26,21 +27,6 @@ const ROUTE_NAME: Record<SignInId | "key", string> = { claude: "Claude sign-in",
 
 /** Anthropic's reason the Claude row has no sign-in button. */
 const CLAUDE_LOGIN_WHY = "Anthropic does not allow apps it has not approved to offer Claude sign-in themselves. You sign in with Claude Code, and Studio runs Claude on that login. Studio never sees your Claude credentials.";
-
-/**
- * fieldset.remote-readonly[disabled]: the note, then what it covers drawn at
- * 70% with every control off.
- */
-export function ReadOnly({ children }: { children: ReactNode }) {
-  return (
-    <>
-      <Txt size={12} tone="dim" style={{ marginBottom: 8 }}>
-        {REMOTE_CHANGE_NOTE}
-      </Txt>
-      <View style={{ opacity: 0.7 }}>{children}</View>
-    </>
-  );
-}
 
 export function ModelsSection() {
   const api = useSettingsApi();
@@ -68,7 +54,7 @@ export function ModelsSection() {
       <Head title="Models & accounts" lead="How models are reached on this machine." />
       <Message msg={msg} />
       <View>
-        <ReadOnly>
+        <RemoteReadOnly>
           {/* .cfg-cols: the two cards 14px apart; the endpoints card follows them with no gap, as in the page's fieldset. */}
           <View style={{ gap: 14 }}>
           <Card>
@@ -96,7 +82,7 @@ export function ModelsSection() {
           </Card>
           </View>
           <EndpointsCard />
-        </ReadOnly>
+        </RemoteReadOnly>
       </View>
       <Card>
         <CardLabel>Models</CardLabel>

@@ -13,7 +13,7 @@ import { Banner, Button, Card, Dot, Spacer, bannerText, font, labelFont, T, useT
 import { CardLabel, Head, Opt, Span, Tag, Txt, useMessage } from "./controls";
 import { Details } from "./Details";
 import { Message } from "./GeneralSection";
-import { ReadOnly } from "./ModelsSection";
+import { RemoteReadOnly } from "../../views/settings/RemoteReadOnly";
 import { PathText } from "./NativePanel";
 import { useSettingsApi } from "./hooks";
 
@@ -131,7 +131,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                 </Txt>
               </Banner>
             ) : null}
-            <ReadOnly>
+            <RemoteReadOnly>
               {/* The list's 8px top margin collapses into the note's 8px bottom one, as in the page's fieldset. */}
               <View style={{ gap: 8 }}>
                 {CONTEXT_STRATEGIES.map((s) => (
@@ -153,7 +153,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                   />
                 ))}
               </View>
-            </ReadOnly>
+            </RemoteReadOnly>
             <Txt size={12} tone="dim" style={{ marginTop: 8, marginBottom: 12 }}>
               {clients.length ? `Used by ${clients.map((c) => c.name).join(" and ")}. ` : "No other MCP client configured. "}
               Studio&apos;s agent switches at its next turn, other clients at their next session.{context.fromFile ? "" : " Default: Micro."} Token counts measured by ue-mcp.
@@ -211,9 +211,9 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       <Card>
         {/* The Advanced card's summary is a 44px flex row: no disclosure triangle, its line centred. */}
         <Details label="Advanced: ue-mcp.yml" marker={false} summary={<Txt size={12} tone="muted">Advanced: ue-mcp.yml</Txt>} summaryStyle={{ marginVertical: -10, alignItems: "center" }} testID="advanced">
-          <ReadOnly>
+          <RemoteReadOnly>
             <ConfigView />
-          </ReadOnly>
+          </RemoteReadOnly>
         </Details>
       </Card>
       </View>

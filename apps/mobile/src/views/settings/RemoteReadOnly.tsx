@@ -1,17 +1,28 @@
-// STUB: owned by agent-b (settings). The web client's views/settings/RemoteReadOnly.tsx; the app is always a paired browser.
 import type { ReactNode } from "react";
-import { Text, View } from "react-native";
-import { font, useTheme } from "../../ui";
+import { View } from "react-native";
+import { REMOTE_CHANGE_NOTE } from "@ue-mcp-studio/client-core";
+import { Txt } from "../../screens/settings/controls";
 
 /** Why a paired browser cannot change a setting: it decides where prompts go or what runs on the computer. */
-export const REMOTE_CHANGE_NOTE = "Change this from Studio on the computer.";
+export { REMOTE_CHANGE_NOTE } from "@ue-mcp-studio/client-core";
 
-export function RemoteReadOnly({ children }: { children: ReactNode; remote?: boolean }) {
-  const t = useTheme();
+/**
+ * In a paired browser, shows its children read only under the note above:
+ * the web client's disabled fieldset.remote-readonly, the note's 8px below it
+ * and what it covers at 70% with nothing pressable. The computer refuses these
+ * writes from a paired client anyway (remotePath, remoteBodyAllowed); this
+ * keeps the page from offering them. The app is always a paired client.
+ */
+export function RemoteReadOnly({ children, remote = true }: { children: ReactNode; remote?: boolean }) {
+  if (!remote) return <>{children}</>;
   return (
-    <View pointerEvents="box-only" accessibilityState={{ disabled: true }}>
-      <Text style={[font(t, "sans", 400, 12, 1.55), { color: t.c.dim }]}>{REMOTE_CHANGE_NOTE}</Text>
-      {children}
+    <View accessibilityState={{ disabled: true }} testID="remote-readonly">
+      <Txt size={12} tone="dim" style={{ marginBottom: 8 }}>
+        {REMOTE_CHANGE_NOTE}
+      </Txt>
+      <View pointerEvents="none" style={{ opacity: 0.7 }}>
+        {children}
+      </View>
     </View>
   );
 }
