@@ -23,6 +23,7 @@ import type {
   VcsStatus,
 } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
+import { projectApi } from "./project-api.js";
 
 const enc = encodeURIComponent;
 const S = "/v1/ext/studio";

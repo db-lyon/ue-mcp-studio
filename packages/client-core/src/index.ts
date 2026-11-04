@@ -7,3 +7,7 @@ export * from "./studio-api.js";
 export * from "./dialogs.js";
 export * from "./approvals.js";
 export * from "./vcs.js";
+export * from "./qa.js";
+export * from "./editor.js";
+export * from "./flows.js";
+export * from "./project-api.js";
