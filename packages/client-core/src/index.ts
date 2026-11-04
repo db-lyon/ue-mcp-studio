@@ -3,3 +3,6 @@ export * from "./events.js";
 export * from "./lock.js";
 export * from "./chat-model.js";
 export * from "./session-sync.js";
+export * from "./studio-api.js";
+export * from "./dialogs.js";
+export * from "./approvals.js";
