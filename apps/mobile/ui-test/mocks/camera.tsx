@@ -11,5 +11,3 @@ export function CameraView({ onBarcodeScanned }: { onBarcodeScanned?: (r: { data
     </Pressable>
   );
 }
-/** Scan from a picture: no code found in the browser. */
-export const Camera = { scanFromURLAsync: async (_uri: string, _types?: string[]) => [] as { data: string }[] };
