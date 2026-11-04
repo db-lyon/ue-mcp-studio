@@ -57,15 +57,17 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
 
   return (
     <Page stage>
-      {error ? (
-        <Banner kind="bad" role="alert" style={{ alignSelf: "stretch", maxWidth: 420, marginBottom: 0 }}>
-          {error}
-        </Banner>
-      ) : null}
       <StateView
         glyph="phone"
         title="Pair this phone"
         lead={<WelcomeLead />}
+        note={
+          error ? (
+            <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
+              {error}
+            </Banner>
+          ) : null
+        }
         actions={
           pasting ? null : (
             <>
@@ -78,11 +80,15 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
       {pasting ? (
         <Panel
           head="Paste the pairing link"
-          text="In Studio on your computer, choose Copy link under the code, then paste it here."
+          text={
+            <T style={{ color: t.c.muted }}>
+              In Studio on your computer, choose <T style={{ ...font(t, "sans", 600, t.base.size), color: t.c.text }}>Copy link</T> under the code, then paste it here.
+            </T>
+          }
           actions={
             <>
               <Button title="Cancel" variant="ghost" onPress={() => (setPasting(false), setLink(""), setWrong(false))} />
-              <Button title="Pair" variant="primary" disabled={!link.trim()} onPress={submit} />
+              <Button title="Pair" variant="primary" disabled={!link.trim() || wrong} onPress={submit} />
             </>
           }
         >
@@ -96,9 +102,10 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
             keyboardType="url"
             returnKeyType="go"
             accessibilityLabel="Pairing link"
+            style={wrong ? { borderColor: t.c.bad } : undefined}
           />
           {wrong ? (
-            <T accessibilityRole="alert" style={{ ...font(t, "sans", 400, 12.5, t.base.lineHeight / t.base.size), color: t.c.badText }}>
+            <T accessibilityRole="alert" style={{ ...font(t, "sans", 400, 12.5, t.base.lineHeight / t.base.size), color: t.editor ? t.c.bad : t.c.badText }}>
               That is not a pairing link. A pairing link starts with https://remote.ue-mcp.com/pair#
             </T>
           ) : null}
@@ -117,7 +124,9 @@ export function ApprovalCode({ code }: { code: string }) {
         <T style={{ ...font(t, "sans", 400, 14, 1.55), color: t.c.text }}>Code</T>
         <T style={{ ...font(t, "mono", 600, 22, 1.2), letterSpacing: 1.32, color: t.c.text }}>{formatPairingCode(code)}</T>
       </View>
-      <T style={{ ...font(t, "sans", 400, 12, t.base.lineHeight / t.base.size), color: t.c.muted }}>Allow it only if your computer shows the same code. If it is different, choose Deny there.</T>
+      <T style={{ ...font(t, "sans", 400, 12, t.base.lineHeight / t.base.size), color: t.c.muted }}>
+        Allow it only if your computer shows the same code. If it is different, choose <T style={{ ...font(t, "sans", 600, 12), color: t.c.text }}>Deny</T> there.
+      </T>
     </View>
   );
 }
@@ -162,19 +171,20 @@ export interface PairFailure {
 function wording(f: PairFailure): { head: string; text: string; note: string } {
   switch (f.kind) {
     case "bad-link":
-      return { head: "This is not a pairing link", text: "The link was cut short, or it is not a UE-MCP Studio pairing code.", note: NEW_CODE };
+      return { head: "This is not a pairing code", text: "The code was cut short, or it is not one Studio made for pairing.", note: NEW_CODE };
     case "denied":
       return { head: "Pairing did not finish", text: "The computer's owner denied this phone.", note: NEW_CODE };
     case "offline":
-      return { head: "Your computer went offline", text: "It stopped answering while this phone was pairing.", note: "Check that Studio is running with Remote on, then make a new code." };
+      return { head: "Your computer went offline", text: "It stopped answering while this phone was pairing.", note: "Check that Studio is running with Remote control on, then make a new code." };
     case "network":
-      return { head: "The relay could not be reached", text: "This phone could not reach remote.ue-mcp.com. It may be offline.", note: "Check this phone's connection, then try again." };
+      return { head: "The relay could not be reached", text: "This phone could not reach remote.ue-mcp.com. Either this phone is offline or the relay is down.", note: "Check this phone's connection, then try again." };
     case "plan":
-      return { head: "Remote control needs a plan", text: f.message, note: "Upgrade the account Studio is signed in with on your computer, then make a new code." };
+      return { head: "Remote control is not available", text: "The account Studio is signed in with on your computer has no remote control in its plan.", note: "Upgrade to a Pro or Studio plan in Studio on your computer, then make a new code." };
     case "mismatch":
-      return { head: "Pairing could not be checked", text: "The answer did not match the pairing code, so this phone does not trust it.", note: NEW_CODE };
+      return { head: "The answer did not match the code", text: "Your computer's answer did not match the pairing code, so this phone did not pair, to be safe.", note: NEW_CODE };
     default:
-      return { head: "Pairing did not finish", text: f.message, note: NEW_CODE };
+      // The relay's and the computer's words often end on the same advice the note gives.
+      return { head: "Pairing did not finish", text: f.message.replace(/\s*Make a new (code|one)[^.]*\.\s*$/i, "") || f.message, note: NEW_CODE };
   }
 }
 
@@ -183,25 +193,22 @@ function wording(f: PairFailure): { head: string; text: string; note: string } {
  * relay draws it; everything else is the error panel with what happened.
  */
 export function PairFailed({ failure, onScan, onStart, onRetry }: { failure: PairFailure; onScan: () => void; onStart: () => void; onRetry?: () => void }) {
+  // Every stopped pairing ends on the same two actions in the same order: the way on, then back to the start.
+  const way = failure.kind === "network" && onRetry ? <Button title="Try again" variant="primary" size="large" onPress={onRetry} /> : <Button title="Scan a new code" variant="primary" size="large" onPress={onScan} />;
   const actions = (
-    <>
-      <Button title="Start over" onPress={onStart} />
-      {failure.kind === "network" && onRetry ? <Button title="Try again" variant="primary" onPress={onRetry} /> : <Button title="Scan a new code" variant="primary" onPress={onScan} />}
-    </>
+    <View style={{ flex: 1, gap: 8 }}>
+      {way}
+      <Button title="Start over" size="large" onPress={onStart} />
+    </View>
   );
   if (failure.kind === "expired" || failure.kind === "timeout")
     return (
       <Page stage>
         <StateView
           glyph="expired"
-          title={failure.kind === "expired" ? "This code no longer works" : "Nobody allowed this phone in time"}
-          lead={failure.kind === "expired" ? `Each code works once, for ten minutes. ${NEW_CODE}` : `Studio on your computer waits 2 minutes for an answer. ${NEW_CODE}`}
-          actions={
-            <>
-              <Button title="Scan a new code" variant="primary" size="large" onPress={onScan} />
-              <Button title="Start over" size="large" onPress={onStart} />
-            </>
-          }
+          title={failure.kind === "expired" ? "This code no longer works" : "No one allowed this phone in time"}
+          lead={failure.kind === "expired" ? `Each code works once, for ten minutes. ${NEW_CODE}` : `Studio waits 2 minutes for an answer. ${NEW_CODE}`}
+          actions={actions}
         />
       </Page>
     );

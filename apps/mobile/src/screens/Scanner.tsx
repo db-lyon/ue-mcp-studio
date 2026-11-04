@@ -78,8 +78,15 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
       <Page stage title="Scan pairing code" onBack={onCancel}>
         <StateView
           glyph="camera"
-          title={ask ? "Allow the camera" : "The camera is off for Studio"}
+          title={ask ? "Studio needs the camera" : "The camera is off for Studio"}
           lead={ask ? "Studio reads the pairing code on your computer's screen with the camera. It is used only while this screen is open." : "Turn the camera on for Studio in this phone's settings, or scan a picture of the code instead."}
+          note={
+            note ? (
+              <Banner kind="warn" role="alert" style={{ marginBottom: 0 }}>
+                {note}
+              </Banner>
+            ) : null
+          }
           actions={
             <>
               {ask ? <Button title="Allow camera" variant="primary" size="large" onPress={() => void requestPermission()} /> : <Button title="Open settings" variant="primary" size="large" onPress={() => void Linking.openSettings()} />}
@@ -87,11 +94,6 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
             </>
           }
         />
-        {note ? (
-          <Banner kind="warn" role="alert" style={{ alignSelf: "stretch", maxWidth: 420, marginBottom: 0 }}>
-            {note}
-          </Banner>
-        ) : null}
       </Page>
     );
   }
@@ -146,7 +148,7 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
       <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 16, paddingBottom: Math.max(16, insets.bottom), gap: 12, backgroundColor: t.c.panel, borderTopWidth: 1, borderTopColor: t.c.line, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
         <T style={{ ...font(t, "sans", 600, 15, 1.3), color: t.c.text, textAlign: "center" }}>Point the camera at the code</T>
         <T style={{ color: t.c.dim, textAlign: "center" }}>
-          In Studio on your computer, type <Code>/remote</Code> in a chat, or open <T style={{ ...font(t, "sans", 600, t.base.size), color: t.c.muted }}>{"Settings > Remote control"}</T>.
+          On the computer running Studio, type <Code>/remote</Code> in a chat, or open <T style={{ ...font(t, "sans", 600, t.base.size), color: t.c.muted }}>{"Settings > Remote control"}</T>.
         </T>
         {note ? (
           <Banner kind="warn" role="alert" style={{ marginBottom: 0 }}>

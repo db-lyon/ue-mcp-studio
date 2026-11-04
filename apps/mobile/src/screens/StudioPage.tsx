@@ -11,6 +11,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { Card, font, Label, PageGlow, StateGlyph, T, useTheme, type StateGlyphName } from "../ui";
 import { Brand } from "../views/NavDrawer";
+import { OFFLINE_STRIP } from "../views/OfflineBanner";
+import { useDeviceOnline } from "../native/online";
 
 /** .bar: the brand on a top-level page; a back button and the page's name on one under it. */
 export function AppBar({ title, back, onBack, actions }: { title?: string; back?: string; onBack?: () => void; actions?: ReactNode }) {
@@ -83,8 +85,10 @@ export function Page({
   const t = useTheme();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  // The offline strip lies over the top of the page; the page starts below it.
+  const offline = !useDeviceOnline();
   const pad: ViewStyle = {
-    paddingTop: stage ? Math.min(180, Math.max(32, Math.round(height * 0.2))) : 24,
+    paddingTop: (stage ? Math.min(180, Math.max(32, Math.round(height * 0.2))) : 24) + (offline ? OFFLINE_STRIP : 0),
     paddingLeft: Math.max(16, insets.left),
     paddingRight: Math.max(16, insets.right),
     paddingBottom: footer ? 16 : Math.max(24, insets.bottom),
@@ -111,7 +115,7 @@ export function Page({
  * .state: a whole-page state laid out as Studio's lock screen: the glyph, the
  * title, the line under it, then whatever the state shows and its actions.
  */
-export function StateView({ glyph, title, lead, children, actions }: { glyph: StateGlyphName; title: string; lead: ReactNode; children?: ReactNode; actions?: ReactNode }) {
+export function StateView({ glyph, title, lead, children, note, actions }: { glyph: StateGlyphName; title: string; lead: ReactNode; children?: ReactNode; note?: ReactNode; actions?: ReactNode }) {
   const t = useTheme();
   return (
     <View accessibilityLiveRegion="polite" style={{ width: "100%", maxWidth: 420, alignItems: "center", gap: 10 }}>
@@ -121,6 +125,8 @@ export function StateView({ glyph, title, lead, children, actions }: { glyph: St
       </T>
       {typeof lead === "string" ? <T style={{ color: t.c.dim, textAlign: "center", marginBottom: 6 }}>{lead}</T> : lead}
       {children}
+      {/* What went wrong last, always just above what to do about it. */}
+      {note ? <View style={{ alignSelf: "stretch" }}>{note}</View> : null}
       {actions ? <View style={{ alignSelf: "stretch", gap: 8, marginTop: 8 }}>{actions}</View> : null}
     </View>
   );
