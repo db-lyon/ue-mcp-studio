@@ -8,3 +8,6 @@ export * from "./dialogs.js";
 export * from "./approvals.js";
 export * from "./vcs.js";
 export * from "./location.js";
+export * from "./plugins.js";
+export * from "./normalize.js";
+export * from "./settings-api.js";
