@@ -5,19 +5,8 @@ import { api } from "../api";
 /** The open session, for anything that links to its files. */
 export const SessionIdContext = createContext<string | null>(null);
 
-export const attachmentUrl = (sessionId: string, id: string): string =>
-  `/v1/ext/studio/sessions/${encodeURIComponent(sessionId)}/attachments/${encodeURIComponent(id)}`;
-
-export const isImage = (type: string): boolean => /^image\/(png|jpeg|gif|webp)$/.test(type);
-
-/** 3 KB, 1.2 MB. */
-export function formatBytes(n: number): string {
-  if (n < 1024 * 1024) return `${Math.max(1, Math.round(n / 1024))} KB`;
-  return `${(n / 1024 / 1024).toFixed(1)} MB`;
-}
-
-/** The largest file the agent accepts; matches MAX_ATTACHMENT_BYTES there. */
-export const MAX_BYTES = 100 * 1024 * 1024;
+export { attachmentUrl, isImage, formatBytes, MAX_BYTES } from "@ue-mcp-studio/client-core";
+import { formatBytes, isImage, MAX_BYTES } from "@ue-mcp-studio/client-core";
 
 /** A file's bytes as base64, without the data URL prefix. */
 export function readBase64(file: Blob): Promise<string> {

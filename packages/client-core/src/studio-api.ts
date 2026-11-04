@@ -5,6 +5,10 @@
  */
 import type {
   ApprovalDecision,
+  AssetOpenResponse,
+  AssetRef,
+  AssetResolveResponse,
+  PendingForm,
   CheckpointChange,
   DialogAnswer,
   DialogsState,
@@ -68,6 +72,11 @@ export function studioApi(t: Transport) {
     timelineUndo: (id: string, checkpoint: string) => send<{ timeline: TimelineMark[]; outcome: RestoreOutcome }>("POST", `${session(id)}/timeline/undo`, { checkpoint }),
     vcs: () => get<{ vcs: VcsStatus | null }>(`${S}/vcs`),
     vcsChanges: () => get<{ changes: VcsChange[]; truncated: boolean }>(`${S}/vcs/changes`),
+    resolveAssets: (refs: AssetRef[], sessionId: string | null) => send<AssetResolveResponse>("POST", `${S}/assets/resolve`, sessionId ? { refs, sessionId } : { refs }),
+    reportAssetMiss: (name: string, candidates: number) => send<void>("POST", `${S}/assets/missed`, { name, candidates }),
+    openAsset: (path: string) => send<AssetOpenResponse>("POST", `${S}/assets/open`, { path }),
+    forms: (sessionId: string) => get<{ forms: PendingForm[] }>(`${S}/forms?session=${enc(sessionId)}`),
+    answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) => send<void>("POST", `${S}/forms/${enc(id)}`, answer),
     vcsDiff: (path: string) => get<{ diff: string | null; reason?: string }>(`${S}/vcs/diff?path=${enc(path)}`),
   };
 }
