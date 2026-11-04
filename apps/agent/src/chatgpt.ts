@@ -275,7 +275,7 @@ export class ChatGptSignInFlow {
     }
     const fail = (error: string) => {
       this.state = { state: "error", error };
-      res.writeHead(400, { "content-type": "text/html" }).end(PAGE("The sign-in did not complete. Return to Unreal and try again."));
+      res.writeHead(400, { "content-type": "text/html" }).end(PAGE("The sign-in did not complete. Return to Studio and start again."));
       this.stop();
     };
     if (url.searchParams.get("state") !== p.stateParam) return fail("The sign-in answered another request. Start again.");
@@ -309,7 +309,7 @@ export class ChatGptSignInFlow {
         email: who.email,
       });
       this.state = { state: "done", login: who.email ?? "ChatGPT" };
-      res.writeHead(200, { "content-type": "text/html" }).end(PAGE("Signed in with ChatGPT. Return to Unreal."));
+      res.writeHead(200, { "content-type": "text/html" }).end(PAGE("Signed in with ChatGPT. Return to Studio."));
       this.stop();
       this.onDone();
     } catch (e) {
