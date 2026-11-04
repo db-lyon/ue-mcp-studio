@@ -118,7 +118,7 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
   }
   const head = headline(conn, now, remote);
   return (
-    <View style={[s.overlay, edgePadding(insets, 8)]} accessibilityViewIsModal accessibilityLabel={head}>
+    <View testID="connection-overlay" style={[s.overlay, edgePadding(insets, 8)]} accessibilityViewIsModal accessibilityLabel={head}>
       <View style={[s.card, s.shadow]}>
         <View style={s.head}>
           {!needs || remote ? <Spinner /> : null}
