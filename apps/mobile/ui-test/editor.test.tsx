@@ -31,9 +31,9 @@ describe("EditorChip", () => {
     a.editor.mockResolvedValue({ steps: [{ step: "start", ok: true }] });
     renderInProject(<EditorChip />, a);
     await settle();
-    expect(screen.getByText("Editor off")).toBeTruthy();
+    expect(screen.getByText("Editor offline")).toBeTruthy();
     fireEvent.click(screen.getByTestId("editor-chip"));
-    expect(screen.getByText("Editor not running")).toBeTruthy();
+    expect(screen.getByText("Editor not connected")).toBeTruthy();
     fireEvent.click(screen.getByText("Start"));
     expect(a.editor).toHaveBeenCalledWith("start");
     await settle();
@@ -139,7 +139,7 @@ describe("EditorStatus", () => {
 
   it("says when the daemon cannot be read yet", () => {
     renderInProject(<EditorStatus />);
-    expect(screen.getByText("Connecting to the daemon...")).toBeTruthy();
+    expect(screen.getByText("Connecting to ue-mcp")).toBeTruthy();
   });
 
   it("asks for the PIN before a restart, then sends it", async () => {

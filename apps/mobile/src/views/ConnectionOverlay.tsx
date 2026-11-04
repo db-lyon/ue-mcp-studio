@@ -106,7 +106,8 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
       body = `Waiting for it to come back, ${down} so far. Studio loads it as soon as it is up.`;
       break;
     case "lost":
-      body = remote ? `${conn.why}, ${down} ago.` : `${conn.why}. Studio starts it again in a moment.`;
+      // The app cannot start ue-mcp (step's canStart is false), so it never says Studio starts it again.
+      body = remote ? `${conn.why}, ${down} ago.` : `${conn.why}.`;
       break;
     case "starting":
       body = `${conn.why}, ${down} ago.${conn.failure ? ` ${conn.failure}` : ""} Studio loads it as soon as it is up.`;

@@ -46,7 +46,7 @@ describe("RemoteChatCard", () => {
     expect(screen.getByText("https://remote.ue-mcp.com/p/abc")).toBeTruthy();
     expect(screen.getByText(/^Works once, for 9:4\d more\.$/)).toBeTruthy();
     expect(screen.getByText("Android")).toBeTruthy();
-    expect(button("Manage paired browsers in Settings")).toBeTruthy();
+    expect(button("Manage paired devices in Settings")).toBeTruthy();
     fireEvent.click(button("Copy link"));
     await settle();
     expect(clip.text).toBe("https://remote.ue-mcp.com/p/abc");
@@ -153,7 +153,7 @@ describe("RemoteReply", () => {
     await settle();
     expect(api.billingCheckout).toHaveBeenCalledWith({ plan: "pro", interval: "year" });
     expect(open).toHaveBeenCalledWith("https://checkout.stripe.test/c/1");
-    expect(screen.getByText("Checkout opened in your browser. Remote control turns on here once the payment goes through.")).toBeTruthy();
+    expect(screen.getByText("Checkout opened in your browser. Remote control shows here once the payment goes through.")).toBeTruthy();
     stopCheckoutWatch();
     fireEvent.click(button("Dismiss"));
     expect(dismiss).toHaveBeenCalled();
@@ -169,6 +169,7 @@ describe("RemoteReply", () => {
     fireEvent.click(button("Upgrade to Pro"));
     await settle();
     expect(open).toHaveBeenCalledWith("https://portal.stripe.test/p/1");
+    expect(screen.getByText("This account already has a subscription. Its billing page opened in your browser.")).toBeTruthy();
     stopCheckoutWatch();
     open.mockRestore();
   });
@@ -184,7 +185,7 @@ describe("RemoteReply", () => {
     api.remoteStatus.mockResolvedValue(ONLINE);
     api.pairRemote.mockResolvedValue(pairing(60_000));
     renderInProject(<RemoteReply remote={state({ available: true, surface: "working" })} onDismiss={() => undefined} onSettings={() => undefined} />, api);
-    expect(screen.getByText("Remote control is on for this account.")).toBeTruthy();
+    expect(screen.getByText("This account's plan includes remote control.")).toBeTruthy();
     await settle();
     expect(screen.getByLabelText("Pairing QR code")).toBeTruthy();
   });

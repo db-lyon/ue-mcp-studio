@@ -131,7 +131,7 @@ export function EditorChip({ top, animate = true, daemon }: { top?: number; anim
   }, [state]);
   if (!state) return null;
   const tone = state.kind === "off" ? "warn" : "busy";
-  const words = state.kind === "off" ? (b.starting ? "Starting" : "Editor off") : state.chip;
+  const words = state.kind === "off" ? (b.starting ? "Starting" : state.chip) : state.chip;
   const press = () => {
     if (top === undefined) chip.current?.measureInWindow((_x, y, _w, h) => setBelow(y + h + 6.5));
     setOpen(!open);

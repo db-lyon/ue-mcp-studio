@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { View } from "react-native";
-import { APPROVAL_ROWS, PROJECT_SCOPED_KINDS, type AgentSettings, type ApprovalKind, type ApprovalRule, type DialogMode, type DialogPolicy, type FeedbackMode, type PlaytestRunsMode, type StudioSettings } from "@ue-mcp-studio/shared";
+import { APPROVAL_ROWS, DESTRUCTIVE_HOLD_SECONDS, PROJECT_SCOPED_KINDS, type AgentSettings, type ApprovalKind, type ApprovalRule, type DialogMode, type DialogPolicy, type FeedbackMode, type PlaytestRunsMode, type StudioSettings } from "@ue-mcp-studio/shared";
 import { Card, font, T, useTheme } from "../../ui";
 import { CardLabel, Head, Opt, Radio, Seg, SettingRow, Switch, Txt, useMessage } from "./controls";
 import { Message } from "./GeneralSection";
@@ -23,8 +23,8 @@ const SCOPED_RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [
 
 const DIALOG_MODES: { id: DialogMode; name: string; about: string }[] = [
   { id: "interactive", name: "Show in Studio", about: "A card in the chat with the dialog's buttons." },
-  { id: "auto", name: "Agent answers", about: "An answer that discards work waits 10 seconds for you to override." },
-  { id: "defer", name: "Leave in editor", about: "The turn waits until you answer in the editor." },
+  { id: "auto", name: "Agent answers", about: `An answer that discards work waits ${DESTRUCTIVE_HOLD_SECONDS} seconds for you to override.` },
+  { id: "defer", name: "Leave in editor", about: "Editor calls are refused until you answer it in the editor." },
 ];
 
 const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[] = [
@@ -35,7 +35,7 @@ const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[] = [
 
 const PLAYTEST_STARTS: ReadonlyArray<{ id: PlaytestRunsMode; name: string; help: string }> = [
   { id: "manual", name: "Manual", help: "Playtests run only when you start or assign them." },
-  { id: "automatic", name: "Automatic", help: "Agents start playtests when needed." },
+  { id: "automatic", name: "Automatic", help: "Agents can also start playtests on their own." },
 ];
 
 const POLICIES: ReadonlyArray<{ id: DialogPolicy["kind"]; name: string }> = [
@@ -68,7 +68,7 @@ export function ApprovalsSection() {
   const dialogMode = agent.dialogMode.mode;
   return (
     <>
-      <Head title="Approvals & review" lead="What needs your approval. Applies to every agent." />
+      <Head title="Approvals & review" lead="What needs your approval in this project. Applies to every agent." />
       <Message msg={msg} />
       <Card>
         <CardLabel>Ask first</CardLabel>
@@ -91,7 +91,7 @@ export function ApprovalsSection() {
 
       <Card>
         <CardLabel>Feedback reports</CardLabel>
-        <SettingRow inline first title="Report ue-mcp gaps" help="Agents file GitHub issues on ue-mcp. Changing this restarts ue-mcp.">
+        <SettingRow inline first title="Report ue-mcp gaps" help="Agents can report missing or broken tools as GitHub issues, on ue-mcp or the plugin that owns the tool. Changing this restarts ue-mcp.">
           <Switch label="Report ue-mcp gaps" on={agent.feedbackTool} onChange={(v) => void saveAgent({ feedbackTool: v })} />
         </SettingRow>
         {agent.feedbackTool ? (
@@ -103,7 +103,7 @@ export function ApprovalsSection() {
 
       <Card>
         <CardLabel>Editor dialogs</CardLabel>
-        <SettingRow first title="Who answers" help="Editor calls wait until an open dialog is answered." />
+        <SettingRow first title="Who answers" help="An open editor dialog blocks editor calls until it is answered." />
         <View style={{ gap: 6 }}>
           {DIALOG_MODES.map((d) => (
             <View key={d.id}>
@@ -158,7 +158,7 @@ function DialogPolicyField({ policy }: { policy: DialogPolicy }) {
         </View>
       ))}
       <Txt size={12} tone="dim">
-        The window flashes when Studio is not focused. Saved per project.
+        With no Cancel or Keep button, it keeps waiting. Studio&apos;s window flashes when it is not focused. Saved per project.
       </Txt>
     </View>
   );

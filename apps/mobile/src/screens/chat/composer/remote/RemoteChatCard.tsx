@@ -140,8 +140,8 @@ export function RemoteChatCard({ onSettings }: { onSettings?: () => void }) {
       {onSettings ? (
         // button.ghost.small-button.remote-manage, which a reply on a touch screen draws as an outlined button (.local-reply button.ghost).
         // button.small-button takes the reply's font size (font-size: inherit) in ue-mcp; the editor themes' buttons keep 12 px.
-        <Button label="Manage paired browsers in Settings" onPress={onSettings} size="small" style={{ alignSelf: "flex-start" }}>
-          <T style={t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 500, t.base.size, 1.2), letterSpacing: t.base.size * 0.02 }}>Manage paired browsers in Settings</T>
+        <Button label="Manage paired devices in Settings" onPress={onSettings} size="small" style={{ alignSelf: "flex-start" }}>
+          <T style={t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 500, t.base.size, 1.2), letterSpacing: t.base.size * 0.02 }}>Manage paired devices in Settings</T>
         </Button>
       ) : null}
     </View>

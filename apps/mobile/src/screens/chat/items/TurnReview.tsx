@@ -364,11 +364,11 @@ function Item({ it, open, busy, acting, failed, opened, confirming, onToggle, on
       {it.conflict && it.state !== "reverted" ? (
         <Banner kind="warn" role="alert" style={{ marginTop: 6 }}>
           <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 8, rowGap: 14 }}>
-            <T style={[small(t), { color: t.c.warnText }]}>You edited this file after the agent, so Revert left it alone.</T>
+            <T style={[small(t), { color: t.c.warnText }]}>This file was changed outside the agent, so Revert left it alone.</T>
             {confirming ? (
               <>
-                <SmallButton title="Revert and lose my edits" kind="danger" fontSize={12} disabled={busy} onPress={() => onRevert(true)} />
-                <SmallButton title="Keep my edits" fontSize={12} onPress={() => onConfirm(false)} />
+                <SmallButton title="Revert and lose those changes" kind="danger" fontSize={12} disabled={busy} onPress={() => onRevert(true)} />
+                <SmallButton title="Keep those changes" fontSize={12} onPress={() => onConfirm(false)} />
               </>
             ) : (
               <SmallButton title="Revert anyway" fontSize={12} disabled={busy} onPress={() => onConfirm(true)} />
@@ -553,7 +553,7 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
       <Check checked={on} disabled={busy || !status} onChange={toggle} label="Review this session's turns">
         <T style={{ marginLeft: 3, color: t.c.muted }}>
           {"Review this session's turns "}
-          <T style={dimSmall}>{`A checkpoint before and after each turn, and a card to keep or revert its changes.${review === null ? " Following Settings." : ""}`}</T>
+          <T style={dimSmall}>{`A checkpoint before and after each turn, and a card to keep or revert the files it changed.${review === null ? " Following Settings." : ""}`}</T>
         </T>
       </Check>
       </View>

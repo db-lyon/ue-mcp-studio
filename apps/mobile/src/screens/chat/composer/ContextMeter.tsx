@@ -152,6 +152,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <SmallButtonWide
                   title="Compact now"
+                  hint={busy ? "Available when the turn ends" : "Summarize the conversation to free context; the transcript stays"}
                   disabled={busy || compacting || !view}
                   onPress={() => {
                     setOpen(false);
@@ -209,10 +210,10 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   );
 }
 
-function SmallButtonWide({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
+function SmallButtonWide({ title, hint, onPress, disabled }: { title: string; hint?: string; onPress: () => void; disabled?: boolean }) {
   const t = useTheme();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingVertical: 6, paddingHorizontal: 12, justifyContent: "center", borderRadius: t.radius, borderWidth: 1, borderColor: disabled ? t.c.disabledLine : pressed ? t.c.accentLine : t.c.lineStrong, backgroundColor: pressed && !disabled ? t.c.panel3 : t.c.panel2 })}>
+    <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityHint={hint} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingVertical: 6, paddingHorizontal: 12, justifyContent: "center", borderRadius: t.radius, borderWidth: 1, borderColor: disabled ? t.c.disabledLine : pressed ? t.c.accentLine : t.c.lineStrong, backgroundColor: pressed && !disabled ? t.c.panel3 : t.c.panel2 })}>
       <T style={[buttonText(t), { color: disabled ? t.c.dim : t.c.text }]}>{title}</T>
     </Pressable>
   );
@@ -251,14 +252,14 @@ export function ContextWarning({ view, runtime, busy, onCompact, onDismiss }: { 
     >
       <ContextRing view={view} />
       <T style={{ ...(inner > 0 ? { flexBasis: inner - 90, flexGrow: 1, flexShrink: 1 } : { flex: 1 }), minWidth: 0, fontSize: 12.5, lineHeight: 12.5 * (t.editor ? 1.5 : 1.55), color: t.c.text }}>{contextWarningText(view, runtime)}</T>
-      <SmallButtonPrimary title="Compact now" disabled={busy} onPress={onCompact} />
+      <SmallButtonPrimary title="Compact now" hint={busy ? "Available when the turn ends" : undefined} disabled={busy} onPress={onCompact} />
       <IconButton label="Dismiss" glyph={"×"} onPress={onDismiss} />
     </View>
   );
 }
 
 /** button.primary: the ui Button, which draws editor-orange's black bold words on the orange. */
-function SmallButtonPrimary({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
-  return <Button title={title} variant="primary" disabled={disabled} onPress={onPress} />;
+function SmallButtonPrimary({ title, hint, onPress, disabled }: { title: string; hint?: string; onPress: () => void; disabled?: boolean }) {
+  return <Button title={title} hint={hint} variant="primary" disabled={disabled} onPress={onPress} />;
 }
 

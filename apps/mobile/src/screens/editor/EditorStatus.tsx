@@ -33,7 +33,7 @@ export function EditorStatus() {
   };
 
   const raw = h.raw as Record<string, unknown> | null;
-  if (!raw) return <T tone="muted">Connecting to the daemon...</T>;
+  if (!raw) return <T tone="muted">Connecting to ue-mcp</T>;
   const anyUp = h.editors.some((e) => e.connected);
   const exts = Array.isArray(raw.extensions) ? (raw.extensions as Array<{ name: string; version?: string }>) : [];
   const strong = font(t, "sans", 700, t.base.size);

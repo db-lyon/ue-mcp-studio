@@ -86,7 +86,7 @@ describe("the lock screen", () => {
     await settle();
     expect(screen.getByText("Wrong PIN.")).toBeTruthy();
     expect(screen.getByText("Try again in 32 s.")).toBeTruthy();
-    expect(screen.getByText("3 tries left before this browser is removed.")).toBeTruthy();
+    expect(screen.getByText("3 tries left before this device is removed.")).toBeTruthy();
     expect(screen.getByLabelText("0 of 4 digits entered")).toBeTruthy();
     // Blocked while the wait runs: a key does nothing.
     fireEvent.click(screen.getByLabelText("5"));
@@ -98,7 +98,7 @@ describe("the lock screen", () => {
     await lock.refresh();
     render(<RemoteLock lock={lock} computerKey="k" />);
     expect(screen.getByText("Try again in 5 s.")).toBeTruthy();
-    expect(screen.getByText("1 try left before this browser is removed.")).toBeTruthy();
+    expect(screen.getByText("1 try left before this device is removed.")).toBeTruthy();
   });
 
   it("tells a removed phone to pair again", async () => {
@@ -108,7 +108,8 @@ describe("the lock screen", () => {
     render(<RemoteLock lock={lock} computerKey="k" onRemoved={removed} />);
     for (const d of ["1", "1", "1", "1"]) fireEvent.click(screen.getByLabelText(d));
     await settle();
-    expect(screen.getByText("This browser was removed")).toBeTruthy();
+    expect(screen.getByText("This device was removed")).toBeTruthy();
+    expect(screen.getByText("Too many wrong PINs. Pair this device again from Studio on the computer.")).toBeTruthy();
     fireEvent.click(screen.getByText("Pair again"));
     expect(removed).toHaveBeenCalled();
   });
@@ -161,7 +162,7 @@ describe("the connection to ue-mcp", () => {
     renderInProject(<Conn />, fakeApi(), project);
     for (let t = 0; t <= REMOTE_RECONNECT_MS + 1000; t += 1000) await act(async () => void vi.advanceTimersByTime(1000));
     expect(screen.getByText("ue-mcp on your computer is offline")).toBeTruthy();
-    expect(screen.getByText(/there is nothing to run here/)).toBeTruthy();
+    expect(screen.getByText(/Remote control is off for this project, ue-mcp is stopped or restarting, or the computer is asleep or offline\./)).toBeTruthy();
     fireEvent.click(screen.getByText("Retry"));
     expect(project.reconnect).toHaveBeenCalled();
   });
@@ -170,7 +171,7 @@ describe("the connection to ue-mcp", () => {
 describe("refused", () => {
   it("names the ue-mcp Studio needs and says updates run on the computer", () => {
     render(<RefusedScreen refusal={{ needs: "1.4.11-beta.6", have: "1.4.11-beta.4" }} />);
-    expect(screen.getByText("Studio needs ue-mcp 1.4.11-beta.6. You have 1.4.11-beta.4.")).toBeTruthy();
+    expect(screen.getByText("Studio needs ue-mcp 1.4.11-beta.6 or later. You have 1.4.11-beta.4.")).toBeTruthy();
     expect(screen.getByText("Updates run from Studio on the computer.")).toBeTruthy();
     expect(screen.queryByText("Update ue-mcp")).toBeNull();
   });
@@ -182,7 +183,7 @@ describe("banners", () => {
     api.versionNotice.mockResolvedValue({ notice: { installed: "0.1.25", current: "0.1.23" } });
     renderInProject(<VersionNotice daemon={daemon()} />, api);
     await settle();
-    expect(screen.getByText(/Studio 0.1.25 was installed by another project. This project uses 0.1.23./)).toBeTruthy();
+    expect(screen.getByText(/Studio 0.1.25 is installed on this computer. This project uses 0.1.23./)).toBeTruthy();
     expect(screen.getByText(/Updates run from Studio on the computer./)).toBeTruthy();
     expect(screen.queryByText("Update this project")).toBeNull();
   });
@@ -193,8 +194,8 @@ describe("banners", () => {
     api.editor.mockResolvedValue({ steps: [{ ok: true }] });
     renderInProject(<EditorBanner daemon={daemon({ health: { version: "1", editors: [{ name: "E", connected: false }] } })} compact />, api);
     await settle();
-    fireEvent.click(screen.getByText("Editor off"));
-    expect(screen.getByText("Editor not running")).toBeTruthy();
+    fireEvent.click(screen.getByText("Editor offline"));
+    expect(screen.getByText("Editor not connected")).toBeTruthy();
     fireEvent.click(screen.getByText("Start"));
     expect(api.editor).toHaveBeenCalledWith("start");
   });
@@ -334,10 +335,10 @@ describe("an update run on the computer", () => {
     expect(screen.getByText("ue-mcp restarts. This panel reloads when it is back.")).toBeTruthy();
     const kept = { ...run, steps: [{ key: "studio", state: "deferred" }] };
     rerender(<UpdateRunner streaming events={[ev(1, { run }), ev(2, { run: kept })]} />);
-    expect(screen.getByText(/when the current turn finishes/)).toBeTruthy();
+    expect(screen.getByText(/Studio restarts once no turn is in progress\./)).toBeTruthy();
     fireEvent.click(screen.getByText("Restart now"));
-    expect(screen.getByText("Restart and stop the turn")).toBeTruthy();
-    expect(screen.getByText(/Restarting now stops the turn in progress/)).toBeTruthy();
+    expect(screen.getByText("Restart and stop turns")).toBeTruthy();
+    expect(screen.getByText(/Restarting now stops every turn in progress/)).toBeTruthy();
   });
 });
 

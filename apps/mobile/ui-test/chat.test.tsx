@@ -151,7 +151,7 @@ describe("QueuedMessages", () => {
 
   it("says the queue goes one by one while a turn runs, without Send next", () => {
     renderInProject(<QueuedMessages queue={queue} busy onEdit={() => undefined} onRemove={() => undefined} onSendNext={() => undefined} />);
-    expect(screen.getByText("Queued (2), sent one by one as each turn ends")).toBeTruthy();
+    expect(screen.getByText("Queued (2), sent one by one as each turn completes")).toBeTruthy();
     expect(screen.queryByLabelText("Send next")).toBeNull();
   });
 });
@@ -256,7 +256,7 @@ describe("TurnReviewCard", () => {
     fireEvent.click(screen.getByLabelText("Revert all"));
     await settle();
     expect(api.reviewRevert).toHaveBeenCalledWith("s1", "r1", ["Config/DefaultEngine.ini", "Content/BP_Door.uasset"], false);
-    expect(screen.getByText("1 file was edited after the agent and left as they are.")).toBeTruthy();
+    expect(screen.getByText("1 file was changed outside the agent and left as they are.")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("DefaultEngine.ini"));
     await settle();
     expect(api.reviewDiff).toHaveBeenCalledWith("s1", "r1", "Config/DefaultEngine.ini");

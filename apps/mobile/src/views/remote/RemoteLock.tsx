@@ -117,7 +117,7 @@ function PinForm({ lock, submitLabel, onCancel, bio, onUnlocked }: { lock: Lock;
         {left > 0 ? <T style={s.noteText}>Try again in {left} s.</T> : null}
         {remaining !== undefined && remaining <= 5 && !view.removed ? (
           <T style={s.noteText}>
-            {remaining} {remaining === 1 ? "try" : "tries"} left before this browser is removed.
+            {remaining} {remaining === 1 ? "try" : "tries"} left before this device is removed.
           </T>
         ) : null}
       </View>
@@ -196,15 +196,15 @@ export function LockScreen({ lock, bio, onUnlocked, onRemoved }: { lock: Lock; b
   const s = useStyles(styles);
   const view = useLockView(lock);
   return (
-    <View style={s.screen} accessibilityViewIsModal accessibilityLabel={view.removed ? "This browser was removed" : "Studio is locked"}>
+    <View style={s.screen} accessibilityViewIsModal accessibilityLabel={view.removed ? "This device was removed" : "Studio is locked"}>
       <View style={s.card}>
         <LockGlyph />
         <T style={s.title} accessibilityRole="header">
-          {view.removed ? "This browser was removed" : "Studio is locked"}
+          {view.removed ? "This device was removed" : "Studio is locked"}
         </T>
         {view.removed ? (
           <>
-            <T style={s.lead}>Too many wrong PINs. Pair this browser again from Studio on the computer.</T>
+            <T style={s.lead}>Too many wrong PINs. Pair this device again from Studio on the computer.</T>
             {onRemoved ? <Button title="Pair again" variant="primary" onPress={onRemoved} /> : null}
           </>
         ) : (

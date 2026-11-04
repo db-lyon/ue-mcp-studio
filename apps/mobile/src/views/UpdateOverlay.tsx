@@ -6,7 +6,7 @@
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { StyleSheet, View } from "react-native";
-import { STEP_NAME, STEP_NOTE, waitingSteps, type UpdateRun } from "@ue-mcp-studio/client-core";
+import { STEP_NAME, STEP_NOTE, waitingSteps, waitingWho, type UpdateRun } from "@ue-mcp-studio/client-core";
 import { Banner, Button, font, Row, Spacer, Spinner, T, useStyles, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import type { DaemonEvent } from "../state";
@@ -84,15 +84,14 @@ export function UpdateWaiting({ run }: { run: UpdateRun }) {
   const { api } = useProjectNav();
   const [sure, setSure] = useState(false);
   const steps = waitingSteps(run);
-  const restarts = steps.some((k) => k === "studio" || k === "restart");
   return (
     <Banner kind="warn" role="status" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginTop: 0, marginHorizontal: 6, marginBottom: 6 }}>
       <T style={{ flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0, color: t.c.warnText }}>
-        <T weight={700} style={{ color: t.c.warnText }}>Update ready,</T> {restarts ? "restarts" : "the editor restarts for it"} when the current turn finishes.
-        {sure ? <T style={{ color: t.c.dim }}> Restarting now stops the turn in progress.</T> : null}
+        <T weight={700} style={{ color: t.c.warnText }}>Update ready.</T> {waitingWho(steps)} once no turn is in progress.
+        {sure ? <T style={{ color: t.c.dim }}> Restarting now stops every turn in progress.</T> : null}
       </T>
       {sure ? <Button title="Cancel" variant="ghost" onPress={() => setSure(false)} /> : null}
-      <Button title={sure ? "Restart and stop the turn" : "Restart now"} variant={sure ? "primary" : "default"} onPress={() => (sure ? void restartNow(run, api) : setSure(true))} />
+      <Button title={sure ? "Restart and stop turns" : "Restart now"} variant={sure ? "primary" : "default"} onPress={() => (sure ? void restartNow(run, api) : setSure(true))} />
     </Banner>
   );
 }
@@ -134,7 +133,7 @@ export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boo
             );
           })}
         </View>
-        {slow && !failed ? <T style={[s.small, { color: t.c.dim }]}>Taking longer than it should. If Studio does not reload, close its tab and open it again.</T> : null}
+        {slow && !failed ? <T style={[s.small, { color: t.c.dim }]}>Taking longer than it should. If Studio does not reload, close Studio and open it again.</T> : null}
         {failed ? (
           <Banner kind="bad" style={{ marginBottom: 0 }}>
             <T style={[s.smallFlat, { color: t.c.badText }]}>{run.error}</T>

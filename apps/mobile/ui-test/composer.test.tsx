@@ -275,7 +275,7 @@ describe("the @-mention menu", () => {
     type("Put a light over @actor:Fro");
     await act(async () => void (await new Promise((r) => setTimeout(r, 200))));
     expect(search).toHaveBeenCalledWith({ query: "Fro", kinds: ["actor"] }, expect.anything());
-    expect(screen.getByText("Actors need a running editor.")).toBeTruthy();
+    expect(screen.getByText("Actors need the editor connected and not busy.")).toBeTruthy();
     expect(screen.queryByText(/No actors match/)).toBeNull();
   });
 

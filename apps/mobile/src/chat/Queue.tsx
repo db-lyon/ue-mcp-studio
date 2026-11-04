@@ -40,7 +40,7 @@ export function QueuedMessages({ queue, busy, onEdit, onRemove, onSendNext }: {
     <ScrollView accessibilityLabel="Queued messages" style={{ flexGrow: 0, maxHeight: height * 0.28, borderTopWidth: 1, borderTopColor: t.c.line, backgroundColor: t.c.composerBg }} contentContainerStyle={{ gap: 2, paddingVertical: 6, paddingHorizontal: 10 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 2, paddingBottom: 4 }}>
         <T style={[small(t), { color: t.c.dim, flex: 1 }]}>
-          Queued ({queue.length}){busy ? ", sent one by one as each turn ends" : ""}
+          Queued ({queue.length}){busy ? ", sent one by one as each turn completes" : ""}
         </T>
         {!busy ? <SmallButton title="Send next" variant="ghost" onPress={onSendNext} /> : null}
       </View>

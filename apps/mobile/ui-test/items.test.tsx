@@ -44,9 +44,20 @@ describe("Approvals: every kind", () => {
     expect(screen.getByText("asset.delete")).toBeTruthy();
     expect(screen.getByText(/"path": "\/Game\/Old"/)).toBeTruthy();
     expect(screen.getByText("ue-mcp marks this action as one that deletes or overwrites.")).toBeTruthy();
-    expect(screen.getByText(/Unsaved work in the editor is lost\./)).toBeTruthy();
+    expect(screen.getByText("Restart the editor. Unsaved work gets the editor's save prompt first.")).toBeTruthy();
     expect(screen.getByText("Why: Live Coding cannot add a class")).toBeTruthy();
-    expect(screen.getByText("from subagent builder")).toBeTruthy();
+    expect(screen.getByText("from subagent builder")).toBeTruthy();  });
+
+  it("titles an editor stop and start by what they do, and a start loses nothing", () => {
+    const approvals: ApprovalRequest[] = [
+      { id: "a3", toolUseId: "t3", tool: "editor_restart", parent: null, at, operation: "stop" },
+      { id: "a4", toolUseId: "t4", tool: "editor_restart", parent: null, at, operation: "start" },
+    ] as unknown as ApprovalRequest[];
+    renderInProject(<Approvals sessionId="s1" approvals={approvals} />);
+    expect(screen.getByText("Stop the editor?")).toBeTruthy();
+    expect(screen.getByText("Stop the editor. Unsaved work gets the editor's save prompt first.")).toBeTruthy();
+    expect(screen.getByText("Start the editor?")).toBeTruthy();
+    expect(screen.getByText("Start the editor.")).toBeTruthy();
   });
 
   it("with the PIN asked for, the buttons wait; a cancelled PIN puts them back with the refusal", async () => {
@@ -248,9 +259,10 @@ describe("TurnReviewCard: a conflict and an undo", () => {
       api,
     );
     expect(screen.getByText("Outside the agent")).toBeTruthy();
-    expect(screen.getByText("You edited this file after the agent, so Revert left it alone.")).toBeTruthy();
+    expect(screen.getByText("This file was changed outside the agent, so Revert left it alone.")).toBeTruthy();
     fireEvent.click(screen.getByText("Revert anyway"));
-    fireEvent.click(screen.getByText("Revert and lose my edits"));
+    expect(screen.getByText("Keep those changes")).toBeTruthy();
+    fireEvent.click(screen.getByText("Revert and lose those changes"));
     await settle();
     expect(api.reviewRevert).toHaveBeenCalledWith("s1", "r2", ["Content/Maps/L_Playtest.umap"], true);
     fireEvent.click(screen.getByText("Undo revert"));

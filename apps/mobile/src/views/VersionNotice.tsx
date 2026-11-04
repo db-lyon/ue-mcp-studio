@@ -28,7 +28,7 @@ export function VersionNoticeLine({ notice, onUpdate, onKeep, busy, error, remot
   return (
     <Banner kind="warn" role="status" style={SHELL_BANNER}>
       <T style={{ flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0, color: t.c.warnText }}>
-        Studio {notice.installed} was installed by another project. This project uses {notice.current}.
+        Studio {notice.installed} is installed on this computer. This project uses {notice.current}.
         {error ? <T style={{ color: t.c.dim }}> {error}</T> : null}
         {remote ? <T style={{ color: t.c.dim }}> {REMOTE_UPDATES}</T> : null}
       </T>

@@ -224,7 +224,7 @@ function EndpointsCard() {
     <Card>
       <CardLabel actions={list ? <Button title="Add endpoint" disabled /> : undefined}>Custom endpoints</CardLabel>
       <Txt size={12} tone="dim" style={{ marginBottom: 12 }}>
-        Any OpenAI Chat Completions server, local or hosted. Its models read AGENTS.md and .agents/skills.
+        Any OpenAI Chat Completions server, local or hosted. With Project agent files on, its models read AGENTS.md and .agents/skills.
       </Txt>
       {error ? (
         <Banner kind="bad" role="alert" style={{ marginBottom: 8, flexDirection: "row", alignItems: "center", gap: 10 }}>

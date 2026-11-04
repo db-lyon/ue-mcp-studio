@@ -1,6 +1,6 @@
 /**
  * The web client's views/remote/approvals.tsx, the parts the /remote reply
- * shows: devices waiting to be allowed, and the paired browsers with Remove.
+ * shows: devices waiting to be allowed, and the paired devices with Remove.
  */
 import { useCallback, useEffect, useState } from "react";
 import { View } from "react-native";
@@ -100,7 +100,7 @@ export function ApprovalPrompt({ approval, onDecide }: { approval: RemoteApprova
           <T style={{ color: text }}>Code</T>
           <T style={{ ...font(t, "mono", 600, 22, 1.2), letterSpacing: 1.32, color: t.c.text }}>{formatPairingCode(approval.code)}</T>
         </View>
-        <T style={[small(t), { color: t.c.dim }]}>Allow it only if your device shows the same code. Anyone you allow can run the agent on this computer.</T>
+        <T style={[small(t), { color: t.c.dim }]}>Allow it only if your device shows the same code. An allowed device can use Studio in every project on this computer.</T>
         {error ? <T accessibilityRole="alert" style={[small(t), { color: t.c.badText }]}>{error}</T> : null}
       </View>
       <View style={{ flexDirection: "row", gap: 8 }}>
@@ -111,7 +111,7 @@ export function ApprovalPrompt({ approval, onDecide }: { approval: RemoteApprova
   );
 }
 
-/** The browsers paired with this computer, each with Remove. */
+/** The devices paired with this computer, each with Remove. */
 export function PairedBrowsers() {
   const t = useTheme();
   const { api, project } = useProjectNav();
@@ -138,8 +138,8 @@ export function PairedBrowsers() {
   if (!browsers) return error ? <T style={[small(t), { color: t.c.badText }]}>{error}</T> : null;
   return (
     <View style={{ marginTop: 12, gap: 6 }}>
-      <T style={[small(t), { color: t.c.muted, textTransform: "uppercase", letterSpacing: 0.48 }]}>Paired browsers</T>
-      {browsers.length === 0 ? <T style={[small(t), { color: t.c.muted }]}>No browsers paired yet.</T> : null}
+      <T style={[small(t), { color: t.c.muted, textTransform: "uppercase", letterSpacing: 0.48 }]}>Paired devices</T>
+      {browsers.length === 0 ? <T style={[small(t), { color: t.c.muted }]}>No devices paired yet.</T> : null}
       {browsers.map((b) => (
         <View key={b.id} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
           {/* .grow has no rule here: the name takes its own width, Remove right after it. */}
