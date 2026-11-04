@@ -15,6 +15,7 @@
     "@ue-mcp-studio/shared": "*",
     "expo": "~58.0.20",
     "expo-camera": "~58.0.13",
+    "expo-clipboard": "~58.0.4",
     "expo-crypto": "~58.0.7",
     "expo-font": "~58.0.10",
     "expo-secure-store": "~58.0.2",
@@ -23,7 +24,12 @@
     "marked": "^18.1.2",
     "react": "19.3.0",
     "react-native": "0.88.0",
-    "react-native-safe-area-context": "~5.10.1"
+    "react-native-safe-area-context": "~5.10.1",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "unified": "^11.0.5"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.3",
