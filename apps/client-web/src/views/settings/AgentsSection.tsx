@@ -7,9 +7,9 @@ import { NativePanel } from "./NativePanel";
 import { Card, NumberField, Row, Seg, Switch, useMessage } from "./controls";
 
 export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
-  { id: "small", name: `Small ${IMAGE_EDGES.small} px` },
-  { id: "standard", name: `Standard ${IMAGE_EDGES.standard} px` },
-  { id: "full", name: `Full ${IMAGE_EDGES.full} px` },
+  { id: "small", name: `Small ${IMAGE_EDGES.small}\u00a0px` },
+  { id: "standard", name: `Standard ${IMAGE_EDGES.standard}\u00a0px` },
+  { id: "full", name: `Full ${IMAGE_EDGES.full}\u00a0px` },
 ];
 
 const SAME = "Same as main agent";

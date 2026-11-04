@@ -32,12 +32,19 @@ describe("source control in the top bar", () => {
   it("opens the changes, and shows the picked file's diff", async () => {
     m.vcs.mockResolvedValue({ vcs: git });
     m.vcsChanges.mockResolvedValue({ changes: [{ path: "Config/DefaultEngine.ini", status: "modified" }, { path: "Content/Map.umap", status: "added" }], truncated: false });
-    m.vcsDiff.mockImplementation(async (p: string) => (p.endsWith(".ini") ? { diff: "@@ -1 +1 @@\n-old\n+new" } : { diff: null, reason: "A binary file: open it in the editor to see it." }));
+    m.vcsDiff.mockImplementation(async (p: string) => (p.endsWith(".ini") ? { diff: "diff --git a/Config/DefaultEngine.ini b/Config/DefaultEngine.ini\n@@ -1 +1 @@\n-old\n+new" } : { diff: null, reason: "A binary file: open it in the editor to see it." }));
     render(<VcsChip events={[]} />);
     await waitFor(() => expect(screen.getByText(/main, 3 changed, 2 ahead/)).toBeTruthy());
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /Git/ })));
     await waitFor(() => expect(screen.getByRole("dialog", { name: "Changes" })).toBeTruthy());
-    await waitFor(() => expect(screen.getByText("+new")).toBeTruthy());
+    // Each change line is its sign in a gutter and its text beside it; the file header stays one line.
+    await waitFor(() => expect(document.querySelector("pre.diff .diff-line.add")).not.toBeNull());
+    const added = document.querySelector("pre.diff .diff-line.add")!;
+    expect(added.querySelector(".diff-op")?.textContent).toBe("+");
+    expect(added.querySelector(".diff-text")?.textContent).toBe("new\n");
+    expect(document.querySelector("pre.diff .diff-line.del .diff-text")?.textContent).toBe("old\n");
+    expect(document.querySelector("pre.diff .meta")?.getAttribute("title")).toBe("diff --git a/Config/DefaultEngine.ini b/Config/DefaultEngine.ini");
+    expect(document.querySelector("pre.diff .hunk")?.textContent).toBe("@@ -1 +1 @@\n");
     await act(async () => fireEvent.click(screen.getByTitle("Content/Map.umap")));
     await waitFor(() => expect(screen.getByText(/A binary file/)).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Close" }));

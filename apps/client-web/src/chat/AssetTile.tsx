@@ -157,10 +157,12 @@ export function AssetTile({ cls, fileName, path, status, changes, facts, note }:
 }
 
 /** A picture that becomes `fallback` when it fails to load, so a missing file never leaves a broken frame. */
-export function PictureOr({ src, alt, title, lazy, fallback }: { src: string; alt: string; title?: string; lazy?: boolean; fallback: ReactNode }) {
+export function PictureOr({ src, alt, title, lazy, fallback, caption }: { src: string; alt: string; title?: string; lazy?: boolean; fallback: ReactNode; caption?: ReactNode }) {
   const [failed, setFailed] = useState(false);
   if (failed) return <>{fallback}</>;
-  return <img src={src} alt={alt} title={title} loading={lazy ? "lazy" : undefined} onError={() => setFailed(true)} />;
+  const img = <img src={src} alt={alt} title={title} loading={lazy ? "lazy" : undefined} onError={() => setFailed(true)} />;
+  // A caption names the picture that drew, so it is never read as the note of the one beside it that failed.
+  return caption ? <>{img}<span className="picture-caption mono small dim">{caption}</span></> : img;
 }
 
 /** The tile's facts for a package diff. */
