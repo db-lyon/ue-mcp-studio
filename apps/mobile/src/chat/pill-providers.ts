@@ -1,2 +1,2 @@
-// The pill providers are client-core's, the same as the web client's.
-export { PILL_PROVIDERS, makePlaytestPill, pillsFor, type Pill, type PillActions, type PillProvider } from "@ue-mcp-studio/client-core";
+// Moved to the composer area (src/screens/chat/composer); this path keeps old imports working.
+export * from "../screens/chat/composer/pill-providers";
