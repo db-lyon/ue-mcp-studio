@@ -418,6 +418,104 @@ function remotePair(title: string, o: { state: "connecting" | "online" | "error"
   };
 }
 
+/** The daemon's health with the editor connected or not, and how it last dropped. */
+const health = (connected: boolean, lastDisconnect: { cause: string; at: string } | null = null) => ({
+  ok: true, pid: 4120, version: "1.4.11-beta.4", apiVersion: 1, projectRoot: "C:/Users/dev/Projects/StudioE2E", startedAt: ago(95),
+  editors: [{ name: "StudioE2E", connected, port: 9877, pid: connected ? 22816 : null, lastDisconnect }],
+  clients: 2, inflight: connected ? 1 : 0, lastEventId: 0, extensions: [{ name: "studio", version: "0.1.25-beta.31" }], ui: "0.1.25-beta.31", features: ["checkpoints"],
+});
+
+/** The editor's state for the top bar's chip: a busy answer, and the health it goes with. */
+function editorState(title: string, busy: Record<string, unknown>, o: { connected?: boolean; open?: boolean } = {}): Scenario {
+  return {
+    ...inSession(title, "Door hinge fix", []),
+    session: withTools(),
+    get: (p) => (p === "/v1/ext/studio/busy" ? { now: Date.now(), calls: [], ...busy } : p === "/v1/health" ? health(o.connected ?? true) : undefined),
+    ...(o.open ? { click: "button.editor-chip" } : {}),
+  };
+}
+
+const busyCall = (id: number, category: string, action: string, seconds: number, over: Record<string, unknown> = {}) =>
+  ({ id, category, action, startedAt: Date.now() - seconds * 1000, source: "studio", sessionId: SESSION_ID, stopped: false, ...over });
+const REBUILD = { operation: { op: "rebuild", step: "project.build", startedAt: Date.now() - 83_000, stepStartedAt: Date.now() - 41_000 } };
+const RESTART = { operation: { op: "restart", step: "connect", startedAt: Date.now() - 37_000, stepStartedAt: Date.now() - 9_000 } };
+const BUSY = { calls: [busyCall(1, "blueprint", "compile_blueprint", 12), busyCall(2, "level", "spawn_actor", 4)] };
+const BUSY_CLIENT = { calls: [busyCall(3, "asset", "import_assets", 47, { source: "client", sessionId: undefined, client: "Cursor" })] };
+const STOPPED = { calls: [busyCall(1, "blueprint", "compile_blueprint", 26, { stopped: true })] };
+const FAILED = { failure: { op: "restart", step: "connect", reason: "The editor started but did not connect within 120 s. Its log ends with a shader compile error.", at: Date.now() - 20_000 } };
+
+/** The project's flows, and the plan of the one with inputs. */
+const FLOWS = [
+  { name: "build-and-test", description: "Build the C++ project, then run the automation tests.", stepCount: 2 },
+  { name: "bake-lighting", description: "Build lighting for the open level at production quality.", stepCount: 3 },
+  { name: "playtest-smoke", stepCount: 4 },
+];
+const FLOW_PLAN = {
+  inputs: [
+    { name: "map", type: "string", description: "The level to open first.", required: true, steps: [{ path: "1", task: "level.open", flow: "bake-lighting" }] },
+    { name: "quality", type: "string", enum: ["Preview", "Medium", "High", "Production"], default: "Production", required: false, steps: [{ path: "2", task: "level.build_lighting", flow: "bake-lighting" }] },
+    { name: "save", type: "boolean", default: true, required: false, description: "Save the level when the build ends.", steps: [{ path: "3", task: "level.save", flow: "bake-lighting" }] },
+  ],
+};
+
+/** A session with /flow typed into the message box and sent, the project's flows and plans answered. */
+function flowTyped(title: string, typed: string, plans: Record<string, unknown> = {}): Scenario {
+  return {
+    ...inSession(title, "Door hinge fix", []),
+    get: (p) => (p === "/v1/flows" ? { flows: FLOWS } : p.startsWith("/v1/flows/") && p.endsWith("/plan") ? plans[decodeURIComponent(p.split("/")[3])] : undefined),
+    post: (p) => (p.endsWith("/draft") ? { status: 200, body: {} } : undefined),
+    type: { into: ".composer textarea:not(.composer-mirror)", text: `${typed}\n` },
+    afterType: { clicks: [], wait: 900 },
+  };
+}
+
+type FlowEntry = Extract<TranscriptEntry, { kind: "flow" }>;
+
+/** A /flow's card in the transcript, in one state. */
+function flowRan(title: string, flow: FlowEntry): Scenario {
+  const d = detail("Bake the cave", []);
+  return { ...inSession(title, "Bake the cave", []), session: { ...d, transcript: [{ kind: "user", text: "/flow bake-lighting map=/Game/Maps/L_Cave", at: ago(4) }, flow] } };
+}
+
+const flowEntry = (state: "running" | "succeeded" | "failed"): FlowEntry => ({
+  kind: "flow",
+  name: "bake-lighting",
+  params: { map: "/Game/Maps/L_Cave" },
+  state,
+  steps: [
+    { id: "1", name: "level.open", state: "done" },
+    { id: "2", name: "level.build_lighting", state: state === "running" ? "running" : state === "failed" ? "failed" : "done", ...(state === "failed" ? { error: "Lightmass crashed: out of memory on 4 of 6 tasks." } : {}) },
+    { id: "2/1", name: "lighting.check_swarm", depth: 1, state: "done" },
+    { id: "3", name: "level.save", state: state === "succeeded" ? "done" : "skipped" },
+  ],
+  ...(state === "running" ? {} : { duration: state === "failed" ? 48_200 : 212_400 }),
+  ...(state === "succeeded" ? { summary: "Lighting built for L_Cave: 1,284 lightmaps, 3 m 32 s.\nSaved /Game/Maps/L_Cave." } : {}),
+  ...(state === "failed" ? { errors: ["level.build_lighting failed: Lightmass crashed: out of memory on 4 of 6 tasks.", "level.save was not run."] } : {}),
+  at: ago(3),
+});
+
+export const EDITOR_SCENARIOS: Record<string, Scenario> = {
+  "editor-chip-operation": editorState("Top bar: the editor chip while the daemon rebuilds the project", REBUILD, { connected: false }),
+  "editor-chip-operation-open": editorState("The editor chip opened during a rebuild: the step and its timer", REBUILD, { connected: false, open: true }),
+  "editor-chip-restart-open": editorState("The editor chip opened during a restart: waiting for the editor to connect", RESTART, { connected: false, open: true }),
+  "editor-chip-busy": editorState("Top bar: the editor chip while a ue-mcp call holds the editor", BUSY),
+  "editor-chip-busy-open": editorState("The editor chip opened while busy: the call, how many more, and Stop", BUSY, { open: true }),
+  "editor-chip-busy-client-open": editorState("The editor chip opened while another MCP client's call holds the editor: no Stop", BUSY_CLIENT, { open: true }),
+  "editor-chip-stopped-open": editorState("The editor chip opened after Stop: the editor finishing the call", STOPPED, { open: true }),
+  "editor-chip-off": editorState("Top bar: the editor chip with the editor not running", {}, { connected: false }),
+  "editor-chip-off-open": editorState("The editor chip opened with the editor not running: Start", {}, { connected: false, open: true }),
+  "editor-chip-failed-open": editorState("The editor chip opened after a restart that did not bring the editor back: the step and the reason", FAILED, { connected: false, open: true }),
+  "diagnostics": { title: "Settings, Diagnostics: the editor connected, its controls and the daemon", hash: "#/settings/diagnostics", index: { playtests: [], listed: true }, get: (p) => (p === "/v1/health" ? health(true) : undefined), fullPage: true },
+  "diagnostics-disconnected": { title: "Settings, Diagnostics: the editor crashed, only Start offered", hash: "#/settings/diagnostics", index: { playtests: [], listed: true }, get: (p) => (p === "/v1/health" ? health(false, { cause: "crashed", at: ago(6) }) : undefined), fullPage: true },
+  "flow-launcher-unnamed": flowTyped("/flow with no name: the project's flows to pick from", "/flow "),
+  "flow-launcher-unknown": flowTyped("/flow with a name that is no flow: the closest names", "/flow bake-lightng "),
+  "flow-launcher-error": flowTyped("/flow whose plan cannot be read: the reason and Close", "/flow playtest-smoke "),
+  "flow-launcher-form": flowTyped("/flow with inputs: a form with the defaults and the typed pair filled in", "/flow bake-lighting map=/Game/Maps/L_Cave ", { "bake-lighting": FLOW_PLAN }),
+  "flow-card-running": flowRan("A /flow running in the transcript: its steps as they run", flowEntry("running")),
+  "flow-card-succeeded": flowRan("A /flow that succeeded: its steps, nested ones indented, and its summary", flowEntry("succeeded")),
+  "flow-card-failed": flowRan("A /flow that failed: the failed step's error, the step it never ran, and the errors", flowEntry("failed")),
+};
+
 export const SCENARIOS: Record<string, Scenario> = {
   "version-notice": {
     title: "Another project installed a newer Studio: Update this project and Keep (ue-mcp#1619)",
@@ -640,4 +738,5 @@ export const SCENARIOS: Record<string, Scenario> = {
   "page-row-offline-open": { title: "Playtests page, an open row while the editor is away: Edit and Delete disabled", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all", click: ".playtests-row:nth-child(4) .qa-toggle" },
   "page-empty": { title: "Playtests page with no playtests in the project", hash: "#/playtests", index: { playtests: [], listed: true }, filter: "all" },
   "page-editor-offline": { title: "Playtests page while the editor cannot list scripts", hash: "#/playtests", index: { playtests: PROJECT.slice(0, 5), listed: false }, filter: "all" },
+  ...EDITOR_SCENARIOS,
 };
