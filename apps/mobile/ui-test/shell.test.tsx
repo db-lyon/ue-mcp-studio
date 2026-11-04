@@ -339,6 +339,14 @@ describe("an update run on the computer", () => {
     expect(screen.getByText("Restart and stop the turn")).toBeTruthy();
     expect(screen.getByText(/Restarting now stops the turn in progress/)).toBeTruthy();
   });
+
+  it("keeps the banner's 10px under a stopped update's reason, above Close, as the web's .banner does", () => {
+    const run = { steps: [{ key: "plugin", state: "failed" }], target: null, at: Date.now(), error: "The editor plugin did not install." };
+    renderInProject(<UpdateRunner streaming events={[{ id: 1, type: "studio.update.run", at: "", data: { run } }]} />);
+    const box = screen.getByText("The editor plugin did not install.").parentElement!;
+    expect(getComputedStyle(box).marginBottom).toBe("10px");
+    expect(screen.getByText("Close")).toBeTruthy();
+  });
 });
 
 describe("the error boundary", () => {

@@ -88,7 +88,8 @@ export function UpdateWaiting({ run }: { run: UpdateRun }) {
   return (
     <Banner kind="warn" role="status" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginTop: 0, marginHorizontal: 6, marginBottom: 6 }}>
       <T style={{ flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0, color: t.c.warnText }}>
-        <T weight={700} style={{ color: t.c.warnText }}>Update ready,</T> {restarts ? "restarts" : "the editor restarts for it"} when the current turn finishes.
+        {/* <strong> keeps the banner's line height; T's own default for a weight is 1.55, the editor themes' base is 1.5. */}
+        <T weight={700} style={{ color: t.c.warnText, lineHeight: t.base.lineHeight }}>Update ready,</T> {restarts ? "restarts" : "the editor restarts for it"} when the current turn finishes.
         {sure ? <T style={{ color: t.c.dim }}> Restarting now stops the turn in progress.</T> : null}
       </T>
       {sure ? <Button title="Cancel" variant="ghost" onPress={() => setSure(false)} /> : null}
@@ -136,7 +137,7 @@ export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boo
         </View>
         {slow && !failed ? <T style={[s.small, { color: t.c.dim }]}>Taking longer than it should. If Studio does not reload, close its tab and open it again.</T> : null}
         {failed ? (
-          <Banner kind="bad" style={{ marginBottom: 0 }}>
+          <Banner kind="bad">
             <T style={[s.smallFlat, { color: t.c.badText }]}>{run.error}</T>
           </Banner>
         ) : null}
