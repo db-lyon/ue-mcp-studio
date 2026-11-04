@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { VcsChange, VcsStatus } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import { NARROW, matches, useMedia } from "../layout";
 
 /** "main, 3 changed, 2 ahead": where the project stands in its source control. */
 export function vcsLine(v: VcsStatus): string {
@@ -133,7 +134,13 @@ export function VcsChip({ events }: { events: unknown[] }) {
 }
 
 /** The changed files, and the diff of the one picked. */
+/**
+ * The changed files and one file's diff. Wide: the list beside the diff, the
+ * first file picked. Narrow: the list alone, and a file opens its diff in
+ * place of the list until Back.
+ */
 export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => void }) {
+  const narrow = useMedia(NARROW);
   const [changes, setChanges] = useState<VcsChange[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
@@ -158,12 +165,21 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
     api.vcsChanges().then((r) => {
       setChanges(r.changes);
       setTruncated(r.truncated);
-      if (r.changes[0]) setPicked(r.changes[0].path);
+      if (r.changes[0] && !matches(NARROW)) setPicked(r.changes[0].path);
     }, () => setChanges([]));
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+  }, []);
+
+  // Escape goes back from a diff opened on a narrow panel, and closes otherwise.
+  const drilled = narrow && picked !== null;
+  useEffect(() => {
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (drilled) setPicked(null);
+      else onClose();
+    };
     window.addEventListener("keydown", esc);
     return () => window.removeEventListener("keydown", esc);
-  }, []);
+  }, [drilled, onClose]);
 
   useEffect(() => {
     if (!picked) return setDiff(null);
@@ -173,16 +189,27 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
 
   return (
     <div className="changes-backdrop" onClick={onClose}>
-      <div className="changes-panel card" role="dialog" aria-label="Changes" onClick={(e) => e.stopPropagation()}>
+      <div className={`changes-panel card${drilled ? " drilled" : ""}`} role="dialog" aria-label="Changes" onClick={(e) => e.stopPropagation()}>
+        {drilled ? (
+          <div className="row changes-head changes-detail-head">
+            <button className="ghost chat-back-button changes-back" onClick={() => setPicked(null)} aria-label="Back to the changed files">
+              {"‹"}
+              <span className="chat-back-label">Changes</span>
+            </button>
+            <span className="changes-detail-name" title={picked ?? undefined}>{baseName(picked ?? "")}</span>
+            <button className="ghost" onClick={onClose}>Close</button>
+          </div>
+        ) : (
         <div className="row changes-head">
           <h2>Changes</h2>
           <span className="dim small">{vcs.name}, {vcsLine(vcs)}</span>
           <span className="spacer" />
           <button className="ghost" onClick={onClose}>Close</button>
         </div>
+        )}
         {changes === null && <p className="muted">Loading</p>}
         {changes?.length === 0 && <p className="muted">No changes.</p>}
-        {changes?.length !== 0 && (
+        {changes?.length !== 0 && !drilled && (
           <div className="changes-toolbar row">
             <div className="seg changes-view" role="group" aria-label="Show changes as">
               <button className={view === "list" ? "on" : ""} aria-pressed={view === "list"} onClick={() => pickView("list")}>List</button>
@@ -198,6 +225,7 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
         )}
         {changes && changes.length > 0 && (
           <div className="changes-body">
+            {!drilled && (
             <ul className={`changes-list ${view === "tree" ? "tree" : ""}`}>
               {view === "list"
                 ? changes.map((c) => (
@@ -229,6 +257,8 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
                   )}
               {truncated && <li className="dim small">More files changed than are listed.</li>}
             </ul>
+            )}
+            {(!narrow || drilled) && (
             <div className="changes-diff">
               {picked && <div className="dim small change-file">{picked}</div>}
               {picked && !diff && <p className="muted">Loading</p>}
@@ -239,6 +269,7 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
                 </pre>
               )}
             </div>
+            )}
           </div>
         )}
       </div>

@@ -1130,8 +1130,8 @@ label.row.toggle > input[type="checkbox"], label.row.toggle > input[type="radio"
   .keyform { padding: 14px 12px; }
   .changes-backdrop { padding: 8px; }
   .changes-panel { height: calc(100% - 0px); }
-  .changes-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 35%) minmax(0, 1fr); }
-  .changes-list { border-right: 0; border-bottom: 1px solid var(--line); }
+  .changes-body { grid-template-columns: 1fr; grid-template-rows: minmax(0, 1fr); }
+  .changes-list { border-right: 0; }
   .update-steps, .update-step { min-width: 0; }
 }
 @media (max-width: 480px) {
@@ -1815,14 +1815,15 @@ pre.diff > .meta { color: var(--dim); }
   .qa-edit-step > .row.small > input:not(.qa-edit-short), .qa-edit-step > .row.small > label { grid-column: 1 / -1; }
   .qa-edit-short { width: 100%; }
 
-  /* The changes sheet: Close beside the title, the status under them, and a file list no taller than it needs. */
+  /* The changes sheet: Close beside the title, the status under them; the file list or one file's diff, never both. */
   .changes-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; row-gap: 2px; }
   .changes-head > h2 { grid-column: 1; grid-row: 1; }
   .changes-head > button { grid-column: 2; grid-row: 1; }
   .changes-head > .dim { grid-column: 1 / -1; grid-row: 2; }
   .changes-head > .spacer { display: none; }
-  .changes-body { grid-template-rows: auto minmax(0, 1fr); }
-  .changes-list { max-height: 40vh; }
+  .changes-detail-head { display: flex; align-items: center; gap: 8px; }
+  .changes-detail-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; text-align: center; }
+  .changes-back { flex-shrink: 0; min-height: 44px; }
 
   /* A playtest card's toolbar starts at the same place on every card: under the title, from the left. */
   .qa-head .qa-box-actions { margin-left: 0; justify-content: flex-start; }
