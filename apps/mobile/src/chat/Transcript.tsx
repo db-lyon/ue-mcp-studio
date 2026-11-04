@@ -347,8 +347,14 @@ function JumpLatest({ onPress }: { onPress: () => void }) {
   );
 }
 
-/** .transcript: the scrolling column, 12px between lines, 14px 12px 10px inside. */
+/**
+ * .transcript: the scrolling column, 12px between lines, 14px 12px 10px inside.
+ * It paints the panel it sits on: a scroller Chrome scrolls on the GPU keeps
+ * subpixel text only over an opaque background, and react-native-web's
+ * ScrollViews scroll there.
+ */
 function Column({ follow, hidden, children }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; children: ReactNode }) {
+  const t = useTheme();
   const [width, setWidth] = useState<number | null>(null);
   const window = useWindowDimensions().width;
   const onLayout = (e: LayoutChangeEvent) => {
@@ -363,7 +369,7 @@ function Column({ follow, hidden, children }: { follow: ReturnType<typeof useFol
         onLayout={onLayout}
         accessibilityElementsHidden={hidden}
         importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
-        style={{ flex: 1 }}
+        style={{ flex: 1, backgroundColor: t.c.panel }}
         contentContainerStyle={{ gap: 12, paddingTop: 14, paddingHorizontal: 12, paddingBottom: 10 }}
       >
         {children}
