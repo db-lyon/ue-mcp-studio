@@ -3,6 +3,7 @@ import { qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/
 import { api } from "../api";
 import type { DaemonState } from "../state";
 import { QaCard, qaRunFromForm } from "./Qa";
+import { formContent, formInitial } from "@ue-mcp-studio/client-core";
 
 /** The forms waiting in this session, kept current from studio.form.changed. */
 export function useForms(daemon: Pick<DaemonState, "events" | "streaming">, sessionId: string | null): PendingForm[] {
@@ -37,16 +38,7 @@ export function FormCards({ forms, runs }: { forms: PendingForm[]; runs?: Readon
   );
 }
 
-const initial = (fields: Record<string, FormField>): Record<string, unknown> =>
-  Object.fromEntries(Object.entries(fields).map(([k, f]) => [k, f.default ?? (f.type === "boolean" ? false : f.type === "string" && f.enum ? f.enum[0] : "")]));
-
-/** What a form sends: the filled-in values, numbers as numbers, blanks left out. */
-export function formContent(fields: Record<string, FormField>, values: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(values).filter(([, v]) => v !== "").map(([k, v]) => {
-    const f = fields[k];
-    return [k, f && (f.type === "number" || f.type === "integer") ? Number(v) : v];
-  }));
-}
+export { formContent } from "@ue-mcp-studio/client-core";
 
 /**
  * A control per field and the form's buttons: the body of an elicitation
@@ -65,7 +57,7 @@ export function FieldsForm({ fields, required, prefill, sent, error, submitLabel
   onSubmit: (content: Record<string, unknown>) => void;
   onDecline: () => void;
 }) {
-  const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...initial(fields), ...prefill }));
+  const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...formInitial(fields), ...prefill }));
   const set = (k: string, v: unknown) => setValues((cur) => ({ ...cur, [k]: v }));
   const missing = requireFilled && required.some((k) => values[k] === "" || values[k] === undefined);
   return (
