@@ -1,4 +1,4 @@
-/** share.tsx on the web harness and in tests: nothing is ever shared in. */
+/** share.tsx on the web harness and in tests: nothing is shared in, unless the visual QA page sets __qaShared. */
 import type { ReactNode } from "react";
 import type { Shared } from "./share";
 
@@ -10,5 +10,5 @@ export function ShareProvider({ children }: { children: ReactNode }) {
 
 const NONE: Shared = { files: [], text: null, consume: () => undefined };
 export function useSharedFiles(): Shared {
-  return NONE;
+  return (globalThis as { __qaShared?: Shared }).__qaShared ?? NONE;
 }

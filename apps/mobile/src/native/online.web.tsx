@@ -1,4 +1,4 @@
-/** online.tsx on the web harness and in tests: always online. */
+/** online.tsx on the web harness and in tests: online, unless the visual QA page sets __qaOffline. */
 export function useDeviceOnline(): boolean {
-  return true;
+  return !(globalThis as { __qaOffline?: boolean }).__qaOffline;
 }

@@ -3,6 +3,12 @@
 //   node scripts/visual-qa.mjs --remote --widths 390 --out <web>     (the reference, once per change to client-web)
 //   node scripts/parity-mobile.mjs --web <web> [--web-computer <computer shots>] [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell] [--lcd-text]
 //   node scripts/parity-mobile.mjs --list                                (the scenarios and who owns each)
+//   node scripts/parity-mobile.mjs --scenes [name,prefix*,...|all] [--reference <dir>] [--out <dir>] [--themes ...]
+//
+// --scenes shoots the app's own screens no web scenario draws (apps/mobile/visual-qa/scenes.tsx: pairing,
+// the scanner, projects, paired devices, About, the phone-only banners) at 390 by 844 in each theme, as
+// <out>/<scene>-<theme>.png. A scene with a `reference` (a relay page's shot) is also put beside that
+// shot from --reference, as <out>/<scene>-<theme>-beside.png (relay | app).
 //
 // Serves apps/mobile/visual-qa with Vite: the app's own screens, drawn by
 // react-native-web against the same fixture daemon the web harness answers from
@@ -42,7 +48,9 @@ const BROWSERS = [
 ].filter(Boolean);
 const browserPath = BROWSERS.find((p) => fs.existsSync(p));
 if (!browserPath) throw new Error("no Chrome or Edge found: pass --browser <path> or set STUDIO_QA_BROWSER");
-if (!list && !webDir) throw new Error("pass --web <dir> with the web client's shots (node scripts/visual-qa.mjs --remote --widths 390 --out <dir>)");
+const scenesArg = process.argv.includes("--scenes") ? (arg("scenes") && !arg("scenes").startsWith("--") ? arg("scenes") : "all") : null;
+const referenceDir = arg("reference") ? path.resolve(arg("reference")) : null;
+if (!list && !webDir && !scenesArg) throw new Error("pass --web <dir> with the web client's shots (node scripts/visual-qa.mjs --remote --widths 390 --out <dir>)");
 
 const { chromium } = await import("playwright-core");
 const { PNG } = await import("pngjs");
@@ -63,8 +71,66 @@ const PAGE = "index.html";
 const first = await browser.newPage();
 await first.goto(`${base}/index.html?scenario=session-empty`);
 await first.waitForFunction(() => window.__mobileQa, null, { timeout: 60_000 });
-const { scenarios, parity } = await first.evaluate(() => window.__mobileQa);
+const { scenarios, parity, scenes } = await first.evaluate(() => window.__mobileQa);
 await first.close();
+
+if (scenesArg) {
+  fs.mkdirSync(out, { recursive: true });
+  const wanted = scenesArg === "all" ? null : scenesArg.split(",");
+  const names = Object.keys(scenes).filter((n) => !wanted || wanted.some((o) => (o.endsWith("*") ? n.startsWith(o.slice(0, -1)) : n === o)));
+  const lines = ["# App-only scenes", "", "The app's own screens at 390 by 844, drawn by react-native-web.", ""];
+  for (const name of names) {
+    lines.push(`## ${name}`, "", scenes[name].title, "");
+    for (const theme of THEMES) {
+      const page = await browser.newPage({ viewport: { width: WIDTH, height: 844 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      await page.goto(`${base}/${PAGE}?scene=${encodeURIComponent(name)}&theme=${theme}`);
+      await page.waitForTimeout(1500);
+      for (const c of scenes[name].clicks) {
+        try {
+          await press(page, c);
+          await page.waitForTimeout(600);
+        } catch (e) {
+          errors.push(String(e.message ?? e));
+        }
+      }
+      const typed = scenes[name].type;
+      if (typed) {
+        const el = page.locator(`[aria-label="${typed.into.replace(/"/g, '\\"')}"]`).first();
+        if (!(await el.count())) errors.push(`nothing to type into: ${typed.into}`);
+        else {
+          await el.focus();
+          await page.keyboard.type(typed.text, { delay: 5 });
+          await page.keyboard.press("Enter");
+          await page.waitForTimeout(400);
+        }
+      }
+      await page.mouse.move(1, 1);
+      const shot = path.join(out, `${name}-${theme}.png`);
+      await page.screenshot({ path: shot });
+      await page.close();
+      const ref = scenes[name].reference && referenceDir ? path.join(referenceDir, `${scenes[name].reference}-390.png`) : null;
+      if (ref && fs.existsSync(ref)) {
+        const a = PNG.sync.read(fs.readFileSync(ref));
+        const b = PNG.sync.read(fs.readFileSync(shot));
+        const h = Math.max(a.height, b.height);
+        const side = new PNG({ width: a.width + b.width + 16, height: h });
+        side.data.fill(255);
+        PNG.bitblt(a, side, 0, 0, a.width, a.height, 0, 0);
+        PNG.bitblt(b, side, 0, 0, b.width, b.height, a.width + 16, 0);
+        fs.writeFileSync(path.join(out, `${name}-${theme}-beside.png`), PNG.sync.write(side));
+      }
+      lines.push(`![${name} ${theme}](${name}-${theme}.png)${errors.length ? ` errors: ${errors.join("; ")}` : ""}`, "");
+      console.log(`${name} ${theme}${errors.length ? `  errors: ${errors.join("; ")}` : ""}`);
+    }
+  }
+  fs.writeFileSync(path.join(out, "index.md"), lines.join("\n"));
+  await browser.close();
+  await server.close();
+  console.log(`${names.length} scenes: ${path.join(out, "index.md")}`);
+  process.exit(0);
+}
 
 const missing = Object.keys(scenarios).filter((n) => !parity[n]);
 if (list) {

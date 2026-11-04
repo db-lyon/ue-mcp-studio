@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { Harness, SCENARIOS } from "./harness";
 import { CardsHarness } from "./cards";
+import { REFERENCE, SCENES, SceneHarness } from "./scenes";
 import { PARITY } from "./parity";
 import { store } from "../ui-test/mocks/secure-store";
 import { FILTER_KEY } from "../src/screens/playtests/Playtests";
@@ -43,7 +44,10 @@ if (picked) store.set(FILTER_KEY, picked);
 (window as unknown as { __mobileQa: unknown }).__mobileQa = {
   scenarios: Object.fromEntries(Object.entries(SCENARIOS).map(([k, s]) => [k, { title: s.title, height: s.height ?? 860 }])),
   parity: PARITY,
+  scenes: Object.fromEntries(Object.entries(SCENES).map(([k, s]) => [k, { title: s.title, clicks: s.clicks ?? [], type: s.type ?? null, reference: REFERENCE[k] ?? null }])),
 };
 // ?cards=1: only the session's playtest cards, for scripts/parity-cards-mobile.mjs.
 const cards = params.get("cards") === "1";
-createRoot(document.getElementById("root")!).render(cards ? <CardsHarness name={name} theme={theme} /> : <Harness name={name} theme={theme} />);
+// ?scene=<name>: one of the app's own screens no web scenario draws (./scenes).
+const scene = params.get("scene");
+createRoot(document.getElementById("root")!).render(scene ? <SceneHarness name={scene} theme={theme} /> : cards ? <CardsHarness name={name} theme={theme} /> : <Harness name={name} theme={theme} />);
