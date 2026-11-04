@@ -17,7 +17,7 @@ import { ProjectContext, useProjectNav, type ProjectNav, type Route } from "./na
 import { useDaemon } from "./state";
 import { readLocation, resetLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
-import { Banner, font, T, useSetTheme, useStyles, useTheme, type Theme } from "./ui";
+import { Banner, font, PageGlow, T, useSetTheme, useStyles, useTheme, type Theme } from "./ui";
 import { Chat } from "./views/Chat";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
 import { PluginsView } from "./views/Plugins";
@@ -131,6 +131,8 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
 
   return (
     <View style={s.app}>
+      {/* body's glow over --bg, under everything; the bar's --bar-bg reads over it as the web's blurred bar does. */}
+      <PageGlow top={insets.top} />
       <View style={[s.bar, { paddingTop: insets.top, height: 50 + insets.top }]}>
         <Pressable accessibilityRole="button" accessibilityLabel="Open navigation" accessibilityState={{ expanded: drawer }} onPress={() => setDrawer(true)} style={({ pressed }) => [s.menu, pressed && s.menuPressed]}>
           <Svg width={18} height={18} viewBox="0 0 18 18" fill="none" stroke={t.c.muted} strokeWidth={1.6} strokeLinecap="round">

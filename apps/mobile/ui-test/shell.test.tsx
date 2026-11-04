@@ -18,7 +18,7 @@ import { resetRunForTests, UpdateRunner } from "../src/views/UpdateOverlay";
 import { ErrorBoundary } from "../src/views/ErrorBoundary";
 import type { DaemonState } from "../src/state";
 import { ProjectContext } from "../src/nav";
-import { ThemeProvider } from "../src/ui";
+import { PageGlow, stopOf, ThemeProvider } from "../src/ui";
 import { fakeApi, fakeProject, renderInProject, settle } from "./helpers";
 
 const json = (status: number, body: unknown) => ({
@@ -388,5 +388,31 @@ describe("the app shell", () => {
     // The closed drawer stays mounted, hidden, as the web's does: its Plugins item is the third.
     expect(screen.getAllByText("Plugins").length).toBe(3);
     expect(screen.getByLabelText("Open navigation")).toBeTruthy();
+  });
+});
+
+describe("the page glow", () => {
+  it("draws the ue-mcp theme's radial glow over the top of the page, below the safe area, and nothing in the editor themes", () => {
+    expect(stopOf("rgba(232, 114, 12, 0.07)")).toEqual({ color: "rgb(232, 114, 12)", opacity: 0.07 });
+    expect(stopOf("#123456")).toEqual({ color: "#123456", opacity: 1 });
+    const view = render(
+      <ThemeProvider name="ue-mcp">
+        <PageGlow top={24} />
+      </ThemeProvider>,
+    );
+    // 900px 420px at 50% -120px, faded out at 70%: 24 - 120 + 0.7 * 420 px of the page.
+    expect(screen.getByTestId("page-glow").style.height).toBe(`${24 - 120 + 0.7 * 420}px`);
+    const stops = Array.from(view.container.querySelectorAll("stop"));
+    expect(stops.map((s) => [s.getAttribute("offset"), s.getAttribute("stop-opacity")])).toEqual([["0", "0.07"], ["0.7", "0"]]);
+    view.unmount();
+    for (const name of ["editor", "editor-orange"] as const) {
+      const v = render(
+        <ThemeProvider name={name}>
+          <PageGlow />
+        </ThemeProvider>,
+      );
+      expect(screen.queryByTestId("page-glow")).toBeNull();
+      v.unmount();
+    }
   });
 });

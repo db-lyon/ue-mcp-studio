@@ -13,3 +13,4 @@ export * from "./Spinner";
 export * from "./RemoveButton";
 export * from "./Pulse";
 export * from "./ContentButton";
+export * from "./PageGlow";
