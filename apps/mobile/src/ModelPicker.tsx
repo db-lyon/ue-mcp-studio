@@ -8,7 +8,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { EFFORTS, EFFORT_NAMES, routesInOrder, type Effort, type ModelCatalog, type ModelOption, type StudioSettings } from "@ue-mcp-studio/shared";
 import type { StudioApi } from "@ue-mcp-studio/client-core";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { s as ui, Spinner, tap } from "./ui";
+import { s as ui, Spinner, tap } from "./legacy-ui";
 import { colors } from "./theme";
 
 type Vendor = ModelCatalog["providers"][number];

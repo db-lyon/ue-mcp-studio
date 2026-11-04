@@ -12,10 +12,10 @@ import { agentStatus, mainTimeline, OUTCOME_LABEL, summarize, TOOL_TAG, toolLabe
 import type { TranscriptEntry, TurnReview } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../nav";
 import { ApprovalCard, DialogCard, useDialogs } from "../Cards";
-import { Markdown } from "../Markdown";
+import { Markdown } from "../ui";
 import { useSession, useSettings } from "../session";
 import { ModelPicker } from "../ModelPicker";
-import { Dot, s as ui, Spinner, tap } from "../ui";
+import { Dot, s as ui, Spinner, tap } from "../legacy-ui";
 import { colors } from "../theme";
 
 const STATUS_LABEL: Record<string, string> = { idle: "Idle", running: "Working", waiting: "Waiting", error: "Error", stopped: "Stopped" };
@@ -202,7 +202,7 @@ function Entry({ entry, live, onReview }: { entry: TranscriptEntry; live?: boole
     case "assistant":
       return (
         <View style={st.assistant}>
-          <Markdown text={entry.text} dim={live} />
+          <Markdown text={entry.text} tone={live ? { opacity: 0.7 } : undefined} />
         </View>
       );
     case "tool":

@@ -18,7 +18,7 @@ import { ReviewItemScreen, ReviewScreen } from "../src/screens/Review";
 import { CheckpointsScreen } from "../src/screens/Checkpoints";
 import { ChangeScreen, ChangesScreen } from "../src/screens/Changes";
 import { PinPad } from "../src/PinPad";
-import { s } from "../src/ui";
+import { s } from "../src/legacy-ui";
 
 const at = "2026-11-04T12:00:00Z";
 const never = () => new Promise<never>(() => undefined);

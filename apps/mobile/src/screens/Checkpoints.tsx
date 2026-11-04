@@ -9,7 +9,7 @@ import { outcomeNote } from "@ue-mcp-studio/client-core";
 import { reviewOn, type RestoreOutcome, type SessionDetail, type TimelineMark } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../nav";
 import { CardButton, c } from "../Cards";
-import { Header, s as ui, Spinner } from "../ui";
+import { Header, s as ui, Spinner } from "../legacy-ui";
 import { colors } from "../theme";
 
 export function CheckpointsScreen({ sessionId }: { sessionId: string }) {

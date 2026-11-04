@@ -4,7 +4,7 @@ import { requestJson, studioApi } from "@ue-mcp-studio/client-core";
 import { useLockView, useProject, type Project } from "../connection";
 import { NotPairedError, RelayError, type Device } from "../relay";
 import { PinPad } from "../PinPad";
-import { Button, Dot, Header, s, tap } from "../ui";
+import { Button, Dot, Header, s, tap } from "../legacy-ui";
 import { SessionScreen } from "./Session";
 import { ReviewItemScreen, ReviewScreen } from "./Review";
 import { CheckpointsScreen } from "./Checkpoints";
