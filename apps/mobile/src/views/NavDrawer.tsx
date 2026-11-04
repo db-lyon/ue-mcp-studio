@@ -5,7 +5,7 @@
  * bar's tools. A pick, the scrim, or Android back closes it. The recent
  * sessions are read each time it opens.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Animated, BackHandler, Easing, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import type { SessionSummary } from "@ue-mcp-studio/shared";
@@ -19,6 +19,14 @@ const TABS: NavTab[] = ["Chat", "Plugins", "Settings"];
 export const listState = (s: Pick<SessionSummary, "status" | "awaiting">): string => (s.awaiting ? "needs-you" : s.status);
 
 const DRAWER_W = 304;
+
+/** The closed drawer: unseen and its shadow gone, its foot's sheets still mounted. `visibility` reaches the web build; a native Modal draws in its own window, so opacity hides the rest. */
+const HIDDEN = { opacity: 0, visibility: "hidden" } as object;
+
+const DrawerClose = createContext<() => void>(() => undefined);
+
+/** Closes the drawer: what a tool at its foot calls when it opens its own sheet or page. Outside the drawer it does nothing. */
+export const useDrawerClose = () => useContext(DrawerClose);
 
 /** .brand: the mark, ue-mcp and Studio. */
 export function Brand() {
@@ -84,9 +92,15 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
     onClose();
   };
 
-  if (!shown && !open) return null;
+  // Closed, it stays mounted but unseen, as the web's drawer-root goes visibility: hidden, so a sheet a foot tool opened outlives it.
+  const hidden = !shown && !open;
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 70 }]} pointerEvents={open ? "auto" : "none"} accessibilityElementsHidden={!open}>
+    <View
+      style={[StyleSheet.absoluteFill, { zIndex: 70 }, hidden && HIDDEN]}
+      pointerEvents={open ? "auto" : "none"}
+      accessibilityElementsHidden={!open}
+      importantForAccessibility={open ? "auto" : "no-hide-descendants"}
+    >
       <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0, 0, 0, 0.55)", opacity: slide }]}>
         <Pressable accessibilityLabel="Close navigation" style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
@@ -154,7 +168,12 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
             );
           })}
         </View>
-        {children ? <View style={s.foot}>{children}</View> : null}
+        {/* A tool in the foot (the Git chip, Feedback, Docs) opens its own sheet or page: the drawer gets out of its way. */}
+        {children ? (
+          <DrawerClose.Provider value={onClose}>
+            <View style={s.foot}>{children}</View>
+          </DrawerClose.Provider>
+        ) : null}
       </Animated.View>
     </View>
   );
@@ -163,8 +182,16 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
 /** A tool at the drawer's foot: Feedback, Docs. */
 export function DrawerTool({ title, onPress, label }: { title: string; onPress: () => void; label?: string }) {
   const s = useStyles(styles);
+  const close = useDrawerClose();
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label ?? title} onPress={onPress} style={({ pressed }) => [s.item, s.tool, pressed && s.pressed]}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label ?? title}
+      onPress={() => {
+        onPress();
+        close();
+      }}
+      style={({ pressed }) => [s.item, s.tool, pressed && s.pressed]}>
       <T style={s.toolText}>{title}</T>
     </Pressable>
   );

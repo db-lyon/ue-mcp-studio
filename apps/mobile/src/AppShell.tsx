@@ -25,11 +25,11 @@ import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
 import { useUpdateCount } from "./views/Updates";
 import { FeedbackDialog } from "./views/Feedback";
-import { VcsChip } from "./chat/VcsChip";
+import { VcsChip } from "./screens/git/VcsChip";
 import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
 import { SHELL_BANNER, VersionNotice } from "./views/VersionNotice";
-import { DrawerTool, NavDrawer, TabDot } from "./views/NavDrawer";
+import { DrawerTool, NavDrawer, TabDot, useDrawerClose } from "./views/NavDrawer";
 import { UpdateRunner } from "./views/UpdateOverlay";
 import { RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
@@ -191,13 +191,18 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
         onSession={openChat}
         onNewSession={newSession}
       >
-        <VcsChip events={daemon.events.filter((e) => e.type === "studio.session.changed")} />
+        <DrawerVcsChip />
         <DrawerTool title="Feedback" label="Report a problem or suggest an idea" onPress={() => setFeedback(true)} />
         <DrawerTool title="Docs" label="The ue-mcp documentation" onPress={() => void Linking.openURL("https://ue-mcp.com/docs/")} />
       </NavDrawer>
       {feedback ? <FeedbackDialog onClose={() => setFeedback(false)} /> : null}
     </View>
   );
+}
+
+/** The source control chip at the drawer's foot: opening its changes closes the drawer. */
+function DrawerVcsChip() {
+  return <VcsChip onOpen={useDrawerClose()} />;
 }
 
 const styles = (t: Theme) => ({

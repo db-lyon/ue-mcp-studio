@@ -11,7 +11,7 @@ import { RemoteLock } from "../src/views/remote/RemoteLock";
 import { ConnectionOverlay, useConnection } from "../src/views/ConnectionOverlay";
 import { RefusedScreen } from "../src/views/Refused";
 import { VersionNotice } from "../src/views/VersionNotice";
-import { DrawerTool, NavDrawer } from "../src/views/NavDrawer";
+import { DrawerTool, NavDrawer, useDrawerClose } from "../src/views/NavDrawer";
 import { EditorBanner } from "../src/views/EditorBanner";
 import { DialogBanner } from "../src/views/DialogBanner";
 import { resetRunForTests, UpdateRunner } from "../src/views/UpdateOverlay";
@@ -275,6 +275,45 @@ describe("the navigation drawer", () => {
     }
   });
 
+  it("closes when a tool at its foot opens its sheet, and keeps the tool mounted while closed", async () => {
+    const api = fakeApi();
+    api.sessions.mockResolvedValue({ sessions: [] });
+    const onClose = vi.fn();
+    const opened: string[] = [];
+    function SheetTool() {
+      const close = useDrawerClose();
+      return (
+        <>
+          <DrawerTool title="Feedback" onPress={() => opened.push("feedback")} />
+          <button onClick={() => (opened.push("vcs"), close())}>Git</button>
+        </>
+      );
+    }
+    const view = renderInProject(
+      <NavDrawer open onClose={onClose} tab="Chat" session={null} updates={0} onTab={() => undefined} onSession={() => undefined} onNewSession={() => undefined}>
+        <SheetTool />
+      </NavDrawer>,
+      api,
+    );
+    await settle();
+    fireEvent.click(screen.getByText("Feedback"));
+    fireEvent.click(screen.getByText("Git"));
+    expect(opened).toEqual(["feedback", "vcs"]);
+    expect(onClose).toHaveBeenCalledTimes(2);
+    // Closed, the foot stays mounted (a sheet it opened lives there) but is hidden, as the web's drawer-root goes visibility: hidden.
+    view.rerender(
+      <ProjectContext.Provider value={view.nav}>
+        <NavDrawer open={false} onClose={onClose} tab="Chat" session={null} updates={0} onTab={() => undefined} onSession={() => undefined} onNewSession={() => undefined}>
+          <SheetTool />
+        </NavDrawer>
+      </ProjectContext.Provider>,
+    );
+    await act(async () => void (await new Promise((r) => setTimeout(r, 400))));
+    const up: HTMLElement[] = [];
+    for (let el: HTMLElement | null = screen.getByText("Git"); el; el = el.parentElement) up.push(el);
+    expect(up.some((el) => el.style.opacity === "0" && el.style.visibility === "hidden")).toBe(true);
+  });
+
   it("says so when there are no sessions", async () => {
     const api = fakeApi();
     api.sessions.mockResolvedValue({ sessions: [] });
@@ -346,7 +385,8 @@ describe("the app shell", () => {
     await settle();
     expect(themes).toEqual(["editor"]);
     // The bar names the tab; the page under it says Plugins too, as an older ue-mcp has no plugins route.
-    expect(screen.getAllByText("Plugins").length).toBe(2);
+    // The closed drawer stays mounted, hidden, as the web's does: its Plugins item is the third.
+    expect(screen.getAllByText("Plugins").length).toBe(3);
     expect(screen.getByLabelText("Open navigation")).toBeTruthy();
   });
 });
