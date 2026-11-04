@@ -17,10 +17,12 @@ const NAMES: Array<keyof StudioApi> = [
   "health", "sessions", "newSession", "sessionSync", "callResult", "send", "queue", "removeQueued", "sendQueued", "stop", "saveDraft", "approve", "dialogs", "answerDialog",
   "settings", "saveSettings", "models", "reviewStatus", "setSessionReview", "reviewDiff", "reviewKeep", "reviewRevert", "reviewUndo", "timelineRestore", "timelineUndo", "vcs", "vcsChanges", "vcsDiff",
 ];
+/** The editor and flow routes. */
+const EDITOR_NAMES: Array<keyof StudioApi> = ["daemonHealth", "busy", "stopBusy", "editor", "flows", "planFlow", "flow"];
 
 export function fakeApi(): FakeApi {
   const api = {} as FakeApi;
-  for (const n of NAMES) api[n] = vi.fn(() => new Promise(() => undefined));
+  for (const n of [...NAMES, ...EDITOR_NAMES]) api[n] = vi.fn(() => new Promise(() => undefined));
   api.saveDraft.mockResolvedValue({});
   api.dialogs.mockResolvedValue({ now: Date.now(), dialogs: [] });
   return api;
