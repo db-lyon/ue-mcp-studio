@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseFont, font, labelFont, lineBox, THEMES } from "../src/ui";
+import { baseFont, font, inlineCode, labelFont, lineBox, monoNormal, THEMES } from "../src/ui";
 
 describe("text metrics", () => {
   it("lays a line-height multiple out as Chrome does: the product cut down to 1/64 px", () => {
@@ -18,5 +18,11 @@ describe("text metrics", () => {
     expect(baseFont(t).lineHeight).toBe(20.921875);
     expect(labelFont(t).lineHeight).toBe(13.640625);
     expect(baseFont(THEMES.editor).lineHeight).toBe(18.75);
+  });
+
+  it("gives inline code the mono font's normal line height, as Chrome measures it, not the paragraph's", () => {
+    expect([11, 11.5, 12, 13.5].map((s) => monoNormal(THEMES["ue-mcp"], s))).toEqual([14, 15, 16, 18]);
+    expect([11, 11.5, 12, 13.5].map((s) => monoNormal(THEMES.editor, s))).toEqual([13, 14, 14, 15]);
+    expect(inlineCode(THEMES["ue-mcp"]).lineHeight).toBe(16);
   });
 });

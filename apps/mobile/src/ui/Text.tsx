@@ -20,6 +20,18 @@ export function font(t: Theme, role: Role, weight: Weight, size: number, lh?: nu
   };
 }
 
+/**
+ * `line-height: normal` for the theme's mono font at `size`, as Chrome lays it
+ * out: ascent and descent each rounded to whole px. A CSS `font` shorthand
+ * without a line height (`.md code { font: 12px var(--mono) }`) sets this,
+ * not the paragraph's height, so inline code must not inherit the parent's.
+ * JetBrains Mono's hhea metrics; the editor themes' Consolas by its Windows ones.
+ */
+export function monoNormal(t: Theme, size: number): number {
+  const [ascent, descent] = t.mono === "jetbrains" ? [1.02, 0.3] : [0.92, 0.251];
+  return Math.round(size * ascent) + Math.round(size * descent);
+}
+
 /** --base-font in the text colour. */
 export function baseFont(t: Theme): TextStyle {
   return { ...font(t, "sans", 400, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text };
