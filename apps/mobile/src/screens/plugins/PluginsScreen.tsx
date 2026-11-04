@@ -36,8 +36,9 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
   }, [changes]);
 
   const shown = useMemo(() => searchCatalog(catalog ?? [], query), [catalog, query]);
-  /** A paragraph's 1em margin. */
+  /** A paragraph's 1em margin, and what is left of it over the 12px the title or note above already gives. */
   const para = t.base.size;
+  const after12 = { marginTop: para - 12, marginBottom: para };
 
   if (unsupported) {
     return (
@@ -67,8 +68,8 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
 
       <Card>
         <CardLabel>Installed</CardLabel>
-        {installed === null ? <Txt tone="muted" style={{ marginBottom: para }}>Loading</Txt> : null}
-        {installed?.length === 0 ? <Txt tone="muted" style={{ marginBottom: para }}>No plugins in this project yet. Browse the catalog below.</Txt> : null}
+        {installed === null ? <Txt tone="muted" style={after12}>Loading</Txt> : null}
+        {installed?.length === 0 ? <Txt tone="muted" style={after12}>No plugins in this project yet. Browse the catalog below.</Txt> : null}
         {installed?.map((p, i) => (
           <View key={p.name} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, paddingVertical: 8, borderBottomWidth: i === installed.length - 1 ? 0 : 1, borderBottomColor: t.c.line }}>
             <Txt weight={700}>{p.name}</Txt>
@@ -103,8 +104,8 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
         <Txt size={12} tone="muted" style={{ marginTop: 6, marginBottom: 12 }}>
           From the ue-mcp plugin registry at plugins.ue-mcp.com.
         </Txt>
-        {catalog === null ? <Txt tone="muted" style={{ marginBottom: para }}>Loading</Txt> : null}
-        {catalog !== null && shown.length === 0 ? <Txt tone="muted" style={{ marginBottom: para }}>No plugin matches.</Txt> : null}
+        {catalog === null ? <Txt tone="muted" style={after12}>Loading</Txt> : null}
+        {catalog !== null && shown.length === 0 ? <Txt tone="muted" style={after12}>No plugin matches.</Txt> : null}
         <View style={{ gap: 10 }}>
           {shown.map((c) => {
             const have = installed ? isInstalled(c, installed) : undefined;
