@@ -35,10 +35,22 @@ export interface AssetDiffRecord {
   before?: string | null;
   after?: string | null;
   graph?: string;
+  /** The pins a pin record names: pin1 in the version before, pin2 in the version after. */
+  pin1?: AssetDiffPin;
+  pin2?: AssetDiffPin;
   /** The property records behind a NODE_PROPERTY graph record. */
   properties?: AssetDiffRecord[];
   /** An added or removed actor's class, label and transform. */
   facts?: AssetFact[];
+}
+
+/** A pin a graph record names, as the graph has it in that version. */
+export interface AssetDiffPin {
+  name: string;
+  direction: string;
+  nodeGuid?: string;
+  defaultValue: string;
+  linkedTo: string[];
 }
 
 /**

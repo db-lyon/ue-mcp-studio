@@ -199,8 +199,9 @@ describe("the diff view", () => {
     const removed = { displayString: "Removed Node Print String", diffType: "NODE_REMOVED", category: "SUBTRACTION", node1: { guid: "1", name: "N", class: "K2Node_CallFunction", title: "Print String", fullTitle: "Print String\nTarget is Kismet System Library", pins: [{ name: "Duration", displayName: "Duration", defaultValue: "2.0", linked: false }, { name: "TextColor", displayName: "Text Color", defaultValue: "(R=0.000000,G=0.660000,B=1.000000,A=1.000000)", linked: false }] } };
     const links = { displayString: "Pin 'then' has more links (was 0 now 1)", diffType: "PIN_LINKEDTO_NUM_INC", category: "MODIFICATION" };
     const moved = { displayString: "Node moved", diffType: "NODE_MOVED", category: "MINOR" };
-    const prop = { displayString: "Property Changed: Default Value", diffType: "NODE_PROPERTY", category: "MODIFICATION", properties: [{ displayString: "Default Value", diffType: "PropertyValueChanged", path: "Default Value", before: "0.200000", after: "0.700000" }] };
-    const graph: AssetDiff = { ...material, sections: [{ category: "EventGraph", kind: "graph", engineSource: "", entries: [removed, links, moved, prop] as never }] };
+    const prop = { displayString: "Property Changed: Default Value", diffType: "NODE_PROPERTY", category: "MODIFICATION", node2: { guid: "4", name: "N4", class: "MaterialGraphNode", title: "Roughness" }, properties: [{ displayString: "Default Value", diffType: "PropertyValueChanged", path: "Default Value", before: "0.200000", after: "0.700000" }] };
+    const pin = { displayString: "Pin Default Value Changed: Speed", diffType: "PIN_DEFAULT_VALUE", category: "MODIFICATION", pin1: { name: "Speed", direction: "input", defaultValue: "600.0", linkedTo: [] }, pin2: { name: "Speed", direction: "input", defaultValue: "450.0", linkedTo: [] } };
+    const graph: AssetDiff = { ...material, sections: [{ category: "EventGraph", kind: "graph", engineSource: "", entries: [removed, links, moved, prop, pin] as never }] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph } });
     await diffOf(REVIEW.items[1]);
     const table = screen.getByRole("region", { name: "EventGraph" }).querySelector("table")!;
@@ -221,10 +222,13 @@ describe("the diff view", () => {
     expect(la.className).toContain("cmp-empty");
     expect(screen.getByText("Pin 'then' has more links (was 0 now 1)").closest("tr")!.className).toContain("bare");
     expect(screen.getByText("Node moved").closest("tr")!.className).toContain("minor");
-    // The property under the graph record is a row of its own, before and after on the same line.
-    const sub = screen.getByText("Default Value").closest("tr")!;
-    expect(sub.className).toContain("sub");
-    expect([...sub.children].map((c) => c.textContent)).toEqual(["ChangedDefault Value", "0.2", "0.7"]);
+    // A graph record that only says its node's properties changed is shown as those properties, named by the node: once, with values.
+    expect(screen.queryByText(/Property Changed/)).toBeNull();
+    const prop1 = screen.getByText("Roughness > Default Value").closest("tr")!;
+    expect([...prop1.children].map((c) => c.textContent)).toEqual(["ChangedRoughness > Default Value", "0.2", "0.7"]);
+    // A pin default change shows both defaults, not empty cells.
+    const [, pb, pa] = cells("Pin Default Value Changed: Speed");
+    expect([pb.textContent, pa.textContent]).toEqual(["600", "450"]);
   });
 
   it("lets a long engine name wrap only between its parts", () => {

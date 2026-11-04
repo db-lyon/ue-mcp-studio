@@ -229,20 +229,26 @@ const sideOf = (v: string | null | undefined, side: "before" | "after"): Compare
  * its subtitle under Change. A graph record's property changes follow it as
  * rows of their own.
  */
-function RecordRows({ entries, sub }: { entries: AssetDiffRecord[]; sub?: boolean }) {
+function RecordRows({ entries, sub, owner }: { entries: AssetDiffRecord[]; sub?: boolean; owner?: string }) {
   return (
     <>
       {entries.map((r, i) => {
+        // A graph record that only says its node's properties changed is those properties, each named by the node.
+        if (r.properties?.length && r.before === undefined && r.after === undefined && (r.diffType === "NODE_PROPERTY" || r.diffType === "OBJECT_PROPERTY")) {
+          return <RecordRows key={i} entries={r.properties} owner={nodeOf(r)} />;
+        }
         const k = kindOf(r);
         const tone = kindClass(k);
-        const values = r.before !== undefined || r.after !== undefined;
+        // A pin's default value change carries both defaults on its pins.
+        const pinDefaults = r.diffType === "PIN_DEFAULT_VALUE" && r.pin1 && r.pin2 ? { before: r.pin1.defaultValue, after: r.pin2.defaultValue } : null;
+        const values = r.before !== undefined || r.after !== undefined || !!pinDefaults;
         const node = nodeOf(r);
         const subtitle = nodeSubtitle(r) ?? (r.toolTip && r.toolTip !== r.displayString ? r.toolTip : null);
         const change = (
           <>
             <span className={`diff-kind ${tone}`}>{k}</span>
             {values && r.path !== undefined
-              ? <span className="diff-path" title={r.label && r.label !== r.path ? `${r.path}: ${r.displayString}` : r.displayString}><EngineText text={r.label ?? r.path} /></span>
+              ? <span className="diff-path" title={r.label && r.label !== r.path ? `${r.path}: ${r.displayString}` : r.displayString}><EngineText text={owner ? `${owner} > ${r.label ?? r.path}` : r.label ?? r.path} /></span>
               : <span className="diff-message" title={r.toolTip ?? r.displayString}><EngineText text={withoutVerb(r.displayString, k)} /></span>}
             {node && !r.displayString.includes(node) && <span className="dim"> on <EngineText text={node} /></span>}
             {subtitle && <div className="cmp-subtitle dim small"><EngineText text={subtitle} /></div>}
@@ -250,7 +256,10 @@ function RecordRows({ entries, sub }: { entries: AssetDiffRecord[]; sub?: boolea
         );
         let before: CompareSide = null;
         let after: CompareSide = null;
-        if (values) {
+        if (pinDefaults) {
+          before = sideOf(pinDefaults.before, "before");
+          after = sideOf(pinDefaults.after, "after");
+        } else if (values) {
           before = sideOf(r.before, "before");
           after = sideOf(r.after, "after");
         } else {
@@ -429,6 +438,7 @@ function coveredFacts(sections: AssetDiffSection[]): Set<string> {
       if (kind) out.add(`${kind[1]} parameter`);
     }
     if (s.category.startsWith("Graph: ")) out.add("Graphs");
+    if (s.category === "Material Graph") out.add("Expressions");
   }
   return out;
 }
