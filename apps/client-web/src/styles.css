@@ -1310,6 +1310,14 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .asset-diff .review-pictures { flex-wrap: nowrap; }
 .asset-diff .review-pictures figure, .asset-diff .review-pictures .review-picture-side { flex: 1 1 0; min-width: 0; max-width: 220px; }
 .asset-diff .review-pictures img { width: 100%; height: auto; }
+/* A picture is shown once it has loaded and is known not to be one flat colour. */
+.review-pictures img.picture-pending { visibility: hidden; }
+.diff-section-note { overflow-wrap: break-word; }
+/* Facts the same in both versions: listed once, uncoloured. */
+.diff-table td.cmp-plain { background: none; }
+.diff-unchanged { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.diff-unchanged summary { cursor: pointer; width: max-content; max-width: 100%; }
+.diff-unchanged[open] summary { margin-bottom: 2px; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
 .review-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: auto; white-space: nowrap; max-width: 100%; }
@@ -1326,9 +1334,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-parts { display: flex; flex-direction: column; gap: 2px; }
 .review-diff .output.diff { white-space: pre-wrap; overflow-wrap: break-word; }
 .diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }
-.engine-note summary { cursor: pointer; }
 .asset-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.engine-note { overflow-wrap: break-word; }
 .diff-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .diff-section-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .diff-section-head .mono { overflow-wrap: break-word; }
