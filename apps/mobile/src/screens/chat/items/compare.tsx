@@ -143,8 +143,8 @@ export function CompareRow({ tone, change, before, after, sub, index = 0 }: {
       <View key={label} style={{ flex: stacked ? undefined : 1, minWidth: 0, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: bg, opacity: minor ? 0.75 : 1, ...(stacked ? { borderTopWidth: 1, borderTopColor: t.c.line, borderStyle: "dashed" as const, paddingLeft: first ? 8 : 9 } : { borderLeftWidth: first && tier === "medium" ? 0 : 1, borderLeftColor: t.c.lineStrong }) }}>
         {/* Stacked, the After cell keeps the solid line on its left that td.cmp-side + td.cmp-side draws; one View cannot mix a dashed top with a solid side. */}
         {stacked && !first ? <View style={{ position: "absolute", left: 0, top: -1, bottom: 0, width: 1, backgroundColor: t.c.lineStrong }} /> : null}
-        {tier !== "wide" ? <T style={{ fontSize: 10, lineHeight: 15.5, letterSpacing: 0.5, textTransform: "uppercase", color: t.c.dim }}>{label}</T> : null}
-        {side === null ? null : side === "absent" ? <T size={12} tone="dim">{label === "Before" ? "not there" : "gone"}</T> : side.content}
+        {tier !== "wide" ? <T style={{ fontSize: 10, lineHeight: t.editor ? 15 : 15.5, letterSpacing: 0.5, textTransform: "uppercase", color: t.c.dim }}>{label}</T> : null}
+        {side === null ? null : side === "absent" ? <T size={12} lh={t.editor ? 1.5 : 1.55} tone="dim">{label === "Before" ? "not there" : "gone"}</T> : side.content}
       </View>
     );
   };

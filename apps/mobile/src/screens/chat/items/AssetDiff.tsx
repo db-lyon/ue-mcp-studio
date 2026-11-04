@@ -5,7 +5,7 @@
  * The web client's chat/AssetDiff.tsx; what it decides is client-core's.
  */
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { Image, Pressable, View } from "react-native";
+import { Image, View } from "react-native";
 import {
   exportNumber,
   factRows,
@@ -51,7 +51,9 @@ const lh = (t: Theme): number => (t.editor ? 1.5 : 1.55);
 
 /** .diff-table's 12px, and .mono inside it. */
 const cellText = (t: Theme) => ({ fontSize: 12, lineHeight: 12 * lh(t) });
-const monoCell = (t: Theme) => [font(t, "mono", 400, 12 * 0.92), { lineHeight: 12 * lh(t), color: t.c.text }];
+// Consolas on Roboto's 18px strut: the two baselines meet in an 18.6 pixel line, as JetBrains Mono's does at 1.55.
+// Consolas sits 3 pixels down that line, not centred in it: a 19 pixel line that gives back its extra 0.4.
+const monoCell = (t: Theme) => [font(t, "mono", 400, 12 * 0.92), t.editor ? { lineHeight: 19, marginBottom: -0.4 } : { lineHeight: 18.6 }, { color: t.c.text }];
 
 /** A value as ExportText wrote it, a parameter struct in words, or what its absence means. */
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
@@ -64,7 +66,7 @@ function Value({ v, side }: { v: string | null | undefined; side: "before" | "af
       <View style={{ gap: 2 }}>
         {parts.map((x, i) => (
           // .diff-parts: each part a block line of its own, at the mono size's own line height.
-          <T key={i} style={[monoCell(t), { lineHeight: Math.round(12 * 0.92 * lh(t) * 100) / 100 }]}>{engineText(x)}</T>
+          <T key={i} style={[monoCell(t), { lineHeight: Math.round(12 * 0.92 * lh(t) * 100) / 100, marginBottom: 0 }]}>{engineText(x)}</T>
         ))}
       </View>
     );
@@ -139,7 +141,7 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
     if (!wantsTile(diff, status)) return null;
     const errors = thumbnailErrors(diff);
     const tile = tileOf(diff, name, asset, status);
-    // Beside the other version, the tile names only the facts that changed; the rest are counted below.
+    // Beside the other version, the tile names only the facts that changed.
     if (diff.before && diff.after) tile.facts = tile.facts.filter((f) => f.was !== undefined);
     return <AssetTile {...tile} note={errors.length && status !== "modified" ? `No picture: ${engineText(errors.join("; "))}` : undefined} />;
   }
@@ -274,7 +276,7 @@ function SectionHead({ title, note }: { title: string; note: string }) {
   const t = useTheme();
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: 8 }}>
-      <T weight={600}>{engineText(title)}</T>
+      <T weight={600} lh={lh(t)}>{engineText(title)}</T>
       <T style={[small(t), { color: t.c.dim }]}>{note}</T>
     </View>
   );
@@ -309,37 +311,11 @@ function FactName({ name }: { name: string }) {
   return <T style={cellText(t)}>{engineText(name)}</T>;
 }
 
-/** The browser's disclosure triangle on a <summary>: right while closed, down while open, in the summary's colour. */
-function Disclosure({ open, color }: { open: boolean; color: string }) {
-  return open ? (
-    <View style={{ width: 0, height: 0, marginTop: 7, borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 6, borderLeftColor: "transparent", borderRightColor: "transparent", borderTopColor: color, marginRight: 5.7 }} />
-  ) : (
-    <View style={{ width: 0, height: 0, marginTop: 6, borderTopWidth: 4, borderBottomWidth: 4, borderLeftWidth: 6, borderTopColor: "transparent", borderBottomColor: "transparent", borderLeftColor: color, marginRight: 6.7 }} />
-  );
-}
-
-/**
- * <details class="diff-unchanged small dim">: a summary 44 pixels tall (a finger's size) with the browser's
- * triangle that opens what follows. Closed, the flex gap before the hidden body still counts, so 4 pixels follow it.
- */
-function Fold({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: ReactNode }) {
-  const t = useTheme();
-  return (
-    <View style={{ gap: 4, minWidth: 0 }}>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={onToggle} style={{ flexDirection: "row", alignItems: "flex-start", alignSelf: "flex-start", minHeight: 44, marginBottom: open ? 2 : 4 }}>
-        <Disclosure open={open} color={t.c.dim} />
-        <T style={[small(t), { color: t.c.dim }]}>{title}</T>
-      </Pressable>
-      {open ? children : null}
-    </View>
-  );
-}
-
 /**
  * Facts about each version: LOD counts, sizes, parameters. With both versions,
  * only the facts that differ and that no record already shows are compared,
- * Before beside After; the ones that are the same are counted on one folded
- * line and listed once, uncoloured, when opened. With one version, its facts.
+ * Before beside After; the ones that are the same are not shown. With one
+ * version, its facts.
  * The tile lists up to TILE_FACTS of them, so they are not repeated when they
  * fit there.
  */
@@ -347,7 +323,6 @@ function Facts({ before, after, tiled, covered, tier }: { before: AssetVersion |
   const rows = factRows(before, after);
   const both = !!before && !!after;
   const [openOne, setOpenOne] = useState(!tiled);
-  const [openSame, setOpenSame] = useState(false);
   if (rows.length === 0 || (!both && tiled && rows.length <= TILE_FACTS)) return null;
   if (!both) {
     const side = before ? "before" : "after";
@@ -367,29 +342,16 @@ function Facts({ before, after, tiled, covered, tier }: { before: AssetVersion |
     );
   }
   const changed = rows.filter((r) => r.changed && !isCoveredFact(covered, r.name));
-  const same = rows.filter((r) => !r.changed);
+  if (changed.length === 0 || (tiled && changed.length <= TILE_FACTS)) return null;
   return (
-    <>
-      {changed.length > 0 && !(tiled && changed.length <= TILE_FACTS) ? (
-        <View accessibilityLabel="Facts" style={{ gap: 4, minWidth: 0 }}>
-          <SectionHead title="Facts" note={changed.length === 1 ? "1 changed" : `${changed.length} changed`} />
-          <CompareTable tier={tier} head={["Fact", "Before", "After"]}>
-            {changed.map((r, i) => (
-              <CompareRow key={r.name} index={i} tone="mod" change={<FactName name={r.name} />} before={{ content: <Value v={r.before ?? null} side="before" /> }} after={{ content: <Value v={r.after ?? null} side="after" /> }} />
-            ))}
-          </CompareTable>
-        </View>
-      ) : null}
-      {same.length > 0 ? (
-        <Fold title={same.length === 1 ? "1 unchanged fact" : `${same.length} unchanged facts`} open={openSame} onToggle={() => setOpenSame(!openSame)}>
-          <CompareTable tier={tier} head={["Fact", "Both versions"]}>
-            {same.map((r, i) => (
-              <PlainRow key={r.name} index={i} name={<FactName name={r.name} />} value={<Value v={r.after ?? null} side="after" />} />
-            ))}
-          </CompareTable>
-        </Fold>
-      ) : null}
-    </>
+    <View accessibilityLabel="Facts" style={{ gap: 4, minWidth: 0 }}>
+      <SectionHead title="Facts" note={changed.length === 1 ? "1 changed" : `${changed.length} changed`} />
+      <CompareTable tier={tier} head={["Fact", "Before", "After"]}>
+        {changed.map((r, i) => (
+          <CompareRow key={r.name} index={i} tone="mod" change={<FactName name={r.name} />} before={{ content: <Value v={r.before ?? null} side="before" /> }} after={{ content: <Value v={r.after ?? null} side="after" /> }} />
+        ))}
+      </CompareTable>
+    </View>
   );
 }
 

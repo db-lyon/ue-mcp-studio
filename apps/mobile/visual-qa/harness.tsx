@@ -89,6 +89,8 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
       return { status: 200, headers: { "content-type": "image/svg+xml" }, body: (async function* () { yield enc.encode(svg); })() };
     }
     if (m !== "GET") {
+      // A write the scenario holds never answers, to show the page while it waits.
+      if (scenario.hold?.test(url.pathname)) return new Promise<Reply>(() => {});
       const written = scenario.post?.(url.pathname, options.json);
       return written ? json(written.status, written.body) : json(409, { error: `visual QA harness: ${m} ${url.pathname} is not answered` });
     }
