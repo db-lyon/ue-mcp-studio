@@ -40,13 +40,15 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
   const [pasting, setPasting] = useState(initial !== undefined);
   const [link, setLink] = useState(initial ?? "");
   const [wrong, setWrong] = useState(false);
+  const [nothing, setNothing] = useState(false);
 
   const paste = () => {
     setPasting(true);
     setWrong(false);
-    // A pairing link already on the clipboard goes straight into the field.
+    // A pairing link already on the clipboard goes straight into the field; without one, the panel says so.
     void readText().then((text) => {
       if (isPairLink(text.trim())) setLink((v) => v || text.trim());
+      else setNothing(true);
     });
   };
   const submit = () => {
@@ -94,7 +96,7 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
         >
           <Input
             value={link}
-            onChangeText={(v) => (setLink(v), setWrong(false))}
+            onChangeText={(v) => (setLink(v), setWrong(false), setNothing(false))}
             onSubmitEditing={submit}
             placeholder="https://remote.ue-mcp.com/pair#..."
             autoCapitalize="none"
@@ -104,9 +106,12 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
             accessibilityLabel="Pairing link"
             style={wrong ? { borderColor: t.c.bad } : undefined}
           />
+          {nothing && !link && !wrong ? (
+            <T style={{ ...font(t, "sans", 400, 12.5, t.base.lineHeight / t.base.size), color: t.c.dim }}>The clipboard holds no pairing link yet. Copy it in Studio, then paste it here.</T>
+          ) : null}
           {wrong ? (
             <T accessibilityRole="alert" style={{ ...font(t, "sans", 400, 12.5, t.base.lineHeight / t.base.size), color: t.editor ? t.c.bad : t.c.badText }}>
-              That is not a pairing link. Pairing links start with <T style={{ ...font(t, "mono", 500, 12, 1.4) }}>remote.ue-mcp.com/pair</T>.
+              That is not a pairing link. Pairing links start with <T style={{ ...font(t, "mono", 500, 12, 1.4), color: t.editor ? t.c.bad : t.c.badText }}>remote.ue-mcp.com/pair</T>.
             </T>
           ) : null}
         </Panel>
@@ -177,11 +182,11 @@ function wording(f: PairFailure): { head: string; text: string; note: string } {
     case "offline":
       return { head: "Your computer went offline", text: "It stopped answering while this phone was pairing.", note: "Check that Studio is running with Remote control on, then make a new code." };
     case "network":
-      return { head: "The relay could not be reached", text: "This phone could not reach remote.ue-mcp.com. Either this phone is offline or the relay is down.", note: "Check this phone's connection, then try again." };
+      return { head: "The relay could not be reached", text: "Either this phone is offline or the relay is down.", note: "Check the connection, then try again." };
     case "plan":
-      return { head: "Remote control is not available", text: "The account Studio is signed in with on your computer has no remote control in its plan.", note: "Remote control comes with the Pro and Studio plans. Upgrade the account on your computer, then make a new code there." };
+      return { head: "Remote control is not available", text: "This account's plan does not include remote control.", note: "It comes with the Pro and Studio plans. Upgrade the account in Studio on your computer, then make a new code there." };
     case "mismatch":
-      return { head: "The answer did not match the code", text: "Your computer's answer did not match the code. This phone was not paired.", note: NEW_CODE };
+      return { head: "The codes did not match", text: "This phone was not paired.", note: NEW_CODE };
     default:
       // The relay's and the computer's words often end on the same advice the note gives.
       return { head: "Pairing did not finish", text: f.message.replace(/\s*Make a new (code|one)[^.]*\.\s*$/i, "") || f.message, note: NEW_CODE };
@@ -209,7 +214,7 @@ export function PairFailed({ failure, onScan, onStart, onRetry }: { failure: Pai
         <StateView
           glyph="expired"
           title={failure.kind === "expired" ? "This code no longer works" : "No one allowed this phone in time"}
-          lead={failure.kind === "expired" ? `Each code works once, for ten minutes. ${NEW_CODE}` : `Studio waits 2 minutes for an answer. ${NEW_CODE}`}
+          lead={failure.kind === "expired" ? `Each code works once, for 10 minutes. ${NEW_CODE}` : `Studio waits 2 minutes for an answer. ${NEW_CODE}`}
           actions={actions}
         />
       </Page>

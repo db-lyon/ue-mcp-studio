@@ -13,7 +13,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { haptic } from "../native/haptics";
-import { Banner, Button, font, T, useTheme, Waiting } from "../ui";
+import { Banner, bannerText, Button, font, T, useTheme, Waiting } from "../ui";
 import { Page, StateView } from "./StudioPage";
 import { Code } from "./Pairing";
 
@@ -36,6 +36,16 @@ function Round({ label, onPress, on, children, role = "button" }: { label: strin
     >
       {children}
     </Pressable>
+  );
+}
+
+/** A picture without a code: the warn banner, its text centred in the centred stack it sits in. */
+function NoteBanner({ text }: { text: string }) {
+  const t = useTheme();
+  return (
+    <Banner kind="warn" role="alert" style={{ marginBottom: 0 }}>
+      <T style={{ color: bannerText(t, "warn"), textAlign: "center" }}>{text}</T>
+    </Banner>
   );
 }
 
@@ -68,7 +78,7 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
   if (!permission)
     return (
       <Page stage title="Scan pairing code" onBack={onCancel}>
-        <StateView glyph="camera" title="Opening the camera" lead="Studio reads the pairing code on your computer's screen with the camera.">
+        <StateView glyph="camera" title="Opening the camera" lead="This app reads the pairing code on your computer's screen with the camera.">
           <Waiting>Asking for the camera</Waiting>
         </StateView>
       </Page>
@@ -79,16 +89,10 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
     return (
       <Page stage title="Scan pairing code" onBack={onCancel}>
         <StateView
-          glyph="camera"
-          title={ask ? "Studio needs the camera" : "The camera is off for Studio"}
-          lead={ask ? "Studio reads the pairing code on your computer's screen with the camera. It is used only while this screen is open." : "Turn the camera on for Studio in this phone's settings, or scan a picture of the code instead."}
-          note={
-            note ? (
-              <Banner kind="warn" role="alert" style={{ marginBottom: 0 }}>
-                {note}
-              </Banner>
-            ) : null
-          }
+          glyph={ask ? "camera" : "camera-off"}
+          title={ask ? "This app needs the camera" : "The camera is off for this app"}
+          lead={ask ? "It reads the pairing code on your computer's screen, and only while this screen is open." : "Turn the camera on for UE-MCP Studio in this phone's settings, or scan a picture of the code instead."}
+          note={note ? <NoteBanner text={note} /> : null}
           actions={
             <>
               {ask ? <Button title="Allow camera" variant="primary" size="large" onPress={() => void requestPermission()} /> : <Button title="Open settings" variant="primary" size="large" onPress={() => void Linking.openSettings()} />}
@@ -152,11 +156,7 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
         <T style={{ color: t.c.dim, textAlign: "center" }}>
           On the computer running Studio, type <Code>/remote</Code> in a chat, or open <T style={{ ...font(t, "sans", 600, t.base.size), color: t.c.muted }}>{"Settings > Remote control"}</T>.
         </T>
-        {note ? (
-          <Banner kind="warn" role="alert" style={{ marginBottom: 0 }}>
-            {note}
-          </Banner>
-        ) : null}
+        {note ? <NoteBanner text={note} /> : null}
         <Button title="Scan from a picture" size="large" onPress={() => void fromPicture()} />
       </View>
     </View>

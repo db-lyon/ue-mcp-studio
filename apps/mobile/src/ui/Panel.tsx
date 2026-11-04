@@ -26,7 +26,7 @@ export function Panel({ head, text, note, bad, spinner, children, actions, style
           {head}
         </T>
       </View>
-      {text ? typeof text === "string" ? <T style={{ color: bad ? t.c.badText : t.c.muted }}>{text}</T> : text : null}
+      {text ? typeof text === "string" ? <T style={{ color: bad ? (t.editor ? t.c.bad : t.c.badText) : t.c.muted }}>{text}</T> : text : null}
       {children}
       {note ? typeof note === "string" ? <T style={{ ...font(t, "sans", 400, 12.5, t.base.lineHeight / t.base.size), color: t.c.muted }}>{note}</T> : note : null}
       {actions ? <View style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "flex-end", gap: 8 }}>{actions}</View> : null}

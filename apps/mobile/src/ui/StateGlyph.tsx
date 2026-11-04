@@ -1,14 +1,14 @@
 /**
  * The 40 point line glyphs a whole-page state leads with (the relay's
  * pairing pages and Studio's lock screen): a phone, the padlock, a tick, a
- * clock, a camera; and the 18 point warning sign an error panel's
+ * clock, a camera (struck through when refused); and the 18 point warning sign an error panel's
  * head carries. Drawn from the relay's own paths, in the accent unless said.
  * The space under a glyph is the relay's: the line box its inline svg sits in.
  */
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 import { useTheme } from "./ThemeProvider";
 
-export type StateGlyphName = "phone" | "lock" | "done" | "expired" | "camera";
+export type StateGlyphName = "phone" | "lock" | "done" | "expired" | "camera" | "camera-off";
 
 export function StateGlyph({ name, color }: { name: StateGlyphName; color?: string }) {
   const t = useTheme();
@@ -39,6 +39,7 @@ export function StateGlyph({ name, color }: { name: StateGlyphName; color?: stri
         <>
           <Path d="M6 15a3 3 0 0 1 3-3h4l2.5-4h9l2.5 4h4a3 3 0 0 1 3 3v14a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3z" />
           <Circle cx={20} cy={21.5} r={5.5} />
+          {name === "camera-off" ? <Path d="M5 5l30 30" /> : null}
         </>
       )}
     </Svg>
