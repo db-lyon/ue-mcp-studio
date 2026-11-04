@@ -179,13 +179,16 @@ function block(ctx: Ctx, n: HNode): Block | null {
       const lis: Block[] = items.map((li, i) => {
         const content = flow(inner, li.children ?? []);
         const m = through({ mt: 0, mb: 0 }, content);
-        const marker = ordered ? `${start + i}.` : ["•", "◦", "▪"][Math.min(ctx.depth, 2)];
         return {
           mt: m.mt,
           mb: m.mb,
           el: (s) => (
             <View style={s as ViewStyle}>
-              <Text style={[body, { position: "absolute", left: -20, width: 20, paddingRight: ordered ? 4 : 5, textAlign: "right" }]} importantForAccessibility="no">{marker}</Text>
+              {ordered ? (
+                <Text style={[body, { position: "absolute", left: -20, width: 20, paddingRight: 4, textAlign: "right" }]} importantForAccessibility="no">{`${start + i}.`}</Text>
+              ) : (
+                <ListBullet ctx={ctx} />
+              )}
               {place(content, false)}
             </View>
           ),
@@ -227,6 +230,50 @@ function block(ctx: Ctx, n: HNode): Block | null {
   }
 }
 
+
+/** The sans faces' ascent and descent per em, as Chrome reads them (Plus Jakarta Sans's typo metrics, Roboto's hhea). */
+const SANS_METRICS: Partial<Record<Theme["sans"], [number, number]>> = { jakarta: [1.038, 0.222], roboto: [1900 / 2048, 500 / 2048] };
+
+/**
+ * Where Chrome paints an outside `disc`, `circle` or `square` marker, relative
+ * to the list item's content box: a square of (2/3 ascent + 1) / 2 px, its
+ * left edge 2/3 ascent + 7 px before the content, its top 3/2 of the ascent
+ * left over below the first line's ascent line, less 1 px (blink's ListMarker
+ * symbol rect, with ascent rounded to whole px; the 1 px is measured against
+ * Chrome's shots in both sans faces).
+ */
+export function bulletBox(t: Theme, size: number, lineHeight: number): { left: number; top: number; size: number } {
+  const [asc, desc] = SANS_METRICS[t.sans] ?? SANS_METRICS.jakarta!;
+  const a = Math.round(size * asc);
+  const d = Math.round(size * desc);
+  const offset = Math.floor((a * 2) / 3);
+  const half = Math.floor(((lineHeight - a - d) / 2) * 64) / 64;
+  return { left: -(offset + 7), top: half + Math.floor((3 * (a - offset)) / 2) - 1, size: Math.floor((offset + 1) / 2) };
+}
+
+/** A bullet list's marker: a disc, a circle one level in, a square below that. */
+function ListBullet({ ctx }: { ctx: Ctx }) {
+  const { t, body } = ctx;
+  const size = (body.fontSize as number) ?? t.base.size;
+  const box = bulletBox(t, size, (body.lineHeight as number) ?? t.base.lineHeight);
+  const kind = Math.min(ctx.depth, 2);
+  const color = (body.color as string) ?? t.c.text;
+  return (
+    <View
+      testID="md-bullet"
+      importantForAccessibility="no"
+      style={{
+        position: "absolute",
+        left: box.left,
+        top: box.top,
+        width: box.size,
+        height: box.size,
+        borderRadius: kind === 2 ? 0 : box.size / 2,
+        ...(kind === 1 ? { borderWidth: 1, borderColor: color } : { backgroundColor: color }),
+      }}
+    />
+  );
+}
 
 /**
  * `.md table` in `.md-table`: border-collapse, 1px cells padded 3px 10px, the

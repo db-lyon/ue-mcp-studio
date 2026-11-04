@@ -35,7 +35,7 @@ describe("Markdown", () => {
     // remark-breaks: the single line break stays.
     expect(screen.getByText(/second line/).textContent).toContain("\n");
     expect(screen.getByText("one")).toBeTruthy();
-    expect(screen.getAllByText("\u2022")).toHaveLength(2);
+    expect(screen.getAllByTestId("md-bullet")).toHaveLength(2);
   });
 
   it("collapses a soft break to a space without remark-breaks", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { baseFont, font, inlineCode, labelFont, lineBox, monoNormal, THEMES } from "../src/ui";
+import { render, screen } from "@testing-library/react";
+import { baseFont, bulletBox, font, inlineCode, labelFont, lineBox, Markdown, monoNormal, ThemeProvider, THEMES } from "../src/ui";
 
 describe("text metrics", () => {
   it("lays a line-height multiple out as Chrome does: the product cut down to 1/64 px", () => {
@@ -24,5 +25,28 @@ describe("text metrics", () => {
     expect([11, 11.5, 12, 13.5].map((s) => monoNormal(THEMES["ue-mcp"], s))).toEqual([14, 15, 16, 18]);
     expect([11, 11.5, 12, 13.5].map((s) => monoNormal(THEMES.editor, s))).toEqual([13, 14, 14, 15]);
     expect(inlineCode(THEMES["ue-mcp"]).lineHeight).toBe(16);
+  });
+});
+
+describe("list markers", () => {
+  it("places a bullet where Chrome paints an outside disc: 2/3 ascent + 7 px before the text, 3/2 of the rest below the ascent line", () => {
+    // 13.5px Plus Jakarta Sans (ascent 14) at 1.55: a 5px disc 16px left of the text, 7.95px down the first line.
+    expect(bulletBox(THEMES["ue-mcp"], 13.5, lineBox(13.5, 1.55))).toEqual({ left: -16, top: 7.953125, size: 5 });
+    // 12.5px Roboto (ascent 12) at 1.5: a 4px disc 15px left, 6.875px down.
+    expect(bulletBox(THEMES.editor, 12.5, lineBox(12.5, 1.5))).toEqual({ left: -15, top: 6.875, size: 4 });
+  });
+
+  it("draws a disc, a circle one level in and a square below that, not a font glyph", () => {
+    render(
+      <ThemeProvider name="ue-mcp">
+        <Markdown text={"- one\n  - two\n    - three"} />
+      </ThemeProvider>,
+    );
+    const [disc, circle, square] = screen.getAllByTestId("md-bullet").map((el) => el.style);
+    expect(screen.queryByText("\u2022")).toBeNull();
+    expect([disc.left, disc.top, disc.width, disc.height]).toEqual(["-16px", "7.953125px", "5px", "5px"]);
+    expect(disc.borderTopLeftRadius || disc.borderRadius).toBe("2.5px");
+    expect(circle.borderTopWidth || circle.borderWidth).toBe("1px");
+    expect(square.borderTopLeftRadius || square.borderRadius || "0px").toBe("0px");
   });
 });
