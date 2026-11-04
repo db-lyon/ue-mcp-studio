@@ -4,10 +4,13 @@
  * signs it out of the relay and forgets every computer here.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Alert, View } from "react-native";
+import { Alert } from "react-native";
 import { account, forgetComputer, removeViewer, trusted, type Device, type Viewer } from "../relay";
-import { Banner, Button, font, Spinner, T, useTheme } from "../ui";
-import { ListCard, ListRow, Page, PageHead, SectionLabel } from "./StudioPage";
+import { Banner, Button, font, Loading, T, useTheme } from "../ui";
+import { Chevron, ListCard, ListRow, Page, SectionLabel } from "./StudioPage";
+
+/** "Paired 4 Nov 2026". */
+const paired = (iso: string) => `Paired ${new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
 
 export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; onRemoved: () => void; onAbout?: () => void }) {
   const t = useTheme();
@@ -50,47 +53,46 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
       { text: "Forget", style: "destructive", onPress: () => void forgetComputer(key).then(load) },
     ]);
 
+  // A ghost button in the bad colour: removing is the one thing on these rows.
   const danger = (title: string, onPress: () => void, label: string) => (
-    <Button variant="ghost" size="small" label={label} onPress={onPress}>
-      <T style={{ ...font(t, t.editor ? "sans" : "mono", 500, t.editor ? 12 : 11.5, 1.2), color: t.c.bad }}>{title}</T>
+    <Button variant="ghost" label={label} onPress={onPress}>
+      <T style={t.editor ? { ...font(t, "sans", 400, 12, 1.2), color: t.c.bad } : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23, color: t.c.bad }}>{title}</T>
     </Button>
   );
   const trustedKeys = Object.entries(keys);
 
   return (
-    <Page>
-      <PageHead title="Paired devices" lead="The phones and browsers that reach your projects, and the computers this phone trusts." back="Projects" onBack={onBack} />
+    <Page title="Paired devices" back="Projects" onBack={onBack}>
+      <T style={{ color: t.c.dim }}>The phones and browsers that reach your projects, and the computers this phone trusts.</T>
       {error ? (
         <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
           {error}
         </Banner>
       ) : null}
-      <SectionLabel>Paired phones and browsers</SectionLabel>
-      <ListCard>
-        {viewers === null ? (
-          <View style={{ padding: 14 }}>
-            <Spinner />
-          </View>
-        ) : null}
-        {viewers?.length === 0 ? <ListRow first title="None" /> : null}
-        {viewers?.map((v, i) => (
-          <ListRow key={v.id} first={i === 0} title={`${v.label}${v.current ? " (this phone)" : ""}`} sub={`Paired ${new Date(v.createdAt).toLocaleDateString()}`} right={danger("Remove", () => remove(v), v.current ? "Remove this phone" : `Remove ${v.label}`)} />
-        ))}
-      </ListCard>
+      <SectionLabel>Phones and browsers</SectionLabel>
+      {viewers === null ? <Loading>Loading paired devices</Loading> : null}
+      {viewers ? (
+        <ListCard>
+          {viewers.length === 0 ? <ListRow title="None yet" sub="Phones and browsers you pair show here." /> : null}
+          {viewers.map((v) => (
+            <ListRow key={v.id} current={v.current} title={v.label} sub={v.current ? `This phone. ${paired(v.createdAt)}` : paired(v.createdAt)} right={danger("Remove", () => remove(v), v.current ? "Remove this phone" : `Remove ${v.label}`)} />
+          ))}
+        </ListCard>
+      ) : null}
       <SectionLabel>Computers this phone trusts</SectionLabel>
       <ListCard>
-        {trustedKeys.length === 0 ? <ListRow first title="None" /> : null}
-        {trustedKeys.map(([key, info], i) => {
+        {trustedKeys.length === 0 ? <ListRow title="None yet" sub="A computer shows here once this phone has scanned its pairing code." /> : null}
+        {trustedKeys.map(([key, info]) => {
           const names = devices.filter((d) => d.computerKey === key).map((d) => d.name);
           const name = names.length ? names.join(", ") : "A computer";
-          return <ListRow key={key} first={i === 0} title={name} sub={`Paired ${new Date(info.pairedAt).toLocaleDateString()}`} right={danger("Forget", () => forgetKey(key, name), `Forget ${name}`)} />;
+          return <ListRow key={key} title={name} sub={paired(info.pairedAt)} right={danger("Forget", () => forgetKey(key, name), `Forget ${name}`)} />;
         })}
       </ListCard>
       {onAbout ? (
         <>
           <SectionLabel>This app</SectionLabel>
           <ListCard>
-            <ListRow first title="About" sub="Versions, and whether this app fits the Studio on your computer" onPress={onAbout} right={<T tone="muted">{"›"}</T>} />
+            <ListRow title="About" sub="Versions, and whether this app fits the Studio on your computer" onPress={onAbout} right={<Chevron />} />
           </ListCard>
         </>
       ) : null}
