@@ -465,7 +465,10 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? (running || calls.length <= GROUP_OPEN_MAX);
   if (calls.length === 1) return <AgentLink row={rows[0]} transcript={transcript} onOpen={onOpen} />;
-  const head = { ...font(t, "mono", 400, 12, 1.6) };
+  // .agent-group-head: 12px/1.6 mono with the button's 0.02em; the editor themes' button rule outranks it with 12px/1.2 sans.
+  const role = t.editor ? "sans" : "mono";
+  const lh = t.editor ? 1.2 : 1.6;
+  const head: TextStyle = { ...font(t, role, 400, 12, lh), letterSpacing: t.editor ? 0 : 0.24 };
   return (
     <View style={{ gap: 6 }}>
       <Pressable
@@ -475,7 +478,7 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
         style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, minWidth: 44, paddingVertical: 4, paddingHorizontal: 6, borderRadius: t.radius, backgroundColor: pressed ? t.c.panel2 : "transparent" })}
       >
         <Text style={[head, { color: t.c.muted, width: 10 }]}>{open ? "▾" : "▸"}</Text>
-        <Text style={[head, font(t, "mono", 600, 12, 1.6), { color: t.c.text }]}>{`${calls.length} subagents`}</Text>
+        <Text style={[head, font(t, role, 600, 12, lh), { color: t.c.text }]}>{`${calls.length} subagents`}</Text>
         <Text style={[head, { color: t.c.dim, flexShrink: 1 }]}>{summarize(rows.map((r) => r.state))}</Text>
       </Pressable>
       {open ? rows.map((r) => <View key={r.call.id} style={{ marginLeft: 16 }}><AgentLink row={r} transcript={transcript} onOpen={onOpen} /></View>) : null}
