@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { onRemotePage } from "../../connection";
 import { cancelPrompt, installLockGuard, lockView, refreshLock, subscribeLock, unlockWith, type LockView } from "../../remote-lock";
 
@@ -20,60 +20,107 @@ function useCountdown(ms: number | undefined): number {
   return left;
 }
 
-/** The digits field and the button: shared by the lock screen and the sheet. */
-function PinForm({ submitLabel, onCancel, autoFocus = true }: { submitLabel: string; onCancel?: () => void; autoFocus?: boolean }) {
+const MAX_PIN = 8;
+const MIN_PIN = 4;
+const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9"] as const;
+
+/**
+ * A phone-style number pad: dots for the digits entered, 1 to 9, then delete,
+ * 0 and enter. No text field, so the device keyboard never opens. A hardware
+ * keyboard still types digits, Backspace and Enter.
+ */
+function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: () => void }) {
   const lock = useLock();
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shake, setShake] = useState(0);
   const [waitMs, setWaitMs] = useState<number | undefined>(lock.state?.retryAfterMs);
   const left = useCountdown(waitMs);
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (autoFocus) input.current?.focus();
-  }, [autoFocus]);
   const remaining = lock.state?.remaining;
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    if (busy || left > 0 || pin.length < 4) return;
+  const blocked = busy || left > 0 || lock.removed;
+
+  const state = useRef({ pin, blocked });
+  state.current = { pin, blocked };
+
+  const submit = () => {
+    const { pin: p, blocked: b } = state.current;
+    if (b || p.length < MIN_PIN) return;
     setBusy(true);
     setError(null);
-    void unlockWith(pin).then((r) => {
+    void unlockWith(p).then((r) => {
       setBusy(false);
       if (r.ok) return;
       setPin("");
       setError(r.error);
       setWaitMs(r.retryAfterMs);
-      input.current?.focus();
+      setShake((n) => n + 1);
     });
   };
+  const press = (d: string) => {
+    if (state.current.blocked) return;
+    setError(null);
+    setPin((p) => (p.length < MAX_PIN ? p + d : p));
+  };
+  const back = () => {
+    if (!state.current.blocked) setPin((p) => p.slice(0, -1));
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (/^\d$/.test(e.key)) press(e.key);
+      else if (e.key === "Backspace") back();
+      else if (e.key === "Enter") submit();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // press, back and submit read the latest state through the ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const dots = Math.max(MIN_PIN, pin.length);
   return (
-    <form className="pin-form" onSubmit={submit}>
-      <label className="pin-label" htmlFor="remote-pin">PIN</label>
-      <input
-        id="remote-pin"
-        ref={input}
-        className="pin-input"
-        type="password"
-        inputMode="numeric"
-        pattern="[0-9]*"
-        autoComplete="off"
-        maxLength={8}
-        value={pin}
-        disabled={busy || lock.removed}
-        aria-describedby="remote-pin-note"
-        onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
-      />
-      <div id="remote-pin-note" className="pin-note" role={error ? "alert" : undefined}>
+    <div className="pin-form">
+      <div
+        key={shake}
+        className={`pin-dots${shake ? " shake" : ""}`}
+        role="status"
+        aria-label={`${pin.length} of up to ${MAX_PIN} digits entered`}
+      >
+        {Array.from({ length: dots }, (_, i) => (
+          <span key={i} className={`pin-dot${i < pin.length ? " on" : ""}`} />
+        ))}
+      </div>
+      <div className="pin-note" role={error ? "alert" : undefined}>
+        {busy && <div>Checking</div>}
         {error && <div className="pin-error">{error}</div>}
         {left > 0 && <div>Try again in {left} s.</div>}
         {remaining !== undefined && remaining <= 5 && !lock.removed && <div>{remaining} {remaining === 1 ? "try" : "tries"} left before this browser is removed.</div>}
       </div>
-      <div className="pin-actions">
-        {onCancel && <button type="button" onClick={onCancel} disabled={busy}>Cancel</button>}
-        <button type="submit" className="primary" disabled={busy || left > 0 || pin.length < 4 || lock.removed}>{busy ? "Checking" : submitLabel}</button>
+      <div className={`pin-pad${blocked ? " blocked" : ""}`} role="group" aria-label="PIN keypad">
+        {KEYS.map((d) => (
+          <button key={d} type="button" className="pin-key" onClick={() => press(d)} disabled={blocked}>{d}</button>
+        ))}
+        <button type="button" className="pin-key pin-key-fn" onClick={back} disabled={blocked || pin.length === 0} aria-label="Delete">
+          <svg width="26" height="20" viewBox="0 0 26 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
+            <path d="M8 2h15a1.5 1.5 0 0 1 1.5 1.5v13A1.5 1.5 0 0 1 23 18H8l-6.5-8z" />
+            <path d="M12 7l6 6M18 7l-6 6" strokeLinecap="round" />
+          </svg>
+        </button>
+        <button type="button" className="pin-key" onClick={() => press("0")} disabled={blocked}>0</button>
+        <button type="button" className="pin-key pin-key-go" onClick={submit} disabled={blocked || pin.length < MIN_PIN} aria-label={submitLabel}>
+          <svg width="24" height="20" viewBox="0 0 24 20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M3 10.5l6 6L21 4" />
+          </svg>
+        </button>
       </div>
-    </form>
+      {onCancel && (
+        <button type="button" className="pin-cancel" onClick={onCancel} disabled={busy}>Cancel</button>
+      )}
+    </div>
   );
 }
 
