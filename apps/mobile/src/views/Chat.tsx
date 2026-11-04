@@ -658,7 +658,7 @@ function Empty({ settings, onSettings, onCreate }: { settings: StudioSettings | 
       <View style={{ gap: 8, marginTop: 28, width: "100%", maxWidth: 520 }}>
         <T style={[labelFont(t, t.c.dim), { marginBottom: 4, textAlign: "center" }]}>or try</T>
         {EXAMPLES.map((x) => (
-          <Pressable key={x} accessibilityRole="button" accessibilityLabel={x} onPress={() => onCreate(x)} style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", paddingVertical: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: t.c.line, borderRadius: t.radius, backgroundColor: pressed ? t.c.accentWash : t.c.tint })}>
+          <Pressable key={x} accessibilityRole="button" accessibilityLabel={x} onPress={() => onCreate(x)} style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", paddingVertical: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: t.c.line, borderRadius: t.radius, backgroundColor: pressed ? t.c.accentWash : t.c.tint })}>
             {t.editor ? null : <T style={{ ...font(t, "mono", 400, 13.5, 1.45), color: t.c.accent, marginRight: 10 }}>{"›"}</T>}
             <T style={{ flex: 1, ...(t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "sans", 400, 13.5, 1.45)), color: t.c.muted }}>{x}</T>
           </Pressable>
