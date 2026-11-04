@@ -39,11 +39,11 @@ export function Txt({ children, size, weight = 400, tone = "text", mono, style, 
   );
 }
 
-/** Nested text in another weight, tone or the mono family, inheriting the line around it. */
+/** Nested text in another weight, tone or the mono family; a size brings its own line-height, as CSS works it out from the unitless ratio. */
 export function Span({ children, weight = 400, tone, mono, size, style }: { children: ReactNode; weight?: Weight; tone?: Tone; mono?: boolean; size?: number; style?: StyleProp<TextStyle> }) {
   const t = useTheme();
   const f = font(t, mono ? "mono" : "sans", weight, size ?? 12);
-  return <Text style={[{ fontFamily: f.fontFamily, ...(f.fontWeight ? { fontWeight: f.fontWeight } : {}) }, size ? { fontSize: size } : null, tone ? { color: t.c[tone] } : null, style]}>{children}</Text>;
+  return <Text style={[{ fontFamily: f.fontFamily, ...(f.fontWeight ? { fontWeight: f.fontWeight } : {}) }, size ? { fontSize: size, lineHeight: size * ratio(t) } : null, tone ? { color: t.c[tone] } : null, style]}>{children}</Text>;
 }
 
 /** h2.cfg-label: a card's title, 12px above what follows, with optional actions at its end. */
@@ -70,7 +70,8 @@ export function Tag({ children, kind }: { children: ReactNode; kind?: "ok" | "wa
   const color = kind === "acc" ? t.c.accentHi : kind ? t.c[kind] : t.c.muted;
   const line = kind === "acc" ? t.c.accentLine : kind === "ok" ? t.c.okPill : kind === "warn" ? t.c.warnPill : kind === "bad" ? t.c.badPill : t.c.lineStrong;
   return (
-    <View style={{ borderWidth: 1, borderColor: line, borderRadius: 999, paddingHorizontal: 8, alignSelf: "center" }}>
+    // In a line of text it sits on the line's middle, as vertical-align: middle sets it.
+    <View style={{ borderWidth: 1, borderColor: line, borderRadius: 999, paddingHorizontal: 8, alignSelf: "center", verticalAlign: "middle" } as ViewStyle}>
       <T numberOfLines={1} style={[font(t, "mono", 500, 10.5, 1.7), { color }]}>
         {children}
       </T>
@@ -192,7 +193,8 @@ export function Opt({ on, onPick, title, desc, disabled, overridden, label }: { 
   );
   // Room for the radio and the text: the row less its border, padding, gap and the radio's margins.
   const room = row === null ? null : row - 2 - 24 - 10 - 8;
-  const radio = room !== null && line !== null && 20 + line > room ? (20 * room) / (20 + line) : 20;
+  // Never under 13px, the narrowest a browser draws a radio.
+  const radio = room !== null && line !== null && 20 + line > room ? Math.max(13, (20 * room) / (20 + line)) : 20;
   return (
     <Pressable accessibilityRole="radio" accessibilityLabel={label} accessibilityState={{ checked: on, disabled: !!disabled }} disabled={disabled} onPress={onPick} onLayout={(e) => setRow(e.nativeEvent.layout.width)} style={{ flexDirection: "row", gap: 10, alignItems: "center", minHeight: 44, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: t.radius, borderColor: on ? t.c.accentLine : t.c.line, backgroundColor: on ? t.c.accentWash : t.c.panel2, opacity: overridden ? 0.6 : 1 }}>
       <Radio on={on} disabled={disabled} width={radio} />

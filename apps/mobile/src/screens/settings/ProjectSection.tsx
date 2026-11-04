@@ -5,7 +5,7 @@
  * since they decide what ue-mcp runs; the MCP clients and the bridge plugin.
  */
 import { useEffect, useMemo, useState } from "react";
-import { View } from "react-native";
+import { Text, View } from "react-native";
 import type { StatusReport } from "ue-mcp/daemon";
 import { notThere, problemCopy, readRebuild, tokenizeYaml, tokens, type SettingsSection } from "@ue-mcp-studio/client-core";
 import { CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO, type ClientContextStrategy, type StudioConfigFile } from "@ue-mcp-studio/shared";
@@ -132,7 +132,8 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
               </Banner>
             ) : null}
             <ReadOnly>
-              <View style={{ gap: 8, marginTop: 8 }}>
+              {/* The list's 8px top margin collapses into the note's 8px bottom one, as in the page's fieldset. */}
+              <View style={{ gap: 8 }}>
                 {CONTEXT_STRATEGIES.map((s) => (
                   <Opt
                     key={s}
@@ -205,13 +206,16 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         </Card>
       ) : null}
 
+      <View accessibilityLabel="Advanced">
       <Card>
-        <Details summary={<Txt size={12} tone="muted">Advanced: ue-mcp.yml</Txt>} summaryStyle={{ marginVertical: -10 }} testID="advanced">
+        {/* The Advanced card's summary is a 44px flex row: no disclosure triangle, its line centred. */}
+        <Details label="Advanced: ue-mcp.yml" marker={false} summary={<Txt size={12} tone="muted">Advanced: ue-mcp.yml</Txt>} summaryStyle={{ marginVertical: -10, alignItems: "center" }} testID="advanced">
           <ReadOnly>
             <ConfigView />
           </ReadOnly>
         </Details>
       </Card>
+      </View>
     </>
   );
 }
@@ -252,14 +256,15 @@ function ConfigView() {
           {file.path.split(/[\\/]/).pop()}
         </Txt>
         <Spacer />
-        <View style={{ flexDirection: "row", gap: 10 }}>
+        {/* .row-actions: at the row's end, and at the end of the next line when they wrap. */}
+        <View style={{ flexDirection: "row", gap: 8, marginLeft: "auto" }}>
           <Button title="Revert" disabled />
           <Button title="Save" disabled />
         </View>
       </View>
       <View style={{ backgroundColor: t.c.codeBg, borderRadius: t.radius, borderWidth: 1, borderColor: t.c.lineStrong, padding: 12, minHeight: 360, maxHeight: 360, overflow: "hidden" }}>
         <T style={[font(t, "mono", 400, 12, 1.6), { color: t.c.codeText }]}>
-          {parts.map((p, i) => (p.type ? <T key={i} style={{ color: color[p.type] }}>{p.text}</T> : p.text))}
+          {parts.map((p, i) => (p.type ? <Text key={i} style={{ color: color[p.type] }}>{p.text}</Text> : p.text))}
         </T>
       </View>
     </Card>

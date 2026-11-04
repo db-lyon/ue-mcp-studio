@@ -56,7 +56,8 @@ function StatusView({ daemon }: { daemon: DaemonState }) {
       <Card>
         <CardLabel>Editors</CardLabel>
         {h.editors.map((e) => (
-          <View key={e.name} style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginVertical: 6 }}>
+          // .row's 6px margins collapse into the title's 12 above and into each other, as block margins do.
+          <View key={e.name} style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
             <Dot kind={e.connected ? "ok" : "warn"} />
             <Txt weight={700}>{e.name}</Txt>
             <Txt tone="muted">
@@ -71,7 +72,7 @@ function StatusView({ daemon }: { daemon: DaemonState }) {
             ) : null}
           </View>
         ))}
-        <View style={{ flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+        <View style={{ flexDirection: "row", gap: 8, marginTop: h.editors.length ? 8 : 14, flexWrap: "wrap" }}>
           {(["start", "stop", "restart", "rebuild"] as const).map((op) => (
             <Button key={op} title={busy === op ? `${op}...` : op[0].toUpperCase() + op.slice(1)} disabled={busy !== null || (op === "start" ? any : !any)} onPress={() => run(op)} />
           ))}

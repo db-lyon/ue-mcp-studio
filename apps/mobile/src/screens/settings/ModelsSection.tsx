@@ -124,17 +124,16 @@ export function ModelsSection() {
                   {v.endpoint ? <Txt size={12} tone="dim">Custom endpoint</Txt> : null}
                 </View>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                  {/* Each route is its own item in the cell's row, spread across it as the cell's flex row spreads them. */}
                   <ColumnName>Routes</ColumnName>
-                  <View>
-                    {routes.map((r) => (
-                      <View key={r.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Dot kind={r.on ? (r.id === "endpoint" && failed ? "warn" : "ok") : undefined} />
-                        <Txt size={12} tone={r.on ? "text" : "dim"}>
-                          {routeName(r.id)}
-                        </Txt>
-                      </View>
-                    ))}
-                  </View>
+                  {routes.map((r) => (
+                    <View key={r.id} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Dot kind={r.on ? (r.id === "endpoint" && failed ? "warn" : "ok") : undefined} />
+                      <Txt size={12} tone={r.on ? "text" : "dim"}>
+                        {routeName(r.id)}
+                      </Txt>
+                    </View>
+                  ))}
                 </View>
                 <View style={{ flexDirection: "row", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
                   <ColumnName>Runs on</ColumnName>

@@ -54,8 +54,11 @@ export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void 
                   <View style={{ flex: 2, backgroundColor: SWATCH[c.id][1] }} />
                   <View style={{ flex: 1, backgroundColor: SWATCH[c.id][2] }} />
                 </View>
-                <Txt weight={600}>{c.name}</Txt>
-                <Txt size={12} tone="muted">
+                {/* The editor themes set every button's type to 12px/1.2, over the option's own base font. */}
+                <Txt weight={600} size={t.editor ? 12 : undefined} style={t.editor ? { lineHeight: 14.4 } : undefined}>
+                  {c.name}
+                </Txt>
+                <Txt size={12} tone="muted" style={t.editor ? { lineHeight: 14.4 } : undefined}>
                   {c.about}
                 </Txt>
               </Pressable>
