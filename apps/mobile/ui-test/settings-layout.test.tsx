@@ -6,8 +6,24 @@ import { describe, expect, it } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { SettingsScreen } from "../src/screens/settings/SettingsScreen";
 import { EditorStatus } from "../src/screens/editor/EditorStatus";
+import { Radio, lightRadio } from "../src/screens/settings/controls";
+import { ThemeProvider } from "../src/ui";
 import { renderArea, settled } from "./area-b";
 import { fakeApi, renderInProject, settle } from "./helpers";
+
+describe("settings controls", () => {
+  it("draws a chosen radio light where its accent is too dark for the dark disc, as Chrome does", () => {
+    expect(lightRadio("#0070e0")).toBe(true);
+    expect(lightRadio("#e8720c")).toBe(false);
+    const { container } = renderInProject(
+      <ThemeProvider name="editor">
+        <Radio on />
+      </ThemeProvider>,
+    );
+    const discs = [...container.querySelectorAll("div")].map((d) => d.style.backgroundColor);
+    expect(discs).toContain("rgb(255, 255, 255)");
+  });
+});
 
 const section = (scenario: string, name: string, theme: "ue-mcp" | "editor" | "editor-orange" = "ue-mcp") =>
   renderArea(scenario, (daemon) => <SettingsScreen daemon={daemon} section={name} onSection={() => {}} onTheme={() => {}} />, theme);
