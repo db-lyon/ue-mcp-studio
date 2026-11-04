@@ -142,7 +142,8 @@ export function PairedBrowsers() {
       {browsers.length === 0 ? <T style={[small(t), { color: t.c.muted }]}>No browsers paired yet.</T> : null}
       {browsers.map((b) => (
         <View key={b.id} style={{ flexDirection: "row", alignItems: "center", gap: 10 }}>
-          <View style={{ flex: 1, minWidth: 0 }}>
+          {/* .grow has no rule here: the name takes its own width, Remove right after it. */}
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
             <T>{b.label}</T>
             <T style={[small(t), { color: t.c.dim }]}>{`Paired ${new Date(b.addedAt).toLocaleDateString()}`}</T>
           </View>
