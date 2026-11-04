@@ -645,7 +645,7 @@ function Empty({ settings, onSettings, onCreate }: { settings: StudioSettings | 
   return (
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", paddingVertical: 28, paddingHorizontal: 14 }}>
       <Display t={t} />
-      <T style={{ ...font(t, "sans", 400, t.editor ? 12.5 : 13.5), lineHeight: t.base.lineHeight, color: t.c.muted, textAlign: "center", maxWidth: 460, marginBottom: 20 }}>
+      <T style={{ ...font(t, "sans", 400, 13.5, t.base.lineHeight / t.base.size), color: t.c.muted, textAlign: "center", maxWidth: 460, marginBottom: 20 }}>
         The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project&apos;s files, and read the web, asking you first before a command or an edit.
       </T>
       {settings && disconnected ? <ConnectCard settings={settings} onSettings={onSettings} /> : null}
@@ -656,7 +656,7 @@ function Empty({ settings, onSettings, onCreate }: { settings: StudioSettings | 
       ) : null}
       <Button title="New session" variant="primary" size="large" onPress={() => onCreate()} />
       <View style={{ gap: 8, marginTop: 28, width: "100%", maxWidth: 520 }}>
-        <T style={[labelFont(t, t.c.dim), { marginBottom: 4 }]}>or try</T>
+        <T style={[labelFont(t, t.c.dim), { marginBottom: 4, textAlign: "center" }]}>or try</T>
         {EXAMPLES.map((x) => (
           <Pressable key={x} accessibilityRole="button" accessibilityLabel={x} onPress={() => onCreate(x)} style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", paddingVertical: 11, paddingHorizontal: 14, borderWidth: 1, borderColor: t.c.line, borderRadius: t.radius, backgroundColor: pressed ? t.c.accentWash : t.c.tint })}>
             {t.editor ? null : <T style={{ ...font(t, "mono", 400, 13.5, 1.45), color: t.c.accent, marginRight: 10 }}>{"›"}</T>}
