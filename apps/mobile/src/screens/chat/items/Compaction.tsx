@@ -53,7 +53,7 @@ export function CompactionMarker({ entry }: { entry: CompactionEntry }) {
   const meta: TextStyle = { ...font(t, "mono", t.editor ? 400 : 500, 11.5, lh), color: t.c.muted };
   const small: TextStyle = { ...baseFont(t), fontSize: 12, lineHeight: 12 * (t.base.lineHeight / t.base.size), color: t.c.dim };
   return (
-    <View accessibilityRole="none" accessibilityLabel={`${title}, ${numbers}, ${time(entry.at)}`} style={{ marginVertical: 14 }}>
+    <View testID="compaction" accessibilityRole="none" accessibilityLabel={`${title}, ${numbers}, ${time(entry.at)}`} style={{ marginVertical: 14 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={title}

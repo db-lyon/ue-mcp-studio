@@ -36,7 +36,7 @@ export function FormCards({ forms, runs }: { forms: PendingForm[]; runs?: Readon
   });
   if (shown.length === 0) return null;
   return (
-    <CardsRegion label="Waiting for your answer">
+    <CardsRegion label="Waiting for your answer" testID="forms">
       {shown.map((f) => {
         const run = qaRunFromForm(f);
         return run ? <QaCard key={f.id} run={run} form={f} /> : <FormCard key={f.id} form={f} />;

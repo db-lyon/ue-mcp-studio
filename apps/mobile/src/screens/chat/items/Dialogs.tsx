@@ -13,7 +13,7 @@ const small = (t: Theme) => ({ ...baseFont(t), fontSize: 12, lineHeight: 12 * (t
 export function DialogCards({ dialogs, now }: { dialogs: EditorDialog[]; now: number }) {
   if (dialogs.length === 0) return null;
   return (
-    <CardsRegion label="Editor dialogs">
+    <CardsRegion label="Editor dialogs" testID="dialogs">
       {dialogs.map((d) => <DialogCard key={d.id} dialog={d} now={now} />)}
     </CardsRegion>
   );

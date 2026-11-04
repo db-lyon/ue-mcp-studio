@@ -100,6 +100,22 @@ export function CompareGroup({ children }: { children: string }) {
   );
 }
 
+/**
+ * A fact listed once, uncoloured: .diff-row.fact-same, its name and one value
+ * (td.cmp-plain, no label), side by side when wide and stacked otherwise.
+ */
+export function PlainRow({ name, value, index = 0 }: { name: ReactNode; value: ReactNode; index?: number }) {
+  const t = useTheme();
+  const tier = useTier();
+  const wide = tier === "wide";
+  return (
+    <View style={{ borderBottomWidth: 1, borderBottomColor: t.c.line, flexDirection: wide ? "row" : "column" }}>
+      <View style={{ width: wide ? "40%" : undefined, paddingVertical: 5, paddingHorizontal: 8, backgroundColor: wide && index % 2 === 1 ? t.c.tint : undefined }}>{name}</View>
+      <View style={{ flex: wide ? 1 : undefined, minWidth: 0, paddingVertical: 5, paddingHorizontal: 8, ...(wide ? { borderLeftWidth: 1, borderLeftColor: t.c.lineStrong } : { borderTopWidth: 1, borderTopColor: t.c.line, borderStyle: "dashed" as const }) }}>{value}</View>
+    </View>
+  );
+}
+
 /** A row of the comparison: the change, and each side in its column or stacked under it by tier. */
 export function CompareRow({ tone, change, before, after, sub, index = 0 }: {
   tone: string;

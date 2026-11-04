@@ -145,6 +145,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
   return (
     <View
       accessibilityRole="none"
+      testID="review-card"
       accessibilityLabel="Changes in this turn"
       style={{ paddingVertical: 12, paddingHorizontal: 14, gap: 8, marginVertical: 8, minWidth: 0, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.editor ? "transparent" : t.c.line, borderRadius: t.radiusLg }}
     >
@@ -270,7 +271,6 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
   const { api } = useProjectNav();
   const [diff, setDiff] = useState<{ change: CheckpointChange; before?: string; after?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [treeOpen, setTreeOpen] = useState(false);
   useEffect(() => {
     let live = true;
     api.reviewDiff(sessionId, reviewId, item.path).then(
@@ -288,27 +288,11 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
   const name = fileName(item.path);
   // A failed diff's reason is already the banner; the native view's reason would repeat it.
   const native = item.native && !item.native.available && c.assetDiff?.state !== "error" ? <T style={dimSmall}>{`No Unreal diff view: ${item.native.reason}`}</T> : null;
+  // The engine records are the whole diff, so blueprint(diff)'s structural summary is not repeated under them.
   if (c.assetDiff) {
-    const bp = c.assetDiff.blueprint;
     return (
       <View style={{ gap: 6, minWidth: 0 }}>
-        <AssetDiffView
-          diff={c.assetDiff}
-          name={name}
-          asset={item.asset}
-          status={item.status}
-          nativeNote={native}
-          blueprintTree={
-            bp ? (
-              <View>
-                <Pressable accessibilityRole="button" accessibilityState={{ expanded: treeOpen }} onPress={() => setTreeOpen(!treeOpen)} style={{ minHeight: 44, justifyContent: "center" }}>
-                  <T style={small(t)}>{`${treeOpen ? "▾" : "▸"} Structure (blueprint diff)`}</T>
-                </Pressable>
-                {treeOpen ? <BlueprintDiff diff={bp} /> : null}
-              </View>
-            ) : undefined
-          }
-        />
+        <AssetDiffView diff={c.assetDiff} name={name} asset={item.asset} status={item.status} nativeNote={native} />
       </View>
     );
   }
@@ -438,7 +422,7 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
   const marks = [...timeline].reverse();
   const dimSmall = [small(t), { color: t.c.dim }];
   return (
-    <View style={{ gap: 10 }}>
+    <View testID="review-panel" style={{ gap: 10 }}>
       {/* label.toggle: the checkbox's own 4 px and 3 px margins, and the label's 14 px on the right. */}
       <View style={{ paddingLeft: 4, marginRight: 14 }}>
       <Check checked={on} disabled={busy || !status} onChange={toggle} label="Review this session's turns">

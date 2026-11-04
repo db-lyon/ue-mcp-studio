@@ -11,10 +11,10 @@ import { DiffView } from "../../../chat/Diff";
  * .approvals: the cards waiting for the user under the conversation, 10px
  * apart, 8px 10px in from the panel, at most half the screen and scrolling.
  */
-export function CardsRegion({ label, children }: { label: string; children: ReactNode }) {
+export function CardsRegion({ label, children, testID }: { label: string; children: ReactNode; testID?: string }) {
   const vh = useWindowDimensions().height;
   return (
-    <ScrollView accessibilityRole="none" accessibilityLabel={label} style={{ maxHeight: vh * 0.5, flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 10, paddingTop: 8, paddingHorizontal: 10 }} nestedScrollEnabled>
+    <ScrollView testID={testID} accessibilityRole="none" accessibilityLabel={label} style={{ maxHeight: vh * 0.5, flexGrow: 0, flexShrink: 0 }} contentContainerStyle={{ gap: 10, paddingTop: 8, paddingHorizontal: 10 }} nestedScrollEnabled>
       {children}
     </ScrollView>
   );
@@ -39,7 +39,7 @@ export function approvalCard(t: Theme) {
 export function Approvals({ sessionId, approvals }: { sessionId: string; approvals: ApprovalRequest[] }) {
   if (approvals.length === 0) return null;
   return (
-    <CardsRegion label="Waiting for your approval">
+    <CardsRegion label="Waiting for your approval" testID="approvals">
       {approvals.map((a) => <ApprovalCard key={a.id} sessionId={sessionId} approval={a} />)}
     </CardsRegion>
   );
