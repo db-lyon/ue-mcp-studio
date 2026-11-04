@@ -51,3 +51,13 @@ Area-d exports these names from `src/screens/chat/composer/index.ts`.
 - Daemon calls: `useProjectNav().api` (`studioApi` in `packages/client-core/src/studio-api.ts`); events: `project.onEvent`. Pure logic shared with the web client goes in `packages/client-core`.
 - Native: `src/native/haptics.ts` (`haptic.tap/select/success/warning/error`), `keyboard.tsx` (`KeyboardAvoidingView`, `KeyboardStickyView`), `share.tsx` (`useSharedFiles`), `shortcuts.ts` (`publishRecentSessions`), each with a `.web` variant for the harness and tests.
 - Verification: `scripts/parity-mobile.mjs` against `scripts/visual-qa.mjs --remote --widths 390`; scenario owners in `apps/mobile/visual-qa/parity.ts`; component tests in `apps/mobile/ui-test`.
+
+## Text metrics
+
+The bundled TTFs and the web's variable woff2 files lay out identically (same advance widths and line boxes); what differed was arithmetic and antialiasing.
+
+- **Line heights.** A CSS multiple (`12px/1.6`) is laid out at the product cut down to Chrome's 1/64 px unit; a px value (`19.2px`) is rounded to it, so passing the raw product drifts a pixel over a long page. Write a multiple from the CSS through `font(t, role, weight, size, lh)` or `lineBox(size, lh)`, never `size * lh`. `t.base.lineHeight` and `t.label.lineHeight` are already laid out this way. Write a px line height from the CSS as is.
+- **`line-height: normal`.** A `font` shorthand with no line height (`.md code { font: 12px var(--mono) }`) resets it to the font's own: use `monoNormal(t, size)`, not the parent's. Inline code (`inlineCode(t)`) does.
+- **Buttons.** `button` gives everything inside it `letter-spacing: 0.02em` at the button's own font size (0.24 px at 12 px); the editor themes' `button` rule (`400 12px/1.2` sans, no spacing) outranks most class rules that set a font on a button. Check the computed style, not the class rule alone.
+- **Antialiasing in the harness.** Chrome draws text greyscale on a GPU layer without an opaque background, subpixel elsewhere. The harness drops react-native-web's `translateZ(0)` on ScrollViews (`visual-qa/main.tsx`); a scrolling list over a panel paints that panel (`backgroundColor: t.c.panel`), as the transcript does. Text the web composites itself (the blurred top bar, `.empty`'s scroller in the editor themes) stays greyscale there and subpixel in the app.
+- **Glyphs.** Draw the web's svg icons with `react-native-svg` from the same path data, not from bordered views.
