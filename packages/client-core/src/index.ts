@@ -10,3 +10,4 @@ export * from "./vcs.js";
 export * from "./location.js";
 export * from "./asset-links.js";
 export * from "./attachments.js";
+export * from "./forms.js";
