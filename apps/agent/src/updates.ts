@@ -104,6 +104,36 @@ export interface UpdaterHost {
   editorOperation(op: "start" | "stop" | "restart" | "rebuild"): Promise<Record<string, unknown>>;
   /** The daemon process Studio runs in; a restart waits for it to exit. Unset means this process. */
   daemonPid?: number;
+  /** Studio's data folder for this project: where a background update's failure is kept. */
+  dataDir?: string;
+}
+
+/** A background update step that failed, kept on disk so it outlives the daemon it took down. */
+export interface UpdateFailure {
+  step: "studio" | "restart";
+  error: string;
+  at: string;
+}
+
+/** Where a background step's failure is written, by the chain itself, in the project's Studio data folder. */
+export const UPDATE_FAILURE_FILE = "update-failure.json";
+
+/** The last background step that failed, with what it said, or null. */
+export function readUpdateFailure(dataDir: string | undefined): UpdateFailure | null {
+  if (!dataDir) return null;
+  try {
+    const f = JSON.parse(fs.readFileSync(path.join(dataDir, UPDATE_FAILURE_FILE), "utf-8")) as { step?: string; at?: string; code?: number | null; log?: string; error?: string };
+    if (f.step !== "studio" && f.step !== "restart") return null;
+    const said = f.error ?? failureText(f.log ?? "");
+    return { step: f.step, error: said || `the update exited with ${f.code ?? "an error"}`, at: f.at ?? "" };
+  } catch {
+    return null;
+  }
+}
+
+/** Forget the last failure: a new attempt is starting. */
+export function clearUpdateFailure(dataDir: string | undefined): void {
+  if (dataDir) fs.rmSync(path.join(dataDir, UPDATE_FAILURE_FILE), { force: true });
 }
 
 /** How long a restart waits for the old daemon's process to exit before starting the new one. */
@@ -175,8 +205,8 @@ export function npxArgs(npx: string, pkg: string): string[] {
  * What a failed npx run said, for the panel: npm's own error lines when it
  * wrote any, without the pointer to its log file, else the last lines written.
  */
-export function failureText(stderr: string): string {
-  const lines = stderr.split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean);
+export function failureText(output: string): string {
+  const lines = output.replace(/\x1b\[[0-9;]*m/g, "").split(/\r?\n/).map((l) => l.trimEnd()).filter(Boolean);
   const npm = lines
     .filter((l) => /^npm (error|ERR!)/.test(l))
     .map((l) => l.replace(/^npm (error|ERR!)\s?/, ""))
@@ -307,8 +337,18 @@ export class Updater {
   private async ueMcp(step: "studio", args: string[]): Promise<{ started: boolean; error?: string }> {
     const npx = npxCli();
     if (!npx) return { started: false, error: "npx was not found beside Node" };
-    runHidden([...npxArgs(npx, await this.ueMcpPackage()), ...args], this.host.projectDir, (error) => this.onBackgroundFailure(step, error));
+    clearUpdateFailure(this.host.dataDir);
+    runHidden([...npxArgs(npx, await this.ueMcpPackage()), ...args], this.host.projectDir, (error) => this.onBackgroundFailure(step, error), this.failureSink(step));
     return { started: true };
+  }
+
+  private failureSink(step: UpdateFailure["step"]): { file: string; step: UpdateFailure["step"] } | undefined {
+    return this.host.dataDir ? { file: path.join(this.host.dataDir, UPDATE_FAILURE_FILE), step } : undefined;
+  }
+
+  /** The last background step that failed (the Studio update, the restart), for the Updates card. */
+  lastFailure(): UpdateFailure | null {
+    return readUpdateFailure(this.host.dataDir);
   }
 
   /** An installed version the next Studio step moves this project to, instead of the channel's. */
@@ -354,7 +394,7 @@ export class Updater {
     if (!npx) return { ok: false, error: "npx was not found beside Node" };
     let output = "";
     const code = await new Promise<number | null>((resolve) => {
-      const c = spawn(process.execPath, [...npxArgs(npx, `ue-mcp@${version}`), ...args], { cwd: this.host.projectDir, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+      const c = spawn(process.execPath, [...npxArgs(npx, `ue-mcp@${version}`), ...args], { cwd: this.host.projectDir, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: updateEnv() });
       for (const s of [c.stdout, c.stderr]) {
         s.setEncoding("utf-8");
         s.on("data", (d: string) => void (output = (output + d).slice(-64_000)));
@@ -366,7 +406,7 @@ export class Updater {
       });
     });
     if (code === 0) return { ok: true };
-    const said = failureText(output.replace(/\x1b\[[0-9;]*m/g, ""));
+    const said = failureText(output);
     return { ok: false, error: `ue-mcp ${version} ${args[0]} exited with ${code ?? "an error"}${said ? `:\n${said}` : ""}` };
   }
 
@@ -424,7 +464,8 @@ export class Updater {
       `const alive=()=>{try{process.kill(pid,0);return true}catch(e){return e.code==="EPERM"}};` +
       `while(alive()&&Date.now()<until)Atomics.wait(nap,0,0,200);` +
       `try{execFileSync(process.execPath,[...a,"daemon","start",${JSON.stringify(uproject)}],{stdio:["ignore","ignore","inherit"],windowsHide:true})}catch(e){process.exit(e.status||1)}`;
-    runHidden(["-e", script], this.host.projectDir, (error) => this.onBackgroundFailure("restart", error));
+    clearUpdateFailure(this.host.dataDir);
+    runHidden(["-e", script], this.host.projectDir, (error) => this.onBackgroundFailure("restart", error), this.failureSink("restart"));
     return { started: true };
   }
 
@@ -521,20 +562,44 @@ async function startFailure(host: UpdaterHost): Promise<string | null> {
 }
 
 /**
+ * The environment a Studio update runs in. npm's min-release-age holds back a
+ * release for days, and npx's own flag does not reach the npm runs ue-mcp makes
+ * inside it, so a release the user chose was refused there. These runs install
+ * only ue-mcp's and Studio's own packages: the gate is lifted for them alone.
+ */
+export function updateEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  // Windows keeps environment names in any case; drop every spelling before setting ours.
+  for (const [k, v] of Object.entries(base)) if (!/^npm_config_min_release_age$/i.test(k)) env[k] = v;
+  env.npm_config_min_release_age = "0";
+  return env;
+}
+
+/**
  * Run node in the background with no console window. npx runs ue-mcp under
  * cmd.exe, which opens a window of its own unless it inherits a console, and
  * a child that is not detached dies with this daemon, which the chain stops.
  * So a detached wrapper outlives the daemon and runs the chain in a console
- * that has no window. The chain's stderr goes to a file: when the chain fails
- * while this daemon still runs, `onFailure` gets what it said.
+ * that has no window. Everything the chain prints goes to a file (ue-mcp
+ * writes its errors to stdout): when it fails, the wrapper itself writes
+ * `failure.file`, so the failure is kept even after this daemon is gone, and
+ * `onFailure` gets what it said while this daemon still runs.
  */
-export function runHidden(args: string[], cwd: string, onFailure?: (error: string) => void): void {
+export function runHidden(args: string[], cwd: string, onFailure?: (error: string) => void, failure?: { file: string; step: string }): void {
   const log = path.join(os.tmpdir(), `studio-update-${crypto.randomUUID()}.log`);
   const wrapper =
-    'const fs=require("fs");const err=fs.openSync(process.env.STUDIO_CHAIN_LOG,"w");' +
-    'const c=require("child_process").spawn(process.execPath,JSON.parse(process.env.STUDIO_CHAIN),{stdio:["ignore","ignore",err],windowsHide:true});' +
-    'c.on("exit",(x)=>{fs.closeSync(err);if(!x)try{fs.rmSync(process.env.STUDIO_CHAIN_LOG,{force:true})}catch{}process.exit(x??0)});c.on("error",(e)=>{fs.writeSync(err,String(e.message));process.exit(1)});';
-  const w = spawn(process.execPath, ["-e", wrapper], { detached: true, stdio: "ignore", windowsHide: true, cwd, env: { ...process.env, STUDIO_CHAIN: JSON.stringify(args), STUDIO_CHAIN_LOG: log } });
+    'const fs=require("fs");const e=process.env;const out=fs.openSync(e.STUDIO_CHAIN_LOG,"w");' +
+    'const failed=(code)=>{if(!e.STUDIO_CHAIN_FAILURE)return;let log="";try{log=fs.readFileSync(e.STUDIO_CHAIN_LOG,"utf-8").slice(-16000)}catch{}' +
+    'try{fs.mkdirSync(require("path").dirname(e.STUDIO_CHAIN_FAILURE),{recursive:true});fs.writeFileSync(e.STUDIO_CHAIN_FAILURE,JSON.stringify({step:e.STUDIO_CHAIN_STEP,at:new Date().toISOString(),code,log}))}catch{}};' +
+    'const c=require("child_process").spawn(process.execPath,JSON.parse(e.STUDIO_CHAIN),{stdio:["ignore",out,out],windowsHide:true});' +
+    'c.on("exit",(x)=>{fs.closeSync(out);if(x!==0){failed(x)}else{try{fs.rmSync(e.STUDIO_CHAIN_LOG,{force:true})}catch{}}process.exit(x??1)});' +
+    'c.on("error",(err)=>{fs.writeSync(out,String(err.message));fs.closeSync(out);failed(null);process.exit(1)});';
+  const env: NodeJS.ProcessEnv = { ...updateEnv(), STUDIO_CHAIN: JSON.stringify(args), STUDIO_CHAIN_LOG: log };
+  if (failure) {
+    env.STUDIO_CHAIN_FAILURE = failure.file;
+    env.STUDIO_CHAIN_STEP = failure.step;
+  }
+  const w = spawn(process.execPath, ["-e", wrapper], { detached: true, stdio: "ignore", windowsHide: true, cwd, env });
   w.on("exit", (code) => {
     let said = "";
     try {

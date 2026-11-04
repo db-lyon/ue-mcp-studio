@@ -53,6 +53,13 @@ describe("updates", () => {
     expect(screen.getByText("count 0")).toBeTruthy();
   });
 
+  it("shows the last background Studio update that failed, with what it said", async () => {
+    const failed = { ...studio(true, false), failure: { step: "studio", error: "could not download studio-0.1.0-beta.10.zip: HTTP 404", at: "2026-11-04T04:20:00Z" } };
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? failed : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toBe("The last Studio update failed: could not download studio-0.1.0-beta.10.zip: HTTP 404"));
+  });
+
   it("names the bridge plugin, not ue-mcp, when only the bridge is behind the daemon", async () => {
     const behind = { installed: { version: "1.4.0-beta.1" }, server: "1.4.3", latest: "1.4.3", target: "1.4.3", binaries: { available: true, file: "b.zip" } };
     vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(false, false) : behind))));
