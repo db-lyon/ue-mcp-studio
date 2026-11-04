@@ -8,7 +8,7 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { FlowListing, FlowRunRequest } from "@ue-mcp-studio/shared";
 import { Sheet, T, font, useTheme } from "../../ui";
 import { useProjectNav } from "../../nav";
-import { FlowLauncher } from "./FlowLauncher";
+import { FlowLauncher } from "../../chat/FlowCommand";
 
 export function FlowsSheet({ open, sessionId, onClose, onRan }: { open: boolean; sessionId: string; onClose: () => void; onRan?: () => void }) {
   const t = useTheme();

@@ -24,14 +24,7 @@ import {
   type QaStep,
   type QaVerdict,
 } from "@ue-mcp-studio/shared";
-
-/** The newer of two views of a run: the higher seq, and the server's on a tie. */
-export function newerRun(server: QaRun, local: QaRun): QaRun {
-  if (server.runId !== local.runId) return server;
-  if (server.lastSeq >= local.lastSeq) return server;
-  // The steps from the newer events, the subagent as the agent last saved it.
-  return server.assignment ? { ...local, assignment: server.assignment } : local;
-}
+import { newerRun } from "./chat-view.js";
 
 /** A run answered for a card: the same run made newer, or the run that took the card's place. */
 export const takeRun = (next: QaRun, cur: QaRun): QaRun => (next.runId === cur.runId ? newerRun(next, cur) : next);
@@ -167,13 +160,13 @@ export const QA_VERDICTS: Array<{ verdict: QaVerdict; label: string }> = [
 export const offlinePill = (text: string): string =>
   text === "Needs you" ? "Was waiting" : text === STARTING ? "Was starting" : /^Running/.test(text) || /^Step \d/.test(text) || /^Attempt/.test(text) ? "Was running" : text;
 
-export interface Pill {
+export interface QaPill {
   tone: "" | "ok" | "bad" | "warn" | "run";
   text: string;
 }
 
 /** The pill in a card's head: a draft's only when deleted, an ended run's outcome, or what a live run is doing. */
-export function runPill(run: QaRun): Pill | null {
+export function runPill(run: QaRun): QaPill | null {
   const sum = run.summary ?? qaSummaryOf(run.steps);
   const waiting = run.steps.some((s) => s.status === "awaiting_verdict");
   if (qaIsDraft(run)) return run.deleted ? { tone: "", text: "Deleted" } : null;
@@ -201,7 +194,7 @@ export function loopHeadline(loop: QaLoop): string {
 }
 
 /** The pill a loop puts beside the run's own status. */
-export function loopPill(loop: QaLoop): { text: string; tone: Pill["tone"] } {
+export function loopPill(loop: QaLoop): { text: string; tone: QaPill["tone"] } {
   if (loop.state === "running") return { text: `Attempt ${Math.max(1, loop.attempts.length)}`, tone: "" };
   if (loop.state === "passed") return { text: "Passed", tone: "ok" };
   if (loop.state === "needs_you") return { text: "Needs you", tone: "warn" };

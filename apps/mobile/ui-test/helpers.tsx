@@ -16,6 +16,9 @@ export type FakeApi = { [K in keyof StudioApi]: ReturnType<typeof vi.fn> };
 const NAMES: Array<keyof StudioApi> = [
   "health", "sessions", "newSession", "sessionSync", "callResult", "send", "queue", "removeQueued", "sendQueued", "stop", "saveDraft", "approve", "dialogs", "answerDialog",
   "settings", "saveSettings", "models", "reviewStatus", "setSessionReview", "reviewDiff", "reviewKeep", "reviewRevert", "reviewUndo", "timelineRestore", "timelineUndo", "vcs", "vcsChanges", "vcsDiff",
+  "versionNotice", "keepStudio", "useInstalledStudio", "busy", "stopBusy", "editor", "refusal", "saveUpdateRun", "updatesDeferredNow",
+  "editQueued", "updateSession", "deleteSession", "markSeen", "dismissAgents", "editMessage", "uploadAttachment", "stopSubagent", "compact", "flow", "action", "playtest",
+  "flows", "actions", "searchMentions", "forms", "answerForm", "bytes", "reviewNativeDiff",
 ];
 /** The editor and flow routes. */
 const EDITOR_NAMES: Array<keyof StudioApi> = ["daemonHealth", "busy", "stopBusy", "editor", "flows", "planFlow", "flow"];
@@ -27,7 +30,9 @@ const PLAYTEST_NAMES: Array<keyof StudioApi> = [
 
 export function fakeApi(): FakeApi {
   const api = {} as FakeApi;
-  for (const n of [...NAMES, ...EDITOR_NAMES, ...PLAYTEST_NAMES]) api[n] = vi.fn(() => new Promise(() => undefined));
+  for (const n of new Set([...NAMES, ...EDITOR_NAMES, ...PLAYTEST_NAMES])) api[n] = vi.fn(() => new Promise(() => undefined));
+  api.reviewImageUrl = vi.fn((name: string) => `/v1/ext/studio/review/images/${name}`);
+  api.reviewThumbnailUrl = vi.fn((id: string) => `/v1/ext/studio/review/thumbnails/${id}`);
   api.saveDraft.mockResolvedValue({});
   api.dialogs.mockResolvedValue({ now: Date.now(), dialogs: [] });
   return api;

@@ -30,7 +30,10 @@ import { AssetLinksContext, useAssetLinks } from "./StepText";
 export const FILTER_KEY = "studio.playtests.filter";
 
 /** The project's playtests, read again as runs change. */
-export function usePlaytestIndex(events: StreamEvent[], streaming: boolean): { index: PlaytestIndexAnswer | null; error: string | null; reload: (fresh?: boolean) => void } {
+/** What a page of cards reads from the daemon: its recent events and whether its stream is up. */
+export type Daemonish = { events: StreamEvent[]; streaming: boolean };
+
+export function usePlaytestIndex({ events, streaming }: Daemonish): { index: PlaytestIndexAnswer | null; error: string | null; reload: (fresh?: boolean) => void } {
   const { api } = useProjectNav();
   const [index, setIndex] = useState<PlaytestIndexAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -56,12 +59,20 @@ export function usePlaytestIndex(events: StreamEvent[], streaming: boolean): { i
   return { index, error, reload };
 }
 
+/** The page on its own, reading the project's events and index itself. */
 export function PlaytestsScreen({ onOpenSession, onChat }: { onOpenSession: (sessionId: string, runId: string) => void; onChat?: () => void }) {
+  const { project } = useProjectNav();
+  const daemon = useDaemonEvents(project);
+  const index = usePlaytestIndex(daemon);
+  return <PlaytestsView daemon={daemon} index={index} onOpenSession={onOpenSession} onChat={onChat} />;
+}
+
+/** The page over the index the app keeps, which also counts what needs the user on the tab (web: PlaytestsView). */
+export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: { daemon: Daemonish; index: ReturnType<typeof usePlaytestIndex>; onOpenSession: (sessionId: string, runId: string) => void; onChat?: () => void }) {
   const t = useTheme();
   const s = useStyles(styles);
-  const { project } = useProjectNav();
-  const { events, streaming } = useDaemonEvents(project);
-  const { index, error, reload } = usePlaytestIndex(events, streaming);
+  const { events, streaming } = daemon;
+  const { index, error, reload } = source;
   const all = useMemo(() => (index?.playtests ?? []).filter((e) => !e.deleted), [index]);
   const counts = useMemo(() => Object.fromEntries(PLAYTEST_FILTERS.map((f) => [f.id, all.filter((e) => playtestMatches(e, f.id)).length])) as Record<PlaytestFilter, number>, [all]);
   const [picked, setPicked] = useState<PlaytestFilter | null>(null);

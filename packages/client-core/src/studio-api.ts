@@ -4,7 +4,21 @@
  * routes over fetch and moves onto this as its views move.
  */
 import type {
+  ActionDescription,
+  ActionListing,
+  ActionRunRequest,
+  Attachment,
+  AttachmentUpload,
+  FlowListing,
+  FlowRunRequest,
+  MentionSearchRequest,
+  MentionSearchResponse,
+  PendingForm,
+  PlaytestRequest,
+  SessionUpdate,
   ApprovalDecision,
+  BusyState,
+  StudioRefusal,
   CheckpointChange,
   DialogAnswer,
   DialogsState,
@@ -22,7 +36,8 @@ import type {
   VcsChange,
   VcsStatus,
 } from "@ue-mcp-studio/shared";
-import { requestJson, type Transport } from "./transport.js";
+import { HttpError, readAll, requestJson, type Transport } from "./transport.js";
+import type { UpdateRun } from "./update-run.js";
 import { projectApi } from "./project-api.js";
 
 const enc = encodeURIComponent;
@@ -36,6 +51,12 @@ export interface ReviewDiff {
   after?: string;
 }
 
+/** Another project installed a newer Studio than this one uses. */
+export interface StudioVersionNotice {
+  installed: string;
+  current: string;
+}
+
 export function studioApi(t: Transport) {
   const get = <T>(path: string) => requestJson<T>(t, "GET", path);
   const send = <T>(method: string, path: string, json?: unknown) => requestJson<T>(t, method, path, json !== undefined ? { json } : {});
@@ -46,8 +67,30 @@ export function studioApi(t: Transport) {
     newSession: () => send<SessionDetail>("POST", `${S}/sessions`),
     sessionSync: (id: string, have?: string) => get<SessionSync | SessionDetail>(`${session(id)}?sync=1${have !== undefined ? `&have=${have}` : ""}`),
     callResult: (id: string, callId: string) => get<{ result: string }>(`${session(id)}/calls/${enc(callId)}/result`),
-    send: (id: string, text: string, now = false) => send<{ sessionId: string }>("POST", `${session(id)}/messages`, now ? { text, attachments: [], now } : { text, attachments: [] }),
-    queue: (id: string, text: string) => send<QueuedMessage>("POST", `${session(id)}/queue`, { text, attachments: [] }),
+    send: (id: string, text: string, attachments: string[] = [], now = false) =>
+      send<{ sessionId: string }>("POST", `${session(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),
+    queue: (id: string, text: string, attachments: string[] = []) => send<QueuedMessage>("POST", `${session(id)}/queue`, { text, attachments }),
+    editQueued: (id: string, qid: string, text: string) => send<void>("PUT", `${session(id)}/queue/${enc(qid)}`, { text }),
+    updateSession: (id: string, u: SessionUpdate) => send<SessionSummary>("PUT", session(id), u),
+    deleteSession: (id: string) => send<void>("DELETE", session(id)),
+    markSeen: (id: string, threadId: string) => send<void>("POST", `${session(id)}/seen`, { id: threadId }),
+    dismissAgents: (id: string, ids: string[]) => send<{ dismissed: string[] }>("POST", `${session(id)}/dismissed`, { ids }),
+    editMessage: (id: string, index: number, text: string, mode: "rewind" | "fork" = "rewind") => send<{ sessionId: string }>("POST", `${session(id)}/transcript/${index}/edit`, { text, mode }),
+    stopSubagent: (id: string, callId: string) => send<void>("POST", `${session(id)}/agents/${enc(callId)}/stop`),
+    compact: (id: string, instructions?: string) => send<{ sessionId: string }>("POST", `${session(id)}/compact`, instructions ? { instructions } : {}),
+    playtest: (id: string, request: PlaytestRequest) => send<{ sessionId: string }>("POST", `${session(id)}/playtest`, request),
+    forms: (sessionId: string) => get<{ forms: PendingForm[] }>(`${S}/forms?session=${enc(sessionId)}`),
+    answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) => send<void>("POST", `${S}/forms/${enc(id)}`, answer),
+    /** Bytes the daemon serves (a review picture), read through the transport, since a relayed client has no URL to load. */
+    bytes: async (path: string): Promise<{ type: string; data: Uint8Array }> => {
+      const reply = await t("GET", path);
+      const data = await readAll(reply);
+      if (reply.status < 200 || reply.status >= 300) throw new HttpError(reply.status, `GET ${path} answered ${reply.status}.`);
+      return { type: reply.headers["content-type"] ?? "application/octet-stream", data };
+    },
+    reviewImageUrl: (name: string) => `${S}/review/images/${enc(name)}`,
+    reviewThumbnailUrl: (thumbId: string) => `${S}/review/thumbnails/${enc(thumbId)}`,
+    reviewNativeDiff: (id: string, reviewId: string, path: string) => send<{ opened: string; windowTitle?: string }>("POST", `${review(id, reviewId)}/native-diff`, { path }),
     removeQueued: (id: string, qid: string) => send<void>("DELETE", `${session(id)}/queue/${enc(qid)}`),
     sendQueued: (id: string) => send<void>("POST", `${session(id)}/queue/next`),
     stop: (id: string) => send<void>("POST", `${session(id)}/stop`),
@@ -71,6 +114,24 @@ export function studioApi(t: Transport) {
     vcs: () => get<{ vcs: VcsStatus | null }>(`${S}/vcs`),
     vcsChanges: () => get<{ changes: VcsChange[]; truncated: boolean }>(`${S}/vcs/changes`),
     vcsDiff: (path: string) => get<{ diff: string | null; reason?: string }>(`${S}/vcs/diff?path=${enc(path)}`),
+    versionNotice: () => get<{ notice: StudioVersionNotice | null }>(`${S}/version-notice`),
+    keepStudio: (version: string) => send<{ notice: StudioVersionNotice | null }>("POST", `${S}/version-notice/keep`, { version }),
+    useInstalledStudio: (version: string) => send<unknown>("POST", `${S}/version-notice/update`, { version }),
+    busy: () => get<BusyState>(`${S}/busy`),
+    stopBusy: () => send<{ stopped: string[] }>("POST", `${S}/busy/stop`),
+    editor: (op: "start" | "stop" | "restart" | "rebuild") => send<Record<string, unknown>>("POST", `/v1/editor/${op}`),
+    refusal: () => get<StudioRefusal>(`${S}/refusal`),
+    saveUpdateRun: (run: UpdateRun | null) => send<unknown>("PUT", `${S}/updates/run`, { run }),
+    updatesDeferredNow: () => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),
+    // The composer: attachments, @-mentions, and the /flow and /action launchers.
+    uploadAttachment: (id: string, upload: AttachmentUpload) => send<Attachment>("POST", `${session(id)}/attachments`, upload),
+    searchMentions: (request: MentionSearchRequest, signal?: AbortSignal) => requestJson<MentionSearchResponse>(t, "POST", `${S}/mentions/search`, { json: request, ...(signal ? { signal } : {}) }),
+    flows: () => get<{ flows: FlowListing[] }>("/v1/flows"),
+    planFlow: (name: string) => get<unknown>(`/v1/flows/${enc(name)}/plan`),
+    flow: (id: string, request: FlowRunRequest) => send<{ sessionId: string }>("POST", `${session(id)}/flow`, request),
+    actions: () => get<{ actions: ActionListing[] }>(`${S}/actions`),
+    describeAction: (name: string) => get<ActionDescription>(`${S}/actions/${enc(name)}`),
+    action: (id: string, request: ActionRunRequest) => send<{ sessionId: string }>("POST", `${session(id)}/action`, request),
   };
 }
 

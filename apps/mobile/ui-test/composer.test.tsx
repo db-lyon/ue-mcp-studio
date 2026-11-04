@@ -1,0 +1,418 @@
+// The composer port: the message box and its bar, the slash and @-mention
+// menus, the pill row, the /flow and /action launchers and the model picker.
+import { useState } from "react";
+import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import type { ActionListing, FlowListing, MentionMatch, MentionSearchResponse, ModelCatalog, StudioSettings } from "@ue-mcp-studio/shared";
+import { mentionToken } from "@ue-mcp-studio/shared";
+import { BarButton, Composer, CheckpointsGlyph } from "../src/chat/Composer";
+import { BarTierContext } from "../src/chat/barTier";
+import { MentionText, type MentionSearchFn } from "../src/chat/MentionMenu";
+import { PillRow } from "../src/chat/Pills";
+import { FlowLauncher } from "../src/chat/FlowCommand";
+import { ActionLauncher } from "../src/chat/ActionCommand";
+import { useAttachments, type PendingFile, type PickedFile } from "../src/chat/attachments";
+import { EffortPicker, ModelAndEffort, ModelPicker } from "../src/views/ModelPicker";
+import { picked as imagePicked } from "./mocks/image-picker";
+import { picked as docPicked } from "./mocks/document-picker";
+import { fakeApi, renderInProject, settle } from "./helpers";
+
+type Props = Partial<Parameters<typeof Composer>[0]>;
+
+/** The composer with its draft kept, as views/Chat.tsx keeps it. */
+function Box(props: Props & { initial?: string }) {
+  const [draft, setDraft] = useState(props.initial ?? "");
+  return (
+    <Composer
+      draft={draft}
+      onDraft={setDraft}
+      onBlur={() => undefined}
+      placeholder="Ask for something in the editor, or drop files here"
+      busy={false}
+      canSend={!!draft.trim()}
+      onSend={() => undefined}
+      onStop={() => undefined}
+      files={[]}
+      onAddFiles={() => undefined}
+      onRemoveFile={() => undefined}
+      picker={null}
+      {...props}
+    />
+  );
+}
+
+const box = () => document.querySelector("textarea:not([aria-hidden])") as HTMLTextAreaElement;
+
+/** Types into the box with the caret at the end, as a person does. */
+function type(text: string) {
+  const el = box();
+  fireEvent.change(el, { target: { value: text } });
+  el.setSelectionRange(text.length, text.length);
+  fireEvent.select(el);
+}
+
+const button = (name: string) => screen.getByRole("button", { name });
+
+/** A menu row picked with a tap; the press keeps the focus in the box (keepFocus). */
+function pressRow(el: HTMLElement) {
+  const kept = fireEvent.mouseDown(el, { button: 0, buttons: 1 });
+  expect(kept).toBe(false);
+  fireEvent.mouseUp(el, { button: 0 });
+  fireEvent.click(el);
+}
+
+/** Opens a picker's menu: it is placed from the button's measure, which answers a frame later. */
+async function openPicker(name: string) {
+  fireEvent.click(button(name));
+  await settle();
+  await act(async () => void (await new Promise((r) => setTimeout(r, 50))));
+}
+
+describe("Composer", () => {
+  it("sends with Send, which waits for text", () => {
+    const onSend = vi.fn();
+    render(<Box onSend={onSend} />);
+    expect(screen.getByPlaceholderText("Ask for something in the editor, or drop files here")).toBeTruthy();
+    expect(button("Send").getAttribute("aria-disabled")).toBe("true");
+    type("Add a second door trigger by the ledge");
+    fireEvent.click(button("Send"));
+    expect(onSend).toHaveBeenCalledTimes(1);
+  });
+
+  it("while a turn runs: Queue and Stop, and the box stays open for the next message", () => {
+    const onQueue = vi.fn();
+    const onStop = vi.fn();
+    render(<Box busy initial="Then check the sprint speed" onQueue={onQueue} onStop={onStop} placeholder="The agent is working. Write the next message to queue it." />);
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    fireEvent.click(button("Queue"));
+    fireEvent.click(button("Stop"));
+    expect(onQueue).toHaveBeenCalledTimes(1);
+    expect(onStop).toHaveBeenCalledTimes(1);
+    expect(box().readOnly).toBe(false);
+  });
+
+  it("is closed while a turn runs when nothing can queue", () => {
+    render(<Box busy />);
+    expect(box().readOnly).toBe(true);
+    expect(screen.queryByRole("button", { name: "Queue" })).toBeNull();
+  });
+
+  it("shows attached files as chips, each with its state and a remove button", () => {
+    const files: PendingFile[] = [
+      { key: "a", name: "shot.png", type: "image/png", size: 3000, preview: null, state: "ready" },
+      { key: "b", name: "notes", type: "text/plain", size: 10, preview: null, state: "uploading" },
+      { key: "c", name: "big.zip", type: "application/zip", size: 1, preview: null, state: "error", error: "larger than 100.0 MB" },
+    ];
+    const onRemoveFile = vi.fn();
+    render(<Box files={files} onRemoveFile={onRemoveFile} />);
+    const list = screen.getByLabelText("Attached files");
+    expect(within(list).getByText("PNG")).toBeTruthy();
+    expect(within(list).getByText("3 KB")).toBeTruthy();
+    expect(within(list).getByText("FILE")).toBeTruthy();
+    expect(within(list).getByText("adding")).toBeTruthy();
+    expect(within(list).getByText("larger than 100.0 MB")).toBeTruthy();
+    fireEvent.click(button("Remove shot.png"));
+    expect(onRemoveFile).toHaveBeenCalledWith("a");
+  });
+
+  it("attaches photos or files picked from the phone", async () => {
+    const onAddFiles = vi.fn();
+    render(<Box onAddFiles={onAddFiles} />);
+    imagePicked.next = { canceled: false, assets: [{ uri: "file:///p.jpg", fileName: "p.jpg", mimeType: "image/jpeg", fileSize: 2048, base64: "AAAA", width: 1, height: 1 }] };
+    fireEvent.click(button("Attach"));
+    fireEvent.click(button("Attach photos"));
+    await settle();
+    expect(onAddFiles).toHaveBeenLastCalledWith([{ uri: "file:///p.jpg", name: "p.jpg", type: "image/jpeg", size: 2048, base64: "AAAA" }]);
+    docPicked.next = { canceled: false, assets: [{ uri: "file:///a.txt", name: "a.txt", mimeType: "text/plain", size: 5 }] };
+    fireEvent.click(button("Attach"));
+    fireEvent.click(button("Attach files"));
+    await settle();
+    expect(onAddFiles).toHaveBeenLastCalledWith([{ uri: "file:///a.txt", name: "a.txt", type: "text/plain", size: 5, base64: undefined }]);
+  });
+
+  it("the resize handle: steps with the screen reader's adjust actions, and a double tap forgets the height", () => {
+    const onHeight = vi.fn();
+    render(<Box height={120} onHeight={onHeight} />);
+    const handle = screen.getByLabelText("Resize the message box");
+    expect(handle).toBeTruthy();
+    vi.useFakeTimers();
+    try {
+      fireEvent.keyDown(handle, { key: "ArrowUp" });
+      act(() => void vi.advanceTimersByTime(500));
+      expect(onHeight).toHaveBeenLastCalledWith(136);
+      fireEvent.keyDown(handle, { key: "Home" });
+      expect(onHeight).toHaveBeenLastCalledWith(null);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("BarButton and the bar's tiers", () => {
+  it("keeps its word while the bar is full, and becomes an icon named by its label when it narrows", () => {
+    const { unmount } = render(<BarTierContext.Provider value="full"><BarButton label="Checkpoints" title="Review" icon={<CheckpointsGlyph />} onClick={() => undefined} /></BarTierContext.Provider>);
+    expect(screen.getByText("Checkpoints")).toBeTruthy();
+    unmount();
+    render(<BarTierContext.Provider value="icons"><BarButton label="Checkpoints" title="Review" icon={<CheckpointsGlyph />} onClick={() => undefined} /></BarTierContext.Provider>);
+    expect(screen.queryByText("Checkpoints")).toBeNull();
+    expect(button("Checkpoints")).toBeTruthy();
+  });
+});
+
+describe("the slash menu", () => {
+  it("offers every command a paired browser gets, /compact among them and never /remote, and a pick fills the box", () => {
+    render(<Box />);
+    type("/");
+    const menu = screen.getByLabelText("Commands");
+    for (const c of ["/playtest", "/flow", "/action", "/compact"]) expect(within(menu).getByText(c)).toBeTruthy();
+    expect(within(menu).queryByText("/remote")).toBeNull();
+    type("/co");
+    pressRow(screen.getByRole("menuitem", { name: "/compact" }));
+    expect(box().value).toBe("/compact ");
+    expect(screen.queryByLabelText("Commands")).toBeNull();
+  });
+
+  it("completes a flow's name after /flow", async () => {
+    const flows: FlowListing[] = [{ name: "playtest", description: "Run the playtest" }, { name: "package" }];
+    render(<Box flows={() => Promise.resolve(flows)} />);
+    type("/flow pa");
+    await settle();
+    const menu = screen.getByLabelText("Flows");
+    expect(within(menu).getByText("package")).toBeTruthy();
+    expect(within(menu).queryByText("playtest")).toBeNull();
+  });
+
+  it("completes an action's name after /action", async () => {
+    const actions: ActionListing[] = [{ name: "level.get_outliner", category: "level", method: "get_outliner", summary: "The level's actors" } as ActionListing];
+    render(<Box actions={() => Promise.resolve(actions)} />);
+    type("/action level.get");
+    await settle();
+    expect(within(screen.getByLabelText("Actions")).getByText("level.get_outliner")).toBeTruthy();
+  });
+});
+
+const MATCHES: MentionMatch[] = [
+  { kind: "asset", name: "BP_Door", type: "Blueprint", path: "/Game/Props/Doors/BP_Door.BP_Door", target: "/Game/Props/Doors/BP_Door.BP_Door" },
+  { kind: "actor", name: "Front Door", type: "StaticMeshActor", path: "/Game/Maps/Cave.Cave:PersistentLevel.StaticMeshActor_12", target: "actor:/Game/Maps/Cave.Cave:PersistentLevel.StaticMeshActor_12" },
+];
+
+function searchOf(answer: (q: string) => MentionSearchResponse): MentionSearchFn & ReturnType<typeof vi.fn> {
+  return vi.fn((r: { query: string }) => Promise.resolve(answer(r.query))) as never;
+}
+
+describe("the @-mention menu", () => {
+  it("lists the matches with their kind, name, type and path, and a pick puts a token in the box shown as a chip", async () => {
+    const search = searchOf((query) => ({ query, results: MATCHES, sources: { asset: "editor", actor: "editor", file: "disk" } }));
+    render(<Box initial="Put a light over " mentions={search} />);
+    type("Put a light over @Door");
+    await act(async () => void (await new Promise((r) => setTimeout(r, 200))));
+    expect(search).toHaveBeenCalledWith({ query: "Door" }, expect.anything());
+    const menu = screen.getByLabelText("Mentions");
+    expect(within(menu).getByText("BP_Door")).toBeTruthy();
+    expect(within(menu).getByText("Blueprint")).toBeTruthy();
+    expect(within(menu).getByText("/Game/Props/Doors/BP_Door.BP_Door")).toBeTruthy();
+    expect(within(menu).getByText("Actor")).toBeTruthy();
+    const row = screen.getByRole("menuitem", { name: "Asset BP_Door" });
+    pressRow(row);
+    expect(box().value).toBe(`Put a light over ${mentionToken(MATCHES[0])} `);
+    const chips = screen.getByLabelText("Mentioned");
+    expect(within(chips).getByText("BP_Door")).toBeTruthy();
+    fireEvent.click(button("Remove the mention of BP_Door"));
+    expect(box().value).toBe("Put a light over ");
+  });
+
+  it("narrows to actors with @actor:, and says why when no editor can answer", async () => {
+    const search = searchOf((query) => ({ query, results: [], sources: { actor: "unavailable" } }));
+    render(<Box mentions={search} />);
+    type("Put a light over @actor:Fro");
+    await act(async () => void (await new Promise((r) => setTimeout(r, 200))));
+    expect(search).toHaveBeenCalledWith({ query: "Fro", kinds: ["actor"] }, expect.anything());
+    expect(screen.getByText("Actors need a running editor.")).toBeTruthy();
+    expect(screen.queryByText(/No actors match/)).toBeNull();
+  });
+
+  it("says so when nothing matches, and asks for a name after a bare @", async () => {
+    const search = searchOf((query) => ({ query, results: [], sources: { asset: "editor", actor: "editor", file: "disk" } }));
+    render(<Box mentions={search} />);
+    type("@");
+    expect(screen.getByText("Type a name to find assets, actors or files.")).toBeTruthy();
+    type("@Zebra");
+    await act(async () => void (await new Promise((r) => setTimeout(r, 200))));
+    expect(screen.getByText("No assets, actors or files match Zebra.")).toBeTruthy();
+  });
+
+  it("draws a sent message's mentions as chips with their kind", () => {
+    const text = `Swap the mesh on ${mentionToken(MATCHES[1])} for ${mentionToken(MATCHES[0])}`;
+    render(<MentionText text={text} />);
+    expect(screen.getByText("Front Door")).toBeTruthy();
+    expect(screen.getByText("BP_Door")).toBeTruthy();
+    expect(screen.getByText("Actor")).toBeTruthy();
+    expect(screen.getByText("Asset")).toBeTruthy();
+    expect(screen.getByText(/Swap the mesh on/)).toBeTruthy();
+  });
+});
+
+describe("PillRow", () => {
+  it("draws nothing without pills; a tap clears the row and runs the pill", () => {
+    const actions = { playtest: vi.fn() };
+    const { container, rerender } = render(<PillRow pills={[]} actions={actions} onClear={() => undefined} />);
+    expect(container.textContent).toBe("");
+    const onClear = vi.fn();
+    rerender(<PillRow pills={[{ id: "p", label: "Make playtest", run: (a) => a.playtest({ text: "", turn: 3 }) }]} actions={actions} onClear={onClear} />);
+    expect(screen.getByLabelText("Suggestions")).toBeTruthy();
+    fireEvent.click(button("Make playtest"));
+    expect(onClear).toHaveBeenCalled();
+    expect(actions.playtest).toHaveBeenCalledWith({ text: "", turn: 3 });
+  });
+});
+
+/** The routes the launchers and pickers call, on the fake API. */
+function api() {
+  const a = fakeApi() as ReturnType<typeof fakeApi> & Record<string, ReturnType<typeof vi.fn>>;
+  for (const n of ["flows", "planFlow", "actions", "describeAction", "uploadAttachment", "searchMentions"]) a[n] = vi.fn(() => new Promise(() => undefined));
+  return a;
+}
+
+describe("FlowLauncher", () => {
+  it("asks for a name after a bare /flow, offering the project's flows", async () => {
+    const a = api();
+    a.flows.mockResolvedValue({ flows: [{ name: "playtest" }, { name: "package" }] });
+    renderInProject(<FlowLauncher text="/flow" run={vi.fn()} onClose={vi.fn()} />, a);
+    await settle();
+    expect(screen.getByText("Run a flow")).toBeTruthy();
+    expect(screen.getByText("Name a flow after /flow.")).toBeTruthy();
+    expect(button("package")).toBeTruthy();
+  });
+
+  it("names the closest flows to one that is not there", async () => {
+    const a = api();
+    a.flows.mockResolvedValue({ flows: [{ name: "playtest" }] });
+    a.planFlow.mockResolvedValue({});
+    renderInProject(<FlowLauncher text="/flow playtst" run={vi.fn()} onClose={vi.fn()} />, a);
+    await settle();
+    expect(screen.getByText("No flow named playtst.")).toBeTruthy();
+    expect(screen.getByText("Closest:")).toBeTruthy();
+    expect(button("playtest")).toBeTruthy();
+  });
+
+  it("runs a flow with no inputs at once, with the pairs typed after its name", async () => {
+    const a = api();
+    a.flows.mockResolvedValue({ flows: [{ name: "package" }] });
+    a.planFlow.mockResolvedValue({ steps: [] });
+    const run = vi.fn(() => Promise.resolve());
+    const onClose = vi.fn();
+    renderInProject(<FlowLauncher text="/flow package target=win" run={run} onClose={onClose} />, a);
+    await settle();
+    expect(run).toHaveBeenCalledWith({ name: "package", params: { target: "win" } });
+    await settle();
+    expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe("ActionLauncher", () => {
+  it("says how to name an action after a bare /action", async () => {
+    renderInProject(<ActionLauncher text="/action" run={vi.fn()} onClose={vi.fn()} />, api());
+    await settle();
+    expect(screen.getByText(/Name an action after \/action, as category.method/)).toBeTruthy();
+  });
+
+  it("runs an action that takes no parameters at once, in the catalog's spelling", async () => {
+    const a = api();
+    a.actions.mockResolvedValue({ actions: [{ name: "level.get_outliner", category: "level", method: "get_outliner" }] });
+    a.describeAction.mockResolvedValue({ name: "level.get_outliner", params: [] });
+    const run = vi.fn(() => Promise.resolve());
+    renderInProject(<ActionLauncher text="/action Level.Get_Outliner" run={run} onClose={vi.fn()} />, a);
+    await settle();
+    await settle();
+    expect(a.describeAction).toHaveBeenCalledWith("level.get_outliner");
+    expect(run).toHaveBeenCalledWith({ category: "level", method: "get_outliner", args: {} });
+  });
+});
+
+const settings = { provider: "anthropic", model: "sonnet-5.5", effort: "medium", route: "claude", connected: { claude: true } } as unknown as StudioSettings;
+const catalog: ModelCatalog = {
+  signedIn: { claude: true, chatgpt: false, studio: false } as ModelCatalog["signedIn"],
+  routeOrder: ["claude", "key"] as unknown as ModelCatalog["routeOrder"],
+  providers: [
+    { id: "anthropic", name: "Anthropic", connected: false, source: "default", models: [{ id: "sonnet-5.5", name: "Sonnet 5.5", signIns: ["claude"] }] },
+    { id: "openai", name: "OpenAI", connected: false, source: "default", models: [{ id: "gpt-y", name: "GPT Y", signIns: ["chatgpt"] }] },
+  ] as ModelCatalog["providers"],
+} as ModelCatalog;
+
+describe("ModelPicker", () => {
+  it("in a narrow bar, one chip names the model and the effort; its menu lists the models and the effort", async () => {
+    const a = api();
+    a.models.mockResolvedValue(catalog);
+    a.saveSettings.mockResolvedValue({ ...settings, effort: "high" });
+    const onSettings = vi.fn();
+    renderInProject(<BarTierContext.Provider value="merged"><ModelAndEffort settings={settings} onSettings={onSettings} /></BarTierContext.Provider>, a);
+    await settle();
+    await openPicker("Model and effort: Sonnet 5.5, Medium");
+    expect(screen.getByText("Sonnet 5.5 · Medium")).toBeTruthy();
+    expect(screen.getByText("Anthropic")).toBeTruthy();
+    expect(screen.getByText("Claude sign-in")).toBeTruthy();
+    expect(screen.getByText("sign in")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", { name: "High" }));
+    await settle();
+    expect(a.saveSettings).toHaveBeenCalledWith({ effort: "high" });
+    expect(onSettings).toHaveBeenCalled();
+  });
+
+  it("a model nothing connected runs says to connect it on the computer", async () => {
+    const a = api();
+    a.models.mockResolvedValue(catalog);
+    renderInProject(<ModelPicker settings={settings} onSettings={vi.fn()} up />, a);
+    await settle();
+    await openPicker("Sonnet 5.5");
+    fireEvent.click(screen.getByRole("menuitem", { name: "GPT Y" }));
+    expect(screen.getByText("Change this from Studio on the computer.")).toBeTruthy();
+    expect(screen.getByText(/Use your own OpenAI API key instead/)).toBeTruthy();
+  });
+
+  it("picks a model that runs", async () => {
+    const a = api();
+    a.models.mockResolvedValue(catalog);
+    a.saveSettings.mockResolvedValue(settings);
+    renderInProject(<ModelPicker settings={settings} onSettings={vi.fn()} up />, a);
+    await settle();
+    await openPicker("Sonnet 5.5");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Sonnet 5.5" }));
+    await settle();
+    expect(a.saveSettings).toHaveBeenCalledWith({ provider: "anthropic", model: "sonnet-5.5" });
+  });
+
+  it("wide, the effort is its own control with its word", async () => {
+    const a = api();
+    a.models.mockResolvedValue(catalog);
+    a.saveSettings.mockResolvedValue({ ...settings, effort: "max" });
+    renderInProject(<EffortPicker settings={settings} onSettings={vi.fn()} />, a);
+    expect(screen.getByText("Effort")).toBeTruthy();
+    fireEvent.click(button("Effort: Medium"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Max" }));
+    await settle();
+    expect(a.saveSettings).toHaveBeenCalledWith({ effort: "max" });
+  });
+});
+
+describe("useAttachments", () => {
+  it("uploads each file as it is added, and refuses one too large", async () => {
+    const a = api();
+    a.uploadAttachment.mockResolvedValue({ id: "att1", name: "p.jpg", type: "image/jpeg", size: 3 });
+    let hook: ReturnType<typeof useAttachments> | null = null;
+    function Probe() {
+      hook = useAttachments("s1");
+      return null;
+    }
+    renderInProject(<Probe />, a);
+    const files: PickedFile[] = [
+      { uri: "file:///p.jpg", name: "p.jpg", type: "image/jpeg", size: 3, base64: "AAAA" },
+      { uri: "file:///big", name: "big", type: "application/zip", size: 200 * 1024 * 1024 },
+    ];
+    act(() => hook!.add(files));
+    await settle();
+    expect(a.uploadAttachment).toHaveBeenCalledWith("s1", { name: "p.jpg", type: "image/jpeg", data: "AAAA" });
+    expect(hook!.ready).toEqual([{ id: "att1", name: "p.jpg", type: "image/jpeg", size: 3 }]);
+    expect(hook!.files[1].state).toBe("error");
+    expect(hook!.files[1].error).toBe("larger than 100.0 MB");
+  });
+});

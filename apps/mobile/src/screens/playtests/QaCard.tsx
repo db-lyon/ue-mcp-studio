@@ -28,7 +28,7 @@ import {
   statusLabel,
   stepTone,
   verdictOf,
-  type Pill as PillState,
+  type QaPill as PillState,
   type RunOptions,
   type Transport,
 } from "@ue-mcp-studio/client-core";

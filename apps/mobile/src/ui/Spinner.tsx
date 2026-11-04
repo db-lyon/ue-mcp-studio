@@ -1,9 +1,13 @@
-/** .spinner and .spinner.small: a ring with the accent on top, turning. */
+/**
+ * .spinner and .spinner.small: a ring in the hairline colour with an accent
+ * top, turning once every 0.8 s.
+ */
 import { useEffect, useRef } from "react";
-import { Animated, Easing } from "react-native";
+import { Animated, Easing, type StyleProp, type ViewStyle } from "react-native";
 import { useTheme } from "./ThemeProvider";
 
-export function Spinner({ small, still }: { small?: boolean; still?: boolean }) {
+/** `still` holds it at rest, for a still picture of the screen. */
+export function Spinner({ small = false, still = false, style }: { small?: boolean; still?: boolean; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
   const turn = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -13,11 +17,23 @@ export function Spinner({ small, still }: { small?: boolean; still?: boolean }) 
     return () => loop.stop();
   }, [turn, still]);
   const size = small ? 12 : 16;
-  const rotate = turn.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
   return (
     <Animated.View
-      aria-hidden
-      style={{ width: size, height: size, borderRadius: size / 2, borderWidth: 2, borderColor: t.c.line, borderTopColor: t.c.accent, flexShrink: 0, transform: [{ rotate }] }}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={[
+        {
+          width: size,
+          height: size,
+          flexShrink: 0,
+          borderWidth: 2,
+          borderRadius: size / 2,
+          borderColor: t.c.line,
+          borderTopColor: t.c.accent,
+          transform: [{ rotate: turn.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }],
+        },
+        style,
+      ]}
     />
   );
 }

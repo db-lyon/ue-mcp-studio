@@ -7,13 +7,12 @@ import {
   stepScopedParams,
   flowValue,
   parseFlowArgs,
-  singleType,
   type FlowInput,
   type FlowListing,
   type FlowRunRequest,
   type TranscriptEntry,
 } from "@ue-mcp-studio/shared";
-import { FLOW_STATE_LABEL, FLOW_STEP_SCOPE_ERROR, flowParamsFrom, flowStateLine, prefillValue, type FlowLoaded as Loaded } from "@ue-mcp-studio/client-core";
+import { FLOW_STATE_LABEL, STEP_SCOPED_UNREACHABLE, flowParamsFrom, flowPrefillValue as prefillValue, flowStateLine, type FlowLoaded as Loaded } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { FieldsForm } from "./Forms";
 
@@ -114,7 +113,7 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
       if (!scoped) return start(params);
       const nested = stepScopedParams(inputs, params);
       if (nested) return start(nested);
-      setError(FLOW_STEP_SCOPE_ERROR);
+      setError(STEP_SCOPED_UNREACHABLE);
     };
     body = (
       <>

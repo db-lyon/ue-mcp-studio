@@ -4,15 +4,9 @@
  */
 import { createContext, useContext } from "react";
 import type { StudioApi } from "@ue-mcp-studio/client-core";
-import type { TurnReview } from "@ue-mcp-studio/shared";
 import type { Project } from "./connection";
 
-export type Route =
-  | { name: "session"; id: string }
-  | { name: "review"; sessionId: string; review: TurnReview }
-  | { name: "reviewItem"; sessionId: string; reviewId: string; path: string }
-  | { name: "checkpoints"; sessionId: string }
-  | { name: "playtests" };
+export type Route = { name: "changes" } | { name: "change"; path: string };
 
 export interface ProjectNav {
   project: Project;

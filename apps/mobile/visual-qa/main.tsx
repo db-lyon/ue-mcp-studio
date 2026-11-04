@@ -9,6 +9,8 @@ import { PARITY } from "./parity";
 import { store } from "../ui-test/mocks/secure-store";
 import { FILTER_KEY } from "../src/screens/playtests/Playtests";
 
+// The web reference has no safe area to match.
+(globalThis as { __qaInsets?: unknown }).__qaInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 const params = new URLSearchParams(location.search);
 const name = params.get("scenario") ?? "session-empty";
 const theme = (params.get("theme") ?? "ue-mcp") as StudioTheme;

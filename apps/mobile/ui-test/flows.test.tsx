@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
-import { FlowLauncher } from "../src/screens/flows/FlowLauncher";
-import { FlowCard } from "../src/screens/flows/FlowCard";
+import { FlowCard, FlowLauncher } from "../src/chat/FlowCommand";
 import { FlowsSheet } from "../src/screens/flows/FlowsSheet";
 import { fakeApi, renderInProject, settle } from "./helpers";
 

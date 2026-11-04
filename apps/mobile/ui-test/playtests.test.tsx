@@ -129,7 +129,7 @@ describe("QaCard", () => {
     const transport: Transport = async (_m, path) =>
       path.endsWith("/captures/0")
         ? { status: 200, headers: { "content-type": "image/png" }, body: (async function* () { yield new Uint8Array([137, 80, 78, 71]); })() }
-        : { status: 404, headers: {}, body: null };
+        : { status: 404, headers: {} as Record<string, string>, body: null };
     renderInProject(<QaCard run={RUNS.judged} />, api, fakeProject(transport).project);
     press("Open PT_DoorLooks");
     expect(screen.getByText("Agent")).toBeTruthy();
