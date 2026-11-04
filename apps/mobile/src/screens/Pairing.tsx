@@ -31,7 +31,7 @@ export function Welcome({ error, onScan, onLink }: { error?: string; onScan: () 
       </View>
       <View style={{ alignItems: "center", gap: 10, paddingTop: 28, paddingHorizontal: 6 }}>
         <Display em="Pair" rest="this phone." />
-        <T style={{ color: t.c.muted, textAlign: "center", fontSize: 13.5, marginBottom: 6 }}>In Studio on your computer, open Remote and show the pairing code. Scan it here, or with your camera app.</T>
+        <T style={{ color: t.c.muted, textAlign: "center", fontSize: 13.5, marginBottom: 6 }}>In Studio on your computer, open Remote and show the pairing code. Scan it here, or paste its link below.</T>
         {error ? (
           <Banner kind="bad" role="alert" style={{ alignSelf: "stretch", marginBottom: 0 }}>
             {error}
