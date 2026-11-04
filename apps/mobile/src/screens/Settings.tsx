@@ -4,12 +4,13 @@
  * signs it out of the relay and forgets every computer here.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Pressable, ScrollView, Text, View } from "react-native";
+import { Alert, View } from "react-native";
 import { account, forgetComputer, removeViewer, trusted, type Device, type Viewer } from "../relay";
-import { Header, s, Spinner, tap } from "../legacy-ui";
-import { colors } from "../theme";
+import { Banner, Button, font, Spinner, T, useTheme } from "../ui";
+import { ListCard, ListRow, Page, PageHead, SectionLabel } from "./StudioPage";
 
 export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; onRemoved: () => void; onAbout?: () => void }) {
+  const t = useTheme();
   const [viewers, setViewers] = useState<Viewer[] | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [keys, setKeys] = useState<Record<string, { pairedAt: string }>>({});
@@ -49,49 +50,50 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
       { text: "Forget", style: "destructive", onPress: () => void forgetComputer(key).then(load) },
     ]);
 
+  const danger = (title: string, onPress: () => void, label: string) => (
+    <Button variant="ghost" size="small" label={label} onPress={onPress}>
+      <T style={{ ...font(t, t.editor ? "sans" : "mono", 500, t.editor ? 12 : 11.5, 1.2), color: t.c.bad }}>{title}</T>
+    </Button>
+  );
+  const trustedKeys = Object.entries(keys);
+
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={s.page}>
-      <Header title="Devices" back="Projects" onBack={onBack} />
-      {error ? <Text style={s.error}>{error}</Text> : null}
-      <Text style={s.section}>Paired phones and browsers</Text>
-      {viewers === null ? <Spinner /> : null}
-      {viewers?.map((v) => (
-        <View key={v.id} style={s.row}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.name}>
-              {v.label}
-              {v.current ? " (this phone)" : ""}
-            </Text>
-            <Text style={s.sub}>Paired {new Date(v.createdAt).toLocaleDateString()}</Text>
-          </View>
-          <Pressable accessibilityRole="button" onPress={() => remove(v)} hitSlop={8} style={tap}>
-            <Text style={{ color: colors.danger, fontSize: 15 }}>Remove</Text>
-          </Pressable>
-        </View>
-      ))}
-      <Text style={s.section}>Computers this phone trusts</Text>
-      {Object.keys(keys).length === 0 ? <Text style={s.sub}>None.</Text> : null}
-      {Object.entries(keys).map(([key, info]) => {
-        const names = devices.filter((d) => d.computerKey === key).map((d) => d.name);
-        const name = names.length ? names.join(", ") : "A computer";
-        return (
-          <View key={key} style={s.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={s.name}>{name}</Text>
-              <Text style={s.sub}>Paired {new Date(info.pairedAt).toLocaleDateString()}</Text>
-            </View>
-            <Pressable accessibilityRole="button" onPress={() => forgetKey(key, name)} hitSlop={8} style={tap}>
-              <Text style={{ color: colors.danger, fontSize: 15 }}>Forget</Text>
-            </Pressable>
-          </View>
-        );
-      })}
-      {onAbout ? (
-        <Pressable accessibilityRole="button" onPress={onAbout} style={[s.row, { borderBottomWidth: 0, marginTop: 16 }]}>
-          <Text style={[s.name, { flex: 1 }]}>About</Text>
-          <Text style={s.sub}>{"›"}</Text>
-        </Pressable>
+    <Page>
+      <PageHead title="Paired devices" lead="The phones and browsers that reach your projects, and the computers this phone trusts." back="Projects" onBack={onBack} />
+      {error ? (
+        <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
+          {error}
+        </Banner>
       ) : null}
-    </ScrollView>
+      <SectionLabel>Paired phones and browsers</SectionLabel>
+      <ListCard>
+        {viewers === null ? (
+          <View style={{ padding: 14 }}>
+            <Spinner />
+          </View>
+        ) : null}
+        {viewers?.length === 0 ? <ListRow first title="None" /> : null}
+        {viewers?.map((v, i) => (
+          <ListRow key={v.id} first={i === 0} title={`${v.label}${v.current ? " (this phone)" : ""}`} sub={`Paired ${new Date(v.createdAt).toLocaleDateString()}`} right={danger("Remove", () => remove(v), v.current ? "Remove this phone" : `Remove ${v.label}`)} />
+        ))}
+      </ListCard>
+      <SectionLabel>Computers this phone trusts</SectionLabel>
+      <ListCard>
+        {trustedKeys.length === 0 ? <ListRow first title="None" /> : null}
+        {trustedKeys.map(([key, info], i) => {
+          const names = devices.filter((d) => d.computerKey === key).map((d) => d.name);
+          const name = names.length ? names.join(", ") : "A computer";
+          return <ListRow key={key} first={i === 0} title={name} sub={`Paired ${new Date(info.pairedAt).toLocaleDateString()}`} right={danger("Forget", () => forgetKey(key, name), `Forget ${name}`)} />;
+        })}
+      </ListCard>
+      {onAbout ? (
+        <>
+          <SectionLabel>This app</SectionLabel>
+          <ListCard>
+            <ListRow first title="About" sub="Versions, and whether this app fits the Studio on your computer" onPress={onAbout} right={<T tone="muted">{"›"}</T>} />
+          </ListCard>
+        </>
+      ) : null}
+    </Page>
   );
 }

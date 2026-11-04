@@ -64,6 +64,11 @@ const server = await createServer({
       { find: /^react\/(.*)$/, replacement: `${mod("react")}/$1` },
       { find: /^react-dom$/, replacement: mod("react-dom") },
       { find: /^react-dom\/(.*)$/, replacement: `${mod("react-dom")}/$1` },
+      // The library's web build: its elements drawn as DOM svg, as the web client draws its glyphs.
+      { find: /^react-native-svg$/, replacement: path.join(app, "node_modules/react-native-svg/lib/module/elements.web.js") },
+      { find: "@react-native/assets-registry/registry", replacement: mock("assets-registry.ts") },
+      // Android only: the touch sound the web build never plays.
+      { find: /fabric\/NativeSvgSoundModule(\.js)?$/, replacement: mock("svg-sound.ts") },
       { find: /^expo-secure-store$/, replacement: mock("secure-store.ts") },
       { find: /^expo-camera$/, replacement: mock("camera.tsx") },
       { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
@@ -75,7 +80,11 @@ const server = await createServer({
       { find: /^@ue-mcp-studio\/(remote|client-core|shared|extension-api)$/, replacement: `${root}/packages/$1/src/index.ts` },
     ],
   },
-  optimizeDeps: { include: [mod("react"), mod("react-dom"), "react-native-web", "marked"] },
+  optimizeDeps: {
+    include: [mod("react"), mod("react-dom"), "react-native-web", "marked"],
+    // Prebundling skips the aliases for a dependency's own relative requires: react-native-svg's Android touch sound.
+    esbuildOptions: { plugins: [{ name: "svg-sound", setup: (b) => b.onResolve({ filter: /NativeSvgSoundModule$/ }, () => ({ path: mock("svg-sound.ts") })) }] },
+  },
 });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, "");

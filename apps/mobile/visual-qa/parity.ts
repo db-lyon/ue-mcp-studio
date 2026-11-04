@@ -18,6 +18,7 @@ export interface ParityEntry {
 
 export const PARITY: Record<string, ParityEntry> = {
   "version-notice": {owner: "shell"},
+  "nav-drawer": {owner: "shell", clicks: ["Open navigation"]},
   "tools-open": {owner: "chat"},
   "tools-open-edit": {owner: "chat"},
   "approvals-waiting": {owner: "chat"},
@@ -28,9 +29,9 @@ export const PARITY: Record<string, ParityEntry> = {
   "vcs-changes-tree-remote": {owner: "agent-a"},
   "checkpoints": {owner: "chat"},
   "remote-lock-screen": {owner: "shell"},
-  "remote-lock-screen-typing": {owner: "shell"},
+  "remote-lock-screen-typing": {owner: "shell", clicks: ["1", "5", "9"]},
   "remote-lock-screen-wrong": {owner: "shell"},
-  "remote-pin-sheet": {owner: "shell"},
+  "remote-pin-sheet": {owner: "shell", clicks: ["Allow"]},
   "plugins-remote": {owner: "agent-b"},
   "agents-long": {owner: "chat"},
   "agents-tokens": {owner: "chat"},
