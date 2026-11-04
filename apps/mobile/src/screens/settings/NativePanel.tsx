@@ -4,11 +4,11 @@
  * reads it, and its instruction files, subagents and skills, read only. Open
  * file opens the file on the computer, as the web page does.
  */
-import { useEffect, useState } from "react";
-import { Linking, Pressable, View } from "react-native";
+import { useEffect, useState, type ReactNode } from "react";
+import { Linking, Pressable, Text, View } from "react-native";
 import { INSTRUCTION_FILE, SKILL_DIR, SOURCE_NAME, SUBAGENT_DIR, conventionOrder, fileCount, firstTab, scopeLine, sharedWith, tokens } from "@ue-mcp-studio/client-core";
 import { CONVENTION_INFO, EFFORT_NAMES, type Convention, type Effort, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
-import { Banner, Card, Dot, Sheet, bannerText, font, T, useTheme } from "../../ui";
+import { Banner, Card, Dot, Sheet, bannerText, font, fontName, T, useTheme } from "../../ui";
 import { CardLabel, Span, Tag, Txt, useMessage } from "./controls";
 import { Details } from "./Details";
 import { Chevron } from "./Pickers";
@@ -77,7 +77,12 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
 }
 
 /** dl.fields: names in a column as wide as the widest, values beside them, 2px between rows. */
-function Fields({ rows }: { rows: Array<[string, string]> }) {
+/** A bare <code>: the browser's own monospace at the line's size, no box. */
+function Code({ children }: { children: ReactNode }) {
+  return <Text style={{ fontFamily: fontName("system-mono"), fontWeight: "400" }}>{children}</Text>;
+}
+
+function Fields({ rows }: { rows: Array<[string, ReactNode]> }) {
   const [widths, setWidths] = useState<Record<string, number>>({});
   const w = Object.keys(widths).length === rows.length ? Math.max(...Object.values(widths)) : undefined;
   // Each name's own width, once: with the column's width applied every name measures as wide as the widest.
@@ -220,7 +225,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
               </Txt>
               <Fields
                 rows={[
-                  ["Model", `${a.runs.model}${a.model ? ` (file says ${a.model})` : ""}`],
+                  ["Model", a.model ? <>{a.runs.model} (file says <Code>{a.model}</Code>)</> : a.runs.model],
                   ["Tools", a.tools],
                   ["Turns", a.maxTurns ? `${a.maxTurns} max` : "no limit"],
                   ["Effort", a.effort ? EFFORT_NAMES[a.effort as Effort] ?? a.effort : "not set in the file"],
