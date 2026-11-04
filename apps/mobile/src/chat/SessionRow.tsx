@@ -37,7 +37,11 @@ export function SessionRow({ s, selected, onOpen, onChanged }: { s: SessionSumma
     if (title.trim() && title.trim() !== s.title) void update({ title: title.trim() });
     else setTitle(s.title);
   };
-  const remove = () => api.deleteSession(s.id).then(() => onChanged(s.id), () => onChanged());
+  const remove = () => {
+    setMenu(false);
+    setConfirm(false);
+    return api.deleteSession(s.id).then(() => onChanged(s.id), () => onChanged());
+  };
   const item = (label: string, onPress: () => void, danger = false) => (
     <Pressable
       key={label}

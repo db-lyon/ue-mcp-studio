@@ -48,7 +48,7 @@ export function KeyValues({ values }: { values: Array<{ name: string; value: str
       {values.map((v) => (
         <View key={v.name} style={{ flexDirection: tiny ? "column" : "row", columnGap: 10, marginBottom: tiny ? 3 : 0 }}>
           <T
-            onLayout={nameWidth === undefined ? (e) => { const w = Math.ceil(e.nativeEvent.layout.width); setWidest((cur) => Math.max(cur, w)); } : undefined}
+            onLayout={nameWidth === undefined ? (e) => { const w = Math.ceil(e.nativeEvent.layout.width) + 1;setWidest((cur) => Math.max(cur, w)); } : undefined}
             style={{ fontSize: size, lineHeight: size * lh, color: t.c.muted, ...(tiny ? {} : nameWidth === undefined ? { flexShrink: 0 } : { width: nameWidth }) }}
           >
             {engineText(v.name)}

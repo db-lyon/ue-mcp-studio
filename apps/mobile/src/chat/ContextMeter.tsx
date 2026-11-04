@@ -71,11 +71,8 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   const toggle = () => {
     if (open) return setOpen(false);
     // The details open over the conversation, 6 px above the composer bar, across its width.
-    if (!button.current) return setOpen(true);
-    button.current.measureInWindow((_x, y) => {
-      setBottom(win.height - y + 6);
-      setOpen(true);
-    });
+    setOpen(true);
+    button.current?.measureInWindow((_x, y) => setBottom(win.height - y + 6));
   };
   const p = (children: ReactNode, extra?: object) => <T style={[small(t), { color: t.c.dim, marginVertical: 4 }, extra]}>{children}</T>;
   return (
@@ -192,10 +189,17 @@ function Total({ name, value, note }: { name: string; value: string; note?: stri
  */
 export function ContextWarning({ view, runtime, busy, onCompact, onDismiss }: { view: ContextView; runtime: boolean; busy: boolean; onCompact: () => void; onDismiss: () => void }) {
   const t = useTheme();
+  // .context-warning-text { flex-basis: calc(100% - 90px) }: the text takes the line beside the bar, the buttons the next.
+  const [inner, setInner] = useState(0);
   return (
-    <View accessibilityRole="summary" accessibilityLiveRegion="polite" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginHorizontal: 10, marginBottom: 6, paddingVertical: 6, paddingRight: 8, paddingLeft: 12, borderWidth: 1, borderColor: t.c.lineStrong, borderLeftWidth: 3, borderLeftColor: view.level === "high" ? t.c.bad : t.c.warn, borderRadius: t.radius, backgroundColor: t.c.panel2 }}>
+    <View
+      accessibilityRole="summary"
+      accessibilityLiveRegion="polite"
+      onLayout={(e) => setInner(e.nativeEvent.layout.width - 1 - 3 - 12 - 8)}
+      style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginHorizontal: 10, marginBottom: 6, paddingVertical: 6, paddingRight: 8, paddingLeft: 12, borderWidth: 1, borderColor: t.c.lineStrong, borderLeftWidth: 3, borderLeftColor: view.level === "high" ? t.c.bad : t.c.warn, borderRadius: t.radius, backgroundColor: t.c.panel2 }}
+    >
       <ContextBar view={view} width={44} />
-      <T style={{ flexBasis: 0, flexGrow: 1, minWidth: 180, fontSize: 12.5, lineHeight: 12.5 * (t.editor ? 1.5 : 1.55), color: t.c.text }}>{contextWarningText(view, runtime)}</T>
+      <T style={{ ...(inner > 0 ? { width: inner - 90 } : { flex: 1 }), fontSize: 12.5, lineHeight: 12.5 * (t.editor ? 1.5 : 1.55), color: t.c.text }}>{contextWarningText(view, runtime)}</T>
       <SmallButtonPrimary title="Compact now" disabled={busy} onPress={onCompact} />
       <IconButton label="Dismiss" glyph={"×"} onPress={onDismiss} />
     </View>
