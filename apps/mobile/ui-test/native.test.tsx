@@ -30,7 +30,8 @@ describe("About", () => {
   it("names this app's version and what it needs from Studio", async () => {
     render(<About onBack={() => undefined} />);
     await settle();
-    expect(screen.getByText("UE-MCP Studio 0.2.0")).toBeTruthy();
+    expect(screen.getByText("UE-MCP Studio")).toBeTruthy();
+    expect(screen.getByText(/^0\.2\.0 \(build /)).toBeTruthy();
     expect(screen.getByText(/or newer$/)).toBeTruthy();
     expect(screen.getByText("Open a project to see what its computer runs.")).toBeTruthy();
   });

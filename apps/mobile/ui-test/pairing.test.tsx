@@ -66,6 +66,7 @@ describe("welcome", () => {
     fireEvent.click(screen.getByText("Pair"));
     expect(links).toEqual([]);
     expect(screen.getByText(/That is not a pairing link/)).toBeTruthy();
+    expect(screen.getByLabelText("Pair").getAttribute("aria-disabled")).toBe("true");
     fireEvent.change(screen.getByLabelText("Pairing link"), { target: { value: LINK } });
     expect(screen.queryByText(/That is not a pairing link/)).toBeNull();
     fireEvent.click(screen.getByText("Pair"));
@@ -97,7 +98,8 @@ describe("pairing under way", () => {
     expect(screen.getByText("Allow this phone on your computer")).toBeTruthy();
     expect(screen.getByText("482 913")).toBeTruthy();
     expect(screen.getByLabelText("Code 4 8 2 9 1 3")).toBeTruthy();
-    expect(screen.getByText(/choose Deny there/)).toBeTruthy();
+    expect(screen.getByText(/Allow it only if your computer shows the same code/)).toBeTruthy();
+    expect(screen.getByText("Deny")).toBeTruthy();
     expect(screen.getByText("Waiting for your computer")).toBeTruthy();
   });
 
@@ -122,7 +124,7 @@ describe("pairing stopped", () => {
 
   it.each([
     ["expired", "This code no longer works", /Each code works once, for ten minutes/],
-    ["timeout", "Nobody allowed this phone in time", /waits 2 minutes for an answer/],
+    ["timeout", "No one allowed this phone in time", /waits 2 minutes for an answer/],
   ] as const)("a %s code is a state with a new code as the way on", (kind, title, lead) => {
     const seen = show({ kind, message: "relay words" });
     expect(screen.getByText(title)).toBeTruthy();
@@ -136,12 +138,12 @@ describe("pairing stopped", () => {
   it.each([
     ["denied", "Pairing did not finish", "The computer's owner denied this phone."],
     ["offline", "Your computer went offline", "It stopped answering while this phone was pairing."],
-    ["bad-link", "This is not a pairing link", "The link was cut short, or it is not a UE-MCP Studio pairing code."],
-    ["mismatch", "Pairing could not be checked", "The answer did not match the pairing code, so this phone does not trust it."],
-    ["plan", "Remote control needs a plan", "Remote control needs a Pro or Studio plan on this account."],
-    ["failed", "Pairing did not finish", "Remote control needs a Pro or Studio plan on this account."],
+    ["bad-link", "This is not a pairing code", "The code was cut short, or it is not one Studio made for pairing."],
+    ["mismatch", "The answer did not match the code", "Your computer's answer did not match the pairing code, so this phone did not pair, to be safe."],
+    ["plan", "Remote control is not available", "The account Studio is signed in with on your computer has no remote control in its plan."],
+    ["failed", "Pairing did not finish", "The computer no longer knows this request."],
   ] as const)("%s is the error panel with what happened", (kind, head, text) => {
-    const seen = show({ kind, message: "Remote control needs a Pro or Studio plan on this account." });
+    const seen = show({ kind, message: "The computer no longer knows this request. Make a new code." });
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.getByText(head)).toBeTruthy();
     expect(screen.getByText(text)).toBeTruthy();
@@ -240,7 +242,7 @@ describe("scanner", () => {
   it("asks for the camera in place", () => {
     g.__qaCamera = { granted: false, canAskAgain: true, status: "undetermined" };
     render(<Scanner onCode={() => undefined} onCancel={() => undefined} />);
-    expect(screen.getByText("Allow the camera")).toBeTruthy();
+    expect(screen.getByText("Studio needs the camera")).toBeTruthy();
     expect(screen.getByText("Allow camera")).toBeTruthy();
     expect(screen.getByText("Scan from a picture")).toBeTruthy();
   });
@@ -278,15 +280,15 @@ describe("Projects and Devices", () => {
     });
   });
 
-  it("opens a paired project and explains one on another computer", async () => {
+  it("opens a paired project, and the scanner for one on another computer", async () => {
     const opened: string[] = [];
-    render(<Projects onOpen={(d) => opened.push(d.id)} onPair={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
+    render(<Projects onOpen={(d) => opened.push(d.id)} onPair={() => opened.push("scan")} onSettings={() => undefined} onUnpaired={() => undefined} />);
     await settle();
-    expect(screen.getByText("On a computer this phone has not paired with. Scan its pairing code to open it here.")).toBeTruthy();
+    expect(screen.getByText("Not paired with this phone. Scan its computer's code to open it.")).toBeTruthy();
     expect(screen.getByText("Offline, last seen 3 h ago")).toBeTruthy();
     fireEvent.click(screen.getByText("Lyra"));
-    fireEvent.click(screen.getByText("Other"));
-    expect(opened).toEqual(["d1"]);
+    fireEvent.click(screen.getByLabelText("Scan the code for Other"));
+    expect(opened).toEqual(["d1", "scan"]);
   });
 
   it("marks the project opened last", async () => {
@@ -302,11 +304,31 @@ describe("Projects and Devices", () => {
     expect(screen.getByText("Loading your projects")).toBeTruthy();
     await settle();
     expect(screen.getByText("No projects yet")).toBeTruthy();
+    expect(screen.queryByText("Choose the project to open in Studio.")).toBeNull();
     first.unmount();
     relay.account.mockRejectedValueOnce(new Error("The relay answered 503."));
     render(<Projects onOpen={() => undefined} onPair={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
     await settle();
+    expect(screen.getByText("Could not reach the relay")).toBeTruthy();
     expect(screen.getByText("The relay answered 503.")).toBeTruthy();
+    fireEvent.click(screen.getByText("Try again"));
+    await settle();
+    expect(screen.queryByText("Could not reach the relay")).toBeNull();
+    expect(screen.getByText("Lyra")).toBeTruthy();
+  });
+
+  it("keeps what it last read when the relay fails on Paired devices", async () => {
+    relay.account.mockRejectedValueOnce(new Error("The relay answered 503."));
+    render(<Settings onBack={() => undefined} onRemoved={() => undefined} />);
+    await settle();
+    expect(screen.getByText("Could not reach the relay")).toBeTruthy();
+    expect(screen.queryByText("None yet")).toBeNull();
+    expect(screen.getByText("A paired computer")).toBeTruthy();
+  });
+
+  it("writes the paired date the same on every phone", async () => {
+    const { paired } = await import("../src/screens/Settings");
+    expect(paired("2026-09-30T10:00:00Z")).toBe("Paired 30 Sep 2026");
   });
 
   it("goes to Devices and to pairing", async () => {
@@ -371,7 +393,7 @@ describe("About", () => {
     render(<About onBack={() => undefined} transport={() => health("0.1.25-beta.40")} />);
     await settle();
     await settle();
-    expect(screen.getByText("Lyra")).toBeTruthy();
+    expect(screen.getByText("The computer running Lyra")).toBeTruthy();
     expect(screen.getByText("0.1.25-beta.40")).toBeTruthy();
     expect(screen.getByText("This app and the Studio on that computer work together.")).toBeTruthy();
   });
