@@ -75,7 +75,7 @@ describe("MainTranscript", () => {
     { kind: "user", text: "Fix the door", at },
     { kind: "tool", call: { id: "c1", name: "shell", input: { command: "git grep OpenAngle" }, outcome: "done", result: "a.cpp:41\nb.h:28", startedAt: at, endedAt: at } },
     { kind: "assistant", text: "Done. The **door** opens.", at },
-    { kind: "note", text: "The editor restarted." },
+    { kind: "note", text: "The editor restarted.", at },
   ];
 
   it("draws the user's message, the reply as markdown, tool rows and notes", () => {
