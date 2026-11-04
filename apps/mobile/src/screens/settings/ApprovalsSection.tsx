@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { APPROVAL_ROWS, PROJECT_SCOPED_KINDS, type AgentSettings, type ApprovalKind, type ApprovalRule, type DialogMode, type DialogPolicy, type FeedbackMode, type PlaytestRunsMode, type StudioSettings } from "@ue-mcp-studio/shared";
-import { Card, useTheme } from "../../ui";
+import { Card, font, T, useTheme } from "../../ui";
 import { CardLabel, Head, Opt, Radio, Seg, SettingRow, Switch, Txt, useMessage } from "./controls";
 import { Message } from "./GeneralSection";
 import { ReadOnly } from "./ModelsSection";
@@ -129,23 +129,30 @@ export function ApprovalsSection() {
   );
 }
 
-/** "If unanswered", under Show in Studio: the project's policy for a dialog nobody answers, read only here. */
+/**
+ * "If unanswered", under Show in Studio: the project's policy for a dialog
+ * nobody answers, read only here. A .field's labels are 600 12px/1.3, the
+ * chosen timed policy's minutes on the line under its name.
+ */
 function DialogPolicyField({ policy }: { policy: DialogPolicy }) {
   const t = useTheme();
+  const label = [font(t, "sans", 600, 12, 1.3), { color: t.c.text }];
   return (
     // Its 8px top margin and the note's 8px bottom margin collapse into one, as they do in the page's fieldset.
     <View accessibilityRole="radiogroup" accessibilityLabel="If unanswered" style={{ gap: 6, marginTop: 0, marginBottom: 4, marginLeft: 30, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: t.c.lineStrong }}>
-      <Txt size={12} weight={600}>
-        If unanswered
-      </Txt>
+      <T style={label}>If unanswered</T>
       {POLICIES.map((p) => (
-        <View key={p.id} accessibilityRole="radio" accessibilityLabel={p.name} accessibilityState={{ checked: policy.kind === p.id, disabled: true }} style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44 }}>
+        <View key={p.id} accessibilityRole="radio" accessibilityLabel={p.name} accessibilityState={{ checked: policy.kind === p.id, disabled: true }} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", alignContent: "stretch", columnGap: 8, rowGap: 8, minHeight: 44, marginRight: 14 }}>
           <Radio on={policy.kind === p.id} disabled />
-          <Txt size={12}>{p.name}</Txt>
+          <T style={label}>{p.name}</T>
           {p.id !== "wait" && policy.kind === p.id ? (
-            <Txt size={12} tone="muted">
-              after {policy.minutes} minutes
-            </Txt>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <T style={[label, { color: t.c.muted }]}>after</T>
+              <View style={{ width: 72, minHeight: 44, justifyContent: "center", paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, backgroundColor: t.c.panel2 }}>
+                <T style={[font(t, "sans", 600, 16, 1.3), { color: t.c.text }]}>{policy.minutes}</T>
+              </View>
+              <T style={[label, { color: t.c.muted }]}>minutes</T>
+            </View>
           ) : null}
         </View>
       ))}
