@@ -21,7 +21,7 @@ export function Seg<T extends string>({ value, options, onChange, label, disable
 }) {
   const stack = !compact && segStacks(options.map((o) => o.name));
   return (
-    <div className={`seg${stack ? " stack" : ""}${compact ? " compact" : ""}`} role="radiogroup" aria-label={label}>
+    <div className={`seg${stack ? " seg-stack" : ""}${compact ? " compact" : ""}`} role="radiogroup" aria-label={label}>
       {options.map((o) => (
         <button
           key={o.id}
