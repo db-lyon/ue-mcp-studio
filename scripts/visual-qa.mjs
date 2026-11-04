@@ -284,6 +284,13 @@ try {
         if (!el) errors.push(`nothing matched ${waitFor.selector} within ${waitFor.timeout} ms`);
         await page.waitForTimeout(300);
       }
+      const hover = await page.evaluate(() => window.__visualQa.hover);
+      if (hover) {
+        // Hovered last and left there for the shot. A phone width is a touch screen, which draws no hover card.
+        if (!(await page.$(hover))) errors.push(`nothing matched ${hover}`);
+        else await page.hover(hover);
+        await page.waitForTimeout(400);
+      }
       if (audit) findings.push(...(await auditPage(page)).map((f) => ({ scenario, theme, width, ...f })));
       const file = `${scenario}-${theme}-${label}.png`;
       await page.screenshot({ path: path.join(out, file), animations: "disabled" });
