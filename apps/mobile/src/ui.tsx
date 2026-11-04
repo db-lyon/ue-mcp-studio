@@ -2,6 +2,9 @@ import type { ReactNode } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors } from "./theme";
 
+/** A text control's touch area: at least 44 points, whatever the text's size. */
+export const tap = { minHeight: 44, minWidth: 44, justifyContent: "center", alignItems: "center" } as const;
+
 export function Center({ children }: { children: ReactNode }) {
   return <View style={s.center}>{children}</View>;
 }
@@ -23,7 +26,7 @@ export function Header({ title, back, onBack, right }: { title: string; back?: s
     <View style={{ marginBottom: 12 }}>
       <View style={s.headerBar}>
         {onBack ? (
-          <Pressable accessibilityRole="button" onPress={onBack} hitSlop={12}>
+          <Pressable accessibilityRole="button" onPress={onBack} hitSlop={8} style={tap}>
             <Text style={s.link}>{back ?? "Back"}</Text>
           </Pressable>
         ) : (

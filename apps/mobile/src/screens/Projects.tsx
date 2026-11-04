@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { account, NotPairedError, trusted, type Device } from "../relay";
-import { Button, Dot, Header, s } from "../ui";
+import { Button, Dot, Header, s, tap } from "../ui";
 import { colors } from "../theme";
 
 export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (d: Device) => void; onPair: () => void; onSettings: () => void; onUnpaired: (message: string) => void }) {
@@ -35,7 +35,7 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
       <Header
         title="Projects"
         right={
-          <Pressable accessibilityRole="button" onPress={onSettings} hitSlop={12}>
+          <Pressable accessibilityRole="button" onPress={onSettings} hitSlop={8} style={tap}>
             <Text style={s.link}>Devices</Text>
           </Pressable>
         }

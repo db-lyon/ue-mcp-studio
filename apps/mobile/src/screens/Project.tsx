@@ -4,7 +4,7 @@ import { requestJson, studioApi } from "@ue-mcp-studio/client-core";
 import { useLockView, useProject, type Project } from "../connection";
 import { NotPairedError, RelayError, type Device } from "../relay";
 import { PinPad } from "../PinPad";
-import { Button, Dot, Header, s } from "../ui";
+import { Button, Dot, Header, s, tap } from "../ui";
 import { SessionScreen } from "./Session";
 import { ReviewItemScreen, ReviewScreen } from "./Review";
 import { CheckpointsScreen } from "./Checkpoints";
@@ -128,11 +128,11 @@ function Sessions({ project, onBack, onOpen, onChanges, onUnpaired }: { project:
         onBack={onBack}
         right={
           <View style={{ flexDirection: "row", gap: 18 }}>
-            <Pressable accessibilityRole="button" onPress={onChanges} hitSlop={12}>
+            <Pressable accessibilityRole="button" onPress={onChanges} hitSlop={8} style={tap}>
               <Text style={s.link}>Changes</Text>
             </Pressable>
             {lockView.state?.whole ? (
-              <Pressable accessibilityRole="button" onPress={() => void lock.lockNow()} hitSlop={12}>
+              <Pressable accessibilityRole="button" onPress={() => void lock.lockNow()} hitSlop={8} style={tap}>
                 <Text style={s.link}>Lock</Text>
               </Pressable>
             ) : null}

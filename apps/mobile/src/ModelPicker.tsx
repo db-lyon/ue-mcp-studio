@@ -8,7 +8,7 @@ import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-nati
 import { EFFORTS, EFFORT_NAMES, routesInOrder, type Effort, type ModelCatalog, type ModelOption, type StudioSettings } from "@ue-mcp-studio/shared";
 import type { StudioApi } from "@ue-mcp-studio/client-core";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { s as ui, Spinner } from "./ui";
+import { s as ui, Spinner, tap } from "./ui";
 import { colors } from "./theme";
 
 type Vendor = ModelCatalog["providers"][number];
@@ -61,7 +61,7 @@ export function ModelPicker({ api, settings, onSave, disabled }: { api: StudioAp
           <View style={p.sheetHead}>
             <Text style={ui.name}>Model</Text>
             {saving ? <Spinner /> : null}
-            <Pressable accessibilityRole="button" onPress={() => setOpen(false)} hitSlop={12}>
+            <Pressable accessibilityRole="button" onPress={() => setOpen(false)} hitSlop={8} style={tap}>
               <Text style={ui.link}>Done</Text>
             </Pressable>
           </View>
@@ -99,7 +99,7 @@ export function ModelPicker({ api, settings, onSave, disabled }: { api: StudioAp
 }
 
 const p = StyleSheet.create({
-  chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 5, maxWidth: 220 },
+  chip: { borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 12, minHeight: 40, justifyContent: "center", maxWidth: 220 },
   chipText: { color: colors.muted, fontSize: 12 },
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
   sheet: { backgroundColor: colors.panel, borderTopLeftRadius: 16, borderTopRightRadius: 16, paddingHorizontal: 20, paddingTop: 14 },
@@ -107,6 +107,6 @@ const p = StyleSheet.create({
   option: { paddingVertical: 10, paddingHorizontal: 10, borderRadius: 8 },
   optionOn: { backgroundColor: "rgba(232,114,12,0.10)" },
   efforts: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  effort: { borderWidth: 1, borderColor: colors.border, borderRadius: 14, paddingHorizontal: 12, paddingVertical: 6 },
+  effort: { borderWidth: 1, borderColor: colors.border, borderRadius: 20, paddingHorizontal: 14, minHeight: 40, justifyContent: "center" },
   effortOn: { backgroundColor: colors.accent, borderColor: colors.accent },
 });

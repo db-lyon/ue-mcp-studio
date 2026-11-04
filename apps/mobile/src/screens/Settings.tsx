@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Pressable, ScrollView, Text, View } from "react-native";
 import { account, forgetComputer, removeViewer, trusted, type Device, type Viewer } from "../relay";
-import { Header, s, Spinner } from "../ui";
+import { Header, s, Spinner, tap } from "../ui";
 import { colors } from "../theme";
 
 export function Settings({ onBack, onRemoved }: { onBack: () => void; onRemoved: () => void }) {
@@ -64,7 +64,7 @@ export function Settings({ onBack, onRemoved }: { onBack: () => void; onRemoved:
             </Text>
             <Text style={s.sub}>Paired {new Date(v.createdAt).toLocaleDateString()}</Text>
           </View>
-          <Pressable accessibilityRole="button" onPress={() => remove(v)} hitSlop={8}>
+          <Pressable accessibilityRole="button" onPress={() => remove(v)} hitSlop={8} style={tap}>
             <Text style={{ color: colors.danger, fontSize: 15 }}>Remove</Text>
           </Pressable>
         </View>
@@ -80,7 +80,7 @@ export function Settings({ onBack, onRemoved }: { onBack: () => void; onRemoved:
               <Text style={s.name}>{name}</Text>
               <Text style={s.sub}>Paired {new Date(info.pairedAt).toLocaleDateString()}</Text>
             </View>
-            <Pressable accessibilityRole="button" onPress={() => forgetKey(key, name)} hitSlop={8}>
+            <Pressable accessibilityRole="button" onPress={() => forgetKey(key, name)} hitSlop={8} style={tap}>
               <Text style={{ color: colors.danger, fontSize: 15 }}>Forget</Text>
             </Pressable>
           </View>

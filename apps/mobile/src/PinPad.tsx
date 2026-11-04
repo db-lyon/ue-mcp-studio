@@ -93,8 +93,8 @@ const p = StyleSheet.create({
   dots: { flexDirection: "row", justifyContent: "center", gap: 14, marginTop: 24, marginBottom: 12 },
   dot: { width: 14, height: 14, borderRadius: 7, borderWidth: 1.5, borderColor: colors.muted },
   dotOn: { backgroundColor: colors.accent, borderColor: colors.accent },
-  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", marginTop: 8, alignSelf: "center", width: 288 },
-  key: { width: 80, height: 64, margin: 8, borderRadius: 32, alignItems: "center", justifyContent: "center", backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", marginTop: 8, alignSelf: "center", width: 276 },
+  key: { width: 72, height: 72, margin: 10, borderRadius: 36, alignItems: "center", justifyContent: "center", backgroundColor: colors.panel, borderWidth: 1, borderColor: colors.border },
   keyDown: { backgroundColor: colors.border },
   keyText: { color: colors.text, fontSize: 26, fontWeight: "500" },
 });

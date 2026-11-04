@@ -15,7 +15,7 @@ import { ApprovalCard, DialogCard, useDialogs } from "../Cards";
 import { Markdown } from "../Markdown";
 import { useSession, useSettings } from "../session";
 import { ModelPicker } from "../ModelPicker";
-import { Dot, s as ui, Spinner } from "../ui";
+import { Dot, s as ui, Spinner, tap } from "../ui";
 import { colors } from "../theme";
 
 const STATUS_LABEL: Record<string, string> = { idle: "Idle", running: "Working", waiting: "Waiting", error: "Error", stopped: "Stopped" };
@@ -69,10 +69,10 @@ export function SessionScreen({ id }: { id: string }) {
     <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <View style={[st.head, { paddingTop: insets.top + 8 }]}>
         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-          <Pressable accessibilityRole="button" onPress={onBack} hitSlop={12}>
+          <Pressable accessibilityRole="button" onPress={onBack} hitSlop={8} style={tap}>
             <Text style={ui.link}>Sessions</Text>
           </Pressable>
-          <Pressable accessibilityRole="button" onPress={() => push({ name: "checkpoints", sessionId: id })} hitSlop={12}>
+          <Pressable accessibilityRole="button" onPress={() => push({ name: "checkpoints", sessionId: id })} hitSlop={8} style={tap}>
             <Text style={ui.link}>Checkpoints</Text>
           </Pressable>
         </View>
@@ -117,11 +117,11 @@ export function SessionScreen({ id }: { id: string }) {
                 {q.text}
               </Text>
               {i === 0 && !busy ? (
-                <Pressable accessibilityRole="button" onPress={() => void api.sendQueued().catch((e) => setError(String(e?.message ?? e)))} hitSlop={8}>
+                <Pressable accessibilityRole="button" onPress={() => void api.sendQueued().catch((e) => setError(String(e?.message ?? e)))} hitSlop={8} style={tap}>
                   <Text style={ui.link}>Send</Text>
                 </Pressable>
               ) : null}
-              <Pressable accessibilityRole="button" accessibilityLabel="Remove from queue" onPress={() => void api.removeQueued(q.id).catch((e) => setError(String(e?.message ?? e)))} hitSlop={8}>
+              <Pressable accessibilityRole="button" accessibilityLabel="Remove from queue" onPress={() => void api.removeQueued(q.id).catch((e) => setError(String(e?.message ?? e)))} hitSlop={8} style={tap}>
                 <Text style={{ color: colors.danger, fontSize: 15 }}>Remove</Text>
               </Pressable>
             </View>

@@ -8,7 +8,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Alert, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { outcomeNote, readAll, type ReviewDiff } from "@ue-mcp-studio/client-core";
-import { factRows, lineDiff, nodeValues, readableValue, recordsByGroup, refineAssetDiff, REVIEW_GROUPS, unifiedLines, type AssetDiff, type AssetDiffRecord, type AssetVersion, type RestoreOutcome, type ReviewItem, type TurnReview } from "@ue-mcp-studio/shared";
+import { exportNumber, factRows, lineDiff, nodeValues, readableValue, recordsByGroup, refineAssetDiff, REVIEW_GROUPS, unifiedLines, type AssetDiff, type AssetDiffRecord, type AssetVersion, type RestoreOutcome, type ReviewItem, type TurnReview } from "@ue-mcp-studio/shared";
 import { b64u } from "@ue-mcp-studio/remote";
 import { useProjectNav } from "../nav";
 import { CardButton, c } from "../Cards";
@@ -85,8 +85,10 @@ export function ReviewScreen({ sessionId, review: initial }: { sessionId: string
                   </Text>
                   <Text style={[ui.sub, it.state === "reverted" && { color: colors.warnText }, it.state === "kept" && { color: colors.ok }]}>{STATE[it.state]}</Text>
                 </View>
-                <Text style={[ui.sub, { fontFamily: mono, fontSize: 11 }]} numberOfLines={1}>
-                  {STATUS[it.status]}. {it.path}
+                <Text style={ui.sub} numberOfLines={1}>
+                  {STATUS[it.status]}
+                  {it.untracked ? ", outside the agent's calls" : ""}
+                  <Text style={{ fontFamily: mono, fontSize: 11 }}>  {it.path}</Text>
                 </Text>
                 {it.summary ? <Text style={[ui.sub, { color: colors.text, marginTop: 4 }]}>{it.summary}</Text> : null}
                 {it.diffError ? <Text style={[ui.sub, { color: colors.dangerText }]}>Diff failed: {it.diffError}</Text> : null}
@@ -119,7 +121,7 @@ function recordName(rec: AssetDiffRecord): string {
 
 function valueText(v: string | null | undefined): string {
   if (v === null || v === undefined) return "none";
-  return readableValue(v) ?? v;
+  return readableValue(v) ?? exportNumber(v);
 }
 
 export function ReviewItemScreen({ sessionId, reviewId, path }: { sessionId: string; reviewId: string; path: string }) {
