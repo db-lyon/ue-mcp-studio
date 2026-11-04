@@ -1,3 +1,4 @@
+// HANDED OVER: owned by area-c from here; ported on mobile/chat-core as a starting point.
 /**
  * A package's diff in the review: Unreal's own diff records, as ue-mcp
  * serializes them, grouped under the engine's categories with both values side

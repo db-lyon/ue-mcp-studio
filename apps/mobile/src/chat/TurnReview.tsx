@@ -1,3 +1,4 @@
+// HANDED OVER: owned by area-c from here; ported on mobile/chat-core as a starting point.
 /**
  * Per-turn review in the chat: the turn card listing what a turn changed,
  * grouped by type, each with a one-line summary and Keep or Revert, and Revert

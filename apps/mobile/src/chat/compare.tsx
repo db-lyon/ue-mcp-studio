@@ -1,3 +1,4 @@
+// HANDED OVER: owned by area-c from here; ported on mobile/chat-core as a starting point.
 /**
  * The Change | Before | After comparison every change card uses: Blueprint
  * graphs, a level's actors, material parameters, a version's facts. Its
