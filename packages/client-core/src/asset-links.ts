@@ -1,9 +1,98 @@
 /**
- * Asset names in text as links, with no UI: plain text and a playtest step's
- * text split into the tokens that may name an asset, and the store that asks
- * the agent which assets they name, in debounced batches with retries.
+ * Asset names in the chat as links, the parts with no UI: which tokens are
+ * candidates (the remark plugin over a reply's markdown tree, plain text, a
+ * playtest step's text), and the store that resolves them through the agent.
+ *
+ * A markdown link to an object path is exact: it links that path and is never
+ * looked up. Other candidates are inline code spans and bare object paths in a
+ * reply, never fenced code. The store asks the agent in batches, one request
+ * at a time, with the message's transcript index so a name resolves by what
+ * the session did up to it. A token the agent could not answer yet stays plain
+ * and is asked again later, backing off.
  */
 import { MAX_RESOLVE_TOKENS, OBJECT_PATH_IN_TEXT, assetLinkTarget, classifyAssetToken, type AssetRef, type AssetResolution } from "@ue-mcp-studio/shared";
+
+export interface MdNode {
+  type: string;
+  value?: string;
+  children?: MdNode[];
+  url?: string;
+  data?: Record<string, unknown>;
+}
+
+/** The text a node shows. */
+function textOf(node: MdNode): string {
+  return node.value ?? (node.children ?? []).map(textOf).join("");
+}
+
+/**
+ * A link whose target starts with one slash is never a web link: an asset's
+ * object path becomes an exact asset link showing its text, anything else
+ * stays its text.
+ */
+function rootedLink(node: MdNode): MdNode[] | null {
+  const url = node.url ?? "";
+  if (node.type !== "link" || !url.startsWith("/") || url.startsWith("//")) return null;
+  const path = assetLinkTarget(url);
+  if (!path) return node.children ?? [];
+  const label = textOf(node).trim() || path.slice(path.lastIndexOf(".") + 1);
+  return [{ type: "assetLink", data: { hName: "span", hProperties: { "data-asset-path": path, "data-asset-label": label } }, children: [{ type: "text", value: label }] }];
+}
+
+/** Node types whose text is never scanned for bare paths. */
+const OPAQUE = new Set(["code", "inlineCode", "link", "linkReference", "html", "definition"]);
+
+/** Split one text node's value into text and asset-path spans. */
+function splitPaths(value: string, found: (token: string) => void): MdNode[] | null {
+  const parts: MdNode[] = [];
+  let last = 0;
+  for (const m of value.matchAll(new RegExp(OBJECT_PATH_IN_TEXT.source, "g"))) {
+    const token = m[0];
+    if (!classifyAssetToken(token)) continue;
+    const at = m.index ?? 0;
+    if (at > last) parts.push({ type: "text", value: value.slice(last, at) });
+    parts.push({ type: "assetPath", data: { hName: "span", hProperties: { className: ["asset-path"], "data-asset": token } }, children: [{ type: "text", value: token }] });
+    found(token);
+    last = at + token.length;
+  }
+  if (parts.length === 0) return null;
+  if (last < value.length) parts.push({ type: "text", value: value.slice(last) });
+  return parts;
+}
+
+function walk(node: MdNode, found: (token: string) => void): void {
+  if (!node.children) return;
+  const next: MdNode[] = [];
+  for (const child of node.children) {
+    const linked = rootedLink(child);
+    if (linked) {
+      next.push(...linked);
+    } else if (child.type === "inlineCode") {
+      const token = child.value ?? "";
+      if (classifyAssetToken(token)) {
+        child.data = { ...child.data, hProperties: { "data-asset": token.trim() } };
+        found(token.trim());
+      }
+      next.push(child);
+    } else if (child.type === "text" && child.value) {
+      next.push(...(splitPaths(child.value, found) ?? [child]));
+    } else {
+      if (!OPAQUE.has(child.type)) walk(child, found);
+      next.push(child);
+    }
+  }
+  node.children = next;
+}
+
+/**
+ * The remark plugin: turns markdown links to object paths into exact asset
+ * links (a span with data-asset-path), marks inline code that names an asset
+ * (data-asset on the code element) and wraps bare object paths in a
+ * span.asset-path. Fenced code is left alone.
+ */
+export function remarkAssets(options: { found?: (token: string) => void } = {}) {
+  return (tree: MdNode) => walk(tree, options.found ?? (() => {}));
+}
 
 /** Bare object paths in plain text (a tool's input or result), split for linking. */
 export function splitText(text: string, max = 50): Array<{ text: string; asset: boolean }> {
@@ -25,7 +114,8 @@ export function splitText(text: string, max = 50): Array<{ text: string; asset: 
 
 export type LinkState = { status: "pending" } | { status: "resolved"; paths: string[] } | { status: "unresolved" };
 
-const PENDING: LinkState = { status: "pending" };
+/** A token not answered yet. */
+export const LINK_PENDING: LinkState = { status: "pending" };
 
 export type Resolve = (refs: AssetRef[], sessionId: string | null) => Promise<AssetResolution[]>;
 
@@ -56,7 +146,7 @@ export class AssetLinks {
 
   /** The same object until the token's state changes, as useSyncExternalStore needs. at: the message's transcript index. */
   state(token: string, at?: number): LinkState {
-    return this.states.get(keyOf(refOf(token, at))) ?? PENDING;
+    return this.states.get(keyOf(refOf(token, at))) ?? LINK_PENDING;
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -69,7 +159,7 @@ export class AssetLinks {
     const ref = refOf(token, at);
     const key = keyOf(ref);
     if (this.states.has(key) || this.queue.has(key) || this.disposed) return;
-    this.states.set(key, PENDING);
+    this.states.set(key, LINK_PENDING);
     this.enqueue(ref, this.debounceMs);
   }
 

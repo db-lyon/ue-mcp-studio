@@ -199,7 +199,8 @@ describe("the PIN lock's state", () => {
     }
     clock += 5 * 60_000;
     expect(await lock.unlock("p1", "1111")).toMatchObject({ ok: false, status: 403, unpaired: true });
-  });
+    // Twelve scrypt hashes at the production cost: seconds of CPU, more on a machine busy with other work.
+  }, 60_000);
 
   it("the right PIN clears the count; changing the PIN locks everyone; removing it turns both switches off", async () => {
     const lock = new PinLock({ file, now });

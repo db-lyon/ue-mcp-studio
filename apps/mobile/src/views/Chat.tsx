@@ -382,8 +382,8 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
   const [dismissedPills, setDismissedPills] = useState<ReadonlySet<string>>(new Set());
   const pills = useMemo(() => (detail && !disconnected ? pillsFor(detail, dismissedPills) : []), [detail, disconnected, dismissedPills]);
   const clearPills = useCallback(() => setDismissedPills((cur) => new Set([...cur, ...pills.map((p) => p.id)])), [pills]);
-  const dialogs = useDialogs(daemon);
-  const forms = useForms(daemon, detail?.id ?? null);
+  const dialogs = useDialogs();
+  const forms = useForms(detail?.id ?? null);
   const outside = useOutsideRuns(daemon.events, daemon.streaming);
   // The session's live playtests, pinned under its header while they run or wait for the user.
   const sessionRuns = useSessionRuns(detail?.id ?? null, detail?.transcript, daemon.events);

@@ -75,6 +75,7 @@ const server = await createServer({
       { find: /^expo-camera$/, replacement: mock("camera.tsx") },
       { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
       { find: /^expo-(constants|application)$/, replacement: mock("expo-modules.ts") },
+      { find: /^expo-clipboard$/, replacement: mock("clipboard.ts") },
       { find: /^expo-font$/, replacement: mock("expo-font.ts") },
       { find: new RegExp("^@expo-google-fonts/.*$"), replacement: mock("google-fonts.ts") },
       { find: /^expo-status-bar$/, replacement: mock("status-bar.tsx") },
@@ -172,13 +173,17 @@ for (const name of picked) {
       await page.mouse.move(1, 1);
       await page.waitForTimeout(afterType.wait);
     }
-    // The web scenario's scroll: the element with this label at the top of its scroller.
     if (parity[name].scroll) {
-      const target = page.locator(`[aria-label="${parity[name].scroll.replace(/"/g, '\\"')}"]`).first();
-      if (await target.count()) {
-        await target.evaluate((el) => el.scrollIntoView({ block: "start" }));
-        await page.waitForTimeout(300);
-      } else errors.push(`nothing to scroll to: ${parity[name].scroll}`);
+      // The web scenario's scroll: the element brought to the top of its scrolling list, by its row (the pressable around a text).
+      const what = parity[name].scroll;
+      const found = await page.evaluate((w) => {
+        const all = [...document.querySelectorAll(`[aria-label="${w.replace(/"/g, '\\"')}"]`), ...[...document.querySelectorAll("div, span")].filter((e) => e.childElementCount === 0 && e.textContent === w)];
+        const el = all.find((e) => e.getBoundingClientRect().height > 0);
+        (el?.closest('[role="button"]') ?? el)?.scrollIntoView({ block: "start" });
+        return !!el;
+      }, what);
+      if (!found) errors.push(`nothing to scroll to: ${what}`);
+      await page.waitForTimeout(200);
     }
     const appPng = path.join(out, `${name}-${theme}-app.png`);
     await page.screenshot({ path: appPng });

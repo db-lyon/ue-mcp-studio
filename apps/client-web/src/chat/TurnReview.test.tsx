@@ -19,6 +19,7 @@ const m = vi.hoisted(() => ({
 vi.mock("../api", () => ({ api: m }));
 import { ItemDiff, ReviewPanel, TurnReviewCard } from "./TurnReview";
 import { SessionIdContext } from "./attachments";
+import { isFlatPicture, numberStruct } from "./AssetDiff";
 
 afterEach(() => {
   cleanup();
@@ -185,10 +186,10 @@ describe("the diff view", () => {
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph(added) } });
     await diffOf(REVIEW.items[1]);
     // The added node's values sit under After, one pin per line; Before says it was not there.
-    const row = screen.getByText("Added Node Constant").closest("tr")!;
+    const row = screen.getByText("Node Constant").closest("tr")!;
     const [change, before, after] = [...row.children] as HTMLElement[];
     expect(row.children).toHaveLength(3);
-    expect(change.textContent).toBe("AddedAdded Node Constant");
+    expect(change.textContent).toBe("AddedNode Constant");
     expect(before.className).toContain("cmp-absent");
     expect(before.textContent).toBe("not there");
     expect([...after.querySelectorAll(".cmp-kv > div")].map((d) => d.textContent)).toEqual(["Value0.35", "B0.5"]);
@@ -198,15 +199,17 @@ describe("the diff view", () => {
     const removed = { displayString: "Removed Node Print String", diffType: "NODE_REMOVED", category: "SUBTRACTION", node1: { guid: "1", name: "N", class: "K2Node_CallFunction", title: "Print String", fullTitle: "Print String\nTarget is Kismet System Library", pins: [{ name: "Duration", displayName: "Duration", defaultValue: "2.0", linked: false }, { name: "TextColor", displayName: "Text Color", defaultValue: "(R=0.000000,G=0.660000,B=1.000000,A=1.000000)", linked: false }] } };
     const links = { displayString: "Pin 'then' has more links (was 0 now 1)", diffType: "PIN_LINKEDTO_NUM_INC", category: "MODIFICATION" };
     const moved = { displayString: "Node moved", diffType: "NODE_MOVED", category: "MINOR" };
-    const prop = { displayString: "Property Changed: Default Value", diffType: "NODE_PROPERTY", category: "MODIFICATION", properties: [{ displayString: "Default Value", diffType: "PropertyValueChanged", path: "Default Value", before: "0.200000", after: "0.700000" }] };
-    const graph: AssetDiff = { ...material, sections: [{ category: "EventGraph", kind: "graph", engineSource: "", entries: [removed, links, moved, prop] as never }] };
+    const prop = { displayString: "Property Changed: Default Value", diffType: "NODE_PROPERTY", category: "MODIFICATION", node2: { guid: "4", name: "N4", class: "MaterialGraphNode", title: "Roughness" }, properties: [{ displayString: "Default Value", diffType: "PropertyValueChanged", path: "Default Value", before: "0.200000", after: "0.700000" }] };
+    const pin = { displayString: "Pin Default Value Changed: Speed", diffType: "PIN_DEFAULT_VALUE", category: "MODIFICATION", pin1: { name: "Speed", direction: "input", defaultValue: "600.0", linkedTo: [] }, pin2: { name: "Speed", direction: "input", defaultValue: "450.0", linkedTo: [] } };
+    const graph: AssetDiff = { ...material, sections: [{ category: "EventGraph", kind: "graph", engineSource: "", entries: [removed, links, moved, prop, pin] as never }] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: graph } });
     await diffOf(REVIEW.items[1]);
     const table = screen.getByRole("region", { name: "EventGraph" }).querySelector("table")!;
     expect(table.querySelector("[colspan]")).toBeNull();
     for (const tr of table.querySelectorAll("tbody tr")) expect(tr.children).toHaveLength(3);
     const cells = (text: string) => [...screen.getByText(text).closest("tr")!.children] as HTMLElement[];
-    const [rc, rb, ra] = cells("Removed Node Print String");
+    // The badge says Removed, so the message drops the verb.
+    const [rc, rb, ra] = cells("Node Print String");
     expect(rc.querySelector(".cmp-subtitle")!.textContent).toBe("Print String, Target is Kismet System Library");
     expect([...rb.querySelectorAll(".cmp-kv dt")].map((d) => d.textContent)).toEqual(["Duration", "Text Color"]);
     // A colour keeps its text, with a swatch beside it.
@@ -219,10 +222,13 @@ describe("the diff view", () => {
     expect(la.className).toContain("cmp-empty");
     expect(screen.getByText("Pin 'then' has more links (was 0 now 1)").closest("tr")!.className).toContain("bare");
     expect(screen.getByText("Node moved").closest("tr")!.className).toContain("minor");
-    // The property under the graph record is a row of its own, before and after on the same line.
-    const sub = screen.getByText("Default Value").closest("tr")!;
-    expect(sub.className).toContain("sub");
-    expect([...sub.children].map((c) => c.textContent)).toEqual(["ChangedDefault Value", "0.2", "0.7"]);
+    // A graph record that only says its node's properties changed is shown as those properties, named by the node: once, with values.
+    expect(screen.queryByText(/Property Changed/)).toBeNull();
+    const prop1 = screen.getByText("Roughness > Default Value").closest("tr")!;
+    expect([...prop1.children].map((c) => c.textContent)).toEqual(["ChangedRoughness > Default Value", "0.2", "0.7"]);
+    // A pin default change shows both defaults, not empty cells.
+    const [, pb, pa] = cells("Pin Default Value Changed: Speed");
+    expect([pb.textContent, pa.textContent]).toEqual(["600", "450"]);
   });
 
   it("lets a long engine name wrap only between its parts", () => {
@@ -238,7 +244,7 @@ describe("the diff view", () => {
     expect((screen.getByAltText("BP_Door.uasset before") as HTMLImageElement).src).toContain(`/v1/ext/studio/review/thumbnails/${"a".repeat(40)}`);
     expect(screen.getByText(/No picture: Unreal has no thumbnail renderer for Material/)).toBeTruthy();
     const graph = screen.getByRole("region", { name: "Material Graph" });
-    expect(within(graph).getByText("Added Node Constant")).toBeTruthy();
+    expect(within(graph).getByText("Node Constant").closest("tr")!.querySelector(".diff-kind")!.textContent).toBe("Added");
     expect(within(graph).getByText("0.2")).toBeTruthy();
     expect(within(graph).getByText("0.7")).toBeTruthy();
     const details = screen.getByRole("region", { name: "Details" });
@@ -248,8 +254,98 @@ describe("the diff view", () => {
     expect(within(details).queryByText("Lighting Guid")).toBeNull();
     fireEvent.click(within(details).getByRole("button", { name: "Show 2 more differences in properties the details panel does not show" }));
     expect(within(details).getByText("Lighting Guid").closest("tr")!.textContent).toContain("B2");
-    fireEvent.click(screen.getByRole("button", { name: /details of both versions/ }));
-    expect(screen.getByText("BLEND_Masked")).toBeTruthy();
+    // The fact that differs is compared at once; none is the same, so there is no unchanged line.
+    const facts = screen.getByRole("region", { name: "Facts" });
+    expect(within(facts).getByText("Blend mode").closest("tr")!.textContent).toContain("BLEND_Masked");
+    expect(screen.queryByText(/unchanged fact/)).toBeNull();
+    // Which engine API produced the records is not the user's concern.
+    expect(screen.queryByText(/SMaterialDiff/)).toBeNull();
+  });
+
+  /** WBP_GameHUD as ue-mcp 1.4.13 diffs it: one widget property changed in the widget tree, every fact the same. */
+  const widget: AssetDiff = {
+    state: "ready",
+    status: "modified",
+    assetClass: "WidgetBlueprint",
+    engine: { tool: "SBlueprintDiff", note: "The Blueprint diff.", native: "window", nativeAvailable: true, blueprintTypeDiff: true },
+    before: { class: "WidgetBlueprint", facts: [{ name: "Parent class", value: "ValeHUDWidget" }, { name: "Blueprint type", value: "BPTYPE_Normal" }, { name: "Variables", value: "0" }, { name: "Graphs", value: "1" }, { name: "Components", value: "0" }], thumbnail: { id: "c".repeat(40), url: "", source: "rendered" } },
+    after: { class: "WidgetBlueprint", facts: [{ name: "Parent class", value: "ValeHUDWidget" }, { name: "Blueprint type", value: "BPTYPE_Normal" }, { name: "Variables", value: "0" }, { name: "Graphs", value: "1" }, { name: "Components", value: "0" }], thumbnail: { id: "d".repeat(40), url: "", source: "rendered" } },
+    sections: [{
+      category: "Widget Blueprint", kind: "properties", engineSource: "UBlueprint::FindDiffs",
+      notes: ["Warning: This may be missing changes to Animations and Bindings"],
+      entries: [{ displayString: "bHideWhenFull changed value in WardMeter", diffType: "PropertyValueChanged", group: "Widget WardMeter", path: "bHideWhenFull", label: "Hide when Full", property: "bHideWhenFull", before: "False", after: "True" }],
+      hiddenChanges: 0,
+    }],
+    blueprint: { summary: "no structural change" },
+    summary: "1 difference: Widget WardMeter > Hide when Full: False to True",
+    nativeDiff: { available: true },
+  };
+  const widgetItem = { ...REVIEW.items[1], path: "Content/UI/HUD/WBP_GameHUD.uasset", asset: "/Game/UI/HUD/WBP_GameHUD.WBP_GameHUD", summary: widget.summary };
+
+  it("shows a widget's changed property under the widget, by its details panel label, and only the facts that differ", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: widgetItem.path, status: "modified", kind: "package", assetDiff: widget } });
+    await diffOf(widgetItem);
+    const tree = screen.getByRole("region", { name: "Widget Blueprint" });
+    expect(within(tree).getByText("Widget WardMeter")).toBeTruthy();
+    const row = within(tree).getByText("Hide when Full").closest("tr")!;
+    expect(row.querySelector("td[data-label='Before']")!.textContent).toBe("False");
+    expect(row.querySelector("td[data-label='After']")!.textContent).toBe("True");
+    // The engine's own caveat is on the section heading's hover, not a line of its own.
+    expect(tree.querySelector(".diff-section-head")!.getAttribute("title")).toContain("Warning: This may be missing changes to Animations and Bindings");
+    // Every fact is the same: no Before and After for them, one folded line that counts them.
+    expect(screen.queryByRole("region", { name: "Facts" })).toBeNull();
+    const same = screen.getByText("5 unchanged facts").closest("details")!;
+    expect(same.open).toBe(false);
+    const listed = screen.getByText("ValeHUDWidget").closest("tr")!;
+    expect(listed.querySelector("td[data-label]")).toBeNull();
+    // The summary is the card's line above; the body does not say it again, and has no raw structure dump.
+    expect(screen.queryByText(/no difference/)).toBeNull();
+    expect(screen.queryByText(/Structure/)).toBeNull();
+  });
+
+  it("shows nothing but the folded facts for a Widget Blueprint whose widget tree was not compared, and never says no difference", async () => {
+    const old: AssetDiff = { ...widget, engine: { ...widget.engine!, blueprintTypeDiff: undefined }, sections: [], before: { ...widget.before!, thumbnail: { error: "x" } }, after: { ...widget.after!, thumbnail: { error: "x" } }, summary: "Widget Blueprint changed. This ue-mcp bridge cannot compare widget properties. Open in Unreal diff to see them." };
+    m.reviewDiff.mockResolvedValue({ change: { path: widgetItem.path, status: "modified", kind: "package", assetDiff: old } });
+    await diffOf({ ...widgetItem, summary: old.summary });
+    expect(document.querySelector(".asset-tile")).toBeNull();
+    expect(document.querySelector(".review-pictures")).toBeNull();
+    expect(screen.getByText("5 unchanged facts")).toBeTruthy();
+    expect(screen.queryByText(/no difference/)).toBeNull();
+  });
+
+  it("hides a picture that is one flat colour, so a renderer that drew nothing shows no black panel", async () => {
+    const flat = new Uint8ClampedArray(64 * 64 * 4).map((_, i) => (i % 4 === 3 ? 255 : 0));
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: () => undefined, getImageData: () => ({ data: flat }) } as unknown as CanvasRenderingContext2D);
+    try {
+      m.reviewDiff.mockResolvedValue({ change: { path: widgetItem.path, status: "modified", kind: "package", assetDiff: widget } });
+      await diffOf(widgetItem);
+      const before = screen.getByAltText("WBP_GameHUD.uasset before");
+      expect(before.className).toBe("picture-pending");
+      fireEvent.load(before);
+      fireEvent.load(screen.getByAltText("WBP_GameHUD.uasset after"));
+      // Neither version has a picture now, and the records are the change: no frame, no tile, no error.
+      expect(document.querySelector("img")).toBeNull();
+      expect(document.querySelector(".review-pictures")).toBeNull();
+      expect(document.querySelector(".asset-tile")).toBeNull();
+      expect(screen.queryByText(/No picture/)).toBeNull();
+      expect(screen.getByRole("region", { name: "Widget Blueprint" })).toBeTruthy();
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+
+  it("shows a picture once it is known to show something", async () => {
+    const shaded = new Uint8ClampedArray(64 * 64 * 4).map((_, i) => (i % 4 === 3 ? 255 : (i * 7) % 256));
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: () => undefined, getImageData: () => ({ data: shaded }) } as unknown as CanvasRenderingContext2D);
+    try {
+      m.reviewDiff.mockResolvedValue({ change: { path: widgetItem.path, status: "modified", kind: "package", assetDiff: widget } });
+      await diffOf(widgetItem);
+      const before = screen.getByAltText("WBP_GameHUD.uasset before");
+      fireEvent.load(before);
+      expect(before.className).toBe("");
+    } finally {
+      getContext.mockRestore();
+    }
   });
 
   it("says an added asset did not exist before, and a deleted one is gone", async () => {
@@ -265,7 +361,7 @@ describe("the diff view", () => {
     expect(screen.getByText("Deleted in this turn")).toBeTruthy();
   });
 
-  it("puts the asset's type, path, changes and facts where neither version has a picture", async () => {
+  it("gives a changed asset with records no tile where neither version has a picture, and compares only the facts that differ", async () => {
     const level: AssetDiff = {
       state: "ready", status: "modified", assetClass: "World", summary: "3 differences", nativeDiff: { available: true },
       before: { class: "World", facts: [{ name: "Actors", value: "41" }, { name: "Streaming", value: "World Partition" }] },
@@ -280,18 +376,37 @@ describe("the diff view", () => {
     await diffOf({ ...REVIEW.items[1], path: "Content/Maps/L_Gate.umap", asset: "/Game/Maps/L_Gate.L_Gate", group: "level" });
     expect(document.querySelector("img")).toBeNull();
     expect(document.querySelector(".review-pictures")).toBeNull();
-    const tile = screen.getByRole("group", { name: "World L_Gate.umap" });
-    expect(tile.getAttribute("data-family")).toBe("level");
-    expect(tile.querySelector("svg.asset-icon")).toBeTruthy();
-    expect(tile.textContent).toContain("Changed in this turn");
-    expect(tile.textContent).toContain("/Game/Maps/L_Gate.L_Gate");
-    expect(within(tile).getByRole("list", { name: "What changed" }).textContent).toBe("1 actor added1 actor changed");
-    // The fact that changed first, with its old value.
-    const facts = [...tile.querySelectorAll(".asset-tile-facts > div")].map((d) => d.textContent);
-    expect(facts).toEqual(["Actors41 to 42", "StreamingWorld Partition"]);
+    expect(document.querySelector(".asset-tile")).toBeNull();
+    expect(screen.getByRole("region", { name: "Actors" })).toBeTruthy();
+    const facts = screen.getByRole("region", { name: "Facts" });
+    expect(within(facts).getByText("Actors").closest("tr")!.textContent).toBe("Actors4142");
+    expect(within(facts).queryByText("Streaming")).toBeNull();
+    expect(screen.getByText("1 unchanged fact").closest("details")!.open).toBe(false);
   });
 
-  it("turns a thumbnail that fails to load into the tile, and says why a side has none", async () => {
+  it("puts the asset's type, path and facts where neither version has a picture and no record says what changed", async () => {
+    const sound: AssetDiff = {
+      state: "ready", status: "modified", assetClass: "SoundWave", summary: "SoundWave changed. Duration: 1.250 s to 0.980 s", nativeDiff: { available: true }, sections: [],
+      before: { class: "SoundWave", facts: [{ name: "Duration", value: "1.250 s" }, { name: "Channels", value: "2" }], thumbnail: { error: "Unreal has no thumbnail renderer for SoundWave" } },
+      after: { class: "SoundWave", facts: [{ name: "Duration", value: "0.980 s" }, { name: "Channels", value: "2" }], thumbnail: { error: "Unreal has no thumbnail renderer for SoundWave" } },
+    };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/Audio/SW_Chime.uasset", status: "modified", kind: "package", assetDiff: sound } });
+    await diffOf({ ...REVIEW.items[1], path: "Content/Audio/SW_Chime.uasset", asset: "/Game/Audio/SW_Chime.SW_Chime", group: "asset" });
+    const tile = screen.getByRole("group", { name: "SoundWave SW_Chime.uasset" });
+    expect(tile.getAttribute("data-family")).toBe("sound");
+    expect(tile.querySelector("svg.asset-icon")).toBeTruthy();
+    expect(tile.textContent).toContain("Changed in this turn");
+    expect(tile.textContent).toContain("/Game/Audio/SW_Chime.SW_Chime");
+    // The tile names the fact that changed, with its old value; the one that did not is counted on a folded line.
+    const facts = [...tile.querySelectorAll(".asset-tile-facts > div")].map((d) => d.textContent);
+    expect(facts).toEqual(["Duration1.250 s to 0.980 s"]);
+    expect(screen.queryByRole("region", { name: "Facts" })).toBeNull();
+    expect(screen.getByText("1 unchanged fact").closest("details")!.open).toBe(false);
+    // Why a changed asset has no picture is not news; the tile says what changed.
+    expect(tile.textContent).not.toContain("No picture");
+  });
+
+  it("says why a side's thumbnail failed to load, and drops the pictures when neither loads", async () => {
     const both: AssetDiff = { ...material, after: { ...material.after!, thumbnail: { id: "b".repeat(40), url: "", source: "rendered" } } };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: both } });
     await diffOf(REVIEW.items[1]);
@@ -299,7 +414,8 @@ describe("the diff view", () => {
     expect(screen.getByText("No picture: the file could not be read.")).toBeTruthy();
     fireEvent.error(screen.getByAltText("BP_Door.uasset before"));
     expect(document.querySelector("img")).toBeNull();
-    expect(screen.getByRole("group", { name: "Material BP_Door.uasset" }).textContent).toContain("1 node added");
+    expect(document.querySelector(".review-pictures")).toBeNull();
+    expect(screen.getByRole("region", { name: "Material Graph" })).toBeTruthy();
   });
 
   it("shows why the engine could not diff a package", async () => {
@@ -326,6 +442,27 @@ describe("the diff view", () => {
     expect(tile.getAttribute("data-family")).toBe("mesh");
     expect(tile.textContent).toContain("/Game/SM_Box.SM_Box");
     expect(tile.textContent).toContain("No picture was captured for this asset.");
+  });
+});
+
+describe("a flat picture", () => {
+  const px = (...rgba: number[][]) => rgba.flat();
+  it("is one colour within a small tolerance, or nothing opaque at all", () => {
+    expect(isFlatPicture(px([0, 0, 0, 255], [0, 0, 0, 255]))).toBe(true);
+    expect(isFlatPicture(px([8, 8, 8, 255], [12, 11, 9, 255]))).toBe(true);
+    expect(isFlatPicture(px([0, 0, 0, 0], [200, 10, 10, 0]))).toBe(true);
+    expect(isFlatPicture(px([8, 8, 8, 255], [120, 60, 20, 255]))).toBe(false);
+    // A transparent pixel does not count against the opaque ones.
+    expect(isFlatPicture(px([8, 8, 8, 255], [250, 250, 250, 0]))).toBe(true);
+  });
+});
+
+describe("a struct of numbers", () => {
+  it("reads as its fields and short numbers, and any other text is left alone", () => {
+    expect(numberStruct("(X=1200.000000,Y=-280.000000,Z=0.000000)")).toBe("X 1200, Y -280, Z 0");
+    expect(numberStruct("(R=0.500000,G=0.100000,B=0.000000,A=1.000000)")).toBe("R 0.5, G 0.1, B 0, A 1");
+    expect(numberStruct("(Name=\"Tint\",Value=1)")).toBeNull();
+    expect(numberStruct("600.000000")).toBeNull();
   });
 });
 

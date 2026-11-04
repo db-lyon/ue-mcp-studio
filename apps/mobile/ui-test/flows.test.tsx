@@ -83,10 +83,11 @@ describe("FlowLauncher", () => {
     await settle();
     expect(screen.getByText("Build lighting for the open level.")).toBeTruthy();
     expect((screen.getByLabelText("map") as HTMLTextAreaElement).value).toBe("/Game/Maps/L_Cave");
-    expect((screen.getByLabelText("quality") as HTMLInputElement).value).toBe("Production");
+    expect(screen.getByText("Production")).toBeTruthy();
     expect(disabled("Run")).toBe(false);
     fireEvent.click(screen.getByLabelText("save"));
-    fireEvent.change(screen.getByLabelText("quality"), { target: { value: "Preview" } });
+    fireEvent.click(screen.getByLabelText("quality"));
+    fireEvent.click(screen.getByText("Preview"));
     fireEvent.click(screen.getByText("Run"));
     expect(run).toHaveBeenCalledWith({ name: "bake-lighting", params: { map: "/Game/Maps/L_Cave", quality: "Preview", save: false } });
     await settle();

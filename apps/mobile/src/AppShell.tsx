@@ -158,6 +158,7 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
             <ErrorBoundary what="Chat">
               <Chat
                 nav={chatNav}
+                initialSession={initial?.tab === "Chat" ? initial.session : null}
                 active={tab === "Chat"}
                 onSettings={(x) => {
                   setSection(sectionOf(x));
