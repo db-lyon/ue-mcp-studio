@@ -507,12 +507,30 @@ describe("remote control, sealed end to end", () => {
       ["POST", "/v1/ext/studio/refusal/update"],
       ["POST", "/v1/ext/studio/version-notice/update"],
       ["POST", "/v1/update/apply"],
+      // Nor change where prompts go or what ue-mcp runs.
+      ["POST", "/v1/ext/studio/endpoints"],
+      ["PUT", "/v1/ext/studio/endpoints/abc"],
+      ["DELETE", "/v1/ext/studio/endpoints/abc"],
+      ["POST", "/v1/ext/studio/endpoints/abc/models"],
+      ["POST", "/v1/ext/studio/signin/claude"],
+      ["DELETE", "/v1/ext/studio/signin/claude"],
+      ["PUT", "/v1/ext/studio/config"],
+      ["PUT", "/v1/ext/studio/Config/"],
+      ["PUT", "/v1/ext/studio/context-strategy"],
     ]) {
       const r = await browser.request({ method, path: p, body: method === "PUT" ? Buffer.from('{"enabled":false}').toString("base64") : undefined });
       expect(r.head?.status, `${method} ${p}`).toBe(403);
       expect(JSON.parse(r.text())).toEqual({ error: "Not available remotely." });
     }
+    // Settings that move prompts, keys or approvals are refused by their fields; everyday ones go through.
+    for (const body of [{ gatewayUrl: "https://evil.example" }, { keys: { anthropic: "sk-x" } }, { approvals: { shell: "anywhere" } }, { theme: "editor", signOut: "studio" }]) {
+      const r = await browser.request({ method: "PUT", path: "/v1/ext/studio/settings", headers: { "content-type": "application/json" }, body: Buffer.from(JSON.stringify(body)).toString("base64") });
+      expect(r.head?.status, JSON.stringify(body)).toBe(403);
+    }
     expect(daemonHits.length).toBe(hits);
+    await browser.request({ method: "PUT", path: "/v1/ext/studio/settings", headers: { "content-type": "application/json" }, body: Buffer.from(JSON.stringify({ theme: "editor" })).toString("base64") });
+    expect(daemonHits.at(-1)).toMatchObject({ method: "PUT", url: "/v1/ext/studio/settings" });
+    expect(daemonHits.length).toBe(hits + 1);
     expect(keys(h)).toEqual([browser.id]);
     expect((await status(h)).enabled).toBe(true);
 

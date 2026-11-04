@@ -101,6 +101,26 @@ describe("Open file", () => {
     expect(call("POST /files/open", { path: ".agents/skills/naming" }).status).toBe(204);
     expect(opened).toEqual([path.join(project, "AGENTS.md"), path.join(project, ".agents", "skills", "naming", "SKILL.md")]);
     expect(call("POST /files/open", { path: "../../secret.txt" }).status).toBe(403);
+    // Nothing outside the listed files opens, however the path is spelled.
+    for (const p of [
+      "AGENTS.md/../../secret.txt",
+      "./AGENTS.md/../package.json",
+      ".agents/skills/naming/../../../../secret.txt",
+      ".agents/skills",
+      ".agents/skills/naming/other.md",
+      "..\\..\\secret.txt",
+      "AGENTS.md\\..\\..\\secret.txt",
+      "%2e%2e/secret.txt",
+      "AGENTS.md\u0000.exe",
+      "~/../secret.txt",
+      "~/.ssh/id_rsa",
+      path.join(project, "..", "secret.txt"),
+      path.resolve(project, "..", "..", "Windows", "System32", "calc.exe"),
+      "\\\\evil.example\\share\\run.exe",
+      "file:///C:/Windows/System32/calc.exe",
+      "https://evil.example/",
+    ]) expect(call("POST /files/open", { path: p }).status, p).toBe(403);
+    expect(opened).toHaveLength(2);
     expect(call("POST /files/open", {}).status).toBe(400);
   });
 });
