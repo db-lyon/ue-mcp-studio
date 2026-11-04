@@ -58,6 +58,9 @@ describe("welcome", () => {
     fireEvent.click(screen.getByText("Paste pairing link"));
     await settle();
     expect((screen.getByLabelText("Pairing link") as HTMLInputElement).value).toBe("");
+    expect(screen.getByText(/The clipboard holds no pairing link yet/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("Pairing link"), { target: { value: "h" } });
+    expect(screen.queryByText(/The clipboard holds no pairing link yet/)).toBeNull();
   });
 
   it("says what a pairing link looks like when the pasted one is not", () => {
@@ -123,7 +126,7 @@ describe("pairing stopped", () => {
   };
 
   it.each([
-    ["expired", "This code no longer works", /Each code works once, for ten minutes/],
+    ["expired", "This code no longer works", /Each code works once, for 10 minutes/],
     ["timeout", "No one allowed this phone in time", /waits 2 minutes for an answer/],
   ] as const)("a %s code is a state with a new code as the way on", (kind, title, lead) => {
     const seen = show({ kind, message: "relay words" });
@@ -139,7 +142,7 @@ describe("pairing stopped", () => {
     ["denied", "Pairing did not finish", "The computer's owner denied this phone."],
     ["offline", "Your computer went offline", "It stopped answering while this phone was pairing."],
     ["bad-link", "This is not a pairing code", "The code was cut short, or it is not one Studio made for pairing."],
-    ["mismatch", "The answer did not match the code", "Your computer's answer did not match the code. This phone was not paired."],
+    ["mismatch", "The codes did not match", "This phone was not paired."],
     ["failed", "Pairing did not finish", "The computer no longer knows this request."],
   ] as const)("%s is the error panel with what happened", (kind, head, text) => {
     const seen = show({ kind, message: "The computer no longer knows this request. Make a new code." });
@@ -249,7 +252,7 @@ describe("scanner", () => {
   it("asks for the camera in place", () => {
     g.__qaCamera = { granted: false, canAskAgain: true, status: "undetermined" };
     render(<Scanner onCode={() => undefined} onCancel={() => undefined} />);
-    expect(screen.getByText("Studio needs the camera")).toBeTruthy();
+    expect(screen.getByText("This app needs the camera")).toBeTruthy();
     expect(screen.getByText("Allow camera")).toBeTruthy();
     expect(screen.getByText("Scan from a picture")).toBeTruthy();
   });
@@ -261,7 +264,7 @@ describe("scanner", () => {
     let back = false;
     g.__qaCamera = { granted: false, canAskAgain: false, status: "denied" };
     render(<Scanner onCode={() => undefined} onCancel={() => (back = true)} />);
-    expect(screen.getByText("The camera is off for Studio")).toBeTruthy();
+    expect(screen.getByText("The camera is off for this app")).toBeTruthy();
     fireEvent.click(screen.getByText("Open settings"));
     expect(open).toHaveBeenCalled();
     fireEvent.click(screen.getByLabelText("Back"));
@@ -292,7 +295,7 @@ describe("Projects and Devices", () => {
     render(<Projects onOpen={(d) => opened.push(d.id)} onPair={() => opened.push("scan")} onSettings={() => undefined} onUnpaired={() => undefined} />);
     await settle();
     expect(screen.getByText("Not paired with this phone. Scan its computer's code to open it.")).toBeTruthy();
-    expect(screen.getByText("Offline, last seen 3 h ago")).toBeTruthy();
+    expect(screen.getByText("Offline, last seen 3h ago")).toBeTruthy();
     fireEvent.click(screen.getByText("Lyra"));
     fireEvent.click(screen.getByLabelText("Scan the code for Other"));
     expect(opened).toEqual(["d1", "scan"]);
@@ -367,7 +370,7 @@ describe("Projects and Devices", () => {
     buttons.find((b) => b.text === "Remove")?.onPress?.();
     expect(relay.removeViewer).toHaveBeenCalledWith(expect.objectContaining({ id: "v2" }));
     expect(screen.getByText("Your computer")).toBeTruthy();
-    expect(screen.getByText(/^Lyra, Asleep\. Paired /)).toBeTruthy();
+    expect(screen.getByText("Lyra, Asleep")).toBeTruthy();
     spy.mockRestore();
   });
 
@@ -410,7 +413,7 @@ describe("About", () => {
     render(<About onBack={() => undefined} transport={() => health("0.1.25-beta.40")} />);
     await settle();
     await settle();
-    expect(screen.getByText("The computer running Lyra")).toBeTruthy();
+    expect(screen.getByText("Lyra's computer")).toBeTruthy();
     expect(screen.getByText("0.1.25-beta.40")).toBeTruthy();
     expect(screen.getByText("This app and the Studio on that computer work together.")).toBeTruthy();
   });
@@ -451,7 +454,7 @@ describe("phone-only banners and prompts", () => {
     expect(container.textContent).toBe("");
     g.__qaOffline = true;
     render(<OfflineBanner />);
-    expect(screen.getByText("This phone is offline. Studio reconnects on its own.")).toBeTruthy();
+    expect(screen.getByText("This phone is offline. The app reconnects on its own.")).toBeTruthy();
   });
 
   it("offers the fingerprint after a typed PIN", () => {
