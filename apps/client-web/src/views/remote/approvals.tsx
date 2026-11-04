@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { formatPairingCode, type RemoteApproval, type RemoteBrowser } from "@ue-mcp-studio/shared";
+import { REMOTE_PIN_ATTEMPTS, formatPairingCode, type RemoteApproval, type RemoteBrowser } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { onRemotePage } from "../../connection";
 import { subscribeEvent } from "../../extensions/events";
@@ -66,6 +66,29 @@ export function usePairedNotice(): { paired: { label: string } | null; dismiss: 
     [],
   );
   return { paired, dismiss: () => setPaired(null) };
+}
+
+/** The last browser removed for too many wrong PINs while this Studio was open. */
+export function useLockoutNotice(): { removed: { label: string } | null; dismiss: () => void } {
+  const [removed, setRemoved] = useState<{ label: string } | null>(null);
+  useEffect(
+    () =>
+      subscribeEvent((e) => {
+        if (e.type === "studio.remote.lockout") setRemoved({ label: String((e.data as { label?: unknown } | undefined)?.label ?? "A browser") });
+      }),
+    [],
+  );
+  return { removed, dismiss: () => setRemoved(null) };
+}
+
+/** "<label> entered a wrong PIN 10 times and was removed." */
+export function LockoutNotice({ label, onDismiss }: { label: string; onDismiss: () => void }) {
+  return (
+    <div className="banner bad remote-lockout" role="alert">
+      <span className="grow">{label} entered a wrong PIN {REMOTE_PIN_ATTEMPTS} times and was removed. Pair it again if that was you.</span>
+      <button className="ghost" aria-label="Dismiss" onClick={onDismiss}>×</button>
+    </div>
+  );
 }
 
 /**
@@ -143,13 +166,15 @@ function useCardShown(): boolean {
 export function RemoteApprovalBanner() {
   const { approvals, decide } = useRemoteApprovals();
   const { paired, dismiss } = usePairedNotice();
+  const lockout = useLockoutNotice();
   const inCard = useCardShown();
   const shown = inCard ? [] : approvals;
-  if (shown.length === 0 && !paired) return null;
+  if (shown.length === 0 && !paired && !lockout.removed) return null;
   return (
     <div className="remote-approvals">
       {shown.map((a) => <ApprovalPrompt key={a.id} approval={a} onDecide={decide} />)}
       {paired && <PairedNotice label={paired.label} onDismiss={dismiss} />}
+      {lockout.removed && <LockoutNotice label={lockout.removed.label} onDismiss={lockout.dismiss} />}
     </div>
   );
 }

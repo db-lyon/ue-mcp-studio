@@ -57,6 +57,8 @@ import type {
   BillingLink,
   RemoteApproval,
   RemoteBrowser,
+  RemoteLockSettings,
+  RemoteLockState,
   RemotePairing,
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
@@ -166,6 +168,13 @@ export const api = {
   remoteApprovals: () => call<{ approvals: RemoteApproval[] }>("GET", "/v1/ext/studio/remote/approvals"),
   decideRemoteApproval: (id: string, allow: boolean) => call<{ ok: true }>("POST", `/v1/ext/studio/remote/approvals/${encodeURIComponent(id)}`, { allow }),
   revokeRemoteBrowser: (id: string) => call<void>("DELETE", `/v1/ext/studio/remote/browsers/${encodeURIComponent(id)}`),
+  /** The PIN lock, on the computer only. */
+  remoteLock: () => call<RemoteLockSettings>("GET", "/v1/ext/studio/remote/lock"),
+  setRemotePin: (pin: string) => call<RemoteLockSettings>("PUT", "/v1/ext/studio/remote/lock/pin", { pin }),
+  removeRemotePin: () => call<RemoteLockSettings>("DELETE", "/v1/ext/studio/remote/lock/pin"),
+  setRemoteLock: (c: Partial<Pick<RemoteLockSettings, "whole" | "sensitive" | "idleMinutes">>) => call<RemoteLockSettings>("PUT", "/v1/ext/studio/remote/lock", c),
+  /** The lock as this paired browser sees it, answered by the computer. */
+  lockState: () => call<RemoteLockState>("GET", "/v1/ext/studio/lock"),
   saveConfig: (text: string) => call<StudioConfigFile>("PUT", "/v1/ext/studio/config", { text }),
   flows: () => call<{ flows: FlowSummary[] }>("GET", "/v1/flows"),
   planFlow: (name: string) => call<unknown>("GET", `/v1/flows/${encodeURIComponent(name)}/plan`),

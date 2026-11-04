@@ -1841,3 +1841,39 @@ pre.diff > .meta { color: var(--dim); }
   .msg.user .msg-edit { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
   .qa-edit-instruction { min-height: 44px; }
 }
+
+/* The remote PIN lock: the lock screen over a locked paired browser, and the sheet a sensitive action asks with. */
+.lock-screen { position: fixed; inset: 0; z-index: 90; display: flex; align-items: center; justify-content: center; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: var(--bg); overflow-y: auto; }
+.lock-card { width: min(360px, 100%); display: flex; flex-direction: column; align-items: center; gap: 10px; text-align: center; }
+.lock-glyph { color: var(--accent); margin-bottom: 4px; }
+.lock-title { margin: 0; font: 600 20px/1.25 var(--sans); color: var(--text); }
+.lock-lead { margin: 0 0 6px; color: var(--dim); }
+.pin-form { width: 100%; display: flex; flex-direction: column; gap: 10px; text-align: left; }
+.pin-label { font-size: 12px; color: var(--dim); }
+.pin-input { width: 100%; box-sizing: border-box; min-height: 48px; padding: 8px 12px; font: 600 22px/1 var(--mono, monospace); letter-spacing: 0.35em; text-align: center; }
+.pin-note { min-height: 18px; display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--dim); }
+.pin-error { color: var(--bad, #f85149); }
+.pin-actions { display: flex; gap: 8px; justify-content: flex-end; }
+.pin-actions button { min-height: 44px; min-width: 44px; padding: 0 16px; }
+.lock-card .pin-actions button.primary { flex: 1; }
+.pin-sheet-backdrop { position: fixed; inset: 0; z-index: 85; display: flex; align-items: center; justify-content: center; padding: 16px; background: rgba(0, 0, 0, 0.55); }
+.pin-sheet { width: min(380px, 100%); display: flex; flex-direction: column; gap: 8px; padding: 20px 22px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45); }
+.pin-sheet-title { margin: 0; font: 600 16px/1.25 var(--sans); color: var(--text); }
+.pin-sheet-lead { margin: 0 0 4px; color: var(--dim); }
+@media (max-width: 760px) {
+  .pin-sheet-backdrop { align-items: flex-end; padding: 0; }
+  .pin-sheet { width: 100%; border-radius: 14px 14px 0 0; padding: 18px max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .pin-actions button { flex: 1; }
+}
+
+/* The PIN lock's settings, on the computer. */
+.pin-set { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-top: 8px; text-align: left; }
+.pin-set-field { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; font-size: 12px; color: var(--dim); text-align: left; }
+.pin-set-field input { width: min(240px, 100%); box-sizing: border-box; min-height: 40px; font: 600 16px/1 var(--mono, monospace); letter-spacing: 0.25em; }
+.pin-set-actions, .pin-lock-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.pin-idle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 0 0 10px; }
+.pin-idle-label { font-size: 12px; color: var(--dim); }
+@media (pointer: coarse), (max-width: 760px) {
+  .pin-set-field input { min-height: 44px; }
+  .pin-set-actions button, .pin-lock-actions button { min-height: 44px; }
+}

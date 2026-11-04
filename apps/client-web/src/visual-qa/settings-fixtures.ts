@@ -32,6 +32,20 @@ const NATIVE_FULL: NativeOverview = {
 
 const NOTHING_CONNECTED: Partial<StudioSettings> = { route: null, connected: {} as StudioSettings["connected"] };
 
+
+/** Settings > Remote control on a paid, online computer with one paired phone, and the PIN lock as given, scrolled to it. */
+function remoteLockGet(lock: { pin: boolean; whole: boolean; sensitive: boolean; idleMinutes: number }): Partial<Scenario> {
+  return {
+    get: (p) =>
+      p === "/v1/ext/studio/remote/available" ? { available: true, signedIn: true }
+      : p === "/v1/ext/studio/remote/status" ? { enabled: true, relay: "https://remote.ue-mcp.com", state: "online", login: "dev", since: new Date(Date.now() - 60_000).toISOString() }
+      : p === "/v1/ext/studio/remote/browsers" ? { browsers: [{ id: "KKFspqyVlDozkcbPOh9SZA", label: "Android", addedAt: "2026-11-03T19:15:57.234Z" }] }
+      : p === "/v1/ext/studio/remote/lock" ? lock
+      : undefined,
+    scroll: ".pin-lock",
+  };
+}
+
 const page = (title: string, section: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: `#/settings/${section}`, index: { playtests: [], listed: true }, height: 2600, ...o });
 
 /**
@@ -111,6 +125,9 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-general-signing-in": page("General with the ue-mcp account sign-in started: the GitHub code and link", "general", {
     get: (p) => (p === "/v1/ext/studio/signin/studio" ? { state: "pending", url: "https://github.com/login/device", userCode: "ABCD-1234", expiresAt: "2030-01-01T00:00:00Z" } : undefined),
   }),
+  "settings-remote-pin-off": page("Remote control with the PIN lock off: what it does and Set a PIN", "remote", remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 })),
+  "settings-remote-pin-new": page("Remote control setting a PIN: the PIN twice, digits only", "remote", { ...remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button.primary"] }),
+  "settings-remote-pin-on": page("Remote control with a PIN, both switches on: the whole browser locks after the idle time, and sensitive actions ask", "remote", remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 })),
   "settings-remote-signin": page("Remote control on a signed-out computer, while STUDIO_PLAN_AVAILABLE is on: the ue-mcp account sign-in inline. With the flag off it is not listed and this opens General", "remote", {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : undefined),
   }),

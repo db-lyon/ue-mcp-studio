@@ -21,7 +21,7 @@ import * as path from "node:path";
 import qrcode from "qrcode-generator";
 import { readLiveDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { pairingFragment } from "@ue-mcp-studio/remote";
-import { type RemoteApproval, type RemoteAvailability, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { type RemoteApproval, type RemoteAvailability, type RemoteBrowser, type RemoteLockSettings, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import type { ExtensionHandler } from "ue-mcp/daemon";
 import { SettingsStore } from "../settings.js";
 import { AccountSource } from "../account-source.js";
@@ -29,6 +29,7 @@ import { Connector, NOT_SIGNED_IN, NO_PLAN, type ConnectorState } from "./connec
 import { PLAN_CHECK_TTL_MS, RemotePlanCheck, type PlanCheck } from "./plan.js";
 import { ComputerKeys } from "./keys.js";
 import { RemoteService } from "./service.js";
+import { PIN_PATTERN, PinLock } from "./pin-lock.js";
 
 export const DEFAULT_RELAY = "https://remote.ue-mcp.com";
 
@@ -102,7 +103,11 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
   const config = (): RemoteConfig => ({ enabled: false, ...readJson<RemoteConfig>(configFile) });
   const relayUrl = (): string => config().relay ?? env.UE_MCP_REMOTE_RELAY ?? DEFAULT_RELAY;
   // dataDir is <user dir>/data/<project key>/studio; the computer's identity sits beside "data".
-  const keys = new ComputerKeys(o.computerDir ?? path.resolve(api.dataDir, "..", "..", "..", "remote"));
+  const computerDir = o.computerDir ?? path.resolve(api.dataDir, "..", "..", "..", "remote");
+  const keys = new ComputerKeys(computerDir);
+  // One PIN for every project on this computer, beside the paired browsers it guards.
+  const lock = new PinLock({ file: path.join(computerDir, "remote-lock.json") });
+  const settings = new SettingsStore(api.dataDir);
   const device = deviceId(dir, path.resolve(api.dataDir, "..", "remote"));
   const project = projectName(api.projectDir);
   const service = new RemoteService({
@@ -112,6 +117,12 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     keepaliveMs: o.keepaliveMs,
     onApproval: (a) => api.events.publish("remote.approval", { ...a, project }),
     onPaired: (p) => api.events.publish("remote.paired", { id: p.id, label: p.label, addedAt: p.addedAt }),
+    lock,
+    risky: () => {
+      const a = settings.approvals();
+      return a.shell !== "ask" || a.files !== "ask";
+    },
+    onLockout: (p) => api.events.publish("remote.lockout", { id: p.id, label: p.label }),
     daemon:
       o.daemon ??
       (() => {
@@ -248,8 +259,39 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
   route("DELETE", "/remote/browsers/:id", (req) => {
     if (!keys.removePhone(req.params.id)) return { status: 404, body: { error: "No such browser." } };
     service.cutOff(req.params.id);
+    lock.forget(req.params.id);
     return { status: 204 };
   });
+  // The PIN lock, set here on the computer. Under /remote, so a paired browser can never set, change or remove it (remotePath).
+  const lockChanged = (): { body: RemoteLockSettings } => {
+    const body = lock.settings();
+    api.events.publish("remote.lock", { ...body });
+    return { body };
+  };
+  route("GET", "/remote/lock", () => ({ body: lock.settings() }));
+  route("PUT", "/remote/lock/pin", async (req) => {
+    const pin = (req.body as { pin?: unknown } | undefined)?.pin;
+    if (typeof pin !== "string" || !PIN_PATTERN.test(pin)) return { status: 400, body: { error: "A PIN is 4 to 8 digits." } };
+    await lock.setPin(pin);
+    return lockChanged();
+  });
+  route("DELETE", "/remote/lock/pin", () => {
+    lock.removePin();
+    return lockChanged();
+  });
+  route("PUT", "/remote/lock", (req) => {
+    const b = (req.body ?? {}) as { whole?: unknown; sensitive?: unknown; idleMinutes?: unknown };
+    for (const k of ["whole", "sensitive"] as const) if (b[k] !== undefined && typeof b[k] !== "boolean") return { status: 400, body: { error: `${k} must be true or false` } };
+    if (b.idleMinutes !== undefined && typeof b.idleMinutes !== "number") return { status: 400, body: { error: "idleMinutes must be a number" } };
+    try {
+      lock.configure({ whole: b.whole as boolean | undefined, sensitive: b.sensitive as boolean | undefined, idleMinutes: b.idleMinutes as number | undefined });
+    } catch (e) {
+      return { status: 409, body: { error: e instanceof Error ? e.message : String(e) } };
+    }
+    return lockChanged();
+  });
+  // The desktop's own Studio is never locked; a paired browser's GET of this path is answered by the connector before it gets here.
+  api.route("GET", "/lock", () => ({ body: { whole: false, sensitive: false, locked: false, sensitiveOpen: true, idleMinutes: 0 } }));
 
   void recheck(true);
   const timer = setInterval(() => void recheck(true), o.planRecheckMs ?? PLAN_CHECK_TTL_MS);

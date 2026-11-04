@@ -7,6 +7,7 @@ import { SignInForm } from "../ModelPicker";
 import { UpgradeAction } from "../Upgrade";
 import { ACCOUNT_NAME } from "./AccountCard";
 import { PairingCode } from "../remote/PairingCode";
+import { PinLockCard } from "./PinLockCard";
 
 /** How often the section rereads the connection and the paired browsers while it is open. */
 export const REMOTE_POLL_MS = 3000;
@@ -174,6 +175,7 @@ export function RemoteSection({ onUnavailable }: { onUnavailable?: () => void } 
           </div>
         ))}
       </Card>
+      <PinLockCard />
     </>
   );
 }

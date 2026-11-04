@@ -342,7 +342,7 @@ afterAll(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-const REMOTE_ROUTES = ["DELETE /remote/browsers/:id", "GET /remote/approvals", "GET /remote/browsers", "POST /remote/approvals/:id", "GET /remote/status", "POST /remote/pair", "PUT /remote/config"];
+const REMOTE_ROUTES = ["DELETE /remote/browsers/:id", "GET /remote/approvals", "GET /remote/browsers", "POST /remote/approvals/:id", "GET /remote/status", "POST /remote/pair", "PUT /remote/config", "GET /remote/lock", "PUT /remote/lock", "PUT /remote/lock/pin", "DELETE /remote/lock/pin"];
 const available = async (h: Host, refresh = false) =>
   ((await h.routes.get("GET /remote/available")!({ method: "GET", path: "", params: {}, query: refresh ? { refresh: "1" } : {}, headers: {}, body: undefined } as never))!.body as { available: boolean }).available;
 const settle = () => new Promise((r) => setTimeout(r, 100));
@@ -424,7 +424,7 @@ describe("remote control, offered or not", () => {
   it("is off until turned on: no socket to the relay, and pairing waits for it", async () => {
     const before = relay.upgrades.length;
     const h = host();
-    expect([...h.routes.keys()].sort()).toEqual(["GET /remote/available", ...REMOTE_ROUTES].sort());
+    expect([...h.routes.keys()].sort()).toEqual(["GET /remote/available", "GET /lock", ...REMOTE_ROUTES].sort());
     expect(await status(h)).toEqual({ enabled: false, relay: relay.base, state: "off" });
     expect((await h.call("POST /remote/pair")).status).toBe(409);
     expect((await h.call("PUT /remote/config", { enabled: "yes" })).status).toBe(400);
@@ -742,6 +742,32 @@ describe("the account remote control uses", () => {
       expect(m).toMatch(/Settings > General/);
       expect(m).not.toMatch(/npx|ue-mcp login/);
     }
+  });
+});
+
+describe("the PIN lock, set on the computer", () => {
+  it("off by default; a PIN, then the switches; removing the PIN turns them off; each change is announced", async () => {
+    const h = host({ plan: new FakePlan(true) });
+    await settle();
+    expect((await h.call("GET /remote/lock")).body).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 15 });
+    expect((await h.call("PUT /remote/lock", { whole: true })).status).toBe(409);
+    expect((await h.call("PUT /remote/lock/pin", { pin: "12" })).status).toBe(400);
+    expect((await h.call("PUT /remote/lock/pin", { pin: "48219" })).body).toMatchObject({ pin: true, whole: false });
+    expect((await h.call("PUT /remote/lock", { whole: true, sensitive: true, idleMinutes: 60 })).body).toEqual({ pin: true, whole: true, sensitive: true, idleMinutes: 60 });
+    expect((await h.call("PUT /remote/lock", { whole: "yes" })).status).toBe(400);
+    expect(h.events).toContainEqual({ type: "remote.lock", data: { pin: true, whole: true, sensitive: true, idleMinutes: 60 } });
+    // One PIN for the computer, beside the paired browsers, never the PIN itself.
+    const file = path.join(h.computerDir, "remote-lock.json");
+    expect(fs.readFileSync(file, "utf-8")).not.toContain("48219");
+    expect((await h.call("DELETE /remote/lock/pin")).body).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 60 });
+  });
+
+  it("the desktop's own Studio is never locked", async () => {
+    const h = host({ plan: new FakePlan(true) });
+    await settle();
+    await h.call("PUT /remote/lock/pin", { pin: "4821" });
+    await h.call("PUT /remote/lock", { whole: true, sensitive: true });
+    expect((await h.call("GET /lock")).body).toMatchObject({ whole: false, sensitive: false, locked: false, sensitiveOpen: true });
   });
 });
 
