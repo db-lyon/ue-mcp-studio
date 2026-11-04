@@ -1306,11 +1306,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 /* A picture is shown once it has loaded and is known not to be one flat colour. */
 .review-pictures img.picture-pending { visibility: hidden; }
 .diff-section-note { overflow-wrap: break-word; }
-/* Facts the same in both versions: listed once, uncoloured. */
+/* A single version's facts: listed once, uncoloured. */
 .diff-table td.cmp-plain { background: none; }
-.diff-unchanged { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.diff-unchanged summary { cursor: pointer; width: max-content; max-width: 100%; }
-.diff-unchanged[open] summary { margin-bottom: 2px; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
 .review-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -2132,6 +2129,4 @@ button.review-item-name:hover:not(:disabled) { background: none; border: 0; colo
   .review-actions > button.small-button::after, .review-conflict > button.small-button::after { content: ""; position: absolute; inset: -7px -5px; }
   .review-conflict { row-gap: 14px; }
   .review-acting { min-height: 32px; }
-  /* The unchanged facts' toggle: a 44 pixel target that takes no more room than its line. */
-  .review-item .diff-unchanged > summary { min-height: 0; padding-block: 13px; margin-block: -10px; }
 }
