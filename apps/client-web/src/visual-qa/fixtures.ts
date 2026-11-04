@@ -459,13 +459,14 @@ const FLOW_PLAN = {
 };
 
 /** A session with /flow typed into the message box and sent, the project's flows and plans answered. */
-function flowTyped(title: string, typed: string, plans: Record<string, unknown> = {}): Scenario {
+function flowTyped(title: string, typed: string, plans: Record<string, unknown> = {}, send = false): Scenario {
   return {
     ...inSession(title, "Door hinge fix", []),
     get: (p) => (p === "/v1/flows" ? { flows: FLOWS } : p.startsWith("/v1/flows/") && p.endsWith("/plan") ? plans[decodeURIComponent(p.split("/")[3])] : undefined),
     post: (p) => (p.endsWith("/draft") ? { status: 200, body: {} } : undefined),
-    type: { into: ".composer textarea:not(.composer-mirror)", text: `${typed}\n` },
-    afterType: { clicks: [], wait: 900 },
+    // Sent with Send where Enter would take the completion the slash menu offers.
+    type: { into: ".composer textarea:not(.composer-mirror)", text: send ? typed : `${typed}\n` },
+    afterType: { clicks: send ? [".composer-send"] : [], wait: 900 },
   };
 }
 
@@ -507,7 +508,7 @@ export const EDITOR_SCENARIOS: Record<string, Scenario> = {
   "editor-chip-failed-open": editorState("The editor chip opened after a restart that did not bring the editor back: the step and the reason", FAILED, { connected: false, open: true }),
   "diagnostics": { title: "Settings, Diagnostics: the editor connected, its controls and the daemon", hash: "#/settings/diagnostics", index: { playtests: [], listed: true }, get: (p) => (p === "/v1/health" ? health(true) : undefined), fullPage: true },
   "diagnostics-disconnected": { title: "Settings, Diagnostics: the editor crashed, only Start offered", hash: "#/settings/diagnostics", index: { playtests: [], listed: true }, get: (p) => (p === "/v1/health" ? health(false, { cause: "crashed", at: ago(6) }) : undefined), fullPage: true },
-  "flow-launcher-unnamed": flowTyped("/flow with no name: the project's flows to pick from", "/flow "),
+  "flow-launcher-unnamed": flowTyped("/flow with no name: the project's flows to pick from", "/flow ", {}, true),
   "flow-launcher-unknown": flowTyped("/flow with a name that is no flow: the closest names", "/flow bake-lightng "),
   "flow-launcher-error": flowTyped("/flow whose plan cannot be read: the reason and Close", "/flow playtest-smoke "),
   "flow-launcher-form": flowTyped("/flow with inputs: a form with the defaults and the typed pair filled in", "/flow bake-lighting map=/Game/Maps/L_Cave ", { "bake-lighting": FLOW_PLAN }),
