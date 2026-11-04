@@ -274,7 +274,7 @@ function SectionHead({ title, note }: { title: string; note: string }) {
   const t = useTheme();
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: 8 }}>
-      <T weight={600}>{engineText(title)}</T>
+      <T weight={600} lh={lh(t)}>{engineText(title)}</T>
       <T style={[small(t), { color: t.c.dim }]}>{note}</T>
     </View>
   );
