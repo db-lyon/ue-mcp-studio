@@ -19,8 +19,9 @@ import { SCENARIOS as PLAYTESTS } from "./fixtures";
 import { CONTEXT, INSTALL, SETTINGS_SCENARIOS } from "./settings-fixtures";
 import { REVIEW_SCENARIOS } from "./review-fixtures";
 import { REFUSED_SCENARIOS } from "./refused-fixtures";
+import { CONTEXT_SCENARIOS } from "./context-fixtures";
 
-const SCENARIOS = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS, ...REFUSED_SCENARIOS };
+const SCENARIOS = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS, ...REFUSED_SCENARIOS, ...CONTEXT_SCENARIOS };
 
 const params = new URLSearchParams(location.search);
 const scenario = SCENARIOS[params.get("scenario") ?? ""] ?? SCENARIOS["session-empty"];
@@ -100,7 +101,7 @@ function answer(method: string, url: URL): unknown {
       signedIn: { claude: !!SETTINGS.connected.claude, chatgpt: !!SETTINGS.connected.chatgpt, studio: false },
       routeOrder: "signins-first",
       providers: [
-        { id: "anthropic", name: "Anthropic", connected: false, source: "default", models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5", signIns: ["claude"] }] },
+        { id: "anthropic", name: "Anthropic", connected: false, source: "default", models: [{ id: "claude-sonnet-5-5", name: "Sonnet 5.5", signIns: ["claude"] }, ...(scenario.settings?.model === "claude-haiku-4-5" ? [{ id: "claude-haiku-4-5", name: "Haiku 4.5", signIns: ["claude"] }] : [])] },
         ...(Array.isArray(scenario.endpoints) ? scenario.endpoints : []).map((e) => ({ id: `endpoint:${e.id}`, name: e.name, connected: true, source: "live", endpoint: { id: e.id, ...(e.listError ? { listError: e.listError } : {}) }, models: e.models.map((m) => ({ id: m.id, name: m.id, signIns: [] })) })),
       ],
     })],

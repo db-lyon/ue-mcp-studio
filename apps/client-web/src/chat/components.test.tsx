@@ -64,18 +64,20 @@ describe("the thread list", () => {
     expect(screen.getAllByText("new")).toHaveLength(2);
   });
 
-  it("shows the main agent's tokens when there are no subagents", () => {
+  it("leaves the main agent's numbers to the context meter when there are no subagents", () => {
     renderThreads({ transcript: [], tokens: { main: 3_200 } });
-    expect(document.querySelector(".agents-solo")!.textContent).toMatch(/^tokens: 3(.2)?k$/);
+    expect(document.querySelector(".agents-bar")).toBeNull();
   });
 
-  it("shows the tokens each agent spent this session, the main agent's too", () => {
-    renderThreads({ tokens: { main: 12_400, a: 950 } });
+  it("shows each agent's context now, and what it spent this session where no request measured it", () => {
+    renderThreads({ tokens: { main: 1_700_000, a: 950 }, context: { main: { input: 84_000, cached: 80_000, output: 1_200, model: "m", at: at(1) } } });
     const main = screen.getByText("Main").closest(".agents-row")!;
-    expect(main.textContent).toContain("tokens: 12k");
-    expect(screen.getByText("Task a").closest(".agents-row")!.textContent).toContain("tokens: 950");
+    // The current context, not the 1.7M the session spent.
+    expect(main.textContent).toContain("context 85k");
+    expect(main.querySelector(".agents-tokens")!.getAttribute("title")).toContain("1,700,000");
+    expect(screen.getByText("Task a").closest(".agents-row")!.textContent).toContain("950 spent");
     fireEvent.click(screen.getByRole("button", { name: /Finished \(3\)/ }));
-    expect(screen.getByText("Task b").closest(".agents-row")!.textContent).toContain("tokens: 0");
+    expect(screen.getByText("Task b").closest(".agents-row")!.textContent).toContain("0 spent");
   });
 
   it("opens a thread from its row, and stops a running one without opening it", () => {

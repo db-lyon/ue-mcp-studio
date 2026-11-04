@@ -551,6 +551,91 @@ describe("what a turn spends on the subscription route", () => {
   });
 });
 
+describe("context and compaction on the subscription route", () => {
+  const usage = (id: string, input: number, cacheRead: number, output: number, parent: string | null = null) =>
+    ({ type: "assistant", parent_tool_use_id: parent, message: { id, model: "claude-opus-5-5", content: [{ type: "text", text: "..." }], usage: { input_tokens: input, cache_read_input_tokens: cacheRead, cache_creation_input_tokens: 0, output_tokens: output } } });
+  const postCompact = async (summary: string) => {
+    const hooks = (sdk.options.at(-1)!.hooks as Record<string, Array<{ hooks: Array<(i: unknown, id: string | undefined, o: { signal: AbortSignal }) => Promise<unknown>> }>>).PostCompact;
+    await hooks[0].hooks[0]({ hook_event_name: "PostCompact", trigger: "auto", compact_summary: summary, session_id: "x", transcript_path: "", cwd: "" }, undefined, { signal: new AbortController().signal });
+  };
+
+  it("keeps the latest request's whole prompt as the context, not the sum, and the spend apart as totals", async () => {
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-c" });
+      b.emit(usage("m1", 200, 90_000, 400));
+      b.emit(usage("m2", 300, 91_000, 500));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-c" });
+    };
+    const s = store.create();
+    await runnerOn().send(s.id, "go");
+    await until(() => store.get(s.id)!.status === "idle");
+    const d = SessionStore.detail(store.get(s.id)!);
+    expect(d.context!.main).toMatchObject({ input: 91_300, cached: 91_000, output: 500, model: "claude-opus-5-5" });
+    expect(d.totals).toMatchObject({ input: 500, cacheRead: 181_000, output: 900, requests: 2 });
+    expect(d.totals!.costUsd).toBeGreaterThan(0);
+  });
+
+  it("marks where the runtime compacted, with the tokens before and after and the summary its hook handed over", async () => {
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-k" });
+      b.emit(usage("m1", 100, 840_000, 300));
+      b.emit({ type: "system", subtype: "status", status: "compacting", session_id: "sdk-k" });
+      await postCompact("The door swings; the trigger is next.");
+      b.emit({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "auto", pre_tokens: 840_400, post_tokens: 18_000 }, session_id: "sdk-k" });
+      b.emit({ type: "system", subtype: "status", status: null, compact_result: "success", session_id: "sdk-k" });
+      b.emit(usage("m2", 100, 18_200, 200));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-k" });
+    };
+    const s = store.create();
+    await runnerOn().send(s.id, "go");
+    await until(() => store.get(s.id)!.status === "idle");
+    const marks = store.get(s.id)!.transcript.filter((t) => t.kind === "compaction");
+    expect(marks).toHaveLength(1);
+    expect(marks[0]).toMatchObject({ kind: "compaction", state: "done", trigger: "auto", before: 840_400, after: 18_000, method: "runtime", summary: "The door swings; the trigger is next." });
+    // The context after is the next request's, far below what it was.
+    expect(SessionStore.detail(store.get(s.id)!).context!.main.input).toBe(18_300);
+  });
+
+  it("runs /compact as the runtime's own compaction of the Claude session, nothing added to the conversation", async () => {
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-m" });
+      b.emit(usage("m1", 100, 50_000, 300));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-m" });
+    };
+    const runner = runnerOn();
+    const s = store.create();
+    await runner.send(s.id, "go");
+    await until(() => store.get(s.id)!.status === "idle");
+    const userEntries = store.get(s.id)!.transcript.filter((t) => t.kind === "user").length;
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "status", status: "compacting", session_id: "sdk-m" });
+      b.emit({ type: "system", subtype: "compact_boundary", compact_metadata: { trigger: "manual", pre_tokens: 50_400, post_tokens: 6_000 }, session_id: "sdk-m" });
+      await postCompact("Short summary.");
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-m" });
+    };
+    await runner.send(s.id, "/compact keep the door paths");
+    await until(() => store.get(s.id)!.status === "idle");
+    expect(sdk.prompts.at(-1)).toBe("/compact keep the door paths");
+    expect(sdk.resumes.at(-1)).toBe("sdk-m");
+    const t = store.get(s.id)!.transcript;
+    expect(t.filter((x) => x.kind === "user")).toHaveLength(userEntries);
+    expect(t.at(-1)).toMatchObject({ kind: "compaction", trigger: "manual", state: "done", before: 50_400, after: 6_000, summary: "Short summary.", instructions: "keep the door paths" });
+  });
+
+  it("says when the runtime's compaction failed", async () => {
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-f" });
+      b.emit({ type: "system", subtype: "status", status: "compacting", session_id: "sdk-f" });
+      b.emit({ type: "system", subtype: "status", status: null, compact_result: "failed", compact_error: "overloaded", session_id: "sdk-f" });
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-f" });
+    };
+    const s = store.create();
+    await runnerOn().send(s.id, "go");
+    await until(() => store.get(s.id)!.status === "idle");
+    expect(store.get(s.id)!.transcript.find((t) => t.kind === "compaction")).toMatchObject({ state: "failed", error: "overloaded" });
+  });
+});
+
 describe("the project's own Claude Code files on the Claude sign-in", () => {
   const native = () => {
     const l = loadout("claude", host.projectDir, path.join(root, "home"), new Map(), root);
@@ -606,7 +691,8 @@ describe("the project's own Claude Code files on the Claude sign-in", () => {
     expect(o.tools).not.toContain("Agent");
     expect(o.allowedTools).not.toContain("Agent");
     expect(o).not.toHaveProperty("agents");
-    expect(o).not.toHaveProperty("hooks");
+    // Only the hook that hands over a compaction's summary: none holds or frees an agent call.
+    expect(Object.keys(o.hooks as object)).toEqual(["PostCompact"]);
     expect(String(o.systemPrompt)).not.toMatch(/agent tool|subagents? runs? at once|no limit/i);
   });
 

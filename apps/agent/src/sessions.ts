@@ -7,10 +7,15 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { COMPACTED_PREFIX, type ContextUsage, type SessionSpend } from "@ue-mcp-studio/shared";
 import type { TurnFacts, ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TimelineMark, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
 import { modelName } from "./models.js";
 import type { ToolImage } from "./images.js";
+import { conversationText, estimateMessagesTokens, isCompactedSummary } from "./compaction.js";
+
+/** An agent's context as kept on disk: `messages` is how many of its messages the measurement covers; `sdk`, measured by the Claude sign-in's runtime. */
+export type StoredContext = ContextUsage & { messages?: number; sdk?: boolean };
 
 /** A tool call the model asked for that has not been answered yet. */
 export interface PendingTool {
@@ -73,6 +78,10 @@ export interface StoredSession {
   turn?: TurnFacts;
   /** Input and output tokens each agent spent: "main", or a subagent's agent call id. */
   tokens?: Record<string, number>;
+  /** Each agent's context by its latest request: "main", or a subagent's agent call id. */
+  context?: Record<string, StoredContext>;
+  /** What every request of the session spent together. */
+  totals?: SessionSpend;
   /** Per-turn review: this session's switch, null or absent for the Settings default. */
   review?: boolean | null;
   /** The checkpoint taken before the turn in progress, while review is on. */
@@ -215,20 +224,38 @@ export class SessionStore {
   static truncateAt(s: StoredSession, index: number): Extract<TranscriptEntry, { kind: "user" }> | null {
     const entry = s.transcript[index];
     if (!entry || entry.kind !== "user" || entry.parent) return null;
-    // The k-th message the user sent is the k-th user message that is not tool results.
-    const k = s.transcript.slice(0, index).filter((t) => t.kind === "user" && !t.parent).length;
-    let seen = 0;
-    let cut = s.messages.length;
-    for (let i = 0; i < s.messages.length; i++) {
-      const m = s.messages[i];
-      if (m.role !== "user" || isToolResults(m)) continue;
-      if (seen++ === k) {
-        cut = i;
-        break;
+    // A compaction rewrote what the model is sent: messages from before it live on only in its summary.
+    const rewrote = (t: TranscriptEntry) => t.kind === "compaction" && !t.parent && t.state === "done" && t.method !== "runtime";
+    let since = -1;
+    for (let i = 0; i < index; i++) if (rewrote(s.transcript[i])) since = i;
+    const compactedAfter = s.transcript.slice(index + 1).some(rewrote);
+    if (compactedAfter) {
+      // The edited message is inside a summary: the model starts again from the transcript up to it.
+      const text = conversationText(transcriptMessages(s.transcript.slice(0, index)), 200_000);
+      s.messages = text ? [
+        { role: "user", content: [{ type: "text", text: `${COMPACTED_PREFIX} when the user edited an earlier message. The conversation up to that message:
+
+${text}` }] } as MessageParam,
+        { role: "assistant", content: [{ type: "text", text: "I have the conversation so far." }] } as MessageParam,
+      ] : [];
+    } else {
+      // The k-th message the user sent since the last compaction is the k-th user message that is neither tool results nor its summary.
+      const k = s.transcript.slice(since + 1, index).filter((t) => t.kind === "user" && !t.parent).length;
+      let seen = 0;
+      let cut = s.messages.length;
+      for (let i = 0; i < s.messages.length; i++) {
+        const m = s.messages[i];
+        if (m.role !== "user" || isToolResults(m) || isCompactedSummary(m)) continue;
+        if (seen++ === k) {
+          cut = i;
+          break;
+        }
       }
+      s.messages = s.messages.slice(0, cut);
     }
     s.transcript = s.transcript.slice(0, index);
-    s.messages = s.messages.slice(0, cut);
+    // What was measured covered the messages that are gone.
+    if (s.context) s.context = {};
     s.pending = null;
     s.approvals = [];
     s.error = null;
@@ -259,6 +286,41 @@ export class SessionStore {
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [], tokens: s.tokens ?? {} };
+    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [], tokens: s.tokens ?? {}, context: publicContext(s), ...(s.totals ? { totals: s.totals } : {}) };
   }
+}
+
+/** Estimates of conversations no request has measured, by session, while their length stays the same. */
+const estimates = new Map<string, { length: number; tokens: number }>();
+
+/**
+ * The contexts as the client reads them, without the bookkeeping. A session
+ * from before Studio measured context gets an estimate from its messages,
+ * marked as one, until its next request measures it.
+ */
+function publicContext(s: StoredSession): Record<string, ContextUsage> {
+  const out: Record<string, ContextUsage> = {};
+  for (const [k, v] of Object.entries(s.context ?? {})) {
+    const { messages: _m, sdk: _s, ...rest } = v;
+    out[k] = rest;
+  }
+  if (!out.main && s.messages.length > 0) {
+    let e = estimates.get(s.id);
+    if (!e || e.length !== s.messages.length) estimates.set(s.id, (e = { length: s.messages.length, tokens: estimateMessagesTokens(s.messages) }));
+    out.main = { input: e.tokens, cached: 0, output: 0, model: s.model ?? "", at: s.updatedAt, estimated: true };
+  }
+  return out;
+}
+
+/** The main thread's transcript as messages, for a conversation rebuilt from what the user sees. */
+function transcriptMessages(transcript: readonly TranscriptEntry[]): MessageParam[] {
+  const out: MessageParam[] = [];
+  for (const t of transcript) {
+    if (t.parent) continue;
+    if (t.kind === "user") out.push({ role: "user", content: [{ type: "text", text: t.text }] } as MessageParam);
+    else if (t.kind === "assistant") out.push({ role: "assistant", content: [{ type: "text", text: t.text }] } as MessageParam);
+    else if (t.kind === "compaction" && t.summary) out.push({ role: "user", content: [{ type: "text", text: `Summary of the conversation before this point: ${t.summary}` }] } as MessageParam);
+    else if (t.kind === "tool") out.push({ role: "assistant", content: [{ type: "tool_use", id: t.call.id, name: t.call.name, input: t.call.input }] } as MessageParam, { role: "user", content: [{ type: "tool_result", tool_use_id: t.call.id, content: t.call.result ?? "" }] } as MessageParam);
+  }
+  return out;
 }

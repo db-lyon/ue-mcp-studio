@@ -12,6 +12,7 @@ import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
 import { TurnReviewCard } from "./TurnReview";
 import { FlowCard } from "./FlowCommand";
+import { CompactionMarker } from "./Compaction";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import {
   OUTCOME_LABEL,
@@ -79,6 +80,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   if (entry.kind === "playtest-failed") return <PlaytestFailed errors={[entry.reason]} request={entry.request} />;
   if (entry.kind === "flow") return <FlowCard entry={entry} />;
   if (entry.kind === "card") return <ExtensionCard entry={entry} />;
+  if (entry.kind === "compaction") return <CompactionMarker entry={entry} />;
   // A kind this client no longer draws, such as an older session's per-turn usage line.
   if (entry.kind !== "tool") return null;
   return <ToolCall call={entry.call} />;

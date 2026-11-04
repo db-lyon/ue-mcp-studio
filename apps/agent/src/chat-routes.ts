@@ -20,6 +20,7 @@
  *   GET  /actions                   every ue-mcp action as category.method, with its line and effect, for /action's menu
  *   GET  /actions/:name             one action's parameters (project(describe_action)), for /action's form
  *   POST /sessions/:id/action       a /action: { category, method, args?, text? }, run as a ue_mcp call under the approval rules
+ *   POST /sessions/:id/compact      summarise the conversation to free context: { instructions? }; the transcript stays whole
  *   POST /sessions/:id/stop         stop the turn
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *   POST /quick                     the editor's quick ask: a new session with its first message (quick.ts)
@@ -54,6 +55,7 @@ import { fetchAccountUsage } from "./account-usage.js";
 import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
 import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, pickRoute, type SignInCoverage } from "./models.js";
+import { knownWindow } from "./context-windows.js";
 import { StudioSignInFlow } from "./signin.js";
 import { AccountSource } from "./account-source.js";
 import { AttachmentStore } from "./attachments.js";
@@ -285,6 +287,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     playtestRuns: () => playtests.runs(),
     playtestFlow: new PlaytestFlow({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
+    contextWindow: knownWindow,
   });
   // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
   const unregisterModel = registerFlowModel(api as ModelHost, {
@@ -797,6 +800,17 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     return runner.answerApproval(req.params.id, req.params.approvalId, decision as ApprovalDecision)
       ? { status: 204 }
       : { status: 404, body: { error: `no approval ${req.params.approvalId} is waiting` } };
+  });
+  // Compact now and /compact: summarise the conversation to free context; the transcript stays whole.
+  api.route("POST", "/sessions/:id/compact", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const instructions = (req.body as { instructions?: unknown } | undefined)?.instructions;
+    if (instructions !== undefined && typeof instructions !== "string") return bad("body must be { instructions?: string }");
+    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is in progress; compact when it ends" } };
+    if (s.messages.length === 0) return { status: 409, body: { error: "there is nothing to compact yet" } };
+    runner.compact(s.id, instructions ?? "").catch((e) => api.log.warn(`compacting session ${s.id} failed`, e));
+    return { status: 202, body: { sessionId: s.id } };
   });
   api.route("POST", "/sessions/:id/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);

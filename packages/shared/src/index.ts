@@ -12,6 +12,7 @@ import type { PlaytestRequest, PlaytestStage } from "./commands.js";
 import type { FlowRunState, FlowStepProgress } from "./flows.js";
 import type { Approvals } from "./composer.js";
 import type { CardEntry } from "@ue-mcp-studio/extension-api";
+import type { CompactionRecord, ContextUsage, SessionSpend } from "./context.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -209,6 +210,8 @@ export interface ModelOption {
   name: string;
   /** The sign-ins that can run this model, in the order they are preferred. */
   signIns: SignInId[];
+  /** Its context window in tokens, when the vendor's list says. */
+  contextWindow?: number;
 }
 
 /** The routes that can run a vendor's model, in the order they are tried: its sign-ins and its key, by the route order. */
@@ -360,6 +363,8 @@ export type TranscriptEntry = (
   | { kind: "playtest-failed"; reason: string; request: PlaytestRequest; at: string }
   /** A card an extension posted: kept in the transcript only, drawn by its chat.card contribution, never sent to a model. */
   | CardEntry
+  /** The conversation was compacted here: what the agent sees from now on is the summary. A subagent's carries its parent. */
+  | ({ kind: "compaction"; at: string } & CompactionRecord)
 ) & { parent?: string };
 
 export interface SessionSummary {
@@ -421,6 +426,10 @@ export interface SessionDetail extends SessionSummary {
   timeline?: TimelineMark[];
   /** Input and output tokens each agent spent this session: "main", or a subagent's agent call id. */
   tokens?: Record<string, number>;
+  /** Each agent's current context, by its latest request: "main", or a subagent's agent call id. */
+  context?: Record<string, ContextUsage>;
+  /** What the session spent, every agent and request together. */
+  totals?: SessionSpend;
 }
 
 /**
@@ -895,3 +904,4 @@ export * from "./native.js";
 export * from "./settings-read.js";
 export * from "./version.js";
 export * from "./mentions.js";
+export * from "./context.js";

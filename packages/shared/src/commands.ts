@@ -20,6 +20,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "playtest", args: "what to test (optional)", summary: "Draft a playtest of what the conversation is about, as a Playtest card" },
   { name: "flow", args: "flow name, then key=value (optional)", summary: "Run one of the project's flows, with a form for its inputs" },
   { name: "action", args: "category.method, then key=value (optional)", summary: "Run one ue-mcp action directly, with a form for its parameters" },
+  { name: "compact", args: "what the summary must keep (optional)", summary: "Summarize the conversation to free context; the transcript stays as it is" },
 ];
 
 /**
