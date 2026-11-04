@@ -178,7 +178,7 @@ export function onRemotePage(): boolean {
 }
 
 /** Why a paired browser has no update controls: updates install software on the computer, which only Studio there may do. */
-export const REMOTE_UPDATES = "Updates run from Studio on the computer.";
+export { REMOTE_UPDATES } from "@ue-mcp-studio/client-core";
 
 /** What a paired browser shows when ue-mcp on the computer stays away. */
 export const REMOTE_OFFLINE = "It may be restarting, or the computer may be asleep or offline. This page reconnects by itself as soon as ue-mcp answers again; there is nothing to run here.";

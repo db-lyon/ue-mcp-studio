@@ -8,7 +8,7 @@ import { ConfigView } from "../Config";
 import { Head, type SettingsSection } from "../SettingsHub";
 import { Card, Opt, tokens, useMessage } from "./controls";
 import { Path } from "./NativePanel";
-import { problemCopy, readRebuild } from "./install-problems";
+import { problemCopy, readRebuild } from "@ue-mcp-studio/client-core";
 import { RemoteReadOnly } from "./RemoteReadOnly";
 
 type RebuildState = "idle" | "confirm" | "running";

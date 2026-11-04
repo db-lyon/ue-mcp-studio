@@ -6,12 +6,10 @@ import {
   PROVIDERS,
   anythingConnected,
   endpointIdOf,
-  routesInOrder,
   type Effort,
   type KeyProviderId,
   type VendorId,
   type ModelCatalog,
-  type ModelOption,
   type SignInId,
   type StudioSettings,
   type StudioSignIn,
@@ -22,32 +20,9 @@ import { onRemotePage } from "../connection";
 import { REMOTE_CHANGE_NOTE } from "./settings/RemoteReadOnly";
 
 type Catalog = ModelCatalog;
-type Vendor = Catalog["providers"][number];
 
-type Via = SignInId | "key" | "endpoint";
-
-/**
- * How a model would run now: a custom endpoint's on that endpoint; a named
- * vendor's on the first connected sign-in or key by the route order; else nothing.
- */
-export function runsVia(catalog: Catalog, vendor: Vendor, m: ModelOption): Via | null {
-  if (vendor.endpoint) return "endpoint";
-  return routesInOrder(m.signIns, catalog.routeOrder).find((r) => (r === "key" ? vendor.connected : catalog.signedIn[r])) ?? null;
-}
-
-/** One name per route, the same in the picker, the Models table and the sign-in rows. */
-export const VIA_LABEL: Record<SignInId | "key", string> = { chatgpt: "ChatGPT sign-in", claude: "Claude sign-in", studio: "Studio plan", key: "key" };
-
-/** A route's name beside a model: a key and an endpoint by their vendor's name. */
-export function viaName(via: Via, vendorName: string): string {
-  return via === "endpoint" ? vendorName : via === "key" ? `${vendorName} key` : VIA_LABEL[via];
-}
-
-function find(catalog: Catalog | null, vendor: VendorId, model: string): { vendor: Vendor; model: ModelOption } | null {
-  const v = catalog?.providers.find((p) => p.id === vendor);
-  const m = v?.models.find((x) => x.id === model);
-  return v && m ? { vendor: v, model: m } : null;
-}
+import { VIA_LABEL, findModel as find, runsVia, viaName } from "@ue-mcp-studio/client-core";
+export { VIA_LABEL, runsVia, viaName };
 
 export function useCatalog(settings: StudioSettings | null): Catalog | null {
   const [catalog, setCatalog] = useState<Catalog | null>(null);

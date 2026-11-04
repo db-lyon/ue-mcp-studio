@@ -123,3 +123,13 @@ export function sectionStatus(updates: number, health: HealthLine | null | undef
   if (health) lines.diagnostics = editor ? `Editor connected, ue-mcp ${health.version}` : `No editor connected, ue-mcp ${health.version}`;
   return { dots, lines };
 }
+
+/** Why a paired client cannot change a setting: it decides where prompts go or what runs on the computer. */
+export const REMOTE_CHANGE_NOTE = "Change this from Studio on the computer.";
+
+/** The themes Settings > General offers, in its order. */
+export const THEME_CHOICES: ReadonlyArray<{ id: "ue-mcp" | "editor-orange" | "editor"; name: string; about: string }> = [
+  { id: "ue-mcp", name: "ue-mcp", about: "Dark, ue-mcp orange." },
+  { id: "editor-orange", name: "Editor orange", about: "Unreal colors and type, ue-mcp orange." },
+  { id: "editor", name: "Editor", about: "Unreal colors and type." },
+];

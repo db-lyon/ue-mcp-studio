@@ -12,3 +12,8 @@ export * from "./plugins.js";
 export * from "./normalize.js";
 export * from "./settings-api.js";
 export * from "./settings-status.js";
+export * from "./updates.js";
+export * from "./native-files.js";
+export * from "./models.js";
+export * from "./yaml-tokens.js";
+export * from "./install-problems.js";
