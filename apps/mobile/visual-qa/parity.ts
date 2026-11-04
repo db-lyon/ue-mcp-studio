@@ -170,6 +170,13 @@ export const PARITY: Record<string, ParityEntry> = {
   "context-over-window": {owner: "chat"},
   "context-estimated": {owner: "chat", clicks: ["Context *"]},
   "context-claude-runtime": {owner: "chat", clicks: ["Context *"]},
+  // A phone has no hover, so the web draws no card at 390 px; the app draws the meter unhovered.
+  "context-hover": {owner: "chat"},
+  "context-hover-near-full": {owner: "chat"},
+  "context-hover-model-switch": {owner: "chat"},
+  "context-hover-estimated": {owner: "chat"},
+  "context-hover-runtime": {owner: "chat"},
+  "context-hover-compacting": {owner: "chat"},
   "compaction-collapsed": {owner: "chat"},
   "compaction-expanded": {owner: "chat", clicks: ["Context compacted"]},
   "compaction-running": {owner: "chat"},
