@@ -16,7 +16,13 @@ import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
 export const RELAY = "https://remote.ue-mcp.com";
-const LABEL = `${Platform.OS === "ios" ? "iPhone" : "Android"} (Studio app)`;
+/**
+ * Where relay calls go. Always RELAY in the app; the e2e page (apps/mobile/visual-qa/app.html)
+ * sets __studioRelayBase to its own proxy, since a browser cannot call the relay cross-origin.
+ */
+const harness = globalThis as { __studioRelayBase?: string; __studioDeviceLabel?: string };
+const BASE = harness.__studioRelayBase ?? RELAY;
+const LABEL = harness.__studioDeviceLabel ?? `${Platform.OS === "ios" ? "iPhone" : "Android"} (Studio app)`;
 const POLL_MS = 2000;
 /** The relay answers a call's head within 30 seconds (504 past that); later than this, the connection is dead. */
 export const E2E_HEAD_TIMEOUT_MS = 40_000;
@@ -100,7 +106,7 @@ export const select = (d: Device) => writeStored("selected", d);
 const relayHeaders = { origin: RELAY, "content-type": "application/json", accept: "application/json" };
 
 async function post(path: string, body: unknown): Promise<{ status: number; body: Record<string, unknown> }> {
-  const res = await fetch(RELAY + path, { method: "POST", headers: relayHeaders, credentials: "include", body: JSON.stringify(body) });
+  const res = await fetch(BASE + path, { method: "POST", headers: relayHeaders, credentials: "include", body: JSON.stringify(body) });
   return { status: res.status, body: ((await res.json().catch(() => ({}))) ?? {}) as Record<string, unknown> };
 }
 
@@ -153,7 +159,7 @@ export class NotPairedError extends Error {}
 
 /** The account's projects and paired clients, as the relay knows them. */
 export async function account(): Promise<{ devices: Device[]; viewers: Viewer[] }> {
-  const res = await fetch(`${RELAY}/api/devices`, { headers: relayHeaders, credentials: "include" });
+  const res = await fetch(`${BASE}/api/devices`, { headers: relayHeaders, credentials: "include" });
   if (res.status === 401) throw new NotPairedError("This phone is not paired.");
   if (!res.ok) throw new Error(`The relay answered ${res.status}.`);
   const body = (await res.json()) as { devices: Device[]; viewers?: Viewer[] };
@@ -162,7 +168,7 @@ export async function account(): Promise<{ devices: Device[]; viewers: Viewer[] 
 
 /** Remove a paired client from the account; removing this phone also forgets every computer here. */
 export async function removeViewer(v: Viewer): Promise<void> {
-  const res = await fetch(`${RELAY}/viewers/${encodeURIComponent(v.id)}/revoke`, { method: "POST", headers: { origin: RELAY }, credentials: "include" });
+  const res = await fetch(`${BASE}/viewers/${encodeURIComponent(v.id)}/revoke`, { method: "POST", headers: { origin: RELAY }, credentials: "include" });
   if (res.status >= 400) throw new Error(`The relay answered ${res.status}.`);
   if (v.current) await forget();
 }
@@ -248,7 +254,7 @@ export function transportFor(device: Device): Transport {
     let head: ResponseHead | null = null;
     let reader: ReadableStreamDefaultReader<Uint8Array>;
     try {
-      const res = await fetch(`${RELAY}/e2e/${encodeURIComponent(device.id)}`, { method: "POST", headers: relayHeaders, credentials: "include", body: JSON.stringify(sealed), signal: abort.signal });
+      const res = await fetch(`${BASE}/e2e/${encodeURIComponent(device.id)}`, { method: "POST", headers: relayHeaders, credentials: "include", body: JSON.stringify(sealed), signal: abort.signal });
       if (!res.ok || !res.body) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
         if (res.status === 401) throw new NotPairedError(err.error ?? "Not paired.");
