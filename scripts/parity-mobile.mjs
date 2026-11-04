@@ -1,7 +1,7 @@
 // Compare the mobile app with the web client, scenario by scenario, pixel by pixel.
 //
 //   node scripts/visual-qa.mjs --remote --widths 390 --out <web>     (the reference, once per change to client-web)
-//   node scripts/parity-mobile.mjs --web <web> [--web-computer <computer shots>] [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell]
+//   node scripts/parity-mobile.mjs --web <web> [--web-computer <computer shots>] [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell] [--lcd-text]
 //   node scripts/parity-mobile.mjs --list                                (the scenarios and who owns each)
 //
 // Serves apps/mobile/visual-qa with Vite: the app's own screens, drawn by
@@ -54,7 +54,10 @@ await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, "");
 // Grayscale text antialiasing: react-native-web's text is drawn without subpixel antialiasing beside the
 // web client's, so the web shots are taken with visual-qa.mjs --grayscale-text and these the same way.
-const browser = await chromium.launch({ executablePath: browserPath, headless: true, args: ["--disable-lcd-text"] });
+// --lcd-text keeps subpixel text, for web shots taken without --grayscale-text: Chrome then puts a scroller on
+// a layer only where the web page has one, so the two land text on the same pixels and differ only where they differ.
+const lcd = process.argv.includes("--lcd-text");
+const browser = await chromium.launch({ executablePath: browserPath, headless: true, args: lcd ? [] : ["--disable-lcd-text"] });
 const PAGE = "index.html";
 
 const first = await browser.newPage();
