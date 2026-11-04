@@ -36,34 +36,51 @@ export function outcomeNote(o: RestoreOutcome): string | null {
   return parts.length ? `${parts.join("; ")}.` : null;
 }
 
-/** A turn's changes, with Keep or Revert per item. */
+/** The chevron after an item's name: down while its diff is closed, up while it is open. */
+const Chevron = () => (
+  <svg className="review-chevron" width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M2 3.5l3 3 3-3" />
+  </svg>
+);
+
+type Verb = "Reverting" | "Keeping" | "Undoing";
+
+/**
+ * A turn's changes, with Keep or Revert per item. Each item is one block: its
+ * name (which opens its diff), status, Open in Unreal diff, and its state with
+ * Keep or Revert on one line, then its summary and path. On a phone the name
+ * and the controls share the first line, the status and Open in Unreal diff the
+ * second. A turn that changed one file opens that file's diff at once.
+ */
 export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
   const sessionId = useContext(SessionIdContext);
   const [review, setReview] = useState(saved);
   useEffect(() => setReview(saved), [saved]);
-  const [open, setOpen] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<string | null>(saved.items.length === 1 ? saved.items[0].path : null);
+  /** The call in flight and the items it acts on, said on those items in place of their controls. */
+  const [busy, setBusy] = useState<{ verb: Verb; paths: string[] } | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /** What a failed call said: under its item when it acted on one, else under the card. */
+  const [error, setError] = useState<{ text: string; path?: string } | null>(null);
   /** What opening Unreal's view of an item did, shown under that item. */
   const [opened, setOpened] = useState<{ path: string; text: string; bad?: boolean } | null>(null);
   /** A conflict whose Revert anyway waits for its second click. */
   const [confirming, setConfirming] = useState<string | null>(null);
 
-  const run = (call: () => Promise<{ review: TurnReview; outcome?: RestoreOutcome }>) => {
+  const run = (verb: Verb, paths: string[], call: () => Promise<{ review: TurnReview; outcome?: RestoreOutcome }>) => {
     if (!sessionId) return;
-    setBusy(true);
+    setBusy({ verb, paths });
     setError(null);
     setNote(null);
     call().then((r) => {
       setReview(r.review);
       setNote(r.outcome ? outcomeNote(r.outcome) : null);
-    }, (e: Error) => setError(e.message)).finally(() => {
-      setBusy(false);
+    }, (e: Error) => setError({ text: e.message, ...(paths.length === 1 ? { path: paths[0] } : {}) })).finally(() => {
+      setBusy(null);
       setConfirming(null);
     });
   };
-  const keep = (paths: string[]) => run(async () => api.reviewKeep(sessionId!, review.id, paths));
+  const keep = (paths: string[]) => run("Keeping", paths, async () => api.reviewKeep(sessionId!, review.id, paths));
   const openNative = (path: string) => {
     if (!sessionId) return;
     setOpened(null);
@@ -72,19 +89,20 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
       (e: Error) => setOpened({ path, text: e.message, bad: true }),
     );
   };
-  const revert = (paths: string[], force = false) => run(() => api.reviewRevert(sessionId!, review.id, paths, force));
-  const undo = (path: string) => run(() => api.reviewUndo(sessionId!, review.id, path));
+  const revert = (paths: string[], force = false) => run("Reverting", paths, () => api.reviewRevert(sessionId!, review.id, paths, force));
+  const undo = (path: string) => run("Undoing", [path], () => api.reviewUndo(sessionId!, review.id, path));
 
   const open_ = review.items.filter((i) => i.state !== "reverted");
   const reverted = review.items.length - open_.length;
   return (
     <div className="card review-card" role="group" aria-label="Changes in this turn">
       <div className="review-head">
-        <span className="eyebrow">Changes in this turn</span>
-        <span className="dim small">{review.items.length === 1 ? "1 file" : `${review.items.length} files`}{reverted ? `, ${reverted} reverted` : ""}</span>
-        <span className="spacer" />
+        <span className="review-title">
+          <span className="eyebrow">Changes in this turn</span>
+          <span className="review-count dim small">{review.items.length === 1 ? "1 file" : `${review.items.length} files`}{reverted ? `, ${reverted} reverted` : ""}</span>
+        </span>
         {open_.length > 0 && (
-          <button className="small-button" disabled={busy || !sessionId} onClick={() => revert(open_.map((i) => i.path))}>Revert all</button>
+          <button className="review-revert-all" disabled={!!busy || !sessionId} onClick={() => revert(open_.map((i) => i.path))}>Revert all</button>
         )}
       </div>
       {REVIEW_GROUPS.map(({ group, label }) => {
@@ -94,16 +112,19 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
           <div key={group} className="review-group">
             <div className="review-group-label small dim">{label}</div>
             <ul className="review-items">
-              {items.map((it) => (
-                <li key={it.path} className={`review-item state-${it.state}${open === it.path ? " open" : ""}`} data-path={it.path}>
-                  <div className="review-item-row">
-                    <button className="ghost review-item-name" aria-expanded={open === it.path} onClick={() => setOpen(open === it.path ? null : it.path)} title={it.path}>
-                      <EngineText text={fileName(it.path)} />
+              {items.map((it) => {
+                const acting = busy?.paths.includes(it.path) ? busy.verb : null;
+                const failed = error?.path === it.path ? error.text : null;
+                return (
+                  <li key={it.path} className={`review-item state-${it.state}${open === it.path ? " open" : ""}${acting ? " acting" : ""}`} data-path={it.path}>
+                    <button className="review-item-name" aria-expanded={open === it.path} onClick={() => setOpen(open === it.path ? null : it.path)} title={it.path}>
+                      <span className="review-item-file"><EngineText text={fileName(it.path)} /></span>
+                      <Chevron />
                     </button>
-                    <span className={`pill small review-status ${it.status}`}>{STATUS[it.status]}</span>
-                    {it.untracked && <span className="pill small warn" title="Written outside the agent's calls">Outside the agent</span>}
-                    <span className="spacer" />
-                    <span className="review-actions">
+                    <span className="review-item-tags">
+                      <span className={`pill small review-status ${it.status}`}>{STATUS[it.status]}</span>
+                      {it.untracked && <span className="pill small warn" title="Written outside the agent's calls">Outside the agent</span>}
+                    </span>
                     <button
                       className="ghost small-button review-native"
                       disabled={!it.native?.available}
@@ -112,39 +133,43 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                     >
                       Open in Unreal diff
                     </button>
-                    {it.state === "kept" && <span className="pill small ok">Kept</span>}
-                    {it.state === "reverted" ? (
-                      <>
-                        <span className="pill small">Reverted</span>
-                        {it.undo && <button className="ghost small-button" disabled={busy} onClick={() => undo(it.path)}>Undo revert</button>}
-                      </>
-                    ) : (
-                      <>
-                        {it.state === "pending" && <button className="small-button" disabled={busy} onClick={() => keep([it.path])}>Keep</button>}
-                        {!it.conflict && <button className="small-button" disabled={busy} onClick={() => revert([it.path])}>Revert</button>}
-                      </>
-                    )}
-                    </span>
-                  </div>
-                  {it.summary && <div className={`review-item-summary small${it.diffError ? " bad" : ""}`}><EngineText text={it.summary} /></div>}
-                  <div className="review-item-path dim small mono"><EngineText text={it.path} /></div>
-                  {opened?.path === it.path && <div className={`small ${opened.bad ? "review-opened bad" : "review-opened dim"}`} role="status">{opened.text}</div>}
-                  {it.conflict && it.state !== "reverted" && (
-                    <div className="banner warn small review-conflict" role="alert">
-                      You edited this file after the agent, so Revert left it alone.
-                      {confirming === it.path ? (
+                    <span className="review-actions">
+                      {acting ? (
+                        <span className="review-acting small" role="status">{acting}</span>
+                      ) : it.state === "reverted" ? (
                         <>
-                          <button className="danger-button small-button" disabled={busy} onClick={() => revert([it.path], true)}>Revert and lose my edits</button>
-                          <button className="ghost small-button" onClick={() => setConfirming(null)}>Keep my edits</button>
+                          <span className="pill small">Reverted</span>
+                          {it.undo && <button className="small-button" disabled={!!busy} onClick={() => undo(it.path)}>Undo revert</button>}
                         </>
                       ) : (
-                        <button className="small-button" disabled={busy} onClick={() => setConfirming(it.path)}>Revert anyway</button>
+                        <>
+                          {it.state === "kept" && <span className="pill small ok">Kept</span>}
+                          {it.state === "pending" && <button className="small-button" disabled={!!busy} onClick={() => keep([it.path])}>Keep</button>}
+                          {!it.conflict && <button className="small-button" disabled={!!busy} onClick={() => revert([it.path])}>Revert</button>}
+                        </>
                       )}
-                    </div>
-                  )}
-                  {open === it.path && sessionId && <ItemDiff sessionId={sessionId} reviewId={review.id} item={it} />}
-                </li>
-              ))}
+                    </span>
+                    {it.summary && <div className={`review-item-summary small${it.diffError ? " bad" : ""}`}><EngineText text={it.summary} /></div>}
+                    <div className="review-item-path dim small mono"><EngineText text={it.path} /></div>
+                    {opened?.path === it.path && <div className={`review-opened small ${opened.bad ? "bad" : "dim"}`} role="status">{opened.text}</div>}
+                    {failed && <div className="review-failed banner bad small" role="alert">{failed}</div>}
+                    {it.conflict && it.state !== "reverted" && (
+                      <div className="banner warn small review-conflict" role="alert">
+                        You edited this file after the agent, so Revert left it alone.
+                        {confirming === it.path ? (
+                          <>
+                            <button className="danger-button small-button" disabled={!!busy} onClick={() => revert([it.path], true)}>Revert and lose my edits</button>
+                            <button className="ghost small-button" onClick={() => setConfirming(null)}>Keep my edits</button>
+                          </>
+                        ) : (
+                          <button className="small-button" disabled={!!busy} onClick={() => setConfirming(it.path)}>Revert anyway</button>
+                        )}
+                      </div>
+                    )}
+                    {open === it.path && sessionId && <div className="review-item-diff"><ItemDiff sessionId={sessionId} reviewId={review.id} item={it} /></div>}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         );
@@ -153,7 +178,7 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
         <div className="small dim">Unsaved in the editor, so not recorded: {review.dirty.join(", ")}</div>
       )}
       {note && <div className="banner warn small">{note}</div>}
-      {error && <div className="banner bad small">{error}</div>}
+      {error && !error.path && <div className="banner bad small" role="alert">{error.text}</div>}
     </div>
   );
 }

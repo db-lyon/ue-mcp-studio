@@ -198,18 +198,30 @@ set(PATHS.material, { state: "kept" });
 set(PATHS.config, { state: "reverted", undo: "c".repeat(40) });
 set(PATHS.level, { conflict: true, untracked: true });
 
-const REVIEW: TurnReview = { id: "review-1", turn: 0, before: "a".repeat(40), after: "b".repeat(40), at: ago(4), items };
+const reviewOf = (list: TurnReview["items"]): TurnReview => ({ id: "review-1", turn: 0, before: "a".repeat(40), after: "b".repeat(40), at: ago(4), items: list });
 
-const SESSION: SessionDetail = {
+const sessionOf = (review: TurnReview, ask: string, reply: string): SessionDetail => ({
   id: SESSION_ID, title: "Sprint and wall run tuning", status: "idle", createdAt: ago(30), updatedAt: ago(3), waitingCause: null, archived: false, agents: { total: 0, running: 0 }, awaiting: 0,
   transcript: [
-    { kind: "user", text: "Make sprinting feel snappier, let the player wall run while crouched, and make the cliff rock look wetter and mossier.", at: ago(12) },
-    { kind: "assistant", text: "Done. I raised the sprint multiplier, added the wall run switch, and tuned the rock material and its mossy instance. The card below lists every file.", at: ago(5) },
-    { kind: "review", review: REVIEW },
+    { kind: "user", text: ask, at: ago(12) },
+    { kind: "assistant", text: reply, at: ago(5) },
+    { kind: "review", review },
   ],
   touched: [], draft: "", seen: [], dismissed: [], queue: [], error: null, approvals: [], review: null,
-  timeline: [{ checkpoint: "b".repeat(40), label: "Make sprinting feel snappier", at: ago(4), kind: "turn", turn: 0 }],
-} as unknown as SessionDetail;
+  timeline: [{ checkpoint: "b".repeat(40), label: ask, at: ago(4), kind: "turn", turn: 0 }],
+} as unknown as SessionDetail);
+
+const SESSION = sessionOf(
+  reviewOf(items),
+  "Make sprinting feel snappier, let the player wall run while crouched, and make the cliff rock look wetter and mossier.",
+  "Done. I raised the sprint multiplier, added the wall run switch, and tuned the rock material and its mossy instance. The card below lists every file.",
+);
+
+/** A turn that changed one file, in the state given: its diff opens with the card. */
+const single = (key: keyof typeof PATHS, o: Partial<TurnReview["items"][number]> = {}): SessionDetail => {
+  const change = CHANGES.find((c) => c.path === PATHS[key])!;
+  return sessionOf(reviewOf([{ ...reviewItemOf(change), ...o }]), "Hide the ward meter on the HUD once it is full.", "Done. The card below shows the change.");
+};
 
 const diffAnswer = (url: URL): unknown => {
   const path = url.searchParams.get("path");
@@ -227,6 +239,20 @@ const card = (title: string, open?: keyof typeof PATHS, scroll?: string): Scenar
   ...(open ? { clicks: [`[data-path='${PATHS[open]}'] .review-item-name`], scroll: scroll ?? `[data-path='${PATHS[open]}']` } : {}),
 });
 
+/** A one-file turn: the card at the top of the shot, its diff open. */
+const one = (title: string, session: SessionDetail, o: Partial<Scenario> = {}): Scenario => ({
+  title,
+  hash: `#/chat/${SESSION_ID}`,
+  session,
+  index: { playtests: [], listed: true },
+  height: 1100,
+  get: (p, url) => (/\/reviews\/[^/]+\/diff$/.test(p) ? diffAnswer(url) : undefined),
+  scroll: ".review-card",
+  ...o,
+});
+
+const revertButton = (key: keyof typeof PATHS) => `[data-path='${PATHS[key]}'] .review-actions button:text-is('Revert')`;
+
 export const REVIEW_SCENARIOS: Record<string, Scenario> = {
   "review-card": card("Review card: every item state (pending, kept, reverted, edited outside the agent, a failed diff) with long engine names"),
   "review-blueprint": card("Review card, a Blueprint opened: the new variable and its changed default counted once, graph and component records", "bp"),
@@ -239,4 +265,17 @@ export const REVIEW_SCENARIOS: Record<string, Scenario> = {
   "review-widget-old-bridge": card("Review card, a Widget Blueprint diffed by a bridge that does not compare the widget tree: says so, never no difference", "widgetOld"),
   "review-binary": card("Review card, a sound wave opened: no structured diff, only the fact that differs", "sound"),
   "review-config": card("Review card, a reverted config file opened: its text diff", "config"),
+  "review-one-widget": one("One file: a Widget Blueprint with one widget property changed, its diff open with the card", single("widget")),
+  "review-one-blueprint": one("One file: a Blueprint with changes in its graph, components, variables and defaults", single("bp")),
+  "review-one-binary": one("One file: a sound wave, a binary asset with no structured diff, only the fact that differs", single("sound")),
+  "review-one-old-bridge": one("One file: a Widget Blueprint diffed by a bridge that does not compare the widget tree", single("widgetOld")),
+  "review-one-old-bridge-remote": one("A paired browser: the same Widget Blueprint from an older bridge", single("widgetOld"), { remotePage: true }),
+  "review-one-kept": one("One file kept: its state and Revert at the end of its name line", single("widget", { state: "kept" })),
+  "review-one-reverted": one("One file reverted: its state and Undo revert", single("widget", { state: "reverted", undo: "c".repeat(40) })),
+  "review-one-reverting": one("One file while its revert runs: Reverting in place of its controls", single("widget"), { clicks: [revertButton("widget")], hold: /\/revert$/ }),
+  "review-one-revert-failed": one("One file whose revert failed: the reason under the file", single("widget"), {
+    clicks: [revertButton("widget")],
+    post: (p) => (p.endsWith("/revert") ? { status: 500, body: { error: "Could not restore Content/UI/HUD/WBP_GameHUD.uasset: the file is locked by another process." } } : undefined),
+  }),
+  "review-card-remote": { ...card("A paired browser: every item state"), remotePage: true },
 };
