@@ -15,7 +15,7 @@ import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
 import { Banner, Check, font, labelFont, Pill, T, useTheme, type Theme } from "../../../ui";
 import { AssetDiffView } from "./AssetDiff";
-import { AssetTile } from "./AssetTile";
+import { AssetTile } from "../../../chat/AssetTile";
 import { DiffView } from "../../../chat/Diff";
 import { SessionIdContext } from "../../../chat/attachments";
 import { engineText } from "../../../chat/breakable";

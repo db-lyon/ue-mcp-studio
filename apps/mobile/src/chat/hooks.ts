@@ -3,10 +3,10 @@
  * newest line, the subagents a viewer has opened or dismissed, and the
  * project's event stream as the list the web client's views read.
  */
-import type { StreamEvent } from "@ue-mcp-studio/client-core";
-import type { Project } from "../connection";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, ScrollViewInstance } from "react-native";
+import type { StreamEvent } from "@ue-mcp-studio/client-core";
+import type { Project } from "../connection";
 
 /** A clock that ticks every second while anything is running, for live elapsed times and how long a subagent has been quiet. */
 export function useNow(active: boolean): number {
@@ -92,19 +92,21 @@ export function useDismissed(sessionId: string | null, stored: readonly string[]
   const [mine, setMine] = useState<Set<string>>(() => new Set());
   useEffect(() => setMine(new Set()), [sessionId]);
   const dismissed = useMemo(() => new Set([...(stored ?? []), ...mine]), [stored, mine]);
-  const dismiss = useCallback((ids: string[]) => {
-    if (!sessionId || ids.length === 0) return;
-    setMine((cur) => new Set([...cur, ...ids]));
-    // A failed save puts the rows back.
-    void save(sessionId, ids).catch(() => setMine((cur) => new Set([...cur].filter((id) => !ids.includes(id)))));
-  }, [sessionId, save]);
+  const dismiss = useCallback(
+    (ids: string[]) => {
+      if (!sessionId || ids.length === 0) return;
+      setMine((cur) => new Set([...cur, ...ids]));
+      // A failed save puts the rows back.
+      void save(sessionId, ids).catch(() => setMine((cur) => new Set([...cur].filter((id) => !ids.includes(id)))));
+    },
+    [sessionId, save],
+  );
   return { dismissed, dismiss };
 }
 
 /**
  * The subagent threads the user has opened, per session, so the list marks a
- * finished one new only until it is opened. `stored` is what the session
- * says; `markSeen` records one more.
+ * finished one new only until it is opened. Kept with the session in Studio.
  */
 export function useSeen(sessionId: string | null, stored: readonly string[] | undefined, save: (sessionId: string, id: string) => Promise<unknown>): { seen: ReadonlySet<string>; markSeen: (id: string) => void } {
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
@@ -113,13 +115,16 @@ export function useSeen(sessionId: string | null, stored: readonly string[] | un
     if (!stored?.length) return;
     setSeen((cur) => (stored.every((id) => cur.has(id)) ? cur : new Set([...cur, ...stored])));
   }, [stored]);
-  const markSeen = useCallback((id: string) => {
-    setSeen((cur) => {
-      if (cur.has(id)) return cur;
-      if (sessionId) void save(sessionId, id).catch(() => {});
-      return new Set(cur).add(id);
-    });
-  }, [sessionId, save]);
+  const markSeen = useCallback(
+    (id: string) => {
+      setSeen((cur) => {
+        if (cur.has(id)) return cur;
+        if (sessionId) void save(sessionId, id).catch(() => {});
+        return new Set(cur).add(id);
+      });
+    },
+    [sessionId, save],
+  );
   return { seen, markSeen };
 }
 

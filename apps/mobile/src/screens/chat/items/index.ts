@@ -9,4 +9,3 @@ export { DialogBannerLine, DialogCard, DialogCards, DialogLine } from "./Dialogs
 export { FieldsForm, FormCard, FormCards, formContent, useForms } from "./Forms";
 export { ItemDiff, ReviewPanel, TurnReviewCard, outcomeNote } from "./TurnReview";
 export { AssetDiffView } from "./AssetDiff";
-export { AssetTile, TILE_FACTS, tileOf } from "./AssetTile";

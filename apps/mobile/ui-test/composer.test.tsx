@@ -243,10 +243,10 @@ describe("the @-mention menu", () => {
 
   it("draws a sent message's mentions as chips with their kind", () => {
     const text = `Swap the mesh on ${mentionToken(MATCHES[1])} for ${mentionToken(MATCHES[0])}`;
-    // An asset chip opens the asset in the editor, so it is drawn inside a project.
     renderInProject(<MentionText text={text} />);
     expect(screen.getByText("Front Door")).toBeTruthy();
-    expect(screen.getByText(/^BP_​?Door$/)).toBeTruthy();
+    // The chip's asset name is a link now, its text broken at zero-width spaces between parts.
+    expect(document.body.textContent?.replace(/​/g, "")).toContain("BP_Door");
     expect(screen.getByText("Actor")).toBeTruthy();
     expect(screen.getByText("Asset")).toBeTruthy();
     expect(screen.getByText(/Swap the mesh on/)).toBeTruthy();

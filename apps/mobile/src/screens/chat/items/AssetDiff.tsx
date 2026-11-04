@@ -24,7 +24,7 @@ import { useProjectNav } from "../../../nav";
 import { Banner, font, T, useTheme, type Theme } from "../../../ui";
 import { DiffView } from "../../../chat/Diff";
 import { engineText } from "../../../chat/breakable";
-import { AssetTile, TILE_FACTS, tileOf } from "./AssetTile";
+import { AssetTile, TILE_FACTS, tileOf } from "../../../chat/AssetTile";
 import { CompareGroup, CompareRow, CompareTable, KeyValues, Swatch, useCompareTier, type CompareSide, type CompareTier } from "./compare";
 import { useDaemonImage } from "../../../chat/daemon-image";
 import { small } from "../../../chat/styles";

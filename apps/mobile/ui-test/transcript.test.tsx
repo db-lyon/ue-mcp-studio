@@ -14,6 +14,7 @@ import { breakable, EngineText } from "../src/chat/breakable";
 import { SessionIdContext } from "../src/chat/attachments";
 import { AssetLinksContext, AssetTranscriptContext } from "../src/chat/asset-links";
 import { AssetToken } from "../src/chat/AssetLink";
+import { AssetTile } from "../src/chat/AssetTile";
 import * as clipboard from "./mocks/clipboard";
 import { fakeApi, renderInProject, settle } from "./helpers";
 import { ProjectContext } from "../src/nav";
@@ -317,6 +318,21 @@ describe("FormCards", () => {
     fireEvent.click(screen.getByText("Submit"));
     await settle();
     expect(api.answerForm).toHaveBeenCalledWith("f1", { action: "accept", content: { note: "door", count: 3 } });
+  });
+});
+
+describe("AssetTile", () => {
+  it("names the asset's kind, path, what changed and its facts, the changed ones with what they were", () => {
+    renderInProject(
+      <AssetTile cls="Blueprint" fileName="BP_Door.uasset" path="/Game/BP_Door" status="modified" changes={[{ text: "1 node added", tone: "add" }]} facts={[{ name: "Parent", value: "Actor" }, { name: "Speed", value: "2", was: "1" }]} />,
+    );
+    expect(screen.getByLabelText("Blueprint BP_Door.uasset")).toBeTruthy();
+    expect(screen.getByText("Changed in this turn")).toBeTruthy();
+    expect(screen.getByText("/​Game/​BP_​Door")).toBeTruthy();
+    expect(screen.getByText("1 node added")).toBeTruthy();
+    expect(screen.getByText("Parent")).toBeTruthy();
+    expect(screen.getByText("1")).toBeTruthy();
+    expect(screen.getAllByText((_, el) => el?.textContent === "1 to 2").length).toBeGreaterThan(0);
   });
 });
 
