@@ -172,6 +172,25 @@ describe("ContextMeter", () => {
     expect(onCompact).toHaveBeenCalled();
   });
 
+  it("draws the ring: the fill as an arc of the circle, a tick where it compacts, and only the percentage beside it", () => {
+    const { container } = renderInProject(<ContextMeter context={usage(698_000)} totals={totals} model="claude-sonnet-5-5" listedWindow={1_000_000} busy={false} compacting={false} runtime={false} onCompact={() => undefined} />);
+    const circles = [...container.querySelectorAll("circle")];
+    expect(circles).toHaveLength(2);
+    const c = 2 * Math.PI * 6;
+    const [dash, gap] = (circles[1].getAttribute("stroke-dasharray") ?? "").split(/[ ,]+/).map(Number);
+    expect(dash).toBeCloseTo(contextView(usage(698_000), "claude-sonnet-5-5", 1_000_000)!.fraction * c, 3);
+    expect(gap).toBeCloseTo(c, 3);
+    expect(container.querySelectorAll("line")).toHaveLength(1);
+    expect(screen.queryByText(/\d+k\/1M/)).toBeNull();
+  });
+
+  it("keeps the percentage while compacting and says so to a screen reader", () => {
+    renderInProject(<ContextMeter context={usage(862_000)} totals={totals} model="claude-sonnet-5-5" listedWindow={1_000_000} busy compacting runtime={false} onCompact={() => undefined} />);
+    expect(screen.getByText("86%")).toBeTruthy();
+    expect(screen.queryByText("Compacting")).toBeNull();
+    expect(screen.getByLabelText(/^Context 86% full: .* of 1M tokens, compacting$/)).toBeTruthy();
+  });
+
   it("marks an estimate with ~ and has nothing to show before any measurement", () => {
     renderInProject(<ContextMeter context={{ ...usage(41_000), estimated: true }} totals={undefined} model="claude-sonnet-5-5" listedWindow={1_000_000} busy={false} compacting={false} runtime={false} onCompact={() => undefined} />);
     expect(screen.getByText("~4%")).toBeTruthy();
