@@ -353,7 +353,10 @@ function inline(ctx: Ctx, n: HNode, key: number, lineStart: boolean): ReactNode 
   }
 }
 
-/** `.md code`: 12px mono on panel-2, 1px 4px, a 4px radius. The line keeps its own height. */
+/**
+ * `.md code`: 12px mono on panel-2, 1px 4px, a 4px radius. The `font` shorthand sets its line-height to
+ * normal (the mono face's own, 1.32 for JetBrains Mono), so it never stretches the line it sits in.
+ */
 export function inlineCode(t: Theme): TextStyle {
-  return { ...font(t, "mono", 400, 12), backgroundColor: t.c.panel2, paddingVertical: 1, paddingHorizontal: 4, borderRadius: 4 };
+  return { ...font(t, "mono", 400, 12), lineHeight: monoNormal(t, 12), backgroundColor: t.c.panel2, paddingVertical: 1, paddingHorizontal: 4, borderRadius: 4 };
 }
