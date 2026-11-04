@@ -12,6 +12,8 @@ import type { Theme } from "./theme";
 
 /** button, button.primary, button.ghost, button.small-button, button.large. */
 export function Button({
+  fontSize,
+  testID,
   title,
   onPress,
   variant = "default",
@@ -29,6 +31,9 @@ export function Button({
   label?: string;
   style?: StyleProp<ViewStyle>;
   children?: ReactNode;
+  /** button.small-button takes the font size of the text around it (the editor themes keep 12px). */
+  fontSize?: number;
+  testID?: string;
 }) {
   const t = useTheme();
   const s = useStyles(buttonStyles);
@@ -37,8 +42,8 @@ export function Button({
   const box = [s.button, size === "small" && s.small, size === "large" && s.large, primary && s.primary, ghost && s.ghost, disabled && s.disabled, disabled && primary && s.primaryDisabled];
   const color = disabled ? t.c.dim : primary ? t.c.onAccent : ghost ? t.c.muted : t.c.text;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label ?? title} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [box, pressed && !disabled && (primary ? s.primaryPressed : s.pressed), style]}>
-      {children ?? <T style={[s.text, primary && !disabled && s.primaryText, size === "large" && s.largeText, { color }]}>{title}</T>}
+    <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label ?? title} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [box, pressed && !disabled && (primary ? s.primaryPressed : s.pressed), style]}>
+      {children ?? <T style={[s.text, primary && !disabled && s.primaryText, size === "large" && s.largeText, fontSize && !t.editor ? { fontSize, lineHeight: fontSize * 1.2, letterSpacing: fontSize * 0.02 } : null, { color }]}>{title}</T>}
     </Pressable>
   );
 }
@@ -59,9 +64,15 @@ const buttonStyles = (t: Theme) => ({
 });
 
 /** .card: the panel, its hairline, the large radius; 12px padding at phone width. */
-export function Card({ children, style, padded = true }: { children: ReactNode; style?: StyleProp<ViewStyle>; padded?: boolean }) {
+export function Card({ children, style, padded = true, testID }: { children: ReactNode; style?: StyleProp<ViewStyle>; padded?: boolean; testID?: string }) {
   const t = useTheme();
-  return <View style={[{ backgroundColor: t.c.panel, borderColor: t.c.line, borderWidth: 1, borderRadius: t.radiusLg, padding: padded ? 12 : 0, minWidth: 0 }, style]}>{children}</View>;
+  // The editor themes draw cards flat: no outline (styles.css :root[data-theme="editor"] .card). ue-mcp's panel has a faint tint at its top.
+  return (
+    <View testID={testID} style={[{ backgroundColor: t.c.panel, borderColor: t.editor ? "transparent" : t.c.line, borderWidth: 1, borderRadius: t.radiusLg, padding: padded ? 12 : 0, minWidth: 0 }, style]}>
+      {t.c.tint !== "transparent" ? <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: 120, borderTopLeftRadius: t.radiusLg, borderTopRightRadius: t.radiusLg, experimental_backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent)` } as ViewStyle} /> : null}
+      {children}
+    </View>
+  );
 }
 
 /** .banner, .banner.warn, .banner.bad, .banner.ok. */
@@ -105,21 +116,21 @@ export function Chip({ kind, children, dot = true }: { kind?: "ok" | "warn" | "b
 }
 
 /** .pill, .pill.ok/.warn/.bad. */
-export function Pill({ kind, children }: { kind?: "ok" | "warn" | "bad"; children: ReactNode }) {
+export function Pill({ kind, children, style }: { kind?: "ok" | "warn" | "bad"; children: ReactNode; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
   const color = kind ? t.c[kind] : t.c.muted;
   const line = kind === "ok" ? t.c.okPill : kind === "warn" ? t.c.warnPill : kind === "bad" ? t.c.badPill : t.c.lineStrong;
   return (
-    <View style={{ borderRadius: 999, paddingVertical: 1, paddingHorizontal: 9, borderWidth: 1, borderColor: line, alignSelf: "flex-start" }}>
+    <View style={[{ borderRadius: 999, paddingVertical: 1, paddingHorizontal: 9, borderWidth: 1, borderColor: line, alignSelf: "flex-start" }, style]}>
       <T style={{ ...font(t, "mono", 500, 11, 1.6), color }}>{children}</T>
     </View>
   );
 }
 
 /** .dot, .dot.ok/.warn/.bad. */
-export function Dot({ kind, size = 8 }: { kind?: "ok" | "warn" | "bad"; size?: number }) {
+export function Dot({ kind, size = 8, style }: { kind?: "ok" | "warn" | "bad"; size?: number; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
-  return <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: kind ? t.c[kind] : t.c.dim }} />;
+  return <View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: kind ? t.c[kind] : t.c.dim }, style]} />;
 }
 
 /** input, textarea: panel-2, strong hairline, 16px text at phone width (no zoom on focus), accent ring on focus. */
