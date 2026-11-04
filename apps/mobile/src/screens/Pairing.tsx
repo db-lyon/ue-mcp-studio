@@ -3,7 +3,7 @@ import { Text, TextInput, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { formatPairingCode } from "@ue-mcp-studio/remote";
 import type { PairStep } from "../relay";
-import { Button, Center, s, Spinner } from "../ui";
+import { Button, Center, s, Spinner } from "../legacy-ui";
 import { colors } from "../theme";
 
 export function Welcome({ error, onScan, onLink }: { error?: string; onScan: () => void; onLink: (link: string) => void }) {

@@ -4,7 +4,7 @@
  * sliders, and the disclosure chevron.
  */
 import Svg, { Circle, Path } from "react-native-svg";
-import { css } from "./css";
+import { useTheme } from "./ThemeProvider";
 
 const PATHS = {
   play: "M5 3.5v9l7.5-4.5z",
@@ -19,7 +19,9 @@ const FILLED = new Set(["play", "stop"]);
 export type GlyphName = keyof typeof PATHS;
 
 /** A 14 point card glyph in the given colour. */
-export function Glyph({ name, color = css.muted, size = 14 }: { name: GlyphName; color?: string; size?: number }) {
+export function Glyph({ name, color, size = 14 }: { name: GlyphName; color?: string; size?: number }) {
+  const t = useTheme();
+  color ??= t.c.muted;
   const fill = FILLED.has(name);
   return (
     <Svg width={size} height={size} viewBox="0 0 16 16" fill={fill ? color : "none"} stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -29,7 +31,10 @@ export function Glyph({ name, color = css.muted, size = 14 }: { name: GlyphName;
 }
 
 /** Start playtest's options: three sliders. `knob` is the panel the knobs sit on. */
-export function OptionsGlyph({ color = css.muted, knob = css.panel2 }: { color?: string; knob?: string }) {
+export function OptionsGlyph({ color, knob }: { color?: string; knob?: string }) {
+  const t = useTheme();
+  color ??= t.c.muted;
+  knob ??= t.c.panel2;
   return (
     <Svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" aria-hidden>
       <Path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
@@ -41,7 +46,9 @@ export function OptionsGlyph({ color = css.muted, knob = css.panel2 }: { color?:
 }
 
 /** The disclosure mark: a chevron that points right, or down when open. */
-export function Chevron({ open, color = css.muted, size = 12 }: { open: boolean; color?: string; size?: number }) {
+export function Chevron({ open, color, size = 12 }: { open: boolean; color?: string; size?: number }) {
+  const t = useTheme();
+  color ??= t.c.muted;
   return (
     <Svg width={size} height={size} viewBox="0 0 12 12" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" style={{ transform: [{ rotate: open ? "90deg" : "0deg" }], opacity: 0.85 }} aria-hidden>
       <Path d="M4.5 2.5 8 6l-3.5 3.5" />

@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { Lock, LockView } from "@ue-mcp-studio/client-core";
-import { Button, s as ui, Spinner } from "./ui";
+import { Button, s as ui, Spinner } from "./legacy-ui";
 import { colors } from "./theme";
 
 const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"];

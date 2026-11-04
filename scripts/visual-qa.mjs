@@ -1,6 +1,9 @@
 // Screenshot the playtest UI, the review card and Settings in every state, theme and width, with no daemon and no editor.
 //
-//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>] [--widths <px,px,...>]
+//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>] [--widths <px,px,...>] [--remote]
+//
+// --remote draws every scenario as a paired browser sees it through the relay: the
+// reference scripts/parity-mobile.mjs compares the mobile app against.
 //
 // Serves apps/client-web with Vite (no proxy) and opens visual-qa.html, the real app
 // with the daemon answered from apps/client-web/src/visual-qa/fixtures.ts. Each
@@ -175,7 +178,7 @@ const open = async (scenario, theme, width, height = 860) => {
   const page = await browser.newPage({ viewport: { width, height }, hasTouch: width <= 760 });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(`${base}/visual-qa.html?scenario=${encodeURIComponent(scenario)}&theme=${theme}`);
+  await page.goto(`${base}/visual-qa.html?scenario=${encodeURIComponent(scenario)}&theme=${theme}${process.argv.includes("--remote") ? "&remote=1" : ""}`);
   await page.waitForSelector(".app");
   await page.waitForTimeout(1200);
   return { page, errors };

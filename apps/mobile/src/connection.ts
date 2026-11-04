@@ -24,8 +24,9 @@ export interface Project {
 /** A sleep longer than this gets a fresh stream on return, even if the old one looks open. */
 const WAKE_REFRESH_MS = 30_000;
 
-export function useProject(device: Device): Project {
-  const raw = useMemo(() => transportFor(device), [device]);
+/** `transport` replaces the sealed one: the visual QA harness answers from fixtures through it. */
+export function useProject(device: Device, override?: Transport): Project {
+  const raw = useMemo(() => override ?? transportFor(device), [device, override]);
   const lock = useMemo(() => createLock(raw), [raw]);
   const transport = useMemo(() => lock.guard(raw), [lock, raw]);
   const listeners = useRef(new Set<(e: StreamEvent) => void>());

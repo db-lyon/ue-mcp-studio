@@ -4,27 +4,11 @@
  * expectation) and saves them through pie(script_update).
  */
 import { useState, useId } from "react";
-import type { QaExpect, QaRun, QaScriptStep } from "@ue-mcp-studio/shared";
+import type { QaRun, QaScriptStep } from "@ue-mcp-studio/shared";
 import { qaScriptSteps } from "@ue-mcp-studio/shared";
+import { DEFAULT_RUN, EDIT_OPS as OPS, EDIT_PLAYERS as PLAYERS, EMPTY_ROW, playersNeeded, rowOf, rowsValid, stepsOf, type EditRow as Row, type RunOptions } from "@ue-mcp-studio/client-core";
 
-export interface RunOptions {
-  startPie: boolean;
-  players: number;
-  listen: boolean;
-  record: boolean;
-}
-
-export const DEFAULT_RUN: RunOptions = { startPie: true, players: 1, listen: false, record: true };
-
-/** How many players a run needs: one more than the highest client a step names. */
-export function playersNeeded(run: QaRun): number {
-  let n = 1;
-  for (const s of run.steps) {
-    const m = /^client\s*(\d+)?$/i.exec(s.player ?? "");
-    if (m) n = Math.max(n, Number(m[1] ?? 1) + 1);
-  }
-  return n;
-}
+export { DEFAULT_RUN, playersNeeded, stepsOf, type RunOptions } from "@ue-mcp-studio/client-core";
 
 export function RunPanel({ run, busy, onStart, onCancel }: { run: QaRun; busy: boolean; onStart: (o: RunOptions) => void; onCancel: () => void }) {
   const needed = playersNeeded(run);
@@ -60,63 +44,12 @@ export function RunPanel({ run, busy, onStart, onCancel }: { run: QaRun; busy: b
   );
 }
 
-const OPS = ["decreasing", "increasing", "eq", "gt", "lt", "visible", "exists"] as const;
-const PLAYERS = ["", "host", "client 1", "client 2", "client 3"];
-
-function targetOf(op: string, raw: string): number | boolean | undefined {
-  if (op === "decreasing" || op === "increasing") return undefined;
-  if (op === "visible" || op === "exists") return raw === "false" ? false : undefined;
-  const n = Number(raw);
-  return raw.trim() && Number.isFinite(n) ? n : undefined;
-}
-
-/** The steps as the editor holds them. */
-interface Row {
-  instruction: string;
-  judge: "auto" | "manual";
-  player: string;
-  value: string;
-  op: string;
-  target: string;
-  withinMs: string;
-  personOnly: boolean;
-}
-
-function rowOf(s: QaScriptStep): Row {
-  return {
-    instruction: s.instruction,
-    judge: s.judge,
-    player: s.player ?? "",
-    value: s.expect?.value ?? "",
-    op: s.expect?.op ?? "eq",
-    target: s.expect?.target === undefined ? "" : String(s.expect.target),
-    withinMs: s.expect?.within_ms ? String(s.expect.within_ms) : "",
-    personOnly: s.agent_judgeable === false,
-  };
-}
-
-/** The editor's rows as script steps. An auto step without a value has no expectation and passes when it starts. */
-export function stepsOf(rows: Row[]): QaScriptStep[] {
-  return rows.map((r) => {
-    const expect: QaExpect | undefined = r.judge === "auto" && r.value.trim()
-      ? { value: r.value.trim(), op: r.op, ...(targetOf(r.op, r.target) !== undefined ? { target: targetOf(r.op, r.target) } : {}), ...(Number(r.withinMs) > 0 ? { within_ms: Number(r.withinMs) } : {}) }
-      : undefined;
-    return {
-      instruction: r.instruction.trim(),
-      judge: r.judge,
-      ...(expect ? { expect } : {}),
-      ...(r.judge === "manual" && r.personOnly ? { agent_judgeable: false } : {}),
-      ...(r.player ? { player: r.player } : {}),
-    };
-  });
-}
-
 export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun; busy: boolean; error?: string | null; onSave: (steps: QaScriptStep[], map: string) => void; onCancel: () => void }) {
   const [rows, setRows] = useState<Row[]>(() => qaScriptSteps(run).map(rowOf));
   const [map, setMap] = useState(run.map ?? "");
   const mapHelp = useId();
   const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const valid = rows.length > 0 && rows.every((r) => r.instruction.trim());
+  const valid = rowsValid(rows);
   return (
     <div className="qa-edit" role="group" aria-label="Edit the playtest">
       <label className="qa-edit-map small">
@@ -163,7 +96,7 @@ export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun
         ))}
       </ol>
       <div className="row">
-        <button className="ghost small-button" onClick={() => setRows([...rows, { instruction: "", judge: "manual", player: "", value: "", op: "eq", target: "", withinMs: "", personOnly: false }])}>Add a step</button>
+        <button className="ghost small-button" onClick={() => setRows([...rows, { ...EMPTY_ROW }])}>Add a step</button>
         <span className="spacer" />
         <button className="ghost small-button" onClick={onCancel}>Cancel</button>
         <button className="primary small-button" disabled={busy || !valid} onClick={() => onSave(stepsOf(rows), map.trim())}>Save</button>

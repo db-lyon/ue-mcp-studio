@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
-import { requestJson, studioApi } from "@ue-mcp-studio/client-core";
+import { requestJson, studioApi, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
 import { useLockView, useProject, type Project } from "../connection";
 import { NotPairedError, RelayError, type Device } from "../relay";
 import { PinPad } from "../PinPad";
-import { Button, Dot, Header, s, tap } from "../ui";
+import { Button, Dot, Header, s, tap } from "../legacy-ui";
 import { SessionScreen } from "./Session";
 import { ReviewItemScreen, ReviewScreen } from "./Review";
 import { CheckpointsScreen } from "./Checkpoints";
@@ -25,9 +25,9 @@ export interface SessionRow {
 
 const STATUS_LABEL: Record<string, string> = { idle: "Idle", running: "Working", waiting: "Waiting", error: "Error", stopped: "Stopped" };
 
-export function ProjectScreen({ device, onBack, onUnpaired }: { device: Device; onBack: () => void; onUnpaired: (message: string) => void }) {
-  const project = useProject(device);
-  const [stack, setStack] = useState<Route[]>([]);
+export function ProjectScreen({ device, onBack, onUnpaired, transport, initial }: { device: Device; onBack: () => void; onUnpaired: (message: string) => void; transport?: Transport; initial?: PanelLocation }) {
+  const project = useProject(device, transport);
+  const [stack, setStack] = useState<Route[]>(() => (initial?.tab === "Chat" && initial.session ? [{ name: "session", id: initial.session }] : []));
   const api = useMemo(() => studioApi(project.transport), [project.transport]);
   const nav = useMemo<ProjectNav>(() => ({ project, api, push: (r) => setStack((s) => [...s, r]), pop: () => setStack((s) => s.slice(0, -1)) }), [project, api]);
   const top = stack[stack.length - 1];
