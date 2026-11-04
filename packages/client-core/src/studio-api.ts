@@ -13,6 +13,9 @@ import type {
   FlowRunRequest,
   MentionSearchRequest,
   MentionSearchResponse,
+  PendingForm,
+  PlaytestRequest,
+  SessionUpdate,
   ApprovalDecision,
   BusyState,
   StudioRefusal,
@@ -33,7 +36,7 @@ import type {
   VcsChange,
   VcsStatus,
 } from "@ue-mcp-studio/shared";
-import { requestJson, type Transport } from "./transport.js";
+import { HttpError, readAll, requestJson, type Transport } from "./transport.js";
 import type { UpdateRun } from "./update-run.js";
 
 const enc = encodeURIComponent;
@@ -62,8 +65,30 @@ export function studioApi(t: Transport) {
     newSession: () => send<SessionDetail>("POST", `${S}/sessions`),
     sessionSync: (id: string, have?: string) => get<SessionSync | SessionDetail>(`${session(id)}?sync=1${have !== undefined ? `&have=${have}` : ""}`),
     callResult: (id: string, callId: string) => get<{ result: string }>(`${session(id)}/calls/${enc(callId)}/result`),
-    send: (id: string, text: string, now = false) => send<{ sessionId: string }>("POST", `${session(id)}/messages`, now ? { text, attachments: [], now } : { text, attachments: [] }),
-    queue: (id: string, text: string) => send<QueuedMessage>("POST", `${session(id)}/queue`, { text, attachments: [] }),
+    send: (id: string, text: string, attachments: string[] = [], now = false) =>
+      send<{ sessionId: string }>("POST", `${session(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),
+    queue: (id: string, text: string, attachments: string[] = []) => send<QueuedMessage>("POST", `${session(id)}/queue`, { text, attachments }),
+    editQueued: (id: string, qid: string, text: string) => send<void>("PUT", `${session(id)}/queue/${enc(qid)}`, { text }),
+    updateSession: (id: string, u: SessionUpdate) => send<SessionSummary>("PUT", session(id), u),
+    deleteSession: (id: string) => send<void>("DELETE", session(id)),
+    markSeen: (id: string, threadId: string) => send<void>("POST", `${session(id)}/seen`, { id: threadId }),
+    dismissAgents: (id: string, ids: string[]) => send<{ dismissed: string[] }>("POST", `${session(id)}/dismissed`, { ids }),
+    editMessage: (id: string, index: number, text: string, mode: "rewind" | "fork" = "rewind") => send<{ sessionId: string }>("POST", `${session(id)}/transcript/${index}/edit`, { text, mode }),
+    stopSubagent: (id: string, callId: string) => send<void>("POST", `${session(id)}/agents/${enc(callId)}/stop`),
+    compact: (id: string, instructions?: string) => send<{ sessionId: string }>("POST", `${session(id)}/compact`, instructions ? { instructions } : {}),
+    playtest: (id: string, request: PlaytestRequest) => send<{ sessionId: string }>("POST", `${session(id)}/playtest`, request),
+    forms: (sessionId: string) => get<{ forms: PendingForm[] }>(`${S}/forms?session=${enc(sessionId)}`),
+    answerForm: (id: string, answer: { action: "accept"; content: Record<string, unknown> } | { action: "decline" | "cancel" }) => send<void>("POST", `${S}/forms/${enc(id)}`, answer),
+    /** Bytes the daemon serves (a review picture), read through the transport, since a relayed client has no URL to load. */
+    bytes: async (path: string): Promise<{ type: string; data: Uint8Array }> => {
+      const reply = await t("GET", path);
+      const data = await readAll(reply);
+      if (reply.status < 200 || reply.status >= 300) throw new HttpError(reply.status, `GET ${path} answered ${reply.status}.`);
+      return { type: reply.headers["content-type"] ?? "application/octet-stream", data };
+    },
+    reviewImageUrl: (name: string) => `${S}/review/images/${enc(name)}`,
+    reviewThumbnailUrl: (thumbId: string) => `${S}/review/thumbnails/${enc(thumbId)}`,
+    reviewNativeDiff: (id: string, reviewId: string, path: string) => send<{ opened: string; windowTitle?: string }>("POST", `${review(id, reviewId)}/native-diff`, { path }),
     removeQueued: (id: string, qid: string) => send<void>("DELETE", `${session(id)}/queue/${enc(qid)}`),
     sendQueued: (id: string) => send<void>("POST", `${session(id)}/queue/next`),
     stop: (id: string) => send<void>("POST", `${session(id)}/stop`),

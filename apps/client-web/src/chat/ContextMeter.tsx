@@ -1,15 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
 import { atMost, useBarTier } from "./barTier";
-import { tokenCount } from "@ue-mcp-studio/client-core";
+import { compactLine, dollars, pct, tokenCount } from "@ue-mcp-studio/client-core";
 
-const pct = (f: number): string => `${Math.round(f * 100)}%`;
-
-/** A dollar amount: cents under ten dollars, whole dollars past it. */
-export function dollars(n: number): string {
-  if (n > 0 && n < 0.01) return "under $0.01";
-  return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n).toLocaleString("en-US")}`;
-}
+export { dollars };
 
 /** The context bar: how full, and a tick where it compacts. */
 export function ContextBar({ view, className = "" }: { view: ContextView; className?: string }) {
@@ -20,19 +14,6 @@ export function ContextBar({ view, className = "" }: { view: ContextView; classN
       <span className="context-tick" style={{ left: `${view.compactAt * 100}%` }} />
     </span>
   );
-}
-
-/** Where the runtime or Studio compacts, in words. */
-function compactLine(view: ContextView, runtime: boolean): string {
-  const at = tokenCount(Math.round(view.window * view.compactAt));
-  if (view.fraction >= view.compactAt) {
-    return runtime
-      ? `It is past where Claude's runtime compacts (${at}): it compacts at the start of the next turn.`
-      : `It is past where Studio compacts (${at}): Studio compacts it before the next request goes.`;
-  }
-  return runtime
-    ? `Claude's runtime compacts this session on its own at about ${at} tokens (${pct(view.compactAt)}).`
-    : `Studio compacts it on its own at ${at} tokens (${pct(view.compactAt)}).`;
 }
 
 /**
