@@ -494,6 +494,19 @@ describe("remote control, sealed end to end", () => {
       ["POST", "/v1/ext/studio/Remote/approvals/anything"],
       ["POST", "/v1/ext/studio/Remote/pair"],
       ["POST", "/v1/ext/studio/x/../remote/pair"],
+      // Nor install, update or restart software on the computer.
+      ["POST", "/v1/ext/studio/updates/studio"],
+      ["POST", "/v1/ext/studio/updates/plugin"],
+      ["POST", "/v1/ext/studio/updates/ueMcp"],
+      ["POST", "/v1/ext/studio/updates/restart"],
+      ["POST", "/v1/ext/studio/updates/deferred/now"],
+      ["PUT", "/v1/ext/studio/updates/channel"],
+      ["PUT", "/v1/ext/studio/updates/run"],
+      ["POST", "/v1/ext/studio/Updates/studio"],
+      ["POST", "/v1/ext/studio/sessions/../updates/ueMcp"],
+      ["POST", "/v1/ext/studio/refusal/update"],
+      ["POST", "/v1/ext/studio/version-notice/update"],
+      ["POST", "/v1/update/apply"],
     ]) {
       const r = await browser.request({ method, path: p, body: method === "PUT" ? Buffer.from('{"enabled":false}').toString("base64") : undefined });
       expect(r.head?.status, `${method} ${p}`).toBe(403);

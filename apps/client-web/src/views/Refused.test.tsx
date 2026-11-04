@@ -40,6 +40,12 @@ describe("Studio refused for an older ue-mcp", () => {
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Update ue-mcp"]);
   });
 
+  it("in a paired browser offers no button and says the update runs on the computer", () => {
+    render(<RefusedScreen refusal={{ needs: "1.4.11-beta.6", have: "1.4.10" }} remote />);
+    expect(screen.queryAllByRole("button")).toEqual([]);
+    expect(screen.getByText("Updates run from Studio on the computer.")).toBeTruthy();
+  });
+
   it("installs the floor through Studio's refusal route, never the daemon's apply, and says to restart the editor", async () => {
     const fetch = vi.fn(async (url: string, _init?: RequestInit) => (url.startsWith("/v1/update?") ? json({ latest: "1.4.10", target: null }) : json({ ok: true, version: "1.4.11-beta.6" })));
     vi.stubGlobal("fetch", fetch);

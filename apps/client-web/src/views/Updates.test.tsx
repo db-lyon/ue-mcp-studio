@@ -62,6 +62,21 @@ describe("updates", () => {
     expect(screen.getByText("ue-mcp: 1.4.3")).toBeTruthy();
   });
 
+  it("in a paired browser shows what is newer but no Update button and no channel change", async () => {
+    const posted: string[] = [];
+    const behind = { installed: { version: "1.4.0-beta.1" }, server: "1.4.3", latest: "1.4.3", target: "1.4.3", binaries: { available: true, file: "b.zip" } };
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method && init.method !== "GET") posted.push(url);
+      return new Response(JSON.stringify(url.includes("/ext/studio/") ? studio(false, false) : behind));
+    }));
+    render(<UpdatesCard remote />);
+    await waitFor(() => expect(screen.getByText("Ready to install: the bridge plugin 1.4.3.")).toBeTruthy());
+    expect(screen.queryByText("Update")).toBeNull();
+    expect(screen.getByText("Updates run from Studio on the computer.")).toBeTruthy();
+    for (const radio of screen.getAllByRole("radio")) expect((radio as HTMLInputElement).disabled).toBe(true);
+    expect(posted).toEqual([]);
+  });
+
   it("shows one Update button that runs every step in order, and stops at the first failure", async () => {
     const posted: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {

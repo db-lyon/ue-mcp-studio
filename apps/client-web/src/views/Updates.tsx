@@ -3,6 +3,7 @@ import { FAB_LIBRARY_URL, isNewer, type StudioPluginUpdate } from "@ue-mcp-studi
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 import { obj } from "../normalize";
+import { REMOTE_UPDATES, onRemotePage } from "../connection";
 
 /** GET /v1/ext/studio/updates. */
 export interface StudioUpdates {
@@ -168,7 +169,8 @@ export function readyLine(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate 
  * The Updates card: one status and one button. Update runs every part that
  * has something newer, in the order that keeps each step alive.
  */
-export function UpdatesCard() {
+/** `remote`: a paired browser, which sees what is installed and newer but cannot start an update or change the channel. */
+export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = {}) {
   const [u, setU] = useState<{ studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null } | null>(null);
   const run = useRun();
   const working = !!run && run.summary === undefined && !run.error;
@@ -213,9 +215,10 @@ export function UpdatesCard() {
           <span className={`pill ${steps.length ? "warn" : "ok"}`}>{steps.length ? "Update available" : "Up to date"}</span>
           <span className="muted">{waiting ? "Update ready. Restarts after the current turn." : working ? "Updating" : steps.length ? ready : "Up to date."}</span>
           <span className="spacer" />
-          {steps.length > 0 && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
+          {steps.length > 0 && !remote && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>
       )}
+      {remote && <p className="dim small update-remote">{REMOTE_UPDATES}</p>}
       {stopped && !working && <div className="banner bad small update-error" role="alert">The last update stopped: {stopped}</div>}
       {u?.studio && (
         <div className="row update-channel" role="radiogroup" aria-label="Release channel">
@@ -226,7 +229,7 @@ export function UpdatesCard() {
                 type="radio"
                 name="update-channel"
                 checked={(u.studio?.channel ?? "stable") === c}
-                disabled={working}
+                disabled={working || remote}
                 onChange={() => void setChannel(c).then(load, () => load())}
               />{" "}
               {c === "stable" ? "Stable" : "Beta"}
