@@ -74,8 +74,8 @@ export function ApprovalsSection() {
         <CardLabel>Ask first</CardLabel>
         <ReadOnly>
           <View>
-            {APPROVAL_ROWS.map((r, i) => (
-              <SettingRow key={r.kind} first={i === 0} title={r.label} help={r.help}>
+            {APPROVAL_ROWS.map((r) => (
+              <SettingRow key={r.kind} title={r.label} help={r.help}>
                 <Seg label={r.label} value={rule(r.kind)} options={PROJECT_SCOPED_KINDS.includes(r.kind) ? SCOPED_RULES : RULES} onChange={() => undefined} disabled />
               </SettingRow>
             ))}
@@ -84,7 +84,7 @@ export function ApprovalsSection() {
         <SettingRow title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
           <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
         </SettingRow>
-        <Txt size={12} tone="dim" style={{ marginTop: 12 }}>
+        <Txt size={12} tone="dim" style={{ marginVertical: 12 }}>
           All other actions run without asking.
         </Txt>
       </Card>
@@ -133,7 +133,8 @@ export function ApprovalsSection() {
 function DialogPolicyField({ policy }: { policy: DialogPolicy }) {
   const t = useTheme();
   return (
-    <View accessibilityRole="radiogroup" accessibilityLabel="If unanswered" style={{ gap: 6, marginTop: 8, marginBottom: 4, marginLeft: 30, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: t.c.lineStrong }}>
+    // Its 8px top margin and the note's 8px bottom margin collapse into one, as they do in the page's fieldset.
+    <View accessibilityRole="radiogroup" accessibilityLabel="If unanswered" style={{ gap: 6, marginTop: 0, marginBottom: 4, marginLeft: 30, paddingLeft: 12, borderLeftWidth: 2, borderLeftColor: t.c.lineStrong }}>
       <Txt size={12} weight={600}>
         If unanswered
       </Txt>

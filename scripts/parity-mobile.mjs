@@ -116,7 +116,9 @@ async function press(page, what) {
 const rows = [];
 for (const name of picked) {
   for (const theme of THEMES) {
-    const height = scenarios[name].height ?? 860;
+    // The web shot's own height: a full-page scenario is shot in a taller window than its height says.
+    const webShot = path.join(webDir ?? "", `${name}-${theme}-390.png`);
+    const height = fs.existsSync(webShot) ? PNG.sync.read(fs.readFileSync(webShot)).height : scenarios[name].height ?? 860;
     const page = await browser.newPage({ viewport: { width: WIDTH, height }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));

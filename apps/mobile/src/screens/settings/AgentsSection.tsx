@@ -99,7 +99,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
         <SettingRow title="Starts" help="Never: the agent starts no workers, including subagents defined in the project's agent files.">
           <Seg label="Worker starts" value={settings.usage.subagents} options={STARTS} onChange={(v) => void saveUsage({ subagents: v })} />
         </SettingRow>
-        <SettingRow inline title="Concurrency" help={CONCURRENCY_HELP}>
+        <SettingRow inline field={settings.usage.subagentsPerTurn !== UNLIMITED_SUBAGENTS} title="Concurrency" help={CONCURRENCY_HELP}>
           {settings.usage.subagentsPerTurn === UNLIMITED_SUBAGENTS ? (
             <Txt size={12} tone="muted" style={{ alignSelf: "center" }}>
               No limit

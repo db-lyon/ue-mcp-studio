@@ -152,8 +152,10 @@ export function Switch({ on, onChange, label, disabled }: { on: boolean; onChang
  * keeps the control at the end of the line; otherwise, at phone width, it goes
  * under the words, the panel's width. `first` drops the line above it.
  */
-export function SettingRow({ title, help, children, inline, first, badge, style }: { title: ReactNode; help?: ReactNode; children?: ReactNode; inline?: boolean; first?: boolean; badge?: ReactNode; style?: StyleProp<ViewStyle> }) {
+export function SettingRow({ title, help, children, inline: asked, first, badge, style, field }: { title: ReactNode; help?: ReactNode; children?: ReactNode; inline?: boolean; first?: boolean; badge?: ReactNode; style?: StyleProp<ViewStyle>; field?: boolean }) {
   const t = useTheme();
+  // A row whose control is a text field puts the field under its words at phone width, inline or not.
+  const inline = asked && !field;
   return (
     <View style={[{ flexDirection: inline ? "row" : "column", alignItems: inline ? "flex-start" : "stretch", gap: inline ? 14 : 8, paddingVertical: 11, borderTopWidth: first ? 0 : 1, borderTopColor: t.c.line }, style]}>
       <View style={inline ? { flex: 1, minWidth: 0 } : undefined}>
@@ -172,29 +174,53 @@ export function SettingRow({ title, help, children, inline, first, badge, style 
   );
 }
 
-/** .cfg .opt: a choice with a sentence under it, its radio at the start. */
+/**
+ * .cfg .opt: a choice with a sentence beside it, its radio at the start. On a
+ * touch screen the row centres its radio, and the browser shrinks the radio
+ * with the text as flex items share the row: the radio keeps 20px of its own
+ * width scaled by the room left over the text's one-line width.
+ */
 export function Opt({ on, onPick, title, desc, disabled, overridden, label }: { on: boolean; onPick: () => void; title: ReactNode; desc?: ReactNode; disabled?: boolean; overridden?: boolean; label?: string }) {
   const t = useTheme();
+  const [row, setRow] = useState<number | null>(null);
+  const [line, setLine] = useState<number | null>(null);
+  const text = (
+    <Txt>
+      <Span weight={600}>{title}</Span>
+      {desc ? <Txt size={12} tone="muted"> {desc}</Txt> : null}
+    </Txt>
+  );
+  // Room for the radio and the text: the row less its border, padding, gap and the radio's margins.
+  const room = row === null ? null : row - 2 - 24 - 10 - 8;
+  const radio = room !== null && line !== null && 20 + line > room ? (20 * room) / (20 + line) : 20;
   return (
-    <Pressable accessibilityRole="radio" accessibilityLabel={label} accessibilityState={{ checked: on, disabled: !!disabled }} disabled={disabled} onPress={onPick} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start", paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: t.radius, borderColor: on ? t.c.accentLine : t.c.line, backgroundColor: on ? t.c.accentWash : t.c.panel2, opacity: overridden ? 0.6 : 1 }}>
-      <Radio on={on} disabled={disabled} style={{ marginTop: 3 }} />
-      <View style={{ flex: 1, minWidth: 0 }}>
-        <Txt>
-          <Span weight={600}>{title}</Span>
-          {desc ? <Txt size={12} tone="muted"> {desc}</Txt> : null}
-        </Txt>
+    <Pressable accessibilityRole="radio" accessibilityLabel={label} accessibilityState={{ checked: on, disabled: !!disabled }} disabled={disabled} onPress={onPick} onLayout={(e) => setRow(e.nativeEvent.layout.width)} style={{ flexDirection: "row", gap: 10, alignItems: "center", minHeight: 44, paddingVertical: 10, paddingHorizontal: 12, borderWidth: 1, borderRadius: t.radius, borderColor: on ? t.c.accentLine : t.c.line, backgroundColor: on ? t.c.accentWash : t.c.panel2, opacity: overridden ? 0.6 : 1 }}>
+      <Radio on={on} disabled={disabled} width={radio} />
+      <View style={{ flex: 1, minWidth: 0 }}>{text}</View>
+      {/* The text on one line, off the screen, to know how wide it would be. */}
+      <View pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ position: "absolute", left: -10000, top: 0, width: 9000, flexDirection: "row" }}>
+        <View onLayout={(e) => setLine(e.nativeEvent.layout.width)}>{text}</View>
       </View>
     </Pressable>
   );
 }
 
-/** input[type=radio] at a touch screen's 20px, in the accent. */
-export function Radio({ on, disabled, style }: { on: boolean; disabled?: boolean; style?: StyleProp<ViewStyle> }) {
+/**
+ * input[type=radio], as Chrome draws one in a dark page: a #3b3b3b disc in a
+ * 1px ring, grey when off, the accent when chosen, with a dot 60% across. A
+ * radio narrowed by its row draws its disc at the narrower size. Disabled,
+ * ring and dot are grey.
+ */
+export function Radio({ on, disabled, style, width = 20 }: { on: boolean; disabled?: boolean; style?: StyleProp<ViewStyle>; width?: number }) {
   const t = useTheme();
-  const color = disabled ? t.c.disabledLine : on ? t.c.accent : t.c.muted;
+  const d = Math.min(width, 20);
+  const ring = disabled ? (on ? "#757575" : "#626262") : on ? t.c.accent : "#838383";
   return (
-    <View style={[{ width: 20, height: 20, borderRadius: 10, borderWidth: on ? 0 : 1.5, borderColor: color, backgroundColor: on ? color : "transparent", alignItems: "center", justifyContent: "center", flexShrink: 0 }, style]}>
-      {on ? <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: "#ffffff" }} /> : null}
+    // The browser's own margin around a radio: 3px above and right, 5px left.
+    <View style={[{ width, height: 20, marginTop: 3, marginRight: 3, marginLeft: 5, alignItems: "center", justifyContent: "center", flexShrink: 0 }, style]}>
+      <View style={{ width: d, height: d, borderRadius: d / 2, borderWidth: 1, borderColor: ring, backgroundColor: "#3b3b3b", alignItems: "center", justifyContent: "center" }}>
+        {on ? <View style={{ width: d * 0.6, height: d * 0.6, borderRadius: d * 0.3, backgroundColor: disabled ? "#757575" : t.c.accent }} /> : null}
+      </View>
     </View>
   );
 }
@@ -202,6 +228,8 @@ export function Radio({ on, disabled, style }: { on: boolean; disabled?: boolean
 /** input[type=checkbox] at 20px. */
 export function Box({ on, disabled, style }: { on: boolean; disabled?: boolean; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
+  // The browser's own margin around a checkbox: 3px, 4px on the left.
+  style = [{ margin: 3, marginLeft: 4 }, style];
   const color = disabled ? t.c.disabledLine : t.c.accent;
   return (
     <View style={[{ width: 20, height: 20, borderRadius: 3, borderWidth: on ? 0 : 1.5, borderColor: disabled ? t.c.disabledLine : t.c.muted, backgroundColor: on ? color : "transparent", alignItems: "center", justifyContent: "center", flexShrink: 0 }, style]}>

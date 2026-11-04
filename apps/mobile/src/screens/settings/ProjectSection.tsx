@@ -153,7 +153,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                 ))}
               </View>
             </ReadOnly>
-            <Txt size={12} tone="dim" style={{ marginTop: 8 }}>
+            <Txt size={12} tone="dim" style={{ marginTop: 8, marginBottom: 12 }}>
               {clients.length ? `Used by ${clients.map((c) => c.name).join(" and ")}. ` : "No other MCP client configured. "}
               Applies from each client's next session.{context.fromFile ? "" : " Default: Micro."} Token counts measured by ue-mcp.
             </Txt>
@@ -167,8 +167,8 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         <Txt size={12} tone="dim" style={{ marginBottom: 12 }}>
           Change these from Studio in the editor. It runs ue-mcp init.
         </Txt>
-        {clients.map((c, i) => (
-          <View key={c.id} style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", paddingVertical: 11, borderTopWidth: i ? 1 : 0, borderTopColor: t.c.line }}>
+        {clients.map((c) => (
+          <View key={c.id} style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", paddingVertical: 11, borderTopWidth: 1, borderTopColor: t.c.line }}>
             <Dot kind="ok" style={{ marginTop: 6 }} />
             <Txt weight={500} style={{ flex: 1 }}>
               <Span weight={700}>{c.name}</Span> <Span size={12} tone="muted">{c.pinned ? `ue-mcp@${c.pinned}` : "ue-mcp@latest"}</Span>

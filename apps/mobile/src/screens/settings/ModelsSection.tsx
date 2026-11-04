@@ -37,7 +37,7 @@ export function ReadOnly({ children }: { children: ReactNode }) {
       <Txt size={12} tone="dim" style={{ marginBottom: 8 }}>
         {REMOTE_CHANGE_NOTE}
       </Txt>
-      <View style={{ opacity: 0.7, gap: 14 }}>{children}</View>
+      <View style={{ opacity: 0.7 }}>{children}</View>
     </>
   );
 }
@@ -69,16 +69,18 @@ export function ModelsSection() {
       <Message msg={msg} />
       <View>
         <ReadOnly>
+          {/* .cfg-cols: the two cards 14px apart; the endpoints card follows them with no gap, as in the page's fieldset. */}
+          <View style={{ gap: 14 }}>
           <Card>
             <CardLabel>Sign-ins</CardLabel>
             <Txt size={12} tone="dim" style={{ marginBottom: 12 }}>
               Runs the vendor's models on your plan.
             </Txt>
-            {byVendor(OFFERED_SIGN_INS).map((p, i) => (
-              <ProviderRow key={p} provider={p} settings={settings} first={i === 0} />
+            {byVendor(OFFERED_SIGN_INS).map((p) => (
+              <ProviderRow key={p} provider={p} settings={settings} />
             ))}
             {keyOnly.length > 0 ? (
-              <Txt size={12} tone="dim" style={{ marginTop: 12 }}>
+              <Txt size={12} tone="dim" style={{ marginVertical: 12 }}>
                 {keyOnly.join(" and ")}: key only.
               </Txt>
             ) : null}
@@ -88,10 +90,11 @@ export function ModelsSection() {
             <Txt size={12} tone="dim" style={{ marginBottom: 12 }}>
               Stored on this machine, used by every project.
             </Txt>
-            {byVendor(KEY_PROVIDER_IDS).map((p, i) => (
-              <ProviderRow key={p} provider={p} settings={settings} first={i === 0} />
+            {byVendor(KEY_PROVIDER_IDS).map((p) => (
+              <ProviderRow key={p} provider={p} settings={settings} />
             ))}
           </Card>
+          </View>
           <EndpointsCard />
         </ReadOnly>
       </View>
@@ -150,7 +153,7 @@ export function ModelsSection() {
               </View>
             ))}
         </View>
-        <Txt size={12} tone="dim" style={{ marginTop: 12 }}>
+        <Txt size={12} tone="dim" style={{ marginVertical: 12 }}>
           Vendors with a key list their current models{catalog?.providers.some((p) => p.source === "default") ? "; others show a built-in list" : ""}.
         </Txt>
       </Card>
@@ -165,13 +168,14 @@ function ColumnName({ children }: { children: string }) {
 }
 
 /** One sign-in or vendor key: whether it is connected; its sign-in, sign-out and key buttons are the computer's. */
-function ProviderRow({ provider, settings, first }: { provider: ProviderId; settings: StudioSettings; first: boolean }) {
+/** A provider row follows the card's note, so it always has the line above it. */
+function ProviderRow({ provider, settings }: { provider: ProviderId; settings: StudioSettings }) {
   const t = useTheme();
   const connected = settings.connected[provider];
   const signIn = provider === "studio" || provider === "claude" || provider === "chatgpt";
   const status = provider === "claude" || provider === "chatgpt" ? (connected ? "Signed in" : "Not signed in") : signIn ? (settings.account ? `Signed in as @${settings.account.login}` : "Not signed in") : connected ? "Key saved" : "No key";
   return (
-    <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", paddingVertical: 11, borderTopWidth: first ? 0 : 1, borderTopColor: t.c.line }}>
+    <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", paddingVertical: 11, borderTopWidth: 1, borderTopColor: t.c.line }}>
       <Dot kind={connected ? "ok" : undefined} style={{ marginTop: 6 }} />
       <View style={{ flex: 1, minWidth: 0 }}>
         <Txt weight={500}>
@@ -231,10 +235,10 @@ function EndpointsCard() {
           {!list ? <Button title="Retry" disabled /> : null}
         </Banner>
       ) : null}
-      {!list && !error ? <Txt size={12} tone="muted">Loading endpoints</Txt> : null}
-      {list && list.length === 0 ? <Txt size={12} tone="muted">No endpoints.</Txt> : null}
-      {list?.map((e, i) => (
-        <View key={e.id} style={{ flexDirection: "row", flexWrap: "wrap", gap: 14, alignItems: "flex-start", paddingVertical: 11, borderTopWidth: i ? 1 : 0, borderTopColor: t.c.line }}>
+      {!list && !error ? <Txt size={12} tone="muted" style={{ marginBottom: 12 }}>Loading endpoints</Txt> : null}
+      {list && list.length === 0 ? <Txt size={12} tone="muted" style={{ marginBottom: 12 }}>No endpoints.</Txt> : null}
+      {list?.map((e) => (
+        <View key={e.id} style={{ flexDirection: "row", flexWrap: "wrap", gap: 14, alignItems: "flex-start", paddingVertical: 11, borderTopWidth: 1, borderTopColor: t.c.line }}>
           <Dot kind={e.listError ? "warn" : e.models.length ? "ok" : undefined} style={{ marginTop: 6 }} />
           <View style={{ flex: 1, minWidth: 0 }}>
             <Txt weight={500}>

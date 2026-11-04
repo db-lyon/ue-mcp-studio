@@ -48,15 +48,16 @@ export function UpdatesCard() {
         {!working && steps.length === 0 ? <Button title="Check again" onPress={load} /> : null}
       </View>
       {!u ? <Txt tone="muted" style={{ marginVertical: t.base.size }}>Checking</Txt> : null}
+      {/* The card is block flow: margins between its rows collapse, so each top here is what is left after the one above. */}
       {u ? (
-        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginVertical: 6 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
           <Pill kind={steps.length ? "warn" : "ok"} style={{ alignSelf: "center" }}>
             {steps.length ? "Update available" : "Up to date"}
           </Pill>
           <Txt tone="muted">{waits ? "Update ready. Restarts after the current turn." : working ? "Updating" : steps.length ? ready : "Up to date."}</Txt>
         </View>
       ) : null}
-      <Txt size={12} tone="dim" style={{ marginVertical: 12 }}>
+      <Txt size={12} tone="dim" style={{ marginTop: u ? 6 : 0, marginBottom: 12 }}>
         {REMOTE_UPDATES}
       </Txt>
       {stopped && !working ? (
@@ -74,7 +75,7 @@ export function UpdatesCard() {
         </Banner>
       ) : null}
       {u?.studio ? (
-        <View accessibilityRole="radiogroup" accessibilityLabel="Release channel" style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 14, marginTop: 8, marginBottom: 6 }}>
+        <View accessibilityRole="radiogroup" accessibilityLabel="Release channel" style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 14, marginBottom: 6 }}>
           <Txt size={12} tone="dim">
             Channel
           </Txt>
@@ -110,7 +111,7 @@ export function UpdatesCard() {
         </Txt>
       ) : null}
       {u ? (
-        <Details summary={<Txt size={12} tone="dim">Details</Txt>} style={{ marginTop: 8 }}>
+        <Details summary={<Txt size={12} tone="dim">Details</Txt>} style={{ marginTop: 2 }}>
           {updateRows(u).map(([name, installed, latest, available]) => (
             <Txt key={name} size={12} tone="dim">
               {name}: {installed ?? "not installed"}

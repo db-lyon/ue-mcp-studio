@@ -104,10 +104,11 @@ export function EffortPicker({ settings, onSettings, follow, disabled }: { setti
   };
   return (
     <>
-      <Pressable accessibilityRole="button" accessibilityLabel={follow?.label ?? "Effort"} accessibilityState={{ disabled: off }} disabled={off} onPress={() => setOpen(true)} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 10, paddingRight: 4, borderWidth: 1, borderColor: t.c.line, borderRadius: 6, backgroundColor: t.c.panel, alignSelf: "flex-start" }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={follow?.label ?? "Effort"} accessibilityState={{ disabled: off }} disabled={off} onPress={() => setOpen(true)} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 10, paddingRight: 4, borderWidth: 1, borderColor: t.c.line, borderRadius: 6, backgroundColor: t.c.panel, alignSelf: "flex-start", marginRight: 14 }}>
+        {/* A label keeps the page's 14px after it, so the box wraps under the model where the web page's does. */}
         <T style={[font(t, "sans", 500, 12, 1), { color: t.c.dim }]}>Effort</T>
-        {/* The select: as wide as its longest choice, its arrow in 28px at the right, as a browser draws one. */}
-        <View style={{ minHeight: 44, paddingLeft: 4, paddingRight: 28, justifyContent: "center" }}>
+        {/* The select: as wide as its longest choice, plus the 28px the page keeps for its arrow and the 20px the browser adds. */}
+        <View style={{ minHeight: 44, paddingLeft: 8, paddingRight: 44.3, justifyContent: "center" }}>
           <View style={{ height: 0, overflow: "hidden" }} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
             {[...(follow ? [follow.same] : []), ...EFFORTS.map((x) => EFFORT_NAMES[x])].map((n) => (
               <T key={n} style={font(t, "sans", 500, 16, 1.2)}>
@@ -115,11 +116,11 @@ export function EffortPicker({ settings, onSettings, follow, disabled }: { setti
               </T>
             ))}
           </View>
-          <T numberOfLines={1} style={[font(t, "sans", 500, 16, 1.2), { color: off ? t.c.dim : t.c.text }]}>
+          <T numberOfLines={1} style={[font(t, "sans", 500, 16, 1.2), { color: t.c.text }]}>
             {value === null ? follow?.same : EFFORT_NAMES[value]}
           </T>
-          <View style={{ position: "absolute", right: 9, top: 0, bottom: 0, justifyContent: "center" }}>
-            <Chevron color={off ? t.c.dim : t.c.text} />
+          <View style={{ position: "absolute", right: 4, top: 0, bottom: 0, justifyContent: "center" }}>
+            <Chevron color={t.c.text} />
           </View>
         </View>
       </Pressable>
@@ -136,8 +137,8 @@ export function EffortPicker({ settings, onSettings, follow, disabled }: { setti
 /** A select's arrow. */
 export function Chevron({ color }: { color: string }) {
   return (
-    <Svg width={10} height={6} viewBox="0 0 10 6" fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-      <Path d="M1 1l4 4 4-4" />
+    <Svg width={9} height={6} viewBox="0 0 9 6" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+      <Path d="M1 1l3.5 3.5L8 1" />
     </Svg>
   );
 }
