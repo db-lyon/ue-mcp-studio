@@ -1,14 +1,7 @@
 import { useState } from "react";
+import { DISCONNECT_CAUSE, EDITOR_OPS, stepsLine } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import type { DaemonState } from "../state";
-
-const CAUSE: Record<string, string> = {
-  closed: "closed normally",
-  crashed: "crashed",
-  restarting: "restarting",
-  rebuild: "rebuilding",
-  unknown: "connection dropped",
-};
 
 export function StatusView({ daemon }: { daemon: DaemonState }) {
   const h = daemon.health;
@@ -19,10 +12,7 @@ export function StatusView({ daemon }: { daemon: DaemonState }) {
     setBusy(op);
     setResult(null);
     api.editor(op).then(
-      (r) => {
-        const steps = (r.steps as Array<{ step: string; ok: boolean }> | undefined) ?? [];
-        setResult(steps.map((s) => `${s.step}: ${s.ok ? "ok" : "failed"}`).join(", "));
-      },
+      (r) => setResult(stepsLine(r)),
       (e: Error) => setResult(e.message),
     ).finally(() => setBusy(null));
   };
@@ -40,13 +30,13 @@ export function StatusView({ daemon }: { daemon: DaemonState }) {
             <span className="spacer" />
             {!e.connected && e.lastDisconnect && (
               <span className="muted">
-                {CAUSE[e.lastDisconnect.cause] ?? e.lastDisconnect.cause} at {new Date(e.lastDisconnect.at).toLocaleTimeString()}
+                {DISCONNECT_CAUSE[e.lastDisconnect.cause] ?? e.lastDisconnect.cause} at {new Date(e.lastDisconnect.at).toLocaleTimeString()}
               </span>
             )}
           </div>
         ))}
         <div className="actions">
-          {(["start", "stop", "restart", "rebuild"] as const).map((op) => (
+          {EDITOR_OPS.map((op) => (
             <button key={op} disabled={busy !== null || (op === "start" ? h.editors.some((e) => e.connected) : !h.editors.some((e) => e.connected))} onClick={() => run(op)}>
               {busy === op ? `${op}...` : op[0].toUpperCase() + op.slice(1)}
             </button>

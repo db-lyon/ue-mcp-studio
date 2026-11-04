@@ -88,8 +88,9 @@ export function fontName(family: FontFamily, weight: Weight = 400, italic = fals
       // The web client loads Roboto 400 and 700 only, so 500 and 600 draw as the browser's synthesis of those.
       return weight >= 600 ? "Roboto_700Bold" : "Roboto_400Regular";
     case "system-mono":
-      // Consolas in the editor themes; a phone has none, so its browser falls back to the system monospace, as here.
-      return Platform.select({ ios: "Menlo", default: "monospace" });
+      // The editor themes' --mono stack, as the web build draws it; on a device the system monospace, which is where
+      // a phone's browser lands on that stack too (no Consolas there).
+      return Platform.select({ web: "Consolas, ui-monospace, monospace", ios: "Menlo", default: "monospace" });
   }
 }
 
