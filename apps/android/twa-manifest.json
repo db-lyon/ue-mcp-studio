@@ -1,0 +1,52 @@
+{
+  "packageId": "com.uemcp.studio.remote",
+  "host": "remote.ue-mcp.com",
+  "name": "UE-MCP Studio",
+  "launcherName": "UE-MCP Studio",
+  "display": "standalone",
+  "orientation": "default",
+  "themeColor": "#0C0C0B",
+  "themeColorDark": "#0C0C0B",
+  "navigationColor": "#0C0C0B",
+  "navigationColorDark": "#0C0C0B",
+  "navigationDividerColor": "#0C0C0B",
+  "navigationDividerColorDark": "#0C0C0B",
+  "backgroundColor": "#0C0C0B",
+  "enableNotifications": false,
+  "startUrl": "/ui/",
+  "iconUrl": "https://remote.ue-mcp.com/icons/icon-512.png",
+  "maskableIconUrl": "https://remote.ue-mcp.com/icons/maskable-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "./android.keystore",
+    "alias": "uemcp-studio"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "bubblewrap-cli",
+  "webManifestUrl": "https://remote.ue-mcp.com/manifest.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "fullScopeUrl": "https://remote.ue-mcp.com/",
+  "minSdkVersion": 24,
+  "fingerprints": [
+    {
+      "name": "release",
+      "value": "C9:FC:43:17:C1:2E:A0:D8:1B:A7:B3:9D:EB:75:DA:C9:A1:63:00:7D:45:56:BC:7B:CC:05:99:54:7F:C4:B0:A3"
+    }
+  ],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "protocolHandlers": [],
+  "fileHandlers": [],
+  "launchHandlerClientMode": "",
+  "displayOverride": [],
+  "appVersion": "1.0.0"
+}
