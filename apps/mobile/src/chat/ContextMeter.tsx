@@ -1,3 +1,4 @@
+// HANDED OVER: owned by area-d from here; ported on mobile/chat-core as a starting point.
 /**
  * The composer's context meter: how much of the model's window the
  * conversation takes now, as a percentage and a thin bar that turns amber and
