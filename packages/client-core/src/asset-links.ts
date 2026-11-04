@@ -1,0 +1,197 @@
+/**
+ * Asset names in text as links, with no UI: plain text and a playtest step's
+ * text split into the tokens that may name an asset, and the store that asks
+ * the agent which assets they name, in debounced batches with retries.
+ */
+import { MAX_RESOLVE_TOKENS, OBJECT_PATH_IN_TEXT, assetLinkTarget, classifyAssetToken, type AssetRef, type AssetResolution } from "@ue-mcp-studio/shared";
+
+/** Bare object paths in plain text (a tool's input or result), split for linking. */
+export function splitText(text: string, max = 50): Array<{ text: string; asset: boolean }> {
+  const out: Array<{ text: string; asset: boolean }> = [];
+  let last = 0;
+  let n = 0;
+  for (const m of text.matchAll(new RegExp(OBJECT_PATH_IN_TEXT.source, "g"))) {
+    if (n >= max) break;
+    if (!classifyAssetToken(m[0])) continue;
+    const at = m.index ?? 0;
+    if (at > last) out.push({ text: text.slice(last, at), asset: false });
+    out.push({ text: m[0], asset: true });
+    last = at + m[0].length;
+    n++;
+  }
+  if (last < text.length) out.push({ text: text.slice(last), asset: false });
+  return out;
+}
+
+export type LinkState = { status: "pending" } | { status: "resolved"; paths: string[] } | { status: "unresolved" };
+
+const PENDING: LinkState = { status: "pending" };
+
+export type Resolve = (refs: AssetRef[], sessionId: string | null) => Promise<AssetResolution[]>;
+
+/** How long a token waits before it is asked again: grows with each try, to a minute. */
+export const RETRY_MS = [3000, 10_000, 30_000, 60_000];
+
+/** A path resolves the same anywhere; a name resolves per message. */
+function refOf(token: string, at?: number): AssetRef {
+  return at === undefined || classifyAssetToken(token)?.kind !== "name" ? { token } : { token, at };
+}
+const keyOf = (r: AssetRef): string => (r.at === undefined ? r.token : `${r.at}|${r.token}`);
+
+/** Resolutions for one session's view, asked in debounced batches, one request at a time. */
+export class AssetLinks {
+  private readonly states = new Map<string, LinkState>();
+  private readonly tries = new Map<string, number>();
+  private readonly queue = new Map<string, AssetRef>();
+  private readonly listeners = new Set<() => void>();
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private inflight = false;
+  private disposed = false;
+
+  constructor(
+    private readonly resolve: Resolve,
+    private readonly sessionId: string | null,
+    private readonly debounceMs = 120,
+  ) {}
+
+  /** The same object until the token's state changes, as useSyncExternalStore needs. at: the message's transcript index. */
+  state(token: string, at?: number): LinkState {
+    return this.states.get(keyOf(refOf(token, at))) ?? PENDING;
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  /** Ask for a token the first time it shows; later asks are free. */
+  request(token: string, at?: number): void {
+    const ref = refOf(token, at);
+    const key = keyOf(ref);
+    if (this.states.has(key) || this.queue.has(key) || this.disposed) return;
+    this.states.set(key, PENDING);
+    this.enqueue(ref, this.debounceMs);
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    if (this.timer) clearTimeout(this.timer);
+  }
+
+  private enqueue(ref: AssetRef, delay: number): void {
+    this.queue.set(keyOf(ref), ref);
+    this.schedule(delay);
+  }
+
+  private schedule(delay: number): void {
+    if (this.timer || this.disposed) return;
+    this.timer = setTimeout(() => {
+      this.timer = null;
+      void this.flush();
+    }, delay);
+  }
+
+  private later(refs: AssetRef[]): void {
+    for (const r of refs) {
+      const key = keyOf(r);
+      const n = this.tries.get(key) ?? 0;
+      this.tries.set(key, n + 1);
+      setTimeout(() => !this.disposed && this.enqueue(r, 0), RETRY_MS[Math.min(n, RETRY_MS.length - 1)]);
+    }
+  }
+
+  private async flush(): Promise<void> {
+    if (this.inflight || this.queue.size === 0 || this.disposed) return;
+    const batch = [...this.queue.values()].slice(0, MAX_RESOLVE_TOKENS);
+    for (const r of batch) this.queue.delete(keyOf(r));
+    this.inflight = true;
+    try {
+      const results = await this.resolve(batch, this.sessionId);
+      const again: AssetRef[] = [];
+      batch.forEach((ref, i) => {
+        const r = results[i];
+        if (!r || r.status === "retry") again.push(ref);
+        else this.states.set(keyOf(ref), r.status === "resolved" && r.paths.length ? { status: "resolved", paths: r.paths } : { status: "unresolved" });
+      });
+      this.later(again);
+      this.emit();
+    } catch {
+      // The agent is unreachable or restarting: the tokens stay plain and are asked again.
+      this.later(batch);
+    } finally {
+      this.inflight = false;
+      if (this.queue.size) this.schedule(0);
+    }
+  }
+
+  private emit(): void {
+    for (const l of [...this.listeners]) l();
+  }
+}
+
+export type StepPart =
+  | { kind: "text"; text: string }
+  | { kind: "exact"; path: string; label: string }
+  | { kind: "asset"; token: string; code: boolean }
+  | { kind: "code"; text: string };
+
+/**
+ * A markdown link to a rooted target, a code span, a bare object path, or an
+ * identifier with an underscore (L_WG_Meadow, BP_Door, IA_Jump). An
+ * identifier followed by a dot and a word is a property path, never a candidate.
+ */
+const STEP_TOKEN = new RegExp(
+  [
+    String.raw`\[(?<label>[^\]\n]+)\]\((?<url>\/[^)\s]+)\)`,
+    String.raw`\x60(?<code>[^\x60\n]+)\x60`,
+    `(?<path>${OBJECT_PATH_IN_TEXT.source})`,
+    String.raw`(?<![\w/.\-])(?<name>[A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]*[A-Za-z0-9])(?![\w/]|\.\w)`,
+  ].join("|"),
+  "g",
+);
+
+/**
+ * A playtest step's text split for linking, as chat links a reply: a markdown
+ * link to an object path is exact; a code span, a bare object path or an
+ * identifier that looks like an asset name is a candidate the store resolves,
+ * plain until it does.
+ */
+export function stepParts(text: string, max = 50): StepPart[] {
+  const out: StepPart[] = [];
+  let last = 0;
+  let n = 0;
+  const plain = (t: string) => {
+    if (!t) return;
+    const prev = out[out.length - 1];
+    if (prev?.kind === "text") prev.text += t;
+    else out.push({ kind: "text", text: t });
+  };
+  for (const m of text.matchAll(STEP_TOKEN)) {
+    const at = m.index ?? 0;
+    const g = m.groups ?? {};
+    let part: StepPart | null = null;
+    if (g.url !== undefined) {
+      const path = assetLinkTarget(g.url);
+      part = path ? { kind: "exact", path, label: g.label.trim() } : { kind: "text", text: g.label };
+    } else if (g.code !== undefined) {
+      part = classifyAssetToken(g.code) ? { kind: "asset", token: g.code.trim(), code: true } : { kind: "code", text: g.code };
+    } else if (g.path !== undefined) {
+      if (classifyAssetToken(g.path)) part = { kind: "asset", token: g.path, code: false };
+    } else if (g.name !== undefined && classifyAssetToken(g.name)?.kind === "name") {
+      part = { kind: "asset", token: g.name, code: false };
+    }
+    if (!part || (part.kind === "asset" && n >= max)) continue;
+    plain(text.slice(last, at));
+    if (part.kind === "text") plain(part.text);
+    else out.push(part);
+    if (part.kind === "asset") n++;
+    last = at + m[0].length;
+  }
+  plain(text.slice(last));
+  return out;
+}
+
+/** A step's text as words alone, for a tooltip or a line that cannot hold links: a markdown link reads as its label, a code span as its text. */
+export function stepPlain(text: string): string {
+  return stepParts(text, Infinity).map((p) => (p.kind === "exact" ? p.label : p.kind === "asset" ? p.token : p.text)).join("");
+}

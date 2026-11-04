@@ -1,9 +1,9 @@
 /**
  * The project-wide routes beside the chat: playtests and their runs, the
  * editor's busy state and start, stop, restart and rebuild, the project's
- * flows, and the verdict forms a playtest raises. studioApi includes them.
+ * flows, the verdict forms a playtest raises, and asset links. studioApi includes them.
  */
-import type { BusyState, FlowListing, FlowRunRequest, PendingForm, PlaytestIndexAnswer, QaRun, QaScriptStep, QaVerdict, RestoreOutcome } from "@ue-mcp-studio/shared";
+import type { AssetOpenResponse, AssetRef, AssetResolveResponse, BusyState, FlowListing, FlowRunRequest, PendingForm, PlaytestIndexAnswer, QaRun, QaScriptStep, QaVerdict, RestoreOutcome } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
 import type { EditorOp } from "./editor.js";
 import type { RunOptions } from "./qa.js";
@@ -45,6 +45,9 @@ export function projectApi(t: Transport) {
     qaSaveScript: (runId: string, steps: QaScriptStep[], map?: string) => send<{ run: QaRun }>("PUT", `${runPath(runId)}/script`, { steps, ...(map !== undefined ? { map } : {}) }),
     qaDeleteScript: (runId: string) => send<{ run: QaRun }>("DELETE", `${runPath(runId)}/script`),
     qaDismiss: (runId: string) => send<void>("DELETE", runPath(runId)),
+    resolveAssets: (refs: AssetRef[], sessionId: string | null) => send<AssetResolveResponse>("POST", `${S}/assets/resolve`, sessionId ? { refs, sessionId } : { refs }),
+    reportAssetMiss: (name: string, candidates: number) => send<void>("POST", `${S}/assets/missed`, { name, candidates }),
+    openAsset: (path: string) => send<AssetOpenResponse>("POST", `${S}/assets/open`, { path }),
   };
 }
 
