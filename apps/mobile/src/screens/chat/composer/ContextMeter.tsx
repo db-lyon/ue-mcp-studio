@@ -133,7 +133,8 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
                 <T style={{ fontSize: 13, lineHeight: 13 * (t.editor ? 1.5 : 1.55), marginTop: 4 }}>
                   <T weight={700} size={13} lh={t.editor ? 1.5 : 1.55}>{`${view.estimated ? "about " : ""}${view.used.toLocaleString("en-US")}`}</T>
                   {` of ${view.window.toLocaleString("en-US")} tokens `}
-                  <T style={[font(t, "mono", 600, 12, 1), { color: levelColor(t, view.level) === t.c.ok ? t.c.text : levelColor(t, view.level) }]}>{` ${view.estimated ? "~" : ""}${pct(view.fraction)}`}</T>
+                  {/* .context-big .context-pct { margin-left: 4px }, after the sentence's own space. */}
+                  <T style={[font(t, "mono", 600, 12, 1), { marginLeft: 4, color: levelColor(t, view.level) === t.c.ok ? t.c.text : levelColor(t, view.level) }]}>{`${view.estimated ? "~" : ""}${pct(view.fraction)}`}</T>
                 </T>
                 {context && !view.estimated
                   ? p(`Last request: ${tokenCount(context.input)} prompt${context.cached ? ` (${tokenCount(context.cached)} from the cache)` : ""} and ${tokenCount(context.output)} answer, on ${nameOf(context.model)} at ${new Date(context.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`)

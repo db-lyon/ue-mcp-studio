@@ -8,7 +8,7 @@ import { Linking, Platform, Pressable, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import type { RemotePairing } from "@ue-mcp-studio/shared";
 import { pairingExpired, timeLeft } from "@ue-mcp-studio/client-core";
-import { Button, T, useTheme } from "../../../../ui";
+import { Button, T, font, useTheme } from "../../../../ui";
 import { small } from "../../../../chat/styles";
 import { QrSvg } from "./QrSvg";
 
@@ -52,7 +52,10 @@ export function PairingCode({ pairing, onRenew, busy }: { pairing: RemotePairing
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
         {left ? <T style={[small(t), { color: t.c.muted }]}>{`Works once, for ${left} more.`}</T> : null}
         {/* .remote-qr button.ghost draws as a plain button on a phone. */}
-        <Button title={copied ? "Copied" : "Copy link"} size="small" onPress={copy} />
+        {/* button.small-button takes the card's font size (font-size: inherit) in ue-mcp; the editor themes' buttons keep 12 px. */}
+        <Button label={copied ? "Copied" : "Copy link"} size="small" onPress={copy}>
+          <T style={t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 500, t.base.size, 1.2), letterSpacing: t.base.size * 0.02 }}>{copied ? "Copied" : "Copy link"}</T>
+        </Button>
       </View>
     </View>
   );
