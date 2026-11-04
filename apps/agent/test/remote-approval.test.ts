@@ -110,7 +110,7 @@ describe("pairing waits for the owner", () => {
     const approval = String((await enroll(svc, keys, secret, p)).body!.approval);
 
     expect(await svc.decide(approval, false)).toEqual({ ok: true });
-    expect((await poll(svc, approval)).failed).toEqual({ status: 403, error: "The computer denied this browser." });
+    expect((await poll(svc, approval)).failed).toEqual({ status: 403, error: "The computer denied this device." });
     expect(keys.phones()).toEqual([]);
     expect(paired).toEqual([]);
     // Allowing afterwards does nothing, and the same code cannot start a new request.

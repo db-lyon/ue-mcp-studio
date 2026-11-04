@@ -42,7 +42,7 @@ describe("ue-mcp.yml editor", () => {
     m.saveConfig.mockResolvedValue({ ...FILE, text: next });
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Save" })));
     expect(m.saveConfig).toHaveBeenCalledWith(next);
-    expect(screen.getByText("Saved. The server reloads it on the next call.")).toBeTruthy();
+    expect(screen.getByText("Saved. Flows and tasks apply from the next call; other settings when ue-mcp restarts.")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
   });
 

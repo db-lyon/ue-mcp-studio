@@ -158,7 +158,7 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
       <div className="actions">
         <button className="primary" disabled={status === "started"} onClick={apply}>Apply</button>
       </div>
-      {status === "started" && <div className="banner ok">Running setup. The install status above refreshes when it is done.</div>}
+      {status === "started" && <div className="banner ok">Running setup. The install status above reads again in 20 seconds.</div>}
       {status === "failed" && <div className="banner bad">Setup could not start. The editor's Output Log has the reason.</div>}
     </section>
   );

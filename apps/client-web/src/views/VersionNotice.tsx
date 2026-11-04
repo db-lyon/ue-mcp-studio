@@ -24,7 +24,7 @@ export function VersionNoticeLine({ notice, onUpdate, onKeep, busy, error, remot
   return (
     <div className="banner warn editor-banner version-notice" role="status">
       <span className="editor-banner-text">
-        Studio {notice.installed} was installed by another project. This project uses {notice.current}.
+        Studio {notice.installed} is installed on this computer. This project uses {notice.current}.
         {error && <span className="dim"> {error}</span>}
         {remote && <span className="dim"> {REMOTE_UPDATES}</span>}
       </span>

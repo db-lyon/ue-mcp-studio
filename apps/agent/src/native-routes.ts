@@ -10,7 +10,7 @@
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { CONVENTIONS, KEY_PROVIDER_IDS, PROVIDERS, conventionOf, type KeyProviderId, type Convention, type NativeOverview, type NativePreview, type NativeView, type WorkerView } from "@ue-mcp-studio/shared";
+import { CONVENTIONS, conventionOf, type Convention, type NativeOverview, type NativePreview, type NativeView, type WorkerView } from "@ue-mcp-studio/shared";
 import { loadout, type Loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor } from "./native-runtime.js";
 
@@ -33,8 +33,6 @@ export interface NativeRouteOptions {
   /** Opens a file with the system's default app; replaced in tests. */
   open?: (abs: string) => void;
 }
-
-const vendorName = (v: string): string => (KEY_PROVIDER_IDS as readonly string[]).includes(v) ? PROVIDERS[v as KeyProviderId].name : v;
 
 const VENDOR_OF: Record<Convention, string | null> = { claude: "anthropic", codex: "openai", gemini: "google", agents: null };
 
@@ -63,10 +61,10 @@ export function nativeView(l: Loadout, o: Pick<NativeRouteOptions, "routesFor" |
       // With nothing that runs the main agent, no subagent runs either: say what it waits for, never a model.
       const runs = main.route === null
         ? wants && !o.runsOverApi(wants.vendor, wants.model)
-          ? { model: `Runs once a route for ${vendorName(wants.vendor)} models is connected` }
+          ? { model: "The main agent's model, once one is connected", note: `Nothing on this machine runs ${a.model} over the API, so it runs on the main agent's model.` }
           : wants
             ? { model: o.modelName(wants.model) }
-            : { model: "The main agent's model, none runs here yet" }
+            : { model: "The main agent's model, once one is connected" }
         : !wants
           ? { model: `The main agent's, ${o.modelName(main.model)}` }
           : o.runsOverApi(wants.vendor, wants.model)

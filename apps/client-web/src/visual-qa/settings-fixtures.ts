@@ -142,7 +142,7 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   }),
   "settings-remote-pin-off": page("Remote control with the PIN lock off: what it does and Set a PIN", "remote", remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 })),
   "settings-remote-pin-new": page("Remote control setting a PIN: the PIN twice, digits only", "remote", { ...remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button.primary"] }),
-  "settings-remote-pin-on": page("Remote control with a PIN, both switches on: the whole browser locks after the idle time, and sensitive actions ask", "remote", remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 })),
+  "settings-remote-pin-on": page("Remote control with a PIN, both switches on: Studio locks on paired devices after the idle time, and sensitive actions ask", "remote", remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 })),
   "settings-remote-signin": page("Remote control on a signed-out computer, while STUDIO_PLAN_AVAILABLE is on: the ue-mcp account sign-in inline. With the flag off it is not listed and this opens General", "remote", {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : undefined),
   }),

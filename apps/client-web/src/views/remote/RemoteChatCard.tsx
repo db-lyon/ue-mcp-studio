@@ -124,7 +124,7 @@ export function RemoteChatCard({ onSettings }: { onSettings?: () => void }) {
         </>
       )}
       {state.at !== "connecting" && <PairedBrowsers />}
-      {onSettings && <button className="ghost small-button remote-manage" onClick={onSettings}>Manage paired browsers in Settings</button>}
+      {onSettings && <button className="ghost small-button remote-manage" onClick={onSettings}>Manage paired devices in Settings</button>}
     </div>
   );
 }

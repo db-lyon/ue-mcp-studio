@@ -42,12 +42,12 @@ export function problemCopy(problem: StatusReport["problems"][number], report: S
     case "bridge_not_deployed":
       return {
         title: "The bridge plugin is not in this project.",
-        detail: "Apply in Clients and tools setup below to install it.",
+        detail: "Run Clients and tools setup from Studio in the editor to install it.",
       };
     case "bridge_not_enabled":
       return {
         title: "The bridge plugin is not enabled.",
-        detail: "It is in the project, but the project does not load it. Apply in Clients and tools setup below to enable it.",
+        detail: "It is in the project, but the project does not load it. Run Clients and tools setup from Studio in the editor to enable it.",
       };
     case "bridge_version_mismatch":
       return {

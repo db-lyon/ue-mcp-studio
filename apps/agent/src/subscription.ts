@@ -305,6 +305,14 @@ export class CallMatcher {
   }
 }
 
+/** Why the Claude runtime ended a turn, from its result subtype. */
+export function endedText(subtype: string): string {
+  if (subtype === "error_max_turns") return "The turn ended: it reached its step limit.";
+  if (subtype === "error_during_execution") return "The turn ended: the Claude runtime hit an error.";
+  if (subtype === "error_max_budget_usd") return "The turn ended: it reached its spending limit.";
+  return `The turn ended: ${subtype}`;
+}
+
 /** How long a stopped turn's binary gets to end the turn itself before it is closed. */
 const STOP_GRACE_MS = 1500;
 
@@ -488,7 +496,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         t.onToolResults(m.message.content as unknown[], m.parent_tool_use_id);
       } else if (m.type === "result") {
         t.onSession(m.session_id);
-        if (m.subtype !== "success") error = error ?? `The turn ended: ${m.subtype}`;
+        if (m.subtype !== "success") error = error ?? endedText(m.subtype);
         else if (m.is_error) error = error ?? m.result;
       }
     }
@@ -547,7 +555,7 @@ export async function runSubscriptionCompletion(c: SubscriptionCompletion): Prom
         for (const b of m.message.content as ContentBlock[]) if (b.type === "text") text += b.text;
       } else if (m.type === "result") {
         if (m.subtype === "success" && !m.is_error) text = m.result || text;
-        else error = error ?? (m.subtype === "success" ? m.result : `The turn ended: ${m.subtype}`);
+        else error = error ?? (m.subtype === "success" ? m.result : endedText(m.subtype));
       }
     }
     if (c.signal.aborted) return { error: "stopped" };

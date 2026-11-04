@@ -106,7 +106,7 @@ function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: ()
         {busy && <div>Checking</div>}
         {error && <div className="pin-error">{error}</div>}
         {left > 0 && <div>Try again in {left} s.</div>}
-        {remaining !== undefined && remaining <= 5 && !lock.removed && <div>{remaining} {remaining === 1 ? "try" : "tries"} left before this browser is removed.</div>}
+        {remaining !== undefined && remaining <= 5 && !lock.removed && <div>{remaining} {remaining === 1 ? "try" : "tries"} left before this device is removed.</div>}
       </div>
       <div className={`pin-pad${blocked ? " blocked" : ""}`} role="group" aria-label="PIN keypad">
         {KEYS.map((d) => (
@@ -143,9 +143,9 @@ export function LockScreen() {
     <div className="lock-screen" role="dialog" aria-modal="true" aria-labelledby="lock-title">
       <div className="lock-card">
         <LockGlyph />
-        <h1 id="lock-title" className="lock-title">{lock.removed ? "This browser was removed" : "Studio is locked"}</h1>
+        <h1 id="lock-title" className="lock-title">{lock.removed ? "This device was removed" : "Studio is locked"}</h1>
         {lock.removed ? (
-          <p className="lock-lead">Too many wrong PINs. Pair this browser again from Studio on the computer.</p>
+          <p className="lock-lead">Too many wrong PINs. Pair this device again from Studio on the computer.</p>
         ) : (
           <>
             <p className="lock-lead">Enter the PIN set in Studio on your computer.</p>

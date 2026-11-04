@@ -323,7 +323,7 @@ export class PinLock {
       this.save(fresh);
       this.grants.delete(phone);
       this.nextTry.delete(phone);
-      return { ok: false, status: 403, error: `Wrong PIN ${REMOTE_PIN_ATTEMPTS} times. This browser was removed; pair it again from the computer.`, unpaired: true, remaining: 0 };
+      return { ok: false, status: 403, error: `Wrong PIN ${REMOTE_PIN_ATTEMPTS} times in a row. This device was removed; pair it again from the computer.`, unpaired: true, remaining: 0 };
     }
     fresh.failures[phone] = failures;
     this.save(fresh);

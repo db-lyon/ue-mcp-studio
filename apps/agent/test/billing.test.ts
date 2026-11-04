@@ -101,4 +101,9 @@ describe("GET /billing/portal", () => {
     answer = { status: 404, body: { error: "no customer" } };
     expect(await routes({ panel: "uemcp_panel" })("GET /billing/portal")).toEqual({ status: 404, body: { error: "This account has no subscription to manage.", code: "no-subscription" } });
   });
+
+  it("billing switched off: says the portal is unavailable, not that plans cannot be bought", async () => {
+    answer = { status: 503, body: { error: "billing off" } };
+    expect(await routes({ panel: "uemcp_panel" })("GET /billing/portal")).toEqual({ status: 503, body: { error: "Billing is not available yet.", code: "unavailable" } });
+  });
 });

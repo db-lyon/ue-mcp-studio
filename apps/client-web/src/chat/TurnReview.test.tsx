@@ -33,7 +33,7 @@ const REVIEW: TurnReview = {
   after: "b".repeat(40),
   at: "2026-10-24T10:00:00.000Z",
   items: [
-    { path: "Config/DefaultGame.ini", status: "modified", kind: "config", group: "config", state: "pending", summary: "1 line added, 1 removed", native: { available: false, reason: "Config and source files have no diff view in Unreal; the text diff here is the whole change." } },
+    { path: "Config/DefaultGame.ini", status: "modified", kind: "config", group: "config", state: "pending", summary: "1 line added, 1 removed", native: { available: false, reason: "Unreal's diff view opens assets only." } },
     { path: "Content/BP_Door.uasset", status: "modified", kind: "package", group: "blueprint", state: "pending", asset: "/Game/BP_Door.BP_Door", summary: "2 changes: Open Angle 0.0 to 90.0; Added Node Branch", native: { available: true } },
     { path: "Content/SM_Box.uasset", status: "added", kind: "package", group: "asset", state: "pending", asset: "/Game/SM_Box.SM_Box", summary: "New StaticMesh", native: { available: true } },
   ],
@@ -90,12 +90,12 @@ describe("the turn card", () => {
   it("shows a file the user edited after the agent, and reverts it only after a confirmed second click", async () => {
     card(withItem("Config/DefaultGame.ini", { conflict: true }));
     const r = row("Config/DefaultGame.ini");
-    expect(within(r).getByRole("alert").textContent).toMatch(/You edited this file after the agent/);
+    expect(within(r).getByRole("alert").textContent).toMatch(/This file was changed outside the agent/);
     expect(within(r).queryByRole("button", { name: "Revert" })).toBeNull();
     fireEvent.click(within(r).getByRole("button", { name: "Revert anyway" }));
     expect(m.reviewRevert).not.toHaveBeenCalled();
     m.reviewRevert.mockResolvedValue({ review: withItem("Config/DefaultGame.ini", { state: "reverted" }), outcome: { ...none, restored: ["Config/DefaultGame.ini"] } });
-    await act(async () => void fireEvent.click(within(r).getByRole("button", { name: "Revert and lose my edits" })));
+    await act(async () => void fireEvent.click(within(r).getByRole("button", { name: "Revert and lose those changes" })));
     expect(m.reviewRevert).toHaveBeenCalledWith("s1", "r1", ["Config/DefaultGame.ini"], true);
   });
 
@@ -105,7 +105,7 @@ describe("the turn card", () => {
     expect(within(row("Config/DefaultGame.ini")).getByText("1 line added, 1 removed")).toBeTruthy();
     const ini = within(row("Config/DefaultGame.ini")).getByRole("button", { name: "Open in Unreal diff" }) as HTMLButtonElement;
     expect(ini.disabled).toBe(true);
-    expect(ini.title).toMatch(/no diff view in Unreal/);
+    expect(ini.title).toMatch(/diff view opens assets only/);
     expect((within(row("Content/SM_Box.uasset")).getByRole("button", { name: "Open in Unreal diff" }) as HTMLButtonElement).disabled).toBe(false);
     m.reviewNativeDiff.mockResolvedValue({ opened: "window", windowTitle: "Diff of BP_Door" });
     await act(async () => void fireEvent.click(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Open in Unreal diff" })));
@@ -161,7 +161,7 @@ describe("the turn card", () => {
     m.reviewRevert.mockResolvedValue({ review: withItem("Config/DefaultGame.ini", { conflict: true }), outcome: { ...none, conflicts: ["Config/DefaultGame.ini"] } });
     card();
     await act(async () => void fireEvent.click(within(row("Config/DefaultGame.ini")).getByRole("button", { name: "Revert" })));
-    expect(screen.getByText("1 file was edited after the agent and left as they are.")).toBeTruthy();
+    expect(screen.getByText("1 file was changed outside the agent and left as they are.")).toBeTruthy();
   });
 });
 

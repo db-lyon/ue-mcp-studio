@@ -131,7 +131,7 @@ describe("/remote and /rc", () => {
     expect(screen.getByRole("link", { name: PAIRING.url })).toBeTruthy();
     // Already on: not turned on again.
     expect(m.setRemote).not.toHaveBeenCalled();
-    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Manage paired browsers in Settings" })));
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Manage paired devices in Settings" })));
     expect(screen.getByText("Settings view remote")).toBeTruthy();
   });
 

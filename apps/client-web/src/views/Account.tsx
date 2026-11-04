@@ -26,7 +26,7 @@ export function AccountView() {
   };
   useEffect(load, []);
 
-  if (!state) return <p className="muted">Loading account...</p>;
+  if (!state) return <p className="muted">Loading account</p>;
   if ("error" in state) {
     return (
       <div className="stack">

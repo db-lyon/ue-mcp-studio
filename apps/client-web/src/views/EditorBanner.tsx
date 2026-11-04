@@ -168,10 +168,10 @@ export function EditorBanner({ daemon, compact = false }: { daemon: DaemonState;
         (e: Error) => setError(e.message),
       ).finally(() => setStarting(false));
     };
-    return frame(starting ? "Starting" : "Editor off", "warn", 
+    return frame(starting ? "Starting" : "Editor offline", "warn", 
       <div className="banner warn editor-banner" role="status">
         <span className="editor-banner-text">
-          <strong>{failure ? `${failureLine(failure)}.` : "Editor not running"}</strong>
+          <strong>{failure ? `${failureLine(failure)}.` : "Editor not connected"}</strong>
           {failure && !error && <span className="dim"> {failure.reason}</span>}
           {error && <span className="dim"> {error}</span>}
         </span>

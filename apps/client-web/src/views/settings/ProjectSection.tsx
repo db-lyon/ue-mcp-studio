@@ -95,7 +95,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
               )}
               {copy.action === "rebuild" && rebuild === "confirm" && (
                 <div className="banner warn small" role="alert">
-                  Rebuild closes the editor, builds the bridge plugin, and opens the editor again. It can take a few minutes. The editor does not close while it has unsaved changes.
+                  Rebuild closes the editor, builds the project's C++ including the bridge plugin, and opens the editor again. It can take a few minutes. Unsaved changes get the editor's save prompt before it closes.
                   <div className="actions">
                     <button className="primary" onClick={() => void runRebuild()}>Close the editor and rebuild</button>
                     <button className="ghost" onClick={() => setRebuild("idle")}>Cancel</button>
@@ -103,7 +103,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                 </div>
               )}
               {copy.action === "rebuild" && rebuild === "running" && (
-                <div className="banner ok small" role="status">Rebuilding. The editor closes, the bridge plugin builds, then the editor opens again.</div>
+                <div className="banner ok small" role="status">Rebuilding. The editor closes, the project's C++ builds, then the editor opens again.</div>
               )}
               {copy.action === "updates" && (
                 <div className="actions"><button onClick={() => onSection("general")}>Open Updates</button></div>
@@ -114,7 +114,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       </section>
 
       <Card label="Context strategy">
-        <p className="muted small">What every client loads at session start, Studio's agent included.</p>
+        <p className="muted small">What MCP clients load at session start. Studio's agent reads it each turn.</p>
         {context && (
           <>
             {context.envOverride && (
@@ -136,7 +136,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
             </RemoteReadOnly>
             <p className="cfg-note" style={{ marginTop: 8 }}>
               {clients.length ? `Used by ${clients.map((c) => c.name).join(" and ")}. ` : "No other MCP client configured. "}
-              Applies from each client's next session.{context.fromFile ? "" : " Default: Micro."} Token counts measured by ue-mcp.
+              Studio's agent switches at its next turn, other clients at their next session.{context.fromFile ? "" : " Default: Micro."} Token counts measured by ue-mcp.
             </p>
           </>
         )}

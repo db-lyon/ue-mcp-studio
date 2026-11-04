@@ -66,6 +66,30 @@ describe("which requests the PIN guards", () => {
     expect(sensitiveRequest("POST", "/v1/ext/studio/quick", true)).toBe(true);
   });
 
+  // Settings > Remote control > PIN lock lists these (PinLockCard SENSITIVE_ACTIONS, SENSITIVE_TURNS): every line holds.
+  it("each line of the list Settings shows", () => {
+    const always: Array<[string, string, string]> = [
+      ["Answer approvals, editor dialogs and forms", "POST", "/v1/ext/studio/forms/f1"],
+      ["Start, stop, restart or rebuild the editor", "POST", "/v1/editor/start"],
+      ["Start, stop, restart or rebuild the editor", "POST", "/v1/editor/stop"],
+      ["or stop turns waiting on it", "POST", "/v1/ext/studio/busy/stop"],
+      ["Run playtests or flows", "POST", "/v1/ext/studio/sessions/s1/playtest"],
+      ["or change playtest scripts", "PUT", "/v1/ext/studio/qa/playtests/script"],
+      ["or change playtest scripts", "DELETE", "/v1/ext/studio/qa/runs/r1/script"],
+      ["Keep, revert or undo changes", "POST", "/v1/ext/studio/sessions/s1/reviews/r1/keep"],
+      ["Keep, revert or undo changes", "POST", "/v1/ext/studio/sessions/s1/reviews/r1/undo"],
+      ["Keep, revert or undo changes", "POST", "/v1/ext/studio/sessions/s1/timeline/undo"],
+      ["Keep, revert or undo changes", "POST", "/v1/ext/studio/qa/runs/r1/loop/revert"],
+      ["or keep the current Studio version", "POST", "/v1/ext/studio/version-notice/keep"],
+      ["Start a checkout", "POST", "/v1/ext/studio/billing/checkout"],
+    ];
+    for (const [line, m, p] of always) expect(sensitiveRequest(m, p, false), `${line}: ${m} ${p}`).toBe(true);
+    for (const p of ["/v1/ext/studio/sessions/s1/transcript/t1/edit", "/v1/ext/studio/sessions/s1/flow", "/v1/ext/studio/sessions/s1/action"]) {
+      expect(sensitiveRequest("POST", p, false), p).toBe(false);
+      expect(sensitiveRequest("POST", p, true), p).toBe(true);
+    }
+  });
+
   it("not: renaming a session, a new session, a verdict, the lock's own routes", () => {
     expect(sensitiveRequest("PUT", "/v1/ext/studio/sessions/s1", true)).toBe(false);
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions", true)).toBe(false);

@@ -27,6 +27,13 @@ export function failureLine(s: StudioUpdates | null | undefined): string | null 
   return `${f.step === "studio" ? "The last Studio update failed" : "The last ue-mcp restart failed"}: ${f.error}`;
 }
 
+/** Why the check could not say what is newer, or null when both checks answered. */
+export function checkFailure(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null } | null): string | null {
+  if (!u) return null;
+  if (!u.studio || !u.ueMcp) return "no answer";
+  return u.studio.error ?? u.ueMcp.error ?? null;
+}
+
 /** Update installs the plugin itself: never for a Fab install, which the Fab Library updates. */
 export const pluginStep = (s: StudioUpdates | null | undefined): boolean => !!s?.plugin.available && s.plugin.source !== "fab";
 
@@ -208,7 +215,9 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
   const steps = u ? updateSteps(u) : [];
   const ready = u ? readyLine(u) : "";
   const fab = fabUpdate(u?.studio);
-  const engineOnly = u?.studio?.plugin.location === "engine" && u.studio?.plugin.source !== "fab" && !!u.studio?.plugin.latest;
+  // location defaults to engine when no plugin was found: only an installed one is outside the project.
+  const engineOnly = u?.studio?.plugin.location === "engine" && u.studio?.plugin.source !== "fab" && !!u.studio?.plugin.installed && !!u.studio?.plugin.latest;
+  const unchecked = checkFailure(u);
 
   const rows: Array<[string, string | null, string | null, boolean]> = u
     ? [
@@ -229,8 +238,8 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
       {!u && <p className="muted">Checking</p>}
       {u && (
         <div className="row update-status">
-          <span className={`pill ${steps.length ? "warn" : "ok"}`}>{steps.length ? "Update available" : "Up to date"}</span>
-          <span className="muted">{waiting ? "Update ready. Restarts after the current turn." : working ? "Updating" : steps.length ? ready : "Up to date."}</span>
+          <span className={`pill ${steps.length || unchecked ? "warn" : "ok"}`}>{steps.length ? "Update available" : unchecked ? "Not checked" : "Up to date"}</span>
+          <span className="muted" title={unchecked && !steps.length ? unchecked : undefined}>{waiting ? "Update ready. It runs once no turn is in progress." : working ? "Updating" : steps.length ? ready : unchecked ? "Could not check for updates." : "Up to date."}</span>
           <span className="spacer" />
           {steps.length > 0 && !remote && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>
@@ -273,7 +282,7 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
           <button onClick={() => openLink(fab.url)}>Open Fab Library</button>
         </div>
       )}
-      {engineOnly && <p className="dim small">Installed with the engine. The Epic launcher updates it.</p>}
+      {engineOnly && <p className="dim small">Installed outside this project's Plugins folder, so Update does not replace it.</p>}
       {u && (
         <details className="update-details">
           <summary className="dim small">Details</summary>

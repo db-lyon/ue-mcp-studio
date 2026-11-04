@@ -89,7 +89,7 @@ export function PluginsView({ daemon, remote = onRemotePage() }: { daemon: Daemo
       {remote && <p className="banner plugins-remote-note">{REMOTE_PLUGINS_NOTE}</p>}
       {pending && !remote && (
         <div className="banner warn plugins-apply">
-          <span>Plugin changes load when ue-mcp restarts.{!inEditor() && " Restart it with npx ue-mcp daemon stop, then reopen Studio."}</span>
+          <span>Plugin changes load when ue-mcp restarts.{!inEditor() && " Run npx ue-mcp daemon stop, then open Studio from the editor."}</span>
           {inEditor() && <button className="primary" disabled={!!working} onClick={() => void apply()}>Apply changes</button>}
         </div>
       )}

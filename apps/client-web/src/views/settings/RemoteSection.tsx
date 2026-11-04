@@ -23,7 +23,7 @@ const STATE: Record<RemoteStatus["state"], { name: string; dot: string }> = {
 
 function detail(s: RemoteStatus): string {
   if (s.state === "online") return `Signed in as ${s.login}, through ${s.relay}`;
-  if (s.state === "off") return "Nothing reaches this project from outside this computer.";
+  if (s.state === "off") return "Paired devices cannot reach this project.";
   if (s.state === "error" && s.code === "no-plan") return s.relay;
   return s.reason ?? s.relay;
 }
@@ -123,12 +123,12 @@ export function RemoteSection({ onUnavailable }: { onUnavailable?: () => void } 
     ).finally(() => setBusy(null));
   };
 
-  const head = <Head title="Remote control" lead="Use this project from a phone or another computer's browser. What they exchange with this computer is encrypted end to end; the relay cannot read it." />;
+  const head = <Head title="Remote control" lead="Use this project from a phone or another computer. Requests and answers between a paired device and this computer are encrypted end to end, so the relay cannot read them." />;
   if (remoteOnly) {
     return (
       <>
         {head}
-        <div className="banner warn" role="status">Remote control is turned on and paired from the computer running the project, not from a paired browser.</div>
+        <div className="banner warn" role="status">Remote control is turned on and paired from the computer running the project, not from a paired device.</div>
       </>
     );
   }
@@ -147,7 +147,7 @@ export function RemoteSection({ onUnavailable }: { onUnavailable?: () => void } 
         </div>
       )}
       <Card label="Connection">
-        <Row title="Remote control" help="While it is on, this project stays reachable from browsers paired with this computer, and the daemon keeps running.">
+        <Row title="Remote control" help="While it is on and connected, devices paired with this computer can reach this project, and the daemon does not stop for being idle.">
           <Switch on={!!status?.enabled} onChange={toggle} label="Remote control" disabled={!status || busy === "toggle"} />
         </Row>
         <div className="toggle-row inline remote-state">
@@ -159,12 +159,12 @@ export function RemoteSection({ onUnavailable }: { onUnavailable?: () => void } 
         </div>
       </Card>
       <Card label="Pair a phone or browser" actions={<button className="primary" disabled={!online || busy === "pair"} onClick={pair}>{busy === "pair" ? "Making a code" : "New code"}</button>}>
-        <p className="muted small">Scan the code on the device, or open the link there. It works once, for ten minutes, and pairs the device with every project on this computer.{online ? "" : " Turn remote control on and wait for it to connect first."}</p>
+        <p className="muted small">Scan the code on the device or open the link there, then allow the device when Studio here asks. A code works once, for 10 minutes. The device is paired with every project on this computer.{online ? "" : " Turn remote control on and wait for it to connect first."}</p>
         {pairing && <PairingCode pairing={pairing} onRenew={pair} busy={busy === "pair"} />}
       </Card>
-      <Card label="Paired browsers">
+      <Card label="Paired devices">
         {!browsers && !error && <p className="muted small">Loading</p>}
-        {browsers && browsers.length === 0 && <p className="muted small">No browsers paired.</p>}
+        {browsers && browsers.length === 0 && <p className="muted small">No devices paired.</p>}
         {browsers?.map((b) => (
           <div key={b.id} className="toggle-row inline remote-browser">
             <div className="grow">

@@ -145,7 +145,7 @@ describe("the /remote pairing card", () => {
     m.pairRemote.mockResolvedValue(code(600_000));
     const open = vi.fn();
     render(<RemoteChatCard onSettings={open} />);
-    fireEvent.click(screen.getByRole("button", { name: "Manage paired browsers in Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage paired devices in Settings" }));
     expect(open).toHaveBeenCalled();
   });
 });

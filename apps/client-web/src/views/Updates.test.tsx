@@ -160,6 +160,28 @@ describe("updates", () => {
     expect(screen.queryByRole("button", { name: "Update" })).toBeNull();
   });
 
+  it("says the check failed instead of up to date when a check does not answer", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes("/ext/studio/")
+      ? new Response(JSON.stringify({ ...studio(false, false), error: "the editor plugin's channel answered 503" }))
+      : new Response("", { status: 502 }))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText("Could not check for updates.")).toBeTruthy());
+    expect(screen.getByText("Not checked")).toBeTruthy();
+    expect(screen.queryByText("Up to date.")).toBeNull();
+  });
+
+  it("says an editor plugin outside the project is not replaced by Update, and nothing when none is found", async () => {
+    const outside = (installed: string | null) => ({ ...studio(false, false), plugin: { ...studio(false, false).plugin, installed, location: "engine" as const } });
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? outside("0.1.0-beta.4") : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText("Installed outside this project's Plugins folder, so Update does not replace it.")).toBeTruthy());
+    cleanup();
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(JSON.stringify(url.includes("/ext/studio/") ? outside(null) : ueMcp(false)))));
+    render(<UpdatesCard />);
+    await waitFor(() => expect(screen.getByText("Up to date.")).toBeTruthy());
+    expect(screen.queryByText(/outside this project/)).toBeNull();
+  });
+
   it("switches to the beta channel and reads the updates on it again", async () => {
     let channel = "stable";
     const puts: unknown[] = [];

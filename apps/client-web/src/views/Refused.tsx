@@ -102,7 +102,7 @@ export function RefusedScreen({ refusal, remote = onRemotePage() }: { refusal: S
     <div className="app">
       <main className="empty refused">
         <h1 className="refused-head">
-          Studio needs ue-mcp <span className="version">{refusal.needs}</span>. You have <span className="version">{refusal.have}</span>.
+          Studio needs ue-mcp <span className="version">{refusal.needs}</span> or later. You have <span className="version">{refusal.have}</span>.
         </h1>
         {remote ? (
           <p className="muted">{REMOTE_UPDATES}</p>

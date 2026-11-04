@@ -33,7 +33,7 @@ describe("source control in the top bar", () => {
   it("opens the changes, and shows the picked file's diff", async () => {
     m.vcs.mockResolvedValue({ vcs: git });
     m.vcsChanges.mockResolvedValue({ changes: [{ path: "Config/DefaultEngine.ini", status: "modified" }, { path: "Content/Map.umap", status: "added" }], truncated: false });
-    m.vcsDiff.mockImplementation(async (p: string) => (p.endsWith(".ini") ? { diff: "diff --git a/Config/DefaultEngine.ini b/Config/DefaultEngine.ini\n@@ -1 +1 @@\n-old\n+new" } : { diff: null, reason: "A binary file: open it in the editor to see it." }));
+    m.vcsDiff.mockImplementation(async (p: string) => (p.endsWith(".ini") ? { diff: "diff --git a/Config/DefaultEngine.ini b/Config/DefaultEngine.ini\n@@ -1 +1 @@\n-old\n+new" } : { diff: null, reason: "A binary file, so there is no text diff." }));
     render(<VcsChip events={[]} />);
     await waitFor(() => expect(screen.getByText(/main, 3 changed, 2 ahead/)).toBeTruthy());
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /Git/ })));
@@ -85,7 +85,7 @@ describe("the changes as a folder tree", () => {
   it("switches between list and tree, collapses and expands, and remembers the choice", async () => {
     m.vcs.mockResolvedValue({ vcs: git });
     m.vcsChanges.mockResolvedValue({ changes, truncated: false });
-    m.vcsDiff.mockResolvedValue({ diff: null, reason: "A binary file: open it in the editor to see it." });
+    m.vcsDiff.mockResolvedValue({ diff: null, reason: "A binary file, so there is no text diff." });
     render(<VcsChip events={[]} />);
     await waitFor(() => expect(screen.getByText(/main, 3 changed/)).toBeTruthy());
     await act(async () => fireEvent.click(screen.getByRole("button", { name: /Git/ })));

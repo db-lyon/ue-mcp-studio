@@ -258,7 +258,7 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     return { body: { browsers } };
   });
   route("DELETE", "/remote/browsers/:id", (req) => {
-    if (!keys.removePhone(req.params.id)) return { status: 404, body: { error: "No such browser." } };
+    if (!keys.removePhone(req.params.id)) return { status: 404, body: { error: "No such device." } };
     service.cutOff(req.params.id);
     lock.forget(req.params.id);
     return { status: 204 };

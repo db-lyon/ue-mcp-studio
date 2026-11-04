@@ -25,10 +25,10 @@ function stub(notice: { installed: string; current: string } | null) {
 }
 
 describe("the Studio version notice (ue-mcp#1619)", () => {
-  it("says another project installed a newer Studio, and Update moves this project to it", async () => {
+  it("says a newer Studio is installed on this computer, and Update moves this project to it", async () => {
     const posted = stub({ installed: "0.1.25", current: "0.1.23" });
     render(<VersionNotice daemon={daemon} />);
-    await screen.findByText("Studio 0.1.25 was installed by another project. This project uses 0.1.23.");
+    await screen.findByText("Studio 0.1.25 is installed on this computer. This project uses 0.1.23.");
     fireEvent.click(screen.getByText("Update this project"));
     await waitFor(() => expect(posted).toEqual([{ url: "/v1/ext/studio/version-notice/update", body: { version: "0.1.25" } }]));
     expect(screen.getByText("Updating")).toBeTruthy();
@@ -44,7 +44,7 @@ describe("the Studio version notice (ue-mcp#1619)", () => {
     const posted = stub({ installed: "0.1.25", current: "0.1.23" });
     render(<VersionNotice daemon={daemon} />);
     fireEvent.click(await screen.findByText("Keep 0.1.23"));
-    await waitFor(() => expect(screen.queryByText(/was installed by another project/)).toBeNull());
+    await waitFor(() => expect(screen.queryByText(/is installed on this computer/)).toBeNull());
     expect(posted).toEqual([{ url: "/v1/ext/studio/version-notice/keep", body: { version: "0.1.25" } }]);
   });
 
