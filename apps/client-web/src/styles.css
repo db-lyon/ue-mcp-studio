@@ -1307,11 +1307,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 /* A picture is shown once it has loaded and is known not to be one flat colour. */
 .review-pictures img.picture-pending { visibility: hidden; }
 .diff-section-note { overflow-wrap: break-word; }
-/* Facts the same in both versions: listed once, uncoloured. */
+/* A single version's facts: listed once, uncoloured. */
 .diff-table td.cmp-plain { background: none; }
-.diff-unchanged { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.diff-unchanged summary { cursor: pointer; width: max-content; max-width: 100%; }
-.diff-unchanged[open] summary { margin-bottom: 2px; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
 .review-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -1963,22 +1960,35 @@ fieldset.remote-readonly[disabled] > :not(.remote-readonly-note) { opacity: 0.7;
   .composer-grip { top: 36.5px; }
 }
 
-/* The context meter in the composer bar: the share of the window the conversation takes now,
-   as a thin bar with a tick where it compacts, amber then red as it nears that tick. */
+/* The context meter in the composer bar: a 16 pixel ring and the percentage, amber then red as it
+   nears the tick where it compacts. Hovered with a mouse, a card above it has the tokens, the model
+   and the compaction point; a touch screen has no hover, so a tap opens the details instead. */
 .context-meter { position: relative; flex: none; }
-button.context-button { display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 9px; font: 500 12px/1 var(--mono); letter-spacing: 0; text-transform: none; white-space: nowrap; color: var(--muted); }
+button.context-button { position: relative; display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 7px; font: 500 12px/1 var(--mono); letter-spacing: 0; text-transform: none; white-space: nowrap; color: var(--muted); }
 button.context-button:hover:not(:disabled) { color: var(--text); }
 button.context-button.level-warn .context-pct { color: var(--warn); }
 button.context-button.level-high .context-pct { color: var(--bad); }
-button.context-button.compacting .context-pct, button.context-button.compacting .context-fill { animation: pulse 1.6s ease-in-out infinite; }
-.context-of { font-size: 11px; }
+button.context-button.compacting .context-pct, button.context-button.compacting .context-ring-fill { animation: pulse 1.6s ease-in-out infinite; }
+.context-ring { flex: none; display: block; overflow: visible; }
+.context-ring circle { fill: none; stroke-width: 2.5; }
+.context-ring-track { stroke: var(--muted); opacity: 0.32; }
+.context-ring-fill { stroke: var(--ok); stroke-linecap: butt; transition: stroke-dasharray 0.4s ease, stroke 0.4s ease; }
+.context-ring.level-warn .context-ring-fill { stroke: var(--warn); }
+.context-ring.level-high .context-ring-fill { stroke: var(--bad); }
+.context-ring.over { filter: drop-shadow(0 0 2.5px var(--bad)); }
+.context-ring-tick { stroke: var(--text); stroke-width: 1.25; opacity: 0.75; }
+.context-ring-empty { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 2.5px var(--muted); opacity: 0.32; flex: none; }
+.context-tip { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 30; display: none; flex-direction: column; gap: 3px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); color: var(--muted); font: 400 12px/1.35 var(--sans); text-align: left; white-space: nowrap; pointer-events: none; }
+.context-tip-main { color: var(--text); font-weight: 600; }
+@media (hover: hover) {
+  button.context-button:hover .context-tip, button.context-button:focus-visible .context-tip { display: flex; }
+}
 .context-bar { position: relative; display: inline-block; width: 56px; height: 4px; border-radius: 2px; background: var(--panel-3); box-shadow: inset 0 0 0 1px var(--line); overflow: visible; flex: none; }
 .context-bar.wide { width: 100%; height: 6px; border-radius: 3px; }
 .context-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: var(--ok); transition: width 0.4s ease, background-color 0.4s ease; }
 .context-bar.level-warn .context-fill { background: var(--warn); }
 .context-bar.level-high .context-fill { background: var(--bad); }
 .context-over { position: absolute; right: -3px; top: -2px; bottom: -2px; width: 3px; border-radius: 1px; background: var(--bad); box-shadow: 0 0 6px var(--bad); }
-.context-owner { font: 600 10.5px/1 var(--mono); color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; }
 .context-pop-actions { display: inline-flex; align-items: center; gap: 6px; }
 .context-tick { position: absolute; top: -2px; bottom: -2px; width: 1px; margin-left: -0.5px; background: var(--muted); opacity: 0.7; }
 .context-pop { width: min(340px, calc(100vw - 24px)); padding: 10px 12px; }
@@ -1998,15 +2008,12 @@ button.context-button.compacting .context-pct, button.context-button.compacting 
 /* Below the full bar the details open across the whole bar, so they never run past the screen's edge. */
 .composer-bar:not([data-tier="full"]) > .context-meter { position: static; }
 .composer-bar:not([data-tier="full"]) .context-pop { left: 0; right: 0; width: auto; }
-.composer-bar[data-tier="merged"] button.context-button, .composer-bar[data-tier="narrowest"] button.context-button { padding: 0 6px; gap: 5px; }
-.composer-bar:not([data-tier="full"]) .context-bar:not(.wide) { width: 34px; }
-.composer-bar[data-tier="narrowest"] .context-bar:not(.wide) { width: 24px; }
+.composer-bar[data-tier="merged"] button.context-button, .composer-bar[data-tier="narrowest"] button.context-button { padding: 0 5px; gap: 4px; }
 
 /* Above the composer when the context nears its compaction point. */
 .context-warning { display: flex; align-items: center; gap: 10px; margin: 0 16px 6px; padding: 6px 8px 6px 12px; border: 1px solid var(--line-strong); border-left: 3px solid var(--warn); border-radius: var(--radius); background: var(--panel-2); font-size: 12.5px; }
 .context-warning.level-high { border-left-color: var(--bad); }
 .context-warning-text { flex: 1; min-width: 0; color: var(--text); }
-.context-warning .context-bar { width: 44px; }
 .context-warning .icon-button { flex: none; }
 
 /* Where a conversation was compacted: a divider with the numbers, opened to show the summary. */
@@ -2133,6 +2140,4 @@ button.review-item-name:hover:not(:disabled) { background: none; border: 0; colo
   .review-actions > button.small-button::after, .review-conflict > button.small-button::after { content: ""; position: absolute; inset: -7px -5px; }
   .review-conflict { row-gap: 14px; }
   .review-acting { min-height: 32px; }
-  /* The unchanged facts' toggle: a 44 pixel target that takes no more room than its line. */
-  .review-item .diff-unchanged > summary { min-height: 0; padding-block: 13px; margin-block: -10px; }
 }

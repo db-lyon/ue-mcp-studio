@@ -172,6 +172,8 @@ export interface Scenario {
   filter?: "needs-you" | "failing" | "all";
   /** Clicked after the page settles: a CSS selector. */
   click?: string;
+  /** Hovered with the mouse just before the shot, to show a hover card: a CSS selector. */
+  hover?: string;
   /** Focused from the keyboard after the page settles, to show the focus ring: a CSS selector. */
   focus?: string;
   /** A line that arrives after the reader has scrolled the conversation up: the session is read again with it. */

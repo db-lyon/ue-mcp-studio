@@ -1,9 +1,9 @@
 /**
  * The context meter and compaction markers for the visual QA harness: the
- * meter low, high and near full, after a switch to a model with a smaller
- * window, an older session with only an estimate, its details opened, and a
- * compaction marker collapsed, opened, running, failed and in a subagent's
- * thread.
+ * meter's ring low, high and near full, after a switch to a model with a
+ * smaller window, an older session with only an estimate, its hover card, its
+ * details opened, and a compaction marker collapsed, opened, running, failed
+ * and in a subagent's thread.
  */
 import type { ContextUsage, SessionDetail, SessionSpend, StudioSettings, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { Scenario } from "./fixtures";
@@ -78,9 +78,18 @@ const thread = (): SessionDetail => {
 };
 
 export const CONTEXT_SCENARIOS: Record<string, Scenario> = {
-  "context-low": scene("Context meter low: 8% of a 1M window, green bar, the tick where Studio compacts", session([...talk, ...after], main(82_000))),
-  "context-high": scene("Context meter high: 70% of the window, amber", session([...talk, ...after], main(698_000))),
+  "context-low": scene("Context meter low: a green ring at 8% of a 1M window and the percentage, the tick where Studio compacts", session([...talk, ...after], main(82_000))),
+  "context-high": scene("Context meter high: the ring and percentage amber at 70%", session([...talk, ...after], main(698_000))),
   "context-near-full": scene("Context meter near full: 83%, red, with the warning and Compact now above the composer", session([...talk, ...after], main(828_000))),
+  "context-hover": scene("Context meter hovered: a card with the tokens of the window, the model it was measured on and where Studio compacts (a phone has no hover)", session([...talk, ...after], main(213_000)), { hover: ".context-button" }),
+  "context-hover-near-full": scene("Near full, hovered: the card says it is past where Studio compacts", session([...talk, ...after], main(868_000)), { hover: ".context-button" }),
+  "context-hover-model-switch": scene("After switching to Haiku 4.5, hovered: over the window, measured on Sonnet 5.5, the next turn on Haiku 4.5", session([...talk, ...after], main(310_000)), { settings: { ...KEY, model: "claude-haiku-4-5" }, hover: ".context-button" }),
+  "context-hover-estimated": scene("An estimate, hovered: about this many tokens, estimated from the conversation's text", session([...talk, ...after], main(41_000, "", { cached: 0, output: 0, estimated: true }), null), { hover: ".context-button" }),
+  "context-hover-runtime": scene(
+    "On the Claude sign-in, hovered: where Claude's runtime compacts",
+    session([...talk, ...after], main(150_400, "claude-sonnet-5-5", { window: 1_000_000, compactAt: 967_000 })),
+    { settings: { route: "claude" }, hover: ".context-button" },
+  ),
   "context-details": scene("Context meter opened: tokens of the window, the last request, where it compacts, and the session totals with cost", session([...talk, ...after], main(698_000)), { clicks: [".context-button"] }),
   "context-model-switch": scene(
     "After switching to Haiku 4.5 (200k window) from Sonnet 5.5: the same 310k context is now over the window, red, and the details say where it was measured",
@@ -88,7 +97,7 @@ export const CONTEXT_SCENARIOS: Record<string, Scenario> = {
     { settings: { ...KEY, model: "claude-haiku-4-5" }, clicks: [".context-button"] },
   ),
   "context-over-window": scene(
-    "After switching to Haiku 4.5 with 310k in context, the details closed: the bar marks the overflow and the warning says Studio compacts before the next request",
+    "After switching to Haiku 4.5 with 310k in context, the details closed: the ring is closed and glows red, and the warning says Studio compacts before the next request",
     session([...talk, ...after], main(310_000)),
     { settings: { ...KEY, model: "claude-haiku-4-5" } },
   ),
@@ -100,7 +109,8 @@ export const CONTEXT_SCENARIOS: Record<string, Scenario> = {
   ),
   "compaction-collapsed": scene("A compaction marker in the transcript: before and after tokens, automatic, its time", session([...talk, compacted(), ...after], main(31_000))),
   "compaction-expanded": scene("The compaction marker opened: who summarised it, how long it took, and the summary the agent works from", session([...talk, compacted({ trigger: "manual", instructions: "the door's exact asset paths" }), ...after], main(31_000)), { clicks: [".compaction-line"] }),
-  "compaction-running": scene("Compacting now: the marker pulses, the meter says Compacting", session([...talk, compacted({ state: "running", before: 864_400, after: undefined, summary: undefined, ms: undefined, at: ago(0) })], main(862_000), TOTALS, { status: "running" })),
+  "context-hover-compacting": scene("Compacting now, the meter hovered: the card says Compacting now", session([...talk, compacted({ state: "running", before: 864_400, after: undefined, summary: undefined, ms: undefined, at: ago(0) })], main(862_000), TOTALS, { status: "running" }), { hover: ".context-button" }),
+  "compaction-running": scene("Compacting now: the marker and the meter's ring pulse", session([...talk, compacted({ state: "running", before: 864_400, after: undefined, summary: undefined, ms: undefined, at: ago(0) })], main(862_000), TOTALS, { status: "running" })),
   "compaction-failed": scene("A compaction that failed, opened: why, and that nothing was cut", session([...talk, compacted({ state: "failed", before: 814_400, after: undefined, summary: undefined, error: "Anthropic: overloaded, try again in a minute." }), ...after], main(812_000)), { clicks: [".compaction-line"] }),
   "compaction-subagent": scene("A subagent's own thread, compacted on its own: the marker in its thread", thread(), { clicks: [".agent-link"] }),
 };

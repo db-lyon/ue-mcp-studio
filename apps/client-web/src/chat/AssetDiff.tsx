@@ -265,8 +265,8 @@ const FactValue = ({ v, side }: { v: string | undefined; side: "before" | "after
 /**
  * Facts about each version: LOD counts, sizes, parameters. With both versions,
  * only the facts that differ and that no record already shows are compared,
- * Before beside After; the ones that are the same are counted on one folded
- * line and listed once, uncoloured, when opened. With one version, its facts.
+ * Before beside After; facts the same in both are not shown. With one
+ * version, its facts.
  * The tile lists up to TILE_FACTS of them, so they are not repeated when they
  * fit there.
  */
@@ -301,7 +301,6 @@ function Facts({ before, after, tiled, covered }: { before: AssetVersion | null 
     );
   }
   const changed = rows.filter((r) => r.changed && !isCoveredFact(covered, r.name));
-  const same = rows.filter((r) => !r.changed);
   return (
     <>
       {changed.length > 0 && !(tiled && changed.length <= TILE_FACTS) && (
@@ -325,24 +324,6 @@ function Facts({ before, after, tiled, covered }: { before: AssetVersion | null 
             </table>
           </div>
         </section>
-      )}
-      {same.length > 0 && (
-        <details className="diff-unchanged small dim">
-          <summary>{same.length === 1 ? "1 unchanged fact" : `${same.length} unchanged facts`}</summary>
-          <div className="diff-table-wrap">
-            <table className="diff-table facts-table">
-              <thead><tr><th>Fact</th><th>Both versions</th></tr></thead>
-              <tbody>
-                {same.map((r) => (
-                  <tr key={r.name} className="diff-row fact-same">
-                    <td className="cmp-change"><EngineText text={r.name} /></td>
-                    <td className="cmp-side cmp-plain"><FactValue v={r.after} side="after" /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </details>
       )}
     </>
   );

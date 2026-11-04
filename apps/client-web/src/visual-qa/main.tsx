@@ -129,6 +129,7 @@ window.open = () => null;
   afterType: scenario.afterType ?? null,
   fullPage: scenario.fullPage ?? false,
   waitFor: scenario.waitFor ?? null,
+  hover: scenario.hover ?? null,
 };
 
 void import("../App").then(({ App }) => {
