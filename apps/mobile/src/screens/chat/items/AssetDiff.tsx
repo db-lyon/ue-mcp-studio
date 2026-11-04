@@ -51,7 +51,9 @@ const lh = (t: Theme): number => (t.editor ? 1.5 : 1.55);
 
 /** .diff-table's 12px, and .mono inside it. */
 const cellText = (t: Theme) => ({ fontSize: 12, lineHeight: 12 * lh(t) });
-const monoCell = (t: Theme) => [font(t, "mono", 400, 12 * 0.92), { lineHeight: 12 * lh(t), color: t.c.text }];
+// Consolas on Roboto's 18px strut: the two baselines meet in an 18.6 pixel line, as JetBrains Mono's does at 1.55.
+// Consolas sits 3 pixels down that line, not centred in it: a 19 pixel line that gives back its extra 0.4.
+const monoCell = (t: Theme) => [font(t, "mono", 400, 12 * 0.92), t.editor ? { lineHeight: 19, marginBottom: -0.4 } : { lineHeight: 18.6 }, { color: t.c.text }];
 
 /** A value as ExportText wrote it, a parameter struct in words, or what its absence means. */
 function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
@@ -64,7 +66,7 @@ function Value({ v, side }: { v: string | null | undefined; side: "before" | "af
       <View style={{ gap: 2 }}>
         {parts.map((x, i) => (
           // .diff-parts: each part a block line of its own, at the mono size's own line height.
-          <T key={i} style={[monoCell(t), { lineHeight: Math.round(12 * 0.92 * lh(t) * 100) / 100 }]}>{engineText(x)}</T>
+          <T key={i} style={[monoCell(t), { lineHeight: Math.round(12 * 0.92 * lh(t) * 100) / 100, marginBottom: 0 }]}>{engineText(x)}</T>
         ))}
       </View>
     );
