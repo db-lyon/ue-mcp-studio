@@ -18,6 +18,7 @@ export interface ParityEntry {
 
 export const PARITY: Record<string, ParityEntry> = {
   "version-notice": {owner: "shell"},
+  "nav-drawer": {owner: "shell", clicks: ["Open navigation"]},
   "tools-open": {owner: "chat"},
   "tools-open-edit": {owner: "chat"},
   "approvals-waiting": {owner: "chat"},
