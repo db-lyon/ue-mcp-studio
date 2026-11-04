@@ -10,7 +10,7 @@ import type { StatusReport } from "ue-mcp/daemon";
 import { notThere, problemCopy, readRebuild, tokenizeYaml, tokens, type SettingsSection } from "@ue-mcp-studio/client-core";
 import { CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO, type ClientContextStrategy, type StudioConfigFile } from "@ue-mcp-studio/shared";
 import { Banner, Button, Card, Dot, Spacer, bannerText, font, labelFont, T, useTheme, type Theme } from "../../ui";
-import { CardLabel, Head, Opt, Span, Tag, Txt, useMessage } from "./controls";
+import { CardLabel, Head, Opt, Span, Tag, Txt, ratio, useMessage } from "./controls";
 import { Details } from "./Details";
 import { Message } from "./GeneralSection";
 import { RemoteReadOnly } from "../../views/settings/RemoteReadOnly";
@@ -251,11 +251,11 @@ function ConfigView() {
   const color: Record<string, string> = { key: synKey(t), string: t.c.ok, number: t.c.warn, bool: t.c.warn, null: t.c.warn, anchor: t.c.bad, tag: t.c.bad, comment: t.c.dim, dash: t.c.muted, punct: t.c.muted, doc: t.c.muted };
   return (
     <Card>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", marginVertical: 6 }}>
+      {/* .row inside .advanced: 8px above it, 6px below. */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 8, marginBottom: 6 }}>
         <T style={labelFont(t)}>Project config</T>
-        <Txt size={12} tone="muted" mono>
-          {file.path.split(/[\\/]/).pop()}
-        </Txt>
+        {/* .muted.mono.small: .mono comes later, so 0.92em of the card text, at the card text's line-height multiple. */}
+        <T style={[font(t, "mono", 400, t.base.size * 0.92, ratio(t)), { color: t.c.muted }]}>{file.path.split(/[\\/]/).pop()}</T>
         <Spacer />
         {/* .row-actions: at the row's end, and at the end of the next line when they wrap. */}
         <View style={{ flexDirection: "row", gap: 8, marginLeft: "auto" }}>
