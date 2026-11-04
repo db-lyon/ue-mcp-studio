@@ -3,6 +3,12 @@
 //   node scripts/visual-qa.mjs --remote --widths 390 --out <web>     (the reference, once per change to client-web)
 //   node scripts/parity-mobile.mjs --web <web> [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell] [--lcd-text]
 //   node scripts/parity-mobile.mjs --list                                (the scenarios and who owns each)
+//   node scripts/parity-mobile.mjs --web <web> --inset-bottom 48 [--screens welcome,projects,...|all]
+//
+// --inset-bottom N gives the app a navigation bar N pixels tall (default 0, as the web reference has
+// none), drawn over the page as a phone's 3-button bar, to show nothing sits under it. --screens also
+// shoots the app's own screens outside a project (apps/mobile/visual-qa/screens.tsx), which have no
+// web counterpart: <out>/screen-<name>-<theme>-app.png.
 //
 // Serves apps/mobile/visual-qa with Vite: the app's own screens, drawn by
 // react-native-web against the same fixture daemon the web harness answers from
@@ -28,6 +34,9 @@ const out = path.resolve(arg("out") ?? path.join(os.tmpdir(), "studio-mobile-par
 const only = arg("only")?.split(",");
 const THEMES = (arg("themes") ?? "ue-mcp,editor-orange,editor").split(",");
 const owners = arg("owner")?.split(",");
+const insetBottom = Math.max(0, Number(arg("inset-bottom") ?? 0) || 0);
+const inset = insetBottom ? `&insetBottom=${insetBottom}` : "";
+const screensArg = arg("screens")?.split(",");
 const WIDTH = 390;
 const BROWSERS = [
   arg("browser"),
@@ -61,7 +70,7 @@ const PAGE = "index.html";
 const first = await browser.newPage();
 await first.goto(`${base}/index.html?scenario=session-empty`);
 await first.waitForFunction(() => window.__mobileQa, null, { timeout: 60_000 });
-const { scenarios, parity } = await first.evaluate(() => window.__mobileQa);
+const { scenarios, parity, screens } = await first.evaluate(() => window.__mobileQa);
 await first.close();
 
 const missing = Object.keys(scenarios).filter((n) => !parity[n]);
@@ -97,7 +106,7 @@ for (const name of picked) {
     page.on("pageerror", (e) => errors.push(e.message));
     // A link the app opens in the browser (Upgrade's checkout) is closed at once, as the web harness never opens one.
     page.on("popup", (p) => void p.close().catch(() => undefined));
-    await page.goto(`${base}/${PAGE}?scenario=${encodeURIComponent(name)}&theme=${theme}`);
+    await page.goto(`${base}/${PAGE}?scenario=${encodeURIComponent(name)}&theme=${theme}${inset}`);
     await page.waitForTimeout(1500);
     for (const c of parity[name].clicks ?? []) {
       try {
@@ -194,7 +203,25 @@ for (const name of picked) {
   }
 }
 
+// The app's own screens outside a project: no web reference, shot for the eye.
+const shotScreens = screensArg ? (screensArg[0] === "all" ? screens : screensArg.filter((n) => screens.includes(n))) : [];
+for (const n of screensArg ?? []) if (n !== "all" && !screens.includes(n)) console.error(`no such screen: ${n} (${screens.join(", ")})`);
+for (const name of shotScreens) {
+  for (const theme of THEMES) {
+    const page = await browser.newPage({ viewport: { width: WIDTH, height: 860 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto(`${base}/${PAGE}?screen=${encodeURIComponent(name)}&theme=${theme}${inset}`);
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: path.join(out, `screen-${name}-${theme}-app.png`) });
+    await page.close();
+    console.log(`screen ${name} ${theme}${errors.length ? `  errors: ${errors.join("; ")}` : ""}`);
+  }
+}
+
 const lines = ["# Mobile parity", "", `App (react-native-web, ${WIDTH}px) against the web client as a paired browser draws it. Mismatch is the share of pixels pixelmatch finds different at threshold 0.1.`, ""];
+if (insetBottom) lines.push(`Shot with a ${insetBottom} px navigation bar (--inset-bottom), so the app differs from the web reference by its padding above the bar.`, "");
+for (const name of shotScreens) for (const theme of THEMES) lines.push(`![${name} (${theme})](screen-${name}-${theme}-app.png)`, "");
 if (missing.length) lines.push(`**Scenarios missing from apps/mobile/visual-qa/parity.ts:** ${missing.join(", ")}`, "");
 lines.push("| Scenario | Theme | Mismatch | Errors |", "|---|---|---|---|");
 for (const r of rows) lines.push(`| ${r.name} | ${r.theme} | ${r.mismatch === null ? "no web shot" : `${(r.mismatch * 100).toFixed(2)}%`} | ${r.errors.join("; ")} |`);

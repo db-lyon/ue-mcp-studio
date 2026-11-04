@@ -2,6 +2,8 @@
 import { Pressable, Text } from "react-native";
 export const permission = { granted: true, canAskAgain: true, status: "granted" };
 export const useCameraPermissions = () => [permission, async () => permission] as const;
+/** Scan from a picture: no code in it. */
+export const Camera = { scanFromURLAsync: async (_uri: string, _types?: string[]) => [] as Array<{ data: string }> };
 export function CameraView({ onBarcodeScanned }: { onBarcodeScanned?: (r: { data: string }) => void }) {
   return (
     <Pressable accessibilityRole="button" onPress={() => onBarcodeScanned?.({ data: (globalThis as { __scan?: string }).__scan ?? "" })}>
