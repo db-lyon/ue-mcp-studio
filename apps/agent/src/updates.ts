@@ -566,11 +566,18 @@ async function startFailure(host: UpdaterHost): Promise<string | null> {
  * release for days, and npx's own flag does not reach the npm runs ue-mcp makes
  * inside it, so a release the user chose was refused there. These runs install
  * only ue-mcp's and Studio's own packages: the gate is lifted for them alone.
+ *
+ * The daemon itself was started by npx, which leaves its own exec settings in
+ * the environment. An inherited npm_config_package makes the nested npx treat
+ * `ue-mcp@<version>` as a command to run rather than the package to fetch
+ * ("'ue-mcp@1.4.12-beta.2' is not recognized"), so those are dropped too.
  */
+const NOT_INHERITED = /^(npm_config_min_release_age|npm_config_package|npm_config_call|npm_command|npm_lifecycle_event|npm_lifecycle_script)$/i;
+
 export function updateEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   // Windows keeps environment names in any case; drop every spelling before setting ours.
-  for (const [k, v] of Object.entries(base)) if (!/^npm_config_min_release_age$/i.test(k)) env[k] = v;
+  for (const [k, v] of Object.entries(base)) if (!NOT_INHERITED.test(k)) env[k] = v;
   env.npm_config_min_release_age = "0";
   return env;
 }
