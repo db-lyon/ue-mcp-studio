@@ -5,16 +5,19 @@
  * approve and editor dialogs wait as cards under the thread; a turn's review
  * opens its own screen, and the header opens the checkpoints.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { agentStatus, mainTimeline, OUTCOME_LABEL, summarize, TOOL_TAG, toolLabel, type MainItem } from "@ue-mcp-studio/client-core";
-import type { TranscriptEntry, TurnReview } from "@ue-mcp-studio/shared";
+import type { StudioSettings, TranscriptEntry, TurnReview } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../nav";
 import { ApprovalCard, DialogCard, useDialogs } from "../Cards";
-import { Markdown } from "../ui";
+import { Markdown, useTheme } from "../ui";
 import { useSession, useSettings } from "../session";
-import { ModelPicker } from "../ModelPicker";
+import { Composer } from "../chat/Composer";
+import { useAttachments } from "../chat/attachments";
+import { MentionText, type MentionSearchFn } from "../chat/MentionMenu";
+import { ModelAndEffort } from "../views/ModelPicker";
 import { Dot, s as ui, Spinner, tap } from "../legacy-ui";
 import { colors } from "../theme";
 
@@ -25,8 +28,15 @@ export function SessionScreen({ id }: { id: string }) {
   const { detail, streaming, error, setError, api } = useSession(project, studio, id);
   const dialogs = useDialogs(project, studio);
   const mine = (dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === id);
-  const { settings, save } = useSettings(project, studio);
+  const { settings } = useSettings(project, studio);
+  const [ownSettings, setOwnSettings] = useState<StudioSettings | null>(null);
+  const shownSettings = ownSettings ?? settings;
+  const attach = useAttachments(id);
+  const loadFlows = useCallback(() => studio.flows().then((r) => r.flows), [studio]);
+  const loadActions = useCallback(() => studio.actions().then((r) => r.actions), [studio]);
+  const searchMentions = useCallback<MentionSearchFn>((request, signal) => studio.searchMentions(request, signal), [studio]);
   const insets = useSafeAreaInsets();
+  const theme = useTheme();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const loadedDraft = useRef(false);
@@ -52,6 +62,7 @@ export function SessionScreen({ id }: { id: string }) {
     if (!text || sending) return;
     setSending(true);
     setDraft("");
+    attach.clear();
     try {
       if (how === "queue") await api.queue(text);
       else await api.send(text, how === "now");
@@ -66,7 +77,7 @@ export function SessionScreen({ id }: { id: string }) {
   };
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+    <KeyboardAvoidingView style={{ flex: 1, backgroundColor: theme.c.panel }} behavior="padding">
       <View style={[st.head, { paddingTop: insets.top + 8 }]}>
         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
           <Pressable accessibilityRole="button" onPress={onBack} hitSlop={8} style={tap}>
@@ -128,31 +139,26 @@ export function SessionScreen({ id }: { id: string }) {
           ))}
         </View>
       ) : null}
-      <View style={[st.composer, { paddingBottom: insets.bottom + 8 }]}>
-        <TextInput
-          value={draft}
-          onChangeText={setDraft}
-          onBlur={() => void api.saveDraft(draft).catch(() => undefined)}
-          placeholder={busy ? "Queue a message, or send it now" : "Ask Studio"}
-          placeholderTextColor={colors.faint}
-          multiline
-          style={st.input}
-        />
-        <View style={st.bar}>
-          {settings ? <ModelPicker api={studio} settings={settings} onSave={save} /> : <View />}
-          <View style={{ flexDirection: "row", gap: 8 }}>
-            {busy ? (
-              <>
-                <SmallButton title="Stop" onPress={() => void api.stop().catch((e) => setError(String(e?.message ?? e)))} danger />
-                <SmallButton title="Send now" disabled={!draft.trim() || sending} onPress={() => void dispatch("now")} />
-                <SmallButton title="Queue" primary disabled={!draft.trim() || sending} onPress={() => void dispatch("queue")} />
-              </>
-            ) : (
-              <SmallButton title="Send" primary disabled={!draft.trim() || sending} onPress={() => void dispatch("send")} />
-            )}
-          </View>
-        </View>
-      </View>
+      {/* TEMPORARY: the ported Composer in place of this screen's own, until chat-core's views/Chat.tsx lands. */}
+      <Composer
+        draft={draft}
+        onDraft={setDraft}
+        onBlur={() => void api.saveDraft(draft).catch(() => undefined)}
+        placeholder={busy ? "The agent is working. Write the next message to queue it." : "Ask for something in the editor, or drop files here"}
+        busy={busy}
+        canSend={!!draft.trim() && !sending && !attach.uploading}
+        onSend={() => void dispatch("send")}
+        onQueue={() => void dispatch("queue")}
+        onSendNow={() => void dispatch("now")}
+        onStop={() => void api.stop().catch((e) => setError(String(e?.message ?? e)))}
+        files={attach.files}
+        onAddFiles={attach.add}
+        onRemoveFile={attach.remove}
+        flows={loadFlows}
+        actions={loadActions}
+        mentions={searchMentions}
+        picker={shownSettings ? <ModelAndEffort settings={shownSettings} onSettings={setOwnSettings} /> : null}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -195,7 +201,7 @@ function Entry({ entry, live, onReview }: { entry: TranscriptEntry; live?: boole
       return (
         <View style={st.user}>
           <Text style={st.userText} selectable>
-            {entry.text}
+            <MentionText text={entry.text} />
           </Text>
         </View>
       );

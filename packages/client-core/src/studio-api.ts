@@ -4,6 +4,15 @@
  * routes over fetch and moves onto this as its views move.
  */
 import type {
+  ActionDescription,
+  ActionListing,
+  ActionRunRequest,
+  Attachment,
+  AttachmentUpload,
+  FlowListing,
+  FlowRunRequest,
+  MentionSearchRequest,
+  MentionSearchResponse,
   ApprovalDecision,
   BusyState,
   StudioRefusal,
@@ -87,6 +96,15 @@ export function studioApi(t: Transport) {
     refusal: () => get<StudioRefusal>(`${S}/refusal`),
     saveUpdateRun: (run: UpdateRun | null) => send<unknown>("PUT", `${S}/updates/run`, { run }),
     updatesDeferredNow: () => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),
+    // The composer: attachments, @-mentions, and the /flow and /action launchers.
+    uploadAttachment: (id: string, upload: AttachmentUpload) => send<Attachment>("POST", `${session(id)}/attachments`, upload),
+    searchMentions: (request: MentionSearchRequest, signal?: AbortSignal) => requestJson<MentionSearchResponse>(t, "POST", `${S}/mentions/search`, { json: request, ...(signal ? { signal } : {}) }),
+    flows: () => get<{ flows: FlowListing[] }>("/v1/flows"),
+    planFlow: (name: string) => get<unknown>(`/v1/flows/${enc(name)}/plan`),
+    flow: (id: string, request: FlowRunRequest) => send<{ sessionId: string }>("POST", `${session(id)}/flow`, request),
+    actions: () => get<{ actions: ActionListing[] }>(`${S}/actions`),
+    describeAction: (name: string) => get<ActionDescription>(`${S}/actions/${enc(name)}`),
+    action: (id: string, request: ActionRunRequest) => send<{ sessionId: string }>("POST", `${session(id)}/action`, request),
   };
 }
 

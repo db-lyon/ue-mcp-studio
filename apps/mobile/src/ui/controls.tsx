@@ -35,10 +35,12 @@ export function Button({
   const primary = variant === "primary";
   const ghost = variant === "ghost";
   const box = [s.button, size === "small" && s.small, size === "large" && s.large, primary && s.primary, ghost && s.ghost, disabled && s.disabled, disabled && primary && s.primaryDisabled];
-  const color = disabled ? t.c.dim : primary ? t.c.onAccent : ghost ? t.c.muted : t.c.text;
+  // editor-orange's primary button is black and bold on the orange (styles.css, after the editor themes' 400).
+  const orangePrimary = primary && !disabled && t.name === "editor-orange";
+  const color = disabled ? t.c.dim : orangePrimary ? "#000" : primary ? t.c.onAccent : ghost ? t.c.muted : t.c.text;
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label ?? title} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [box, pressed && !disabled && (primary ? s.primaryPressed : s.pressed), style]}>
-      {children ?? <T style={[s.text, primary && !disabled && s.primaryText, size === "large" && s.largeText, { color }]}>{title}</T>}
+      {children ?? <T style={[s.text, primary && !disabled && s.primaryText, orangePrimary && font(t, "sans", 700, 12, 1.2), size === "large" && s.largeText, { color }]}>{title}</T>}
     </Pressable>
   );
 }
