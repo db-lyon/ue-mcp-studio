@@ -1,0 +1,194 @@
+/**
+ * Settings as a paired phone sees it: the section list with each section's
+ * state, every section, what is read only and what still changes, and the
+ * theme switching the app.
+ */
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, screen } from "@testing-library/react";
+import { REMOTE_CHANGE_NOTE } from "@ue-mcp-studio/client-core";
+import { SettingsScreen } from "../src/screens/settings/SettingsScreen";
+import { renderArea, settled } from "./area-b";
+
+const open = (scenario: string, section: string | null, onSection = vi.fn()) => renderArea(scenario, <SettingsScreen section={section} onSection={onSection} />);
+
+describe("Settings > the section list", () => {
+  it("lists every group and section, with each section's state, and Remote control since the computer refuses its routes", async () => {
+    const onSection = vi.fn();
+    open("settings-list", null, onSection);
+    await settled();
+    for (const name of ["General", "Remote control", "Agents", "Models & accounts", "Approvals & review", "Project", "Diagnostics"]) expect(screen.getByLabelText(name)).toBeTruthy();
+    expect(screen.getByText("Sonnet 5.5 on Claude sign-in, project files on")).toBeTruthy();
+    expect(screen.getByText("1 sign-in, 0 keys")).toBeTruthy();
+    expect(screen.getByText("Ready, Micro")).toBeTruthy();
+    expect(screen.getByText("Editor connected, ue-mcp 1.4.11-beta.4")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Agents"));
+    expect(onSection).toHaveBeenCalledWith("agents");
+  });
+
+  it("marks what needs attention: nothing connected", async () => {
+    open("settings-models-nothing", null);
+    await settled();
+    expect(screen.getAllByLabelText("Nothing connected").length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("No model connected").length).toBeGreaterThan(0);
+  });
+
+  it("opens a section under All settings, an old name at its new section", async () => {
+    const onSection = vi.fn();
+    open("settings-general", "appearance", onSection);
+    await settled();
+    expect(screen.getByText("General")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("All settings"));
+    expect(onSection).toHaveBeenCalledWith(null);
+  });
+});
+
+describe("Settings > General", () => {
+  it("switches the app's theme at once and saves it on the computer", async () => {
+    const { onTheme, writes } = open("settings-general", "general");
+    await settled();
+    fireEvent.click(screen.getByLabelText("Editor orange"));
+    await settled();
+    expect(onTheme).toHaveBeenCalledWith("editor-orange");
+    expect(writes()).toContainEqual(expect.objectContaining({ method: "PUT", path: "/v1/ext/studio/settings", json: { theme: "editor-orange" } }));
+  });
+
+  it("shows the updates read only: what is newer, no Update, the channel off, the note", async () => {
+    const { writes } = open("settings-general-remote", "general");
+    await settled(6);
+    expect(screen.getByText("Update available")).toBeTruthy();
+    expect(screen.getByText("Ready to install: Studio 0.1.25-beta.19.")).toBeTruthy();
+    expect(screen.queryByLabelText("Update")).toBeNull();
+    expect(screen.getByText("Updates run from Studio on the computer.")).toBeTruthy();
+    const before = writes().length;
+    fireEvent.click(screen.getByLabelText("Beta"));
+    await settled();
+    expect(writes().length).toBe(before);
+  });
+
+  it("names the signed-in account without Sign out, and Manage plan for the plan", async () => {
+    open("settings-general-paid", "general");
+    await settled();
+    expect(screen.getByText("Signed in as @dev")).toBeTruthy();
+    expect(screen.queryByText("Sign out")).toBeNull();
+    expect(screen.getByLabelText("Manage plan")).toBeTruthy();
+  });
+
+  it("says a signed-out account signs in on the computer", async () => {
+    open("settings-general-signing-in", "general");
+    await settled();
+    expect(screen.getByText("Not signed in")).toBeTruthy();
+    expect(screen.getByText(REMOTE_CHANGE_NOTE)).toBeTruthy();
+    expect(screen.queryByText("ABCD-1234")).toBeNull();
+  });
+});
+
+describe("Settings > Remote control", () => {
+  it("says it is set up on the computer, once the computer refuses its routes", async () => {
+    open("settings-remote-pin-on", "remote");
+    await settled();
+    expect(screen.getByText("Remote control is turned on and paired from the computer running the project, not from a paired browser.")).toBeTruthy();
+    expect(screen.queryByLabelText("Lock the whole browser")).toBeNull();
+  });
+});
+
+describe("Settings > Agents", () => {
+  it("shows the main agent, the worker and the project's Claude files", async () => {
+    open("settings-agents", "agents");
+    await settled(6);
+    expect(screen.getByText("Main agent")).toBeTruthy();
+    expect(screen.getByLabelText("Worker model: Same as main agent")).toBeTruthy();
+    expect(screen.getByText(/Read by: Claude sign-in\./)).toBeTruthy();
+    expect(screen.getByText("level-dresser")).toBeTruthy();
+    expect(screen.getByText("naming-conventions")).toBeTruthy();
+  });
+
+  it("changes the screenshot size from the phone", async () => {
+    const { writes } = open("settings-agents", "agents");
+    await settled(6);
+    fireEvent.click(screen.getByLabelText(/^Full 2000/));
+    await settled();
+    expect(writes()).toContainEqual(expect.objectContaining({ path: "/v1/ext/studio/settings", json: { usage: { imageSize: "full" } } }));
+  });
+
+  it("says nothing is connected and links to Models", async () => {
+    const onSection = vi.fn();
+    open("settings-agents-not-connected", "agents", onSection);
+    await settled(6);
+    fireEvent.click(screen.getByText("Connect a sign-in or API key"));
+    expect(onSection).toHaveBeenCalledWith("models");
+  });
+
+  it("hides the files when the project's agent files are off", async () => {
+    open("settings-agents-files-off", "agents");
+    await settled(6);
+    expect(screen.queryByText("Instruction files")).toBeNull();
+  });
+});
+
+describe("Settings > Models & accounts", () => {
+  it("draws sign-ins, keys and endpoints read only under the note, the route order still changes", async () => {
+    const { writes } = open("endpoints-populated", "models");
+    await settled(6);
+    expect(screen.getAllByText(REMOTE_CHANGE_NOTE).length).toBeGreaterThan(0);
+    for (const b of screen.getAllByLabelText("Add key")) expect(b.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getAllByText("Local Ollama").length).toBeGreaterThan(0);
+    expect(screen.getAllByLabelText("Edit")[0].getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(screen.getByLabelText("Keys first"));
+    await settled();
+    expect(writes()).toContainEqual(expect.objectContaining({ json: { routeOrder: "keys-first" } }));
+  });
+
+  it("says when the endpoints cannot be read", async () => {
+    open("endpoints-error", "models");
+    await settled(6);
+    expect(screen.getByText(/Could not read the endpoints:/)).toBeTruthy();
+  });
+});
+
+describe("Settings > Approvals & review", () => {
+  it("keeps the ask-first rules read only and lets the phone change review", async () => {
+    const { writes } = open("settings-approvals", "approvals");
+    await settled(6);
+    expect(screen.getAllByLabelText("Ask")[0].getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(screen.getByLabelText("Review each turn"));
+    await settled();
+    expect(writes()).toContainEqual(expect.objectContaining({ json: { reviewTurns: false } }));
+  });
+});
+
+describe("Settings > Project", () => {
+  it("shows a bridge needing a rebuild, and Rebuild asks first", async () => {
+    open("settings-project-rebuild", "project");
+    await settled(6);
+    expect(screen.getByText("The bridge plugin needs a rebuild.")).toBeTruthy();
+    fireEvent.click(screen.getByLabelText("Rebuild"));
+    expect(screen.getByLabelText("Close the editor and rebuild")).toBeTruthy();
+  });
+
+  it("shows ue-mcp.yml read only, highlighted, under Advanced", async () => {
+    open("settings-project-yaml", "project");
+    await settled(6);
+    fireEvent.click(screen.getByText("Advanced: ue-mcp.yml"));
+    await settled();
+    expect(screen.getByText("ue-mcp.yml")).toBeTruthy();
+    expect(screen.getByLabelText("Save").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("says an environment override wins", async () => {
+    open("settings-project-attention", "project");
+    await settled(6);
+    expect(screen.getByText("UE_MCP_CONTEXT_STRATEGY=full")).toBeTruthy();
+    expect(screen.getByText("Needs attention")).toBeTruthy();
+  });
+});
+
+describe("Settings with older and empty answers", () => {
+  it.each(["general", "agents", "models", "approvals", "project", "diagnostics"])("%s renders from an older agent's answers and from empty ones", async (section) => {
+    for (const scenario of [`settings-old-${section}`, `settings-empty-${section}`]) {
+      const v = open(scenario, section);
+      await settled(6);
+      expect(v.container.textContent?.length).toBeGreaterThan(20);
+      v.unmount();
+    }
+  });
+});

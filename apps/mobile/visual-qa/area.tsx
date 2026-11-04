@@ -12,7 +12,7 @@ import { studioApi } from "@ue-mcp-studio/client-core";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { SCENARIOS, scenarioTransport } from "./harness";
 import { PARITY } from "./parity";
-import { AREA_SCENES } from "./area-scenes";
+import { areaScene } from "./area-scenes";
 import { useProject } from "../src/connection";
 import { ProjectContext, type ProjectNav } from "../src/nav";
 import { THEMES, ThemeProvider, useStudioFonts } from "../src/ui";
@@ -34,7 +34,7 @@ function Area() {
   const [current, setCurrent] = useState<StudioTheme>(theme);
   const fonts = useStudioFonts();
   const t = THEMES[current];
-  const scene = AREA_SCENES[name];
+  const scene = areaScene(name);
   return (
     <ThemeProvider name={current} onChange={setCurrent}>
       <View style={{ flex: 1 }}>
