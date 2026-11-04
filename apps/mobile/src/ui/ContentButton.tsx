@@ -38,7 +38,9 @@ export function ContentButton({ title, onPress, kind = "default", small, fontSiz
   const primary = kind === "primary";
   const bg = primary ? (disabled ? "transparent" : t.c.accent) : t.c.panel2;
   const border = disabled ? t.c.disabledLine : primary ? t.c.accent : kind === "danger" ? t.c.bad : t.c.lineStrong;
-  const color = disabled ? t.c.dim : primary ? t.c.onAccent : kind === "danger" ? t.c.bad : t.c.text;
+  // editor-orange's primary: black text in 600 on the orange.
+  const orangePrimary = primary && !disabled && t.name === "editor-orange";
+  const color = disabled ? t.c.dim : orangePrimary ? "#000" : primary ? t.c.onAccent : kind === "danger" ? t.c.bad : t.c.text;
   return (
     <Pressable
       accessibilityRole="button"
@@ -52,7 +54,7 @@ export function ContentButton({ title, onPress, kind = "default", small, fontSiz
         style,
       ]}
     >
-      {children ?? <T style={[buttonFont(t, primary, small ? fontSize : undefined), { color }, textStyle]}>{title}</T>}
+      {children ?? <T style={[buttonFont(t, primary, small ? fontSize : undefined), { color }, orangePrimary && font(t, "sans", 600, 12, 1.2), textStyle]}>{title}</T>}
     </Pressable>
   );
 }
