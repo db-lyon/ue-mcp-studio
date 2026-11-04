@@ -15,5 +15,6 @@ export * from "./composer-menus.js";
 export * from "./pill-providers.js";
 export * from "./launchers.js";
 export * from "./model-route.js";
+export * from "./chat-view.js";
 export * from "./review-view.js";
 export * from "./forms.js";

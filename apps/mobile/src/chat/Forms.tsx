@@ -53,3 +53,15 @@ export function FieldsForm({ fields, required, prefill, sent, error, submitLabel
     </View>
   );
 }
+
+// STUB: owned by transcript (area-c): the pending forms and their cards.
+import type { PendingForm } from "@ue-mcp-studio/shared";
+import type { DaemonState } from "./hooks";
+
+export function useForms(_daemon: Pick<DaemonState, "events" | "streaming">, _sessionId: string | null): PendingForm[] {
+  return [];
+}
+
+export function FormCards(_props: { forms: PendingForm[]; runs?: ReadonlySet<string> }) {
+  return null;
+}

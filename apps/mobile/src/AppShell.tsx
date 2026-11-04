@@ -35,9 +35,6 @@ import { RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { RemoteLock } from "./views/remote/RemoteLock";
 import { CompatBanner } from "./native/CompatBanner";
-import { SessionScreen } from "./screens/Session";
-import { ReviewItemScreen, ReviewScreen } from "./screens/Review";
-import { CheckpointsScreen } from "./screens/Checkpoints";
 import { ChangeScreen, ChangesScreen } from "./screens/Changes";
 
 const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
@@ -81,10 +78,6 @@ export function AppShell({ device, onBack, onUnpaired, transport, initial }: App
         <Root initial={initial} onBack={onBack} />
         {top ? (
           <View style={StyleSheet.absoluteFill}>
-            {top.name === "session" ? <SessionScreen key={top.id} id={top.id} /> : null}
-            {top.name === "review" ? <ReviewScreen sessionId={top.sessionId} review={top.review} /> : null}
-            {top.name === "reviewItem" ? <ReviewItemScreen sessionId={top.sessionId} reviewId={top.reviewId} path={top.path} /> : null}
-            {top.name === "checkpoints" ? <CheckpointsScreen sessionId={top.sessionId} /> : null}
             {top.name === "changes" ? <ChangesScreen /> : null}
             {top.name === "change" ? <ChangeScreen path={top.path} /> : null}
           </View>
@@ -170,7 +163,7 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
                 nav={chatNav}
                 active={tab === "Chat"}
                 onSettings={(x) => {
-                  setSection(x);
+                  setSection(sectionOf(x));
                   setTab("Settings");
                 }}
               />

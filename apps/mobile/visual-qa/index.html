@@ -12,6 +12,8 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- React Native's Animated reaches for `global` when an animation stops, as Metro provides it. -->
+    <script>window.global = window;</script>
     <script type="module" src="./main.tsx"></script>
   </body>
 </html>
