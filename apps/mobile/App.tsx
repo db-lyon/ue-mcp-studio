@@ -2,10 +2,10 @@ import "./src/native/system";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, Linking, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
+import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import type { PanelLocation } from "@ue-mcp-studio/client-core";
-import { Banner, THEMES, ThemeProvider, useStudioFonts, useTheme, type ThemeName } from "./src/ui";
+import { Banner, THEMES, ThemeProvider, useInsets, useStudioFonts, useTheme, type ThemeName } from "./src/ui";
 import { account, isPairLink, pair, select, selected, trusted, forget, type Device, type PairStep } from "./src/relay";
 import { applySystemTheme, hideSplash } from "./src/native/system";
 import { KeyboardProvider } from "./src/native/keyboard";
@@ -53,7 +53,8 @@ export default function App() {
     <ShareProvider>
       <ThemeProvider name={theme} onChange={choose}>
         <KeyboardProvider>
-          <SafeAreaProvider style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>
+          {/* The window's insets from the first frame, so nothing is laid out once under the navigation bar and then moves. */}
+          <SafeAreaProvider initialMetrics={initialWindowMetrics} style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>
             <StatusBar style="light" />
             <View style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>{fonts ? <Root /> : null}</View>
           </SafeAreaProvider>
@@ -159,11 +160,11 @@ function Root() {
 /** Over everything while this phone has no network: nothing can reach the relay, whatever the computer does. */
 function OfflineBanner() {
   const online = useDeviceOnline();
-  const insets = useSafeAreaInsets();
+  const insets = useInsets();
   const t = useTheme();
   if (online) return null;
   return (
-    <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, paddingTop: insets.top + 6, paddingHorizontal: 6, backgroundColor: t.c.barBg }}>
+    <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, paddingTop: insets.top + 6, paddingLeft: 6 + insets.left, paddingRight: 6 + insets.right, backgroundColor: t.c.barBg }}>
       <Banner kind="warn" role="status" style={{ marginBottom: 6 }}>
         This phone is offline. Studio reconnects when it is back.
       </Banner>

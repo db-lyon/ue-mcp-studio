@@ -7,7 +7,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { StyleSheet, View } from "react-native";
 import { STEP_NAME, STEP_NOTE, waitingSteps, waitingWho, type UpdateRun } from "@ue-mcp-studio/client-core";
-import { Banner, Button, font, Row, Spacer, Spinner, T, useStyles, useTheme, type Theme } from "../ui";
+import { Banner, Button, edgePadding, font, Row, Spacer, Spinner, T, useInsets, useStyles, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import type { DaemonEvent } from "../state";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
@@ -83,9 +83,11 @@ export function UpdateWaiting({ run }: { run: UpdateRun }) {
   const t = useTheme();
   const { api } = useProjectNav();
   const [sure, setSure] = useState(false);
+  const insets = useInsets();
   const steps = waitingSteps(run);
+  // At the foot of the shell: above the navigation bar.
   return (
-    <Banner kind="warn" role="status" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginTop: 0, marginHorizontal: 6, marginBottom: 6 }}>
+    <Banner kind="warn" role="status" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginTop: 0, marginLeft: 6 + insets.left, marginRight: 6 + insets.right, marginBottom: 6 + insets.bottom }}>
       <T style={{ flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0, color: t.c.warnText }}>
         <T weight={700} lh={t.editor ? 1.5 : 1.55} style={{ color: t.c.warnText }}>Update ready.</T> {waitingWho(steps)} once no turn is in progress.
         {sure ? <T style={{ color: t.c.dim }}> Restarting now stops every turn in progress.</T> : null}
@@ -99,11 +101,12 @@ export function UpdateWaiting({ run }: { run: UpdateRun }) {
 export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boolean; onClose: () => void }) {
   const t = useTheme();
   const s = useStyles(styles);
+  const insets = useInsets();
   const finished = run.summary !== undefined;
   const failed = !!run.error;
   const title = failed ? "Update stopped" : finished ? "Updated" : "Updating";
   return (
-    <View style={s.overlay} accessibilityViewIsModal accessibilityLabel={title}>
+    <View style={[s.overlay, edgePadding(insets, 8)]} accessibilityViewIsModal accessibilityLabel={title}>
       <View style={s.card}>
         <View style={s.head}>
           {!finished && !failed ? <Spinner /> : null}

@@ -2,15 +2,18 @@
  * One session in the list: open it, or from its menu rename, archive (or
  * restore) and delete it. Delete asks once more before it removes anything.
  */
-import { useEffect, useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { Pressable, TextInput, View, useWindowDimensions, type HostInstance } from "react-native";
 import type { SessionSummary, SessionUpdate } from "@ue-mcp-studio/shared";
 import { listState, sessionLine } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
-import { font, T, useTheme } from "../ui";
+import { font, T, useSheetInsets, useTheme } from "../ui";
 import { buttonText, small } from "./styles";
 
 export { listState, sessionLine };
+
+/** The row menu's height: three 44 px items, its padding and border. */
+const MENU_H = 3 * 44 + 10;
 
 /** .session-dot: shown while the session runs, waits or needs the user, or stopped on an error. */
 function SessionDot({ state }: { state: string }) {
@@ -24,6 +27,11 @@ export function SessionRow({ s, selected, onOpen, onChanged }: { s: SessionSumma
   const t = useTheme();
   const { api } = useProjectNav();
   const [menu, setMenu] = useState(false);
+  // A row near the foot of the screen opens its menu upward, so the menu never sits under the navigation bar.
+  const [up, setUp] = useState(false);
+  const row = useRef<HostInstance>(null);
+  const win = useWindowDimensions();
+  const insets = useSheetInsets();
   const [confirm, setConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(s.title);
@@ -55,7 +63,7 @@ export function SessionRow({ s, selected, onOpen, onChanged }: { s: SessionSumma
   );
 
   return (
-    <View style={{ zIndex: menu ? 5 : 0, opacity: s.archived ? 0.7 : 1 }}>
+    <View ref={row} style={{ zIndex: menu ? 5 : 0, opacity: s.archived ? 0.7 : 1 }}>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={s.title}
@@ -99,6 +107,7 @@ export function SessionRow({ s, selected, onOpen, onChanged }: { s: SessionSumma
         accessibilityLabel="Session actions"
         accessibilityState={{ expanded: menu }}
         onPress={() => {
+          if (!menu) row.current?.measureInWindow?.((_x, y) => setUp(y + 48 + MENU_H > win.height - insets.bottom && y - MENU_H > insets.top));
           setMenu(!menu);
           setConfirm(false);
         }}
@@ -109,7 +118,7 @@ export function SessionRow({ s, selected, onOpen, onChanged }: { s: SessionSumma
       {menu ? (
         <View
           accessibilityRole="menu"
-          style={{ position: "absolute", top: 48, right: 2, zIndex: 5, minWidth: 150, padding: 4, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 8 }, elevation: 8 }}
+          style={{ position: "absolute", ...(up ? { bottom: "100%" as const } : { top: 48 }), right: 2, zIndex: 5, minWidth: 150, padding: 4, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 8, shadowColor: "#000", shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 8 }, elevation: 8 }}
         >
           {item("Rename", () => {
             setMenu(false);

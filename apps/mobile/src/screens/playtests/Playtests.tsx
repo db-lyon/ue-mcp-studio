@@ -22,7 +22,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { playtestMatches, playtestShown, type PlaytestEntry, type PlaytestFilter, type PlaytestIndexAnswer, type QaRun } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
-import { Banner, T, bannerText, font, useStyles, useTheme, type Theme } from "../../ui";
+import { Banner, T, bannerText, font, useSheetInsets, useStyles, useTheme, type Theme } from "../../ui";
 import { QaContext, RevealContext, useDaemonEvents, type Measurable, type QaLive, type RevealBlock } from "./live";
 import { QaCard, useSavedScript, type QaCardActions } from "./QaCard";
 import { PathLegend } from "./StepPath";
@@ -73,6 +73,7 @@ export function PlaytestsScreen({ onOpenSession, onChat }: { onOpenSession: (ses
 export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: { daemon: Daemonish; index: ReturnType<typeof usePlaytestIndex>; onOpenSession: (sessionId: string, runId: string) => void; onChat?: () => void }) {
   const t = useTheme();
   const s = useStyles(styles);
+  const insets = useSheetInsets();
   const { events, streaming } = daemon;
   const { index, error, reload } = source;
   const all = useMemo(() => (index?.playtests ?? []).filter((e) => !e.deleted), [index]);
@@ -106,7 +107,8 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
     <ScrollView
       ref={scroller as never}
       style={s.scroll}
-      contentContainerStyle={s.page}
+      // Its end scrolls clear of the navigation bar, or of the keyboard while a field has it up.
+      contentContainerStyle={[s.page, { paddingBottom: 18 + insets.bottom }]}
       refreshControl={<RefreshControl refreshing={pulling} onRefresh={() => ((pulled.current = true), setPulling(true), reload(true))} tintColor={t.c.accent} colors={[t.c.accent]} progressBackgroundColor={t.c.panel} />}
       testID="playtests-page"
     >

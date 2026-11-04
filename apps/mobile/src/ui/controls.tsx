@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Svg, { Defs, LinearGradient, Polyline, Rect, Stop } from "react-native-svg";
 import { Animated, Modal, Pressable, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSheetInsets } from "./insets";
 import { font, labelFont, T } from "./Text";
 import { useStyles, useTheme } from "./ThemeProvider";
 import { lineBox, type Theme } from "./theme";
@@ -225,13 +225,14 @@ export const Spacer = () => <View style={{ flex: 1 }} />;
  */
 export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
   const t = useTheme();
-  const insets = useSafeAreaInsets();
+  // Its actions end above the navigation bar, or above the keyboard while one of its fields has it up.
+  const insets = useSheetInsets();
   const slide = useRef(new Animated.Value(open ? 1 : 0)).current;
   useEffect(() => {
     Animated.timing(slide, { toValue: open ? 1 : 0, duration: 240, useNativeDriver: true }).start();
   }, [open, slide]);
   return (
-    <Modal visible={open} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={open} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.55)", opacity: slide }]}>
         <Pressable accessibilityLabel="Close" style={StyleSheet.absoluteFill} onPress={onClose} />
       </Animated.View>
@@ -245,8 +246,9 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
           bottom: 0,
           maxHeight: "70%",
           paddingTop: 6,
-          paddingHorizontal: Math.max(10, insets.left),
-          paddingBottom: Math.max(12, insets.bottom),
+          paddingLeft: 10 + insets.left,
+          paddingRight: 10 + insets.right,
+          paddingBottom: 12 + insets.bottom,
           backgroundColor: t.c.panel,
           borderTopWidth: 1,
           borderTopColor: t.c.lineStrong,

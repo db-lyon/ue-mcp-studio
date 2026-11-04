@@ -6,24 +6,25 @@
  */
 import type { ReactElement, ReactNode } from "react";
 import { Pressable, ScrollView, View, type RefreshControlProps, type StyleProp, type ViewStyle } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
-import { Card, font, Label, T, useTheme } from "../ui";
+import { Card, font, Label, T, useSheetInsets, useTheme } from "../ui";
 
 export function Page({ children, scroll = true, footer, refreshControl }: { children: ReactNode; scroll?: boolean; footer?: ReactNode; refreshControl?: ReactElement<RefreshControlProps> }) {
   const t = useTheme();
-  const insets = useSafeAreaInsets();
-  const pad = { paddingTop: Math.max(16, insets.top + 8), paddingLeft: Math.max(16, insets.left), paddingRight: Math.max(16, insets.right) };
+  // The page's end (or its footer's buttons) clear of the navigation bar, or of the keyboard while a field has it up.
+  const insets = useSheetInsets();
+  const pad = { paddingTop: Math.max(16, insets.top + 8), paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right };
+  const end = 16 + insets.bottom;
   return (
     <View style={{ flex: 1, backgroundColor: t.c.bg }}>
       {scroll ? (
-        <ScrollView style={{ flex: 1 }} refreshControl={refreshControl} contentContainerStyle={[pad, { paddingBottom: 16, gap: 14 }]}>
+        <ScrollView testID="page" style={{ flex: 1 }} refreshControl={refreshControl} keyboardShouldPersistTaps="handled" contentContainerStyle={[pad, { paddingBottom: footer ? 16 : end, gap: 14 }]}>
           {children}
         </ScrollView>
       ) : (
-        <View style={[{ flex: 1, gap: 14 }, pad]}>{children}</View>
+        <View style={[{ flex: 1, gap: 14 }, pad, { paddingBottom: footer ? 0 : end }]}>{children}</View>
       )}
-      {footer ? <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: Math.max(16, insets.bottom), gap: 8, borderTopWidth: 1, borderTopColor: t.c.line }}>{footer}</View> : null}
+      {footer ? <View testID="page-footer" style={{ paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right, paddingTop: 10, paddingBottom: end, gap: 8, borderTopWidth: 1, borderTopColor: t.c.line }}>{footer}</View> : null}
     </View>
   );
 }
