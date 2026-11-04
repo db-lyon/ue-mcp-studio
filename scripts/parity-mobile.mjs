@@ -1,7 +1,7 @@
 // Compare the mobile app with the web client, scenario by scenario, pixel by pixel.
 //
 //   node scripts/visual-qa.mjs --remote --widths 390 --out <web>     (the reference, once per change to client-web)
-//   node scripts/parity-mobile.mjs --web <web> [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell]
+//   node scripts/parity-mobile.mjs --web <web> [--web-computer <computer shots>] [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell]
 //   node scripts/parity-mobile.mjs --list                                (the scenarios and who owns each)
 //
 // Serves apps/mobile/visual-qa with Vite: the app's own screens, drawn by
@@ -24,6 +24,8 @@ const arg = (name) => {
 };
 const list = process.argv.includes("--list");
 const webDir = arg("web") ? path.resolve(arg("web")) : null;
+// Scenarios whose reference is the computer's own capture (parity.ts reference: "computer"): node scripts/visual-qa.mjs --widths 390 without --remote.
+const computerDir = arg("web-computer") ? path.resolve(arg("web-computer")) : webDir;
 const out = path.resolve(arg("out") ?? path.join(os.tmpdir(), "studio-mobile-parity"));
 const only = arg("only")?.split(",");
 const THEMES = (arg("themes") ?? "ue-mcp,editor-orange,editor").split(",");
@@ -87,6 +89,8 @@ for (const name of picked) {
     const page = await browser.newPage({ viewport: { width: WIDTH, height }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    // A link the app opens in the browser (Upgrade's checkout) is closed at once, as the web harness never opens one.
+    page.on("popup", (p) => void p.close().catch(() => undefined));
     await page.goto(`${base}/index.html?scenario=${encodeURIComponent(name)}&theme=${theme}`);
     await page.waitForTimeout(1500);
     for (const c of parity[name].clicks ?? []) {
@@ -145,7 +149,7 @@ for (const name of picked) {
     await page.screenshot({ path: appPng });
     await page.close();
 
-    const webPng = path.join(webDir, `${name}-${theme}-390.png`);
+    const webPng = path.join(parity[name].reference === "computer" ? computerDir : webDir, `${name}-${theme}-390.png`);
     let mismatch = null;
     if (fs.existsSync(webPng)) {
       const a = PNG.sync.read(fs.readFileSync(webPng));

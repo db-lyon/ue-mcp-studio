@@ -65,7 +65,13 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   useEffect(() => {
     const onResize = () => setViewport((n) => n + 1);
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    // The box was measured in a fallback font until the web fonts arrive: measure it again then, or it keeps a fallback line count.
+    let alive = true;
+    void document.fonts?.ready.then(() => alive && onResize());
+    return () => {
+      alive = false;
+      window.removeEventListener("resize", onResize);
+    };
   }, []);
 
   const current = () => {
