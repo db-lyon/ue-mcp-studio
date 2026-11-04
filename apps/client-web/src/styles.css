@@ -1288,6 +1288,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .asset-tile-facts > div { display: contents; }
 .asset-tile-facts dt { color: var(--muted); overflow-wrap: break-word; min-width: 0; }
 .asset-tile-facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; min-width: 0; }
+/* The name column takes at most half the tile, so a long value is not squeezed into a sliver beside it. */
+.asset-tile-facts { grid-template-columns: fit-content(45%) minmax(0, 1fr); }
 .asset-tile-note { overflow-wrap: break-word; }
 .review-item-summary { color: var(--text); overflow-wrap: break-word; }
 .review-item-summary.bad { color: var(--bad); }
@@ -1833,4 +1835,5 @@ pre.diff > .meta { color: var(--dim); }
 @media (pointer: coarse) {
   button:not(.asset-link):not(.link):not(.qa-path-hit):not(.switch):not(.chip) { min-width: 44px; }
   .msg.user .msg-edit { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+  .qa-edit-instruction { min-height: 44px; }
 }
