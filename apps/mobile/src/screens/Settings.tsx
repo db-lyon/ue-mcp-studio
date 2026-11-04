@@ -70,12 +70,12 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
     <Page title="Paired devices" back="Projects" onBack={onBack}>
       <T style={{ color: t.c.dim }}>The phones and browsers that reach your projects, and the computers this phone trusts.</T>
       {error ? <RelayProblem error={error} note={viewers ? "The lists below are what this phone last read." : "The computers this phone trusts are below; the rest shows once the relay answers."} onRetry={() => void load()} /> : null}
+      {viewers || !error ? <SectionLabel>Phones and browsers</SectionLabel> : null}
       {viewers === null && !error ? (
         <View style={{ alignItems: "center", paddingVertical: 12 }}>
           <Loading>Loading paired devices</Loading>
         </View>
       ) : null}
-      {viewers ? <SectionLabel>Phones and browsers</SectionLabel> : null}
       {viewers ? (
         <ListCard>
           {viewers.length === 0 ? <ListRow title="None yet" sub="Phones and browsers you pair show here." /> : null}
@@ -91,14 +91,21 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
           // A computer has no name of its own at the relay: it is numbered, and its projects say which it is once the relay has answered.
           const name = trustedKeys.length > 1 ? `Computer ${i + 1}` : "Your computer";
           const names = devices.filter((d) => d.computerKey === key).map((d) => d.name);
-          return <ListRow key={key} title={name} sub={names.length ? `${names.join(", ")}. ${paired(info.pairedAt)}` : paired(info.pairedAt)} right={danger("Forget", () => forgetKey(key, name), `Forget ${name}`)} />;
+          const line = { ...font(t, "sans", 400, 12, 1.3), color: t.c.dim };
+          const sub = (
+            <View>
+              {names.length ? <T style={line}>{names.join(", ")}</T> : null}
+              <T style={line}>{paired(info.pairedAt)}</T>
+            </View>
+          );
+          return <ListRow key={key} title={name} sub={sub} right={danger("Forget", () => forgetKey(key, name), `Forget ${name}`)} />;
         })}
       </ListCard>
       {onAbout ? (
         <>
           <SectionLabel>This app</SectionLabel>
           <ListCard>
-            <ListRow title="About" sub="Versions, and whether this app fits the Studio on your computer" onPress={onAbout} right={<Chevron />} />
+            <ListRow title="About" sub="Versions and compatibility" onPress={onAbout} right={<Chevron />} />
           </ListCard>
         </>
       ) : null}

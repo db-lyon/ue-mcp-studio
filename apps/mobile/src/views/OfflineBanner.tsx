@@ -27,7 +27,7 @@ export function OfflineBanner() {
       <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.editor ? t.c.panel2 : t.c.warnWash }} />
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 16, paddingVertical: 6, minHeight: OFFLINE_STRIP - 1 }}>
         <Dot kind="warn" />
-        <T style={{ ...font(t, "sans", 600, 13.5, 1.3), color: t.editor ? t.c.text : t.c.warnText, flexShrink: 1 }}>This phone is offline. Studio reconnects on its own.</T>
+        <T style={{ ...font(t, "sans", 600, 13.5, 1.3), color: t.editor ? t.c.text : t.c.warnText, flexShrink: 1 }}>This phone is offline. The app reconnects on its own.</T>
       </View>
     </View>
   );

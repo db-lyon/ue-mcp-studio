@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { RefreshControl, View } from "react-native";
 import { account, NotPairedError, selected, trusted, type Device } from "../relay";
+import { useDeviceOnline } from "../native/online";
 import { Button, Dot, font, Loading, Panel, T, useTheme } from "../ui";
 import { Chevron, ListCard, ListRow, Page, PageHead, RelayProblem } from "./StudioPage";
 
@@ -14,12 +15,14 @@ import { Chevron, ListCard, ListRow, Page, PageHead, RelayProblem } from "./Stud
 export function lastSeen(iso: string, now = Date.now()): string {
   const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
   if (!Number.isFinite(s)) return "Offline";
-  const ago = s < 60 ? "just now" : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86_400 ? `${Math.floor(s / 3600)} h ago` : `${Math.floor(s / 86_400)} ${Math.floor(s / 86_400) === 1 ? "day" : "days"} ago`;
+  const ago = s < 60 ? "just now" : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86_400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86_400)} ${Math.floor(s / 86_400) === 1 ? "day" : "days"} ago`;
   return `Offline, last seen ${ago}`;
 }
 
 export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (d: Device) => void; onPair: () => void; onSettings: () => void; onUnpaired: (message: string) => void }) {
   const t = useTheme();
+  // With the phone offline, what the relay last said about each project is stale: no green dots.
+  const phoneOnline = useDeviceOnline();
   const [list, setList] = useState<Device[] | null>(null);
   const [keys, setKeys] = useState<Record<string, unknown>>({});
   const [last, setLast] = useState<string | null>(null);
@@ -55,10 +58,10 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
     <Page
       refreshControl={<RefreshControl refreshing={busy && list !== null} onRefresh={() => void load()} tintColor={t.c.accent} colors={[t.c.accent]} progressBackgroundColor={t.c.panel} />}
       actions={<Button title="Devices" variant="ghost" label="Paired devices" onPress={onSettings} />}
-      footer={rows !== null || error ? <Button title="Pair another computer" onPress={onPair} /> : undefined}
+      footer={<Button title="Pair another computer" onPress={onPair} />}
     >
-      <PageHead eyebrow="Projects" lead={rows?.length === 0 ? undefined : "Choose the project to open in Studio."} />
-      {error ? <RelayProblem error={error} note="Studio asks again every 10 seconds." onRetry={() => void load()} /> : null}
+      <PageHead eyebrow="Projects" lead={rows?.length === 0 || error ? undefined : "Choose the project to open in Studio."} />
+      {error ? <RelayProblem error={error} note="This list asks again every 10 seconds." onRetry={() => void load()} /> : null}
       {rows === null && !error ? (
         <View style={{ alignItems: "center", paddingTop: 24 }}>
           <Loading>Loading your projects</Loading>
@@ -86,7 +89,7 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
               <ListRow
                 key={d.id}
                 current={d.online && d.id === last}
-                lead={<Dot kind={d.online ? "ok" : undefined} />}
+                lead={<Dot kind={d.online && phoneOnline ? "ok" : undefined} />}
                 title={d.name}
                 sub={!d.online ? lastSeen(d.lastSeen) : d.id === last ? "Opened last" : undefined}
                 label={`Open ${d.name}`}
