@@ -311,8 +311,9 @@ function withApprovals(): SessionDetail {
   const d = detail("Door hinge fix", []);
   return {
     ...d,
-    status: "waiting",
-    waitingCause: "approval",
+    // A turn waiting on approvals is still running; "waiting" is the editor being away.
+    status: "running",
+    waitingCause: null,
     awaiting: 2,
     transcript: [
       { kind: "user", text: "Make the door ease open and rebuild.", at: ago(4) },

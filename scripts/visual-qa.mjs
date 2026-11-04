@@ -118,6 +118,28 @@ const auditPage = (page) =>
       if (el.scrollWidth > el.clientWidth + 2 && st.textOverflow !== "ellipsis" && st.whiteSpace.startsWith("nowrap") && el.textContent.trim())
         out.push({ kind: "clipped-text", el: label(el), by: el.scrollWidth - el.clientWidth });
     }
+    // Text squeezed so narrow it breaks after nearly every word: a column too thin to read. Only an
+    // element's own text counts, and its lines are the rendered ones, so a tall button is not three lines.
+    for (const el of document.querySelectorAll("body *")) {
+      if (!visible(el) || ["PRE", "TEXTAREA", "CODE", "SCRIPT", "STYLE"].includes(el.tagName) || el.closest("pre")) continue;
+      const own = [...el.childNodes].filter((n) => n.nodeType === 3 && n.textContent.trim());
+      if (!own.length) continue;
+      const words = own.map((n) => n.textContent).join(" ").trim().split(/\s+/).filter(Boolean).length;
+      if (words < 3) continue;
+      const tops = new Set();
+      for (const n of own) {
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        for (const r of range.getClientRects()) if (r.width > 0) tops.add(Math.round(r.top));
+      }
+      if (tops.size >= 3 && tops.size >= words * 0.75) out.push({ kind: "one-word-per-line", el: label(el), by: `${tops.size} lines, ${words} words` });
+    }
+    // The message box must stay on screen: a card above it that grows must not push it away.
+    const composer = document.querySelector(".composer");
+    if (composer && visible(composer)) {
+      const r = composer.getBoundingClientRect();
+      if (r.bottom > window.innerHeight + 1 || r.top < 0) out.push({ kind: "composer-off-screen", el: label(composer), by: Math.round(r.bottom - window.innerHeight) });
+    }
     // A flex row whose content runs past the panel's right edge inside a clipping ancestor.
     for (const el of document.querySelectorAll("summary, .row, [class*=-row], [class*=-head]")) {
       if (!visible(el)) continue;
