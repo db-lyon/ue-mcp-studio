@@ -11,6 +11,7 @@ import { SessionLoading, SessionRowsLoading } from "../src/chat/Skeleton";
 import { ReviewPanel, TurnReviewCard } from "../src/screens/chat/items";
 import { SessionIdContext } from "../src/chat/attachments";
 import { Chat } from "../src/views/Chat";
+import { ThemeProvider } from "../src/ui";
 import { fakeApi, renderInProject, session, settle } from "./helpers";
 
 const summary = (over: Partial<SessionSummary> = {}): SessionSummary =>
@@ -177,6 +178,16 @@ describe("ContextMeter", () => {
     expect(screen.getByText("~4%")).toBeTruthy();
     const { container } = renderInProject(<ContextMeter context={undefined} totals={undefined} model="m" busy={false} compacting={false} runtime={false} onCompact={() => undefined} />);
     expect(container.textContent).toBe("");
+  });
+
+  it("draws the percentage in the editor themes' button font, sans 12px/1.2, as their button rule outranks the meter's mono", () => {
+    renderInProject(
+      <ThemeProvider name="editor">
+        <ContextMeter context={usage(68_000)} totals={undefined} model="claude-sonnet-5-5" listedWindow={1_000_000} busy={false} compacting={false} runtime={false} onCompact={() => undefined} />
+      </ThemeProvider>,
+    );
+    const style = getComputedStyle(screen.getByText("7%"));
+    expect(style.fontFamily).toContain("Roboto");
   });
 
   it("warns near the compaction point, with Compact now and Dismiss", () => {

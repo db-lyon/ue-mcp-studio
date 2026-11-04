@@ -96,7 +96,8 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
         {view ? <ContextBar view={view} pulsing={compacting} width={tier === "narrowest" ? 24 : atMost("compact", tier) ? 34 : 56} /> : null}
         {/* .compacting: the bar's fill and the percentage pulse while the conversation is compacted. */}
         <Pulse on={compacting} period={1600}>
-          <T style={[font(t, "mono", 500, 12, 1), { color: pctColor }]}>{compacting && !tight ? "Compacting" : view ? `${view.estimated ? "~" : ""}${pct(view.fraction)}` : "ctx"}</T>
+          {/* The editor themes' button rule (400 12px/1.2 sans) outranks button.context-button's font. */}
+          <T style={[t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "mono", 500, 12, 1), { color: pctColor }]}>{compacting && !tight ? "Compacting" : view ? `${view.estimated ? "~" : ""}${pct(view.fraction)}` : "ctx"}</T>
         </Pulse>
         {/* A bar wider than a phone's also says how many tokens of the window. */}
         {view && !tight && !compacting ? <T style={[font(t, "mono", 500, 11, 1), { color: t.c.dim }]}>{`${view.estimated ? "~" : ""}${tokenCount(view.used)}/${tokenCount(view.window)}`}</T> : null}
