@@ -40,6 +40,7 @@ export function studioApi(t: Transport) {
   const get = <T>(path: string) => requestJson<T>(t, "GET", path);
   const send = <T>(method: string, path: string, json?: unknown) => requestJson<T>(t, method, path, json !== undefined ? { json } : {});
   return {
+    ...projectApi(t),
     health: () => get<{ version?: string; startedAt?: string; lastEventId?: number }>("/v1/health"),
     sessions: () => get<{ sessions: SessionSummary[] }>(`${S}/sessions`),
     newSession: () => send<SessionDetail>("POST", `${S}/sessions`),
