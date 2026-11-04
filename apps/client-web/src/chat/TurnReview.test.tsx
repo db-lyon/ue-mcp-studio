@@ -120,6 +120,43 @@ describe("the turn card", () => {
     expect(within(row("Content/BP_Door.uasset")).getByRole("status").textContent).toBe("Unreal has no in-editor diff view for World");
   });
 
+  it("opens the diff of a turn's only file with the card, and leaves a longer list closed", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package" } });
+    const one: TurnReview = { ...REVIEW, items: [REVIEW.items[1]] };
+    await act(async () => void card(one));
+    expect(row("Content/BP_Door.uasset").querySelector(".review-item-name")!.getAttribute("aria-expanded")).toBe("true");
+    expect(m.reviewDiff).toHaveBeenCalledWith("s1", "r1", "Content/BP_Door.uasset");
+    cleanup();
+    m.reviewDiff.mockClear();
+    card();
+    expect(document.querySelectorAll(".review-item-name[aria-expanded='true']")).toHaveLength(0);
+    expect(m.reviewDiff).not.toHaveBeenCalled();
+  });
+
+  it("says Reverting on the item in place of its controls while the revert runs", async () => {
+    let finish: (v: unknown) => void = () => undefined;
+    m.reviewRevert.mockReturnValue(new Promise((r) => (finish = r)));
+    card();
+    fireEvent.click(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Revert" }));
+    const r = row("Content/BP_Door.uasset");
+    expect(within(r).getByRole("status").textContent).toBe("Reverting");
+    expect(within(r).queryByRole("button", { name: "Keep" })).toBeNull();
+    expect((within(row("Config/DefaultGame.ini")).getByRole("button", { name: "Revert" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => void finish({ review: withItem("Content/BP_Door.uasset", { state: "reverted" }), outcome: none }));
+    expect(within(row("Content/BP_Door.uasset")).getByText("Reverted")).toBeTruthy();
+  });
+
+  it("shows a failed revert under its item, and a failed Revert all under the card", async () => {
+    m.reviewRevert.mockRejectedValue(new Error("the file is locked by another process"));
+    card();
+    await act(async () => void fireEvent.click(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Revert" })));
+    expect(within(row("Content/BP_Door.uasset")).getByRole("alert").textContent).toBe("the file is locked by another process");
+    expect(within(row("Content/BP_Door.uasset")).getByRole("button", { name: "Revert" })).toBeTruthy();
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Revert all" })));
+    expect(within(row("Content/BP_Door.uasset")).queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("alert").closest("li")).toBeNull();
+  });
+
   it("says what a revert left alone", async () => {
     m.reviewRevert.mockResolvedValue({ review: withItem("Config/DefaultGame.ini", { conflict: true }), outcome: { ...none, conflicts: ["Config/DefaultGame.ini"] } });
     card();
