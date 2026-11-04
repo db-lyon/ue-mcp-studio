@@ -83,11 +83,10 @@ describe("FlowLauncher", () => {
     await settle();
     expect(screen.getByText("Build lighting for the open level.")).toBeTruthy();
     expect((screen.getByLabelText("map") as HTMLTextAreaElement).value).toBe("/Game/Maps/L_Cave");
-    expect(screen.getByText("Production")).toBeTruthy();
+    expect((screen.getByLabelText("quality") as HTMLInputElement).value).toBe("Production");
     expect(disabled("Run")).toBe(false);
     fireEvent.click(screen.getByLabelText("save"));
-    fireEvent.click(screen.getByLabelText("quality"));
-    fireEvent.click(screen.getByText("Preview"));
+    fireEvent.change(screen.getByLabelText("quality"), { target: { value: "Preview" } });
     fireEvent.click(screen.getByText("Run"));
     expect(run).toHaveBeenCalledWith({ name: "bake-lighting", params: { map: "/Game/Maps/L_Cave", quality: "Preview", save: false } });
     await settle();
@@ -151,7 +150,7 @@ describe("FlowCard", () => {
     renderInProject(<FlowCard entry={entry({ state: "failed", duration: 1_000, steps: [{ id: "1", name: "level.build", state: "failed", error: "Out of memory." }], errors: ["level.build failed.", "level.save was not run."] })} />);
     expect(screen.getByText("Failed in 1.0 s")).toBeTruthy();
     expect(screen.getByText(/Out of memory\./)).toBeTruthy();
-    expect(screen.getByText("level.save was not run.")).toBeTruthy();
+    expect(screen.getByText(/level.save was not run./)).toBeTruthy();
   });
 
   it("shows a single error as a line", () => {

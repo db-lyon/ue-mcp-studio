@@ -15,14 +15,18 @@ import { useProjectNav } from "../../nav";
 import { useBusy, useHealth } from "./state";
 
 /** The banner's state, its Start and Stop, and their errors. */
-function useEditorBanner() {
+/** The shell's daemon state, when it keeps one: its health and whether its stream is up. */
+export type ShellDaemon = { health: { editors?: Array<{ connected?: boolean }> } | null; streaming: boolean };
+
+function useEditorBanner(daemon?: ShellDaemon) {
   const { api, project } = useProjectNav();
   const { busy, now } = useBusy();
-  const health = useHealth();
+  const read = useHealth(!daemon);
+  const health = daemon ? { raw: daemon.health as Record<string, unknown> | null, editors: (daemon.health?.editors ?? []) as Array<{ connected?: boolean }> } : read;
   const [stopping, setStopping] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const state = editorBanner(busy, { now: now(), streaming: project.live === "live", healthKnown: !!health.raw, connected: !!health.editors[0]?.connected });
+  const state = editorBanner(busy, { now: now(), streaming: daemon ? daemon.streaming : project.live === "live", healthKnown: !!health.raw, connected: !!health.editors[0]?.connected });
   const stop = () => {
     setStopping(true);
     api.stopBusy().then(() => setError(null), (e: Error) => setError(e.message)).finally(() => setStopping(false));
@@ -92,8 +96,8 @@ function BannerView({ b, still }: { b: Banner & { state: EditorBannerState }; st
 }
 
 /** The full banner, for a layout wide enough to show it under the top bar. */
-export function EditorBanner() {
-  const b = useEditorBanner();
+export function EditorBanner({ daemon }: { daemon?: ShellDaemon } = {}) {
+  const b = useEditorBanner(daemon);
   if (!b.state) return null;
   return <BannerView b={b as Banner & { state: EditorBannerState }} />;
 }
@@ -115,9 +119,9 @@ function Pulse({ color, animate }: { color: string; animate: boolean }) {
  * is where the bar ends on screen; the banner opens 4 points below it, 6 in
  * from each side. `animate` off holds the busy dot still.
  */
-export function EditorChip({ top, animate = true }: { top?: number; animate?: boolean }) {
+export function EditorChip({ top, animate = true, daemon }: { top?: number; animate?: boolean; daemon?: ShellDaemon }) {
   const t = useTheme();
-  const b = useEditorBanner();
+  const b = useEditorBanner(daemon);
   const [open, setOpen] = useState(false);
   const [below, setBelow] = useState(top ?? 53);
   const chip = useRef<{ measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null>(null);

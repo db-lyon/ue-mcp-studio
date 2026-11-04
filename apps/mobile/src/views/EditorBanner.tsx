@@ -8,6 +8,6 @@ import { EditorBanner as FullBanner, EditorChip } from "../screens/editor/Editor
 
 export { BUSY_AFTER_MS, callLabel, failureLine, formatElapsed, operationLine, stepFailed } from "@ue-mcp-studio/client-core";
 
-export function EditorBanner({ compact = false }: { daemon?: DaemonState; compact?: boolean }) {
-  return compact ? <EditorChip /> : <FullBanner />;
+export function EditorBanner({ daemon, compact = false }: { daemon?: DaemonState; compact?: boolean }) {
+  return compact ? <EditorChip daemon={daemon} /> : <FullBanner daemon={daemon} />;
 }

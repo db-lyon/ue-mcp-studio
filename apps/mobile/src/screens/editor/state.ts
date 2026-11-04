@@ -43,7 +43,8 @@ export interface DaemonHealth {
   error: string | null;
 }
 
-export function useHealth(): DaemonHealth & { reload: () => void } {
+/** `enabled` off: the screen has the daemon's health from the shell, so none is read here. */
+export function useHealth(enabled = true): DaemonHealth & { reload: () => void } {
   const { api, project } = useProjectNav();
   const [state, setState] = useState<DaemonHealth>({ raw: null, editors: [], error: null });
   const streaming = project.live === "live";
@@ -54,8 +55,8 @@ export function useHealth(): DaemonHealth & { reload: () => void } {
     );
   }, [api]);
   useEffect(() => {
-    if (streaming) reload();
-  }, [streaming, reload]);
-  useEffect(() => project.onEvent((e) => void (HEALTH_ON.test(e.type) && reload())), [project, reload]);
+    if (enabled && streaming) reload();
+  }, [enabled, streaming, reload]);
+  useEffect(() => (enabled ? project.onEvent((e) => void (HEALTH_ON.test(e.type) && reload())) : undefined), [enabled, project, reload]);
   return { ...state, reload };
 }
