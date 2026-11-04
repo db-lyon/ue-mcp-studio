@@ -71,4 +71,12 @@ describe("the navigation drawer", () => {
     fireEvent.keyDown(document, { key: "Escape" });
     expect(p.onClose).toHaveBeenCalledTimes(2);
   });
+
+  it("closes when a tool in its foot is used, so the sheet that tool opens (the Git changes) is not left under it", () => {
+    const p = setup();
+    fireEvent.click(document.querySelector(".drawer-foot")!);
+    expect(p.onClose).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Docs" }));
+    expect(p.onClose).toHaveBeenCalledTimes(1);
+  });
 });

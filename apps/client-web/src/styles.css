@@ -845,6 +845,20 @@ button.chip.vcs { cursor: pointer; height: auto; }
 .s-modified, .s-renamed { color: var(--warn); }
 .s-added, .s-untracked { color: var(--ok); }
 .s-deleted, .s-conflicted { color: var(--bad); }
+.changes-toolbar { gap: 8px; flex-wrap: wrap; }
+.changes-view { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
+.changes-view button { border: 0; border-radius: 0; background: transparent; color: var(--muted); padding: 5px 12px; }
+.changes-view button + button { border-left: 1px solid var(--line-strong); }
+.changes-view button.on { background: var(--accent-wash); color: var(--text); box-shadow: inset 0 -2px 0 var(--accent); }
+.change-folder { color: var(--muted); }
+.change-folder .change-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1; }
+.change-chevron { width: 16px; flex-shrink: 0; text-align: center; color: var(--dim, var(--muted)); }
+.change-count { margin-left: auto; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 9px; font-size: 11px; line-height: 16px; flex-shrink: 0; }
+.changes-list.tree .change-row:not(.change-folder) .change-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1; }
+@media (pointer: coarse) {
+  .change-row { min-height: 44px; }
+  .changes-view button, .changes-toolbar > button { min-height: 44px; min-width: 44px; }
+}
 .changes-diff { min-width: 0; overflow: auto; }
 .change-file { margin-bottom: 6px; font-family: var(--mono); }
 pre.diff { margin: 0; font: 12px/1.5 var(--mono); white-space: pre; }
