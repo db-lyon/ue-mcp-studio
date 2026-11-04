@@ -61,10 +61,10 @@ export function nativeView(l: Loadout, o: Pick<NativeRouteOptions, "routesFor" |
       // With nothing that runs the main agent, no subagent runs either: say what it waits for, never a model.
       const runs = main.route === null
         ? wants && !o.runsOverApi(wants.vendor, wants.model)
-          ? { model: "The main agent's model, none runs here yet", note: `Nothing on this machine runs ${a.model} over the API, so it runs on the main agent's model.` }
+          ? { model: "The main agent's model, once one is connected", note: `Nothing on this machine runs ${a.model} over the API, so it runs on the main agent's model.` }
           : wants
             ? { model: o.modelName(wants.model) }
-            : { model: "The main agent's model, none runs here yet" }
+            : { model: "The main agent's model, once one is connected" }
         : !wants
           ? { model: `The main agent's, ${o.modelName(main.model)}` }
           : o.runsOverApi(wants.vendor, wants.model)

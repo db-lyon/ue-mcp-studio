@@ -73,8 +73,8 @@ describe("the native view", () => {
     const o = setup({ vendor: "openai", model: "gpt-6-sol", route: null })("GET /native").body as NativeOverview;
     const codex = o.conventions.find((c) => c.convention === "codex")!;
     expect(codex.subagents.map((a) => [a.name, a.runs])).toEqual([
-      ["heavy", { model: "The main agent's model, none runs here yet", note: "Nothing on this machine runs gpt-9 over the API, so it runs on the main agent's model." }],
-      ["plain", { model: "The main agent's model, none runs here yet" }],
+      ["heavy", { model: "The main agent's model, once one is connected", note: "Nothing on this machine runs gpt-9 over the API, so it runs on the main agent's model." }],
+      ["plain", { model: "The main agent's model, once one is connected" }],
     ]);
   });
 
