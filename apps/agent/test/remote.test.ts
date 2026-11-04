@@ -561,7 +561,7 @@ describe("remote control, sealed end to end", () => {
     expect(stream.opener.finished).toBe(false);
     expect(keys(h)).toEqual([]);
     const after = await browser.request({ path: "/ui/" });
-    expect(after.c.failed).toEqual({ status: 403, error: "This browser is not paired with that computer. Scan its pairing code again." });
+    expect(after.c.failed).toEqual({ status: 403, error: "This device is not paired with that computer. Pair it again with a new code." });
     expect((await h.call("DELETE /remote/browsers/:id", undefined, { id: browser.id })).status).toBe(404);
 
     // Off closes the socket and lets the daemon idle again.

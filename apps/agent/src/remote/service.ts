@@ -217,10 +217,10 @@ export class RemoteService {
       this.approvals.delete(id);
       return this.json(sink, 200, { phoneId: a.phoneId, computerPublic: me.publicKey });
     }
-    if (a.state === "denied") return sink.fail(403, "The computer denied this browser.");
+    if (a.state === "denied") return sink.fail(403, "The computer denied this device.");
     if (Date.parse(a.expiresAt) <= this.now()) {
       a.state = "denied";
-      return sink.fail(403, "Nobody allowed this browser on the computer in time. Make a new code.");
+      return sink.fail(403, `Nobody allowed this device on the computer within ${PAIR_APPROVAL_TTL_MS / 60_000} minutes. Make a new code.`);
     }
     const pending: EnrollPending = { approval: a.id, expiresAt: a.expiresAt };
     return this.json(sink, 202, pending);
@@ -257,7 +257,7 @@ export class RemoteService {
       return sink.fail(400, "Malformed request.");
     }
     const secret = typeof sealed.phone === "string" ? await this.o.keys.secretFor(sealed.phone) : null;
-    if (!secret) return sink.fail(403, "This browser is not paired with that computer. Scan its pairing code again.");
+    if (!secret) return sink.fail(403, "This device is not paired with that computer. Pair it again with a new code.");
     const opened = await openRequest(secret, sealed);
     if (!opened) return sink.fail(403, "The request did not decrypt.");
     const { req, responseKey } = opened;

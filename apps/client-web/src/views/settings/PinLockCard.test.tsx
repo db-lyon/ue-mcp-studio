@@ -48,15 +48,15 @@ describe("Settings > Remote control > PIN lock", () => {
     m.setRemotePin.mockResolvedValue(SET);
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Set PIN" })));
     expect(m.setRemotePin).toHaveBeenCalledWith("4821");
-    expect(screen.getByRole("switch", { name: "Lock the whole browser" })).toBeTruthy();
+    expect(screen.getByRole("switch", { name: "Lock Studio on paired devices" })).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Ask for sensitive actions" })).toBeTruthy();
   });
 
-  it("either switch, or both; the idle time shows once the whole browser locks", async () => {
+  it("either switch, or both; the idle time shows once Studio locks on paired devices", async () => {
     await show(SET);
     expect(screen.queryByRole("radiogroup", { name: "Lock again after" })).toBeNull();
     m.setRemoteLock.mockResolvedValue({ ...SET, whole: true });
-    await act(async () => void fireEvent.click(screen.getByRole("switch", { name: "Lock the whole browser" })));
+    await act(async () => void fireEvent.click(screen.getByRole("switch", { name: "Lock Studio on paired devices" })));
     expect(m.setRemoteLock).toHaveBeenCalledWith({ whole: true });
     expect(screen.getByRole("radiogroup", { name: "Lock again after" })).toBeTruthy();
     m.setRemoteLock.mockResolvedValue({ ...SET, whole: true, idleMinutes: 5 });

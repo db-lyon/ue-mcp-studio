@@ -28,7 +28,7 @@ async function computer(input: RequestInfo | URL, init?: RequestInit): Promise<R
   if (url === LOCK_URL) return json(200, state());
   if (url === `${LOCK_URL}/unlock`) {
     const pin = (JSON.parse(String(init?.body)) as { pin: string }).pin;
-    if (pin === "0000") return json(403, { error: "Wrong PIN 10 times. This browser was removed.", unpaired: true, remaining: 0 });
+    if (pin === "0000") return json(403, { error: "Wrong PIN 10 times in a row. This device was removed; pair it again from the computer.", unpaired: true, remaining: 0 });
     if (pin !== fake.pin) return json(401, { error: "Wrong PIN.", remaining: 7, retryAfterMs: 2000 });
     fake.locked = false;
     fake.sensitiveOpen = true;
@@ -99,7 +99,7 @@ describe("a paired browser's page under the PIN lock", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
 
-  it("the tenth wrong PIN: the screen says the browser was removed", async () => {
+  it("the tenth wrong PIN: the screen says the device was removed", async () => {
     fake.locked = true;
     await refreshLock();
     expect(lockView().screen).toBe(true);
