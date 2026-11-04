@@ -206,6 +206,8 @@ export interface Scenario {
   fullPage?: boolean;
   /** The event stream refuses, as ue-mcp being away does, and the page runs as a paired browser through the relay. */
   remoteOffline?: boolean;
+  /** Hide the page, then show it again, once the stream is down: a tab back from the background. */
+  wake?: boolean;
   /** Waited for before the shot, up to timeout milliseconds: a CSS selector for a state that takes a while to come. */
   waitFor?: { selector: string; timeout: number };
 }
@@ -519,6 +521,14 @@ export const SCENARIOS: Record<string, Scenario> = {
     index: { playtests: [], listed: true },
     remoteOffline: true,
     waitFor: { selector: ".overlay[data-phase=needsYou]", timeout: 30_000 },
+  },
+  "remote-waking": {
+    title: "A paired browser's tab back from the background while ue-mcp is still away: a quiet Reconnecting line over the page, no offline panel yet",
+    hash: "#/chat",
+    index: { playtests: [], listed: true },
+    remoteOffline: true,
+    wake: true,
+    waitFor: { selector: ".conn-line", timeout: 15_000 },
   },
   "remote-approval-banner": {
     title: "A device asks to control the project while the owner is elsewhere in Studio: the request as a banner over every view",

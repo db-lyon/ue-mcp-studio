@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { formatPairingCode, type RemoteApproval, type RemoteBrowser } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
+import { onRemotePage } from "../../connection";
 import { subscribeEvent } from "../../extensions/events";
 
 /** How often the open approvals are read again besides the events that announce them. */
@@ -19,6 +20,8 @@ export function useRemoteApprovals(): { approvals: RemoteApproval[]; decide: (id
     api.remoteApprovals().then((r) => setApprovals(r.approvals), () => setApprovals([]));
   }, []);
   useEffect(() => {
+    // A paired browser can never read or decide approvals (remote control's own routes are refused to it): nothing to ask.
+    if (onRemotePage()) return;
     load();
     const t = setInterval(load, APPROVAL_POLL_MS);
     const off = subscribeEvent((e) => {

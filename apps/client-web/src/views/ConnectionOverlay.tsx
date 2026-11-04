@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { reconnectEvents } from "../api";
 import { native } from "../native";
-import { QUIET_MS, REMOTE_OFFLINE, connected, elapsed, headline, isRemotePage, step, type Conn, type ConnEvent } from "../connection";
+import { QUIET_MS, REMOTE_OFFLINE, connected, elapsed, headline, isRemotePage, step, waking, type Conn, type ConnEvent } from "../connection";
 
 interface HostStatus {
   node?: boolean;
@@ -66,6 +66,21 @@ export function useConnection(
   };
 
   useEffect(() => report(conn.current), []);
+
+  // A paired browser: time out of view does not count as ue-mcp being away, and coming back reconnects quietly first.
+  useEffect(() => {
+    if (!remote) return;
+    const seen = (): void => send({ type: "visibility", visible: document.visibilityState !== "hidden", at: Date.now() });
+    seen();
+    document.addEventListener("visibilitychange", seen);
+    window.addEventListener("pageshow", seen);
+    document.addEventListener("resume", seen);
+    return () => {
+      document.removeEventListener("visibilitychange", seen);
+      window.removeEventListener("pageshow", seen);
+      document.removeEventListener("resume", seen);
+    };
+  }, [remote]);
   useEffect(() => send({ type: "stream", up: streaming, at: Date.now() }), [streaming]);
 
   const last = events[events.length - 1];
@@ -106,6 +121,15 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
   const { conn, now, log, remote } = c;
   if (conn.phase === "connected") return null;
   const down = conn.downSince === null ? "" : elapsed(now - conn.downSince);
+  if (waking(conn, now)) {
+    return createPortal(
+      <div className="conn-line" role="status">
+        <span className="spinner" aria-hidden />
+        Reconnecting to ue-mcp
+      </div>,
+      document.body,
+    );
+  }
   if (conn.phase === "reconnecting" && conn.downSince !== null && now - conn.downSince < QUIET_MS) return null;
   // A paired browser cannot start ue-mcp: past the wait it only says so and keeps reconnecting.
   const offline = remote && (conn.phase === "lost" || conn.phase === "needsYou");

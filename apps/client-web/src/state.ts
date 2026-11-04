@@ -5,7 +5,8 @@
  */
 import { useEffect, useRef, useState } from "react";
 import type { DaemonEvent, DaemonHealth } from "ue-mcp/daemon";
-import { api, subscribeEvents } from "./api";
+import { STREAM_IDLE_MS, api, subscribeEvents } from "./api";
+import { onRemotePage } from "./connection";
 import { publishEvent } from "./extensions/events";
 
 const KEEP = 500;
@@ -55,6 +56,8 @@ export function useDaemon(): DaemonState {
         setStreaming(connected);
         if (connected) refresh();
       },
+      // Through the relay a quiet stream still carries keepalives, so silence means it died unseen.
+      onRemotePage() ? { idleMs: STREAM_IDLE_MS } : {},
     );
   }, []);
 

@@ -107,6 +107,30 @@ describe("the panel while ue-mcp is away", () => {
     await advance(0);
     expect(screen.queryByText("ue-mcp on your computer is offline")).toBeNull();
   });
+
+  it("in a paired browser, a tab back from the background reconnects under a quiet line, not the offline panel", async () => {
+    delete window.ue;
+    function Remote({ streaming }: { streaming: boolean }) {
+      return <ConnectionOverlay c={useConnection(streaming, [], false, async () => ({ type: "started", ok: false, at: Date.now() }), true)} />;
+    }
+    const visibility = vi.spyOn(document, "visibilityState", "get");
+    const { rerender } = render(<Remote streaming />);
+    visibility.mockReturnValue("hidden");
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    rerender(<Remote streaming={false} />);
+    // Away for an hour: nothing escalates while hidden.
+    await advance(60_000);
+    visibility.mockReturnValue("visible");
+    act(() => void document.dispatchEvent(new Event("visibilitychange")));
+    expect(screen.queryByText("ue-mcp on your computer is offline")).toBeNull();
+    expect(document.querySelector(".conn-line")?.textContent).toContain("Reconnecting to ue-mcp");
+    expect(document.querySelector(".overlay")).toBeNull();
+    // Connected within the grace: the line goes and no panel ever showed.
+    rerender(<Remote streaming />);
+    await advance(0);
+    expect(document.querySelector(".conn-line")).toBeNull();
+    visibility.mockRestore();
+  });
 });
 
 describe("isRemotePage", () => {

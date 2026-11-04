@@ -296,6 +296,22 @@ export const api = {
 /** A stream whose response head has not come back this long is stalled: abort and ask again. */
 export const EVENTS_HEAD_TIMEOUT_MS = 6000;
 
+/** The daemon's identity check before a resume gives up after this long, so one lost request cannot hold the stream down. */
+export const IDENTITY_TIMEOUT_MS = 5000;
+
+/** Through the relay a quiet stream carries a keepalive every 20 seconds; this long with no bytes means the stream died silently. */
+export const STREAM_IDLE_MS = 50_000;
+
+/**
+ * Through the relay, the service worker gives up on a request when the page
+ * does, named by this header (it never leaves the browser). Without it, a
+ * request the page abandoned stays parked on a dead connection in the worker.
+ */
+const HEAD_TIMEOUT_HEADER = "x-uemcp-head-timeout";
+
+/** A page hidden this long gets a fresh stream when it comes back, rather than trusting one that may have died while it slept. */
+export const WAKE_REFRESH_MS = 30_000;
+
 /** Asked of the stream's owner: drop a stalled or waiting attempt and connect again now. */
 let wakeEvents: (() => void) | null = null;
 
@@ -309,15 +325,66 @@ interface DaemonIdentity {
   lastEventId: number;
 }
 
-async function daemonIdentity(): Promise<DaemonIdentity | null> {
+/** Who the daemon is now. Bounded by IDENTITY_TIMEOUT_MS and by `signal`, so a request lost on the way never stalls the caller. */
+async function daemonIdentity(signal?: AbortSignal): Promise<DaemonIdentity | null> {
+  const c = new AbortController();
+  const timer = setTimeout(() => c.abort(), IDENTITY_TIMEOUT_MS);
+  const stop = (): void => c.abort();
+  signal?.addEventListener("abort", stop, { once: true });
   try {
-    const res = await fetch("/v1/health", { credentials: "same-origin" });
+    const res = await fetch("/v1/health", { credentials: "same-origin", signal: c.signal, headers: { [HEAD_TIMEOUT_HEADER]: String(IDENTITY_TIMEOUT_MS) } });
     if (!res.ok) return null;
     const h = (await res.json()) as { startedAt?: unknown; lastEventId?: unknown };
     return { startedAt: String(h.startedAt ?? ""), lastEventId: Number(h.lastEventId ?? 0) || 0 };
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", stop);
   }
+}
+
+/** The hashed entry script an index page loads, e.g. /ui/assets/index-AbC123.js. */
+export function entryScript(html: string): string | null {
+  return /\/assets\/index-[A-Za-z0-9_-]+\.js/.exec(html)?.[0] ?? null;
+}
+
+/**
+ * Whether ue-mcp now serves a different UI build than the one this page runs:
+ * an update installed while the page slept. Asked after a daemon restart.
+ */
+async function servedBuildDiffers(): Promise<string | null> {
+  if (typeof document === "undefined") return null;
+  const mine = entryScript(Array.from(document.scripts, (s) => s.getAttribute("src") ?? "").join(" "));
+  if (!mine) return null;
+  const c = new AbortController();
+  const timer = setTimeout(() => c.abort(), IDENTITY_TIMEOUT_MS);
+  try {
+    const res = await fetch("/ui/", { credentials: "same-origin", cache: "no-store", signal: c.signal, headers: { [HEAD_TIMEOUT_HEADER]: String(IDENTITY_TIMEOUT_MS) } });
+    if (!res.ok) return null;
+    const served = entryScript(await res.text());
+    return served && served !== mine ? served : null;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Load the newer build once; a build that keeps differing (a page served from elsewhere) is not reloaded again. */
+function reloadInto(served: string): void {
+  try {
+    if (sessionStorage.getItem("studio.reloadedFor") === served) return;
+    sessionStorage.setItem("studio.reloadedFor", served);
+  } catch {
+    return;
+  }
+  window.location.reload();
+}
+
+export interface EventStreamOptions {
+  /** Drop a stream that carries no bytes for this long. Set for a paired browser, whose stream carries relay keepalives. */
+  idleMs?: number;
 }
 
 /**
@@ -329,13 +396,18 @@ async function daemonIdentity(): Promise<DaemonIdentity | null> {
  * past its newest id it sends nothing, not even its response head, until its
  * next event. So before resuming the stream asks the daemon who it is: a new
  * daemon (another start time, or fewer events than the last id seen) is
- * followed from its start. An attempt whose head does not arrive in
- * EVENTS_HEAD_TIMEOUT_MS is dropped and tried again, and the page coming back
- * into view, regaining focus or going back online retries at once.
+ * followed from its start. Every step of an attempt is bounded: the identity
+ * check by IDENTITY_TIMEOUT_MS, the head by EVENTS_HEAD_TIMEOUT_MS, and with
+ * `idleMs` an open stream that goes silent. The page coming back into view,
+ * being restored or unfrozen, regaining focus or going back online retries at
+ * once; one hidden past WAKE_REFRESH_MS opens a fresh stream even if the old
+ * one looks open. After a daemon restart, a page whose UI build is no longer
+ * the one served reloads into the new one.
  */
 export function subscribeEvents(
   onEvent: (e: DaemonEvent) => void,
   onStatus?: (connected: boolean) => void,
+  options: EventStreamOptions = {},
 ): () => void {
   let stopped = false;
   let lastId = 0;
@@ -344,9 +416,11 @@ export function subscribeEvents(
   let wake: (() => void) | null = null;
   let connected = false;
   let skipWait = false;
+  let hiddenAt: number | null = null;
 
-  const kick = (): void => {
-    if (connected) return;
+  /** Reconnect now. `force` drops a stream that looks open too, for a page that slept long enough for it to have died unseen. */
+  const kick = (force = false): void => {
+    if (connected && !force) return;
     skipWait = true;
     controller?.abort();
     wake?.();
@@ -358,14 +432,15 @@ export function subscribeEvents(
       const signal = controller.signal;
       try {
         if (lastId > 0) {
-          const who = await daemonIdentity();
+          const who = await daemonIdentity(signal);
+          if (signal.aborted) throw new Error("events: woken");
           if (who && ((daemonStarted && who.startedAt !== daemonStarted) || who.lastEventId < lastId)) lastId = 0;
         }
         const headTimer = setTimeout(() => controller?.abort(), EVENTS_HEAD_TIMEOUT_MS);
         let res: Response;
         try {
           res = await fetch("/v1/events", {
-            headers: lastId > 0 ? { "last-event-id": String(lastId) } : {},
+            headers: { [HEAD_TIMEOUT_HEADER]: String(EVENTS_HEAD_TIMEOUT_MS), ...(lastId > 0 ? { "last-event-id": String(lastId) } : {}) },
             credentials: "same-origin",
             signal,
           });
@@ -376,15 +451,34 @@ export function subscribeEvents(
         connected = true;
         onStatus?.(true);
         attempt = 0;
-        void daemonIdentity().then((who) => {
-          if (who && !signal.aborted) daemonStarted = who.startedAt;
+        void daemonIdentity(signal).then(async (who) => {
+          if (!who || signal.aborted) return;
+          const restarted = daemonStarted !== "" && who.startedAt !== daemonStarted;
+          daemonStarted = who.startedAt;
+          if (!restarted) return;
+          const served = await servedBuildDiffers();
+          if (served && !signal.aborted) reloadInto(served);
         });
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buf = "";
+        let idle: ReturnType<typeof setTimeout> | null = null;
+        const quiet = (): void => {
+          if (!options.idleMs) return;
+          if (idle) clearTimeout(idle);
+          idle = setTimeout(() => controller?.abort(), options.idleMs);
+        };
+        quiet();
         for (;;) {
-          const { done, value } = await reader.read();
+          let chunk: ReadableStreamReadResult<Uint8Array>;
+          try {
+            chunk = await reader.read();
+          } finally {
+            if (idle) clearTimeout(idle);
+          }
+          const { done, value } = chunk;
           if (done) break;
+          quiet();
           buf += decoder.decode(value, { stream: true });
           let cut: number;
           while ((cut = buf.indexOf("\n\n")) >= 0) {
@@ -422,25 +516,40 @@ export function subscribeEvents(
     }
   };
 
-  const onVisible = (): void => {
-    if (typeof document === "undefined" || document.visibilityState === "visible") kick();
+  const retry = (): void => kick();
+  /** Back in view, restored from the back/forward cache, or unfrozen: reconnect, and refresh a stream that may have died while the page slept. */
+  const onWake = (): void => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      hiddenAt ??= Date.now();
+      return;
+    }
+    const slept = hiddenAt !== null && Date.now() - hiddenAt >= WAKE_REFRESH_MS;
+    hiddenAt = null;
+    kick(slept);
   };
+  const onPageShow = (e: Event): void => kick((e as PageTransitionEvent).persisted === true);
+  const onResume = (): void => kick(true);
   if (typeof window !== "undefined") {
-    window.addEventListener("focus", kick);
-    window.addEventListener("online", kick);
-    document.addEventListener("visibilitychange", onVisible);
+    if (document.visibilityState === "hidden") hiddenAt = Date.now();
+    window.addEventListener("focus", retry);
+    window.addEventListener("online", retry);
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("visibilitychange", onWake);
+    document.addEventListener("resume", onResume);
   }
-  wakeEvents = kick;
+  wakeEvents = retry;
   void run();
   return () => {
     stopped = true;
     controller?.abort();
     wake?.();
-    if (wakeEvents === kick) wakeEvents = null;
+    if (wakeEvents === retry) wakeEvents = null;
     if (typeof window !== "undefined") {
-      window.removeEventListener("focus", kick);
-      window.removeEventListener("online", kick);
-      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", retry);
+      window.removeEventListener("online", retry);
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("visibilitychange", onWake);
+      document.removeEventListener("resume", onResume);
     }
   };
 }

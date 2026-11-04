@@ -189,6 +189,15 @@ history.replaceState(null, "", `${location.pathname}${location.search}${scenario
 // A paired browser's page, though the harness is served from this computer.
 let sentEvents = false;
 if (scenario.remoteOffline || scenario.remotePage) (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = true;
+if (scenario.wake) {
+  // Away, then back: the page reconnects under its quiet line.
+  const show = (state: "hidden" | "visible"): void => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => state });
+    document.dispatchEvent(new Event("visibilitychange"));
+  };
+  setTimeout(() => show("hidden"), 1500);
+  setTimeout(() => show("visible"), 2500);
+}
 // A checkout or docs link opens nothing: a popup would take the page out of the foreground and stall the shot.
 window.open = () => null;
 // The runner reads the scenarios and what each shows from here, and what to click once the page settles.
