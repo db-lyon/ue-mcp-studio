@@ -14,9 +14,11 @@ export * from "./e2e.js";
  */
 export type RelayFrame =
   /** `binary`: this relay reads chunks as binary frames (encodeChunk); an older relay leaves it out and gets base64 `chunk` frames. */
-  | { t: "hello"; deviceId: string; login: string; binary?: boolean }
+  | { t: "hello"; deviceId: string; login: string; binary?: boolean; acks?: boolean }
   | { t: "call"; id: string; kind: "sealed" | "enroll"; body: string }
-  | { t: "abort"; id: string };
+  | { t: "abort"; id: string }
+  /** `acks`: bytes this relay has read from the connector so far, so it keeps only a small window unread on the way. */
+  | { t: "ack"; n: number };
 
 /** A browser presenting its public key, with proof it read the computer's pairing code. */
 export interface EnrollRequest {

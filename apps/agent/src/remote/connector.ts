@@ -16,6 +16,7 @@ import {
 } from "@ue-mcp-studio/remote";
 import { REMOTE_NO_PLAN, ACCOUNT_SIGNED_OUT, REMOTE_SIGN_IN_AGAIN, type RemoteConnection, type RemoteRefusal } from "@ue-mcp-studio/shared";
 import type { CallSink } from "./service.js";
+import { SendQueue } from "./send-queue.js";
 
 export type ConnectorState = RemoteConnection;
 
@@ -55,10 +56,17 @@ export interface ConnectorOptions {
   refusedRetryMs?: number;
   /** Checked before each connection: false when another process now runs this project, and this one stands down. */
   owns?: () => boolean;
+  /** A call that waited long to be sent, or a dropped connection: for Diagnostics. */
+  onDiagnostic?: (d: ConnectorDiagnostic) => void;
 }
 
-/** Pause sending while the socket holds more than this unsent. */
-const HIGH_WATER = 4 * 1024 * 1024;
+/** What the connector reports for Diagnostics. */
+export type ConnectorDiagnostic =
+  | { kind: "slow"; waitedMs: number; totalMs: number; backlogCalls: number; backlogBytes: number }
+  | { kind: "closed"; code: number; reason: string; onlineMs: number };
+
+/** A call whose frames waited this long to be sent is reported as slow. */
+export const SLOW_SEND_MS = 2000;
 
 export class Connector {
   private socket: WebSocket | null = null;
@@ -69,6 +77,9 @@ export class Connector {
   private current: ConnectorState = { state: "off" };
   /** The relay said hello with `binary`: chunks go as binary frames instead of base64 JSON. */
   private binary = false;
+  /** Frames to the relay, in fair turns across calls. One per socket. */
+  private queue: SendQueue | null = null;
+  private onlineAt = 0;
 
   constructor(private readonly o: ConnectorOptions) {}
 
@@ -129,6 +140,17 @@ export class Connector {
     });
     this.socket = ws;
     this.binary = false;
+    this.queue?.clear();
+    const queue = new SendQueue({
+      get bufferedAmount() {
+        return ws.bufferedAmount;
+      },
+      get open() {
+        return ws.readyState === WebSocket.OPEN;
+      },
+      send: (data, binary) => ws.send(data, { binary }),
+    });
+    this.queue = queue;
     let refused: { reason: string; code?: RemoteRefusal } | null = null;
     let failedStatus = 0;
     ws.on("unexpected-response", (_req, res) => {
@@ -143,18 +165,31 @@ export class Connector {
       if (frame.t === "hello") {
         this.attempt = 0;
         this.binary = frame.binary === true;
+        if (frame.acks === true) queue.useAcks();
+        this.onlineAt = Date.now();
         this.set({ state: "online", login: frame.login, since: new Date().toISOString() });
         this.o.log(`remote control: online as ${frame.login}`);
-      } else if (frame.t === "call") void this.call(ws, frame);
-      else if (frame.t === "abort") this.inflight.get(frame.id)?.abort();
+      } else if (frame.t === "ack") queue.ack(frame.n);
+      else if (frame.t === "call") void this.call(queue, frame);
+      else if (frame.t === "abort") {
+        this.inflight.get(frame.id)?.abort();
+        queue.close(frame.id, true);
+      }
     });
     ws.on("error", () => {
       // A close follows; the reason is reported there.
     });
     ws.on("close", (code, reason) => {
+      queue.clear();
       if (this.socket !== ws) return;
       this.socket = null;
       this.abortAll();
+      if (this.onlineAt) {
+        const onlineMs = Date.now() - this.onlineAt;
+        this.onlineAt = 0;
+        this.o.log(`remote control: connection to the relay closed (code ${code}${reason.length ? `, ${reason.toString()}` : ""}) after ${Math.round(onlineMs / 1000)}s online`);
+        this.o.onDiagnostic?.({ kind: "closed", code, reason: reason.toString(), onlineMs });
+      }
       if (this.stopped) return;
       // A lapsed plan closes a live socket; it is the same refusal as a 403 upgrade.
       const r = (refused as { reason: string; code?: RemoteRefusal } | null) ?? (code === PLAN_LAPSED_CLOSE ? refusal(403) : null);
@@ -191,32 +226,28 @@ export class Connector {
     this.inflight.clear();
   }
 
-  private send(ws: WebSocket, frame: ConnectorFrame): void {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(frame));
-  }
-
-  private async call(ws: WebSocket, frame: Extract<RelayFrame, { t: "call" }>): Promise<void> {
+  private async call(queue: SendQueue, frame: Extract<RelayFrame, { t: "call" }>): Promise<void> {
     const controller = new AbortController();
     this.inflight.set(frame.id, controller);
+    const started = Date.now();
     let closed = false;
+    const json = (f: ConnectorFrame): Promise<void> => queue.push(frame.id, JSON.stringify(f), false);
     const sink: CallSink = {
-      head: (status, headers) => this.send(ws, { t: "head", id: frame.id, status, headers }),
+      head: (status, headers) => void json({ t: "head", id: frame.id, status, headers }),
       chunk: async (bytes) => {
-        if (this.binary) {
-          if (ws.readyState === WebSocket.OPEN) ws.send(encodeChunk(frame.id, bytes), { binary: true });
-        } else this.send(ws, { t: "chunk", id: frame.id, data: Buffer.from(bytes).toString("base64") });
-        while (ws.readyState === WebSocket.OPEN && ws.bufferedAmount > HIGH_WATER) await new Promise((r) => setTimeout(r, 20));
-        if (ws.readyState !== WebSocket.OPEN) controller.abort();
+        if (this.binary) await queue.push(frame.id, encodeChunk(frame.id, bytes), true);
+        else await json({ t: "chunk", id: frame.id, data: Buffer.from(bytes).toString("base64") });
+        if (this.queue !== queue) controller.abort();
       },
       end: () => {
         if (closed) return;
         closed = true;
-        this.send(ws, { t: "end", id: frame.id });
+        void json({ t: "end", id: frame.id });
       },
       fail: (status, error) => {
         if (closed) return;
         closed = true;
-        this.send(ws, { t: "fail", id: frame.id, status, error });
+        void json({ t: "fail", id: frame.id, status, error });
       },
     };
     try {
@@ -225,6 +256,13 @@ export class Connector {
       sink.fail(500, e instanceof Error ? e.message : String(e));
     } finally {
       this.inflight.delete(frame.id);
+      const waited = queue.worstWait(frame.id);
+      queue.close(frame.id);
+      if (waited >= SLOW_SEND_MS) {
+        const b = queue.backlog();
+        this.o.log(`remote control: a response waited ${(waited / 1000).toFixed(1)}s to be sent (${b.calls} calls, ${Math.round(b.bytes / 1024)} KB still queued)`);
+        this.o.onDiagnostic?.({ kind: "slow", waitedMs: waited, totalMs: Date.now() - started, backlogCalls: b.calls, backlogBytes: b.bytes });
+      }
     }
   }
 }
