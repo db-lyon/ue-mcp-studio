@@ -24,6 +24,7 @@ export default defineConfig({
       { find: /^expo-camera$/, replacement: mock("camera.tsx") },
       { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
       { find: /^expo-clipboard$/, replacement: mock("clipboard.ts") },
+      { find: /^react-native-svg$/, replacement: mock("svg.tsx") },
       { find: /^expo-font$/, replacement: mock("expo-font.ts") },
       { find: new RegExp("^@expo-google-fonts/.*$"), replacement: mock("google-fonts.ts") },
       { find: /^expo-status-bar$/, replacement: mock("status-bar.tsx") },
