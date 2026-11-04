@@ -131,7 +131,11 @@ window.open = () => null;
   waitFor: scenario.waitFor ?? null,
 };
 
-void import("../App").then(({ App }) => {
+// The fonts are loaded before the first render, so a shot never catches a font swap after a scroll to the
+// newest line: the transcript follows new lines, not text that reflows later, and the race was the shot's.
+const fontsLoaded = Promise.all([...document.fonts].map((f) => f.load().catch(() => undefined)));
+
+void Promise.all([import("../App"), fontsLoaded]).then(([{ App }]) => {
   createRoot(document.getElementById("root")!).render(
     <StrictMode>
       <App />
