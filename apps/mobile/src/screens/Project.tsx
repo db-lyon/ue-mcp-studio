@@ -9,6 +9,7 @@ import { SessionScreen } from "./Session";
 import { ReviewItemScreen, ReviewScreen } from "./Review";
 import { CheckpointsScreen } from "./Checkpoints";
 import { ChangeScreen, ChangesScreen } from "./Changes";
+import { PlaytestsScreen } from "./playtests/Playtests";
 import { ProjectContext, type ProjectNav, type Route } from "../nav";
 import { colors } from "../theme";
 
@@ -27,7 +28,7 @@ const STATUS_LABEL: Record<string, string> = { idle: "Idle", running: "Working",
 
 export function ProjectScreen({ device, onBack, onUnpaired, transport, initial }: { device: Device; onBack: () => void; onUnpaired: (message: string) => void; transport?: Transport; initial?: PanelLocation }) {
   const project = useProject(device, transport);
-  const [stack, setStack] = useState<Route[]>(() => (initial?.tab === "Chat" && initial.session ? [{ name: "session", id: initial.session }] : []));
+  const [stack, setStack] = useState<Route[]>(() => (initial?.tab === "Chat" && initial.session ? [{ name: "session", id: initial.session }] : initial?.tab === "Playtests" ? [{ name: "playtests" }] : []));
   const api = useMemo(() => studioApi(project.transport), [project.transport]);
   const nav = useMemo<ProjectNav>(() => ({ project, api, push: (r) => setStack((s) => [...s, r]), pop: () => setStack((s) => s.slice(0, -1)) }), [project, api]);
   const top = stack[stack.length - 1];
@@ -49,6 +50,7 @@ export function ProjectScreen({ device, onBack, onUnpaired, transport, initial }
         {top?.name === "checkpoints" ? <CheckpointsScreen sessionId={top.sessionId} /> : null}
         {top?.name === "changes" ? <ChangesScreen /> : null}
         {top?.name === "change" ? <ChangeScreen path={top.path} /> : null}
+        {top?.name === "playtests" ? <PlaytestsScreen onOpenSession={(id) => nav.push({ name: "session", id })} onChat={() => nav.pop()} /> : null}
         <Lock project={project} onUnpaired={onUnpaired} />
       </View>
     </ProjectContext.Provider>
