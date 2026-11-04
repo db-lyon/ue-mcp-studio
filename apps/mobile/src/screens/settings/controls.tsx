@@ -40,11 +40,14 @@ export function Txt({ children, size, weight = 400, tone = "text", mono, style, 
   );
 }
 
-/** Nested text in another weight, tone or the mono family; a size brings its own line-height, as CSS works it out from the unitless ratio. */
-export function Span({ children, weight = 400, tone, mono, size, style }: { children: ReactNode; weight?: Weight; tone?: Tone; mono?: boolean; size?: number; style?: StyleProp<TextStyle> }) {
+/**
+ * Nested text in another weight, tone or the mono family; a size brings its own line-height, as CSS works it out from the
+ * unitless ratio. With no weight and no family it keeps the parent's face, as a span inherits font-weight.
+ */
+export function Span({ children, weight, tone, mono, size, style }: { children: ReactNode; weight?: Weight; tone?: Tone; mono?: boolean; size?: number; style?: StyleProp<TextStyle> }) {
   const t = useTheme();
-  const f = font(t, mono ? "mono" : "sans", weight, size ?? 12);
-  return <Text style={[{ fontFamily: f.fontFamily, ...(f.fontWeight ? { fontWeight: f.fontWeight } : {}) }, size ? { fontSize: size, lineHeight: size * ratio(t) } : null, tone ? { color: t.c[tone] } : null, style]}>{children}</Text>;
+  const f = weight !== undefined || mono ? font(t, mono ? "mono" : "sans", weight ?? 400, size ?? 12) : null;
+  return <Text style={[f ? { fontFamily: f.fontFamily, ...(f.fontWeight ? { fontWeight: f.fontWeight } : {}) } : null, size ? { fontSize: size, lineHeight: size * ratio(t) } : null, tone ? { color: t.c[tone] } : null, style]}>{children}</Text>;
 }
 
 /** h2.cfg-label: a card's title, 12px above what follows, with optional actions at its end. */
