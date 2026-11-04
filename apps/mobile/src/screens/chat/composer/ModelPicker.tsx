@@ -21,7 +21,7 @@ import {
   type StudioSettings,
   type VendorId,
 } from "@ue-mcp-studio/shared";
-import { findModel as find, runsVia, viaName, VIA_LABEL } from "@ue-mcp-studio/client-core";
+import { findModel as find, lockedVia, runsVia, viaName, VIA_LABEL } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
 import { Banner, Sheet, font, labelFont, useStyles, useTheme, type Theme } from "../../../ui";
 import { atMost, useBarTier } from "./barTier";
@@ -198,7 +198,7 @@ export function ModelPicker({
                             selected={selected}
                             locked={!runs}
                             name={m.name}
-                            via={runs ? viaName(runs, p.name) : m.signIns.length ? "sign in" : "connect"}
+                            via={runs ? viaName(runs, p.name) : lockedVia(m, true)}
                             onPress={() => (runs ? void select(p.id, m.id) : setConnecting({ vendor: p.id, model: m.id }))}
                           />
                         );
@@ -225,9 +225,10 @@ function PickerItem({ name, via, selected, locked, onPress }: { name: string; vi
     <Pressable accessibilityRole="menuitem" accessibilityState={{ selected }} accessibilityLabel={name} onPress={onPress} style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [s.item, (pressed || hovered) && { backgroundColor: t.c.panel2 }, selected && { backgroundColor: t.c.accentWash }]}>
       <View style={{ flexDirection: "row", alignItems: "baseline", flexShrink: 1, minWidth: 0 }}>
         {selected ? <Text style={[s.itemName, { color: t.c.accent, marginRight: 6 }]}>{"✓"}</Text> : null}
-        <Text style={[s.itemName, locked && !selected && { color: t.c.muted }]}>{name}</Text>
+        {/* The app is a paired device: a model nothing runs is greyed and says where to connect it. */}
+        <Text style={[s.itemName, locked && !selected && { color: t.c.dim }]}>{name}</Text>
       </View>
-      {via ? <Text style={[s.via, locked && { color: t.c.accent }]}>{via}</Text> : null}
+      {via ? <Text style={[s.via, locked && { color: t.c.dim }]}>{via}</Text> : null}
     </Pressable>
   );
 }
