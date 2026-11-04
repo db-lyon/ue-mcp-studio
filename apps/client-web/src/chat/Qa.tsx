@@ -33,6 +33,7 @@ import {
   type QaVerdict,
   type QaScriptStep,
 } from "@ue-mcp-studio/shared";
+import { newerRun } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { DEFAULT_RUN, DraftEditor, RunPanel, playersNeeded, type RunOptions } from "./PlaytestDraft";
 import { LoopPanel, loopPill } from "./PlaytestLoop";
@@ -60,13 +61,7 @@ export interface QaLive {
 }
 export const QaContext = createContext<QaLive | null>(null);
 
-/** The newer of two views of a run: the higher seq, and the server's on a tie. */
-export function newerRun(server: QaRun, local: QaRun): QaRun {
-  if (server.runId !== local.runId) return server;
-  if (server.lastSeq >= local.lastSeq) return server;
-  // The steps from the newer events, the subagent as the agent last saved it.
-  return server.assignment ? { ...local, assignment: server.assignment } : local;
-}
+export { newerRun };
 
 /**
  * The run as it is now: the saved view, with every script.* event and every
