@@ -4,12 +4,12 @@
  * AES-256-GCM, on the audited noble libraries. Installed on globalThis before
  * the remote package is imported, so the protocol code runs unchanged.
  */
+import "./random";
 import { p256 } from "@noble/curves/p256";
 import { sha256 } from "@noble/hashes/sha256";
 import { hmac } from "@noble/hashes/hmac";
 import { hkdf } from "@noble/hashes/hkdf";
 import { gcm } from "@noble/ciphers/aes";
-import * as ExpoCrypto from "expo-crypto";
 
 type Kind = "ecdh-private" | "ecdh-public" | "hkdf" | "hmac" | "aes-gcm";
 interface Key {
@@ -135,16 +135,8 @@ export const subtle = {
 const g = globalThis as unknown as { crypto?: Record<string, unknown> };
 // Only where the platform has no WebCrypto of its own (Hermes); Node and browsers keep theirs.
 if (!g.crypto?.subtle) {
-  const existing = g.crypto ?? {};
-  Object.defineProperty(globalThis, "crypto", {
-    configurable: true,
-    enumerable: true,
-    value: {
-      getRandomValues: existing.getRandomValues ?? (<T extends ArrayBufferView>(a: T) => ExpoCrypto.getRandomValues(a as never) as T),
-      randomUUID: existing.randomUUID ?? (() => ExpoCrypto.randomUUID()),
-      subtle,
-    },
-  });
+  if (g.crypto) g.crypto.subtle = subtle;
+  else Object.defineProperty(globalThis, "crypto", { configurable: true, enumerable: true, writable: true, value: { subtle } });
 }
 
 if (typeof globalThis.TextDecoder === "undefined") {

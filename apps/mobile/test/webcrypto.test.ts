@@ -5,7 +5,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("expo-crypto", () => ({ getRandomValues: (a: Uint8Array) => globalThis.crypto.getRandomValues(a), randomUUID: () => globalThis.crypto.randomUUID() }));
+vi.mock("expo-crypto", () => ({ getRandomValues: (a: Uint8Array<ArrayBuffer>) => globalThis.crypto.getRandomValues(a), randomUUID: () => globalThis.crypto.randomUUID() }));
 
 const { subtle: shim } = await import("../src/webcrypto");
 const real = globalThis.crypto.subtle;
@@ -15,7 +15,7 @@ describe("webcrypto shim", () => {
   it("agrees with WebCrypto on ECDH, HKDF and AES-GCM in both directions", async () => {
     const phone = await shim.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
     const computer = await real.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"]);
-    const phoneRaw = new Uint8Array(await shim.exportKey("raw", phone.publicKey));
+    const phoneRaw = new Uint8Array((await shim.exportKey("raw", phone.publicKey)) as ArrayBuffer);
     const computerRaw = new Uint8Array(await real.exportKey("raw", computer.publicKey));
 
     const phoneBits = await shim.deriveBits({ name: "ECDH", public: await shim.importKey("raw", computerRaw, { name: "ECDH" }, true, []) } as never, phone.privateKey, 256);
