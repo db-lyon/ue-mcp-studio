@@ -64,7 +64,7 @@ export function About({ onBack, transport }: { onBack: () => void; transport?: (
         <Line name="Needs Studio" value={`${MIN_STUDIO} or newer`} />
         <Line name="Relay" value={RELAY.replace(/^https:\/\//, "")} last />
       </Card>
-      <SectionLabel>{device ? `${device.name}'s computer` : "Your computer"}</SectionLabel>
+      <SectionLabel>{device ? `Computer running ${device.name}` : "Your computer"}</SectionLabel>
       {versions ? (
         <Card style={{ paddingVertical: 4, paddingHorizontal: 14 }}>
           <Line name="Studio" value={versions.studio ?? "unknown"} warn={!!tooOld} />

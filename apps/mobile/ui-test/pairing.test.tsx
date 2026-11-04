@@ -58,9 +58,9 @@ describe("welcome", () => {
     fireEvent.click(screen.getByText("Paste pairing link"));
     await settle();
     expect((screen.getByLabelText("Pairing link") as HTMLInputElement).value).toBe("");
-    expect(screen.getByText(/The clipboard holds no pairing link yet/)).toBeTruthy();
+    expect(screen.getByText("The clipboard has no pairing link.")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Pairing link"), { target: { value: "h" } });
-    expect(screen.queryByText(/The clipboard holds no pairing link yet/)).toBeNull();
+    expect(screen.queryByText("The clipboard has no pairing link.")).toBeNull();
   });
 
   it("says what a pairing link looks like when the pasted one is not", () => {
@@ -126,8 +126,8 @@ describe("pairing stopped", () => {
   };
 
   it.each([
-    ["expired", "This code no longer works", /Each code works once, for 10 minutes/],
-    ["timeout", "No one allowed this phone in time", /waits 2 minutes for an answer/],
+    ["expired", "This code no longer works", /Each code works once, for ten minutes/],
+    ["timeout", "No one allowed this phone in time", /waits two minutes for an answer/],
   ] as const)("a %s code is a state with a new code as the way on", (kind, title, lead) => {
     const seen = show({ kind, message: "relay words" });
     expect(screen.getByText(title)).toBeTruthy();
@@ -141,7 +141,7 @@ describe("pairing stopped", () => {
   it.each([
     ["denied", "Pairing did not finish", "The computer's owner denied this phone."],
     ["offline", "Your computer went offline", "It stopped answering while this phone was pairing."],
-    ["bad-link", "This is not a pairing code", "The code was cut short, or it is not one Studio made for pairing."],
+    ["bad-link", "This is not a pairing code", "The code or link was cut short, or it is not a UE-MCP Studio pairing code."],
     ["mismatch", "The codes did not match", "This phone was not paired."],
     ["failed", "Pairing did not finish", "The computer no longer knows this request."],
   ] as const)("%s is the error panel with what happened", (kind, head, text) => {
@@ -294,7 +294,7 @@ describe("Projects and Devices", () => {
     const opened: string[] = [];
     render(<Projects onOpen={(d) => opened.push(d.id)} onPair={() => opened.push("scan")} onSettings={() => undefined} onUnpaired={() => undefined} />);
     await settle();
-    expect(screen.getByText("Not paired with this phone. Scan its computer's code to open it.")).toBeTruthy();
+    expect(screen.getByText("Not paired with this phone")).toBeTruthy();
     expect(screen.getByText("Offline, last seen 3h ago")).toBeTruthy();
     fireEvent.click(screen.getByText("Lyra"));
     fireEvent.click(screen.getByLabelText("Scan the code for Other"));
@@ -413,7 +413,7 @@ describe("About", () => {
     render(<About onBack={() => undefined} transport={() => health("0.1.25-beta.40")} />);
     await settle();
     await settle();
-    expect(screen.getByText("Lyra's computer")).toBeTruthy();
+    expect(screen.getByText("Computer running Lyra")).toBeTruthy();
     expect(screen.getByText("0.1.25-beta.40")).toBeTruthy();
     expect(screen.getByText("This app and the Studio on that computer work together.")).toBeTruthy();
   });

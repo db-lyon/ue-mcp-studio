@@ -79,7 +79,7 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
                   key={d.id}
                   lead={<View style={{ width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: t.c.dim }} />}
                   title={d.name}
-                  sub={d.online ? "Not paired with this phone. Scan its computer's code to open it." : lastSeen(d.lastSeen)}
+                  sub={d.online ? "Not paired with this phone" : lastSeen(d.lastSeen)}
                   label={`Scan the code for ${d.name}`}
                   onPress={onPair}
                   right={<T style={t.editor ? { ...font(t, "sans", 400, 12, 1.2), color: t.c.accent } : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23, color: t.c.accentHi }}>Scan code</T>}

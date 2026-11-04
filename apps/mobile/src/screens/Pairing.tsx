@@ -107,7 +107,7 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
             style={wrong ? { borderColor: t.c.bad } : undefined}
           />
           {nothing && !link && !wrong ? (
-            <T style={{ ...font(t, "sans", 400, 12.5, t.base.lineHeight / t.base.size), color: t.c.dim }}>The clipboard holds no pairing link yet. Copy it in Studio, then paste it here.</T>
+            <T style={{ ...font(t, "sans", 400, 12.5, t.base.lineHeight / t.base.size), color: t.c.dim }}>The clipboard has no pairing link.</T>
           ) : null}
           {wrong ? (
             <T accessibilityRole="alert" style={{ ...font(t, "sans", 400, 12.5, t.base.lineHeight / t.base.size), color: t.editor ? t.c.bad : t.c.badText }}>
@@ -176,7 +176,7 @@ export interface PairFailure {
 function wording(f: PairFailure): { head: string; text: string; note: string } {
   switch (f.kind) {
     case "bad-link":
-      return { head: "This is not a pairing code", text: "The code was cut short, or it is not one Studio made for pairing.", note: NEW_CODE };
+      return { head: "This is not a pairing code", text: "The code or link was cut short, or it is not a UE-MCP Studio pairing code.", note: NEW_CODE };
     case "denied":
       return { head: "Pairing did not finish", text: "The computer's owner denied this phone.", note: NEW_CODE };
     case "offline":
@@ -205,7 +205,7 @@ export function PairFailed({ failure, onScan, onStart, onRetry }: { failure: Pai
   const actions = (
     <View style={{ flex: 1, gap: 8 }}>
       {way}
-      <Button title="Start over" variant={way ? "default" : "primary"} size="large" onPress={onStart} />
+      <Button title="Start over" size="large" onPress={onStart} />
     </View>
   );
   if (failure.kind === "expired" || failure.kind === "timeout")
@@ -214,7 +214,7 @@ export function PairFailed({ failure, onScan, onStart, onRetry }: { failure: Pai
         <StateView
           glyph="expired"
           title={failure.kind === "expired" ? "This code no longer works" : "No one allowed this phone in time"}
-          lead={failure.kind === "expired" ? `Each code works once, for 10 minutes. ${NEW_CODE}` : `Studio waits 2 minutes for an answer. ${NEW_CODE}`}
+          lead={failure.kind === "expired" ? `Each code works once, for ten minutes. ${NEW_CODE}` : `Studio waits two minutes for an answer. ${NEW_CODE}`}
           actions={actions}
         />
       </Page>

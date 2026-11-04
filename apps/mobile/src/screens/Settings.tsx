@@ -39,10 +39,10 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
   useEffect(() => void load(), [load]);
 
   const remove = (v: Viewer) =>
-    Alert.alert(v.current ? "Remove this phone?" : `Remove ${v.label}?`, v.current ? "It stops reaching your projects until you pair it again." : "It stops reaching your projects until it is paired again.", [
+    Alert.alert(v.current ? "Unpair this phone?" : `Remove ${v.label}?`, v.current ? "It stops reaching your projects until you pair it again." : "It stops reaching your projects until it is paired again.", [
       { text: "Cancel", style: "cancel" },
       {
-        text: "Remove",
+        text: v.current ? "Unpair" : "Remove",
         style: "destructive",
         onPress: () =>
           void removeViewer(v).then(
@@ -80,7 +80,7 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
         <ListCard>
           {viewers.length === 0 ? <ListRow title="None yet" sub="Phones and browsers you pair show here." /> : null}
           {viewers.map((v) => (
-            <ListRow key={v.id} current={v.current} title={v.label} sub={v.current ? `This phone. ${paired(v.createdAt)}` : paired(v.createdAt)} right={danger("Remove", () => remove(v), v.current ? "Remove this phone" : `Remove ${v.label}`)} />
+            <ListRow key={v.id} title={v.label} sub={v.current ? `This phone. ${paired(v.createdAt)}` : paired(v.createdAt)} right={v.current ? danger("Unpair", () => remove(v), "Unpair this phone") : danger("Remove", () => remove(v), `Remove ${v.label}`)} />
           ))}
         </ListCard>
       ) : null}
