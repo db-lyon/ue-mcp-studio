@@ -127,7 +127,7 @@ export function remoteBodyAllowed(method: string, pathname: string, body: Uint8A
  * other than Studio. remoteBodyAllowed guards the settings fields a browser may not change.
  */
 export function remotePath(method: string, rawPath: string): string | null {
-  if (!rawPath.startsWith("/") || /\\|%2e|%2f|%5c/i.test(rawPath)) return null;
+  if (!rawPath.startsWith("/") || !encodedPartsSafe(rawPath)) return null;
   let url: URL;
   try {
     url = new URL(rawPath, "http://daemon.invalid");
@@ -137,9 +137,49 @@ export function remotePath(method: string, rawPath: string): string | null {
   if (url.host !== "daemon.invalid") return null;
   const pathname = url.pathname;
   const m = method.toUpperCase();
-  if (pathname.includes("//") || DENY.some((d) => !d.except?.includes(m) && d.path.test(pathname))) return null;
+  // Denied by the raw path and by the decoded one, so an encoded slash cannot spell a denied route.
+  const decoded = safeDecode(pathname);
+  if (decoded === null || pathname.includes("//") || DENY.some((d) => !d.except?.includes(m) && (d.path.test(pathname) || d.path.test(decoded)))) return null;
   if (!ALLOW.some((a) => (a.methods === "any" || a.methods.includes(m)) && a.path.test(pathname))) return null;
   return pathname + url.search;
+}
+
+/** decodeURIComponent, or null for a malformed escape. */
+function safeDecode(s: string): string | null {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return null;
+  }
+}
+
+/** A `.` or `..` step in a decoded path. */
+const DOT_STEP = /(^|\/)\.\.?(\/|$)/;
+
+/**
+ * Whether a request's encoded parts are data, not a way around the path rules.
+ * Ids and paths travel as one encoded path segment or query value (a playtest
+ * run id such as `draft:/Game/Scripts/TS_Door`, a changed file such as
+ * `Content/Props/Door.uasset`), so an encoded slash is allowed there; the
+ * daemon splits routes on raw slashes and decodes each parameter after.
+ * Refused: a backslash or NUL anywhere, an encoded dot or backslash in the
+ * path, and a segment or query value that decodes to a `.` or `..` step.
+ */
+function encodedPartsSafe(rawPath: string): boolean {
+  const q = rawPath.indexOf("?");
+  const rawPathname = q < 0 ? rawPath : rawPath.slice(0, q);
+  const query = q < 0 ? "" : rawPath.slice(q + 1);
+  if (/\\|%00|%5c/i.test(rawPath) || /%2e/i.test(rawPathname)) return false;
+  for (const seg of rawPathname.split("/")) {
+    if (!/%2f/i.test(seg)) continue;
+    const d = safeDecode(seg);
+    if (d === null || DOT_STEP.test(d)) return false;
+  }
+  for (const pair of query ? query.split("&") : []) {
+    const d = safeDecode(pair.replace(/\+/g, " "));
+    if (d === null || d.includes("\0") || d.includes("\\") || DOT_STEP.test(d.slice(d.indexOf("=") + 1))) return false;
+  }
+  return true;
 }
 
 /** A binary chunk frame: this tag byte, the call id's length, the id, then the bytes. */

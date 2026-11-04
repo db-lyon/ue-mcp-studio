@@ -531,6 +531,14 @@ describe("remote control, sealed end to end", () => {
     await browser.request({ method: "PUT", path: "/v1/ext/studio/settings", headers: { "content-type": "application/json" }, body: Buffer.from(JSON.stringify({ theme: "editor" })).toString("base64") });
     expect(daemonHits.at(-1)).toMatchObject({ method: "PUT", url: "/v1/ext/studio/settings" });
     expect(daemonHits.length).toBe(hits + 1);
+    // Ids and paths with slashes reach the daemon as one encoded segment or value: a draft's verdict, a nested file's diff.
+    const run = encodeURIComponent("draft:/Game/PIEStudio/Scripts/TS_Door");
+    const file = encodeURIComponent("Content/Props/Door/BP_Door.uasset");
+    for (const [method, p] of [["POST", `/v1/ext/studio/qa/runs/${run}/verdict`], ["GET", `/v1/ext/studio/vcs/diff?path=${file}`]]) {
+      const r = await browser.request({ method, path: p, headers: { "content-type": "application/json" }, body: method === "POST" ? Buffer.from('{"step":0,"verdict":"pass"}').toString("base64") : undefined });
+      expect(r.head?.status, `${method} ${p}`).not.toBe(403);
+      expect(daemonHits.at(-1), `${method} ${p}`).toMatchObject({ method, url: p });
+    }
     expect(keys(h)).toEqual([browser.id]);
     expect((await status(h)).enabled).toBe(true);
 

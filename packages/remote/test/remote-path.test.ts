@@ -27,6 +27,33 @@ describe("remotePath", () => {
     ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
   });
 
+  it("lets ids and paths with slashes through as data: playtest verdicts and Git diffs", () => {
+    const run = encodeURIComponent("draft:/Game/PIEStudio/Scripts/TS_Door");
+    expect(remotePath("POST", `/v1/ext/studio/qa/runs/${run}/verdict`)).toBe(`/v1/ext/studio/qa/runs/${run}/verdict`);
+    expect(remotePath("GET", `/v1/ext/studio/qa/runs/${run}/status?since_seq=3`)).toBe(`/v1/ext/studio/qa/runs/${run}/status?since_seq=3`);
+    const file = encodeURIComponent("Content/Props/Door/BP_Door.uasset");
+    expect(remotePath("GET", `/v1/ext/studio/vcs/diff?path=${file}`)).toBe(`/v1/ext/studio/vcs/diff?path=${file}`);
+    const script = encodeURIComponent("/Game/PIEStudio/Scripts/TS_Door");
+    expect(remotePath("GET", `/v1/ext/studio/qa/playtests/script?script=${script}`)).toBe(`/v1/ext/studio/qa/playtests/script?script=${script}`);
+  });
+
+  it("refuses encoded parts that step out of a segment or hide a denied route", () => {
+    for (const [m, p] of [
+      ["POST", "/v1/ext/studio/sessions/x%2F..%2F..%2Fremote%2Fpair"],
+      ["POST", "/v1/ext/studio/qa/runs/..%2Fremote/verdict"],
+      ["GET", "/v1/ext/studio/sessions/%2F..%2F"],
+      ["GET", "/v1/ext/studio/vcs/diff?path=..%2F..%2Fsecret.txt"],
+      ["GET", "/v1/ext/studio/vcs/diff?path=Content%2F..%2F..%2Fsecret.txt"],
+      ["GET", "/v1/ext/studio/vcs/diff?path=..%5Csecret.txt"],
+      ["GET", "/v1/ext/studio/vcs/diff?path=a%5C..%5Cb"],
+      ["GET", "/v1/ext/studio/vcs/diff?path=a%00b"],
+      ["GET", "/v1/ext/studio/vcs/diff?path=%E0%A4%A"],
+      ["POST", "/v1/ext/studio/updates%2Fstudio"],
+      ["POST", "/v1/ext/studio/x/..%2Fupdates%2Fstudio"],
+      ["PUT", "/v1/ext/studio/endpoints%2Fabc"],
+    ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
+  });
+
   it("refuses every remote-control route, however the path is spelled", () => {
     for (const [m, p] of [
       ["GET", "/v1/ext/studio/remote"],

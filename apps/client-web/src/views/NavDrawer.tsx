@@ -86,7 +86,8 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
             </button>
           ))}
         </div>
-        {children && <div className="drawer-foot">{children}</div>}
+        {/* A tool in the foot (the Git chip, Feedback, Docs) opens its own sheet or page: the drawer gets out of its way. */}
+        {children && <div className="drawer-foot" onClick={(e) => (e.target as HTMLElement).closest("button") && onClose()}>{children}</div>}
       </aside>
     </div>
   );

@@ -53,5 +53,6 @@ describe("a project under git", () => {
     expect((await diffOf(dir, "Added.md")).diff).toBe("+# new\n+");
     expect((await diffOf(dir, "Content/Map.umap")).reason).toMatch(/binary/);
     expect((await diffOf(dir, "../outside.txt")).reason).toMatch(/Not a path/);
+    for (const f of ["..\\outside.txt", "a\\..\\..\\outside.txt", "C:\\Windows\\win.ini", "/etc/hosts"]) expect((await diffOf(dir, f)).reason, f).toMatch(/Not a path/);
   });
 });

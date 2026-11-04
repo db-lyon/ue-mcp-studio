@@ -5,11 +5,12 @@ import type { VcsStatus } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({ vcs: vi.fn(), vcsChanges: vi.fn(), vcsDiff: vi.fn() }));
 vi.mock("../api", () => ({ api: m }));
-import { VcsChip, vcsLine } from "./VcsChip";
+import { VcsChip, buildTree, folderPaths, readView, treeRows, vcsLine } from "./VcsChip";
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  localStorage.clear();
 });
 
 const git: VcsStatus = { kind: "git", name: "Git", branch: "main", changes: 3, ahead: 2, behind: 0, root: "C:/Game" };
@@ -49,5 +50,68 @@ describe("source control in the top bar", () => {
     await waitFor(() => expect(screen.getByText(/A binary file/)).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
+
+describe("the changes as a folder tree", () => {
+  const changes = [
+    { path: "Content/Props/Door/BP_Door.uasset", status: "modified" as const },
+    { path: "Content/Props/Door/C_Hinge.uasset", status: "added" as const },
+    { path: "Content/Maps/L_Main.umap", status: "modified" as const },
+    { path: "Config/DefaultEngine.ini", status: "modified" as const },
+    { path: "README.md", status: "untracked" as const },
+  ];
+
+  it("nests folders first, counts the changes under each, and folds a single-child chain into one row", () => {
+    const tree = buildTree(changes);
+    expect(tree.folders.map((f) => [f.name, f.count])).toEqual([["Config", 1], ["Content", 3]]);
+    const content = tree.folders[1];
+    expect(content.folders.map((f) => [f.name, f.count])).toEqual([["Maps", 1], ["Props/Door", 2]]);
+    expect(tree.files.map((f) => f.path)).toEqual(["README.md"]);
+    expect(folderPaths(tree)).toEqual(["Config", "Content", "Content/Maps", "Content/Props/Door"]);
+    const rows = treeRows(tree, new Set(["Content/Maps"]));
+    expect(rows.map((r) => (r.kind === "folder" ? `${"  ".repeat(r.depth)}${r.name}/ ${r.count}` : `${"  ".repeat(r.depth)}${r.change.path}`))).toEqual([
+      "Config/ 1",
+      "  Config/DefaultEngine.ini",
+      "Content/ 3",
+      "  Maps/ 1",
+      "  Props/Door/ 2",
+      "    Content/Props/Door/BP_Door.uasset",
+      "    Content/Props/Door/C_Hinge.uasset",
+      "README.md",
+    ]);
+  });
+
+  it("switches between list and tree, collapses and expands, and remembers the choice", async () => {
+    m.vcs.mockResolvedValue({ vcs: git });
+    m.vcsChanges.mockResolvedValue({ changes, truncated: false });
+    m.vcsDiff.mockResolvedValue({ diff: null, reason: "A binary file: open it in the editor to see it." });
+    render(<VcsChip events={[]} />);
+    await waitFor(() => expect(screen.getByText(/main, 3 changed/)).toBeTruthy());
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Git/ })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Tree" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Collapse all" })).toBeNull();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Tree" })));
+    expect(readView()).toBe("tree");
+    expect(screen.getByTitle("Content/Props/Door").getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTitle("Content/Props/Door/C_Hinge.uasset")).toBeTruthy();
+    await act(async () => fireEvent.click(screen.getByTitle("Content/Props/Door")));
+    expect(screen.queryByTitle("Content/Props/Door/C_Hinge.uasset")).toBeNull();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Collapse all" })));
+    expect(screen.queryByTitle("Config/DefaultEngine.ini")).toBeNull();
+    expect(screen.getByTitle("README.md")).toBeTruthy();
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Expand all" })));
+    expect(screen.getByTitle("Content/Props/Door/C_Hinge.uasset")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Git/ })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Tree" }).getAttribute("aria-pressed")).toBe("true"));
+  });
+
+  it("falls back to the list when storage throws", () => {
+    const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    expect(readView()).toBe("list");
+    get.mockRestore();
   });
 });

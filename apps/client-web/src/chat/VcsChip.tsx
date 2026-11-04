@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { VcsChange, VcsStatus } from "@ue-mcp-studio/shared";
 import { api } from "../api";
@@ -17,6 +17,89 @@ const dirName = (p: string) => {
 };
 
 const LETTER: Record<VcsChange["status"], string> = { modified: "M", added: "A", deleted: "D", renamed: "R", untracked: "U", conflicted: "C" };
+
+/** How the changed files are shown: one flat list, or a tree of folders. */
+export type ChangesView = "list" | "tree";
+const VIEW_KEY = "studio.changes.view";
+
+/** The viewer's last choice, kept in this browser; a list when storage is unavailable. */
+export function readView(): ChangesView {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "tree" ? "tree" : "list";
+  } catch {
+    return "list";
+  }
+}
+
+function writeView(v: ChangesView): void {
+  try {
+    localStorage.setItem(VIEW_KEY, v);
+  } catch {
+    // Private windows and blocked storage: the choice lasts until the panel closes.
+  }
+}
+
+/** A folder of the tree: its path from the root, its folders and files, and how many changes sit under it. */
+export interface ChangeFolder {
+  name: string;
+  path: string;
+  folders: ChangeFolder[];
+  files: VcsChange[];
+  count: number;
+}
+
+/**
+ * The changes as a tree, folders first and each level sorted by name. A folder
+ * whose only content is one folder is shown as one row ("Content/Props/Door"),
+ * so a deep path does not cost a row per level.
+ */
+export function buildTree(changes: VcsChange[]): ChangeFolder {
+  const root: ChangeFolder = { name: "", path: "", folders: [], files: [], count: 0 };
+  for (const c of changes) {
+    const parts = c.path.replace(/\\/g, "/").split("/").filter(Boolean);
+    let at = root;
+    at.count++;
+    for (const part of parts.slice(0, -1)) {
+      let next = at.folders.find((f) => f.name === part);
+      if (!next) {
+        next = { name: part, path: at.path ? `${at.path}/${part}` : part, folders: [], files: [], count: 0 };
+        at.folders.push(next);
+      }
+      next.count++;
+      at = next;
+    }
+    at.files.push(c);
+  }
+  const tidy = (f: ChangeFolder): ChangeFolder => {
+    let folder = f;
+    while (folder !== root && folder.files.length === 0 && folder.folders.length === 1) {
+      const only = folder.folders[0];
+      folder = { ...only, name: `${folder.name}/${only.name}` };
+    }
+    const folders = folder.folders.map(tidy).sort((a, b) => a.name.localeCompare(b.name));
+    const files = [...folder.files].sort((a, b) => baseName(a.path).localeCompare(baseName(b.path)));
+    return { ...folder, folders, files };
+  };
+  return tidy(root);
+}
+
+/** Every folder's path, for Collapse all. */
+export function folderPaths(f: ChangeFolder): string[] {
+  return f.folders.flatMap((c) => [c.path, ...folderPaths(c)]);
+}
+
+type TreeRow = { kind: "folder"; name: string; path: string; count: number; depth: number } | { kind: "file"; change: VcsChange; depth: number };
+
+/** The rows a tree shows: a collapsed folder hides what is under it. */
+export function treeRows(f: ChangeFolder, collapsed: Set<string>, depth = 0): TreeRow[] {
+  const rows: TreeRow[] = [];
+  for (const c of f.folders) {
+    rows.push({ kind: "folder", name: c.name, path: c.path, count: c.count, depth });
+    if (!collapsed.has(c.path)) rows.push(...treeRows(c, collapsed, depth + 1));
+  }
+  for (const file of f.files) rows.push({ kind: "file", change: file, depth });
+  return rows;
+}
 
 /**
  * The project's source control in the top bar: the branch (or stream) and its
@@ -55,6 +138,21 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
   const [truncated, setTruncated] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
   const [diff, setDiff] = useState<{ diff: string | null; reason?: string } | null>(null);
+  const [view, setView] = useState<ChangesView>(readView);
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const tree = useMemo(() => buildTree(changes ?? []), [changes]);
+  const folders = useMemo(() => folderPaths(tree), [tree]);
+  const pickView = (v: ChangesView) => {
+    setView(v);
+    writeView(v);
+  };
+  const toggle = (p: string) =>
+    setCollapsed((cur) => {
+      const next = new Set(cur);
+      if (next.has(p)) next.delete(p);
+      else next.add(p);
+      return next;
+    });
 
   useEffect(() => {
     api.vcsChanges().then((r) => {
@@ -84,18 +182,51 @@ export function ChangesPanel({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
         </div>
         {changes === null && <p className="muted">Loading</p>}
         {changes?.length === 0 && <p className="muted">No changes.</p>}
+        {changes?.length !== 0 && (
+          <div className="changes-toolbar row">
+            <div className="seg changes-view" role="group" aria-label="Show changes as">
+              <button className={view === "list" ? "on" : ""} aria-pressed={view === "list"} onClick={() => pickView("list")}>List</button>
+              <button className={view === "tree" ? "on" : ""} aria-pressed={view === "tree"} onClick={() => pickView("tree")}>Tree</button>
+            </div>
+            {view === "tree" && folders.length > 0 && (
+              <>
+                <button className="ghost small-button" onClick={() => setCollapsed(new Set())}>Expand all</button>
+                <button className="ghost small-button" onClick={() => setCollapsed(new Set(folders))}>Collapse all</button>
+              </>
+            )}
+          </div>
+        )}
         {changes && changes.length > 0 && (
           <div className="changes-body">
-            <ul className="changes-list">
-              {changes.map((c) => (
-                <li key={c.path}>
-                  <button className={`change-row ${c.path === picked ? "current" : ""}`} onClick={() => setPicked(c.path)} title={c.path}>
-                    <span className={`change-status s-${c.status}`} title={c.status}>{LETTER[c.status]}</span>
-                    <span className="change-name">{baseName(c.path)}</span>
-                    <span className="change-dir dim">{dirName(c.path)}</span>
-                  </button>
-                </li>
-              ))}
+            <ul className={`changes-list ${view === "tree" ? "tree" : ""}`}>
+              {view === "list"
+                ? changes.map((c) => (
+                    <li key={c.path}>
+                      <button className={`change-row ${c.path === picked ? "current" : ""}`} onClick={() => setPicked(c.path)} title={c.path}>
+                        <span className={`change-status s-${c.status}`} title={c.status}>{LETTER[c.status]}</span>
+                        <span className="change-name">{baseName(c.path)}</span>
+                        <span className="change-dir dim">{dirName(c.path)}</span>
+                      </button>
+                    </li>
+                  ))
+                : treeRows(tree, collapsed).map((r) =>
+                    r.kind === "folder" ? (
+                      <li key={`d:${r.path}`}>
+                        <button className="change-row change-folder" style={{ paddingLeft: 8 + r.depth * 14 }} aria-expanded={!collapsed.has(r.path)} onClick={() => toggle(r.path)} title={r.path}>
+                          <span className="change-chevron" aria-hidden="true">{collapsed.has(r.path) ? "▸" : "▾"}</span>
+                          <span className="change-name">{r.name}</span>
+                          <span className="change-count dim">{r.count}</span>
+                        </button>
+                      </li>
+                    ) : (
+                      <li key={r.change.path}>
+                        <button className={`change-row ${r.change.path === picked ? "current" : ""}`} style={{ paddingLeft: 8 + r.depth * 14 }} onClick={() => setPicked(r.change.path)} title={r.change.path}>
+                          <span className={`change-status s-${r.change.status}`} title={r.change.status}>{LETTER[r.change.status]}</span>
+                          <span className="change-name">{baseName(r.change.path)}</span>
+                        </button>
+                      </li>
+                    ),
+                  )}
               {truncated && <li className="dim small">More files changed than are listed.</li>}
             </ul>
             <div className="changes-diff">
