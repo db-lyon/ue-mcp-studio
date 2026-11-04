@@ -122,6 +122,7 @@ window.open = () => null;
   heights: Object.fromEntries(Object.entries(SCENARIOS).flatMap(([name, s]) => (s.height ? [[name, s.height]] : []))),
   focus: scenario.focus ?? null,
   type: scenario.type ?? null,
+  types: scenario.types ?? [],
   afterType: scenario.afterType ?? null,
   fullPage: scenario.fullPage ?? false,
   waitFor: scenario.waitFor ?? null,

@@ -66,7 +66,8 @@ const pictures = {
 const server = await createServer({ root: web, configFile: path.join(web, "vite.config.ts"), server: { port: 0, strictPort: false }, logLevel: "warn", plugins: [pictures] });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, "");
-const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+// --grayscale-text draws text without subpixel (LCD) antialiasing, as the mobile parity shots are drawn, so the two compare glyph for glyph.
+const browser = await chromium.launch({ executablePath: browserPath, headless: true, args: process.argv.includes("--grayscale-text") ? ["--disable-lcd-text"] : [] });
 fs.mkdirSync(out, { recursive: true });
 
 // --audit also measures each shot for what breaks on a phone, into <out>/audit.json:
@@ -260,6 +261,14 @@ try {
         await page.waitForTimeout(200);
       }
       const typed = await page.evaluate(() => window.__visualQa.type);
+      for (const each of await page.evaluate(() => window.__visualQa.types ?? [])) {
+        if (!(await page.$(each.into))) errors.push(`nothing matched ${each.into}`);
+        else {
+          await page.focus(each.into);
+          await page.keyboard.press("End");
+          await page.keyboard.type(each.text, { delay: 10 });
+        }
+      }
       if (typed) {
         // Typed key by key at the end of what the box holds, as a person would, then left to settle.
         if (!(await page.$(typed.into))) errors.push(`nothing matched ${typed.into}`);
