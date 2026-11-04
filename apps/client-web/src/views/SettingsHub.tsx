@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { CONTEXT_STRATEGY_INFO, anythingConnected, remoteShown, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { remoteShown, type ModelCatalog, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import type { DaemonState } from "../state";
 import { api } from "../api";
 import { AgentsSection } from "./settings/AgentsSection";
@@ -13,6 +13,7 @@ import { StatusView } from "./Status";
 import { LogsView } from "./Logs";
 
 import { extensionSection, isExtensionSection, sectionOf, type BuiltinSection, type SettingsSection } from "./settings/sections";
+import { SECTION_NAMES, SETTINGS_GROUPS, sectionStatus, strategyLine } from "@ue-mcp-studio/client-core";
 import { ErrorBoundary } from "./ErrorBoundary";
 import { useSlot } from "../extensions/registry";
 import { Contribution } from "../extensions/Slot";
@@ -30,31 +31,8 @@ const ICONS: Record<BuiltinSection, string> = {
 const EXTENSION_ICON = "M2.5 2.5h4.5v4.5H2.5zM9 2.5h4.5v4.5H9zM2.5 9h4.5v4.5H2.5zM9 9h4.5v4.5H9z";
 const NO_CTX = {};
 
-const REMOTE_ITEM = { id: "remote" as const, name: "Remote control", sub: "Use this project from a phone or browser" };
-
-const GROUPS: Array<{ label: string; items: Array<{ id: BuiltinSection; name: string; sub: string }> }> = [
-  {
-    label: "Studio",
-    items: [{ id: "general", name: "General", sub: "Account, appearance and updates" }, REMOTE_ITEM],
-  },
-  {
-    label: "Work",
-    items: [
-      { id: "agents", name: "Agents", sub: "Models and project agent files" },
-      { id: "models", name: "Models & accounts", sub: "Sign-ins, keys and endpoints" },
-      { id: "approvals", name: "Approvals & review", sub: "Approvals, dialogs and turn review" },
-    ],
-  },
-  {
-    label: "Project",
-    items: [
-      { id: "project", name: "Project", sub: "ue-mcp setup for this project" },
-      { id: "diagnostics", name: "Diagnostics", sub: "Status and logs" },
-    ],
-  },
-];
-
-const NAMES = Object.fromEntries(GROUPS.flatMap((g) => g.items.map((s) => [s.id, s.name]))) as Record<BuiltinSection, string>;
+const GROUPS = SETTINGS_GROUPS;
+const NAMES = SECTION_NAMES;
 
 function Icon({ d }: { d: string }) {
   return (
@@ -63,9 +41,6 @@ function Icon({ d }: { d: string }) {
     </svg>
   );
 }
-
-const ROUTE_LABEL: Record<string, string> = { claude: "Claude sign-in", chatgpt: "ChatGPT sign-in", studio: "Studio plan", key: "key" };
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * Each section's state in a line, for the narrow section list, and what needs
@@ -77,7 +52,7 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   useEffect(() => {
     api.settings().then(setSettings, () => setSettings(null));
     // The strategy in effect: an environment override beats the saved one.
-    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, strategy: c.envOverride ? `${CONTEXT_STRATEGY_INFO[c.envOverride]?.name ?? c.envOverride}, from environment` : CONTEXT_STRATEGY_INFO[c.strategy]?.name ?? c.strategy, overridden: !!c.envOverride && c.envOverride !== c.strategy })), () => undefined);
+    if (typeof api.contextStrategy === "function") api.contextStrategy().then((c) => setExtra((e) => ({ ...e, ...strategyLine(c) })), () => undefined);
     if (typeof api.install === "function") api.install().then((r) => setExtra((e) => ({ ...e, ready: r.ok })), () => undefined);
     if (typeof api.models === "function") api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
   }, []);
@@ -90,33 +65,8 @@ export function useSectionStatus(updates: number, daemon: DaemonState): { dots: 
   }
 }
 
-function statusOf(updates: number, daemon: DaemonState, settings: StudioSettings | null, extra: { strategy?: string; overridden?: boolean; ready?: boolean; models?: ModelCatalog }): { dots: Partial<Record<SettingsSection, string>>; lines: Partial<Record<SettingsSection, string>> } {
-  const dots: Partial<Record<SettingsSection, string>> = {};
-  if (settings && !anythingConnected(settings)) dots.models = "Nothing connected";
-  if (settings && settings.route === null) dots.agents = "No model connected";
-  else if (settings && settings.route === null) dots.models = "Main agent's model not connected";
-  if (extra.overridden) dots.project = "Context strategy overridden by environment";
-  if (updates > 0) dots.general = `${updates} ${updates === 1 ? "update" : "updates"} available`;
-  const lines: Partial<Record<SettingsSection, string>> = {};
-  if (settings) {
-    const model = extra.models?.providers.flatMap((p) => p.models).find((m) => m.id === settings.model)?.name ?? settings.model;
-    const helpers = settings.usage?.projectInstructions === false ? "project files off" : "project files on";
-    const anything = anythingConnected(settings);
-    // An endpoint route is named by the endpoint.
-    const via = settings.route === "endpoint" ? extra.models?.providers.find((p) => p.id === settings.provider)?.name ?? "a custom endpoint" : settings.route ? ROUTE_LABEL[settings.route] ?? settings.route : null;
-    lines.agents = !anything ? "No model connected" : `${model}${via ? ` on ${via}` : ", not connected"}, ${helpers}`;
-    const signIns = (["claude", "chatgpt", "studio"] as const).filter((s) => settings.connected?.[s]).length;
-    const keys = (["anthropic", "openai", "google"] as const).filter((k) => settings.connected?.[k]).length;
-    const endpoints = settings.endpoints ?? 0;
-    lines.models = signIns + keys + endpoints === 0 ? "Nothing connected" : `${plural(signIns, "sign-in")}, ${plural(keys, "key")}${endpoints ? `, ${plural(endpoints, "endpoint")}` : ""}`;
-    const rules = settings.approvals ? Object.values(settings.approvals) : [];
-    if (rules.length) lines.approvals = `${rules.filter((r) => r === "ask").length} ask first, review ${settings.reviewTurns === false ? "off" : "on"}`;
-  }
-  if (extra.ready !== undefined || extra.strategy) lines.project = [extra.ready === undefined ? null : extra.ready ? "Ready" : "Needs attention", extra.strategy ?? null].filter(Boolean).join(", ");
-  lines.general = updates > 0 ? dots.general : "Up to date";
-  const editor = daemon?.health?.editors?.find((e) => e.connected);
-  if (daemon?.health) lines.diagnostics = editor ? `Editor connected, ue-mcp ${daemon.health.version}` : `No editor connected, ue-mcp ${daemon.health.version}`;
-  return { dots, lines };
+function statusOf(updates: number, daemon: DaemonState, settings: StudioSettings | null, extra: { strategy?: string; overridden?: boolean; ready?: boolean; models?: ModelCatalog }) {
+  return sectionStatus(updates, daemon?.health, settings, extra);
 }
 
 /**

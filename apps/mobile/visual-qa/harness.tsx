@@ -10,6 +10,7 @@ import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { parseLocation, type Reply, type Transport } from "@ue-mcp-studio/client-core";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
+import { remoteBodyAllowed, remotePath } from "@ue-mcp-studio/remote";
 import { daemonFor, SCENARIOS } from "../../client-web/src/visual-qa/daemon";
 import type { Scenario } from "../../client-web/src/visual-qa/fixtures";
 import { ProjectScreen } from "../src/screens/Project";
@@ -37,6 +38,9 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
   return async (method, path, options = {}) => {
     const url = new URL(path, "http://daemon.invalid");
     const m = method.toUpperCase();
+    // The phone is a paired client: the computer refuses it what it refuses a paired browser.
+    const sent = options.json !== undefined ? enc.encode(JSON.stringify(options.json)) : undefined;
+    if (!remotePath(m, path) || !remoteBodyAllowed(m, url.pathname, sent)) return json(403, { error: "Not available remotely." });
     // Pictures (a playtest capture, a review image or thumbnail) come from the page's server, which draws them as the web harness does.
     if (/\/captures\/\d+$|\/review\/(thumbnails|images)\//.test(url.pathname)) {
       const r = await fetch(url.pathname);
@@ -88,6 +92,8 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
       const written = scenario.post?.(url.pathname, options.json);
       return written ? json(written.status, written.body) : json(409, { error: `visual QA harness: ${m} ${url.pathname} is not answered` });
     }
+    // The endpoints scenario that fails says what a broken agent would, as the web harness answers it.
+    if (url.pathname === "/v1/ext/studio/endpoints" && scenario.endpoints === "error") return json(500, { error: "could not read ~/.ue-mcp/studio/endpoints.json: permission denied" });
     const body = daemon.answer(m, url);
     return body === undefined ? json(404, { error: `visual QA harness: GET ${url.pathname} is not answered` }) : json(200, body);
   };

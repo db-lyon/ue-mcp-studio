@@ -27,6 +27,8 @@ export interface ParityEntry {
   afterType?: { clicks: string[]; wait: number };
   /** Scrolled to the top of the conversation before the shot, by accessibility label (or text): the web scenario's `scroll`. */
   scroll?: string;
+  /** Typed into several fields one after another, each by its accessibility label: the web scenario's types. */
+  types?: Array<{ into: string; text: string }>;
 }
 
 /** The message box, as the app's page draws it. */
@@ -118,7 +120,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-project": {owner: "agent-b"},
   "settings-project-attention": {owner: "agent-b"},
   "settings-project-rebuild": {owner: "agent-b"},
-  "settings-project-yaml": {owner: "agent-b"},
+  "settings-project-yaml": {owner: "agent-b", clicks: ["Advanced: ue-mcp.yml"], scroll: "Advanced"},
   "settings-general": {owner: "agent-b"},
   "settings-general-signed-in": {owner: "agent-b"},
   "settings-general-paid": {owner: "agent-b"},
@@ -126,7 +128,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-general-remote": {owner: "agent-b"},
   "settings-models-remote": {owner: "agent-b"},
   "settings-approvals-remote": {owner: "agent-b"},
-  "settings-project-remote": {owner: "agent-b"},
+  "settings-project-remote": {owner: "agent-b", clicks: ["Advanced: ue-mcp.yml"], scroll: "Advanced"},
   "settings-remote-pin-off": {owner: "agent-b"},
   "settings-remote-pin-new": {owner: "agent-b"},
   "settings-remote-pin-on": {owner: "agent-b"},
@@ -145,7 +147,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-old-diagnostics": {owner: "agent-b"},
   "settings-empty-diagnostics": {owner: "agent-b"},
   "settings-diagnostics": {owner: "agent-b"},
-  "settings-diagnostics-events": {owner: "agent-b"},
+  "settings-diagnostics-events": {owner: "agent-b", clicks: ["Payload of studio.transcript.added"], scroll: "Events, newest first"},
   "review-card": {owner: "chat"},
   "review-blueprint": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "Content/Characters/Player/BP_PlayerCharacterMovementComponent.uasset"},
   "review-blueprint-variables": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "My Blueprint"},
@@ -173,6 +175,23 @@ export const PARITY: Record<string, ParityEntry> = {
   "compaction-running": {owner: "chat"},
   "compaction-failed": {owner: "chat", clicks: ["Compaction failed"]},
   "compaction-subagent": {owner: "chat", clicks: ["Open thread ›"]},
+  "feedback-remote": {owner: "agent-b", clicks: ["Open navigation", "Report a problem or suggest an idea"]},
+  "feedback-remote-filled": {owner: "agent-b", clicks: ["Open navigation", "Report a problem or suggest an idea"], types: [{ into: "Title", text: "The model picker forgets my effort" }, { into: "Description", text: "I set effort to high, opened another session, and it was back to medium." }], afterType: { clicks: ["What gets added"], wait: 400 }},
+  "feedback-remote-idea": {owner: "agent-b", clicks: ["Open navigation", "Report a problem or suggest an idea", "Suggest an idea"]},
+  "feedback-remote-filed": {owner: "agent-b", clicks: ["Open navigation", "Report a problem or suggest an idea"], types: [{ into: "Title", text: "The model picker forgets my effort" }, { into: "Description", text: "I set effort to high, opened another session, and it was back to medium." }], afterType: { clicks: ["Send"], wait: 600 }},
+  "feedback-remote-link": {owner: "agent-b", clicks: ["Open navigation", "Report a problem or suggest an idea"], types: [{ into: "Title", text: "The model picker forgets my effort" }, { into: "Description", text: "I set effort to high, opened another session, and it was back to medium." }], afterType: { clicks: ["Send"], wait: 600 }},
+  "feedback-remote-error": {owner: "agent-b", clicks: ["Open navigation", "Report a problem or suggest an idea"], types: [{ into: "Title", text: "The model picker forgets my effort" }, { into: "Description", text: "I set effort to high, opened another session, and it was back to medium." }], afterType: { clicks: ["Send"], wait: 600 }},
+  "update-waiting-remote": {owner: "shell"},
+  "update-running-remote": {owner: "shell"},
+  "update-failed-remote": {owner: "shell"},
+  "update-done-remote": {owner: "shell"},
+  "plugins-remote-details": {owner: "agent-b", clicks: ["Details"]},
+  "plugins-remote-empty": {owner: "agent-b"},
+  "plugins-remote-search": {owner: "agent-b", type: { into: '[aria-label="Search plugins"]', text: "voxel" }},
+  "plugins-remote-error": {owner: "agent-b"},
+  "plugins-remote-unsupported": {owner: "agent-b"},
+  "settings-diagnostics-filtered": {owner: "agent-b", type: { into: '[aria-label="Filter events"]', text: "remote" }},
+  "settings-diagnostics-no-editor": {owner: "agent-b"},
   "editor-chip-operation": {owner: "agent-a"},
   "editor-chip-operation-open": {owner: "agent-a", clicks: ["Editor state"]},
   "editor-chip-restart-open": {owner: "agent-a", clicks: ["Editor state"]},

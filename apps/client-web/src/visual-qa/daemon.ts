@@ -10,8 +10,9 @@ import { CONTEXT, INSTALL, SETTINGS_SCENARIOS } from "./settings-fixtures";
 import { REVIEW_SCENARIOS } from "./review-fixtures";
 import { REFUSED_SCENARIOS } from "./refused-fixtures";
 import { CONTEXT_SCENARIOS } from "./context-fixtures";
+import { PAIRED_SCENARIOS } from "./paired-fixtures";
 
-export const SCENARIOS: Record<string, Scenario> = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS, ...REFUSED_SCENARIOS, ...CONTEXT_SCENARIOS };
+export const SCENARIOS: Record<string, Scenario> = { ...PLAYTESTS, ...SETTINGS_SCENARIOS, ...REVIEW_SCENARIOS, ...REFUSED_SCENARIOS, ...CONTEXT_SCENARIOS, ...PAIRED_SCENARIOS };
 
 
 /** A scenario's daemon: its settings, and its answer to each GET. `arrived()` says whether its arriving line has been sent. */

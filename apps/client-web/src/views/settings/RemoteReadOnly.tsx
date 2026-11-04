@@ -2,7 +2,8 @@ import type { ReactNode } from "react";
 import { onRemotePage } from "../../connection";
 
 /** Why a paired browser cannot change a setting: it decides where prompts go or what runs on the computer. */
-export const REMOTE_CHANGE_NOTE = "Change this from Studio on the computer.";
+export { REMOTE_CHANGE_NOTE } from "@ue-mcp-studio/client-core";
+import { REMOTE_CHANGE_NOTE } from "@ue-mcp-studio/client-core";
 
 /**
  * In a paired browser, shows its children read only (a disabled fieldset) under
