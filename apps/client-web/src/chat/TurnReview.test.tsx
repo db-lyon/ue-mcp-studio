@@ -329,24 +329,23 @@ describe("the diff view", () => {
     expect(row.querySelector("td[data-label='After']")!.textContent).toBe("True");
     // The engine's own caveat is on the section heading's hover, not a line of its own.
     expect(tree.querySelector(".diff-section-head")!.getAttribute("title")).toContain("Warning: This may be missing changes to Animations and Bindings");
-    // Every fact is the same: no Before and After for them, one folded line that counts them.
+    // Every fact is the same: none of them is shown, not even folded.
     expect(screen.queryByRole("region", { name: "Facts" })).toBeNull();
-    const same = screen.getByText("5 unchanged facts").closest("details")!;
-    expect(same.open).toBe(false);
-    const listed = screen.getByText("ValeHUDWidget").closest("tr")!;
-    expect(listed.querySelector("td[data-label]")).toBeNull();
+    expect(screen.queryByText(/unchanged fact/)).toBeNull();
+    expect(screen.queryByText("ValeHUDWidget")).toBeNull();
     // The summary is the card's line above; the body does not say it again, and has no raw structure dump.
     expect(screen.queryByText(/no difference/)).toBeNull();
     expect(screen.queryByText(/Structure/)).toBeNull();
   });
 
-  it("shows nothing but the folded facts for a Widget Blueprint whose widget tree was not compared, and never says no difference", async () => {
+  it("shows no unchanged facts for a Widget Blueprint whose widget tree was not compared, and never says no difference", async () => {
     const old: AssetDiff = { ...widget, engine: { ...widget.engine!, blueprintTypeDiff: undefined }, sections: [], before: { ...widget.before!, thumbnail: { error: "x" } }, after: { ...widget.after!, thumbnail: { error: "x" } }, summary: "Widget Blueprint changed. This ue-mcp bridge cannot compare widget properties. Open in Unreal diff to see them." };
     m.reviewDiff.mockResolvedValue({ change: { path: widgetItem.path, status: "modified", kind: "package", assetDiff: old } });
     await diffOf({ ...widgetItem, summary: old.summary });
     expect(document.querySelector(".asset-tile")).toBeNull();
     expect(document.querySelector(".review-pictures")).toBeNull();
-    expect(screen.getByText("5 unchanged facts")).toBeTruthy();
+    expect(screen.queryByText(/unchanged fact/)).toBeNull();
+    expect(screen.queryByText("ValeHUDWidget")).toBeNull();
     expect(screen.queryByText(/no difference/)).toBeNull();
   });
 
@@ -417,8 +416,8 @@ describe("the diff view", () => {
     expect(screen.getByRole("region", { name: "Actors" })).toBeTruthy();
     const facts = screen.getByRole("region", { name: "Facts" });
     expect(within(facts).getByText("Actors").closest("tr")!.textContent).toBe("Actors4142");
-    expect(within(facts).queryByText("Streaming")).toBeNull();
-    expect(screen.getByText("1 unchanged fact").closest("details")!.open).toBe(false);
+    expect(screen.queryByText("Streaming")).toBeNull();
+    expect(screen.queryByText(/unchanged fact/)).toBeNull();
   });
 
   it("puts the asset's type, path and facts where neither version has a picture and no record says what changed", async () => {
@@ -434,11 +433,12 @@ describe("the diff view", () => {
     expect(tile.querySelector("svg.asset-icon")).toBeTruthy();
     expect(tile.textContent).toContain("Changed in this turn");
     expect(tile.textContent).toContain("/Game/Audio/SW_Chime.SW_Chime");
-    // The tile names the fact that changed, with its old value; the one that did not is counted on a folded line.
+    // The tile names the fact that changed, with its old value; the one that did not is not shown.
     const facts = [...tile.querySelectorAll(".asset-tile-facts > div")].map((d) => d.textContent);
     expect(facts).toEqual(["Duration1.250 s to 0.980 s"]);
     expect(screen.queryByRole("region", { name: "Facts" })).toBeNull();
-    expect(screen.getByText("1 unchanged fact").closest("details")!.open).toBe(false);
+    expect(screen.queryByText(/unchanged fact/)).toBeNull();
+    expect(screen.queryByText("Channels")).toBeNull();
     // Why a changed asset has no picture is not news; the tile says what changed.
     expect(tile.textContent).not.toContain("No picture");
   });
