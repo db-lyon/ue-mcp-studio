@@ -54,9 +54,10 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
             Convention
           </Txt>
           <Pressable accessibilityRole="button" accessibilityLabel="Whose files" onPress={() => setChoosing(true)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", backgroundColor: t.c.panel2, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, paddingVertical: 6, paddingLeft: 14, paddingRight: 44.3 }}>
-            <T numberOfLines={1} style={[font(t, "sans", 400, 16, 1.2), { color: t.c.text, flex: 1 }]}>
+            {/* A select's line is line-height: normal, the font's own (21px for Jakarta at 16). */}
+            <Text numberOfLines={1} style={[font(t, "sans", 400, 16), { color: t.c.text, flex: 1 }]}>
               {optionText(view)}
-            </T>
+            </Text>
             <View style={{ position: "absolute", right: 4, top: 0, bottom: 0, justifyContent: "center" }}>
               <Chevron color={t.c.text} />
             </View>
