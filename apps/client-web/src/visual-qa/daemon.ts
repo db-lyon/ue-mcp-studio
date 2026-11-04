@@ -6,7 +6,7 @@
  */
 import { DEFAULT_USAGE, type NativeOverview, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { SCENARIOS as PLAYTESTS, type Scenario } from "./fixtures";
-import { CONTEXT, INSTALL, SETTINGS_SCENARIOS } from "./settings-fixtures";
+import { CONTEXT, INSTALL, QA_DAEMON_START, SETTINGS_SCENARIOS } from "./settings-fixtures";
 import { REVIEW_SCENARIOS } from "./review-fixtures";
 import { REFUSED_SCENARIOS } from "./refused-fixtures";
 import { CONTEXT_SCENARIOS } from "./context-fixtures";
@@ -39,7 +39,7 @@ export function daemonFor(scenario: Scenario, theme: StudioTheme, arrived: () =>
   } as unknown as StudioSettings;
 
   const HEALTH = {
-    ok: true, pid: 1, version: "1.4.11-beta.4", apiVersion: 1, projectRoot: "c:/projects/studioe2e", startedAt: new Date().toISOString(),
+    ok: true, pid: 1, version: "1.4.11-beta.4", apiVersion: 1, projectRoot: "c:/projects/studioe2e", startedAt: new Date(QA_DAEMON_START).toISOString(),
     editors: [{ name: "StudioE2E", connected: true, port: 1, pid: 1, lastDisconnect: null }],
     clients: 1, inflight: 0, lastEventId: 0, extensions: [{ name: "studio", version: "dev" }], ui: "dev", features: ["checkpoints"],
   };
