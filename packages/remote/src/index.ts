@@ -84,7 +84,37 @@ const DENY: Array<{ path: RegExp; except?: string[] }> = [
   // Installing ue-mcp when Studio refused an older one, and moving to a Studio another project installed.
   { path: /^\/v1\/ext\/studio\/refusal\/update\/?$/i },
   { path: /^\/v1\/ext\/studio\/version-notice\/update\/?$/i },
+  // Where prompts go and what ue-mcp runs: model endpoints, vendor sign-ins, ue-mcp.yml and its context strategy. Reading them stays allowed.
+  { path: /^\/v1\/ext\/studio\/endpoints(\/.*)?$/i, except: ["GET"] },
+  { path: /^\/v1\/ext\/studio\/signin(\/.*)?$/i, except: ["GET"] },
+  { path: /^\/v1\/ext\/studio\/config\/?$/i, except: ["GET"] },
+  { path: /^\/v1\/ext\/studio\/context-strategy\/?$/i, except: ["GET"] },
 ];
+
+/**
+ * Settings fields a paired browser may not change through PUT /v1/ext/studio/settings:
+ * where prompts and the account token go (the gateway), API keys, signing out, and
+ * what runs without asking (approvals, the old ask switch, the editor dialog policy).
+ * Model, effort, theme and the other everyday choices stay changeable.
+ */
+export const REMOTE_REFUSED_SETTINGS = ["gatewayUrl", "keys", "signOut", "approvals", "askBeforeChanges", "dialogPolicy"] as const;
+
+/**
+ * Whether a request remotePath allowed may carry this body from a paired browser.
+ * Checks only PUT /v1/ext/studio/settings, the one route that mixes everyday and
+ * guarded fields; a body that is not a JSON object there is refused.
+ */
+export function remoteBodyAllowed(method: string, pathname: string, body: Uint8Array | undefined): boolean {
+  if (method.toUpperCase() !== "PUT" || !/^\/v1\/ext\/studio\/settings\/?$/i.test(pathname)) return true;
+  let value: unknown;
+  try {
+    value = JSON.parse(body ? new TextDecoder().decode(body) : "{}");
+  } catch {
+    return false;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  return !Object.keys(value).some((k) => (REMOTE_REFUSED_SETTINGS as readonly string[]).includes(k));
+}
 
 /**
  * The daemon path a remote browser may send `method rawPath` to, normalized the
@@ -92,8 +122,9 @@ const DENY: Array<{ path: RegExp; except?: string[] }> = [
  * the returned path, never the raw one. The connector enforces this on the
  * computer, after opening the sealed request. Never reachable: the MCP
  * endpoint, shutdown and handoff, applying or starting any update (ue-mcp, Studio, the editor plugin,
- * the update channel), installing, updating or removing plugins, Studio's window and remote-control
- * routes, and any extension other than Studio.
+ * the update channel), installing, updating or removing plugins, changing model endpoints, sign-ins,
+ * ue-mcp.yml or its context strategy, Studio's window and remote-control routes, and any extension
+ * other than Studio. remoteBodyAllowed guards the settings fields a browser may not change.
  */
 export function remotePath(method: string, rawPath: string): string | null {
   if (!rawPath.startsWith("/") || /\\|%2e|%2f|%5c/i.test(rawPath)) return null;

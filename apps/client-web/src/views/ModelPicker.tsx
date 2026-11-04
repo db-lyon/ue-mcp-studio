@@ -18,6 +18,8 @@ import {
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { atMost, useBarTier } from "../chat/barTier";
+import { onRemotePage } from "../connection";
+import { REMOTE_CHANGE_NOTE } from "./settings/RemoteReadOnly";
 
 type Catalog = ModelCatalog;
 type Vendor = Catalog["providers"][number];
@@ -283,6 +285,7 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
     setKey("");
     onSaved();
   }, (e: Error) => setError(e.message));
+  if (onRemotePage()) return <p className="dim small remote-readonly-note">{REMOTE_CHANGE_NOTE}</p>;
   return (
     <div className="connect">
       {error && <div className="banner bad small">{error}</div>}
@@ -311,6 +314,8 @@ const SIGN_IN_ABOUT: Record<SignInId, string> = {
 
 /** `name` and `about` reword the form for a sign-in shown somewhere other than Models (the ue-mcp account row). */
 export function SignInForm(props: { id: SignInId; primary?: boolean; onDone: () => void; name?: string; about?: string }) {
+  // Sign-ins put credentials on the computer; a paired browser cannot start one.
+  if (onRemotePage()) return <p className="dim small remote-readonly-note">{REMOTE_CHANGE_NOTE}</p>;
   return props.id === "claude" ? <ClaudeCodeLogin onDone={props.onDone} /> : <AppSignIn {...props} />;
 }
 

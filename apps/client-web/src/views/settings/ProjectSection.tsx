@@ -9,6 +9,7 @@ import { Head, type SettingsSection } from "../SettingsHub";
 import { Card, Opt, tokens, useMessage } from "./controls";
 import { Path } from "./NativePanel";
 import { problemCopy, readRebuild } from "./install-problems";
+import { RemoteReadOnly } from "./RemoteReadOnly";
 
 type RebuildState = "idle" | "confirm" | "running";
 
@@ -119,6 +120,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
             {context.envOverride && (
               <div className="banner warn small"><span className="mono">UE_MCP_CONTEXT_STRATEGY={context.envOverride}</span> overrides this. A choice here applies once it is unset.</div>
             )}
+            <RemoteReadOnly>
             <div className="opts row3" style={{ marginTop: 8 }}>
               {CONTEXT_STRATEGIES.map((s) => (
                 <Opt
@@ -131,6 +133,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                 />
               ))}
             </div>
+            </RemoteReadOnly>
             <p className="cfg-note" style={{ marginTop: 8 }}>
               {clients.length ? `Used by ${clients.map((c) => c.name).join(" and ")}. ` : "No other MCP client configured. "}
               Applies from each client's next session.{context.fromFile ? "" : " Default: Micro."} Token counts measured by ue-mcp.
@@ -168,7 +171,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
 
       <details className="card advanced">
         <summary className="muted small">Advanced: ue-mcp.yml</summary>
-        <ConfigView />
+        <RemoteReadOnly><ConfigView /></RemoteReadOnly>
       </details>
     </>
   );

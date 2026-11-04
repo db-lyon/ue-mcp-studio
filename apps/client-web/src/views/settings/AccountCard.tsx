@@ -6,6 +6,7 @@ import { SignInForm } from "../ModelPicker";
 import { Card, useMessage } from "./controls";
 import { ManagePlanButton } from "../Upgrade";
 import { useRemoteAvailable } from "./remote-available";
+import { onRemotePage } from "../../connection";
 
 /** What the account sign-in is called outside Models. */
 export const ACCOUNT_NAME = "your ue-mcp account";
@@ -43,7 +44,7 @@ export function AccountCard() {
         </div>
         {account && paid && <ManagePlanButton />}
         {account?.via === "studio" ? (
-          <button onClick={() => void signOut()}>Sign out</button>
+          onRemotePage() ? null : <button onClick={() => void signOut()}>Sign out</button>
         ) : account ? (
           <span className="dim small">from ue-mcp login</span>
         ) : null}

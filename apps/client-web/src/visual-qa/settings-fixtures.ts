@@ -125,6 +125,21 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-general-signing-in": page("General with the ue-mcp account sign-in started: the GitHub code and link", "general", {
     get: (p) => (p === "/v1/ext/studio/signin/studio" ? { state: "pending", url: "https://github.com/login/device", userCode: "ABCD-1234", expiresAt: "2030-01-01T00:00:00Z" } : undefined),
   }),
+  "settings-general-remote": page("General in a paired browser: Updates shows what is newer with no Update button and the channel disabled, and no Sign out, since those run on the computer", "general", {
+    remotePage: true,
+    settings: { account: { login: "dev", via: "studio" } },
+    get: (p) => (p === "/v1/ext/studio/updates"
+      ? { channel: "beta", studio: { installed: "0.1.25-beta.18", latest: "0.1.25-beta.19", available: true }, plugin: { installed: "0.1.7", latest: "0.1.7", available: false, newer: false, location: "project", source: "github" } }
+      : undefined),
+  }),
+  "settings-models-remote": page("Models & accounts in a paired browser: sign-ins, API keys, custom endpoints and the gateway read only, with the note that they change on the computer", "models", { remotePage: true, fullPage: true }),
+  "settings-approvals-remote": page("Approvals & review in a paired browser: the ask-first rules and the dialog policy read only; playtests, feedback and turn review still change", "approvals", { remotePage: true }),
+  "settings-project-remote": page("Project in a paired browser: the context strategy and ue-mcp.yml read only", "project", {
+    remotePage: true,
+    get: (p) => (p === "/v1/ext/studio/config" ? { path: "C:/Projects/StudioE2E/ue-mcp.yml", exists: true, text: YAML } : undefined),
+    click: "details.advanced > summary",
+    scroll: "details.advanced",
+  }),
   "settings-remote-pin-off": page("Remote control with the PIN lock off: what it does and Set a PIN", "remote", remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 })),
   "settings-remote-pin-new": page("Remote control setting a PIN: the PIN twice, digits only", "remote", { ...remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button.primary"] }),
   "settings-remote-pin-on": page("Remote control with a PIN, both switches on: the whole browser locks after the idle time, and sensitive actions ask", "remote", remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 })),

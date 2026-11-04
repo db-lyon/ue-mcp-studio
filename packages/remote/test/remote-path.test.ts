@@ -1,6 +1,6 @@
 /** remotePath: what a paired browser may reach on the computer, and what it never may. */
 import { describe, expect, it } from "vitest";
-import { remotePath } from "../src/index.js";
+import { remoteBodyAllowed, remotePath } from "../src/index.js";
 
 describe("remotePath", () => {
   it("allows Studio's UI and API and refuses the rest", () => {
@@ -107,6 +107,61 @@ describe("remotePath", () => {
       ["POST", "/v1/install"],
     );
     for (const [m, p] of refused) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
+  });
+
+  it("lets a paired browser read endpoints, sign-ins and ue-mcp.yml, and change none of them", () => {
+    for (const p of ["/v1/ext/studio/endpoints", "/v1/ext/studio/signin/claude", "/v1/ext/studio/config", "/v1/ext/studio/context-strategy"]) {
+      expect(remotePath("GET", p), p).toBe(p);
+    }
+    const refused: Array<[string, string]> = [];
+    for (const m of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "put"]) {
+      for (const p of [
+        "/v1/ext/studio/endpoints",
+        "/v1/ext/studio/endpoints/",
+        "/v1/ext/studio/endpoints/abc",
+        "/v1/ext/studio/endpoints/abc/models",
+        "/v1/ext/studio/signin/claude",
+        "/v1/ext/studio/signin/chatgpt",
+        "/v1/ext/studio/signin/studio",
+        "/v1/ext/studio/config",
+        "/v1/ext/studio/config/",
+        "/v1/ext/studio/context-strategy",
+      ]) refused.push([m, p]);
+    }
+    refused.push(
+      ["PUT", "/v1/ext/studio/Config"],
+      ["PUT", "/v1/ext/studio/CONFIG/"],
+      ["POST", "/v1/ext/studio/Endpoints"],
+      ["POST", "/v1/ext/studio/sessions/../endpoints"],
+      ["PUT", "/v1/ext/studio/x/../config"],
+      ["PUT", "/v1/ext/studio/./config?x=1"],
+      ["POST", "/v1/ext/studio/SignIn/claude"],
+      ["POST", "/v1/ext/studio/signin%2fclaude"],
+      ["PUT", "/v1/ext/studio//config"],
+    );
+    for (const [m, p] of refused) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
+  });
+
+  it("refuses the settings fields that move prompts, keys or approvals, and keeps everyday ones", () => {
+    const body = (v: unknown) => new TextEncoder().encode(typeof v === "string" ? v : JSON.stringify(v));
+    const settings = "/v1/ext/studio/settings";
+    for (const ok of [{ model: "claude-opus-5-5" }, { effort: "high" }, { theme: "editor" }, { composerHeight: 200 }, { provider: "anthropic", routeOrder: ["claude", "key"] }, { reviewTurns: true }, {}]) {
+      expect(remoteBodyAllowed("PUT", settings, body(ok)), JSON.stringify(ok)).toBe(true);
+    }
+    for (const bad of [
+      { gatewayUrl: "https://evil.example" },
+      { keys: { anthropic: "sk-x" } },
+      { signOut: "studio" },
+      { approvals: { shell: "anywhere" } },
+      { askBeforeChanges: false },
+      { dialogPolicy: "auto" },
+      { model: "x", gatewayUrl: "https://evil.example" },
+    ]) expect(remoteBodyAllowed("PUT", settings, body(bad)), JSON.stringify(bad)).toBe(false);
+    for (const p of ["/v1/ext/studio/Settings", "/v1/ext/studio/settings/"]) expect(remoteBodyAllowed("put", p, body({ keys: {} })), p).toBe(false);
+    for (const junk of ["not json", "[]", "null", '"x"', "1"]) expect(remoteBodyAllowed("PUT", settings, body(junk)), junk).toBe(false);
+    expect(remoteBodyAllowed("PUT", settings, undefined)).toBe(true);
+    expect(remoteBodyAllowed("POST", "/v1/ext/studio/sessions/1/messages", body({ keys: 1 }))).toBe(true);
+    expect(remoteBodyAllowed("GET", settings, undefined)).toBe(true);
   });
 
   it("still allows Studio routes that only start with the same letters", () => {

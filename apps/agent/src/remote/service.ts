@@ -17,6 +17,7 @@ import {
   openRequest,
   pairingCode,
   randomBytes,
+  remoteBodyAllowed,
   remotePath,
   verifyPairingMac,
   type EnrollPending,
@@ -290,10 +291,11 @@ export class RemoteService {
       if (verdict === "pin-required") return reply(423, { "content-type": "application/json" }, new TextEncoder().encode(JSON.stringify({ error: "Enter your PIN to do this.", code: "pin-required" })));
       if (req.method !== "GET" && req.method !== "HEAD") this.o.lock.touch(sealed.phone);
     }
-    const daemon = this.o.daemon();
-    if (!daemon) return error(503, "The daemon is not running for that project.");
     const reqBody = req.body !== undefined ? Buffer.from(req.body, "base64") : undefined;
     if (reqBody && reqBody.byteLength > MAX_REQUEST_BYTES) return error(413, "Request too large.");
+    if (!remoteBodyAllowed(req.method, pathname, reqBody)) return error(403, "Not available remotely.");
+    const daemon = this.o.daemon();
+    if (!daemon) return error(503, "The daemon is not running for that project.");
     const headers = forwardHeaders(req);
     headers["authorization"] = `Bearer ${daemon.token}`;
 
