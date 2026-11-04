@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, Linking, View } from "react-native";
+import { BackHandler, Linking } from "react-native";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { isPairLink, pair, select, selected, trusted, forget, type Device, type PairStep } from "./src/relay";
 import { Center, Spinner, s } from "./src/ui";
 import { Welcome, Scanner, Pairing } from "./src/screens/Pairing";
@@ -62,7 +63,7 @@ export default function App() {
   }, [screen.name]);
 
   return (
-    <View style={s.root}>
+    <SafeAreaProvider style={s.root}>
       <StatusBar style="light" />
       {screen.name === "loading" && (
         <Center>
@@ -82,6 +83,6 @@ export default function App() {
       )}
       {screen.name === "settings" && <Settings onBack={() => setScreen({ name: "projects" })} onRemoved={() => setScreen({ name: "welcome" })} />}
       {screen.name === "project" && <ProjectScreen device={screen.device} onBack={() => setScreen({ name: "projects" })} onUnpaired={unpaired} />}
-    </View>
+    </SafeAreaProvider>
   );
 }

@@ -9,6 +9,8 @@ const root = path.resolve(__dirname, "../..");
 const SOURCE = {
   "@ue-mcp-studio/remote": path.join(root, "packages/remote/src/index.ts"),
   "@ue-mcp-studio/client-core": path.join(root, "packages/client-core/src/index.ts"),
+  "@ue-mcp-studio/shared": path.join(root, "packages/shared/src/index.ts"),
+  "@ue-mcp-studio/extension-api": path.join(root, "packages/extension-api/src/index.ts"),
 };
 
 const resolveDefault = config.resolver.resolveRequest;

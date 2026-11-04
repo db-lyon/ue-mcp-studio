@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, Pressable, RefreshControl, Text, View } from "react-native";
+import { BackHandler, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
 import { requestJson } from "@ue-mcp-studio/client-core";
 import { useLockView, useProject, type Project } from "../connection";
 import { NotPairedError, RelayError, type Device } from "../relay";
 import { PinPad } from "../PinPad";
-import { Dot, Header, s } from "../ui";
+import { Button, Dot, Header, s } from "../ui";
+import { SessionScreen } from "./Session";
 import { colors } from "../theme";
 
 export interface SessionRow {
@@ -23,21 +24,31 @@ const STATUS_LABEL: Record<string, string> = { idle: "Idle", running: "Working",
 export function ProjectScreen({ device, onBack, onUnpaired }: { device: Device; onBack: () => void; onUnpaired: (message: string) => void }) {
   const project = useProject(device);
   const lockView = useLockView(project.lock);
+  const [open, setOpen] = useState<string | null>(null);
+
+  // Android back from a session goes to the list; registered after the app's handler, so it runs first.
+  useEffect(() => {
+    if (!open) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => (setOpen(null), true));
+    return () => sub.remove();
+  }, [open]);
+
   return (
     <View style={{ flex: 1 }} onTouchStart={() => project.lock.touched()}>
-      <Sessions project={project} onBack={onBack} onUnpaired={onUnpaired} />
+      {open ? <SessionScreen project={project} id={open} onBack={() => setOpen(null)} /> : <Sessions project={project} onBack={onBack} onOpen={setOpen} onUnpaired={onUnpaired} />}
       {lockView.screen || lockView.prompt || lockView.removed ? <PinPad lock={project.lock} view={lockView} onRemoved={() => onUnpaired("This phone was removed after too many wrong PINs. Pair it again.")} /> : null}
     </View>
   );
 }
 
-function Sessions({ project, onBack, onUnpaired }: { project: Project; onBack: () => void; onUnpaired: (message: string) => void }) {
+function Sessions({ project, onBack, onOpen, onUnpaired }: { project: Project; onBack: () => void; onOpen: (id: string) => void; onUnpaired: (message: string) => void }) {
   const { device, transport, live, dropCause, onEvent, lock } = project;
   const lockView = useLockView(lock);
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
   const [version, setVersion] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
@@ -72,6 +83,18 @@ function Sessions({ project, onBack, onUnpaired }: { project: Project; onBack: (
     if (live === "live") void load();
   }, [live, load]);
 
+  const create = async () => {
+    setCreating(true);
+    try {
+      const d = await requestJson<{ id: string }>(transport, "POST", "/v1/ext/studio/sessions");
+      onOpen(d.id);
+    } catch (e) {
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setCreating(false);
+    }
+  };
+
   const liveText = live === "live" ? `Live${version ? `. ue-mcp ${version}` : ""}` : live === "connecting" ? "Connecting" : `Reconnecting${dropCause ? ` (${dropCause})` : ""}`;
 
   return (
@@ -102,7 +125,7 @@ function Sessions({ project, onBack, onUnpaired }: { project: Project; onBack: (
         refreshControl={<RefreshControl refreshing={busy} onRefresh={() => void load()} tintColor={colors.accent} colors={[colors.accent]} progressBackgroundColor={colors.panel} />}
         ListEmptyComponent={sessions ? <Text style={s.sub}>No sessions yet.</Text> : undefined}
         renderItem={({ item }) => (
-          <View style={s.row}>
+          <Pressable style={s.row} accessibilityRole="button" onPress={() => onOpen(item.id)}>
             <Dot state={item.status === "running" ? "busy" : item.awaiting || item.status === "waiting" ? "busy" : item.status === "error" ? "error" : "off"} />
             <View style={{ flex: 1 }}>
               <Text style={s.name} numberOfLines={1}>
@@ -113,9 +136,10 @@ function Sessions({ project, onBack, onUnpaired }: { project: Project; onBack: (
                 {item.awaiting ? `. ${item.awaiting} waiting for approval` : ""}. {new Date(item.updatedAt).toLocaleString()}
               </Text>
             </View>
-          </View>
+          </Pressable>
         )}
       />
+      <Button title="New session" primary disabled={creating || live !== "live"} onPress={() => void create()} />
     </View>
   );
 }

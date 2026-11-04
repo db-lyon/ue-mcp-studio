@@ -1,0 +1,240 @@
+/**
+ * One session: its main thread as the web client draws it (client-core's
+ * mainTimeline), the turn's text as it streams, the queued messages, and the
+ * composer with send, send now, queue, stop and the model picker. Approvals,
+ * reviews, dialogs and playtests show as one line each until their own screens.
+ */
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { agentStatus, mainTimeline, OUTCOME_LABEL, summarize, TOOL_TAG, toolLabel, type MainItem } from "@ue-mcp-studio/client-core";
+import type { TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { Project } from "../connection";
+import { useSession, useSettings } from "../session";
+import { ModelPicker } from "../ModelPicker";
+import { Dot, s as ui, Spinner } from "../ui";
+import { colors } from "../theme";
+
+const STATUS_LABEL: Record<string, string> = { idle: "Idle", running: "Working", waiting: "Waiting", error: "Error", stopped: "Stopped" };
+
+export function SessionScreen({ project, id, onBack }: { project: Project; id: string; onBack: () => void }) {
+  const { detail, streaming, error, setError, api } = useSession(project, id);
+  const { settings, save } = useSettings(project);
+  const insets = useSafeAreaInsets();
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const loadedDraft = useRef(false);
+  const list = useRef<FlatList<Row>>(null);
+
+  useEffect(() => {
+    if (detail && !loadedDraft.current) {
+      loadedDraft.current = true;
+      setDraft((cur) => cur || detail.draft || "");
+    }
+  }, [detail]);
+
+  const busy = detail?.status === "running" || detail?.status === "waiting";
+  const rows = useMemo<Row[]>(() => {
+    if (!detail) return [];
+    const items: Row[] = mainTimeline(detail.transcript, detail.status).map((item, i) => ({ key: `i${i}`, item }));
+    if (streaming) items.push({ key: "streaming", item: { kind: "entry", entry: { kind: "assistant", text: streaming, at: "" } }, live: true });
+    return items;
+  }, [detail, streaming]);
+
+  const dispatch = async (how: "send" | "now" | "queue") => {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setDraft("");
+    try {
+      if (how === "queue") await api.queue(text);
+      else await api.send(text, how === "now");
+      void api.saveDraft("").catch(() => undefined);
+      setTimeout(() => list.current?.scrollToEnd({ animated: true }), 200);
+    } catch (e) {
+      setDraft(text);
+      setError(String((e as Error).message ?? e));
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
+      <View style={[st.head, { paddingTop: insets.top + 8 }]}>
+        <Pressable accessibilityRole="button" onPress={onBack} hitSlop={12}>
+          <Text style={ui.link}>Sessions</Text>
+        </Pressable>
+        <Text style={[ui.name, { fontSize: 17, marginTop: 6 }]} numberOfLines={1}>
+          {detail?.title || "New session"}
+        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
+          <Dot state={busy ? "busy" : detail?.status === "error" ? "error" : project.live === "live" ? "on" : "off"} />
+          <Text style={ui.sub}>
+            {detail ? STATUS_LABEL[detail.status] ?? detail.status : "Loading"}
+            {project.live !== "live" ? ". Reconnecting" : ""}
+          </Text>
+        </View>
+      </View>
+      {error ? <Text style={[ui.error, { paddingHorizontal: 16 }]}>{error}</Text> : null}
+      {detail?.approvals?.length ? (
+        <View style={[ui.banner, { marginHorizontal: 16 }]}>
+          <Text style={ui.sub}>{detail.approvals.length === 1 ? "1 change waits" : `${detail.approvals.length} changes wait`} for approval. Answer it in Studio on your computer.</Text>
+        </View>
+      ) : null}
+      <FlatList
+        ref={list}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}
+        data={rows}
+        keyExtractor={(r) => r.key}
+        renderItem={({ item }) => <Item row={item} transcript={detail?.transcript ?? []} waiting={detail?.status === "waiting"} />}
+        ListEmptyComponent={detail ? <Text style={[ui.sub, { marginTop: 24 }]}>Ask Studio something to start.</Text> : <View style={{ marginTop: 24 }}><Spinner /></View>}
+        onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
+      />
+      {detail?.queue?.length ? (
+        <View style={st.queue}>
+          <Text style={ui.section}>Queued</Text>
+          {detail.queue.map((q, i) => (
+            <View key={q.id} style={st.queued}>
+              <Text style={[ui.sub, { flex: 1, color: colors.text }]} numberOfLines={2}>
+                {q.text}
+              </Text>
+              {i === 0 && !busy ? (
+                <Pressable accessibilityRole="button" onPress={() => void api.sendQueued().catch((e) => setError(String(e?.message ?? e)))} hitSlop={8}>
+                  <Text style={ui.link}>Send</Text>
+                </Pressable>
+              ) : null}
+              <Pressable accessibilityRole="button" accessibilityLabel="Remove from queue" onPress={() => void api.removeQueued(q.id).catch((e) => setError(String(e?.message ?? e)))} hitSlop={8}>
+                <Text style={{ color: colors.danger, fontSize: 15 }}>Remove</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      <View style={[st.composer, { paddingBottom: insets.bottom + 8 }]}>
+        <TextInput
+          value={draft}
+          onChangeText={setDraft}
+          onBlur={() => void api.saveDraft(draft).catch(() => undefined)}
+          placeholder={busy ? "Queue a message, or send it now" : "Ask Studio"}
+          placeholderTextColor={colors.faint}
+          multiline
+          style={st.input}
+        />
+        <View style={st.bar}>
+          {settings ? <ModelPicker transport={project.transport} settings={settings} onSave={save} /> : <View />}
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            {busy ? (
+              <>
+                <SmallButton title="Stop" onPress={() => void api.stop().catch((e) => setError(String(e?.message ?? e)))} danger />
+                <SmallButton title="Send now" disabled={!draft.trim() || sending} onPress={() => void dispatch("now")} />
+                <SmallButton title="Queue" primary disabled={!draft.trim() || sending} onPress={() => void dispatch("queue")} />
+              </>
+            ) : (
+              <SmallButton title="Send" primary disabled={!draft.trim() || sending} onPress={() => void dispatch("send")} />
+            )}
+          </View>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+interface Row {
+  key: string;
+  item: MainItem;
+  live?: boolean;
+}
+
+function SmallButton({ title, onPress, primary, danger, disabled }: { title: string; onPress: () => void; primary?: boolean; danger?: boolean; disabled?: boolean }) {
+  return (
+    <Pressable accessibilityRole="button" onPress={onPress} disabled={disabled} style={({ pressed }) => [st.small, primary && st.smallPrimary, (pressed || disabled) && { opacity: 0.5 }]}>
+      <Text style={[st.smallText, primary && { color: colors.onAccent }, danger && { color: colors.danger }]}>{title}</Text>
+    </Pressable>
+  );
+}
+
+function Item({ row, transcript, waiting }: { row: Row; transcript: TranscriptEntry[]; waiting: boolean }) {
+  const [open, setOpen] = useState(false);
+  const { item } = row;
+  if (item.kind === "agents") {
+    const now = Date.now();
+    const states = item.calls.map((c) => agentStatus(c, transcript, waiting, now).state);
+    return <Line tag="agents" text={`${item.calls.length === 1 ? "1 subagent" : `${item.calls.length} subagents`}: ${summarize(states)}`} />;
+  }
+  if (item.kind === "progress")
+    return (
+      <Pressable onPress={() => setOpen((o) => !o)}>
+        <Line tag="progress" text={`${item.entries.length} progress ${item.entries.length === 1 ? "message" : "messages"}${open ? "" : ", tap to show"}`} />
+        {open ? item.entries.map((e, i) => <Entry key={i} entry={e} />) : null}
+      </Pressable>
+    );
+  return <Entry entry={item.entry} live={row.live} />;
+}
+
+function Entry({ entry, live }: { entry: TranscriptEntry; live?: boolean }) {
+  switch (entry.kind) {
+    case "user":
+      return (
+        <View style={st.user}>
+          <Text style={st.userText} selectable>
+            {entry.text}
+          </Text>
+        </View>
+      );
+    case "assistant":
+      return (
+        <Text style={[st.assistant, live && { color: colors.muted }]} selectable>
+          {entry.text}
+        </Text>
+      );
+    case "tool":
+      return <Line tag={TOOL_TAG[entry.call.name] ?? entry.call.name} text={toolLabel(entry.call)} state={OUTCOME_LABEL[entry.call.outcome]} bad={entry.call.outcome === "error"} />;
+    case "note":
+      return <Text style={[ui.sub, { marginVertical: 6 }]}>{entry.text}</Text>;
+    case "dialog":
+      return <Line tag="dialog" text={`${entry.dialog.editor}: ${entry.dialog.title}`} />;
+    case "qa":
+      return <Line tag="playtest" text={`${entry.run.scriptName}: ${entry.run.state}`} />;
+    case "playtest":
+      return <Line tag="playtest" text={entry.state === "failed" ? "Playtest failed" : `Playtest ${entry.state}`} bad={entry.state === "failed"} />;
+    case "playtest-failed":
+      return <Line tag="playtest" text={`Playtest failed: ${entry.reason}`} bad />;
+    case "review":
+      return <Line tag="review" text={`${entry.review.items.length} ${entry.review.items.length === 1 ? "change" : "changes"} to review on your computer`} />;
+    case "flow":
+      return <Line tag="flow" text={`${entry.name}: ${entry.state}`} />;
+    default:
+      return null;
+  }
+}
+
+function Line({ tag, text, state, bad }: { tag: string; text: string; state?: string; bad?: boolean }) {
+  return (
+    <View style={st.line}>
+      <Text style={st.tag}>{tag}</Text>
+      <Text style={[ui.sub, { flex: 1 }]} numberOfLines={2}>
+        {text}
+      </Text>
+      {state ? <Text style={[ui.sub, bad && { color: colors.danger }]}>{state}</Text> : null}
+    </View>
+  );
+}
+
+const st = StyleSheet.create({
+  head: { paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  user: { alignSelf: "flex-end", maxWidth: "88%", backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 8 },
+  userText: { color: colors.text, fontSize: 15, lineHeight: 21 },
+  assistant: { color: colors.text, fontSize: 15, lineHeight: 22, marginVertical: 8 },
+  line: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
+  tag: { color: colors.accent, fontSize: 11, fontWeight: "600", fontFamily: "monospace", minWidth: 56 },
+  queue: { paddingHorizontal: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  queued: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 6 },
+  composer: { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingHorizontal: 12, paddingTop: 8, backgroundColor: colors.bg },
+  input: { color: colors.text, fontSize: 15, maxHeight: 140, minHeight: 40, backgroundColor: colors.panel, borderRadius: 10, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 12, paddingVertical: 8 },
+  bar: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8, gap: 8 },
+  small: { borderWidth: 1, borderColor: colors.border, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8 },
+  smallPrimary: { backgroundColor: colors.accent, borderColor: colors.accent },
+  smallText: { color: colors.text, fontSize: 14, fontWeight: "600" },
+});
