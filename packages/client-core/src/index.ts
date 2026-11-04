@@ -12,3 +12,4 @@ export * from "./editor.js";
 export * from "./flows.js";
 export * from "./project-api.js";
 export * from "./location.js";
+export * from "./asset-links.js";
