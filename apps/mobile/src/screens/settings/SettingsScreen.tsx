@@ -13,6 +13,7 @@ import { STUDIO_PLAN_AVAILABLE, remoteSurface, type StudioSettings, type StudioT
 import type { DaemonState } from "../../state";
 import { Button, font, labelFont, T, useTheme } from "../../ui";
 import { useSettingsApi } from "./hooks";
+import { pageScroll } from "./controls";
 import { GeneralSection } from "./GeneralSection";
 import { RemoteSection } from "./RemoteSection";
 import { AgentsSection } from "./AgentsSection";
@@ -80,7 +81,7 @@ export function SettingsScreen({ daemon, section, onSection, onTheme, updates = 
   const open = named && !named.startsWith("ext:") ? (named as BuiltinSection) : null;
   return (
     // The page scrolls under the shell's 6px padding, as the web page's main does: the padding goes inside the scroller.
-    <ScrollView testID="settings" style={{ flex: 1, margin: -6 }} contentContainerStyle={{ padding: 6, paddingHorizontal: 16 }} keyboardShouldPersistTaps="handled">
+    <ScrollView testID="settings" style={[{ flex: 1, margin: -6 }, pageScroll]} contentContainerStyle={{ padding: 6, paddingHorizontal: 16 }} keyboardShouldPersistTaps="handled">
       {open ? <Section id={open} daemon={daemon} onSection={onSection} onTheme={onTheme} /> : <SectionList listed={listed} updates={updates} daemon={daemon} onSection={onSection} />}
     </ScrollView>
   );

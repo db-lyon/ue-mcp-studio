@@ -5,7 +5,7 @@
  * font's line-height ratio at every size, as a CSS font-size change does.
  */
 import { useEffect, useState, type ReactNode } from "react";
-import { Pressable, Text, TextInput, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
+import { Platform, Pressable, Text, TextInput, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { segStacks } from "@ue-mcp-studio/client-core";
 import { T, font, labelFont, useTheme, type Theme } from "../../ui";
@@ -295,3 +295,11 @@ export function useMessage() {
     clear: () => setMessage(null),
   };
 }
+
+/**
+ * A page's scroller style: react-native-web puts every ScrollView on its own
+ * compositing layer (translateZ), where Chrome stops snapping text to whole
+ * pixels and each line lands up to a pixel off the web page's. The page's own
+ * scroller has no such layer, so the browser build drops it; native ignores this.
+ */
+export const pageScroll = Platform.OS === "web" ? ({ transform: "none" } as unknown as ViewStyle) : null;
