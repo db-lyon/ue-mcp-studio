@@ -1,0 +1,38 @@
+// Component tests for the app's screens: React Native rendered through
+// react-native-web in jsdom, with the native modules replaced by ui-test/mocks.
+// The app's own React (19) is used throughout, not the web client's.
+import * as path from "node:path";
+import { defineConfig } from "vitest/config";
+
+const here = __dirname;
+const root = path.resolve(here, "../..");
+const mod = (name: string) => path.join(here, "node_modules", name);
+const mock = (name: string) => path.join(here, "ui-test/mocks", name);
+
+export default defineConfig({
+  root: here,
+  resolve: {
+    alias: [
+      { find: /^react-native$/, replacement: path.join(root, "node_modules/react-native-web/dist/index.js") },
+      // The ESM build, so its own imports of react-dom go through the aliases below.
+      { find: "@testing-library/react", replacement: path.join(root, "node_modules/@testing-library/react/dist/@testing-library/react.esm.js") },
+      { find: /^react$/, replacement: mod("react") },
+      { find: /^react\/(.*)$/, replacement: `${mod("react")}/$1` },
+      { find: /^react-dom$/, replacement: mod("react-dom") },
+      { find: /^react-dom\/(.*)$/, replacement: `${mod("react-dom")}/$1` },
+      { find: /^expo-secure-store$/, replacement: mock("secure-store.ts") },
+      { find: /^expo-camera$/, replacement: mock("camera.tsx") },
+      { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
+      { find: /^expo-status-bar$/, replacement: mock("status-bar.tsx") },
+      { find: /^react-native-safe-area-context$/, replacement: mock("safe-area.tsx") },
+      { find: /^@ue-mcp-studio\/(remote|client-core|shared|extension-api)$/, replacement: `${root}/packages/$1/src/index.ts` },
+    ],
+  },
+  test: {
+    name: "mobile-ui",
+    environment: "jsdom",
+    include: ["ui-test/**/*.test.tsx"],
+    setupFiles: ["ui-test/setup.ts"],
+    server: { deps: { inline: [/react-native-web/, /@testing-library/] } },
+  },
+});
