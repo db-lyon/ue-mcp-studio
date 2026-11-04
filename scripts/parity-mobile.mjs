@@ -46,6 +46,7 @@ const { createServer } = await import("vite");
 const { chromium } = await import("playwright-core");
 const { PNG } = await import("pngjs");
 const pixelmatch = (await import("pixelmatch")).default;
+const { pictures } = await import("./visual-qa-pictures.mjs");
 
 const mod = (name) => path.join(app, "node_modules", name);
 const mock = (name) => path.join(app, "ui-test", "mocks", name);
@@ -53,6 +54,7 @@ const server = await createServer({
   root: path.join(app, "visual-qa"),
   configFile: false,
   logLevel: "warn",
+  plugins: [pictures],
   server: { port: 0, strictPort: false, fs: { allow: [root] } },
   define: { __DEV__: "false", "process.env.NODE_ENV": JSON.stringify("development"), "process.env.EXPO_OS": JSON.stringify("android") },
   esbuild: { jsx: "automatic" },
