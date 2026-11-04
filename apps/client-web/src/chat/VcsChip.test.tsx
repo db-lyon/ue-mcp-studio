@@ -115,3 +115,50 @@ describe("the changes as a folder tree", () => {
     get.mockRestore();
   });
 });
+
+describe("the changes on a narrow panel", () => {
+  const narrow = (on: boolean) => {
+    window.matchMedia = ((q: string) => ({ matches: on && q.includes("max-width: 760px"), media: q, addEventListener: () => {}, removeEventListener: () => {} })) as unknown as typeof window.matchMedia;
+  };
+  afterEach(() => narrow(false));
+
+  it("shows only the file list, opens a diff in its place, and Back returns to the list", async () => {
+    narrow(true);
+    m.vcs.mockResolvedValue({ vcs: git });
+    m.vcsChanges.mockResolvedValue({ changes: [{ path: "Config/DefaultEngine.ini", status: "modified" }, { path: "Content/Map.umap", status: "added" }], truncated: false });
+    m.vcsDiff.mockResolvedValue({ diff: "@@ -1 +1 @@\n-old\n+new" });
+    render(<VcsChip events={[]} />);
+    await waitFor(() => expect(screen.getByText(/main, 3 changed, 2 ahead/)).toBeTruthy());
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Git/ })));
+    await waitFor(() => expect(screen.getByTitle("Content/Map.umap")).toBeTruthy());
+    expect(document.querySelector(".changes-diff")).toBeNull();
+    expect(m.vcsDiff).not.toHaveBeenCalled();
+
+    await act(async () => fireEvent.click(screen.getByTitle("Content/Map.umap")));
+    await waitFor(() => expect(document.querySelector("pre.diff .diff-line.add")).not.toBeNull());
+    expect(document.querySelector(".changes-list")).toBeNull();
+    expect(document.querySelector(".changes-toolbar")).toBeNull();
+    expect(document.querySelector(".changes-detail-name")?.textContent).toBe("Map.umap");
+
+    fireEvent.click(screen.getByRole("button", { name: "Back to the changed files" }));
+    expect(document.querySelector(".changes-diff")).toBeNull();
+    expect(screen.getByTitle("Config/DefaultEngine.ini")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Changes" })).toBeTruthy();
+  });
+
+  it("Escape goes back from a diff first, then closes", async () => {
+    narrow(true);
+    m.vcs.mockResolvedValue({ vcs: git });
+    m.vcsChanges.mockResolvedValue({ changes: [{ path: "README.md", status: "modified" }], truncated: false });
+    m.vcsDiff.mockResolvedValue({ diff: "+x" });
+    render(<VcsChip events={[]} />);
+    await waitFor(() => expect(screen.getByText(/main, 3 changed, 2 ahead/)).toBeTruthy());
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: /Git/ })));
+    await act(async () => fireEvent.click(await screen.findByTitle("README.md")));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.getByRole("dialog", { name: "Changes" })).toBeTruthy();
+    expect(document.querySelector(".changes-diff")).toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+});
