@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ATTEMPT_MS, BACKOFF_MS, LOST_PAUSE_MS, MAX_ATTEMPTS, RECONNECT_MS, RESTART_MS, UPDATE_RESTART_MS, connected, headline, step, stoppingWhy, type Conn, type ConnEvent } from "./connection";
+import { ATTEMPT_MS, BACKOFF_MS, LOST_PAUSE_MS, MAX_ATTEMPTS, RECONNECT_MS, RESTART_MS, UPDATE_RESTART_MS, WAKE_GRACE_MS, connected, headline, step, stoppingWhy, waking, type Conn, type ConnEvent } from "./connection";
 
 /** Feed events in order; collect when an attempt is launched. */
 function run(events: ConnEvent[], canStart = true, from: Conn = connected()): { conn: Conn; starts: number[] } {
@@ -110,5 +110,42 @@ describe("the connection to ue-mcp", () => {
   it("a late start result after the stream came back changes nothing", () => {
     const r = run([stopping("closed", 0), tick(LOST_PAUSE_MS), up(5000), started(false, 6000)]);
     expect(r.conn.phase).toBe("connected");
+  });
+});
+
+describe("a paired browser's page out of view", () => {
+  const hidden = (at: number): ConnEvent => ({ type: "visibility", visible: false, at });
+  const shown = (at: number): ConnEvent => ({ type: "visibility", visible: true, at });
+
+  it("does not count time out of view or escalate while hidden", () => {
+    const { conn } = run([hidden(0), down(1000), tick(60_000), tick(3_600_000)], false);
+    expect(conn.phase).toBe("reconnecting");
+    expect(conn.hidden).toBe(true);
+  });
+
+  it("comes back reconnecting quietly from the moment it is shown, then says so only after the grace", () => {
+    const { conn } = run([down(0), tick(RECONNECT_MS), tick(RECONNECT_MS + LOST_PAUSE_MS), hidden(20_000), tick(3_000_000), shown(3_300_000)], false);
+    expect(conn.phase).toBe("reconnecting");
+    expect(conn.downSince).toBe(3_300_000);
+    expect(waking(conn, 3_300_000 + WAKE_GRACE_MS - 1)).toBe(true);
+    expect(waking(conn, 3_300_000 + WAKE_GRACE_MS)).toBe(false);
+    expect(headline(conn, 3_300_000, true)).toBe("Reconnecting to ue-mcp");
+  });
+
+  it("connected again within the grace never shows the panel", () => {
+    const { conn } = run([hidden(0), down(10), shown(60_000), up(61_000)], false);
+    expect(conn.phase).toBe("connected");
+  });
+
+  it("still offline after the grace and the reconnect window is lost, counted from when it was shown", () => {
+    const back = 500_000;
+    const { conn } = run([hidden(0), down(10), shown(back), tick(back + WAKE_GRACE_MS + RECONNECT_MS)], false);
+    expect(conn.phase).toBe("lost");
+    expect(conn.downSince).toBe(back);
+  });
+
+  it("a page that was connected the whole time stays connected when shown", () => {
+    const { conn } = run([hidden(0), shown(900_000)], false);
+    expect(conn).toEqual(connected());
   });
 });

@@ -25,6 +25,10 @@ export interface Conn {
   failure: string;
   /** Needs you: Node.js is missing, so retrying alone does not help. */
   noNode: boolean;
+  /** A paired browser's page out of view: time does not count and nothing escalates until it is back. */
+  hidden: boolean;
+  /** Back in view and reconnecting: until then only a small line says so, never the panel. */
+  wakeUntil: number;
 }
 
 export type ConnEvent =
@@ -32,7 +36,8 @@ export type ConnEvent =
   | { type: "stopping"; reason: string; updating: boolean; at: number }
   | { type: "tick"; at: number }
   | { type: "started"; ok: boolean; noNode?: boolean; error?: string; at: number }
-  | { type: "retry"; at: number };
+  | { type: "retry"; at: number }
+  | { type: "visibility"; visible: boolean; at: number };
 
 /** Stream down this long before the panel says so. A stream through the relay that drops usually resumes within a second or two, unseen. */
 export const QUIET_MS = 4000;
@@ -49,8 +54,10 @@ export const ATTEMPT_MS = 45_000;
 /** The wait before attempts 2 and 3. */
 export const BACKOFF_MS = [5000, 15_000];
 export const MAX_ATTEMPTS = 3;
+/** Back in view after being hidden: this long of a quiet line while the stream reconnects, before any panel. */
+export const WAKE_GRACE_MS = 8000;
 
-export const connected = (): Conn => ({ phase: "connected", downSince: null, why: "", attempt: 0, deadline: 0, launched: false, failure: "", noNode: false });
+export const connected = (hidden = false): Conn => ({ phase: "connected", downSince: null, why: "", attempt: 0, deadline: 0, launched: false, failure: "", noNode: false, hidden, wakeUntil: 0 });
 
 /** What a daemon.stopping reason means: whether another daemon follows, and the words for it. */
 export function stoppingWhy(reason: string, updating: boolean): { successor: boolean; why: string } {
@@ -76,7 +83,7 @@ export function step(s: Conn, e: ConnEvent, canStart: boolean): { conn: Conn; st
   const same = { conn: s, start: false };
   switch (e.type) {
     case "stream":
-      if (e.up) return { conn: connected(), start: false };
+      if (e.up) return { conn: connected(s.hidden), start: false };
       if (s.phase !== "connected") return same;
       return { conn: { ...s, phase: "reconnecting", downSince: e.at, why: "", deadline: e.at + RECONNECT_MS }, start: false };
     case "stopping": {
@@ -84,6 +91,16 @@ export function step(s: Conn, e: ConnEvent, canStart: boolean): { conn: Conn; st
       const down = s.downSince ?? e.at;
       if (w.successor) return { conn: { ...s, phase: "restarting", downSince: down, why: w.why, deadline: e.at + (e.updating ? UPDATE_RESTART_MS : RESTART_MS) }, start: false };
       return { conn: lost({ ...s, downSince: down }, w.why, e.at), start: false };
+    }
+    case "visibility": {
+      if (!e.visible) return { conn: { ...s, hidden: true }, start: false };
+      const back = { ...s, hidden: false };
+      if (!s.hidden || s.phase === "connected") return { conn: back, start: false };
+      // Away a while and not connected: what was seen while hidden is stale. Reconnect quietly, counting from now.
+      return {
+        conn: { ...back, phase: "reconnecting", downSince: e.at, why: "", attempt: 0, launched: false, failure: "", noNode: false, wakeUntil: e.at + WAKE_GRACE_MS, deadline: e.at + WAKE_GRACE_MS + RECONNECT_MS },
+        start: false,
+      };
     }
     case "retry":
       if (s.phase === "connected") return same;
@@ -95,7 +112,7 @@ export function step(s: Conn, e: ConnEvent, canStart: boolean): { conn: Conn; st
       if (e.ok) return same;
       return { conn: next(s, e.at, `The start command did not run${e.error ? `: ${e.error}` : "."}`), start: false };
     case "tick": {
-      if (s.phase === "connected" || s.phase === "needsYou" || e.at < s.deadline) return same;
+      if (s.hidden || s.phase === "connected" || s.phase === "needsYou" || e.at < s.deadline) return same;
       if (s.phase === "reconnecting") return { conn: lost(s, "ue-mcp stopped answering without saying why", e.at), start: false };
       if (s.phase === "restarting") return { conn: lost(s, `${s.why.replace(/^ue-mcp is restarting/, "ue-mcp was restarting")} and did not come back`, e.at), start: false };
       if (s.phase === "lost") {
@@ -144,6 +161,11 @@ export const REMOTE_OFFLINE = "It may be restarting, or the computer may be asle
 export function elapsed(ms: number): string {
   const t = Math.max(0, Math.floor(ms / 1000));
   return t < 60 ? `${t}s` : `${Math.floor(t / 60)}m ${String(t % 60).padStart(2, "0")}s`;
+}
+
+/** Whether the page has just come back into view and is reconnecting: a quiet line, not the panel. */
+export function waking(s: Conn, now: number): boolean {
+  return s.phase === "reconnecting" && now < s.wakeUntil;
 }
 
 /** The head line for a phase. */
