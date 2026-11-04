@@ -10,7 +10,7 @@ import type { Effort, SubagentMode } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import { OMIT_DESCRIPTION, SELECT_DESCRIPTION, UE_MCP_DESCRIPTION, forModel, type ToolExecution } from "./tools.js";
-import { messagesUsage, usageTokens } from "./usage.js";
+import { messagesUsage, usageGrowth, usageTokens, type TokenUsage } from "./usage.js";
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
@@ -138,6 +138,19 @@ export interface SubscriptionTurn {
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
   /** Tokens the turn spent since the last report, as each model message arrives; `parent` is the agent call of a subagent's message. */
   onTokens?: (tokens: number, parent: string | null) => void;
+  /**
+   * A model message's usage as the runtime reports it, again as it grows:
+   * `usage` is the message's whole request, `growth` what is new since the
+   * last report, `first` whether this is the request's first report.
+   */
+  onUsage?: (u: { usage: TokenUsage; growth: TokenUsage; first: boolean; model: string; parent: string | null }) => void;
+  /**
+   * The runtime compacting the main conversation: started, ended (with the
+   * context before and after) or failed, and the summary it wrote.
+   */
+  onCompaction?: (e: { started?: boolean; trigger?: "auto" | "manual"; before?: number; after?: number; summary?: string; failed?: string }) => void;
+  /** The main conversation's window as the runtime measures it, and where it compacts. */
+  onContextWindow?: (w: { window: number; compactAt?: number }) => void;
   /**
    * ue-mcp's projected tools in place of ue_mcp, on Lean and Full, with how a
    * call to one reads as the ue_mcp call it is. Absent on Micro.
@@ -357,6 +370,14 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   if (t.signal.aborted) slots.cancelAll();
   else t.signal.addEventListener("abort", () => slots.cancelAll(), { once: true });
 
+  const sub = subagentOptions(t.subagents, t.subagentSystem, t.native, t.editor?.tools.map((p) => p.name), { slots, onQueued: t.onQueued });
+  // The summary a compaction of the main conversation wrote, which only this hook hands over.
+  const compacted: HookCallback = async (input) => {
+    if (input.hook_event_name === "PostCompact" && !input.agent_id) t.onCompaction?.({ summary: input.compact_summary });
+    return {};
+  };
+  const hooks = { ...("hooks" in sub ? sub.hooks : {}), PostCompact: [{ hooks: [compacted] }] };
+
   try {
     const q = query({
       prompt: promptOf(t.prompt, t.resume),
@@ -364,7 +385,8 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         model: t.model,
         effort: t.effort,
         systemPrompt: t.system,
-        ...subagentOptions(t.subagents, t.subagentSystem, t.native, t.editor?.tools.map((p) => p.name), { slots, onQueued: t.onQueued }),
+        ...sub,
+        hooks,
         mcpServers: { [SERVER]: server },
         // Only Studio's server: a project's .mcp.json (often its own ue-mcp) would show tools no call may use.
         strictMcpConfig: true,
@@ -394,11 +416,32 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     let error: string | null = null;
     // The SDK repeats a message per content block with its usage so far: count each message's growth once.
     const spent = new Map<string, number>();
+    const reported = new Map<string, TokenUsage>();
+    // The window the runtime measures against, asked once per turn after its first answer.
+    let askedWindow = false;
+    const askWindow = () => {
+      if (askedWindow || !t.onContextWindow) return;
+      askedWindow = true;
+      const timeout = new Promise<null>((r) => setTimeout(() => r(null), 5000));
+      // A runtime without the control request answers nothing here, and the turn goes on.
+      if (typeof q.getContextUsage !== "function") return;
+      void Promise.race([q.getContextUsage({ detail: "summary" }).catch(() => null), timeout]).then((u) => {
+        if (!u || !(u.maxTokens > 0) || t.signal.aborted) return;
+        const buffer = u.categories.filter((c) => c.kind === "buffer").reduce((n, c) => n + c.tokens, 0);
+        t.onContextWindow?.({ window: u.maxTokens, ...(buffer > 0 && buffer < u.maxTokens ? { compactAt: u.maxTokens - buffer } : {}) });
+      }, () => {});
+    };
     for (;;) {
       const next = await Promise.race([messages.next(), stopped]);
       if (!next || next.done || t.signal.aborted) break;
       const m = next.value;
       if (m.type === "system" && "subtype" in m && m.subtype === "init") t.onSession(m.session_id);
+      else if (m.type === "system" && "subtype" in m && m.subtype === "status") {
+        if (m.status === "compacting") t.onCompaction?.({ started: true });
+        else if (m.compact_result === "failed") t.onCompaction?.({ failed: m.compact_error || "The conversation could not be compacted." });
+      } else if (m.type === "system" && "subtype" in m && m.subtype === "compact_boundary") {
+        t.onCompaction?.({ trigger: m.compact_metadata.trigger, before: m.compact_metadata.pre_tokens, ...(m.compact_metadata.post_tokens !== undefined ? { after: m.compact_metadata.post_tokens } : {}) });
+      }
       else if (m.type === "system" && "subtype" in m && m.subtype === "task_started") {
         if (m.tool_use_id) {
           const taskId = m.task_id;
@@ -417,8 +460,8 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         if (!m.parent_tool_use_id && e.type === "content_block_delta" && e.delta.type === "text_delta") t.onDelta(e.delta.text);
       } else if (m.type === "assistant") {
         if (m.error) error = `Claude: ${m.error}`;
+        const u = messagesUsage((m.message as { usage?: unknown }).usage);
         if (t.onTokens) {
-          const u = messagesUsage((m.message as { usage?: unknown }).usage);
           const tokens = usageTokens(u);
           const before = spent.get(m.message.id) ?? 0;
           if (tokens > before) {
@@ -426,6 +469,13 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
             t.onTokens(tokens - before, m.parent_tool_use_id);
           }
         }
+        if (u && t.onUsage) {
+          const before = reported.get(m.message.id);
+          reported.set(m.message.id, u);
+          const model = (m.message as { model?: string }).model || (m.parent_tool_use_id ? t.subagents.model : t.model);
+          t.onUsage({ usage: u, growth: usageGrowth(u, before), first: !before, model, parent: m.parent_tool_use_id });
+        }
+        if (!m.parent_tool_use_id) askWindow();
         const content = (m.message.content as ContentBlock[]).map((b) => {
           if (b.type !== "tool_use") return b;
           const name = studioName(b.name);

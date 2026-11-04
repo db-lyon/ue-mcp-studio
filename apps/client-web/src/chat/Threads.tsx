@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { ContextUsage, TranscriptEntry } from "@ue-mcp-studio/shared";
 import { STATE_LABEL, agentCalls, agentStatus, callsIn, describe, formatDuration, isActive, summarize, tokenCount } from "@ue-mcp-studio/client-core";
 import { useNow } from "./hooks";
 import { useAsked } from "./asked";
@@ -13,9 +13,9 @@ const EMPTY: ReadonlySet<string> = new Set();
  * are marked new. A row switches the conversation to that thread. A finished
  * row can be dismissed, one at a time or all at once; the session keeps the
  * dismissals, and the subagent's line in the conversation stays. Each row
- * shows the input and output tokens that agent spent this session.
+ * shows that agent's context now, and what it spent this session on hover.
  */
-export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, seen, dismissed = EMPTY, onDismiss, tokens = {} }: {
+export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {} }: {
   transcript: TranscriptEntry[];
   thread: string | null;
   onThread: (id: string | null) => void;
@@ -26,6 +26,8 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
   onDismiss?: (ids: string[]) => void;
   /** Tokens each agent spent this session: "main", or a subagent's agent call id. */
   tokens?: Record<string, number>;
+  /** Each agent's current context, by the same keys. */
+  context?: Record<string, ContextUsage>;
 }) {
   const agents = agentCalls(transcript);
   const now = useNow(agents.some((a) => a.outcome === "pending"));
@@ -33,12 +35,17 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
   const [showFinished, setShowFinished] = useState(false);
   // The open thread keeps its row until it is closed, so a dismissal never pulls the list out from under it.
   const listed = agents.filter((a) => !dismissed.has(a.id) || a.outcome === "pending" || a.id === thread);
-  // With no subagents, the main agent's tokens still show.
-  if (listed.length === 0) {
-    return (tokens.main ?? 0) > 0
-      ? <div className="agents-bar agents-solo dim small">tokens: {tokenCount(tokens.main ?? 0)}</div>
-      : null;
-  }
+  // With no subagents there is no list: the composer's context meter has the main agent's numbers.
+  if (listed.length === 0) return null;
+  /** An agent's line: its context now when measured, with what it spent this session in the tooltip. */
+  const usage = (key: string) => {
+    const c = context[key];
+    const spent = tokens[key] ?? 0;
+    const title = `${spent.toLocaleString("en-US")} input and output tokens spent this session`;
+    return c
+      ? <span className="agents-tokens dim small" title={title}>context {tokenCount(c.input + c.output)}</span>
+      : <span className="agents-tokens dim small" title={title}>{tokenCount(spent)} spent</span>;
+  };
   const rows = listed.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now, asked) }));
   const active = rows.filter((r) => isActive(r.state));
   const finished = rows.filter((r) => !isActive(r.state));
@@ -58,7 +65,7 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
           <span className="agents-state">{STATE_LABEL[r.state]}</span>
           {r.activity && <span className="agents-activity dim">{r.activity}</span>}
           <span className="agents-meta dim small">{calls} {calls === 1 ? "call" : "calls"}, {formatDuration(r.secs)}</span>
-          <span className="agents-tokens dim small">tokens: {tokenCount(tokens[r.call.id] ?? 0)}</span>
+          {usage(r.call.id)}
         </button>
         {isActive(r.state) && (
           <button className="agents-stop" aria-label={`Stop ${describe(r.call)}`} title="Stop this subagent" onClick={() => onStop(r.call.id)}>
@@ -81,7 +88,7 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
         <button role="tab" aria-selected={thread === null} className="agents-open" onClick={() => onThread(null)}>
           <span className="agents-dot" />
           <span className="agents-name">Main</span>
-          <span className="agents-meta dim small">tokens: {tokenCount(tokens.main ?? 0)}</span>
+          {usage("main")}
         </button>
       </div>
       {active.map(row)}

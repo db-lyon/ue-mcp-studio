@@ -18,6 +18,7 @@ import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { ENDPOINT_ID, type CustomEndpoint, type CustomEndpointInput, type EndpointModel } from "@ue-mcp-studio/shared";
 import { globalKeysDir, readSecretFile, writeSecretFile } from "./settings.js";
+import { rememberWindow } from "./context-windows.js";
 
 interface Stored {
   id: string;
@@ -68,6 +69,7 @@ export async function listEndpointModels(baseUrl: string, key: string | null, fe
   if (!res.ok) throw new Error(`its /models answered ${res.status}`);
   const body = (await res.json().catch(() => null)) as { data?: Array<{ id?: unknown }> } | null;
   if (!body || !Array.isArray(body.data)) throw new Error("its /models did not answer with a model list");
+  for (const m of body.data) if (typeof m.id === "string") rememberWindow(m.id, m);
   return [...new Set(body.data.map((m) => (typeof m.id === "string" ? m.id : "")).filter((id) => id && !NOT_CHAT.test(id)))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 

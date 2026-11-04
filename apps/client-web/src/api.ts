@@ -238,6 +238,8 @@ export const api = {
   stopSubagent: (id: string, callId: string) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/stop`),
   stop: (id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/stop`),
+  /** Summarise the conversation to free context; the transcript stays whole. */
+  compact: (id: string, instructions?: string) => call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/compact`, instructions ? { instructions } : {}),
   approve: (id: string, approvalId: string, decision: ApprovalDecision) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/approvals/${encodeURIComponent(approvalId)}`, { decision }),
   busy: () => call<BusyState>("GET", "/v1/ext/studio/busy"),

@@ -7,6 +7,8 @@ describe("remotePath", () => {
     expect(remotePath("GET", "/ui/")).toBe("/ui/");
     expect(remotePath("GET", "/v1/update?channel=beta")).toBe("/v1/update?channel=beta");
     expect(remotePath("POST", "/v1/ext/studio/sessions/1/messages")).toBe("/v1/ext/studio/sessions/1/messages");
+    // Compacting keeps the whole transcript, so a paired phone may ask for it like any message.
+    expect(remotePath("POST", "/v1/ext/studio/sessions/1/compact")).toBe("/v1/ext/studio/sessions/1/compact");
     expect(remotePath("POST", "/v1/editor/restart")).toBe("/v1/editor/restart");
     for (const [m, p] of [
       ["POST", "/v1/mcp"],

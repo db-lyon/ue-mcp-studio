@@ -17,9 +17,11 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { DEFAULT_USAGE, type ApprovalDecision, type Approvals, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
-import type { ContentBlock, ModelProvider, MessageParam, WebSearchRecord } from "./providers.js";
-import { usageTokens } from "./usage.js";
-import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredSession } from "./sessions.js";
+import { AUTO_COMPACT_FRACTION, EMPTY_TOTALS, contextTokens, contextWindowOf, estimateTokens, requestCost, type CompactionRecord } from "@ue-mcp-studio/shared";
+import type { ContentBlock, ModelProvider, ModelTurn, MessageParam, WebSearchRecord } from "./providers.js";
+import { promptTokens, usageTokens, type TokenUsage } from "./usage.js";
+import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredContext, type StoredSession } from "./sessions.js";
+import { compactedMessages, conversationText, estimateMessagesTokens, isCompactedSummary, isContextOverflow, summaryInstruction, summaryRequest } from "./compaction.js";
 import type { QueuedMessage } from "@ue-mcp-studio/shared";
 import type { CardEntry, CardPost } from "@ue-mcp-studio/extension-api";
 import type { BusyTracker } from "./busy.js";
@@ -202,7 +204,27 @@ export interface RunnerOptions {
   review?: { turnStarted(s: StoredSession): Promise<void>; turnEnded(s: StoredSession): Promise<void> };
   /** Runs any of the project's flows for /flow. */
   flows?: FlowCaller;
+  /** A model's context window as the vendor's model list gave it, when it did. */
+  contextWindow?: (model: string) => number | undefined;
 }
+
+/** A conversation compaction can rewrite: the main agent's, or one subagent's. */
+interface Conversation {
+  /** null for the main agent, else the subagent's agent call id. */
+  agent: string | null;
+  /** Rewritten in place. */
+  messages: MessageParam[];
+  model: string;
+  /** What the system prompt and the tools take, before any message. */
+  overhead: number;
+  /** Ask the model for the summary. */
+  summarize: (messages: MessageParam[], signal: AbortSignal) => Promise<{ text: string; usage?: TokenUsage }>;
+}
+
+type CompactionEntry = Extract<TranscriptEntry, { kind: "compaction" }>;
+
+const textOf = (content: ContentBlock[]): string =>
+  content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
 
 const now = (): string => new Date().toISOString();
 
@@ -446,6 +468,240 @@ export class AgentRunner {
     t[key] = (t[key] ?? 0) + tokens;
   }
 
+  /** A model's context window: the vendor's listed one when the catalog has it, else what Studio knows of the model. */
+  private windowFor(model: string): number {
+    return contextWindowOf(model, this.o.contextWindow?.(model)).tokens;
+  }
+
+  /** Add a request's tokens to the session's totals. `request`: count it as a request (the SDK reports one several times). */
+  private spend(s: StoredSession, u: TokenUsage | undefined, model: string, request = true): void {
+    if (!u) return;
+    const t = (s.totals ??= { ...EMPTY_TOTALS });
+    t.input += u.input;
+    t.output += u.output;
+    t.cacheRead += u.cacheRead ?? 0;
+    t.cacheWrite += u.cacheWrite ?? 0;
+    t.reasoning += u.reasoning ?? 0;
+    if (request) t.requests += 1;
+    const cost = requestCost(model, u);
+    if (cost !== null) t.costUsd = (t.costUsd ?? 0) + cost;
+  }
+
+  /** An agent's context, as its latest request measured it: its whole prompt and its answer. */
+  private measure(s: StoredSession, agent: string | null, u: TokenUsage | undefined, model: string, extra: Partial<StoredContext> = {}): void {
+    if (!u) return;
+    const key = agent ?? "main";
+    const prev = s.context?.[key];
+    // The runtime's window for this model holds until it reports another.
+    const kept = prev?.window && prev.model === model && extra.sdk ? { window: prev.window, ...(prev.compactAt ? { compactAt: prev.compactAt } : {}) } : {};
+    (s.context ??= {})[key] = { input: promptTokens(u), cached: u.cacheRead ?? 0, output: u.output, model, at: now(), ...kept, ...extra };
+    this.changed(s, agent);
+  }
+
+  /**
+   * How much of the window a conversation would take if sent now: the last
+   * measurement and an estimate of what was added since; an estimate of all
+   * of it when no request on this route has measured it.
+   */
+  private currentContext(s: StoredSession, c: Conversation): number {
+    const m = s.context?.[c.agent ?? "main"];
+    if (m && !m.sdk && m.messages !== undefined && m.messages <= c.messages.length) return contextTokens(m) + estimateMessagesTokens(c.messages.slice(m.messages));
+    return c.overhead + estimateMessagesTokens(c.messages);
+  }
+
+  /** The main agent's conversation, with what its requests send besides the messages. */
+  private mainConversation(s: StoredSession, surf = this.surface()) {
+    const model = this.o.model();
+    const sys: Array<{ type: "text"; text: string }> = [{ type: "text", text: [withSurface(system(this.o.host.projectDir, this.runsMode(), this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n") }];
+    const tools = this.mainTools(surf);
+    const effort = this.o.effort?.();
+    const conv: Conversation & { system: typeof sys; tools: typeof tools; effort: typeof effort } = {
+      agent: null,
+      messages: s.messages,
+      model,
+      overhead: estimateTokens(sys[0].text + JSON.stringify(tools)),
+      system: sys,
+      tools,
+      effort,
+      summarize: async (messages, signal) => {
+        const t = await this.o.provider().run({ sessionId: s.id, model, effort, system: sys, tools, messages }, () => {}, signal);
+        return { text: textOf(t.content), usage: t.usage };
+      },
+    };
+    return conv;
+  }
+
+  /** Compact a conversation that has reached the share of its window Studio compacts at. */
+  private async autoCompact(s: StoredSession, c: Conversation, signal: AbortSignal): Promise<void> {
+    const used = this.currentContext(s, c);
+    if (used < this.windowFor(c.model) * AUTO_COMPACT_FRACTION) return;
+    // Nothing since the last compaction: a summary of a summary frees nothing.
+    if (c.messages.length <= 2 && isCompactedSummary(c.messages[0])) return;
+    await this.compactConversation(s, c, "auto", used, signal);
+  }
+
+  /**
+   * Replace a conversation with the model's summary of it, and mark where in
+   * the transcript. When the summary cannot be had, the oldest part goes and
+   * the most recent part is kept as text. Returns false when it was stopped.
+   */
+  private async compactConversation(s: StoredSession, c: Conversation, trigger: CompactionRecord["trigger"], before: number, signal: AbortSignal, instructions?: string): Promise<boolean> {
+    const started = Date.now();
+    const entry: CompactionEntry = { kind: "compaction", at: now(), trigger, state: "running", before, model: modelName(c.model), ...(instructions ? { instructions } : {}), ...(c.agent ? { parent: c.agent } : {}) };
+    this.addEntry(s, entry);
+    const window = this.windowFor(c.model);
+    let summary = "";
+    let error: string | undefined;
+    try {
+      // Past the window even the request for a summary would be refused: its most recent part goes as text instead.
+      const req = before < window * 0.95
+        ? summaryRequest(c.messages, instructions)
+        : summaryRequest([{ role: "user", content: [{ type: "text", text: `[Studio] The conversation so far, as text:\n\n${conversationText(c.messages, Math.floor(window * 0.6 * 4))}` }] } as MessageParam], instructions);
+      const r = await c.summarize(req, signal);
+      summary = r.text.trim();
+      if (r.usage) {
+        this.count(s, usageTokens(r.usage), c.agent);
+        this.spend(s, r.usage, c.model);
+      }
+    } catch (e) {
+      error = e instanceof Error ? e.message : String(e);
+    }
+    if (signal.aborted) {
+      Object.assign(entry, { state: "failed", error: "Stopped before the summary was written. Nothing was compacted.", ms: Date.now() - started });
+      this.changed(s, c.agent);
+      return false;
+    }
+    let method: "summary" | "truncated" = "summary";
+    if (!summary) {
+      method = "truncated";
+      summary = `The summary could not be written, so the earliest part of the conversation was left out. Its most recent part, as text:\n\n${conversationText(c.messages, Math.floor(window * 0.25 * 4))}`;
+    }
+    const next = compactedMessages(c.messages, summary, before);
+    c.messages.splice(0, c.messages.length, ...next);
+    const after = c.overhead + estimateMessagesTokens(next);
+    Object.assign(entry, { state: "done", after, summary, method, ms: Date.now() - started, ...(method === "truncated" && error ? { error } : {}) });
+    (s.context ??= {})[c.agent ?? "main"] = { input: after, cached: 0, output: 0, model: c.model, at: now(), estimated: true, messages: next.length };
+    this.changed(s, c.agent);
+    return true;
+  }
+
+  /** Save the session and tell the client an entry or a context changed in place. */
+  private changed(s: StoredSession, agent: string | null): void {
+    this.o.store.save(s);
+    this.o.host.events.publish("context.changed", { sessionId: s.id, agent: agent ?? "main" });
+  }
+
+  /** What /compact asked the Claude sign-in's runtime to keep, by session, until its compaction lands. */
+  private readonly pendingCompact = new Map<string, string>();
+
+  /**
+   * Compact now and /compact: summarise the conversation so far, the
+   * transcript untouched. On the Claude sign-in its runtime compacts its own
+   * session; elsewhere Studio does. Refused while a turn runs.
+   */
+  async compact(sessionId: string, instructions = ""): Promise<void> {
+    const s = this.require(sessionId);
+    if (this.busy(s)) throw new Error("a turn is in progress; compact when it ends");
+    if (s.messages.length === 0) throw new Error("there is nothing to compact yet");
+    const onClaude = !!this.o.subscription?.();
+    const asked = instructions.trim();
+    s.error = null;
+    // On the Claude sign-in with its session up to date, its runtime compacts it, as Claude Code's /compact does.
+    if (onClaude && s.sdkSession && !s.offClaude) {
+      this.pendingCompact.set(s.id, asked);
+      this.setStatus(s, "running", null);
+      return this.runSubscription(s.id, [{ type: "text", text: asked ? `/compact ${asked}` : "/compact" }]);
+    }
+    const controller = new AbortController();
+    this.active.set(s.id, controller);
+    this.setStatus(s, "running", null);
+    try {
+      const c: Conversation = onClaude ? this.claudeConversation(s) : this.mainConversation(s);
+      await this.compactConversation(s, c, "manual", this.currentContext(s, c), controller.signal, asked || undefined);
+      if (controller.signal.aborted) return;
+      // The Claude session has not seen the summary: the next turn there starts from it.
+      if (s.sdkSession) s.offClaude = true;
+      this.setStatus(s, "idle", null);
+    } catch (e) {
+      if (controller.signal.aborted) return;
+      s.error = e instanceof Error ? e.message : String(e);
+      this.setStatus(s, "error", null);
+    } finally {
+      if (this.active.get(s.id) === controller) this.active.delete(s.id);
+    }
+  }
+
+  /** The conversation on the Claude sign-in when its runtime has no session to compact: summarised by one answer on the sign-in. */
+  private claudeConversation(s: StoredSession): Conversation {
+    const model = this.o.model();
+    return {
+      agent: null,
+      messages: s.messages,
+      model,
+      overhead: 0,
+      summarize: async (messages, signal) => {
+        const sdk = typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
+        if (!sdk) throw new Error("This Studio build does not include the Claude sign-in.");
+        const r = await sdk.runSubscriptionCompletion({
+          projectDir: this.o.host.projectDir,
+          model,
+          effort: "medium",
+          system: "You summarise a conversation between a user and an agent that works in an Unreal Engine project.",
+          prompt: `${conversationText(messages, 400_000)}\n\n${summaryInstruction(this.pendingCompact.get(s.id))}`,
+          signal,
+        });
+        if ("error" in r) throw new Error(r.error);
+        return { text: r.text };
+      },
+    };
+  }
+
+  /** A summary the Claude sign-in's runtime reported before its compaction marker arrived, by session. */
+  private readonly runtimeSummary = new Map<string, string>();
+
+  /**
+   * The Claude sign-in's runtime compacting the main conversation: a marker
+   * goes up when it starts, and says how far it got when it ends. Its summary
+   * comes by a hook, before or after the end.
+   */
+  private runtimeCompacted(s: StoredSession, model: string, e: { started?: boolean; trigger?: "auto" | "manual"; before?: number; after?: number; summary?: string; failed?: string }): void {
+    const runtime = (t: TranscriptEntry): t is CompactionEntry => t.kind === "compaction" && !t.parent && t.method === "runtime";
+    const open = [...s.transcript].reverse().find((t): t is CompactionEntry => runtime(t) && t.state === "running");
+    const asked = this.pendingCompact.get(s.id);
+    const fresh = (): CompactionEntry => {
+      const x: CompactionEntry = { kind: "compaction", at: now(), trigger: e.trigger ?? (this.pendingCompact.has(s.id) ? "manual" : "auto"), state: "running", before: e.before ?? (s.context?.main ? contextTokens(s.context.main) : 0), method: "runtime", model: modelName(model), ...(asked ? { instructions: asked } : {}) };
+      this.addEntry(s, x);
+      return x;
+    };
+    if (e.started) {
+      if (!open) fresh();
+      return;
+    }
+    if (e.summary !== undefined) {
+      const target = open ?? [...s.transcript].reverse().find((t): t is CompactionEntry => runtime(t) && t.state === "done" && !t.summary);
+      if (!target) {
+        this.runtimeSummary.set(s.id, e.summary);
+        return;
+      }
+      target.summary = e.summary;
+      this.changed(s, null);
+      return;
+    }
+    const entry = open ?? fresh();
+    if (e.trigger) entry.trigger = e.trigger;
+    if (e.before) entry.before = e.before;
+    if (e.failed) Object.assign(entry, { state: "failed", error: e.failed });
+    else {
+      const summary = this.runtimeSummary.get(s.id);
+      Object.assign(entry, { state: "done", ms: Date.now() - Date.parse(entry.at), ...(e.after !== undefined ? { after: e.after } : {}), ...(summary !== undefined && !entry.summary ? { summary } : {}) });
+      const main = s.context?.main;
+      if (main && e.after !== undefined) s.context!.main = { ...main, input: e.after, cached: 0, output: 0, at: now() };
+    }
+    this.runtimeSummary.delete(s.id);
+    this.pendingCompact.delete(s.id);
+    this.changed(s, null);
+  }
+
   /** The daemon is going down: every turn on the SDK route ends here, saying so. An API turn resumes in the next daemon. */
   dispose(): void {
     this.unsubscribe();
@@ -539,6 +795,8 @@ export class AgentRunner {
     // A /playtest message runs the playtest flow, not a turn.
     const command = attachments.length ? null : parseSlashCommand(text);
     if (command?.name === "playtest") return this.playtest(sessionId, { text: command.args }, text);
+    // /compact summarises the conversation so far; nothing is sent as a message.
+    if (command?.name === "compact") return this.compact(sessionId, command.args);
     // A /flow message (queued, or from a client without the form) runs with the pairs it names.
     if (command?.name === "flow") {
       const { name, values } = parseFlowArgs(command.args);
@@ -815,6 +1073,17 @@ ${result}`);
         resume: s.sdkSession ?? null,
         signal: controller.signal,
         onTokens: (n, parent) => this.count(s, n, parent),
+        onUsage: ({ usage: u, growth, first, model, parent }) => {
+          this.spend(s, growth, model, first);
+          this.measure(s, parent, u, model, { sdk: true });
+        },
+        onCompaction: (e) => this.runtimeCompacted(s, this.o.model(), e),
+        onContextWindow: ({ window, compactAt }) => {
+          const main = s.context?.main;
+          if (!main) return;
+          s.context!.main = { ...main, window, ...(compactAt ? { compactAt } : {}) };
+          this.changed(s, null);
+        },
         onSession: (sid) => {
           s.sdkSession = sid;
           this.o.store.save(s);
@@ -1118,6 +1387,10 @@ ${result}`);
       resume: null,
       signal: own.signal,
       onTokens: (n) => this.count(s, n, callId),
+      onUsage: ({ usage: u, growth, first, model }) => {
+        this.spend(s, growth, model, first);
+        this.measure(s, callId, u, model, { sdk: true });
+      },
       onSession: () => {},
       onDelta: () => {},
       onAssistant: (_mid, blocks, parent) => {
@@ -1432,6 +1705,7 @@ ${result}`);
       this.setStatus(s, "error", null);
       return;
     }
+    let overflowed = false;
     try {
       for (;;) {
         if (controller.signal.aborted) return;
@@ -1442,26 +1716,33 @@ ${result}`);
         }
 
         if (s.status !== "running") this.setStatus(s, "running", null);
-        const usage = this.usage();
         // One surface for the whole request: its tools, its prompt line and how its calls read back.
         const surf = this.surface();
-        const turn = await this.o.provider().run(
-          {
-            sessionId: s.id,
-            model: this.o.model(),
-            effort: this.o.effort?.(),
-            system: [{ type: "text", text: [withSurface(system(this.o.host.projectDir, this.runsMode(), usage, this.composed()), surf), this.skillLines()].filter(Boolean).join("\n") }],
-            tools: this.mainTools(surf),
-            messages: s.messages,
-          },
-          (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
-          controller.signal,
-        );
+        const conv = this.mainConversation(s, surf);
+        // Near the window, the conversation is summarised before the request goes.
+        await this.autoCompact(s, conv, controller.signal);
+        if (controller.signal.aborted) return;
+        let turn: ModelTurn;
+        try {
+          turn = await this.o.provider().run(
+            { sessionId: s.id, model: conv.model, effort: conv.effort, system: conv.system, tools: conv.tools, messages: s.messages },
+            (text) => this.o.host.events.publish("turn.delta", { sessionId: s.id, text }),
+            controller.signal,
+          );
+        } catch (e) {
+          // Refused as too long, as on a model with a smaller window than the last: compact, then send once more.
+          if (controller.signal.aborted || overflowed || !isContextOverflow(e)) throw e;
+          overflowed = true;
+          await this.compactConversation(s, conv, "overflow", Math.max(this.currentContext(s, conv), this.windowFor(conv.model)), controller.signal);
+          continue;
+        }
         if (controller.signal.aborted) return;
         this.count(s, usageTokens(turn.usage), null);
+        this.spend(s, turn.usage, conv.model);
         if (controller.signal.aborted) return;
 
         s.messages.push({ role: "assistant", content: turn.content } as MessageParam);
+        this.measure(s, null, turn.usage, conv.model, { messages: s.messages.length });
         this.recordSearches(s, turn.searches);
         const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
         if (text) this.addEntry(s, { kind: "assistant", text, at: now() });
@@ -1659,22 +1940,36 @@ ${result}`);
       ? { text: "Stopped by the user.", isError: true }
       : { text: "The user stopped this subagent before it finished. Do not redo its task unless the user asks.", isError: true, stopped: true });
     try {
+      const sys = [{ type: "text" as const, text: systemText }];
+      const conv: Conversation = {
+        agent: parent,
+        messages,
+        model,
+        overhead: estimateTokens(systemText + JSON.stringify(tools)),
+        summarize: async (m, sig) => {
+          const t = await provider().run({ sessionId: s.id, model, effort, system: sys, tools, messages: m }, () => {}, sig);
+          return { text: textOf(t.content), usage: t.usage };
+        },
+      };
+      let overflowed = false;
       for (let step = 0; step < steps; step++) {
         if (signal.aborted) return stopped();
-        const turn = await provider().run(
-          {
-            sessionId: s.id,
-            model,
-            effort,
-            system: [{ type: "text", text: systemText }],
-            tools,
-            messages,
-          },
-          () => {},
-          signal,
-        );
+        // A subagent's own conversation compacts the same way as the main one.
+        await this.autoCompact(s, conv, signal);
+        if (signal.aborted) return stopped();
+        let turn: ModelTurn;
+        try {
+          turn = await provider().run({ sessionId: s.id, model, effort, system: sys, tools, messages }, () => {}, signal);
+        } catch (e) {
+          if (signal.aborted || overflowed || !isContextOverflow(e)) throw e;
+          overflowed = true;
+          await this.compactConversation(s, conv, "overflow", Math.max(this.currentContext(s, conv), this.windowFor(model)), signal);
+          continue;
+        }
         messages.push({ role: "assistant", content: turn.content } as MessageParam);
         this.count(s, usageTokens(turn.usage), parent);
+        this.spend(s, turn.usage, model);
+        this.measure(s, parent, turn.usage, model, { messages: messages.length });
         this.recordSearches(s, turn.searches, parent);
         const text = turn.content.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
         if (text) {

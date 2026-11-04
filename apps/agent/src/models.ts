@@ -6,6 +6,7 @@
  */
 import { CLAUDE_SIGN_IN_AVAILABLE, DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, PROVIDERS, STUDIO_PLAN_AVAILABLE, endpointIdOf, endpointVendor, routesInOrder, type CustomEndpoint, type KeyProviderId, type ModelCatalog, type ModelOption, type ModelRoute, type RouteOrder, type SignInId, type VendorId } from "@ue-mcp-studio/shared";
 import { OPENAI_BASE_URLS } from "./openai-compat.js";
+import { knownWindow, rememberWindow } from "./context-windows.js";
 
 /**
  * The Studio plan's models until the signed-in plan says otherwise. The gateway
@@ -67,6 +68,7 @@ async function listLive(provider: KeyProviderId, key: string): Promise<Listed[]>
     : await fetch(`${OPENAI_BASE_URLS[provider]}/models`, { headers: { authorization: `Bearer ${key}` } });
   if (!res.ok) throw new Error(`${PROVIDERS[provider].name} models: ${res.status}`);
   const body = (await res.json()) as { data?: Array<{ id: string; display_name?: string }> };
+  for (const m of body.data ?? []) rememberWindow(m.id, m);
   return chatModels(provider, (body.data ?? []).map((m) => ({ id: m.id, name: m.display_name })));
 }
 
@@ -119,8 +121,14 @@ export function endpointCatalog(e: CustomEndpoint): ModelCatalog["providers"][nu
     connected: true,
     source: e.models.some((m) => !m.typed) ? "live" : "typed",
     endpoint: { id: e.id, ...(e.listError ? { listError: e.listError } : {}) },
-    models: e.models.map((m) => ({ id: m.id, name: m.id, signIns: [] })),
+    models: e.models.map((m) => withWindow({ id: m.id, name: m.id, signIns: [] })),
   };
+}
+
+/** A model as the picker lists it, with its window when a model list stated one. */
+function withWindow(m: ModelOption): ModelOption {
+  const w = knownWindow(m.id);
+  return w ? { ...m, contextWindow: w } : m;
 }
 
 export class ModelCatalogSource {
@@ -156,7 +164,7 @@ export class ModelCatalogSource {
         name: PROVIDERS[p].name,
         connected: !!key,
         source: live ? "live" : "default",
-        models: [...list, ...extra].map((m) => ({ ...m, signIns: signInsFor(p, m.id, coverage) })),
+        models: [...list, ...extra].map((m) => withWindow({ ...m, signIns: signInsFor(p, m.id, coverage) })),
       });
     }
     // Custom endpoints follow the named vendors, in the order they were added.

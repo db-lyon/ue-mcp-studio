@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_AVAILABLE, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_AVAILABLE, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { useRemoteAvailable } from "./settings/remote-available";
 import { REMOTE_NOW_ON, REMOTE_SIGN_IN, UpgradeAction } from "./Upgrade";
@@ -16,6 +16,8 @@ import { QueuedMessages } from "../chat/Queue";
 import { pillsFor } from "../chat/pill-providers";
 import { PillRow } from "../chat/Pills";
 import { Threads } from "../chat/Threads";
+import { ContextMeter, ContextWarning } from "../chat/ContextMeter";
+import { CompactContext } from "../chat/Compaction";
 import { SessionRow } from "../chat/SessionRow";
 import { BarButton, CheckpointsGlyph, Composer } from "../chat/Composer";
 import type { MentionSearchFn } from "../chat/MentionMenu";
@@ -261,7 +263,16 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     if (runRemoteCommand()) return;
     setRemoteReply(null);
     // A /flow or /action opens its form rather than going out as a message.
-    const command = selected && canSend && attach.ready.length === 0 ? parseSlashCommand(draft)?.name : undefined;
+    const parsed = selected && canSend && attach.ready.length === 0 ? parseSlashCommand(draft) : null;
+    const command = parsed?.name;
+    // /compact goes straight to the compaction, never into the conversation.
+    if (selected && parsed?.name === "compact") {
+      clearPills();
+      setDraft("");
+      void api.saveDraft(selected, "").catch(() => {});
+      compactNow(parsed.args);
+      return;
+    }
     if (selected && (command === "flow" || command === "action")) {
       (command === "flow" ? setFlowAsk : setActionAsk)(draft.trim());
       clearPills();
@@ -285,6 +296,26 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     setSent((n) => n + 1);
     return api.action(id, request).then(() => loadDetail(id));
   };
+  /** Compact now, from the meter, the warning or /compact. */
+  const compactNow = (instructions?: string) => {
+    if (!selected) return;
+    const id = selected;
+    setSent((n) => n + 1);
+    api.compact(id, instructions).then(() => loadDetail(id), (e: Error) => setError(e.message));
+  };
+  const catalog = useCatalog(settings);
+  const nameOf = (id: string): string => {
+    for (const p of catalog?.providers ?? []) for (const m of p.models) if (m.id === id) return `${p.name} ${m.name}`;
+    return id;
+  };
+  const listedWindow = settings ? catalog?.providers.find((p) => p.id === settings.provider)?.models.find((m) => m.id === settings.model)?.contextWindow : undefined;
+  const mainContext = detail?.context?.main;
+  const compacting = !!detail?.transcript.some((t) => t.kind === "compaction" && !t.parent && t.state === "running");
+  const runtimeCompacts = settings?.route === "claude";
+  const meterView = settings ? contextView(mainContext, settings.model, listedWindow) : null;
+  // Dismissed per session, until it reaches the next level.
+  const [warnDismissed, setWarnDismissed] = useState<string | null>(null);
+  const warnKey = detail && meterView ? `${detail.id}:${meterView.level}` : null;
   const sendNow = () => runRemoteCommand() || dispatch((id, text, files) => api.send(id, text, files, true), true);
   const queue = () => runRemoteCommand() || dispatch((id, text, files) => api.queue(id, text, files), false);
   const editMessage = useCallback((index: number, text: string, mode: EditMode) => {
@@ -411,6 +442,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
       dismissed={dismissed}
       onDismiss={dismiss}
       tokens={detail.tokens}
+      context={detail.context}
     />
   );
 
@@ -477,6 +509,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
           <AssetTranscriptContext.Provider value={detail.transcript}>
           <EditMessageContext.Provider value={disconnected ? null : editMessage}>
           <PlaytestCommandContext.Provider value={playtest}>
+          <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
             <div className="session-stage">
             <div className="thread-stage" ref={stage}>
               <MainTranscript
@@ -542,6 +575,9 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             {flowAsk && !busy && <FlowLauncher key={flowAsk} text={flowAsk} run={runFlow} onClose={() => setFlowAsk(null)} />}
             {actionAsk && !busy && <ActionLauncher key={actionAsk} text={actionAsk} run={runAction} onClose={() => setActionAsk(null)} />}
             {settings && disconnected && <div className="composer-connect"><ConnectCard settings={settings} onSettings={setSettings} /></div>}
+            {meterView && meterView.level === "high" && !compacting && warnKey !== warnDismissed && (
+              <ContextWarning view={meterView} runtime={runtimeCompacts} busy={busy} onCompact={() => compactNow()} onDismiss={() => setWarnDismissed(warnKey)} />
+            )}
             {playtest && <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} />}
             <Composer
               draft={draft}
@@ -567,6 +603,21 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
               onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
               picker={<>
                 {settings && <ModelAndEffort settings={settings} onSettings={setSettings} />}
+                {settings && (
+                  <ContextMeter
+                    context={mainContext}
+                    totals={detail.totals}
+                    model={settings.model}
+                    modelName={nameOf(settings.model)}
+                    nameOf={nameOf}
+                    listedWindow={listedWindow}
+                    busy={busy}
+                    compacting={compacting}
+                    runtime={runtimeCompacts}
+                    onCompact={() => compactNow()}
+                    owner={openThread ? "Main" : undefined}
+                  />
+                )}
                 {/* Narrow, Checkpoints is in the header. */}
                 {!narrow && <BarButton className="composer-checkpoints" label="Checkpoints" title="Review this session's changes and its checkpoints" icon={<CheckpointsGlyph />} onClick={() => setReviewOpen(true)} />}
               </>}
@@ -577,6 +628,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             <Sheet open={reviewOpen} title="Checkpoints" onClose={() => setReviewOpen(false)}>
               {reviewOpen && <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />}
             </Sheet>
+          </CompactContext.Provider>
           </PlaytestCommandContext.Provider>
           </EditMessageContext.Provider>
           </AssetTranscriptContext.Provider>

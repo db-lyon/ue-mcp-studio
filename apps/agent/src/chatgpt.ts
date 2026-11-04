@@ -16,6 +16,7 @@ import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { StudioSignIn } from "@ue-mcp-studio/shared";
+import { rememberWindow } from "./context-windows.js";
 
 const AUTH = "https://auth.openai.com";
 export const AUTHORIZE_URL = `${AUTH}/api/accounts/authorize`;
@@ -322,5 +323,6 @@ export async function chatgptModels(token: string, fetchImpl: typeof fetch = fet
   const res = await fetchImpl(`${RESOURCE}/models`, { headers: { authorization: `Bearer ${token}` } });
   if (!res.ok) throw new Error(`ChatGPT models: ${res.status}`);
   const body = (await res.json()) as { models?: Array<{ slug: string; display_name?: string; visibility?: string }> };
+  for (const m of body.models ?? []) rememberWindow(m.slug, m);
   return (body.models ?? []).filter((m) => m.visibility === "list").map((m) => ({ id: m.slug, name: m.display_name ?? m.slug }));
 }
