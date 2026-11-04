@@ -40,7 +40,7 @@ const BLUEPRINT = ready({
   sections: [
     { category: "Graph: EventGraph", kind: "graph", engineSource: "FGraphDiffControl::DiffGraphs", entries: [
       { displayString: "Added Node Branch", diffType: "NODE_ADDED", category: "ADDITION", node2: { guid: "1", name: "K2Node_IfThenElse_3", class: "K2Node_IfThenElse", title: "Branch" } },
-      { displayString: "Pin Default Value Changed: InSpeedMultiplierForCharacterMovementComponent", diffType: "PIN_DEFAULT_VALUE", category: "MODIFICATION", node1: { guid: "2", name: "K2Node_CallFunction_7", class: "K2Node_CallFunction", title: "SetMaxWalkSpeedFromSprintMultiplier" } },
+      { displayString: "Pin Default Value Changed: InSpeedMultiplierForCharacterMovementComponent", diffType: "PIN_DEFAULT_VALUE", category: "MODIFICATION", pin1: { name: "InSpeedMultiplierForCharacterMovementComponent", direction: "input", defaultValue: "1.5", linkedTo: [] }, pin2: { name: "InSpeedMultiplierForCharacterMovementComponent", direction: "input", defaultValue: "1.8", linkedTo: [] }, node1: { guid: "2", name: "K2Node_CallFunction_7", class: "K2Node_CallFunction", title: "SetMaxWalkSpeedFromSprintMultiplier" } },
       { displayString: "Added Node 'PrintString'", diffType: "NODE_ADDED", category: "ADDITION", node1: { guid: "5", name: "K2Node_CallFunction_9", class: "K2Node_CallFunction", title: "PrintString", fullTitle: "Print String", pins: [
         { name: "InString", displayName: "In String", defaultValue: "Wall run started while crouched", linked: false },
         { name: "bPrintToScreen", displayName: "Print to Screen", defaultValue: "true", linked: false },

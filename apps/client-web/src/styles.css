@@ -1357,6 +1357,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .diff-table tr.diff-row.minor { font-size: 11px; color: var(--muted); }
 .diff-table tr.diff-row.minor .diff-kind { opacity: 0.7; }
 .diff-table tr.diff-row.minor .cmp-side { opacity: 0.75; }
+/* A change with nothing on either side (a pin's link count, a node moved): its message says it all, so its cells are not coloured as values. */
+.diff-table tr.diff-row.bare > td.cmp-side { background: none; }
 .diff-table td.cmp-absent { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--tint) 6px 7px); }
 .diff-table td.cmp-side { color: var(--text); }
 .cmp-subtitle { margin-top: 2px; overflow-wrap: anywhere; }
