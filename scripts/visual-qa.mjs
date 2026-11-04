@@ -1,6 +1,6 @@
 // Screenshot the playtest UI, the review card and Settings in every state, theme and width, with no daemon and no editor.
 //
-//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>] [--widths <px,px,...>]
+//   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>] [--widths <px,px,...>] [--height <px>] [--remote]
 //
 // Serves apps/client-web with Vite (no proxy) and opens visual-qa.html, the real app
 // with the daemon answered from apps/client-web/src/visual-qa/fixtures.ts. Each
@@ -192,13 +192,20 @@ const auditPage = (page) =>
     });
   });
 
+// --remote shoots every scenario as a paired browser sees it (the computer refusing what it refuses one), files named -remote.
+const remote = process.argv.includes("--remote");
 const open = async (scenario, theme, width, height = 860) => {
   // Phone widths are shot as a touch screen, so styles for a finger (pointer: coarse) apply as they would on a phone.
   const page = await browser.newPage({ viewport: { width, height }, hasTouch: width <= 760 });
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
-  await page.goto(`${base}/visual-qa.html?scenario=${encodeURIComponent(scenario)}&theme=${theme}`);
-  await page.waitForSelector(".app");
+  const url = `${base}/visual-qa.html?scenario=${encodeURIComponent(scenario)}&theme=${theme}${remote ? "&remote=1" : ""}`;
+  await page.goto(url);
+  // A cold dev server can take longer than a wait on the first pages it bundles: one more try before giving up.
+  await page.waitForSelector(".app").catch(async () => {
+    await page.goto(url);
+    await page.waitForSelector(".app", { timeout: 60_000 });
+  });
   await page.waitForTimeout(1200);
   return { page, errors };
 };
@@ -213,7 +220,8 @@ try {
     if (only && !only.some((o) => (o.endsWith("*") ? scenario.startsWith(o.slice(0, -1)) : o === scenario))) continue;
     lines.push(`## ${scenario}`, "", title, "");
     for (const theme of THEMES) for (const [label, width] of WIDTHS) {
-      const { page, errors } = await open(scenario, theme, width, heights[scenario] ?? 860);
+      // --height N: every scenario in a window that tall, so a long page is shot whole.
+      const { page, errors } = await open(scenario, theme, width, arg("height") ? Number(arg("height")) : heights[scenario] ?? 860);
       // The app scrolls inside its own panel, so a tall section is shot in a tall window instead.
       if (await page.evaluate(() => window.__visualQa.fullPage)) {
         await page.setViewportSize({ width, height: 2600 });
@@ -280,7 +288,7 @@ try {
         await page.waitForTimeout(300);
       }
       if (audit) findings.push(...(await auditPage(page)).map((f) => ({ scenario, theme, width, ...f })));
-      const file = `${scenario}-${theme}-${label}.png`;
+      const file = `${scenario}-${theme}-${label}${remote ? "-remote" : ""}.png`;
       await page.screenshot({ path: path.join(out, file), animations: "disabled" });
       lines.push(`- [${theme}, ${label} (${width}px)](${file})${errors.length ? ` errors: ${errors.join("; ")}` : ""}`);
       console.log(`${file}${errors.length ? `  errors: ${errors.join("; ")}` : ""}`);
