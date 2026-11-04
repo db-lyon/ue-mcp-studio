@@ -426,8 +426,8 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
   const dimSmall = [small(t), { color: t.c.dim }];
   return (
     <View testID="review-panel" style={{ gap: 10 }}>
-      {/* label.toggle: the checkbox's own 4 px and 3 px margins, and the label's 14 px on the right. */}
-      <View style={{ paddingLeft: 4, marginRight: 14 }}>
+      {/* label.row.toggle: .row's 6 px above and below, the checkbox's own 4 px and 3 px margins, and the label's 14 px on the right. */}
+      <View style={{ paddingLeft: 4, marginRight: 14, marginVertical: 6 }}>
       <Check checked={on} disabled={busy || !status} onChange={toggle} label="Review this session's turns">
         <T style={{ marginLeft: 3 }}>
           {"Review this session's turns "}
