@@ -17,9 +17,17 @@ export interface MarkdownProps {
   /** Overrides the body text style (colour, size). */
   tone?: TextStyle;
   renderLink?: (href: string, children: ReactNode, key: number) => ReactNode | null;
+  /**
+   * A document rather than a chat message (a plugin's readme): headings keep the
+   * browser's em margins and the body's line-height ratio, and the last block
+   * keeps its 8px, as `.md` outside `.msg` draws them.
+   */
+  page?: boolean;
+  /** The space under a paragraph: 8, or 0 where the page sets it (a plugin card's readme). */
+  paragraphGap?: number;
 }
 
-export const Markdown = memo(function Markdown({ text, tone, renderLink }: MarkdownProps) {
+export const Markdown = memo(function Markdown({ text, tone, renderLink, page, paragraphGap = 8 }: MarkdownProps) {
   const t = useTheme();
   let tokens: Token[];
   try {
@@ -27,7 +35,7 @@ export const Markdown = memo(function Markdown({ text, tone, renderLink }: Markd
   } catch {
     return <Text style={[baseFont(t), tone]}>{text}</Text>;
   }
-  const ctx: Ctx = { t, body: { ...baseFont(t), ...tone }, renderLink };
+  const ctx: Ctx = { t, body: { ...baseFont(t), ...tone }, renderLink, page, paragraphGap };
   const out = blocks(ctx, tokens.filter((x) => x.type !== "space"));
   return <View>{out}</View>;
 });
@@ -36,6 +44,8 @@ interface Ctx {
   t: Theme;
   body: TextStyle;
   renderLink?: MarkdownProps["renderLink"];
+  page?: boolean;
+  paragraphGap?: number;
 }
 
 function blocks(ctx: Ctx, tokens: Token[]): ReactNode[] {
@@ -44,20 +54,23 @@ function blocks(ctx: Ctx, tokens: Token[]): ReactNode[] {
 
 function block(ctx: Ctx, tok: Token, key: number, last: boolean): ReactNode {
   const { t, body } = ctx;
-  const gap = { marginBottom: last ? 0 : 8 };
+  const gap = { marginBottom: last && !ctx.page ? 0 : 8 };
   switch (tok.type) {
     case "heading": {
       const h = tok as Tokens.Heading;
       const size = [0, 2, 1.5, 1.17, 1, 0.83, 0.67][h.depth] * (body.fontSize ?? t.base.size);
+      // A page's heading: the browser's em margins (collapsing with the 8px above) and the body's line-height ratio.
+      const em = [0, 0.67, 0.83, 1, 1.33, 1.67, 2.33][h.depth] * size;
+      const pageStyle = ctx.page ? { lineHeight: size * (t.base.lineHeight / t.base.size), marginTop: key === 0 ? em : Math.max(0, em - 8), marginBottom: em } : null;
       return (
-        <Text key={key} accessibilityRole="header" style={[body, font(t, "sans", 700, size, 1.25), { color: body.color, marginTop: 0 }, gap]} selectable>
+        <Text key={key} accessibilityRole="header" style={[body, font(t, "sans", 700, size, 1.25), { color: body.color, marginTop: 0 }, gap, pageStyle]} selectable>
           {inline(ctx, h.tokens)}
         </Text>
       );
     }
     case "paragraph":
       return (
-        <Text key={key} style={[body, gap]} selectable>
+        <Text key={key} style={[body, gap, { marginBottom: last && !ctx.page ? 0 : ctx.paragraphGap ?? 8 }]} selectable>
           {inline(ctx, (tok as Tokens.Paragraph).tokens)}
         </Text>
       );
@@ -74,7 +87,8 @@ function block(ctx: Ctx, tok: Token, key: number, last: boolean): ReactNode {
       return (
         <View key={key} style={[{ backgroundColor: t.c.panel2, borderRadius: 6 }, gap]} accessibilityLabel={c.lang ? `${c.lang} code` : "Code"}>
           <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ paddingVertical: 8, paddingHorizontal: 10 }}>
-            <Text style={[font(t, "mono", 400, 12, 1.55), { color: body.color }]} selectable>
+            {/* A page's pre keeps the browser's 13px monospace strut, so each line is 13px times the body's ratio. */}
+            <Text style={[font(t, "mono", 400, 12, 1.55), { color: body.color }, ctx.page ? { lineHeight: 13 * (t.base.lineHeight / t.base.size) } : null]} selectable>
               {c.text}
             </Text>
           </ScrollView>
@@ -94,8 +108,9 @@ function block(ctx: Ctx, tok: Token, key: number, last: boolean): ReactNode {
         <View key={key} style={gap}>
           {l.items.map((item, i) => (
             <View key={i} style={{ flexDirection: "row" }}>
-              <Text style={[body, { width: 20, textAlign: l.ordered ? "right" : "center", paddingRight: l.ordered ? 4 : 0 }]}>{item.task ? (item.checked ? "☑" : "☐") : l.ordered ? `${start + i}.` : "•"}</Text>
-              <View style={{ flex: 1, minWidth: 0 }}>{blocks(ctx, item.tokens)}</View>
+              {/* The browser's outside marker: the bullet or number and a space, ending where the item's text starts. */}
+              <Text style={[body, { width: 20 }, l.ordered || item.task ? { textAlign: "right" } : { paddingLeft: 4 }]}>{item.task ? (item.checked ? "☑ " : "☐ ") : l.ordered ? `${start + i}. ` : "•"}</Text>
+              <View style={{ flex: 1, minWidth: 0 }}>{blocks({ ...ctx, page: false }, item.tokens)}</View>
             </View>
           ))}
         </View>
