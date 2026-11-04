@@ -6,7 +6,7 @@
 import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
-import { MAX_BYTES, formatBytes, isImage } from "@ue-mcp-studio/client-core";
+import { MAX_BYTES, formatBytes, isImage, readAll } from "@ue-mcp-studio/client-core";
 import type { Attachment } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../nav";
 
@@ -107,4 +107,42 @@ export function useAttachments(sessionId: string | null) {
     uploading: files.some((f) => f.state === "uploading"),
     ready: files.flatMap((f) => (f.state === "ready" && f.attachment ? [f.attachment] : [])),
   };
+}
+
+/** A session file or review picture the daemon serves, as a data URI the app can draw: a relayed phone has no URL to load. */
+const cache = new Map<string, string>();
+
+function base64(bytes: Uint8Array): string {
+  let s = "";
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+/**
+ * A file the daemon serves, as a data URI: the app reaches the daemon through
+ * the relay, sealed, so an image cannot be fetched by its URL. Null until it
+ * has loaded, or when it cannot be read.
+ */
+export function useDaemonImage(path: string | undefined, type = "image/png"): string | null {
+  const { project } = useProjectNav();
+  const [uri, setUri] = useState<string | null>(() => (path ? cache.get(path) ?? null : null));
+  useEffect(() => {
+    if (!path) return setUri(null);
+    const hit = cache.get(path);
+    if (hit) return setUri(hit);
+    let alive = true;
+    project
+      .transport("GET", path)
+      .then(async (r) => {
+        if (r.status >= 400) return;
+        const data = `data:${r.headers["content-type"] ?? type};base64,${base64(await readAll(r))}`;
+        cache.set(path, data);
+        if (alive) setUri(data);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [path, project, type]);
+  return uri;
 }

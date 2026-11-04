@@ -3,10 +3,10 @@
  * newest line, the subagents a viewer has opened or dismissed, and the
  * project's event stream as the list the web client's views read.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { NativeScrollEvent, NativeSyntheticEvent, ScrollViewInstance } from "react-native";
 import type { StreamEvent } from "@ue-mcp-studio/client-core";
 import type { Project } from "../connection";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, ScrollViewInstance } from "react-native";
 
 /** A clock that ticks every second while anything is running, for live elapsed times and how long a subagent has been quiet. */
 export function useNow(active: boolean): number {
@@ -24,46 +24,64 @@ export function useNow(active: boolean): number {
 export const BOTTOM_SLACK = 48;
 
 /**
- * Keep a scroll view at its newest line while the reader is there. Once they
- * scroll up it stays put, and `behind` says new lines arrived below. A change
- * of `snap` (the reader sending a message) takes them back down and following.
- * Spread `props` on the ScrollView.
+ * Keep a scrolling list at its newest line while the reader is there. Once
+ * they scroll up it stays put, and `behind` says new lines arrived below.
+ * A change of `snap` (the reader sending a message) takes them back down
+ * and following again, wherever they had scrolled. Spread `props` on the
+ * ScrollView.
  */
 export function useFollow(content: unknown, snap?: unknown) {
   const ref = useRef<ScrollViewInstance>(null);
   const atBottom = useRef(true);
   const [behind, setBehind] = useState(false);
+  const toEnd = () => ref.current?.scrollToEnd({ animated: false });
 
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+    const { contentOffset, layoutMeasurement, contentSize } = e.nativeEvent;
     atBottom.current = contentSize.height - contentOffset.y - layoutMeasurement.height <= BOTTOM_SLACK;
-    if (atBottom.current) setBehind(false);
-  }, []);
-  // New content, or a shorter view (the composer growing), keeps a reader at the bottom there.
-  const stick = useCallback(() => {
-    if (atBottom.current) ref.current?.scrollToEnd({ animated: false });
-  }, []);
+    if (atBottom.current) setBehind(false);  }, []);
 
-  useEffect(() => {
-    if (!atBottom.current) setBehind(true);
+  // New content follows the reader down while they are at the bottom; up the thread, it says so instead.
+  // Only a change of `content` moves them (and the list getting shorter): opening a call in place does not.
+  const following = useRef(true);
+  const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const first = useRef(true);
+  useLayoutEffect(() => {
+    if (first.current) first.current = false;
+    else if (!atBottom.current) return void setBehind(true);
+    following.current = true;
+    toEnd();
+    if (settle.current) clearTimeout(settle.current);
+    settle.current = setTimeout(() => (following.current = false), 600);
   }, [content]);
+  useEffect(() => () => void (settle.current && clearTimeout(settle.current)), []);
+
+  const onContentSizeChange = useCallback(() => {
+    if (following.current && atBottom.current) toEnd();
+  }, []);
+  const height = useRef(0);
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
+    const h = e.nativeEvent.layout.height;
+    if (h < height.current && atBottom.current) toEnd();
+    height.current = h;
+  }, []);
 
   const snapped = useRef(snap);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (snapped.current === snap) return;
     snapped.current = snap;
     atBottom.current = true;
     setBehind(false);
-    ref.current?.scrollToEnd({ animated: false });
+    toEnd();
   }, [snap]);
 
   const jump = useCallback(() => {
-    ref.current?.scrollToEnd({ animated: true });
+    toEnd();
     atBottom.current = true;
     setBehind(false);
   }, []);
 
-  return { ref, behind, jump, props: { ref, onScroll, onContentSizeChange: stick, onLayout: stick, scrollEventThrottle: 32 } };
+  return { ref, behind, jump, props: { ref, onScroll, onContentSizeChange, onLayout, scrollEventThrottle: 32 } };
 }
 
 /**
@@ -74,21 +92,19 @@ export function useDismissed(sessionId: string | null, stored: readonly string[]
   const [mine, setMine] = useState<Set<string>>(() => new Set());
   useEffect(() => setMine(new Set()), [sessionId]);
   const dismissed = useMemo(() => new Set([...(stored ?? []), ...mine]), [stored, mine]);
-  const dismiss = useCallback(
-    (ids: string[]) => {
-      if (!sessionId || ids.length === 0) return;
-      setMine((cur) => new Set([...cur, ...ids]));
-      // A failed save puts the rows back.
-      void save(sessionId, ids).catch(() => setMine((cur) => new Set([...cur].filter((id) => !ids.includes(id)))));
-    },
-    [sessionId, save],
-  );
+  const dismiss = useCallback((ids: string[]) => {
+    if (!sessionId || ids.length === 0) return;
+    setMine((cur) => new Set([...cur, ...ids]));
+    // A failed save puts the rows back.
+    void save(sessionId, ids).catch(() => setMine((cur) => new Set([...cur].filter((id) => !ids.includes(id)))));
+  }, [sessionId, save]);
   return { dismissed, dismiss };
 }
 
 /**
  * The subagent threads the user has opened, per session, so the list marks a
- * finished one new only until it is opened. Kept with the session in Studio.
+ * finished one new only until it is opened. `stored` is what the session
+ * says; `markSeen` records one more.
  */
 export function useSeen(sessionId: string | null, stored: readonly string[] | undefined, save: (sessionId: string, id: string) => Promise<unknown>): { seen: ReadonlySet<string>; markSeen: (id: string) => void } {
   const [seen, setSeen] = useState<Set<string>>(() => new Set());
@@ -97,16 +113,13 @@ export function useSeen(sessionId: string | null, stored: readonly string[] | un
     if (!stored?.length) return;
     setSeen((cur) => (stored.every((id) => cur.has(id)) ? cur : new Set([...cur, ...stored])));
   }, [stored]);
-  const markSeen = useCallback(
-    (id: string) => {
-      setSeen((cur) => {
-        if (cur.has(id)) return cur;
-        if (sessionId) void save(sessionId, id).catch(() => {});
-        return new Set(cur).add(id);
-      });
-    },
-    [sessionId, save],
-  );
+  const markSeen = useCallback((id: string) => {
+    setSeen((cur) => {
+      if (cur.has(id)) return cur;
+      if (sessionId) void save(sessionId, id).catch(() => {});
+      return new Set(cur).add(id);
+    });
+  }, [sessionId, save]);
   return { seen, markSeen };
 }
 
