@@ -4,6 +4,7 @@ import type { DaemonEvent } from "ue-mcp/daemon";
 import type { StudioUpdates, UeMcpUpdate } from "./Updates";
 import { STEP_NAME, STEP_NOTE, afterRunning, execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
+import { onRemotePage } from "../connection";
 
 let current: UpdateRun | null = null;
 const listeners = new Set<() => void>();
@@ -42,6 +43,8 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
   useEffect(() => {
     if (!streaming || resumed.current) return;
     resumed.current = true;
+    // Only Studio on the computer carries an update on; a paired browser follows it through studio.update.run events.
+    if (onRemotePage()) return;
     void loadRun().then(async (saved) => {
       if (!saved) return;
       setRun(saved);

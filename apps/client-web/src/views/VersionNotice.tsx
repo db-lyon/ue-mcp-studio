@@ -7,12 +7,15 @@
 import { useEffect, useState } from "react";
 import { api, notThere, type StudioVersionNotice } from "../api";
 import type { DaemonState } from "../state";
+import { REMOTE_UPDATES, onRemotePage } from "../connection";
 
 /** How often the notice is read again: another project can install a version at any time. */
 export const NOTICE_POLL_MS = 5 * 60_000;
 
-export function VersionNoticeLine({ notice, onUpdate, onKeep, busy, error }: {
+export function VersionNoticeLine({ notice, onUpdate, onKeep, busy, error, remote = false }: {
   notice: StudioVersionNotice;
+  /** A paired browser: says what changed, with no buttons, since moving versions runs on the computer. */
+  remote?: boolean;
   onUpdate: () => void;
   onKeep: () => void;
   busy: "update" | "keep" | null;
@@ -23,9 +26,12 @@ export function VersionNoticeLine({ notice, onUpdate, onKeep, busy, error }: {
       <span className="editor-banner-text">
         Studio {notice.installed} was installed by another project. This project uses {notice.current}.
         {error && <span className="dim"> {error}</span>}
+        {remote && <span className="dim"> {REMOTE_UPDATES}</span>}
       </span>
+      {!remote && <>
       <button className="primary" disabled={busy !== null} onClick={onUpdate}>{busy === "update" ? "Updating" : "Update this project"}</button>
       <button disabled={busy !== null} onClick={onKeep}>Keep {notice.current}</button>
+      </>}
     </div>
   );
 }
@@ -62,5 +68,5 @@ export function VersionNotice({ daemon }: { daemon: DaemonState }) {
     setError(null);
     api.keepStudio(notice.installed).then((r) => setNotice(r.notice), (e: Error) => setError(e.message)).finally(() => setBusy(null));
   };
-  return <VersionNoticeLine notice={notice} onUpdate={update} onKeep={keep} busy={busy} error={error} />;
+  return <VersionNoticeLine notice={notice} onUpdate={update} onKeep={keep} busy={busy} error={error} remote={onRemotePage()} />;
 }

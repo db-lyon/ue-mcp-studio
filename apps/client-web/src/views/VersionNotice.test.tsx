@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { VersionNotice } from "./VersionNotice";
+import { VersionNotice, VersionNoticeLine } from "./VersionNotice";
 import type { DaemonState } from "../state";
 
 afterEach(() => {
@@ -32,6 +32,12 @@ describe("the Studio version notice (ue-mcp#1619)", () => {
     fireEvent.click(screen.getByText("Update this project"));
     await waitFor(() => expect(posted).toEqual([{ url: "/v1/ext/studio/version-notice/update", body: { version: "0.1.25" } }]));
     expect(screen.getByText("Updating")).toBeTruthy();
+  });
+
+  it("in a paired browser says what changed with no buttons", () => {
+    render(<VersionNoticeLine notice={{ installed: "0.1.25", current: "0.1.23" } as never} onUpdate={() => {}} onKeep={() => {}} busy={null} error={null} remote />);
+    expect(screen.queryAllByRole("button")).toEqual([]);
+    expect(screen.getByRole("status").textContent).toContain("Updates run from Studio on the computer.");
   });
 
   it("Keep hides it and remembers the version kept past", async () => {

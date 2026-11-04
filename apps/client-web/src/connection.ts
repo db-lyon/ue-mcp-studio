@@ -154,6 +154,9 @@ export function onRemotePage(): boolean {
   return forced ?? isRemotePage(!!(window as unknown as { ue?: unknown }).ue, window.location.hostname);
 }
 
+/** Why a paired browser has no update controls: updates install software on the computer, which only Studio there may do. */
+export const REMOTE_UPDATES = "Updates run from Studio on the computer.";
+
 /** What a paired browser shows when ue-mcp on the computer stays away. */
 export const REMOTE_OFFLINE = "It may be restarting, or the computer may be asleep or offline. This page reconnects by itself as soon as ue-mcp answers again; there is nothing to run here.";
 

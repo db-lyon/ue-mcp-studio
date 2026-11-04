@@ -8,6 +8,7 @@
 import { useEffect, useState } from "react";
 import { isNewer, refusalInHealth, type RefusedExtension, type StudioRefusal } from "@ue-mcp-studio/shared";
 import { native, type StudioBinding } from "../native";
+import { REMOTE_UPDATES, onRemotePage } from "../connection";
 
 /** Studio's refusal, null when Studio runs, undefined until the agent has answered. */
 export function useRefusal(health: { version: string; refusedExtensions?: RefusedExtension[] } | null): StudioRefusal | null | undefined {
@@ -89,7 +90,8 @@ export async function updateUeMcp(
 
 type Step = { kind: "idle" } | { kind: "working" } | { kind: "done"; version: string } | { kind: "failed"; error: string };
 
-export function RefusedScreen({ refusal }: { refusal: StudioRefusal }) {
+/** `remote`: a paired browser, which says the update runs on the computer instead of offering it. */
+export function RefusedScreen({ refusal, remote = onRemotePage() }: { refusal: StudioRefusal; remote?: boolean }) {
   const [step, setStep] = useState<Step>({ kind: "idle" });
   const update = () => {
     setStep({ kind: "working" });
@@ -102,7 +104,9 @@ export function RefusedScreen({ refusal }: { refusal: StudioRefusal }) {
         <h1 className="refused-head">
           Studio needs ue-mcp <span className="version">{refusal.needs}</span>. You have <span className="version">{refusal.have}</span>.
         </h1>
-        {step.kind === "done" ? (
+        {remote ? (
+          <p className="muted">{REMOTE_UPDATES}</p>
+        ) : step.kind === "done" ? (
           <p className="muted">ue-mcp {step.version} is installed. Restart the editor to finish.</p>
         ) : (
           <button className="primary large" onClick={update} disabled={step.kind === "working"}>
