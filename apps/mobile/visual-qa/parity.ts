@@ -20,7 +20,7 @@ export interface ParityEntry {
   type?: { into: string; text: string };
   /** Pressed one after another once the typing settles, then left for wait milliseconds: the web scenario's afterType. */
   afterType?: { clicks: string[]; wait: number };
-  /** Scrolled to the top of the window after the clicks, by accessibility label: the web scenario's scroll. */
+  /** Scrolled to the top of the conversation before the shot, by accessibility label (or text): the web scenario's `scroll`. */
   scroll?: string;
 }
 
@@ -30,8 +30,8 @@ const BOX = "textarea";
 export const PARITY: Record<string, ParityEntry> = {
   "version-notice": {owner: "shell"},
   "nav-drawer": {owner: "shell", clicks: ["Open navigation"]},
-  "tools-open": {owner: "chat"},
-  "tools-open-edit": {owner: "chat"},
+  "tools-open": {owner: "chat", clicks: ["shell"]},
+  "tools-open-edit": {owner: "chat", clicks: ["edit"], scroll: "edit"},
   "approvals-waiting": {owner: "chat"},
   "vcs-changes": {owner: "agent-a"},
   "vcs-changes-remote": {owner: "agent-a"},
@@ -157,8 +157,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "context-estimated": {owner: "chat", clicks: ["Context *"]},
   "context-claude-runtime": {owner: "chat", clicks: ["Context *"]},
   "compaction-collapsed": {owner: "chat"},
-  "compaction-expanded": {owner: "chat"},
+  "compaction-expanded": {owner: "chat", clicks: ["Context compacted"]},
   "compaction-running": {owner: "chat"},
-  "compaction-failed": {owner: "chat"},
-  "compaction-subagent": {owner: "chat"},
+  "compaction-failed": {owner: "chat", clicks: ["Compaction failed"]},
+  "compaction-subagent": {owner: "chat", clicks: ["Open thread ›"]},
 };
