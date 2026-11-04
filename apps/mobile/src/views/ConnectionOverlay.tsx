@@ -8,7 +8,7 @@
 import { useEffect, useReducer, useRef } from "react";
 import { AppState, StyleSheet, View } from "react-native";
 import { CONN_QUIET_MS, REMOTE_OFFLINE, REMOTE_QUIET_MS, connected, elapsed, headline, step, waking, type Conn, type ConnEvent } from "@ue-mcp-studio/client-core";
-import { Button, font, Row, Spacer, Spinner, T, useStyles, type Theme } from "../ui";
+import { Button, edgePadding, font, Row, Spacer, Spinner, T, useInsets, useStyles, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import type { DaemonEvent } from "../state";
 
@@ -81,12 +81,13 @@ export function useConnection(streaming: boolean, events: DaemonEvent[], updatin
 /** What the app shows while ue-mcp is away, from a short gap to the point it is offline. */
 export function ConnectionOverlay({ c }: { c: Connection }) {
   const s = useStyles(styles);
+  const insets = useInsets();
   const { conn, now, remote } = c;
   if (conn.phase === "connected") return null;
   const down = conn.downSince === null ? "" : elapsed(now - conn.downSince);
   if (waking(conn, now)) {
     return (
-      <View style={s.line} accessibilityRole="text" accessibilityLiveRegion="polite" pointerEvents="none">
+      <View style={[s.line, { top: 8 + insets.top, right: 10 + insets.right }]} accessibilityRole="text" accessibilityLiveRegion="polite" pointerEvents="none">
         <Spinner />
         <T style={s.lineText} numberOfLines={1}>
           Reconnecting to ue-mcp
@@ -117,7 +118,7 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
   }
   const head = headline(conn, now, remote);
   return (
-    <View style={s.overlay} accessibilityViewIsModal accessibilityLabel={head}>
+    <View style={[s.overlay, edgePadding(insets, 8)]} accessibilityViewIsModal accessibilityLabel={head}>
       <View style={[s.card, s.shadow]}>
         <View style={s.head}>
           {!needs || remote ? <Spinner /> : null}
