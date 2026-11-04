@@ -16,6 +16,7 @@ export type FakeApi = { [K in keyof StudioApi]: ReturnType<typeof vi.fn> };
 const NAMES: Array<keyof StudioApi> = [
   "health", "sessions", "newSession", "sessionSync", "callResult", "send", "queue", "removeQueued", "sendQueued", "stop", "saveDraft", "approve", "dialogs", "answerDialog",
   "settings", "saveSettings", "models", "reviewStatus", "setSessionReview", "reviewDiff", "reviewKeep", "reviewRevert", "reviewUndo", "timelineRestore", "timelineUndo", "vcs", "vcsChanges", "vcsDiff",
+  "resolveAssets", "reportAssetMiss", "openAsset", "forms", "answerForm",
 ];
 
 export function fakeApi(): FakeApi {
