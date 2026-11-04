@@ -257,9 +257,20 @@ export class Updater {
     private readonly onBackgroundFailure: (step: "studio" | "restart", error: string) => void = () => {},
   ) {}
 
-  /** The ue-mcp package the manifest names, else the beta channel. */
+  /** The ue-mcp package a daemon this updater starts runs: see daemonPackage. */
   private async ueMcpPackage(): Promise<string> {
-    return this.manifest().then((m) => m.ueMcp?.package ?? "ue-mcp@beta", () => "ue-mcp@beta");
+    const m = await this.manifest().catch(() => null);
+    return daemonPackage(this.bridgeVersion(), m?.ueMcp?.min, m?.ueMcp?.package ?? "ue-mcp@beta");
+  }
+
+  /** The bridge plugin's version in the project, or null when it is not in the project. */
+  bridgeVersion(): string | null {
+    try {
+      const u = JSON.parse(fs.readFileSync(path.join(this.host.projectDir, "Plugins", "UE_MCP_Bridge", "UE_MCP_Bridge.uplugin"), "utf-8")) as { VersionName?: unknown };
+      return typeof u.VersionName === "string" ? u.VersionName : null;
+    } catch {
+      return null;
+    }
   }
 
   /** Studio's latest.json on the chosen channel; UE_MCP_STUDIO_CHANNEL, when set, outranks the choice. */
@@ -351,9 +362,9 @@ export class Updater {
   }
 
   /**
-   * Run the newest ue-mcp on the channel in the background: npx resolves the channel
-   * (ue-mcp@beta) each time, so a daemon it starts runs the version just
-   * installed rather than the one this daemon runs.
+   * Run ue-mcp in the background as daemonPackage names it, so a daemon it
+   * starts runs the version the bridge was just moved to rather than the one
+   * this daemon runs.
    */
   private async ueMcp(step: "studio", args: string[]): Promise<{ started: boolean; error?: string }> {
     const npx = npxCli();
@@ -470,7 +481,7 @@ export class Updater {
     return this.runUeMcp(version, ["update", uproject, "--apply-only"]);
   }
 
-  /** Restart the daemon on the newest ue-mcp, after an update installed it. */
+  /** Restart the daemon on the bridge's ue-mcp, after an update installed it or when the daemon runs another. */
   async restartDaemon(): Promise<{ started: boolean; error?: string }> {
     if (this.busy) return { started: false, error: `an update is already running (${this.busy})` };
     const uproject = this.uproject();
@@ -564,6 +575,17 @@ export class Updater {
       this.busy = null;
     }
   }
+}
+
+/**
+ * The ue-mcp package the daemon runs: the bridge's own version, which Update
+ * moved along the user's channel, so server and bridge stay in step and a beta
+ * channel runs its beta. The manifest's package only when there is no project
+ * bridge or it is older than Studio needs, as the editor plugin chooses.
+ */
+export function daemonPackage(bridge: string | null, min: string | undefined, fallback: string): string {
+  if (!bridge || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(bridge)) return fallback;
+  return min && isNewer(min, bridge) ? fallback : `ue-mcp@${bridge}`;
 }
 
 /** The first failed step of an editor operation's result, as "step: reason", or null. */

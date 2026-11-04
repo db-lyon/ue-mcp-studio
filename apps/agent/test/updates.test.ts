@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { UPDATE_FAILURE_FILE, Updater, cleanPath, describeFailure, failureText, isNewer, readPluginRecord, readUpdateFailure, newestAsset, readChannel, shownCommand, updateEnv, writeChannel } from "../src/updates.js";
+import { UPDATE_FAILURE_FILE, Updater, daemonPackage, cleanPath, describeFailure, failureText, isNewer, readPluginRecord, readUpdateFailure, newestAsset, readChannel, shownCommand, updateEnv, writeChannel } from "../src/updates.js";
 
 // The user's own channel choice never reaches these tests.
 process.env.STUDIO_CHANNEL_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "studio-chan-")), "update-channel.json");
@@ -84,6 +84,24 @@ describe("Studio updates", () => {
     const m = { version: "0.1.0-beta.27", url: "s", sha256: "x", pluginMin: "0.1.0-beta.27", plugin: { version: "0.1.0-beta.27", files: { "5.8": { url: "u", sha256: "y" } } } };
     expect((await new Updater(fakeHost(project("0.1.0-beta.26")), "0.1.0-beta.26", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ latest: "0.1.0-beta.27", available: true, required: true });
     expect((await new Updater(fakeHost(project("0.1.0-beta.27")), "0.1.0-beta.26", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ available: false, required: false });
+  });
+
+  it("runs the daemon on the bridge's own ue-mcp, so a beta channel's bridge brings its daemon along", () => {
+    expect(daemonPackage("1.4.12-beta.2", "1.4.11", "ue-mcp@latest")).toBe("ue-mcp@1.4.12-beta.2");
+    expect(daemonPackage("1.4.11", "1.4.11", "ue-mcp@latest")).toBe("ue-mcp@1.4.11");
+    // Older than Studio needs, missing, or not a version: the manifest's package.
+    expect(daemonPackage("1.4.10", "1.4.11", "ue-mcp@latest")).toBe("ue-mcp@latest");
+    expect(daemonPackage(null, "1.4.11", "ue-mcp@latest")).toBe("ue-mcp@latest");
+    expect(daemonPackage("1.4.12 && calc", undefined, "ue-mcp@beta")).toBe("ue-mcp@beta");
+  });
+
+  it("reads the project's bridge version from its .uplugin", () => {
+    const dir = project(null);
+    const u = new Updater(fakeHost(dir), "0.1.0", () => {});
+    expect(u.bridgeVersion()).toBeNull();
+    fs.mkdirSync(path.join(dir, "Plugins", "UE_MCP_Bridge"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "Plugins", "UE_MCP_Bridge", "UE_MCP_Bridge.uplugin"), JSON.stringify({ VersionName: "1.4.12-beta.2" }));
+    expect(u.bridgeVersion()).toBe("1.4.12-beta.2");
   });
 
   it("passes on the oldest ue-mcp the latest Studio runs on", async () => {

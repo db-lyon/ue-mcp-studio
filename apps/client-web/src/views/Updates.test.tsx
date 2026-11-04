@@ -24,6 +24,10 @@ describe("updates", () => {
 
   it("names each part that has something newer", () => {
     expect(readyLine({ studio: studio(false, false), ueMcp: ueMcp(true) })).toBe("Ready to install: the bridge plugin 1.4.0-beta.2.");
+    const left = { ...ueMcp(false), installed: { version: "1.4.0-beta.2" } };
+    expect(updateSteps({ studio: studio(false, false), ueMcp: left })).toEqual(["restart"]);
+    expect(waiting({ studio: studio(false, false), ueMcp: left })).toBe(1);
+    expect(readyLine({ studio: studio(false, false), ueMcp: left })).toBe("Ready to install: ue-mcp 1.4.0-beta.2.");
     expect(readyLine({ studio: studio(true, true), ueMcp: ueMcp(true) })).toBe("Ready to install: the bridge plugin 1.4.0-beta.2, the editor plugin 0.1.0-beta.9 and Studio 0.1.0-beta.10.");
   });
 
