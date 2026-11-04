@@ -7,18 +7,19 @@
  * version), a button that opens Unreal's own diff in the editor; and the
  * session's checkpoint timeline with Restore to here and Undo.
  */
-import { useContext, useEffect, useState, type ReactNode } from "react";
-import { Image, Pressable, View } from "react-native";
+import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { Animated, Easing, Image, Pressable, View, type TextStyle, type ViewStyle } from "react-native";
+import Svg, { Path } from "react-native-svg";
 import { REVIEW_GROUPS, unifiedLines, type CheckpointChange, type RestoreOutcome, type ReviewItem, type ReviewStatus, type TimelineMark, type TurnReview } from "@ue-mcp-studio/shared";
 import { REVIEW_STATUS, blueprintLines, fileName, markKind, markTime, nativeTitle, openedText, outcomeNote } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
-import { Banner, Check, font, labelFont, Pill, T, useTheme, type Theme } from "../../../ui";
+import { Banner, buttonFont, Check, font, labelFont, Pill, T, useTheme, type Theme } from "../../../ui";
 import { AssetDiffView } from "./AssetDiff";
 import { AssetTile } from "../../../chat/AssetTile";
 import { DiffView } from "../../../chat/Diff";
 import { SessionIdContext } from "../../../chat/attachments";
-import { engineText } from "../../../chat/breakable";
+import { engineParts, engineText } from "../../../chat/breakable";
 import { useDaemonImage } from "../../../chat/daemon-image";
 import { buttonText, small } from "../../../chat/styles";
 
@@ -26,9 +27,8 @@ export { outcomeNote };
 
 const lh = (t: Theme): number => (t.editor ? 1.5 : 1.55);
 
-/** A small-button's text: the body's size in the button font (the editor themes keep 12px). */
-/** A small-button's text: the font size of where it sits (the body's, or .small's 12px inside a small banner); the editor themes keep 12px. */
-const smallButtonText = (t: Theme, size = t.editor ? 12 : 13.5) => [buttonText(t), { fontSize: size, lineHeight: size * 1.2 }];
+/** A small-button's text: the font size of where it sits (the body's, or .small's 12px inside a small banner), with the button's 0.02em; the editor themes keep 12px. */
+const smallButtonText = (t: Theme, size = t.base.size) => [buttonFont(t, false, size)];
 
 /**
  * A button inside the conversation at a finger's size, outlined as every
@@ -72,45 +72,150 @@ export function OutlineButton({ title, onPress, disabled, expanded, kind, small:
   );
 }
 
-/** Two to a row, as the phone's review actions grid lays them out. */
-function Pairs({ items }: { items: ReactNode[] }) {
-  const rows: ReactNode[][] = [];
-  for (let i = 0; i < items.length; i += 2) rows.push(items.slice(i, i + 2));
+type Verb = "Reverting" | "Keeping" | "Undoing";
+
+/** A path that breaks only between its folders. */
+const folders = (path: string): string => path.split("/").join("/​");
+
+/**
+ * Keep, Revert, Undo revert and the conflict's buttons on a phone: drawn 32
+ * pixels tall, taking taps over a 44 pixel line (`.review-actions > button.small-button`
+ * and `.review-conflict > button.small-button` under a coarse pointer). A
+ * disabled one is drawn as a disabled button at 40%.
+ */
+function SmallButton({ title, onPress, disabled, kind, fontSize }: { title: string; onPress: () => void; disabled?: boolean; kind?: "danger"; fontSize?: number }) {
+  const t = useTheme();
+  const danger = kind === "danger";
+  const line = disabled ? t.c.disabledLine : danger ? t.c.bad : t.c.lineStrong;
+  const color = disabled ? t.c.dim : danger ? t.c.bad : t.c.text;
   return (
-    <>
-      {rows.map((r, i) => (
-        <View key={i} style={{ flexDirection: "row", gap: 6 }}>
-          {r.map((x, j) => (
-            <View key={j} style={{ flex: 1, minWidth: 0, justifyContent: "center", alignItems: "stretch" }}>
-              {x}
-            </View>
-          ))}
-          {r.length === 1 ? <View style={{ flex: 1 }} /> : null}
-        </View>
-      ))}
-    </>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      hitSlop={{ top: 7, bottom: 7, left: 5, right: 5 }}
+      style={({ pressed }) => ({ height: 32, paddingHorizontal: 12, justifyContent: "center", alignItems: "center", borderRadius: t.radius, borderWidth: 1, borderColor: pressed && !disabled ? t.c.accentLine : line, backgroundColor: pressed && !disabled ? t.c.panel3 : t.c.panel2, opacity: disabled ? 0.4 : 1 })}
+    >
+      <T style={[...smallButtonText(t, fontSize), { color }]}>{title}</T>
+    </Pressable>
   );
 }
 
-/** A turn's changes, with Keep or Revert per item. */
+/** Revert all and Open in Unreal diff: text actions in the accent, no outline, 44 pixels tall. */
+function TextAction({ title, label, hint, onPress, disabled, text, style }: { title: string; label?: string; hint?: string; onPress: () => void; disabled?: boolean; text: TextStyle; style?: ViewStyle }) {
+  const t = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label ?? title}
+      accessibilityHint={hint}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => [{ minHeight: 44, paddingVertical: 4, paddingHorizontal: 8, justifyContent: "center", borderRadius: t.radius, borderWidth: 1, borderColor: "transparent", backgroundColor: pressed && !disabled ? t.c.panel2 : "transparent" }, style]}
+    >
+      <T style={[text, { color: disabled ? t.c.dim : t.c.accentHi }]}>{title}</T>
+    </Pressable>
+  );
+}
+
+/** The chevron after an item's name: down while its diff is closed, up (in the accent) while it is open. */
+function NameChevron({ open }: { open: boolean }) {
+  const t = useTheme();
+  const color = open ? t.c.accent : t.c.muted;
+  // vertical-align: -1px puts its foot a pixel under the name's baseline.
+  return (
+    <View style={{ marginLeft: 6, top: 1, transform: [{ rotate: open ? "180deg" : "0deg" }] }}>
+      <Svg width={10} height={10} viewBox="0 0 10 10" fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <Path d="M2 3.5l3 3 3-3" />
+      </Svg>
+    </View>
+  );
+}
+
+/**
+ * The item's name, a text button that opens its diff: a file name that wraps
+ * only between its parts, its last two parts held together with the chevron,
+ * so "uasset" is never alone on a line. Drawn 36 pixels tall, reached over 44.
+ */
+function ItemName({ path, open, reverted, onPress }: { path: string; open: boolean; reverted: boolean; onPress: () => void }) {
+  const t = useTheme();
+  const name = fileName(path);
+  const parts = engineParts(name);
+  // The editor themes' button rule (400 12px/1.2 sans) outranks the name's own font.
+  const text: TextStyle = { ...(t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "sans", 600, 13, 1.4)), color: reverted ? t.c.muted : t.c.text, textDecorationLine: reverted ? "line-through" : "none" };
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={name}
+      accessibilityHint={path}
+      accessibilityState={{ expanded: open }}
+      aria-expanded={open}
+      onPress={onPress}
+      hitSlop={{ top: 4, bottom: 4 }}
+      style={{ alignSelf: "flex-start", maxWidth: "100%", minHeight: 36, paddingVertical: 8, justifyContent: "center" }}
+    >
+      <T style={text}>
+        {parts.slice(0, -2).join("​")}
+        {parts.length > 2 ? "​" : ""}
+        <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+          <T style={text}>{parts.slice(-2).join("")}</T>
+          <NameChevron open={open} />
+        </View>
+      </T>
+    </Pressable>
+  );
+}
+
+/** A call in flight, said on its item in place of the controls: a pulsing accent dot and the verb. */
+function Acting({ verb }: { verb: Verb }) {
+  const t = useTheme();
+  const v = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if ((globalThis as { __studioFreezeAnimations?: boolean }).__studioFreezeAnimations) return;
+    const half = { duration: 1000, easing: Easing.inOut(Easing.ease), useNativeDriver: true };
+    v.setValue(0.35);
+    const loop = Animated.loop(Animated.sequence([Animated.timing(v, { toValue: 1, ...half }), Animated.timing(v, { toValue: 0.35, ...half })]));
+    loop.start();
+    return () => loop.stop();
+  }, [v]);
+  return (
+    <View role="status" accessibilityLiveRegion="polite" style={{ flexDirection: "row", alignItems: "center", gap: 6, minHeight: 32 }}>
+      <Animated.View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.c.accent, opacity: v }} />
+      <T style={[small(t), { color: t.c.muted }]}>{verb}</T>
+    </View>
+  );
+}
+
+/**
+ * A turn's changes, with Keep or Revert per item. Each item is one block: its
+ * name (which opens its diff) on the first line, its status and its state
+ * with Keep or Revert on the second, then its summary and path; Open in
+ * Unreal diff shows under the path once the item is opened. A turn that
+ * changed one file opens that file's diff at once.
+ */
 export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
   const t = useTheme();
   const { api } = useProjectNav();
   const sessionId = useContext(SessionIdContext);
   const [review, setReview] = useState(saved);
   useEffect(() => setReview(saved), [saved]);
-  const [open, setOpen] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState<string | null>(saved.items.length === 1 ? saved.items[0].path : null);
+  /** The call in flight and the items it acts on, said on those items in place of their controls. */
+  const [busy, setBusy] = useState<{ verb: Verb; paths: string[] } | null>(null);
   const [note, setNote] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  /** What a failed call said: under its item when it acted on one, else under the card. */
+  const [error, setError] = useState<{ text: string; path?: string } | null>(null);
   /** What opening Unreal's view of an item did, shown under that item. */
   const [opened, setOpened] = useState<{ path: string; text: string; bad?: boolean } | null>(null);
   /** A conflict whose Revert anyway waits for its second press. */
   const [confirming, setConfirming] = useState<string | null>(null);
 
-  const run = (call: () => Promise<{ review: TurnReview; outcome?: RestoreOutcome }>) => {
+  const run = (verb: Verb, paths: string[], call: () => Promise<{ review: TurnReview; outcome?: RestoreOutcome }>) => {
     if (!sessionId) return;
-    setBusy(true);
+    setBusy({ verb, paths });
     setError(null);
     setNote(null);
     call()
@@ -120,14 +225,17 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
           setNote(r.outcome ? outcomeNote(r.outcome) : null);
           haptic.success();
         },
-        (e: Error) => setError(e.message),
+        (e: Error) => {
+          setError({ text: e.message, ...(paths.length === 1 ? { path: paths[0] } : {}) });
+          haptic.error();
+        },
       )
       .finally(() => {
-        setBusy(false);
+        setBusy(null);
         setConfirming(null);
       });
   };
-  const keep = (paths: string[]) => run(async () => api.reviewKeep(sessionId!, review.id, paths));
+  const keep = (paths: string[]) => run("Keeping", paths, async () => api.reviewKeep(sessionId!, review.id, paths));
   const openNative = (path: string) => {
     if (!sessionId) return;
     setOpened(null);
@@ -138,9 +246,9 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
   };
   const revert = (paths: string[], force = false) => {
     haptic.warning();
-    run(() => api.reviewRevert(sessionId!, review.id, paths, force));
+    run("Reverting", paths, () => api.reviewRevert(sessionId!, review.id, paths, force));
   };
-  const undo = (path: string) => run(() => api.reviewUndo(sessionId!, review.id, path));
+  const undo = (path: string) => run("Undoing", [path], () => api.reviewUndo(sessionId!, review.id, path));
 
   const open_ = review.items.filter((i) => i.state !== "reverted");
   const reverted = review.items.length - open_.length;
@@ -150,27 +258,36 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
       accessibilityRole="none"
       testID="review-card"
       accessibilityLabel="Changes in this turn"
-      style={{ paddingVertical: 12, paddingHorizontal: 14, gap: 8, marginVertical: 8, minWidth: 0, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.editor ? "transparent" : t.c.line, borderRadius: t.radiusLg }}
+      style={{ paddingVertical: 10, paddingHorizontal: 12, gap: 10, marginVertical: 8, minWidth: 0, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.editor ? "transparent" : t.c.line, borderRadius: t.radiusLg }}
     >
-      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
-        <T style={labelFont(t)}>Changes in this turn</T>
-        <T style={dimSmall}>{`${review.items.length === 1 ? "1 file" : `${review.items.length} files`}${reverted ? `, ${reverted} reverted` : ""}`}</T>
-        <View style={{ flex: 1 }} />
-        {open_.length > 0 ? <OutlineButton title="Revert all" disabled={busy || !sessionId} onPress={() => revert(open_.map((i) => i.path))} /> : null}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 }}>
+        <View style={{ flexGrow: 1, flexShrink: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: 8, rowGap: 2 }}>
+          <T style={labelFont(t)}>Changes in this turn</T>
+          <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+            <T style={[...dimSmall, { marginRight: 8 }]}>{"·"}</T>
+            <T style={dimSmall}>{`${review.items.length === 1 ? "1 file" : `${review.items.length} files`}${reverted ? `, ${reverted} reverted` : ""}`}</T>
+          </View>
+        </View>
+        {open_.length > 0 ? (
+          <TextAction title="Revert all" disabled={!!busy || !sessionId} onPress={() => revert(open_.map((i) => i.path))} text={t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "mono", 500, 11.5, 1.2)} style={{ marginVertical: -10, marginRight: -8 }} />
+        ) : null}
       </View>
-      {REVIEW_GROUPS.map(({ group, label }) => {
+      {REVIEW_GROUPS.map(({ group, label }, gi) => {
         const items = review.items.filter((i) => i.group === group);
         if (items.length === 0) return null;
+        const first = REVIEW_GROUPS.findIndex((g) => review.items.some((i) => i.group === g.group)) === gi;
         return (
-          <View key={group} style={{ gap: 4 }}>
-            <T style={{ ...small(t), fontSize: 10, lineHeight: 10 * lh(t), letterSpacing: 0.6, textTransform: "uppercase", color: t.c.dim }}>{label}</T>
-            <View style={{ gap: 2 }}>
+          <View key={group} style={{ gap: 4, marginTop: first ? 0 : 6 }}>
+            <T style={{ ...font(t, "sans", 400, 10, lh(t)), letterSpacing: 0.6, textTransform: "uppercase", color: t.c.dim }}>{label}</T>
+            <View style={{ gap: 10 }}>
               {items.map((it) => (
                 <Item
                   key={it.path}
                   it={it}
                   open={open === it.path}
-                  busy={busy}
+                  busy={!!busy}
+                  acting={busy?.paths.includes(it.path) ? busy.verb : null}
+                  failed={error?.path === it.path ? error.text : null}
                   opened={opened?.path === it.path ? opened : null}
                   confirming={confirming === it.path}
                   onToggle={() => setOpen(open === it.path ? null : it.path)}
@@ -188,15 +305,17 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
       })}
       {review.dirty && review.dirty.length > 0 ? <T style={dimSmall}>{`Unsaved in the editor, so not recorded: ${review.dirty.join(", ")}`}</T> : null}
       {note ? <Banner kind="warn"><T style={[small(t), { color: t.c.warnText }]}>{note}</T></Banner> : null}
-      {error ? <Banner kind="bad"><T style={[small(t), { color: t.c.badText }]}>{error}</T></Banner> : null}
+      {error && !error.path ? <Banner kind="bad" role="alert"><T style={[small(t), { color: t.c.badText }]}>{error.text}</T></Banner> : null}
     </View>
   );
 }
 
-function Item({ it, open, busy, opened, confirming, onToggle, onNative, onKeep, onRevert, onUndo, onConfirm, diff }: {
+function Item({ it, open, busy, acting, failed, opened, confirming, onToggle, onNative, onKeep, onRevert, onUndo, onConfirm, diff }: {
   it: ReviewItem;
   open: boolean;
   busy: boolean;
+  acting: Verb | null;
+  failed: string | null;
   opened: { text: string; bad?: boolean } | null;
   confirming: boolean;
   onToggle: () => void;
@@ -208,62 +327,65 @@ function Item({ it, open, busy, opened, confirming, onToggle, onNative, onKeep, 
   diff: ReactNode;
 }) {
   const t = useTheme();
-  const border = it.state === "pending" ? t.c.accentLine : it.state === "kept" ? t.c.ok : it.state === "reverted" ? t.c.dim : t.c.lineStrong;
-  const actions: ReactNode[] = [];
-  if (it.state === "kept") actions.push(<View style={{ alignSelf: "center" }}><Pill kind="ok">Kept</Pill></View>);
-  if (it.state === "reverted") {
-    actions.push(<View style={{ alignSelf: "center" }}><Pill>Reverted</Pill></View>);
-    if (it.undo) actions.push(<OutlineButton title="Undo revert" disabled={busy} faded onPress={onUndo} />);
-  } else {
-    if (it.state === "pending") actions.push(<OutlineButton title="Keep" disabled={busy} faded onPress={onKeep} />);
-    if (!it.conflict) actions.push(<OutlineButton title="Revert" disabled={busy} faded onPress={() => onRevert()} />);
-  }
+  // .review-item.acting outranks .failed, which outranks the state's own rail.
+  const border = acting ? t.c.accent : failed ? t.c.bad : it.state === "pending" ? t.c.accentLine : it.state === "kept" ? t.c.ok : it.state === "reverted" ? t.c.dim : t.c.lineStrong;
+  const status = it.status === "added" ? "ok" : it.status === "deleted" ? "bad" : undefined;
   return (
-    <View accessibilityLabel={it.path} style={{ borderLeftWidth: 2, borderLeftColor: border, paddingVertical: 4, paddingRight: 4, paddingLeft: 10, gap: 4, minWidth: 0 }}>
-      <View style={{ gap: 6, minWidth: 0 }}>
-        <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, minWidth: 0 }}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={fileName(it.path)}
-            accessibilityHint={it.path}
-            accessibilityState={{ expanded: open }}
-            onPress={onToggle}
-            style={({ pressed }) => ({ minHeight: 44, justifyContent: "center", flexShrink: 1, minWidth: 0, borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.accentLine : t.c.lineStrong, backgroundColor: pressed ? t.c.panel3 : t.c.panel2 })}
-          >
-            <T style={[buttonText(t, 600), { color: it.state === "reverted" ? t.c.muted : t.c.text, textDecorationLine: it.state === "reverted" ? "line-through" : "none" }]}>{engineText(fileName(it.path))}</T>
-          </Pressable>
-          <View style={{ alignSelf: "center" }}>
-            <Pill>{REVIEW_STATUS[it.status]}</Pill>
-          </View>
-          {it.untracked ? (
-            <View style={{ alignSelf: "center" }}>
-              <Pill kind="warn">Outside the agent</Pill>
-            </View>
-          ) : null}
+    <View accessibilityLabel={it.path} style={{ borderLeftWidth: 2, borderLeftColor: border, paddingLeft: 10, paddingBottom: 4, minWidth: 0 }}>
+      <ItemName path={it.path} open={open} reverted={it.state === "reverted"} onPress={onToggle} />
+      <View style={{ flexDirection: "row", alignItems: "center", columnGap: 8, minWidth: 0 }}>
+        <View style={{ flex: 1, minWidth: 0, flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 6, rowGap: 4 }}>
+          <Pill kind={status}>{REVIEW_STATUS[it.status]}</Pill>
+          {it.state === "kept" ? <Pill kind="ok">Kept</Pill> : null}
+          {it.state === "reverted" ? <Pill>Reverted</Pill> : null}
+          {it.untracked ? <Pill kind="warn">Outside the agent</Pill> : null}
         </View>
-        <OutlineButton title="Open in Unreal diff" label="Open in Unreal diff" disabled={!it.native?.available} faded onPress={onNative} />
-        <Pairs items={actions} />
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8, minHeight: 32 }}>
+          {acting ? (
+            <Acting verb={acting} />
+          ) : it.state === "reverted" ? (
+            it.undo ? <SmallButton title="Undo revert" disabled={busy} onPress={onUndo} /> : null
+          ) : (
+            <>
+              {it.state === "pending" ? <SmallButton title="Keep" disabled={busy} onPress={onKeep} /> : null}
+              {!it.conflict ? <SmallButton title="Revert" disabled={busy} onPress={() => onRevert()} /> : null}
+            </>
+          )}
+        </View>
       </View>
-      {it.summary ? <T style={[small(t), { color: it.diffError ? t.c.bad : t.c.text }]}>{engineText(it.summary)}</T> : null}
+      {it.summary ? <T style={[font(t, "sans", 400, 12, 1.45), { marginTop: 6, color: it.diffError ? t.c.bad : t.c.text }]}>{engineText(it.summary)}</T> : null}
       {/* .small.mono on one element: .mono's 0.92em is of the body's size, not of .small's 12px. */}
-      <T style={[font(t, "mono", 400, Math.round(t.base.size * 0.92 * 100) / 100), { lineHeight: Math.round(t.base.size * 0.92 * lh(t) * 100) / 100, color: t.c.dim }]} accessibilityHint={nativeTitle(it)}>{engineText(it.path)}</T>
-      {opened ? <T accessibilityLiveRegion="polite" style={[small(t), { color: opened.bad ? t.c.bad : t.c.dim }]}>{opened.text}</T> : null}
+      <T style={[font(t, "mono", 400, Math.round(t.base.size * 0.92 * 100) / 100, lh(t)), { marginTop: 2, color: t.c.dim }]}>{folders(it.path)}</T>
+      {failed ? (
+        <Banner kind="bad" role="alert" style={{ marginTop: 6 }}>
+          <T style={[small(t), { color: t.c.badText }]}>{failed}</T>
+        </Banner>
+      ) : null}
       {it.conflict && it.state !== "reverted" ? (
-        <Banner kind="warn" role="alert">
-          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 }}>
+        <Banner kind="warn" role="alert" style={{ marginTop: 6 }}>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 8, rowGap: 14 }}>
             <T style={[small(t), { color: t.c.warnText }]}>You edited this file after the agent, so Revert left it alone.</T>
             {confirming ? (
               <>
-                <OutlineButton title="Revert and lose my edits" kind="danger" fontSize={12} disabled={busy} onPress={() => onRevert(true)} />
-                <OutlineButton title="Keep my edits" fontSize={12} onPress={() => onConfirm(false)} />
+                <SmallButton title="Revert and lose my edits" kind="danger" fontSize={12} disabled={busy} onPress={() => onRevert(true)} />
+                <SmallButton title="Keep my edits" fontSize={12} onPress={() => onConfirm(false)} />
               </>
             ) : (
-              <OutlineButton title="Revert anyway" fontSize={12} disabled={busy} onPress={() => onConfirm(true)} />
+              <SmallButton title="Revert anyway" fontSize={12} disabled={busy} onPress={() => onConfirm(true)} />
             )}
           </View>
         </Banner>
       ) : null}
-      {diff}
+      {/* A phone has no tooltip to say why Unreal cannot open it; the opened diff says so instead. */}
+      {open && it.native?.available ? (
+        <TextAction title="Open in Unreal diff" hint={nativeTitle(it)} onPress={onNative} text={{ ...font(t, "sans", 500, 12, 1.3), letterSpacing: 0 }} style={{ alignSelf: "flex-start", marginTop: 2, marginBottom: -6, marginLeft: -8 }} />
+      ) : null}
+      {opened ? (
+        <View role="status" accessibilityLiveRegion="polite" style={{ marginTop: 4 }}>
+          <T style={[small(t), { color: opened.bad ? t.c.bad : t.c.dim }]}>{opened.text}</T>
+        </View>
+      ) : null}
+      {diff ? <View style={{ marginTop: 8, minWidth: 0 }}>{diff}</View> : null}
     </View>
   );
 }
