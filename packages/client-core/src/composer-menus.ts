@@ -72,7 +72,7 @@ export const mentionKey = (query: string, kinds?: MentionKind[]): string => `${k
 /** Why some kinds of name could not be looked up, from a fresh answer's sources. */
 export function mentionNotes(sources: MentionSearchResponse["sources"]): string[] {
   return [
-    sources.actor === "unavailable" ? "Actors need a running editor." : null,
+    sources.actor === "unavailable" ? "Actors need the editor connected and not busy." : null,
     sources.asset === "disk" ? "Assets are read from disk while the editor is not answering." : null,
   ].filter((n): n is string => !!n);
 }

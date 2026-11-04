@@ -114,7 +114,7 @@ export function EditorBanner({ daemon, compact = false }: { daemon: DaemonState;
       (e: Error) => setError(e.message),
     ).finally(() => setStarting(false));
   };
-  return frame(starting ? "Starting" : "Editor off", "warn",
+  return frame(starting ? "Starting" : state.chip, "warn",
     <div className="banner warn editor-banner" role="status">
       <span className="editor-banner-text">
         <strong>{state.title}</strong>

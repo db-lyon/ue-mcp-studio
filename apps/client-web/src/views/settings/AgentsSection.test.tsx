@@ -29,7 +29,7 @@ const m = vi.hoisted(() => ({
   models: vi.fn(async () => ({ signedIn: {}, providers: [] })),
 }));
 vi.mock("../../api", () => ({ api: m, ApiError: Error }));
-import { AgentsSection } from "./AgentsSection";
+import { AgentsSection, CONCURRENCY_HELP } from "./AgentsSection";
 
 afterEach(() => {
   cleanup();
@@ -200,7 +200,7 @@ describe("Agents: what each vendor's own files give its models", () => {
     const field = screen.getByRole("textbox", { name: "Concurrency" }) as HTMLInputElement;
     expect(field.value).toBe("4");
     expect(screen.getByText("Concurrency")).toBeTruthy();
-    expect(screen.getByText("Maximum number of active workers allowed at one time. Additional workers are queued. Use -1 for no limit.").textContent).toBe("Maximum number of active workers allowed at one time. Additional workers are queued. Use -1 for no limit.");
+    expect(screen.getByText(CONCURRENCY_HELP).textContent).toBe("Most subagents one turn runs at once. Extra ones wait for a free slot. -1 for no limit.");
     fireEvent.change(field, { target: { value: "8" } });
     await act(async () => void fireEvent.keyDown(field, { key: "Enter" }));
     expect(m.saveSettings).toHaveBeenCalledWith({ usage: { subagentsPerTurn: 8 } });

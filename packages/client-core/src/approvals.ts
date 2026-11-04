@@ -12,10 +12,18 @@ const TITLE: Record<ApprovalRequest["tool"], string> = {
   ue_mcp: "Run this action?",
 };
 
+/** The card's title for each editor operation. */
+const OPERATION_TITLE: Record<NonNullable<ApprovalRequest["operation"]>, string> = {
+  restart: "Restart the editor?",
+  rebuild: "Rebuild and restart the editor?",
+  stop: "Stop the editor?",
+  start: "Start the editor?",
+};
+
 /** The card's question. */
 export function approvalTitle(a: Pick<ApprovalRequest, "tool" | "creates" | "operation">): string {
   if (a.tool === "write_file" && a.creates) return "Create this file?";
-  if (a.tool === "editor_restart" && a.operation === "rebuild") return "Rebuild and restart the editor?";
+  if (a.tool === "editor_restart") return OPERATION_TITLE[a.operation ?? "restart"];
   return TITLE[a.tool];
 }
 
@@ -24,9 +32,14 @@ export const APPROVAL_KIND: Record<ApprovalRequest["tool"], string> = {
   shell: "commands",
   write_file: "file changes",
   edit_file: "file changes",
-  editor_restart: "editor restarts",
+  editor_restart: "editor starts, stops and restarts",
   ue_mcp: "ue-mcp actions that delete or overwrite",
 };
+
+/** An editor operation's card body: what it does, and that a close shows the editor's save prompt first. */
+export function restartLine(operation: ApprovalRequest["operation"]): string {
+  return `${RESTART_OPERATION[operation ?? "restart"]}.${operation === "start" ? "" : " Unsaved work gets the editor's save prompt first."}`;
+}
 
 export const RESTART_OPERATION: Record<NonNullable<ApprovalRequest["operation"]>, string> = {
   restart: "Restart the editor",

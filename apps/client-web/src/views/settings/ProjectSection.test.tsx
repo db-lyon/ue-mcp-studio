@@ -98,7 +98,7 @@ describe("Project > a bridge that needs a rebuild", () => {
   it("asks before closing the editor, and Cancel closes nothing", async () => {
     await show(ctx(), stale());
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Rebuild" })));
-    expect(screen.getByText(/Rebuild closes the editor, builds the bridge plugin, and opens the editor again./)).toBeTruthy();
+    expect(screen.getByText(/Rebuild closes the editor, builds the project's C\+\+ including the bridge plugin, and opens the editor again./)).toBeTruthy();
     expect(m.editor).not.toHaveBeenCalled();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Cancel" })));
     expect(m.editor).not.toHaveBeenCalled();

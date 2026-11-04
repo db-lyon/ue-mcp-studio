@@ -203,7 +203,7 @@ const MAX_DIFF = 200 * 1024;
 export async function diffOf(projectDir: string, file: string, r: Run = run): Promise<{ diff: string | null; reason?: string }> {
   const vcs = await detectVcs(projectDir, r);
   if (!vcs) return { diff: null, reason: "The project is not under source control." };
-  if (BINARY_EXT.test(file)) return { diff: null, reason: "A binary file: open it in the editor to see it." };
+  if (BINARY_EXT.test(file)) return { diff: null, reason: "A binary file, so there is no text diff." };
   if (file.includes("\0") || /(^|[\\/])\.\.([\\/]|$)/.test(file) || path.isAbsolute(file) || /^[a-zA-Z]:/.test(file)) return { diff: null, reason: "Not a path in this project." };
   let out: string | null = null;
   if (vcs.kind === "git") {

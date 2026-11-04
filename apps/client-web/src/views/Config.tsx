@@ -19,13 +19,13 @@ export function ConfigView() {
     api.saveConfig(text).then(
       (f) => {
         setFile(f);
-        setMessage({ ok: true, text: "Saved. The server reloads it on the next call." });
+        setMessage({ ok: true, text: "Saved. Flows and tasks apply from the next call; other settings when ue-mcp restarts." });
       },
       (e: ApiError) => setMessage({ ok: false, text: e.message }),
     );
   };
 
-  if (!file) return message ? <div className="banner bad">{message.text}</div> : <p className="muted">Loading...</p>;
+  if (!file) return message ? <div className="banner bad">{message.text}</div> : <p className="muted">Loading</p>;
   const dirty = text !== file.text;
   return (
     <section className="card">

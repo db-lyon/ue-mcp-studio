@@ -164,7 +164,7 @@ export type StudioApi = ReturnType<typeof studioApi>;
 /** What a revert or restore left alone, in words. */
 export function outcomeNote(o: RestoreOutcome): string | null {
   const parts: string[] = [];
-  if (o.conflicts.length) parts.push(`${o.conflicts.length === 1 ? "1 file was" : `${o.conflicts.length} files were`} edited after the agent and left as they are`);
+  if (o.conflicts.length) parts.push(`${o.conflicts.length === 1 ? "1 file was" : `${o.conflicts.length} files were`} changed outside the agent and left as they are`);
   if (o.missing.length) parts.push(`${o.missing.length === 1 ? "1 file has" : `${o.missing.length} files have`} no earlier version to put back`);
   return parts.length ? `${parts.join("; ")}.` : null;
 }

@@ -562,7 +562,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                 <span className="qa-step-tags">
                   {s.player && <span className="qa-player small" title="The player this step is for">{s.player}</span>}
                   <span className={`qa-judge small ${s.judge}`} title={s.judge === "auto" ? "The observer checks this step from a value in PIE" : "A person judges this step"}>{judgeLabel(s)}</span>
-                  {s.judge === "manual" && !qaAgentMayJudge(s) && <span className="qa-judge small" title="Only a person gives this step's verdict, never the subagent">Person only</span>}
+                  {s.judge === "manual" && !qaAgentMayJudge(s) && <span className="qa-judge small" title="Only a person gives this step's verdict, never an agent">Person only</span>}
                   {byAgent && <span className="qa-badge agent small" title={why} tabIndex={0} aria-label={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</span>}
                   {unchecked ? <span className="qa-status small dim">Checked when the playtest runs</span>
                     : !draft && <span className={`qa-status small ${stepTone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s, ended)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>

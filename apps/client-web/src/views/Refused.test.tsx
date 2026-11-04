@@ -36,7 +36,7 @@ describe("Studio refused for an older ue-mcp", () => {
 
   it("says what Studio needs and what is installed, with one button", () => {
     render(<RefusedScreen refusal={{ needs: "1.4.11-beta.6", have: "1.4.10" }} />);
-    expect(screen.getByRole("heading").textContent?.replace(/\s+/g, " ").trim()).toBe("Studio needs ue-mcp 1.4.11-beta.6. You have 1.4.10.");
+    expect(screen.getByRole("heading").textContent?.replace(/\s+/g, " ").trim()).toBe("Studio needs ue-mcp 1.4.11-beta.6 or later. You have 1.4.10.");
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Update ue-mcp"]);
   });
 

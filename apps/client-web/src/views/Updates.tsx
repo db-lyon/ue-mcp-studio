@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { daemonMoves, daemonTarget, fabUpdate, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
+import { PLUGIN_OUTSIDE, checkFailure, daemonMoves, daemonTarget, fabUpdate, pluginOutside, updateStatus, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
 
 /** The update check's model lives in client-core, shared with the mobile app. */
-export { daemonMoves, daemonTarget, fabUpdate, failureLine, pluginStep, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate };
+export { checkFailure, daemonMoves, daemonTarget, fabUpdate, failureLine, pluginStep, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate };
 
 /** Opens in the system browser from the editor panel; a plain browser opens a tab. */
 const openLink = (url: string) => void window.open(url, "_blank", "noopener");
@@ -78,7 +78,9 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
   const steps = u ? updateSteps(u) : [];
   const ready = u ? readyLine(u) : "";
   const fab = fabUpdate(u?.studio);
-  const engineOnly = u?.studio?.plugin.location === "engine" && u.studio?.plugin.source !== "fab" && !!u.studio?.plugin.latest;
+  const engineOnly = pluginOutside(u?.studio);
+  const unchecked = checkFailure(u);
+  const status = updateStatus({ steps: steps.length, unchecked, waiting, working, ready });
 
   const rows = u ? updateRows(u) : [];
 
@@ -92,8 +94,8 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
       {!u && <p className="muted">Checking</p>}
       {u && (
         <div className="row update-status">
-          <span className={`pill ${steps.length ? "warn" : "ok"}`}>{steps.length ? "Update available" : "Up to date"}</span>
-          <span className="muted">{waiting ? "Update ready. Restarts after the current turn." : working ? "Updating" : steps.length ? ready : "Up to date."}</span>
+          <span className={`pill ${status.tone}`}>{status.pill}</span>
+          <span className="muted" title={unchecked && !steps.length ? unchecked : undefined}>{status.line}</span>
           <span className="spacer" />
           {steps.length > 0 && !remote && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>
@@ -136,7 +138,7 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
           <button onClick={() => openLink(fab.url)}>Open Fab Library</button>
         </div>
       )}
-      {engineOnly && <p className="dim small">Installed with the engine. The Epic launcher updates it.</p>}
+      {engineOnly && <p className="dim small">{PLUGIN_OUTSIDE}</p>}
       {u && (
         <details className="update-details">
           <summary className="dim small">Details</summary>

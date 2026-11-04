@@ -32,7 +32,7 @@ export async function billingReply(res: Response, kind: "checkout" | "portal"): 
   if (res.status === 401) return refused(401, ACCOUNT_SIGNED_OUT, "signed-out");
   if (kind === "checkout" && res.status === 409) return refused(409, "This account already has a subscription.", "subscribed");
   if (kind === "portal" && res.status === 404) return refused(404, "This account has no subscription to manage.", "no-subscription");
-  if (res.status === 503) return refused(503, "Plans cannot be bought yet.", "unavailable");
+  if (res.status === 503) return refused(503, kind === "checkout" ? "Plans cannot be bought yet." : "Billing is not available yet.", "unavailable");
   return refused(502, typeof body.error === "string" ? body.error : `The account service answered HTTP ${res.status}.`);
 }
 

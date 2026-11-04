@@ -704,7 +704,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     };
   })(),
   "remote-pair-connecting": remotePair("/remote on a paid account with remote control off: turned on, and Connecting while the relay answers", { state: "connecting" }),
-  "remote-pair-code": remotePair("/remote on a paid account: the pairing code to scan, its link, Copy link and how long it has left, with Manage paired browsers in Settings", { state: "online" }),
+  "remote-pair-code": remotePair("/remote on a paid account: the pairing code to scan, its link, Copy link and how long it has left, with Manage paired devices in Settings", { state: "online" }),
   "remote-pair-expired": remotePair("/remote on a paid account once the pairing code has run out: New code", { state: "online", expired: true }),
   "remote-pair-error": remotePair("/remote on a paid account when the relay cannot be reached: the reason, plainly, and Retry", { state: "error" }),
   "remote-pair-approval": remotePair("/remote on a paid account after a device scanned the code: the device asks to control the project, with the six digits it also shows, Allow and Deny, and the paired browsers with Remove", { state: "online", asking: true }),

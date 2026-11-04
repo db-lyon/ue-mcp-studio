@@ -84,7 +84,7 @@ describe("the checkpoints around a turn", () => {
     ]);
     expect(review.items[1]).toMatchObject({ asset: "/Game/Props/SM_Box.SM_Box", summary: "1 change: Content box v1 to box v2", native: { available: true } });
     expect(review.items[0]).toMatchObject({ summary: "1 line added, 1 removed", native: { available: false } });
-    expect(review.items[0].native!.reason).toMatch(/no diff view in Unreal/);
+    expect(review.items[0].native!.reason).toMatch(/diff view opens assets only/);
     // The editor is never asked for a picture: the daemon's asset diff carries them.
     expect(calls.filter((c) => c.category === "editor")).toEqual([]);
     expect(store.get(s.id)!.timeline).toEqual([{ checkpoint: review.after, label: "Make the box bigger", at: "2026-10-24T10:01:00.000Z", kind: "turn", turn: 0 }]);

@@ -15,7 +15,7 @@ export function SetupView() {
   }, []);
 
   if (error) return <div className="banner bad">{error}</div>;
-  if (!report) return <p className="muted">Reading the install...</p>;
+  if (!report) return <p className="muted">Reading the install</p>;
   const p = report.plugin;
   return (
     <div className="stack">

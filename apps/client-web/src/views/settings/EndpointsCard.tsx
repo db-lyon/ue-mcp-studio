@@ -43,13 +43,13 @@ export function EndpointsCard({ onChange }: { onChange: () => void }) {
     });
   };
   const remove = (e: CustomEndpoint) => {
-    if (!window.confirm(`Remove ${e.name}? Its key is deleted from this machine.`)) return;
+    if (!window.confirm(`Remove ${e.name} from every project? Its key is deleted from this machine.`)) return;
     api.removeEndpoint(e.id).then(changed, (x: Error) => setError(x.message));
   };
   if (absent) return null;
   return (
     <Card className="endpoints-card" label="Custom endpoints" actions={list && editing === null ? <button onClick={() => setEditing("new")}>Add endpoint</button> : undefined}>
-      <p className="cfg-note">Any OpenAI Chat Completions server, local or hosted. Its models read AGENTS.md and .agents/skills.</p>
+      <p className="cfg-note">Any OpenAI Chat Completions server, local or hosted. With Project agent files on, its models read AGENTS.md and .agents/skills.</p>
       {error && (
         <div className="banner bad small row" role="alert">
           <span className="grow">{list ? error : `Could not read the endpoints: ${error}`}</span>

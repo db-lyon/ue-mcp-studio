@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   APPROVAL_ROWS,
+  DESTRUCTIVE_HOLD_SECONDS,
   MAX_DIALOG_MINUTES,
   PROJECT_SCOPED_KINDS,
   type AgentSettings,
@@ -28,8 +29,8 @@ const SCOPED_RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [
 
 export const DIALOG_MODES: { id: DialogMode; name: string; about: string }[] = [
   { id: "interactive", name: "Show in Studio", about: "A card in the chat with the dialog's buttons." },
-  { id: "auto", name: "Agent answers", about: "An answer that discards work waits 10 seconds for you to override." },
-  { id: "defer", name: "Leave in editor", about: "The turn waits until you answer in the editor." },
+  { id: "auto", name: "Agent answers", about: `An answer that discards work waits ${DESTRUCTIVE_HOLD_SECONDS} seconds for you to override.` },
+  { id: "defer", name: "Leave in editor", about: "Editor calls are refused until you answer it in the editor." },
 ];
 
 export const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[] = [
@@ -40,7 +41,7 @@ export const FEEDBACK_MODES: { id: FeedbackMode; name: string; about: string }[]
 
 const PLAYTEST_STARTS: ReadonlyArray<{ id: PlaytestRunsMode; name: string; help: string }> = [
   { id: "manual", name: "Manual", help: "Playtests run only when you start or assign them." },
-  { id: "automatic", name: "Automatic", help: "Agents start playtests when needed." },
+  { id: "automatic", name: "Automatic", help: "Agents can also start playtests on their own." },
 ];
 
 type AgentUpdate = Partial<{ feedbackTool: boolean; feedbackMode: FeedbackMode; dialogMode: DialogMode; playtestRuns: PlaytestRunsMode }>;
@@ -70,7 +71,7 @@ export function ApprovalsSection() {
   const dialogMode = agent.dialogMode.mode;
   return (
     <>
-      <Head title="Approvals & review" lead="What needs your approval. Applies to every agent." />
+      <Head title="Approvals & review" lead="What needs your approval in this project. Applies to every agent." />
       {msg.node}
       <Card label="Ask first">
         <RemoteReadOnly>
@@ -87,7 +88,7 @@ export function ApprovalsSection() {
       </Card>
 
       <Card label="Feedback reports">
-        <Row inline title="Report ue-mcp gaps" help="Agents file GitHub issues on ue-mcp. Changing this restarts ue-mcp.">
+        <Row inline title="Report ue-mcp gaps" help="Agents can report missing or broken tools as GitHub issues, on ue-mcp or the plugin that owns the tool. Changing this restarts ue-mcp.">
           <Switch label="Report ue-mcp gaps" on={agent.feedbackTool} onChange={(v) => void saveAgent({ feedbackTool: v })} />
         </Row>
         {agent.feedbackTool && (
@@ -98,7 +99,7 @@ export function ApprovalsSection() {
       </Card>
 
       <Card label="Editor dialogs">
-        <Row title="Who answers" help="Editor calls wait until an open dialog is answered." />
+        <Row title="Who answers" help="An open editor dialog blocks editor calls until it is answered." />
         <div className="opts">
           {DIALOG_MODES.map((d) => (
             <div key={d.id}>
@@ -150,7 +151,7 @@ export function DialogPolicyField({ policy, onSave }: { policy: DialogPolicy; on
           )}
         </label>
       ))}
-      <span className="help">The window flashes when Studio is not focused. Saved per project.</span>
+      <span className="help">With no Cancel or Keep button, it keeps waiting. Studio's window flashes when it is not focused. Saved per project.</span>
     </div>
   );
 }

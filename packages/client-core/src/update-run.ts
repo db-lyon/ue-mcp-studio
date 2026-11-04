@@ -32,3 +32,10 @@ export const STEP_NOTE: Partial<Record<StepKey, string>> = {
 
 /** The steps the agent keeps until no turn is in progress. */
 export const waitingSteps = (run: UpdateRun): StepKey[] => run.steps.filter((s) => s.state === "deferred").map((s) => s.key);
+
+/** What restarts once the waiting steps run, which the agent does once every session is idle (update-queue.ts). */
+export function waitingWho(steps: StepKey[]): string {
+  const studio = steps.some((k) => k === "studio" || k === "restart");
+  const editor = steps.includes("plugin");
+  return studio && editor ? "The editor and Studio restart" : editor ? "The editor restarts" : "Studio restarts";
+}

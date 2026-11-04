@@ -79,7 +79,8 @@ export const connected = (hidden = false): Conn => ({ phase: "connected", downSi
 export function stoppingWhy(reason: string, updating: boolean): { successor: boolean; why: string } {
   if (/handed off/i.test(reason)) return { successor: true, why: "ue-mcp is restarting on a newer version" };
   if (updating) return { successor: true, why: "ue-mcp is restarting for an update" };
-  if (/shutdown requested/i.test(reason)) return { successor: true, why: "ue-mcp is restarting" };
+  // /v1/shutdown: a restart, or a plain `ue-mcp daemon stop`; the daemon cannot tell which.
+  if (/shutdown requested/i.test(reason)) return { successor: true, why: "ue-mcp was asked to stop" };
   if (/^idle/i.test(reason)) return { successor: false, why: `ue-mcp stopped after being ${reason}` };
   if (/^closed$/i.test(reason)) return { successor: false, why: "ue-mcp was closed" };
   return { successor: false, why: reason ? `ue-mcp stopped: ${reason}` : "ue-mcp stopped" };
@@ -171,7 +172,7 @@ export function isRemotePage(hasHost: boolean, hostname: string): boolean {
 export const REMOTE_UPDATES = "Updates run from Studio on the computer.";
 
 /** What a paired browser shows when ue-mcp on the computer stays away. */
-export const REMOTE_OFFLINE = "It may be restarting, or the computer may be asleep or offline. This page reconnects by itself as soon as ue-mcp answers again; there is nothing to run here.";
+export const REMOTE_OFFLINE = "Remote control is off for this project, ue-mcp is stopped or restarting, or the computer is asleep or offline. This page reconnects by itself when ue-mcp answers again.";
 
 /** "8s", "1m 05s". */
 export function elapsed(ms: number): string {

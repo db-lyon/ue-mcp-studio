@@ -17,7 +17,7 @@ export function StatusView({ daemon }: { daemon: DaemonState }) {
     ).finally(() => setBusy(null));
   };
 
-  if (!h) return <p className="muted">Connecting to the daemon...</p>;
+  if (!h) return <p className="muted">Connecting to ue-mcp</p>;
   return (
     <div className="stack">
       <section className="card">

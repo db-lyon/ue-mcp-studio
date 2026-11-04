@@ -40,8 +40,29 @@ function PinFields({ changing, onDone, onCancel }: { changing: boolean; onDone: 
 }
 
 /**
+ * What "Ask for sensitive actions" guards: sensitiveRequest in the agent's
+ * remote/pin-lock.ts (ALWAYS_ROUTES, then TURN_ROUTES while risky). Change
+ * both together.
+ */
+export const SENSITIVE_ACTIONS: readonly string[] = [
+  "Answer approvals, editor dialogs and forms",
+  "Start, stop, restart or rebuild the editor, or stop turns waiting on it",
+  "Run playtests or flows, or change playtest scripts",
+  "Keep, revert or undo changes",
+  "Delete a chat",
+  "Change settings, or keep the current Studio version",
+  "Start a checkout",
+];
+
+/** TURN_ROUTES: asked only while shell commands or file changes run without asking. */
+export const SENSITIVE_TURNS = "While shell commands or file changes run without asking, also to send, queue or edit a message, or run a flow or action from a chat.";
+
+/** SENSITIVE_GRANT_MS, and what ends it sooner: PinLock.open (an idle lock), setPin, a daemon restart. */
+export const SENSITIVE_GRANT = "A right PIN allows these on that device, in that project, for 5 minutes. An idle lock, a PIN change or a daemon restart ends that sooner.";
+
+/**
  * The remote PIN lock, on the computer only: a PIN, then either or both of
- * locking the whole paired browser and asking for sensitive actions. Off
+ * locking Studio on paired devices and asking for sensitive actions. Off
  * until a PIN is set and a switch is turned on.
  */
 export function PinLockCard() {
@@ -64,7 +85,7 @@ export function PinLockCard() {
   if (gone) return null;
   return (
     <Card label="PIN lock" className="pin-lock">
-      <p className="muted small">Ask for a PIN on paired browsers, like a phone's lock screen. The computer checks it, so a browser cannot skip it. Ten wrong PINs in a row remove that browser.</p>
+      <p className="muted small">One PIN for paired devices, for every project on this computer. This computer checks it, so a device cannot skip it, and Studio here never asks for it. 10 wrong PINs in a row remove the device.</p>
       {error && <div className="banner bad small" role="alert">{error}</div>}
       {!lock && !error && <p className="muted small">Loading</p>}
       {lock && (editing || !lock.pin) && (editing ? (
@@ -76,8 +97,8 @@ export function PinLockCard() {
       ))}
       {lock?.pin && !editing && (
         <>
-          <Row title="Lock the whole browser" help={`A paired browser asks for the PIN to open Studio, and again after ${lock.idleMinutes} minutes without use.`}>
-            <Switch on={lock.whole} onChange={(v) => save("whole", api.setRemoteLock({ whole: v }))} label="Lock the whole browser" disabled={busy !== null} />
+          <Row title="Lock Studio on paired devices" help={`A paired device needs the PIN to use each project, and again after ${lock.idleMinutes} minutes without use, a PIN change or a daemon restart.`}>
+            <Switch on={lock.whole} onChange={(v) => save("whole", api.setRemoteLock({ whole: v }))} label="Lock Studio on paired devices" disabled={busy !== null} />
           </Row>
           {lock.whole && (
             <div className="pin-idle">
@@ -92,7 +113,18 @@ export function PinLockCard() {
               />
             </div>
           )}
-          <Row title="Ask for sensitive actions" help="Answering approvals, restarting the editor, running flows and playtests, undoing changes, changing settings, and sending messages while shell commands or file changes run without asking. One PIN covers five minutes.">
+          <Row
+            title="Ask for sensitive actions"
+            help={
+              <>
+                A paired device needs the PIN to:
+                <ul className="pin-sensitive-list">
+                  {SENSITIVE_ACTIONS.map((a) => <li key={a}>{a}</li>)}
+                </ul>
+                {SENSITIVE_TURNS} {SENSITIVE_GRANT}
+              </>
+            }
+          >
             <Switch on={lock.sensitive} onChange={(v) => save("sensitive", api.setRemoteLock({ sensitive: v }))} label="Ask for sensitive actions" disabled={busy !== null} />
           </Row>
           <div className="pin-lock-actions">
