@@ -8,3 +8,8 @@ export * from "./dialogs.js";
 export * from "./approvals.js";
 export * from "./vcs.js";
 export * from "./location.js";
+export * from "./composer.js";
+export * from "./composer-menus.js";
+export * from "./pill-providers.js";
+export * from "./launchers.js";
+export * from "./model-route.js";

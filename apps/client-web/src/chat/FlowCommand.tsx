@@ -7,12 +7,12 @@ import {
   stepScopedParams,
   flowValue,
   parseFlowArgs,
-  singleType,
   type FlowInput,
   type FlowListing,
   type FlowRunRequest,
   type TranscriptEntry,
 } from "@ue-mcp-studio/shared";
+import { STEP_SCOPED_UNREACHABLE, flowParamsFrom as paramsFrom, flowPrefillValue as prefillValue } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { FieldsForm } from "./Forms";
 
@@ -22,25 +22,6 @@ type Loaded =
   | { kind: "unknown"; closest: string[] }
   | { kind: "error"; message: string }
   | { kind: "ready"; flow: FlowListing | null; inputs: FlowInput[]; scope: "flat" | "step" };
-
-/** A pair typed after the name, as the value of the field it prefills. */
-function prefillValue(raw: string, input: FlowInput | undefined): unknown {
-  const type = input ? singleType(input) : null;
-  if (type === "boolean") return raw === "true" ? true : raw === "false" ? false : raw;
-  return raw;
-}
-
-/** The form's values as the run's params: text read as the input's type. Pairs typed for no input go too. */
-function paramsFrom(inputs: FlowInput[], content: Record<string, unknown>, typed: Record<string, string>): Record<string, unknown> {
-  const byName = new Map(inputs.map((i) => [i.name, i]));
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(typed)) if (!byName.has(k)) out[k] = flowValue(v, null);
-  for (const [k, v] of Object.entries(content)) {
-    const input = byName.get(k);
-    out[k] = typeof v === "string" && input ? flowValue(v, singleType(input)) : v;
-  }
-  return out;
-}
 
 /**
  * What a /flow message opens above the composer: the flow's inputs as a form,
@@ -139,7 +120,7 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
       if (!scoped) return start(params);
       const nested = stepScopedParams(inputs, params);
       if (nested) return start(nested);
-      setError("This flow takes its params per step, and one of them is read by a nested flow's step, a hook step or no step, so this form cannot address it. Run the flow with flow(run) and params per step.");
+      setError(STEP_SCOPED_UNREACHABLE);
     };
     body = (
       <>
