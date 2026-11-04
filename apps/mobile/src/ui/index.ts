@@ -8,3 +8,5 @@ export * from "./Text";
 export * from "./controls";
 export * from "./DiffView";
 export * from "./Markdown";
+export * from "./Spinner";
+export * from "./RemoveButton";

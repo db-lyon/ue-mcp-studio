@@ -9,9 +9,10 @@ import { Linking, Pressable, ScrollView, View } from "react-native";
 import { HttpError, REMOTE_PLUGINS_NOTE, isInstalled, searchCatalog, type CatalogPlugin, type InstalledPlugin } from "@ue-mcp-studio/client-core";
 import { Banner, Button, Card, Input, Markdown, Pill, Spacer, bannerText, useTheme } from "../../ui";
 import { CardLabel, Txt } from "../settings/controls";
-import { useProjectEvents, useSettingsApi } from "../settings/hooks";
+import { useSettingsApi } from "../settings/hooks";
+import type { DaemonState } from "../../state";
 
-export function PluginsScreen() {
+export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
   const api = useSettingsApi();
   const t = useTheme();
   const [installed, setInstalled] = useState<InstalledPlugin[] | null>(null);
@@ -29,9 +30,10 @@ export function PluginsScreen() {
     api.pluginCatalog().then((r) => setCatalog(r.plugins), (e: Error) => setError(e.message));
   }, [api]);
   // Another client changed the plugins: read them again.
-  useProjectEvents((e) => {
-    if (e.type === "plugins.changed") api.plugins().then((r) => setInstalled(r.plugins), () => undefined);
-  });
+  const changes = daemon.events.filter((e) => e.type === "plugins.changed").length;
+  useEffect(() => {
+    if (changes) api.plugins().then((r) => setInstalled(r.plugins), () => undefined);
+  }, [changes]);
 
   const shown = useMemo(() => searchCatalog(catalog ?? [], query), [catalog, query]);
   /** A paragraph's 1em margin. */

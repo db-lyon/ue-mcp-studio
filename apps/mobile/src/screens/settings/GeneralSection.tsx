@@ -7,7 +7,7 @@ import { useEffect, useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { HttpError, REMOTE_CHANGE_NOTE, THEME_CHOICES } from "@ue-mcp-studio/client-core";
 import type { StudioSettings, StudioTheme } from "@ue-mcp-studio/shared";
-import { Banner, Button, Card, Dot, bannerText, useSetTheme, useTheme } from "../../ui";
+import { Banner, Button, Card, Dot, bannerText, useTheme } from "../../ui";
 import { CardLabel, Head, Span, Txt, useMessage } from "./controls";
 import { useProjectEvents, useSettingsApi } from "./hooks";
 import { UpdatesCard } from "../updates/UpdatesCard";
@@ -18,10 +18,9 @@ const SWATCH: Record<StudioTheme, [string, string, string]> = {
   editor: ["#151515", "#242424", "#0070e0"],
 };
 
-export function GeneralSection() {
+export function GeneralSection({ onTheme }: { onTheme: (t: StudioTheme) => void }) {
   const api = useSettingsApi();
   const t = useTheme();
-  const setTheme = useSetTheme();
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const msg = useMessage();
   useEffect(() => {
@@ -29,7 +28,7 @@ export function GeneralSection() {
   }, [api]);
   // A theme applies as soon as it is picked; the computer keeps it for every client.
   const pick = (theme: StudioTheme) => {
-    setTheme(theme);
+    onTheme(theme);
     api.saveSettings({ theme }).then(setSettings, msg.fail);
   };
   return (

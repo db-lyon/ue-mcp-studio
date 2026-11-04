@@ -5,18 +5,39 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Linking, View } from "react-native";
-import { REMOTE_UPDATES, fabUpdate, failureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
+import { REMOTE_UPDATES, fabUpdate, failureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
 import { Banner, Button, Card, Pill, Spacer, bannerText, labelFont, T, useTheme } from "../../ui";
 import { Details } from "../settings/Details";
 import { Radio, Txt } from "../settings/controls";
-import { useProjectEvents, useSettingsApi } from "../settings/hooks";
-import { useUpdateRun } from "./run";
+import { useSettingsApi } from "../settings/hooks";
+import { useRun } from "../../views/UpdateOverlay";
+
+/** Every read's count goes to the dot on Settings, so it never disagrees with the card. */
+const countListeners = new Set<(n: number) => void>();
+const shareCount = (u: Updates) => countListeners.forEach((l) => l(waiting(u)));
+
+/** Updates waiting, for the dot on Settings: read when the project opens, every six hours, and whenever the card reads them. */
+export function useUpdateCount(): number {
+  const api = useSettingsApi();
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    countListeners.add(setCount);
+    const read = () => void readUpdatesWith((p) => api.maybe(p)).then(shareCount, () => undefined);
+    read();
+    const timer = setInterval(read, 6 * 3600_000);
+    return () => {
+      clearInterval(timer);
+      countListeners.delete(setCount);
+    };
+  }, [api]);
+  return count;
+}
 
 export function UpdatesCard() {
   const api = useSettingsApi();
   const t = useTheme();
   const [u, setU] = useState<Updates | null>(null);
-  const run = useUpdateRun();
+  const run = useRun();
   const working = !!run && run.summary === undefined && !run.error;
   const waits = !!run && waitingSteps(run).length > 0;
   const [stopped, setStopped] = useState<string | null>(null);
@@ -24,13 +45,12 @@ export function UpdatesCard() {
     if (run?.error) setStopped(run.error);
     else if (working) setStopped(null);
   }, [run?.error, working]);
-  const load = useCallback(() => void readUpdatesWith((p) => api.maybe(p)).then(setU, () => setU({ studio: null, ueMcp: null })), [api]);
+  const load = useCallback(() => void readUpdatesWith((p) => api.maybe(p)).then((x) => (shareCount(x), setU(x)), () => setU({ studio: null, ueMcp: null })), [api]);
   useEffect(load, [load]);
   // Read again once a run the computer is doing finishes or stops.
   useEffect(() => {
     if (run && !working) load();
   }, [working]);
-  useProjectEvents(() => undefined);
 
   const steps = u ? updateSteps(u) : [];
   const ready = u ? readyLine(u) : "";

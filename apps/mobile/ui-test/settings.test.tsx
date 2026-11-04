@@ -9,7 +9,7 @@ import { REMOTE_CHANGE_NOTE } from "@ue-mcp-studio/client-core";
 import { SettingsScreen } from "../src/screens/settings/SettingsScreen";
 import { renderArea, settled } from "./area-b";
 
-const open = (scenario: string, section: string | null, onSection = vi.fn()) => renderArea(scenario, <SettingsScreen section={section} onSection={onSection} />);
+const open = (scenario: string, section: string | null, onSection = vi.fn(), onTheme = vi.fn()) => ({ ...renderArea(scenario, (daemon) => <SettingsScreen daemon={daemon} section={section} onSection={onSection} onTheme={onTheme} />), onTheme });
 
 describe("Settings > the section list", () => {
   it("lists every group and section, with each section's state, and Remote control since the computer refuses its routes", async () => {
@@ -44,7 +44,7 @@ describe("Settings > the section list", () => {
 
 describe("Settings > General", () => {
   it("switches the app's theme at once and saves it on the computer", async () => {
-    const { onTheme, writes } = open("settings-general", "general");
+    const { onTheme, writes } = open("settings-general", "general", vi.fn(), vi.fn());
     await settled();
     fireEvent.click(screen.getByLabelText("Editor orange"));
     await settled();

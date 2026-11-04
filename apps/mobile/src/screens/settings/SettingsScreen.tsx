@@ -9,9 +9,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { HttpError, SECTION_NAMES, SETTINGS_GROUPS, sectionOf, sectionStatus, strategyLine, type BuiltinSection, type SectionExtra, type SettingsSection } from "@ue-mcp-studio/client-core";
-import { STUDIO_PLAN_AVAILABLE, remoteSurface, type StudioSettings } from "@ue-mcp-studio/shared";
+import { STUDIO_PLAN_AVAILABLE, remoteSurface, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import type { DaemonState } from "../../state";
 import { Button, font, labelFont, T, useTheme } from "../../ui";
-import { useProjectEvents, useSettingsApi } from "./hooks";
+import { useSettingsApi } from "./hooks";
 import { GeneralSection } from "./GeneralSection";
 import { RemoteSection } from "./RemoteSection";
 import { AgentsSection } from "./AgentsSection";
@@ -51,24 +52,19 @@ function useRemoteListed(): boolean {
   return remoteSurface(STUDIO_PLAN_AVAILABLE, answer?.available ?? null, answer?.signedIn ?? true) !== "hidden";
 }
 
-/** Each section's line and dot, read when Settings opens. */
-function useSectionStatus(updates: number) {
+/** Each section's line and dot, read when Settings opens; the daemon's health from the shell's. */
+function useSectionStatus(updates: number, daemon: DaemonState) {
   const api = useSettingsApi();
   const [settings, setSettings] = useState<StudioSettings | null>(null);
   const [extra, setExtra] = useState<SectionExtra>({});
-  const [health, setHealth] = useState<{ version: string; editors?: Array<{ connected: boolean }> } | null>(null);
   useEffect(() => {
     api.settings().then(setSettings, () => setSettings(null));
     api.contextStrategy().then((c) => setExtra((e) => ({ ...e, ...strategyLine(c) })), () => undefined);
     api.install().then((r) => setExtra((e) => ({ ...e, ready: r.ok })), () => undefined);
     api.models().then((m) => setExtra((e) => ({ ...e, models: m })), () => undefined);
-    api.health().then(setHealth, () => undefined);
   }, [api]);
-  useProjectEvents((e) => {
-    if (/^(editor|client|daemon)\./.test(e.type)) api.health().then(setHealth, () => undefined);
-  });
   try {
-    return sectionStatus(updates, health, settings, extra);
+    return sectionStatus(updates, daemon.health, settings, extra);
   } catch {
     return { dots: {}, lines: {} };
   }
@@ -78,20 +74,20 @@ function useSectionStatus(updates: number) {
  * The section list, or one section. `section` is a location's section name
  * (old names map to the new); null opens the list.
  */
-export function SettingsScreen({ section, onSection, updates = 0 }: { section: string | null; onSection: (s: SettingsSection | null) => void; updates?: number }) {
+export function SettingsScreen({ daemon, section, onSection, onTheme, updates = 0 }: { daemon: DaemonState; section: string | null; onSection: (s: SettingsSection | null) => void; onTheme: (t: StudioTheme) => void; updates?: number }) {
   const listed = useRemoteListed();
   const named = sectionOf(section);
   const open = named && !named.startsWith("ext:") ? (named as BuiltinSection) : null;
   return (
     <ScrollView testID="settings" style={{ flex: 1 }} contentContainerStyle={{ paddingVertical: 6, paddingHorizontal: 16 }} keyboardShouldPersistTaps="handled">
-      {open ? <Section id={open} onSection={onSection} /> : <SectionList listed={listed} updates={updates} onSection={onSection} />}
+      {open ? <Section id={open} daemon={daemon} onSection={onSection} onTheme={onTheme} /> : <SectionList listed={listed} updates={updates} daemon={daemon} onSection={onSection} />}
     </ScrollView>
   );
 }
 
-function SectionList({ listed, updates, onSection }: { listed: boolean; updates: number; onSection: (s: SettingsSection) => void }) {
+function SectionList({ listed, updates, daemon, onSection }: { listed: boolean; updates: number; daemon: DaemonState; onSection: (s: SettingsSection) => void }) {
   const t = useTheme();
-  const { dots, lines } = useSectionStatus(updates);
+  const { dots, lines } = useSectionStatus(updates, daemon);
   const groups = listed ? SETTINGS_GROUPS : SETTINGS_GROUPS.map((g) => ({ ...g, items: g.items.filter((s) => s.id !== "remote") }));
   return (
     <View accessibilityRole="menu" accessibilityLabel="Settings sections" style={{ gap: 14 }}>
@@ -139,15 +135,15 @@ function SectionList({ listed, updates, onSection }: { listed: boolean; updates:
   );
 }
 
-function Section({ id, onSection }: { id: BuiltinSection; onSection: (s: SettingsSection | null) => void }) {
+function Section({ id, daemon, onSection, onTheme }: { id: BuiltinSection; daemon: DaemonState; onSection: (s: SettingsSection | null) => void; onTheme: (t: StudioTheme) => void }) {
   let body: ReactNode = null;
-  if (id === "general") body = <GeneralSection />;
+  if (id === "general") body = <GeneralSection onTheme={onTheme} />;
   else if (id === "remote") body = <RemoteSection />;
   else if (id === "agents") body = <AgentsSection onSection={onSection} />;
   else if (id === "models") body = <ModelsSection />;
   else if (id === "approvals") body = <ApprovalsSection />;
   else if (id === "project") body = <ProjectSection onSection={onSection} />;
-  else if (id === "diagnostics") body = <DiagnosticsSection />;
+  else if (id === "diagnostics") body = <DiagnosticsSection daemon={daemon} />;
   return (
     <View testID={`settings-${id}`} accessibilityLabel={SECTION_NAMES[id]} style={{ gap: 14 }}>
       <Button variant="ghost" title={"‹ All settings"} label="All settings" onPress={() => onSection(null)} style={{ alignSelf: "flex-start", paddingLeft: 0, alignItems: "flex-start", justifyContent: "flex-start" }} />

@@ -14,6 +14,7 @@ import {
   type StudioSettings,
   type StudioSignIn,
 } from "@ue-mcp-studio/shared";
+import { findModel as find, runsVia, viaName, VIA_LABEL, type Via } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { atMost, useBarTier } from "../chat/barTier";
 import { onRemotePage } from "../connection";
@@ -21,8 +22,8 @@ import { REMOTE_CHANGE_NOTE } from "./settings/RemoteReadOnly";
 
 type Catalog = ModelCatalog;
 
-import { VIA_LABEL, findModel as find, runsVia, viaName } from "@ue-mcp-studio/client-core";
-export { VIA_LABEL, runsVia, viaName };
+// How a model runs, in words, is client-core's, shared with the mobile app.
+export { runsVia, viaName, VIA_LABEL };
 
 export function useCatalog(settings: StudioSettings | null): Catalog | null {
   const [catalog, setCatalog] = useState<Catalog | null>(null);

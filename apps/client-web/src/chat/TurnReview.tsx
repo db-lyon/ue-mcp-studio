@@ -17,6 +17,7 @@ import {
   type TimelineMark,
   type TurnReview,
 } from "@ue-mcp-studio/shared";
+import { outcomeNote } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { AssetDiffView } from "./AssetDiff";
 import { AssetTile } from "./AssetTile";
@@ -27,13 +28,7 @@ import { EngineText } from "./breakable";
 const STATUS: Record<ReviewItem["status"], string> = { added: "Added", modified: "Modified", deleted: "Deleted" };
 const fileName = (p: string): string => p.split("/").pop() || p;
 
-/** What a revert or restore left alone, in words. */
-export function outcomeNote(o: RestoreOutcome): string | null {
-  const parts: string[] = [];
-  if (o.conflicts.length) parts.push(`${o.conflicts.length === 1 ? "1 file was" : `${o.conflicts.length} files were`} edited after the agent and left as they are`);
-  if (o.missing.length) parts.push(`${o.missing.length === 1 ? "1 file has" : `${o.missing.length} files have`} no earlier version to put back`);
-  return parts.length ? `${parts.join("; ")}.` : null;
-}
+export { outcomeNote };
 
 /** A turn's changes, with Keep or Revert per item. */
 export function TurnReviewCard({ review: saved }: { review: TurnReview }) {

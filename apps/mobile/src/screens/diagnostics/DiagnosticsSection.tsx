@@ -3,15 +3,15 @@
  * stop, restart and rebuild, the daemon, and its events newest first, each
  * payload one line until opened.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
 import type { DaemonHealth } from "ue-mcp/daemon";
+import { healthOf } from "@ue-mcp-studio/client-core";
 import { Button, Card, Dot, Input, Spacer, font, labelFont, T, useTheme } from "../../ui";
 import { CardLabel, Head, Txt } from "../settings/controls";
 import { DT } from "../settings/ProjectSection";
-import { useProjectEvents, useSettingsApi } from "../settings/hooks";
-import { useProjectNav } from "../../nav";
-import { useEventLog } from "./event-log";
+import { useSettingsApi } from "../settings/hooks";
+import type { DaemonState } from "../../state";
 
 const CAUSE: Record<string, string> = { closed: "closed normally", crashed: "crashed", restarting: "restarting", rebuild: "rebuilding", unknown: "connection dropped" };
 
@@ -21,30 +21,21 @@ export function eventPayload(data: unknown): { line: string; full: string } {
   return { line: JSON.stringify(data), full: JSON.stringify(data, null, 2) };
 }
 
-export function DiagnosticsSection() {
+export function DiagnosticsSection({ daemon }: { daemon: DaemonState }) {
   return (
     <>
       <Head title="Diagnostics" lead="Editor and daemon status, and recent daemon events." />
-      <StatusView />
-      <LogsView />
+      <StatusView daemon={daemon} />
+      <LogsView daemon={daemon} />
     </>
   );
 }
 
-function useHealth(): DaemonHealth | null {
-  const api = useSettingsApi();
-  const [health, setHealth] = useState<DaemonHealth | null>(null);
-  useEffect(() => void api.health().then(setHealth, () => undefined), [api]);
-  useProjectEvents((e) => {
-    if (/^(editor|client|daemon)\./.test(e.type)) void api.health().then(setHealth, () => undefined);
-  });
-  return health;
-}
-
-function StatusView() {
+function StatusView({ daemon }: { daemon: DaemonState }) {
   const api = useSettingsApi();
   const t = useTheme();
-  const h = useHealth();
+  // Every field at its default, as client-web reads any daemon's health (an older one sends fewer).
+  const h = daemon.health ? (healthOf(daemon.health) as DaemonHealth) : null;
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
   const run = (op: "start" | "stop" | "restart" | "rebuild") => {
@@ -112,10 +103,9 @@ function StatusView() {
   );
 }
 
-function LogsView() {
+function LogsView({ daemon }: { daemon: DaemonState }) {
   const t = useTheme();
-  const { project } = useProjectNav();
-  const events = useEventLog(project);
+  const events = daemon.events;
   const [filter, setFilter] = useState("");
   const shown = useMemo(() => {
     const f = filter.trim().toLowerCase();

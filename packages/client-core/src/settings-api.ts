@@ -29,15 +29,10 @@ import type {
 import { HttpError, readJson, requestJson, type Transport } from "./transport.js";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize.js";
 import type { CatalogPlugin, InstalledPlugin } from "./plugins.js";
+import type { StudioVersionNotice } from "./studio-api.js";
 
 const S = "/v1/ext/studio";
 const enc = encodeURIComponent;
-
-/** Another project installed a newer Studio than this one uses. */
-export interface StudioVersionNotice {
-  installed: string;
-  current: string;
-}
 
 /** 404: the route is from a newer agent or daemon than the one answering. */
 export const notThere = (e: unknown): boolean => e instanceof HttpError && e.status === 404;
@@ -67,6 +62,8 @@ export function settingsApi(t: Transport) {
     billingPortal: () => get<{ url: string }>(`${S}/billing/portal`),
     remoteStatus: () => get<unknown>(`${S}/remote/status`),
     updates: () => get<unknown>(`${S}/updates`),
+    /** Run the update steps waiting for a turn now; the computer refuses it to a paired client. */
+    updateNow: () => send<{ ok?: boolean }>("POST", `${S}/updates/deferred/now`),
     remoteAvailable: (refresh = false) => get<RemoteAvailability>(`${S}/remote/available${refresh ? "?refresh=1" : ""}`),
     editor: (op: "start" | "stop" | "restart" | "rebuild") => send<Record<string, unknown>>("POST", `/v1/editor/${op}`),
     plugins: () => get<{ plugins: InstalledPlugin[] }>("/v1/plugins"),

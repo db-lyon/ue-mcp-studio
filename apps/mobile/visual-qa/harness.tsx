@@ -64,6 +64,13 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
         })(),
       };
     }
+    // Pictures as scripts/visual-qa.mjs draws them: a shaded sphere whose hue comes from the path; "unreadable" is lost.
+    if (m === "GET" && /^\/v1\/ext\/studio\/review\/(?:thumbnails|images)\/[^/?]+/.test(url.pathname)) {
+      if (/unreadable/.test(path)) return json(404, { error: "lost" });
+      const hue = [...path].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><defs><radialGradient id="g" cx="0.38" cy="0.34" r="0.7"><stop offset="0" stop-color="hsl(${hue},55%,78%)"/><stop offset="0.55" stop-color="hsl(${hue},45%,42%)"/><stop offset="1" stop-color="hsl(${hue},40%,14%)"/></radialGradient></defs><rect width="256" height="256" fill="#1d1f24"/><ellipse cx="128" cy="214" rx="78" ry="12" fill="#000" opacity="0.45"/><circle cx="128" cy="124" r="86" fill="url(#g)"/></svg>`;
+      return { status: 200, headers: { "content-type": "image/svg+xml" }, body: (async function* () { yield enc.encode(svg); })() };
+    }
     if (m !== "GET") {
       const written = scenario.post?.(url.pathname, options.json);
       return written ? json(written.status, written.body) : json(409, { error: `visual QA harness: ${m} ${url.pathname} is not answered` });

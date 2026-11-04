@@ -1,8 +1,8 @@
 /**
  * Studio's update check as a client reads it: Studio, the editor plugin, the
  * bridge plugin and ue-mcp, what is newer, and an update run's steps. Shared
- * by client-web's Updates card and update screens and the mobile app's, which
- * only follows a run (updates start on the computer).
+ * by client-web's Updates card and the mobile app's; an update run's steps
+ * are in update-run.ts.
  */
 import { FAB_LIBRARY_URL, isNewer, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
 import { obj } from "./normalize.js";
@@ -40,9 +40,6 @@ export interface Updates {
   studio: StudioUpdates | null;
   ueMcp: UeMcpUpdate | null;
 }
-
-/** What a paired client says where an update would start: updates run on the computer. */
-export const REMOTE_UPDATES = "Updates run from Studio on the computer.";
 
 /** What the card says about a background step that failed, or null when the last one did not. */
 export function failureLine(s: StudioUpdates | null | undefined): string | null {
@@ -153,32 +150,3 @@ export function updateRows(u: Updates): Array<[string, string | null, string | n
     ["ue-mcp", u.ueMcp?.server ?? null, u.ueMcp?.target ?? null, daemonMoves(u.ueMcp)],
   ];
 }
-
-export type StepKey = "ueMcp" | "plugin" | "studio" | "restart";
-/** deferred: the agent keeps the step until no turn is in progress, then runs it. */
-export type StepState = "pending" | "active" | "done" | "failed" | "deferred";
-export interface RunStep {
-  key: StepKey;
-  state: StepState;
-}
-export interface UpdateRun {
-  steps: RunStep[];
-  /** The bridge plugin version the run installs, when it installs one. */
-  target: string | null;
-  at: number;
-  /** The latest progress line from the step running. */
-  detail?: string;
-  error?: string;
-  /** Every step done: what is installed now. */
-  summary?: string;
-}
-
-export const STEP_NAME: Record<StepKey, string> = { ueMcp: "Bridge plugin", plugin: "Editor plugin", studio: "Studio", restart: "Restart ue-mcp" };
-export const STEP_NOTE: Partial<Record<StepKey, string>> = {
-  plugin: "The editor closes and reopens. Studio comes back with it.",
-  studio: "ue-mcp restarts. This panel reloads when it is back.",
-  restart: "ue-mcp restarts. This panel reloads when it is back.",
-};
-
-/** The steps the agent keeps until no turn is in progress. */
-export const waitingSteps = (run: UpdateRun): StepKey[] => run.steps.filter((s) => s.state === "deferred").map((s) => s.key);

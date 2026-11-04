@@ -64,28 +64,37 @@ const server = await createServer({
       { find: /^react\/(.*)$/, replacement: `${mod("react")}/$1` },
       { find: /^react-dom$/, replacement: mod("react-dom") },
       { find: /^react-dom\/(.*)$/, replacement: `${mod("react-dom")}/$1` },
+      // The library's web build: its elements drawn as DOM svg, as the web client draws its glyphs.
+      { find: /^react-native-svg$/, replacement: path.join(app, "node_modules/react-native-svg/lib/module/elements.web.js") },
+      { find: "@react-native/assets-registry/registry", replacement: mock("assets-registry.ts") },
+      // Android only: the touch sound the web build never plays.
+      { find: /fabric\/NativeSvgSoundModule(\.js)?$/, replacement: mock("svg-sound.ts") },
       { find: /^expo-secure-store$/, replacement: mock("secure-store.ts") },
       { find: /^expo-camera$/, replacement: mock("camera.tsx") },
       { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
+      { find: /^expo-(constants|application)$/, replacement: mock("expo-modules.ts") },
       { find: /^expo-font$/, replacement: mock("expo-font.ts") },
       { find: new RegExp("^@expo-google-fonts/.*$"), replacement: mock("google-fonts.ts") },
       { find: /^expo-status-bar$/, replacement: mock("status-bar.tsx") },
       { find: /^react-native-safe-area-context$/, replacement: mock("safe-area.tsx") },
-      { find: /^react-native-svg$/, replacement: mock("svg.tsx") },
+      { find: /^react-native-svg$/, replacement: mock("svg-web.tsx") },
+      { find: /^expo-image-picker$/, replacement: mock("image-picker.ts") },
+      { find: /^expo-document-picker$/, replacement: mock("document-picker.ts") },
       { find: /^@ue-mcp-studio\/(remote|client-core|shared|extension-api)$/, replacement: `${root}/packages/$1/src/index.ts` },
     ],
   },
-  optimizeDeps: { include: [mod("react"), mod("react-dom"), "react-native-web", "marked"] },
+  optimizeDeps: {
+    include: [mod("react"), mod("react-dom"), "react-native-web", "marked"],
+    // Prebundling skips the aliases for a dependency's own relative requires: react-native-svg's Android touch sound.
+    esbuildOptions: { plugins: [{ name: "svg-sound", setup: (b) => b.onResolve({ filter: /NativeSvgSoundModule$/ }, () => ({ path: mock("svg-sound.ts") })) }] },
+  },
 });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, "");
 // Grayscale text antialiasing: react-native-web's text is drawn without subpixel antialiasing beside the
 // web client's, so the web shots are taken with visual-qa.mjs --grayscale-text and these the same way.
 const browser = await chromium.launch({ executablePath: browserPath, headless: true, args: ["--disable-lcd-text"] });
-// --page area draws a scenario's screen on its own (visual-qa/area.html) for an area whose screens the
-// shell does not route to yet; its top bar is a stand-in, so the top 50 pixels are left out of the diff.
-const area = arg("page") === "area";
-const PAGE = area ? "area.html" : "index.html";
+const PAGE = "index.html";
 
 const first = await browser.newPage();
 await first.goto(`${base}/index.html?scenario=session-empty`);
@@ -104,9 +113,11 @@ if (list) {
 fs.mkdirSync(out, { recursive: true });
 const picked = Object.keys(scenarios).filter((n) => parity[n]?.owner && (!owners || owners.includes(parity[n].owner)) && (!only || only.some((o) => (o.endsWith("*") ? n.startsWith(o.slice(0, -1)) : n === o))));
 
-/** The app's form of a click: an element whose accessibility label or text is `what`, the first visible. */
+/** The app's form of a click: an element whose accessibility label or text is `what`, the first visible. A `what` ending in * matches a label by its start. */
 async function press(page, what) {
-  const byLabel = page.locator(`[aria-label="${what.replace(/"/g, '\\"')}"]`);
+  const prefix = what.endsWith("*");
+  const label = (prefix ? what.slice(0, -1) : what).replace(/"/g, '\\"');
+  const byLabel = page.locator(prefix ? `[aria-label^="${label}"]` : `[aria-label="${label}"]`);
   for (const h of await byLabel.all()) if (await h.isVisible()) return h.click();
   const byText = page.getByText(what, { exact: true });
   for (const h of await byText.all()) if (await h.isVisible()) return h.click();
@@ -132,30 +143,55 @@ for (const name of picked) {
         errors.push(String(e.message ?? e));
       }
     }
-    if (parity[name].scroll) {
-      // The app's form of the web scenario's scroll: the element with this testID at the top of its scroller.
-      const found = await page.evaluate((id) => {
-        const el = document.querySelector(`[data-testid="${id}"]`);
-        el?.scrollIntoView({ block: "start" });
-        return !!el;
-      }, parity[name].scroll);
-      if (!found) errors.push(`nothing has testID ${parity[name].scroll}`);
-      await page.waitForTimeout(300);
+    const { focus, type: typed, afterType } = parity[name];
+    if (focus) {
+      // A key press first, so the page treats the focus as the keyboard's.
+      await page.keyboard.press("Shift");
+      const el = page.locator(`[aria-label="${focus.replace(/"/g, '\\"')}"]`).first();
+      if (!(await el.count())) errors.push(`nothing to focus: ${focus}`);
+      else await el.focus();
+      await page.waitForTimeout(200);
     }
-    if (parity[name].type) {
-      for (const each of parity[name].type) {
-        await page.locator(`[aria-label="${each.into}"]`).first().focus();
+    if (typed) {
+      // Typed key by key at the end of what the element holds, as the web harness types, then left to settle.
+      const el = page.locator(typed.into).first();
+      if (!(await el.count())) errors.push(`nothing matched ${typed.into}`);
+      else {
+        await el.focus();
+        await page.keyboard.press("End");
+        await page.keyboard.type(typed.text, { delay: 20 });
+        await page.mouse.move(1, 1);
+        await page.waitForTimeout(700);
+      }
+    }
+    // Several fields typed one after another (the web scenario's types), each found by its label.
+    for (const each of parity[name].types ?? []) {
+      const el = page.locator(`[aria-label="${each.into.replace(/"/g, '\\"')}"]`).first();
+      if (!(await el.count())) errors.push(`nothing to type into: ${each.into}`);
+      else {
+        await el.focus();
         await page.keyboard.type(each.text, { delay: 10 });
       }
-      await page.waitForTimeout(500);
     }
-    for (const c of parity[name].after ?? []) {
+    if (parity[name].types?.length) await page.waitForTimeout(500);
+    for (const c of afterType?.clicks ?? []) {
       try {
         await press(page, c);
-        await page.waitForTimeout(700);
       } catch (e) {
         errors.push(String(e.message ?? e));
       }
+    }
+    if (afterType) {
+      await page.mouse.move(1, 1);
+      await page.waitForTimeout(afterType.wait);
+    }
+    // The web scenario's scroll: the element with this label at the top of its scroller.
+    if (parity[name].scroll) {
+      const target = page.locator(`[aria-label="${parity[name].scroll.replace(/"/g, '\\"')}"]`).first();
+      if (await target.count()) {
+        await target.evaluate((el) => el.scrollIntoView({ block: "start" }));
+        await page.waitForTimeout(300);
+      } else errors.push(`nothing to scroll to: ${parity[name].scroll}`);
     }
     const appPng = path.join(out, `${name}-${theme}-app.png`);
     await page.screenshot({ path: appPng });
@@ -175,8 +211,6 @@ for (const name of picked) {
       };
       const ca = crop(a);
       const cb = crop(b);
-      // The area page's top bar is a stand-in for the shell's: both are blanked before the diff.
-      if (area) for (const img of [ca, cb]) img.data.fill(0, 0, w * Math.min(50, h) * 4);
       const diff = new PNG({ width: w, height: h });
       const n = pixelmatch(ca.data, cb.data, diff.data, w, h, { threshold: 0.1 });
       mismatch = n / (w * h);

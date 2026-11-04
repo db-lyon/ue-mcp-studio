@@ -428,6 +428,13 @@ export const SCENARIOS: Record<string, Scenario> = {
     index: { playtests: [], listed: true },
     get: (p) => (p === "/v1/ext/studio/version-notice" ? { notice: { installed: "0.1.25", current: "0.1.23" } } : undefined),
   },
+  "nav-drawer": {
+    title: "The narrow navigation drawer opened from the bar's menu button: New session, the tabs, Recents and the bar's tools",
+    hash: `#/chat/${SESSION_ID}`,
+    session: withAgents(),
+    index: { playtests: [], listed: true },
+    narrowClicks: [".bar-menu-button"],
+  },
   "tools-open": { title: "A turn's tool calls, the command and its output opened", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, click: ".thread-stage details.tool > summary" },
   "tools-open-edit": { title: "An edit_file call opened: its diff, long lines wrapped under their text", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, click: ".thread-stage details.tool:nth-of-type(2) > summary", scroll: ".thread-stage details.tool:nth-of-type(2)" },
   "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },

@@ -6,10 +6,10 @@
  * shared): the page that loads next settles the step that was running against
  * what the updates now say, then runs the rest.
  */
+import { STEP_NAME, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
 import { daemonMoves, pluginStep, readUpdates, withFloor, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 
-import { STEP_NAME, STEP_NOTE, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
-export { STEP_NAME, STEP_NOTE, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun };
+export { STEP_NAME, STEP_NOTE, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
 
 type Updates = { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null };
 

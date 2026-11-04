@@ -1,22 +1,11 @@
-/**
- * react-native-svg for the web harness and tests: the same elements as the
- * DOM's own <svg> and <path>, which is what the library draws on the web.
- * Its full web build pulls in native module registries a plain page lacks.
- */
-import { createElement, type ReactNode } from "react";
+/** react-native-svg for component tests: the shapes as plain views, enough to find and press what holds them. */
+import type { ReactNode } from "react";
+import { View } from "react-native";
 
-type Props = Record<string, unknown> & { children?: ReactNode };
-
-const attrs = (p: Props) => {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(p)) {
-    if (k === "children" || v === undefined) continue;
-    out[k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`).replace(/^view-box$/, "viewBox")] = v;
-  }
-  return out;
-};
-
-export default function Svg({ children, ...p }: Props) {
-  return createElement("svg", { xmlns: "http://www.w3.org/2000/svg", ...attrs(p) }, children);
-}
-export const Path = (p: Props) => createElement("path", attrs(p));
+const Shape = ({ children }: { children?: ReactNode }) => <View>{children}</View>;
+export default Shape;
+export const Svg = Shape;
+export const Path = Shape;
+export const Rect = Shape;
+export const Circle = Shape;
+export const G = Shape;

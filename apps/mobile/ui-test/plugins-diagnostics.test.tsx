@@ -11,7 +11,7 @@ import { renderArea, settled } from "./area-b";
 
 describe("Plugins", () => {
   it("lists the installed plugins and the catalog read only, under the note", async () => {
-    renderArea("plugins-remote", <PluginsScreen />);
+    renderArea("plugins-remote", (d) => <PluginsScreen daemon={d} />);
     await settled();
     expect(screen.getByText(REMOTE_PLUGINS_NOTE)).toBeTruthy();
     expect(screen.getByText("ue-mcp-meshy")).toBeTruthy();
@@ -21,7 +21,7 @@ describe("Plugins", () => {
   });
 
   it("opens a plugin's details, and searches the catalog", async () => {
-    renderArea("plugins-remote-details", <PluginsScreen />);
+    renderArea("plugins-remote-details", (d) => <PluginsScreen daemon={d} />);
     await settled();
     fireEvent.click(screen.getAllByLabelText("Details")[0]);
     await settled();
@@ -33,21 +33,21 @@ describe("Plugins", () => {
   });
 
   it("says what is empty, what failed, and an older ue-mcp", async () => {
-    let v = renderArea("plugins-remote-empty", <PluginsScreen />);
+    let v = renderArea("plugins-remote-empty", (d) => <PluginsScreen daemon={d} />);
     await settled();
     expect(screen.getByText("No plugins in this project yet. Browse the catalog below.")).toBeTruthy();
     v.unmount();
-    v = renderArea("plugins-remote-error", <PluginsScreen />);
+    v = renderArea("plugins-remote-error", (d) => <PluginsScreen daemon={d} />);
     await settled();
     expect(screen.getByText(/is not answered/)).toBeTruthy();
     v.unmount();
-    renderArea("plugins-remote-unsupported", <PluginsScreen />);
+    renderArea("plugins-remote-unsupported", (d) => <PluginsScreen daemon={d} />);
     await settled();
     expect(screen.getByText(/Managing plugins here needs ue-mcp 1.4.0-beta.2 or later/)).toBeTruthy();
   });
 
   it("reads the installed list again when another client changes it", async () => {
-    const { sent, emit } = renderArea("plugins-remote", <PluginsScreen />);
+    const { sent, emit } = renderArea("plugins-remote", (d) => <PluginsScreen daemon={d} />);
     await settled();
     const before = sent.filter((s) => s.path === "/v1/plugins").length;
     await emit("plugins.changed", {});
@@ -58,7 +58,7 @@ describe("Plugins", () => {
 
 describe("Diagnostics", () => {
   it("shows the editor and daemon, and starts nothing while the editor runs", async () => {
-    renderArea("settings-diagnostics", <DiagnosticsSection />);
+    renderArea("settings-diagnostics", (d) => <DiagnosticsSection daemon={d} />);
     await settled();
     expect(screen.getByText("StudioE2E")).toBeTruthy();
     expect(screen.getByLabelText("Start").getAttribute("aria-disabled")).toBe("true");
@@ -66,7 +66,7 @@ describe("Diagnostics", () => {
   });
 
   it("restarts the editor from the phone", async () => {
-    const { writes } = renderArea("settings-diagnostics", <DiagnosticsSection />);
+    const { writes } = renderArea("settings-diagnostics", (d) => <DiagnosticsSection daemon={d} />);
     await settled();
     fireEvent.click(screen.getByLabelText("Restart"));
     await settled();
@@ -74,14 +74,14 @@ describe("Diagnostics", () => {
   });
 
   it("says how the editor went away, and offers Start", async () => {
-    renderArea("settings-diagnostics-no-editor", <DiagnosticsSection />);
+    renderArea("settings-diagnostics-no-editor", (d) => <DiagnosticsSection daemon={d} />);
     await settled();
     expect(screen.getByText(/crashed at/)).toBeTruthy();
     expect(screen.getByLabelText("Start").getAttribute("aria-disabled")).not.toBe("true");
   });
 
   it("logs events newest first, opens a payload, and filters", async () => {
-    const { emit } = renderArea("settings-diagnostics", <DiagnosticsSection />);
+    const { emit } = renderArea("settings-diagnostics", (d) => <DiagnosticsSection daemon={d} />);
     await settled();
     expect(screen.getByText("No events yet.")).toBeTruthy();
     await emit("editor.connected", { project: "StudioE2E" });
