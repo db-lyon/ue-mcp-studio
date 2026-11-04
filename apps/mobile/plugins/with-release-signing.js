@@ -36,6 +36,8 @@ module.exports = function withReleaseSigning(config) {
     set("reactNativeArchitectures", "arm64-v8a");
     set("android.enableMinifyInReleaseBuilds", "true");
     set("android.enableShrinkResourcesInReleaseBuilds", "true");
+    // Native libraries compressed in the APK (extracted at install), so a build stays small enough to send.
+    set("expo.useLegacyPackaging", "true");
     return c;
   });
 };
