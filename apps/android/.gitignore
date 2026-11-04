@@ -1,0 +1,10 @@
+# Build output and signing material. The release keystore never enters the repo.
+*.apk
+*.aab
+*.idsig
+*.keystore
+*.jks
+.gradle/
+build/
+app/build/
+local.properties
