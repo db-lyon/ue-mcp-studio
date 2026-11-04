@@ -10,6 +10,8 @@
   --text: #ece9e3;
   --muted: #b3b0a8;
   --dim: #8a8985;
+  /* A disabled control's outline: 3.3:1 on the panel, 3.4:1 on the composer. */
+  --disabled-line: #6a6762;
   --accent: #e8720c;
   --accent-hi: #f28a2e;
   --accent-deep: #8f4507;
@@ -64,7 +66,9 @@
   --line-strong: var(--ue-dropdownOutline, #4c4c4c);
   --text: var(--ue-foreground, #c0c0c0);
   --muted: color-mix(in srgb, var(--ue-foreground, #c0c0c0) 75%, var(--ue-panel, #242424));
-  --dim: color-mix(in srgb, var(--ue-foreground, #c0c0c0) 68%, var(--ue-panel, #242424));
+  --dim: color-mix(in srgb, var(--ue-foreground, #c0c0c0) 75%, var(--ue-panel, #242424));
+  /* 3.4:1 on the panel, 3.8:1 on the composer. */
+  --disabled-line: #767676;
   --accent: var(--ue-primary, #0070e0);
   --accent-hi: var(--ue-primaryHover, #0e86ff);
   --accent-wash: color-mix(in srgb, var(--ue-select, #0070e0) 18%, transparent);
@@ -158,7 +162,9 @@ button {
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 button:hover:not(:disabled) { border-color: var(--accent-line); background: var(--panel-3); }
-button:disabled { opacity: 0.6; cursor: default; }
+/* Disabled: no fading. Its text is the grey that meets 4.5:1 and its outline meets 3:1, so it reads as there and off. */
+button:disabled { opacity: 1; cursor: default; color: var(--dim); border-color: var(--disabled-line); }
+button.primary:disabled { background: transparent; color: var(--dim); border-color: var(--disabled-line); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
 button.primary:hover:not(:disabled) { background: var(--accent-hi); border-color: var(--accent-hi); }
 button.ghost { background: transparent; border-color: transparent; color: var(--muted); }
@@ -896,6 +902,7 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .asset-ref { position: relative; display: inline; }
 .asset-link { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; text-decoration: none; text-align: left; max-width: 100%; overflow-wrap: anywhere; }
 .asset-link.code { font: 12px var(--mono); background: var(--panel-2); padding: 1px 4px; border-radius: 4px; box-shadow: inset 0 -1px 0 var(--accent-line); }
+.asset-link:not(.code) { color: var(--accent-hi); text-decoration: underline; text-decoration-color: var(--accent-line); text-underline-offset: 2px; }
 .asset-link:hover, .asset-link:focus-visible { text-decoration: underline; text-decoration-color: var(--accent); text-underline-offset: 2px; }
 .asset-link:focus-visible { outline: 1px solid var(--accent-line); outline-offset: 1px; }
 .asset-chooser { position: absolute; left: 0; top: calc(100% + 4px); z-index: 20; display: flex; flex-direction: column; min-width: 220px; max-width: min(480px, 90vw); padding: 4px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35); }
@@ -1743,10 +1750,11 @@ button.icon-button[aria-expanded="true"] { color: var(--accent-hi); border-color
   button.qa-meta-session.link { padding-block: 13px; margin-block: -13px; }
   p > button.small-button { padding-block: 14px; margin-block: -14px; }
   /* An asset link, and the results file, reach 44 pixels past their line without moving it. */
-  button.asset-link:not(.code) { padding-block: 13px; margin-block: -13px; }
   /* A code-styled link keeps its drawn chip; an invisible layer around it takes the taps. */
-  button.asset-link.code { position: relative; }
-  button.asset-link.code::after { content: ""; position: absolute; inset: -14px -4px; }
+  button.asset-link { position: relative; }
+  button.asset-link::after { content: ""; position: absolute; inset: -9px -2px; }
+  /* Steps with links get the line height their reach needs. */
+  .qa-instruction { line-height: 1.75; }
   /* The script path stands alone above the steps: room under it so its tap area clears the first step. */
   .qa-script-path { margin-bottom: 10px; }
   .qa-summary > a { padding-block: 13px; margin-block: -13px; }
@@ -1882,3 +1890,47 @@ pre.diff > .meta { color: var(--dim); }
 fieldset.remote-readonly { border: 0; margin: 0; padding: 0; min-width: 0; }
 fieldset.remote-readonly[disabled] > :not(.remote-readonly-note) { opacity: 0.7; }
 .remote-readonly-note { margin: 0 0 8px; }
+
+/* Phone pass 3. */
+.row-actions { display: inline-flex; gap: 8px; flex-wrap: nowrap; margin-left: auto; }
+.qa-edit-map { flex-wrap: wrap; }
+.qa-edit-map-help { flex-basis: 100%; }
+.qa-kind { white-space: nowrap; }
+
+@media (max-width: 760px) {
+  /* Review actions: Open in Unreal diff across the row, then Keep and Revert (or the state and Undo) in two equal halves. */
+  .review-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; margin-left: 0; }
+  .review-actions > .review-native { grid-column: 1 / -1; }
+  .review-actions > .pill { justify-self: center; align-self: center; }
+  .review-actions > button { width: 100%; }
+
+  /* A playtest card's toolbar starts at the left edge on every card; its state pills go to the right. */
+  .qa-head > .spacer { display: none; }
+  .qa-head .qa-box-actions { margin-left: 0; }
+  .qa-head .qa-states { margin-left: auto; }
+}
+
+@media (pointer: coarse) {
+  /* A text button in the content shows its target: an outline, as every other button has. */
+  .transcript button.ghost, .qa-card button.ghost, .approvals button.ghost, .local-reply button.ghost,
+  .playtests-page button.ghost, .remote-qr button.ghost, .review button.ghost, .review-items button.ghost {
+    border-color: var(--line-strong); background: var(--panel-2); color: var(--text);
+  }
+  /* Disclosures in a playtest card are buttons too: an outlined row 44 pixels tall. */
+  .qa-card details > summary { width: fit-content; min-height: 44px; padding: 12px 12px; box-sizing: border-box; border: 1px solid var(--line-strong); border-radius: var(--radius); list-style-position: inside; }
+  /* A subagent row says Open thread as a button would. */
+  .agent-link .agent-open { padding: 6px 10px; border: 1px solid var(--accent-line); border-radius: var(--radius); }
+  textarea.editor { resize: none; }
+}
+
+/* The script path stands alone, so its reach is the full 44 pixels. */
+@media (pointer: coarse) { .qa-script-path .asset-link::after { inset: -13px -2px; } }
+
+/* Touch: the composer's top edge sits on the divider line, so its dark background fills up to the line,
+   with the grip inside it 14 pixels below the line. The 44 pixel target is unchanged. */
+@media (pointer: coarse) {
+  .composer { padding-top: 24px; }
+  .composer-divider { top: -8px; height: 44px; }
+  .composer-divider::after, .composer-divider:hover::after, .composer-divider:focus-visible::after, .composer.resizing .composer-divider::after { top: 8px; }
+  .composer-grip { top: 16px; }
+}

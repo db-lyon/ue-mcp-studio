@@ -178,7 +178,8 @@
    Only names too long to share a row stack one per line, still the panel's width. */
 @media (max-width: 760px) {
   .cfg .toggle-row:not(.inline) > .seg, .cfg .seg { display: flex; flex-wrap: nowrap; width: 100%; align-self: stretch; }
-  .cfg .seg button { flex: 1 1 0; min-width: min-content; white-space: normal; text-align: center; overflow-wrap: normal; }
+  /* Segments size to their names and share what is left, so a long name such as File automatically stays on one line. */
+  .cfg .seg button { flex: 1 1 auto; min-width: min-content; white-space: normal; text-align: center; overflow-wrap: normal; }
   .cfg .seg.stack { flex-direction: column; }
   .cfg .seg.stack button { flex: none; text-align: left; }
   .cfg .seg.stack button + button { border-left: 0; border-top: 1px solid var(--line-strong); }
@@ -296,5 +297,11 @@
 
 /* A collapsed Advanced card: its summary reaches 44 pixels without a 44 pixel row of empty space under the text. */
 @media (pointer: coarse) {
-  .cfg details.card.advanced > summary { min-height: 0; padding-block: 13px; margin-block: -13px; }
+  .cfg details.card.advanced > summary { min-height: 44px; display: flex; align-items: center; padding-block: 0; margin-block: -10px; }
+}
+
+/* The account: its name on a line of its own on a phone, Manage plan and Sign out under it. */
+@media (max-width: 760px) {
+  .cfg .toggle-row.account-row { flex-wrap: wrap; }
+  .cfg .toggle-row.account-row > .grow { flex: 1 1 calc(100% - 24px); }
 }
