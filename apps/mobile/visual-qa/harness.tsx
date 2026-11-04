@@ -68,6 +68,8 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
       const written = scenario.post?.(url.pathname, options.json);
       return written ? json(written.status, written.body) : json(409, { error: `visual QA harness: ${m} ${url.pathname} is not answered` });
     }
+    // The endpoints scenario that fails says what a broken agent would, as the web harness answers it.
+    if (url.pathname === "/v1/ext/studio/endpoints" && scenario.endpoints === "error") return json(500, { error: "could not read ~/.ue-mcp/studio/endpoints.json: permission denied" });
     const body = daemon.answer(m, url);
     return body === undefined ? json(404, { error: `visual QA harness: GET ${url.pathname} is not answered` }) : json(200, body);
   };

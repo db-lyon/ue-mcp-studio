@@ -27,6 +27,7 @@ export default defineConfig({
       { find: new RegExp("^@expo-google-fonts/.*$"), replacement: mock("google-fonts.ts") },
       { find: /^expo-status-bar$/, replacement: mock("status-bar.tsx") },
       { find: /^react-native-safe-area-context$/, replacement: mock("safe-area.tsx") },
+      { find: /^react-native-svg$/, replacement: mock("svg.tsx") },
       { find: /^@ue-mcp-studio\/(remote|client-core|shared|extension-api)$/, replacement: `${root}/packages/$1/src/index.ts` },
     ],
   },
