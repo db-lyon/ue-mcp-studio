@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
 import { Linking, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import type { FeedbackReport, FeedbackResult } from "@ue-mcp-studio/shared";
-import { Banner, Button, Input, Spacer, bannerText, font, T, useTheme } from "../../ui";
+import { Banner, Button, Input, Spacer, bannerText, font, T, useSheetInsets, useTheme } from "../../ui";
 import { Box, Txt, pageScroll, ratio } from "../settings/controls";
 import { Details } from "../settings/Details";
 import { useSettingsApi } from "../settings/hooks";
@@ -18,6 +18,7 @@ const open = (url: string) => void Linking.openURL(url);
 export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initial?: { title: string; description: string } }) {
   const api = useSettingsApi();
   const t = useTheme();
+  const insets = useSheetInsets();
   const [kind, setKind] = useState<FeedbackReport["kind"]>("problem");
   const [title, setTitle] = useState(initial?.title ?? "");
   const [description, setDescription] = useState(initial?.description ?? "");
@@ -44,8 +45,9 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
   };
   const field = font(t, "sans", 400, t.base.size, ratio(t));
   return (
-    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent>
-      <Pressable accessibilityLabel="Close" onPress={onClose} style={{ flex: 1, padding: 8, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0, 0, 0, 0.55)" }}>
+    <Modal visible transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      {/* Clear of both bars, and of the keyboard while a field has it up. */}
+      <Pressable accessibilityLabel="Close" onPress={onClose} style={{ flex: 1, paddingTop: 8 + insets.top, paddingBottom: 8 + insets.bottom, paddingLeft: 8 + insets.left, paddingRight: 8 + insets.right, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(0, 0, 0, 0.55)" }}>
         <Pressable accessibilityViewIsModal accessibilityLabel="Send feedback" onPress={() => undefined} style={{ width: "100%", maxWidth: 580, maxHeight: "100%", borderWidth: 1, borderColor: t.c.line, borderRadius: 10, backgroundColor: t.c.panel, shadowColor: "#000", shadowOpacity: 0.45, shadowRadius: 25, shadowOffset: { width: 0, height: 18 } }}>
           <ScrollView style={pageScroll} contentContainerStyle={{ gap: 12, padding: 16 }} keyboardShouldPersistTaps="handled">
             <T style={[font(t, "sans", 600, 15, 1.2), { color: t.c.text }]}>Send feedback</T>

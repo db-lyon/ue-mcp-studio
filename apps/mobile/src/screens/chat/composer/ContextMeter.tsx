@@ -12,7 +12,7 @@ import Svg, { Circle, Line } from "react-native-svg";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
 import { compactLine, contextLabel, contextPct, contextRing, contextWarningText, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
 import { atMost, useBarTier } from "./barTier";
-import { Button, Pulse, font, labelFont, lineBox, T, useTheme, type Theme } from "../../../ui";
+import { Button, Pulse, font, labelFont, lineBox, T, useInsets, useTheme, type Theme } from "../../../ui";
 import { buttonText, small } from "../../../chat/styles";
 
 export { dollars };
@@ -101,6 +101,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
 }) {
   const t = useTheme();
   const win = useWindowDimensions();
+  const insets = useInsets();
   const [open, setOpen] = useState(false);
   const [bottom, setBottom] = useState(0);
   const button = useRef<HostInstance>(null);
@@ -138,13 +139,14 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
           <T style={[t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "mono", 500, 12, 1), { color: pctColor }]}>{contextPct(view)}</T>
         </Pulse>
       </Pressable>
-      <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
+      {/* Edge to edge as the app is, so the button's window position is the popover's and the bars' insets apply. */}
+      <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent>
         <Pressable accessibilityLabel="Close" style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
         <View
           accessibilityRole="none"
           accessibilityLabel="Context and session totals"
           accessibilityViewIsModal
-          style={{ position: "absolute", left: 10, right: 10, bottom, maxHeight: win.height * 0.6, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radiusLg, ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}) }}
+          style={{ position: "absolute", left: 10 + insets.left, right: 10 + insets.right, bottom, maxHeight: Math.min(win.height * 0.6, win.height - bottom - insets.top), backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radiusLg, ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}) }}
         >
           <ScrollView contentContainerStyle={{ paddingTop: 10, paddingBottom: 14, paddingHorizontal: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>

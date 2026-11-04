@@ -23,7 +23,7 @@ import {
 } from "@ue-mcp-studio/shared";
 import { findModel as find, lockedVia, runsVia, viaName, VIA_LABEL } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
-import { Banner, Sheet, font, labelFont, useStyles, useTheme, type Theme } from "../../../ui";
+import { Banner, Sheet, font, labelFont, useSheetInsets, useStyles, useTheme, type Theme } from "../../../ui";
 import { atMost, useBarTier } from "./barTier";
 import { REMOTE_CHANGE_NOTE } from "../../../views/settings/RemoteReadOnly";
 
@@ -90,6 +90,7 @@ export function ModelPicker({
   const { api } = useProjectNav();
   const tier = useBarTier();
   const win = useWindowDimensions();
+  const insets = useSheetInsets();
   const [open, setOpen] = useState<Anchor | null>(null);
   const catalog = useCatalog(settings);
   const [connecting, setConnecting] = useState<{ vendor: VendorId; model: string } | null>(null);
@@ -137,12 +138,14 @@ export function ModelPicker({
   // The menu: above the button in the composer, across the whole bar at its narrowest.
   const narrowest = tier === "narrowest";
   const menuWidth = Math.min(320, win.width - 24);
+  // Opening down (Settings), it stops above the navigation bar or the keyboard; opening up, below the status bar.
+  const room = open ? (up ? open.y - 6 - insets.top : win.height - (open.y + open.height + 6) - insets.bottom) : 0;
   const place = open
     ? {
-        left: narrowest ? 10 : Math.max(0, Math.min(open.x, win.width - menuWidth)),
-        ...(narrowest ? { right: 10 } : { width: menuWidth }),
+        left: narrowest ? 10 + insets.left : Math.max(insets.left, Math.min(open.x, win.width - menuWidth - insets.right)),
+        ...(narrowest ? { right: 10 + insets.right } : { width: menuWidth }),
         ...(up ? { bottom: win.height - open.y + 6 } : { top: open.y + open.height + 6 }),
-        maxHeight: win.height * 0.6,
+        maxHeight: Math.max(120, Math.min(win.height * 0.6, room)),
       }
     : null;
 
