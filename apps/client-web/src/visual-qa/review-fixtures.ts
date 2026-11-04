@@ -261,7 +261,7 @@ export const REVIEW_SCENARIOS: Record<string, Scenario> = {
   "review-material": card("Review card, a material opened: the added Constant shows its value, the removed Multiply its set constant", "material"),
   "review-level": card("Review card, a level opened: no thumbnail for a World, so its records and the fact that differs, with no tile", "level"),
   "review-input-action": card("Review card, an added Input Action opened: no thumbnail and no earlier version", "input"),
-  "review-widget": card("Review card, a Widget Blueprint opened: one widget property changed, its black thumbnails hidden, every unchanged fact folded into one line", "widget"),
+  "review-widget": card("Review card, a Widget Blueprint opened: one widget property changed, its black thumbnails hidden, no unchanged facts", "widget"),
   "review-widget-old-bridge": card("Review card, a Widget Blueprint diffed by a bridge that does not compare the widget tree: says so, never no difference", "widgetOld"),
   "review-binary": card("Review card, a sound wave opened: no structured diff, only the fact that differs", "sound"),
   "review-config": card("Review card, a reverted config file opened: its text diff", "config"),
