@@ -520,7 +520,10 @@ export function StateDot({ state, size = 6 }: { state: AgentState; size?: number
 function AgentLink({ row, transcript, onOpen }: { row: Row; transcript: TranscriptEntry[]; onOpen: (id: string) => void }) {
   const t = useTheme();
   const calls = callsIn(transcript, row.call.id);
-  const text = buttonFont(t);
+  // .tool's 12px/1.6 mono with the button's 0.02em; the editor themes' button rule outranks it with 12px/1.2 sans.
+  const lh = t.editor ? 1.2 : 1.6;
+  const role = t.editor ? "sans" : "mono";
+  const text: TextStyle = { ...font(t, role, 400, 12, lh), letterSpacing: t.editor ? 0 : 0.24 };
   const colors = stateColors(t, row.state);
   const meta = `${row.activity ? `${row.activity}, ` : ""}${calls} ${calls === 1 ? "call" : "calls"}, ${formatDuration(row.secs)}`;
   return (
@@ -531,8 +534,8 @@ function AgentLink({ row, transcript, onOpen }: { row: Row; transcript: Transcri
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <StateDot state={row.state} />
-        <Text style={[text, { color: t.c.text }, t.editor ? null : font(t, "mono", 600, 11.5, 1.2)]}>subagent</Text>
-        <Text style={[text, { fontSize: 11, color: colors.label }]}>{STATE_LABEL[row.state]}</Text>
+        <Text style={[text, font(t, role, 600, 12, lh), { color: t.c.text }]}>subagent</Text>
+        <Text style={[text, { fontSize: 11, lineHeight: lineBox(11, lh), color: colors.label }]}>{STATE_LABEL[row.state]}</Text>
         <View style={{ flex: 1 }} />
         <View style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.accentLine, borderRadius: t.radius }}>
           <Text style={[text, { color: t.c.accentHi }]}>{"Open thread ›"}</Text>
