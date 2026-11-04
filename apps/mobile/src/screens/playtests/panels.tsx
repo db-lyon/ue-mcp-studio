@@ -3,7 +3,7 @@
  * draft editor (Edit), and the Assign to subagent loop with its attempts.
  */
 import { lhOf } from "./live";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Pressable, View, Text } from "react-native";
 import {
   EDIT_OPS,
@@ -22,6 +22,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { qaScriptSteps, type QaLoop, type QaRun, type QaScriptStep } from "@ue-mcp-studio/shared";
 import { Banner, Check, Input, Pill, T, bannerText, font, useStyles, useTheme, type Theme } from "../../ui";
+import { Chevron } from "../../ui/glyphs";
 import { Disclosure, chooseFrom, SmallButton } from "./parts";
 import { StepText } from "./StepText";
 
@@ -73,10 +74,23 @@ export function Select({ label, value, options, onChange }: { label: string; val
   const pick = () => chooseFrom(label, options.map((o) => o.title), (i) => onChange(options[i].value));
   return (
     <Pressable accessibilityRole="combobox" accessibilityLabel={label} accessibilityValue={{ text: shown }} onPress={pick} style={s.select}>
-      <T style={{ ...font(t, "sans", 400, 16), color: t.c.text, flex: 1 }} numberOfLines={1}>{shown}</T>
-      <T style={{ ...font(t, "sans", 400, 10), color: t.c.text }}>{"▼"}</T>
+      <T style={{ ...font(t, "sans", 400, 16), color: t.c.text, flex: 1, paddingLeft: 4 }} numberOfLines={1}>{shown}</T>
+      <Chevron open color={t.c.text} size={10} />
     </Pressable>
   );
+}
+
+/** Controls two to a row, the last alone in its half when odd. */
+function pairs(items: ReactNode[], s: { pair: object; cell: object }) {
+  const rows: ReactNode[] = [];
+  for (let i = 0; i < items.length; i += 2)
+    rows.push(
+      <View key={i} style={s.pair}>
+        <View style={s.cell}>{items[i]}</View>
+        <View style={s.cell}>{items[i + 1] ?? null}</View>
+      </View>,
+    );
+  return rows;
 }
 
 export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun; busy: boolean; error?: string | null; onSave: (steps: QaScriptStep[], map: string) => void; onCancel: () => void }) {
@@ -107,32 +121,26 @@ export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun
             />
             <SmallButton title="Remove" label={`Remove step ${i + 1}`} onPress={() => setRows(rows.filter((_, j) => j !== i))} />
           </View>
+          {/* Two equal columns, 6 apart, as the web client's grid; a value and the checkbox take a whole row. */}
           <View style={s.grid}>
-            <View style={s.half}>
-              <Select label={`Step ${i + 1} player`} value={r.player} options={EDIT_PLAYERS.map((p) => ({ value: p, title: p || "any player" }))} onChange={(v) => set(i, { player: v })} />
-            </View>
-            <View style={s.half}>
-              <Select label={`Step ${i + 1} judge`} value={r.judge} options={[{ value: "auto", title: "auto" }, { value: "manual", title: "manual" }]} onChange={(v) => set(i, { judge: v as EditRow["judge"] })} />
-            </View>
+            {pairs([
+              <Select key="player" label={`Step ${i + 1} player`} value={r.player} options={EDIT_PLAYERS.map((p) => ({ value: p, title: p || "any player" }))} onChange={(v) => set(i, { player: v })} />,
+              <Select key="judge" label={`Step ${i + 1} judge`} value={r.judge} options={[{ value: "auto", title: "auto" }, { value: "manual", title: "manual" }]} onChange={(v) => set(i, { judge: v as EditRow["judge"] })} />,
+            ], s)}
             {r.judge === "auto" ? (
               <>
-                <View style={s.full}>
-                  <Input accessibilityLabel={`Step ${i + 1} value`} placeholder="Value, e.g. Door.OpenAngle" value={r.value} onChangeText={(v) => set(i, { value: v })} style={mono} />
-                </View>
-                <View style={s.half}>
-                  <Select label={`Step ${i + 1} op`} value={r.op} options={EDIT_OPS.map((op) => ({ value: op, title: op }))} onChange={(v) => set(i, { op: v })} />
-                </View>
-                {r.op !== "decreasing" && r.op !== "increasing" ? (
-                  <View style={s.half}>
-                    <Input accessibilityLabel={`Step ${i + 1} target`} placeholder="target" value={r.target} onChangeText={(v) => set(i, { target: v })} style={mono} />
-                  </View>
-                ) : null}
-                <View style={s.half}>
-                  <Input accessibilityLabel={`Step ${i + 1} within ms`} placeholder="within ms" value={r.withinMs} onChangeText={(v) => set(i, { withinMs: v })} style={mono} />
-                </View>
+                <Input accessibilityLabel={`Step ${i + 1} value`} placeholder="Value, e.g. Door.OpenAngle" value={r.value} onChangeText={(v) => set(i, { value: v })} style={mono} />
+                {pairs(
+                  [
+                    <Select key="op" label={`Step ${i + 1} op`} value={r.op} options={EDIT_OPS.map((op) => ({ value: op, title: op }))} onChange={(v) => set(i, { op: v })} />,
+                    r.op !== "decreasing" && r.op !== "increasing" ? <Input key="target" accessibilityLabel={`Step ${i + 1} target`} placeholder="target" value={r.target} onChangeText={(v) => set(i, { target: v })} style={mono} /> : null,
+                    <Input key="within" accessibilityLabel={`Step ${i + 1} within ms`} placeholder="within ms" value={r.withinMs} onChangeText={(v) => set(i, { withinMs: v })} style={mono} />,
+                  ].filter(Boolean),
+                  s,
+                )}
               </>
             ) : (
-              <View style={s.full}>
+              <View style={{ marginVertical: 6 }}>
                 <Check checked={r.personOnly} onChange={(v) => set(i, { personOnly: v })} label="Only a person judges it">
                   <T style={[small(t), { color: t.c.muted }]}>Only a person judges it</T>
                 </Check>
@@ -232,12 +240,12 @@ const panelStyles = (t: Theme) => ({
   ghost: { borderColor: t.c.lineStrong, backgroundColor: t.c.panel2 },
   select: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, minHeight: 44, paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, backgroundColor: t.c.panel2 },
   edit: { gap: 8 },
-  map: { gap: 4, marginBottom: 8 },
+  map: { gap: 4, marginBottom: 8, marginRight: 14 },
   editStep: { gap: 4, borderLeftWidth: 2, borderLeftColor: t.c.lineStrong, paddingLeft: 8 },
   editHead: { flexDirection: "row" as const, alignItems: "flex-start" as const, gap: 6, marginVertical: 6 },
-  grid: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6, marginVertical: 6 },
-  half: { flexBasis: "48%" as const, flexGrow: 1, minWidth: 0 },
-  full: { flexBasis: "100%" as const },
+  grid: { gap: 6, marginVertical: 6 },
+  pair: { flexDirection: "row" as const, gap: 6 },
+  cell: { flex: 1, minWidth: 0 },
   loop: { gap: 6 },
   attempts: { gap: 4 },
   attempt: { borderLeftWidth: 2, borderLeftColor: t.c.lineStrong, paddingVertical: 2, paddingLeft: 10 },

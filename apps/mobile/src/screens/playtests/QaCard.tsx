@@ -9,7 +9,7 @@
  */
 import { lhOf } from "./live";
 import { Fragment, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Pressable, ScrollView, View, type ViewStyle, Text } from "react-native";
+import { Platform, Pressable, ScrollView, View, type ViewStyle, Text } from "react-native";
 import {
   QA_VERDICTS,
   STARTING,
@@ -118,18 +118,25 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
 
   const reveal = useContext(RevealContext);
   const cardRef = useRef<Measurable | null>(null);
-  const [revealing, setRevealing] = useState(false);
+  const stepRefs = useRef(new Map<number, Measurable | null>());
+  /** Where the card was last opened: its top (-1) or a step, brought into view once drawn. */
+  const [target, setTarget] = useState<number | null>(null);
+  /** The step a bar opened the card on, lit for a moment as the web client flashes it. */
+  const [flash, setFlash] = useState<number | null>(null);
   const openAt = (index: number | null) => {
     setOpen(true);
     setMarked(index);
-    if (index === null) setRevealing(true);
+    setTarget(index ?? -1);
   };
-  // Opened at its top: brought into view once its body is drawn.
   useEffect(() => {
-    if (!revealing) return;
-    setRevealing(false);
-    reveal(cardRef.current);
-  }, [revealing, reveal]);
+    if (target === null) return;
+    setTarget(null);
+    if (target < 0) return reveal(cardRef.current, "start");
+    reveal(stepRefs.current.get(target) ?? null, "nearest");
+    setFlash(target);
+    const timer = setTimeout(() => setFlash(null), 1600);
+    return () => clearTimeout(timer);
+  }, [target, reveal]);
   // A step that settled is no longer being sent.
   useEffect(() => {
     setSending((cur) => Object.fromEntries(Object.entries(cur).filter(([i]) => run.steps.find((x) => x.index === Number(i))?.status === "awaiting_verdict")));
@@ -264,7 +271,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   if (runnable)
     ownActions.push(
       <View key="start" style={s.start} accessibilityLabel="Start playtest">
-        <IconButton primary label={working ? STARTING : ended ? "Run again" : "Start playtest"} disabled={working || off} onPress={() => start(quickRunOptions(run))} glyph="play" />
+        <IconButton primary label={working ? STARTING : ended ? "Run again" : "Start playtest"} disabled={working || off} onPress={() => start(quickRunOptions(run))} glyph="play" style={s.play} />
         <IconButton
           label="Start playtest options"
           disabled={working || off}
@@ -313,6 +320,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
       disabled={o.disabled}
       onPress={onPress}
       picked={o.picked}
+      // A disabled Pass or Fail keeps only its hairline, as the web client draws it.
+      style={o.disabled && v.verdict !== "skip" ? { borderColor: t.c.line } : null}
     />
   );
 
@@ -418,7 +427,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                 const tone = stepTone(step);
                 const toneColor = tone === "ok" ? t.c.ok : tone === "bad" ? t.c.bad : tone === "warn" ? t.c.warn : tone === "run" ? t.c.accent : null;
                 return (
-                  <View key={step.index} style={[s.step, toneColor ? { borderLeftColor: toneColor } : null, marked === step.index && s.target]} testID={`qa-step-${step.index}`}>
+                  <View key={step.index} ref={((n: Measurable | null) => void stepRefs.current.set(step.index, n)) as never} style={[s.step, toneColor ? { borderLeftColor: toneColor } : null, marked === step.index && s.target, flash === step.index && s.flash]} testID={`qa-step-${step.index}`}>
                     <View style={s.stepRow}>
                       <T style={s.num}>{step.index + 1}</T>
                       <T style={s.instruction}>
@@ -454,7 +463,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                     {byAgent ? (
                       <View style={s.smallInset}>
                         <Disclosure summary="What the agent saw">
-                          {(step.evidence?.note ?? step.note) ? <T style={[s.small, { marginVertical: 4 }]}>{step.evidence?.note ?? step.note}</T> : null}
+                          {(step.evidence?.note ?? step.note) ? <T style={[s.small, { marginTop: 4 }]}>{step.evidence?.note ?? step.note}</T> : null}
                           {(step.evidence?.captures ?? []).length > 0 ? (
                             <View style={s.captures}>
                               {step.evidence!.captures!.map((c, n) => (
@@ -565,6 +574,12 @@ function Results({ transport, runId }: { transport: Transport; runId: string }) 
   );
 }
 
+/** color-mix(in srgb, --text N%, transparent). */
+const mixText = (t: Theme, a: number): string => {
+  const n = parseInt(t.c.text.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${a})`;
+};
+
 const styles = (t: Theme) => {
   const inset = t.base.size * 1.6 + 8;
   const small = font(t, "sans", 400, 12, lhOf(t));
@@ -579,6 +594,8 @@ const styles = (t: Theme) => {
       gap: 6,
       minWidth: 0,
       ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}),
+      // .card: the faint tint fading out over the top 120 pixels.
+      ...(Platform.OS === "web" ? { backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent 120px)` } : { experimental_backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent 120px)` }),
     } as ViewStyle,
     draft: { borderStyle: "dashed" as const },
     head: { flexDirection: "row" as const, alignItems: "center" as const, flexWrap: "wrap" as const, rowGap: 6, columnGap: 8, minWidth: 0 },
@@ -586,6 +603,7 @@ const styles = (t: Theme) => {
     title: { ...font(t, "sans", 700, 14, lhOf(t)), color: t.c.text, letterSpacing: t.editor ? 0 : 0.27, flexShrink: 1, minWidth: 0 },
     actions: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, flexShrink: 0 },
     start: { flexDirection: "row" as const, alignItems: "stretch" as const, gap: 4 },
+    play: { borderTopRightRadius: 0, borderBottomRightRadius: 0 },
     states: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, flexShrink: 0, marginLeft: "auto" as const },
     compact: { gap: 4, minWidth: 0 },
     line: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, rowGap: 4, columnGap: 8, minWidth: 0 },
@@ -606,7 +624,8 @@ const styles = (t: Theme) => {
     assignment: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "baseline" as const, gap: 10 },
     steps: { gap: 2 },
     step: { borderLeftWidth: 2, borderLeftColor: t.c.lineStrong, paddingTop: 5, paddingBottom: 5, paddingLeft: 10, paddingRight: 8, gap: 4 },
-    target: { backgroundColor: "rgba(236, 233, 227, 0.07)" },
+    target: { backgroundColor: mixText(t, 0.07) },
+    flash: { backgroundColor: mixText(t, 0.12) },
     stepRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "baseline" as const, rowGap: 2, columnGap: 8, minWidth: 0 },
     num: { ...font(t, "mono", 400, t.base.size * 0.92, lhOf(t)), color: t.c.dim, width: t.base.size * 0.92 * 1.6, textAlign: "right" as const },
     instruction: { ...font(t, "sans", 400, t.base.size), lineHeight: t.base.size * 1.75, color: t.c.text, flexGrow: 1, flexShrink: 1, flexBasis: 200, minWidth: 0 },

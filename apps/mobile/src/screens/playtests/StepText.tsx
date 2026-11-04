@@ -51,9 +51,11 @@ function Link({ token, code, paths, size }: { token: string; code: boolean; path
     if (several) void api.reportAssetMiss(token, paths.length).catch(() => undefined);
   }, [api, several, token, paths.length]);
   // A code chip keeps the colour of the text around it; on the web build it takes its padding and underline as the web client draws them.
+  // The web client's links are inline boxes: a long one takes its own line rather than breaking around the text.
+  const box = Platform.OS === "web" ? ({ display: "inline-block" } as unknown as TextStyle) : {};
   const style: TextStyle = code
-    ? { ...font(t, "mono", 400, 12), letterSpacing: t.editor ? 0 : 0.24, backgroundColor: t.c.panel2, borderRadius: 4, ...(Platform.OS === "web" ? ({ paddingHorizontal: 4, paddingVertical: 1, boxShadow: `inset 0 -1px 0 ${t.c.accentLine}` } as TextStyle) : {}) }
-    : { color: t.c.accentHi, textDecorationLine: "underline", textDecorationColor: t.c.accentLine, letterSpacing: t.editor ? 0 : 0.02 * size };
+    ? { ...box, ...font(t, "mono", 400, 12), letterSpacing: t.editor ? 0 : 0.24, backgroundColor: t.c.panel2, borderRadius: 4, ...(Platform.OS === "web" ? ({ paddingHorizontal: 4, paddingVertical: 1, boxShadow: `inset 0 -1px 0 ${t.c.accentLine}` } as TextStyle) : {}) }
+    : { ...box, color: t.c.accentHi, textDecorationLine: "underline", textDecorationColor: t.c.accentLine, letterSpacing: t.editor ? 0 : 0.02 * size };
   return (
     <Text accessibilityRole="link" accessibilityHint={several ? `${paths.length} assets named ${token}` : paths[0]} onPress={() => (several ? choose(paths, open) : open(paths[0]))} style={style}>
       {code && Platform.OS !== "web" ? ` ${token} ` : token}

@@ -52,10 +52,10 @@ export function Disclosure({ summary, children, initiallyOpen = false, label }: 
   return (
     <View>
       <Pressable accessibilityRole="button" accessibilityLabel={label ?? summary} accessibilityState={{ expanded: open }} aria-expanded={open} onPress={() => setOpen(!open)} style={s.summary}>
-        <T style={s.summaryText}>
-          <T style={s.marker}>{open ? "▼" : "▶"} </T>
-          {summary}
-        </T>
+        <View style={s.summaryRow}>
+          <T style={s.marker}>{open ? "▼" : "▶"}</T>
+          <T style={s.summaryText}>{summary}</T>
+        </View>
       </Pressable>
       {open ? children : null}
     </View>
@@ -65,7 +65,8 @@ export function Disclosure({ summary, children, initiallyOpen = false, label }: 
 const disclosureStyles = (t: Theme) => ({
   summary: { alignSelf: "flex-start" as const, minHeight: 44, paddingVertical: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius },
   summaryText: { ...font(t, "sans", 400, 12), lineHeight: 21.6, color: t.c.muted },
-  marker: { fontSize: 13.8, color: t.c.text },
+  summaryRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
+  marker: { fontSize: 8.5, lineHeight: 21.6, color: t.c.text },
 });
 
 /** Fail's note: required, Submit sends the fail with it, Cancel records nothing. */
@@ -205,7 +206,7 @@ export function SmallButton({ title, onPress, disabled, label, primary, ghost, d
       label={label ?? title}
       disabled={disabled}
       onPress={onPress}
-      style={[ghost && { borderColor: t.c.lineStrong, backgroundColor: t.c.panel2 }, danger && { borderColor: t.c.bad }, picked && { borderColor: t.c.accent }, primary && disabled && { borderColor: t.c.lineStrong }, style]}
+      style={[{ minWidth: 44 }, ghost && { borderColor: t.c.lineStrong, backgroundColor: t.c.panel2 }, danger && { borderColor: t.c.bad }, picked && { borderColor: t.c.accent }, primary && disabled && { borderColor: t.c.lineStrong }, style]}
     >
       <T style={[face, { color: ghost && !disabled ? t.c.text : color, letterSpacing: 0 }]}>{title}</T>
     </Button>

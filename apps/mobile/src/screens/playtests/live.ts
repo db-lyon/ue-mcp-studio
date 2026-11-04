@@ -5,6 +5,7 @@
  * after a drop (from its last seq) or a gap (from the start).
  */
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { Platform } from "react-native";
 import { newerRun, type StreamEvent } from "@ue-mcp-studio/client-core";
 import { qaApplyStreamEvent, qaEnded, qaIsDraft, qaMergeAnswer, type PendingForm, type QaRun } from "@ue-mcp-studio/shared";
 import type { Project } from "../../connection";
@@ -80,11 +81,22 @@ export function useLiveRun(run: QaRun, live: Pick<QaLive, "events" | "streaming"
 
 export const useQaLive = () => useContext(QaContext);
 
-/** Brings a card to the top of the scroller it is in; nothing where none is given. */
 export interface Measurable {
   measureLayout(relativeTo: unknown, onSuccess: (x: number, y: number) => void, onFail?: () => void): void;
 }
-export const RevealContext = createContext<(node: Measurable | null) => void>(() => undefined);
+
+/** `start`: to the top of its scroller, as a card opened at its top; `nearest`: just into view, as the step a card opened on. */
+export type RevealBlock = "start" | "nearest";
+
+/**
+ * Brings a view into its scroller's view. A scroller that can measure gives its
+ * own; otherwise the web build asks the browser, as the web client does, and a
+ * phone leaves it where it is.
+ */
+export const RevealContext = createContext<(node: Measurable | null, block?: RevealBlock) => void>((node, block = "start") => {
+  const el = node as unknown as { scrollIntoView?: (o: { block: RevealBlock; behavior: "smooth" }) => void } | null;
+  if (Platform.OS === "web") el?.scrollIntoView?.({ block, behavior: "smooth" });
+});
 
 /** The theme's body line height as a multiple, as CSS's unitless line-height carries to smaller text: 1.55 in ue-mcp, 1.5 in the editor themes. */
 export const lhOf = (t: { base: { size: number; lineHeight: number } }): number => t.base.lineHeight / t.base.size;

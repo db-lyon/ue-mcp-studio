@@ -8,7 +8,7 @@
  */
 import { lhOf } from "./live";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, View, Text } from "react-native";
+import { Platform, Pressable, RefreshControl, ScrollView, View, Text } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import {
   PLAYTEST_FILTERS,
@@ -22,10 +22,11 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { playtestMatches, playtestShown, type PlaytestEntry, type PlaytestFilter, type PlaytestIndexAnswer, type QaRun } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
-import { Banner, Button, T, bannerText, font, useStyles, useTheme, type Theme } from "../../ui";
-import { QaContext, RevealContext, useDaemonEvents, type Measurable, type QaLive } from "./live";
+import { Banner, T, bannerText, font, useStyles, useTheme, type Theme } from "../../ui";
+import { QaContext, RevealContext, useDaemonEvents, type Measurable, type QaLive, type RevealBlock } from "./live";
 import { QaCard, useSavedScript, type QaCardActions } from "./QaCard";
 import { PathLegend } from "./StepPath";
+import { SmallButton } from "./parts";
 import { AssetLinksContext, useAssetLinks } from "./StepText";
 
 export const FILTER_KEY = "studio.playtests.filter";
@@ -92,8 +93,8 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   const scroller = useRef<{ scrollTo(o: { y: number; animated: boolean }): void } | null>(null);
   const content = useRef<Measurable | null>(null);
   // An opened card comes to the top of the page, as the web client scrolls it into view.
-  const reveal = useMemo(() => (node: Measurable | null) => {
-    if (!node || !content.current) return;
+  const reveal = useMemo(() => (node: Measurable | null, block: RevealBlock = "start") => {
+    if (!node || !content.current || block !== "start") return;
     node.measureLayout(content.current, (_x, y) => scroller.current?.scrollTo({ y: y + 10, animated: true }), () => undefined);
   }, []);
   const pulled = useRef(false);
@@ -117,7 +118,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
           {index?.listed !== false && counts["needs-you"] > 0 ? <Text style={{ color: t.c.warn }}> · {counts["needs-you"]} need{counts["needs-you"] === 1 ? "s" : ""} you</Text> : null}
         </T>
         <View style={{ flex: 1 }} />
-        <Button title="Refresh" size="small" label="Refresh: list the project's scripts again" onPress={() => reload(true)} style={s.refresh} />
+        <SmallButton title="Refresh" label="Refresh: list the project's scripts again" onPress={() => reload(true)} style={s.refresh} />
       </View>
       {all.length > 0 ? (
         <View style={s.filters} accessibilityLabel="Show">
@@ -127,7 +128,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
               <Pressable key={f.id} accessibilityRole="button" accessibilityState={{ selected: on }} aria-pressed={on} accessibilityLabel={`${f.label} ${counts[f.id]}`} onPress={() => pick(f.id)} style={[s.chip, on && s.chipOn]}>
                 <T style={[s.chipText, on && { color: t.c.text }]}>
                   {f.label}{" "}
-                  <Text style={[s.chipCount, { color: on ? t.c.text : t.c.muted }]}>{counts[f.id]}</Text>
+                  <Text style={[s.chipCount, { color: on ? t.c.text : t.c.muted }, Platform.OS === "web" ? ({ marginLeft: 4 } as object) : null]}>{Platform.OS === "web" ? "" : " "}{counts[f.id]}</Text>
                 </T>
               </Pressable>
             );
@@ -153,7 +154,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
             <T style={{ color: t.c.muted }}>
               Ask the agent for one in a session, or type <Text style={{ ...font(t, "mono", 400, t.base.size * 0.92), color: t.c.text }}>/playtest</Text> in the message box.
             </T>
-            {onChat ? <Button title="Go to Chat" size="small" variant="primary" onPress={onChat} /> : null}
+            {onChat ? <SmallButton title="Go to Chat" primary onPress={onChat} /> : null}
           </View>
         ) : (
           <T style={{ color: t.c.muted, marginVertical: 24 }}>{PLAYTEST_FILTERS.find((f) => f.id === filter)!.empty}</T>

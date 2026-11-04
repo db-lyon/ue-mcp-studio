@@ -61,7 +61,7 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
           const tinted = mark === "ok" || mark === "warn" || mark === "run" || mark === "bad";
           const bar = (
             <>
-              <View style={[s.bar, markStyle(t, mark)]} />
+              <View style={[s.bar, markStyle(t, mark), focused === step.index && s.barFocused]} />
               {step.judge === "manual" ? <View style={[s.dot, tinted && { backgroundColor: t.c.bg, opacity: 1 }, mark === "bad" && shadow(`0 0 0 1.5px ${t.c.bg}`)]} /> : null}
             </>
           );
@@ -74,7 +74,7 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
                   onPress={() => onStep(step.index)}
                   onFocus={(e) => setFocused(keyboardFocus(e) ? step.index : null)}
                   onBlur={() => setFocused(null)}
-                  style={s.hit}
+                  style={[s.hit, s.noOutline]}
                 >
                   {bar}
                 </Pressable>
@@ -132,9 +132,12 @@ const styles = (t: Theme) => ({
   step: { flex: 1, minWidth: 6, height: 24 },
   hit: { position: "relative" as const, height: 44, marginTop: -10, marginBottom: -10, borderRadius: 3 },
   bar: { position: "absolute" as const, left: 0, right: 0, top: 22, height: 8, borderRadius: 3 },
+  // Keyboard focus: the bar grows and takes a ring with a gap of the page colour.
+  barFocused: { top: 19, height: 14, boxShadow: `0 0 0 2px ${t.c.bg}, 0 0 0 4px ${t.c.text}` } as ViewStyle,
+  noOutline: { outlineStyle: "none" } as unknown as ViewStyle,
   dot: { position: "absolute" as const, left: "50%" as const, top: 24, width: 4, height: 4, marginLeft: -2, borderRadius: 2, backgroundColor: t.c.text, opacity: 0.85, zIndex: 1 },
   caption: { marginTop: 4, flexDirection: "row" as const, alignItems: "baseline" as const, gap: 8, paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, backgroundColor: t.c.panel3 },
-  captionNum: { ...font(t, "mono", 400, 12 * 0.92, lhOf(t)), color: t.c.text },
+  captionNum: { ...font(t, "mono", 400, 12 * 0.92, lhOf(t)), color: t.c.text, width: 12 * 0.92 * 1.6, textAlign: "right" as const },
   captionText: { ...font(t, "sans", 400, 12, lhOf(t)), flex: 1, minWidth: 0, color: t.c.text },
   captionState: { ...font(t, "sans", 400, 12, lhOf(t)), flexShrink: 0, color: t.c.muted },
   legend: { flexDirection: "row" as const, flexWrap: "wrap" as const, rowGap: 4, columnGap: 12 },
