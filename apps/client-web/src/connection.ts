@@ -127,6 +127,16 @@ export function isRemotePage(hasHost: boolean, hostname: string): boolean {
   return !["127.0.0.1", "localhost", "::1", "[::1]"].includes(hostname.toLowerCase());
 }
 
+/**
+ * Whether this page is a paired browser's. The visual QA harness sets
+ * __studioRemotePage to show a paired browser's page from this computer.
+ */
+export function onRemotePage(): boolean {
+  if (typeof window === "undefined") return false;
+  const forced = (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage;
+  return forced ?? isRemotePage(!!(window as unknown as { ue?: unknown }).ue, window.location.hostname);
+}
+
 /** What a paired browser shows when ue-mcp on the computer stays away. */
 export const REMOTE_OFFLINE = "It may be restarting, or the computer may be asleep or offline. This page reconnects by itself as soon as ue-mcp answers again; there is nothing to run here.";
 

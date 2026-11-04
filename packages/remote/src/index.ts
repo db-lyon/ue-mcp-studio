@@ -65,6 +65,8 @@ export const FORWARDED_RESPONSE_HEADERS = ["content-type", "cache-control", "con
 const ALLOW: Array<{ methods: string[] | "any"; path: RegExp }> = [
   { methods: ["GET"], path: /^\/ui(\/.*)?$/ },
   { methods: ["GET"], path: /^\/v1\/(health|events|install|update)$/ },
+  // The Plugins tab, read only: the installed list and the registry's catalog. Install, update and remove stay on the computer.
+  { methods: ["GET"], path: /^\/v1\/plugins(\/catalog)?$/ },
   { methods: ["POST"], path: /^\/v1\/editor\/(start|stop|restart|rebuild)$/ },
   { methods: "any", path: /^\/v1\/flows(\/.*)?$/ },
   { methods: "any", path: /^\/v1\/ext\/studio(\/.*)?$/ },
@@ -82,7 +84,7 @@ const DENY: RegExp[] = [
  * way the daemon's URL parser will read it, or null when it is refused. Forward
  * the returned path, never the raw one. The connector enforces this on the
  * computer, after opening the sealed request. Never reachable: the MCP
- * endpoint, shutdown and handoff, applying updates, plugin installs, Studio's
+ * endpoint, shutdown and handoff, applying updates, installing, updating or removing plugins, Studio's
  * window and remote-control routes, and any extension other than Studio.
  */
 export function remotePath(method: string, rawPath: string): string | null {

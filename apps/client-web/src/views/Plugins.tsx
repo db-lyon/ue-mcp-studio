@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ApiError, api, type CatalogPlugin, type InstalledPlugin, type PluginCommandResult } from "../api";
+import { onRemotePage } from "../connection";
 import { inEditor, native } from "../native";
 import type { DaemonState } from "../state";
 
@@ -17,12 +18,16 @@ export function searchCatalog(catalog: CatalogPlugin[], query: string): CatalogP
   return catalog.filter((c) => [c.name, c.slug, c.tagline, c.category, ...(c.tags ?? [])].some((s) => s?.toLowerCase().includes(q)));
 }
 
+/** What a paired browser says in place of install, update and remove, which only run on the computer. */
+export const REMOTE_PLUGINS_NOTE = "Installing, updating and removing plugins run from Studio on the computer.";
+
 /**
  * The project's ue-mcp plugins: the installed ones, with update and remove,
  * and the registry's catalog to browse and install from. Changes load when
- * the daemon restarts, which Apply does from here.
+ * the daemon restarts, which Apply does from here. A paired browser sees the
+ * same lists read only: the computer refuses it every change.
  */
-export function PluginsView({ daemon }: { daemon: DaemonState }) {
+export function PluginsView({ daemon, remote = onRemotePage() }: { daemon: DaemonState; remote?: boolean }) {
   const [installed, setInstalled] = useState<InstalledPlugin[] | null>(null);
   const [catalog, setCatalog] = useState<CatalogPlugin[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -81,7 +86,8 @@ export function PluginsView({ daemon }: { daemon: DaemonState }) {
   return (
     <div className="stack plugins">
       {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
-      {pending && (
+      {remote && <p className="banner plugins-remote-note">{REMOTE_PLUGINS_NOTE}</p>}
+      {pending && !remote && (
         <div className="banner warn plugins-apply">
           <span>Plugin changes load when ue-mcp restarts.{!inEditor() && " Restart it with npx ue-mcp daemon stop, then reopen Studio."}</span>
           {inEditor() && <button className="primary" disabled={!!working} onClick={() => void apply()}>Apply changes</button>}
@@ -106,8 +112,12 @@ export function PluginsView({ daemon }: { daemon: DaemonState }) {
             <span className={`pill ${p.status === "ok" ? "ok" : "bad"}`}>{p.status}</span>
             {p.categories.length > 0 && <span className="dim small">adds {p.categories.join(", ")}</span>}
             <span className="spacer" />
-            <button disabled={!!working} onClick={() => act(`Update ${p.name}`, () => api.updatePlugin(p.name))}>Update</button>
-            <RemoveButton disabled={!!working} onRemove={() => act(`Remove ${p.name}`, () => api.uninstallPlugin(p.name))} />
+            {!remote && (
+              <>
+                <button disabled={!!working} onClick={() => act(`Update ${p.name}`, () => api.updatePlugin(p.name))}>Update</button>
+                <RemoveButton disabled={!!working} onRemove={() => act(`Remove ${p.name}`, () => api.uninstallPlugin(p.name))} />
+              </>
+            )}
             {p.problems.length > 0 && <div className="plugin-problems dim small">{p.problems.join("; ")}</div>}
           </div>
         ))}
@@ -134,7 +144,7 @@ export function PluginsView({ daemon }: { daemon: DaemonState }) {
                   <span className="spacer" />
                   {have ? (
                     <span className="pill ok">installed</span>
-                  ) : (
+                  ) : remote ? null : (
                     <button className="primary" disabled={!!working} onClick={() => act(`Install ${c.name}`, () => api.installPlugin(c.slug))}>Install</button>
                   )}
                 </div>

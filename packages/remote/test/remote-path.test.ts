@@ -51,6 +51,27 @@ describe("remotePath", () => {
     ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
   });
 
+  it("lets a paired browser read the plugins and the catalog, and nothing that changes them", () => {
+    expect(remotePath("GET", "/v1/plugins")).toBe("/v1/plugins");
+    expect(remotePath("GET", "/v1/plugins/catalog")).toBe("/v1/plugins/catalog");
+    for (const [m, p] of [
+      ["POST", "/v1/plugins/install"],
+      ["POST", "/v1/plugins/update"],
+      ["POST", "/v1/plugins/uninstall"],
+      ["POST", "/v1/plugins"],
+      ["PUT", "/v1/plugins"],
+      ["DELETE", "/v1/plugins"],
+      ["POST", "/v1/plugins/catalog"],
+      ["GET", "/v1/plugins/install"],
+      ["GET", "/v1/plugins/update"],
+      ["GET", "/v1/plugins/uninstall"],
+      ["GET", "/v1/plugins/catalog/../install"],
+      ["GET", "/v1/plugins/%2e%2e/shutdown"],
+      ["GET", "/v1/plugins/"],
+      ["GET", "/v1/plugins/catalog/x"],
+    ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
+  });
+
   it("still allows Studio routes that only start with the same letters", () => {
     expect(remotePath("GET", "/v1/ext/studio/remotes")).toBe("/v1/ext/studio/remotes");
     expect(remotePath("GET", "/v1/ext/studio/sessions/remote")).toBe("/v1/ext/studio/sessions/remote");
