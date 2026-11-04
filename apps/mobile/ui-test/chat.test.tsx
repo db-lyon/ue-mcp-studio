@@ -74,6 +74,13 @@ describe("ChatHeader", () => {
     expect([onSessions, onReview, onAgents].every((f) => f.mock.calls.length === 1)).toBe(true);
   });
 
+  it("is the touch-screen .chat-back: 44 px of buttons with no padding above or below, the label spaced as its 16 px button", () => {
+    renderInProject(<ChatHeader title="Cave door" thread={null} transcript={[]} sessionWaiting={false} agents={0} onSessions={() => undefined} onMain={() => undefined} onStop={() => undefined} onReview={() => undefined} />);
+    const row = getComputedStyle(screen.getByLabelText("Back to sessions").parentElement!);
+    expect([row.minHeight, row.paddingTop, row.paddingBottom, row.paddingLeft, row.paddingRight]).toEqual(["44px", "0px", "0px", "4px", "8px"]);
+    expect(getComputedStyle(screen.getByText("Sessions")).letterSpacing).toBe("0.32px");
+  });
+
   it("over a subagent's thread: its name, the session above it, its state and Stop", () => {
     const call = (agent("a1", "Dress the floor") as Extract<TranscriptEntry, { kind: "tool" }>).call;
     const onMain = vi.fn();

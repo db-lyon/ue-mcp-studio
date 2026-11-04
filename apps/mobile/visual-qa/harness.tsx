@@ -41,6 +41,12 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
     // The phone is a paired client: the computer refuses it what it refuses a paired browser.
     const sent = options.json !== undefined ? enc.encode(JSON.stringify(options.json)) : undefined;
     if (!remotePath(m, path) || !remoteBodyAllowed(m, url.pathname, sent)) return json(403, { error: "Not available remotely." });
+    // Pictures (a playtest capture, a review image or thumbnail) come from the page's server, which draws them as the web harness does.
+    if (/\/captures\/\d+$|\/review\/(thumbnails|images)\//.test(url.pathname)) {
+      const r = await fetch(url.pathname);
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      return { status: r.status, headers: { "content-type": r.headers.get("content-type") ?? "" }, body: (async function* () { yield bytes; })() };
+    }
     if (scenario.remoteOffline && (url.pathname === "/v1/events" || url.pathname === "/v1/health")) return json(503, { error: "The project is offline." });
     if (url.pathname === "/v1/events") {
       const first = !streamed;

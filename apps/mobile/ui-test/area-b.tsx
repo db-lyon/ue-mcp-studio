@@ -8,7 +8,7 @@
 import type { ReactNode } from "react";
 import { act, render } from "@testing-library/react";
 import { vi } from "vitest";
-import type { Transport } from "@ue-mcp-studio/client-core";
+import { studioApi, type Transport } from "@ue-mcp-studio/client-core";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
 import { SCENARIOS, scenarioTransport } from "../visual-qa/harness";
 import { ProjectContext, useProjectNav, type ProjectNav } from "../src/nav";
@@ -38,7 +38,7 @@ export function renderArea(scenario: string, ui: ReactNode | ((daemon: DaemonSta
     return r;
   };
   const { project, emit } = fakeProject(transport);
-  const nav: ProjectNav = { project, api: null as never, push: vi.fn(), pop: vi.fn() };
+  const nav: ProjectNav = { project, api: studioApi(project.transport), push: vi.fn(), pop: vi.fn() };
   const onTheme = vi.fn();
   const view = render(
     <ThemeProvider name={theme} onChange={onTheme}>

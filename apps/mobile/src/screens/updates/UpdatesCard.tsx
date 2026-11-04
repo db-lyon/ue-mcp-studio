@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Linking, View } from "react-native";
-import { REMOTE_UPDATES, fabUpdate, failureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
+import { REMOTE_UPDATES, fabUpdate, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
 import { Banner, Button, Card, Pill, Spacer, bannerText, labelFont, T, useTheme } from "../../ui";
 import { Details } from "../settings/Details";
 import { Radio, Txt } from "../settings/controls";
@@ -56,7 +56,7 @@ export function UpdatesCard() {
   const ready = u ? readyLine(u) : "";
   const fab = fabUpdate(u?.studio);
   const engineOnly = u?.studio?.plugin.location === "engine" && u.studio?.plugin.source !== "fab" && !!u.studio?.plugin.latest;
-  const failure = failureLine(u?.studio);
+  const failure = updateFailureLine(u?.studio);
 
   return (
     <Card testID="updates">

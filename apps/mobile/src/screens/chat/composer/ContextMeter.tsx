@@ -10,22 +10,26 @@ import { useRef, useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type DimensionValue, type HostInstance } from "react-native";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
 import { compactLine, contextLabel, contextWarningText, dollars, pct, tokenCount } from "@ue-mcp-studio/client-core";
-import { Button, font, labelFont, T, useTheme, type Theme } from "../../../ui";
+import { atMost, useBarTier } from "./barTier";
+import { Button, Pulse, font, labelFont, T, useTheme, type Theme } from "../../../ui";
 import { buttonText, small } from "../../../chat/styles";
 
 export { dollars };
 
 const levelColor = (t: Theme, level: ContextView["level"]): string => (level === "high" ? t.c.bad : level === "warn" ? t.c.warn : t.c.ok);
 
-/** The context bar: how full, and a tick where it compacts. `width` 34 in the bar, 44 in the warning, "100%" wide. */
-export function ContextBar({ view, width = 34, wide = false }: { view: ContextView; width?: DimensionValue; wide?: boolean }) {
+/**
+ * The context bar: how full, and a tick where it compacts. `width` 34 in the bar, 44 in the warning, "100%" wide.
+ * .context-bar draws its outline as an inset shadow, so the fill and the tick are placed against the full width.
+ */
+export function ContextBar({ view, width = 34, wide = false, pulsing = false }: { view: ContextView; width?: DimensionValue; wide?: boolean; pulsing?: boolean }) {
   const t = useTheme();
   const height = wide ? 6 : 4;
   return (
-    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: wide ? "100%" : width, height, borderRadius: height / 2, backgroundColor: t.c.panel3, borderWidth: 1, borderColor: t.c.line, flexShrink: 0 }}>
-      <View style={{ position: "absolute", left: -1, top: -1, bottom: -1, width: `${Math.min(100, view.fraction * 100)}%`, minWidth: view.used > 0 ? 2 : 0, borderRadius: height / 2, backgroundColor: levelColor(t, view.level) }} />
-      {view.fraction > 1 ? <View style={{ position: "absolute", right: -4, top: -3, bottom: -3, width: 3, borderRadius: 1, backgroundColor: t.c.bad, shadowColor: t.c.bad, shadowOpacity: 1, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } }} /> : null}
-      <View style={{ position: "absolute", top: -3, bottom: -3, width: 1, marginLeft: -0.5, left: `${view.compactAt * 100}%`, backgroundColor: t.c.muted, opacity: 0.7 }} />
+    <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: wide ? "100%" : width, height, borderRadius: height / 2, backgroundColor: t.c.panel3, boxShadow: `inset 0 0 0 1px ${t.c.line}`, flexShrink: 0 }}>
+      <Pulse on={pulsing} period={1600} style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${Math.min(100, view.fraction * 100)}%`, minWidth: view.used > 0 ? 2 : 0, borderRadius: height / 2, backgroundColor: levelColor(t, view.level) }} />
+      {view.fraction > 1 ? <View style={{ position: "absolute", right: -3, top: -2, bottom: -2, width: 3, borderRadius: 1, backgroundColor: t.c.bad, boxShadow: `0 0 6px ${t.c.bad}` }} /> : null}
+      <View style={{ position: "absolute", top: -2, bottom: -2, width: 1, marginLeft: -0.5, left: `${view.compactAt * 100}%`, backgroundColor: t.c.muted, opacity: 0.7 }} />
     </View>
   );
 }
@@ -63,6 +67,8 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   const [open, setOpen] = useState(false);
   const [bottom, setBottom] = useState(0);
   const button = useRef<HostInstance>(null);
+  const tier = useBarTier();
+  const tight = atMost("merged", tier);
   const view = contextView(context, model, listedWindow);
   if (!view && !totals?.requests) return null;
   const label = contextLabel(view, owner);
@@ -84,11 +90,16 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
         accessibilityState={{ expanded: open }}
         accessibilityHint="Session totals inside."
         onPress={toggle}
-        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 5, minHeight: 44, paddingHorizontal: 6, borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.line : "transparent", backgroundColor: pressed ? t.c.panel2 : "transparent" })}
+        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: tight ? 5 : 7, minHeight: 44, paddingHorizontal: tight ? 6 : 9, borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.line : "transparent", backgroundColor: pressed ? t.c.panel2 : "transparent" })}
       >
         {owner ? <T style={[font(t, "mono", 600, 10.5, 1), { color: t.c.dim, textTransform: "uppercase", letterSpacing: 0.84 }]}>{owner}</T> : null}
-        {view ? <ContextBar view={view} /> : null}
-        <T style={[font(t, "mono", 500, 12, 1), { color: pctColor, opacity: compacting ? 0.6 : 1 }]}>{view ? `${view.estimated ? "~" : ""}${pct(view.fraction)}` : "ctx"}</T>
+        {view ? <ContextBar view={view} pulsing={compacting} width={tier === "narrowest" ? 24 : atMost("compact", tier) ? 34 : 56} /> : null}
+        {/* .compacting: the bar's fill and the percentage pulse while the conversation is compacted. */}
+        <Pulse on={compacting} period={1600}>
+          <T style={[font(t, "mono", 500, 12, 1), { color: pctColor }]}>{compacting && !tight ? "Compacting" : view ? `${view.estimated ? "~" : ""}${pct(view.fraction)}` : "ctx"}</T>
+        </Pulse>
+        {/* A bar wider than a phone's also says how many tokens of the window. */}
+        {view && !tight && !compacting ? <T style={[font(t, "mono", 500, 11, 1), { color: t.c.dim }]}>{`${view.estimated ? "~" : ""}${tokenCount(view.used)}/${tokenCount(view.window)}`}</T> : null}
       </Pressable>
       <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
         <Pressable accessibilityLabel="Close" style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
@@ -115,14 +126,15 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
             </View>
             {view ? (
               <>
-                {/* .context-pop-bar: the bar is inline-block on a line of body text, 10px down its line box. */}
-                <View style={{ paddingTop: 14, paddingBottom: 8 }}>
+                {/* .context-pop-bar: the bar is inline-block on the baseline of a line of body text, 9 px down its line box (7 in the editor themes' smaller line). */}
+                <View style={{ paddingTop: t.editor ? 11 : 13, paddingBottom: 8 }}>
                   <ContextBar view={view} wide />
                 </View>
                 <T style={{ fontSize: 13, lineHeight: 13 * (t.editor ? 1.5 : 1.55), marginTop: 4 }}>
                   <T weight={700} size={13} lh={t.editor ? 1.5 : 1.55}>{`${view.estimated ? "about " : ""}${view.used.toLocaleString("en-US")}`}</T>
                   {` of ${view.window.toLocaleString("en-US")} tokens `}
-                  <T style={[font(t, "mono", 600, 12, 1), { color: levelColor(t, view.level) === t.c.ok ? t.c.text : levelColor(t, view.level) }]}>{` ${view.estimated ? "~" : ""}${pct(view.fraction)}`}</T>
+                  {/* .context-big .context-pct { margin-left: 4px }, after the sentence's own space. */}
+                  <T style={[font(t, "mono", 600, 12, 1), { marginLeft: 4, color: levelColor(t, view.level) === t.c.ok ? t.c.text : levelColor(t, view.level) }]}>{`${view.estimated ? "~" : ""}${pct(view.fraction)}`}</T>
                 </T>
                 {context && !view.estimated
                   ? p(`Last request: ${tokenCount(context.input)} prompt${context.cached ? ` (${tokenCount(context.cached)} from the cache)` : ""} and ${tokenCount(context.output)} answer, on ${nameOf(context.model)} at ${new Date(context.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.`)
@@ -147,7 +159,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
                   {totals.cacheWrite > 0 ? <Total name="Cache writes" value={tokenCount(totals.cacheWrite)} /> : null}
                   <Total name="Output" value={tokenCount(totals.output)} note={totals.reasoning > 0 ? ` (${tokenCount(totals.reasoning)} reasoning)` : undefined} />
                   <Total name="Requests" value={totals.requests.toLocaleString("en-US")} />
-                  {totals.costUsd !== undefined ? <Total name="Cost" value={dollars(totals.costUsd)} note=" at API prices" /> : null}
+                  {totals.costUsd !== undefined ? <Total name="Cost" value={`${dollars(totals.costUsd)} `} note="at API prices" /> : null}
                 </View>
                 {totals.costUsd !== undefined && runtime ? p("Your Claude plan covers it; the cost is what the same requests would cost on a key.") : null}
                 {p("Spend adds up every request. Context is only what the next request starts from.")}

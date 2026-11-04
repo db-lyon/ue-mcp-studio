@@ -254,9 +254,9 @@ describe("the navigation drawer", () => {
     api.sessions.mockResolvedValue({ sessions: [summary("a", "Dress the cave")] });
     // react-native-web draws a style as an atomic class; jsdom does not order those rules, so read the class's own rule.
     const size = (text: string) => {
-      const cls = [...screen.getByText(text).classList].find((c) => c.startsWith("r-fontSize-"));
-      for (const sheet of [...document.styleSheets])
-        for (const rule of [...sheet.cssRules]) if (rule.cssText.includes(`.${cls}`)) return /font-size:\s*([^;}]+)/.exec(rule.cssText)?.[1].trim();
+      const cls = Array.from(screen.getByText(text).classList).find((c) => c.startsWith("r-fontSize-"));
+      for (const sheet of Array.from(document.styleSheets))
+        for (const rule of Array.from(sheet.cssRules)) if (rule.cssText.includes(`.${cls}`)) return /font-size:\s*([^;}]+)/.exec(rule.cssText)?.[1].trim();
       return null;
     };
     for (const [theme, item, foot] of [["editor", "12px", "14px"], ["ue-mcp", "14.5px", "14px"]] as const) {

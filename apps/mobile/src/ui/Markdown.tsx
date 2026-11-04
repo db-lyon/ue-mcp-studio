@@ -17,7 +17,7 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import remarkRehype from "remark-rehype";
 import { remarkAssets } from "@ue-mcp-studio/client-core";
-import { baseFont, font, labelFont } from "./Text";
+import { baseFont, font, labelFont, monoNormal } from "./Text";
 import { useTheme } from "./ThemeProvider";
 import type { Theme } from "./theme";
 
@@ -227,10 +227,6 @@ function block(ctx: Ctx, n: HNode): Block | null {
   }
 }
 
-/** A font's `line-height: normal` at a size: JetBrains Mono's ascent and descent; Consolas's for the editor themes. */
-function monoNormal(t: Theme, size: number): number {
-  return Math.round(size * (t.mono === "jetbrains" ? 1.32 : 1.17) * 100) / 100;
-}
 
 /**
  * `.md table` in `.md-table`: border-collapse, 1px cells padded 3px 10px, the
@@ -363,7 +359,7 @@ function inline(ctx: Ctx, n: HNode, key: number, lineStart: boolean): ReactNode 
   }
 }
 
-/** `.md code`: 12px mono on panel-2, 1px 4px, a 4px radius. The line keeps its own height. */
+/** `.md code`: 12px mono at its normal line height (the font shorthand resets it), on panel-2, 1px 4px, a 4px radius. */
 export function inlineCode(t: Theme): TextStyle {
-  return { ...font(t, "mono", 400, 12), backgroundColor: t.c.panel2, paddingVertical: 1, paddingHorizontal: 4, borderRadius: 4 };
+  return { ...font(t, "mono", 400, 12), lineHeight: monoNormal(t, 12), backgroundColor: t.c.panel2, paddingVertical: 1, paddingHorizontal: 4, borderRadius: 4 };
 }

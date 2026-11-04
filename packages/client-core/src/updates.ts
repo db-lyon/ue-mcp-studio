@@ -42,7 +42,7 @@ export interface Updates {
 }
 
 /** What the card says about a background step that failed, or null when the last one did not. */
-export function failureLine(s: StudioUpdates | null | undefined): string | null {
+export function updateFailureLine(s: StudioUpdates | null | undefined): string | null {
   const f = s?.failure;
   if (!f?.error) return null;
   return `${f.step === "studio" ? "The last Studio update failed" : "The last ue-mcp restart failed"}: ${f.error}`;

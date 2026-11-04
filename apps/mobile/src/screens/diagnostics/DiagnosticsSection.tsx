@@ -1,19 +1,14 @@
 /**
- * Diagnostics (client-web Status and Logs views): the editors with start,
- * stop, restart and rebuild, the daemon, and its events newest first, each
- * payload one line until opened.
+ * Diagnostics (client-web Status and Logs views): the editors and the daemon
+ * (EditorStatus, from the editor controls' port), and the daemon's events
+ * newest first, each payload one line until opened.
  */
 import { useMemo, useState } from "react";
 import { Pressable, View } from "react-native";
-import type { DaemonHealth } from "ue-mcp/daemon";
-import { healthOf } from "@ue-mcp-studio/client-core";
-import { Button, Card, Dot, Input, Spacer, font, labelFont, T, useTheme } from "../../ui";
-import { CardLabel, Head, Txt } from "../settings/controls";
-import { DT } from "../settings/ProjectSection";
-import { useSettingsApi } from "../settings/hooks";
+import { Card, Input, Spacer, font, labelFont, T, useTheme } from "../../ui";
+import { Head, Txt } from "../settings/controls";
+import { EditorStatus } from "../editor/EditorStatus";
 import type { DaemonState } from "../../state";
-
-const CAUSE: Record<string, string> = { closed: "closed normally", crashed: "crashed", restarting: "restarting", rebuild: "rebuilding", unknown: "connection dropped" };
 
 /** The payload as one line for the closed row, and indented for the opened one. */
 export function eventPayload(data: unknown): { line: string; full: string } {
@@ -25,82 +20,9 @@ export function DiagnosticsSection({ daemon }: { daemon: DaemonState }) {
   return (
     <>
       <Head title="Diagnostics" lead="Editor and daemon status, and recent daemon events." />
-      <StatusView daemon={daemon} />
+      <EditorStatus />
       <LogsView daemon={daemon} />
     </>
-  );
-}
-
-function StatusView({ daemon }: { daemon: DaemonState }) {
-  const api = useSettingsApi();
-  const t = useTheme();
-  // Every field at its default, as client-web reads any daemon's health (an older one sends fewer).
-  const h = daemon.health ? (healthOf(daemon.health) as DaemonHealth) : null;
-  const [busy, setBusy] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
-  const run = (op: "start" | "stop" | "restart" | "rebuild") => {
-    setBusy(op);
-    setResult(null);
-    api
-      .editor(op)
-      .then(
-        (r) => setResult(((r.steps as Array<{ step: string; ok: boolean }> | undefined) ?? []).map((s) => `${s.step}: ${s.ok ? "ok" : "failed"}`).join(", ")),
-        (e: Error) => setResult(e.message),
-      )
-      .finally(() => setBusy(null));
-  };
-  if (!h) return <Txt tone="muted" style={{ marginVertical: t.base.size }}>Connecting to the daemon...</Txt>;
-  const any = h.editors.some((e) => e.connected);
-  return (
-    <View style={{ gap: 14 }}>
-      <Card>
-        <CardLabel>Editors</CardLabel>
-        {h.editors.map((e) => (
-          // .row's 6px margins collapse into the title's 12 above and into each other, as block margins do.
-          <View key={e.name} style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
-            <Dot kind={e.connected ? "ok" : "warn"} />
-            <Txt weight={700}>{e.name}</Txt>
-            <Txt tone="muted">
-              port {e.port}
-              {e.pid ? `, pid ${e.pid}` : ""}
-            </Txt>
-            <Spacer />
-            {!e.connected && e.lastDisconnect ? (
-              <Txt tone="muted">
-                {CAUSE[e.lastDisconnect.cause] ?? e.lastDisconnect.cause} at {new Date(e.lastDisconnect.at).toLocaleTimeString()}
-              </Txt>
-            ) : null}
-          </View>
-        ))}
-        <View style={{ flexDirection: "row", gap: 8, marginTop: h.editors.length ? 8 : 2, flexWrap: "wrap" }}>
-          {(["start", "stop", "restart", "rebuild"] as const).map((op) => (
-            <Button key={op} title={busy === op ? `${op}...` : op[0].toUpperCase() + op.slice(1)} disabled={busy !== null || (op === "start" ? any : !any)} onPress={() => run(op)} />
-          ))}
-        </View>
-        {result ? <Txt tone="muted" style={{ marginVertical: t.base.size }}>{result}</Txt> : null}
-      </Card>
-      <Card>
-        <CardLabel>Daemon</CardLabel>
-        {(
-          [
-            ["Version", `${h.version} (API ${h.apiVersion})`],
-            ["Process", `pid ${h.pid}, since ${new Date(h.startedAt).toLocaleString()}`],
-            ["MCP clients connected now", `${h.clients}${h.inflight ? `, ${h.inflight} call(s) in flight` : ""}`],
-            ["Extensions", h.extensions.map((x) => `${x.name} ${x.version}`).join(", ") || "none"],
-            ["UI", h.ui ?? "development server"],
-          ] as const
-        ).map(([k, v]) => (
-          <View key={k}>
-            <DT>{k}</DT>
-            <Txt style={{ marginBottom: 8 }}>{v}</Txt>
-          </View>
-        ))}
-        <DT>Project</DT>
-        <Txt mono style={{ marginBottom: 8 }}>
-          {h.projectRoot}
-        </Txt>
-      </Card>
-    </View>
   );
 }
 
