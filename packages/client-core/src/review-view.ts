@@ -169,7 +169,7 @@ export function numberStruct(v: string): string | null {
   if (!m) return null;
   const parts = m[1].split(",").map((p) => /^\s*(\w+)=(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)\s*$/i.exec(p));
   if (!parts.length || parts.some((p) => !p)) return null;
-  return parts.map((p) => `${p![1]} ${Number(p![2])}`).join(", ");
+  return parts.map((p) => `${p![1]}\u00a0${Number(p![2])}`).join(", ");
 }
 
 /** Most a colour channel may vary across a picture that still counts as one flat colour. */
