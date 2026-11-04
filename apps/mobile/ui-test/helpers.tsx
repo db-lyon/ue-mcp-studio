@@ -19,6 +19,7 @@ const NAMES: Array<keyof StudioApi> = [
   "versionNotice", "keepStudio", "useInstalledStudio", "busy", "stopBusy", "editor", "refusal", "saveUpdateRun", "updatesDeferredNow",
   "editQueued", "updateSession", "deleteSession", "markSeen", "dismissAgents", "editMessage", "uploadAttachment", "stopSubagent", "compact", "flow", "action", "playtest",
   "flows", "actions", "searchMentions", "forms", "answerForm", "bytes", "reviewNativeDiff",
+  "resolveAssets", "reportAssetMiss", "openAsset",
 ];
 
 export function fakeApi(): FakeApi {
