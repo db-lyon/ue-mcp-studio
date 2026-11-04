@@ -13,8 +13,8 @@ import { T, font, labelFont, useTheme, type Theme } from "../../ui";
 type Tone = "text" | "muted" | "dim" | "accent" | "accentHi" | "ok" | "warn" | "bad" | "badText" | "warnText" | "onAccent";
 type Weight = 400 | 500 | 600 | 700;
 
-/** The body font's line-height as a multiple of its size, in this theme (1.55 ue-mcp, 1.5 editor). */
-export const ratio = (t: Theme): number => t.base.lineHeight / t.base.size;
+/** The body font's line-height as a multiple of its size, in this theme (1.55 ue-mcp, 1.5 editor): base.lineHeight is cut to 1/64 px, so the CSS multiple is rounded back out of it. */
+export const ratio = (t: Theme): number => Math.round((t.base.lineHeight / t.base.size) * 100) / 100;
 
 /** Body text at a size (default the base), keeping the theme's line-height ratio: .small is 12. */
 export function Txt({ children, size, weight = 400, tone = "text", mono, style, numberOfLines, testID, onPress, label }: {

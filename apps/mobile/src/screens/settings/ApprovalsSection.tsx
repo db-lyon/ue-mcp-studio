@@ -11,7 +11,7 @@ import { APPROVAL_ROWS, DESTRUCTIVE_HOLD_SECONDS, PROJECT_SCOPED_KINDS, type Age
 import { Card, font, T, useTheme } from "../../ui";
 import { CardLabel, Head, Opt, Radio, Seg, SettingRow, Switch, Txt, useMessage } from "./controls";
 import { Message } from "./GeneralSection";
-import { ReadOnly } from "./ModelsSection";
+import { RemoteReadOnly } from "../../views/settings/RemoteReadOnly";
 import { useSettingsApi } from "./hooks";
 
 const RULES: ReadonlyArray<{ id: ApprovalRule; name: string }> = [{ id: "ask", name: "Ask" }, { id: "allow", name: "Allow" }];
@@ -72,7 +72,7 @@ export function ApprovalsSection() {
       <Message msg={msg} />
       <Card>
         <CardLabel>Ask first</CardLabel>
-        <ReadOnly>
+        <RemoteReadOnly>
           <View>
             {APPROVAL_ROWS.map((r) => (
               <SettingRow key={r.kind} title={r.label} help={r.help}>
@@ -80,7 +80,7 @@ export function ApprovalsSection() {
               </SettingRow>
             ))}
           </View>
-        </ReadOnly>
+        </RemoteReadOnly>
         <SettingRow title="Starting playtests" help={PLAYTEST_STARTS.find((p) => p.id === agent.playtestRuns)?.help}>
           <Seg label="Starting playtests" value={agent.playtestRuns} options={PLAYTEST_STARTS} onChange={(v) => void saveAgent({ playtestRuns: v })} />
         </SettingRow>
@@ -109,9 +109,9 @@ export function ApprovalsSection() {
             <View key={d.id}>
               <Opt label={d.name} on={dialogMode === d.id} onPick={() => void saveAgent({ dialogMode: d.id })} title={d.name} desc={d.about} />
               {d.id === "interactive" && (dialogMode === "interactive" || dialogMode === null) ? (
-                <ReadOnly>
+                <RemoteReadOnly>
                   <DialogPolicyField policy={settings.dialogPolicy} />
-                </ReadOnly>
+                </RemoteReadOnly>
               ) : null}
             </View>
           ))}

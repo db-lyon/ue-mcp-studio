@@ -10,10 +10,10 @@ import type { StatusReport } from "ue-mcp/daemon";
 import { notThere, problemCopy, readRebuild, tokenizeYaml, tokens, type SettingsSection } from "@ue-mcp-studio/client-core";
 import { CONTEXT_STRATEGIES, CONTEXT_STRATEGY_INFO, type ClientContextStrategy, type StudioConfigFile } from "@ue-mcp-studio/shared";
 import { Banner, Button, Card, Dot, Spacer, bannerText, font, labelFont, T, useTheme, type Theme } from "../../ui";
-import { CardLabel, Head, Opt, Span, Tag, Txt, useMessage } from "./controls";
+import { CardLabel, Head, Opt, Span, Tag, Txt, ratio, useMessage } from "./controls";
 import { Details } from "./Details";
 import { Message } from "./GeneralSection";
-import { ReadOnly } from "./ModelsSection";
+import { RemoteReadOnly } from "../../views/settings/RemoteReadOnly";
 import { PathText } from "./NativePanel";
 import { useSettingsApi } from "./hooks";
 
@@ -131,7 +131,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                 </Txt>
               </Banner>
             ) : null}
-            <ReadOnly>
+            <RemoteReadOnly>
               {/* The list's 8px top margin collapses into the note's 8px bottom one, as in the page's fieldset. */}
               <View style={{ gap: 8 }}>
                 {CONTEXT_STRATEGIES.map((s) => (
@@ -153,7 +153,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
                   />
                 ))}
               </View>
-            </ReadOnly>
+            </RemoteReadOnly>
             <Txt size={12} tone="dim" style={{ marginTop: 8, marginBottom: 12 }}>
               {clients.length ? `Used by ${clients.map((c) => c.name).join(" and ")}. ` : "No other MCP client configured. "}
               Studio&apos;s agent switches at its next turn, other clients at their next session.{context.fromFile ? "" : " Default: Micro."} Token counts measured by ue-mcp.
@@ -211,9 +211,9 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       <Card>
         {/* The Advanced card's summary is a 44px flex row: no disclosure triangle, its line centred. */}
         <Details label="Advanced: ue-mcp.yml" marker={false} summary={<Txt size={12} tone="muted">Advanced: ue-mcp.yml</Txt>} summaryStyle={{ marginVertical: -10, alignItems: "center" }} testID="advanced">
-          <ReadOnly>
+          <RemoteReadOnly>
             <ConfigView />
-          </ReadOnly>
+          </RemoteReadOnly>
         </Details>
       </Card>
       </View>
@@ -251,11 +251,11 @@ function ConfigView() {
   const color: Record<string, string> = { key: synKey(t), string: t.c.ok, number: t.c.warn, bool: t.c.warn, null: t.c.warn, anchor: t.c.bad, tag: t.c.bad, comment: t.c.dim, dash: t.c.muted, punct: t.c.muted, doc: t.c.muted };
   return (
     <Card>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", marginVertical: 6 }}>
+      {/* .row inside .advanced: 8px above it, 6px below. */}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 8, marginBottom: 6 }}>
         <T style={labelFont(t)}>Project config</T>
-        <Txt size={12} tone="muted" mono>
-          {file.path.split(/[\\/]/).pop()}
-        </Txt>
+        {/* .muted.mono.small: .mono comes later, so 0.92em of the card text, at the card text's line-height multiple. */}
+        <T style={[font(t, "mono", 400, t.base.size * 0.92, ratio(t)), { color: t.c.muted }]}>{file.path.split(/[\\/]/).pop()}</T>
         <Spacer />
         {/* .row-actions: at the row's end, and at the end of the next line when they wrap. */}
         <View style={{ flexDirection: "row", gap: 8, marginLeft: "auto" }}>
