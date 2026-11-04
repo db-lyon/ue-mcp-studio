@@ -146,9 +146,12 @@ export function Chevron({ color }: { color: string }) {
 
 function Box({ text, via, label, disabled, onPress }: { text: string; via: string | null; label: string; disabled?: boolean; onPress: () => void }) {
   const t = useTheme();
+  // The editor themes' button rule (400 12px/1.2) outranks button.picker-button's 500 12px/1; the caret keeps 1.2 at 10px.
+  const lh = t.editor ? 1.2 : 1;
+  const weight = t.editor ? 400 : 500;
   return (
     <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 10, borderWidth: 1, borderRadius: t.radius, borderColor: disabled ? t.c.disabledLine : t.c.lineStrong, backgroundColor: t.c.panel2, alignSelf: "flex-start" }}>
-      <T numberOfLines={1} style={[font(t, "sans", 500, 12, 1), { color: disabled ? t.c.dim : t.c.text }]}>
+      <T numberOfLines={1} style={[font(t, "sans", weight, 12, lh), { color: disabled ? t.c.dim : t.c.text }]}>
         {text}
       </T>
       {via ? (
@@ -156,7 +159,7 @@ function Box({ text, via, label, disabled, onPress }: { text: string; via: strin
           <T style={[font(t, "sans", 500, 11, 1), { color: t.c.dim }]}>{via}</T>
         </View>
       ) : null}
-      <T style={[font(t, "sans", 400, 10, 1), { color: t.c.dim }]}>{"▾"}</T>
+      <T style={[font(t, "sans", 400, 10, lh), { color: t.c.dim }]}>{"▾"}</T>
     </Pressable>
   );
 }
