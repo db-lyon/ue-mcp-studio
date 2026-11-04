@@ -15,6 +15,7 @@ import { useAttachments, type PendingFile, type PickedFile } from "../src/chat/a
 import { EffortPicker, ModelAndEffort, ModelPicker } from "../src/views/ModelPicker";
 import { picked as imagePicked } from "./mocks/image-picker";
 import { picked as docPicked } from "./mocks/document-picker";
+import { clip } from "./mocks/clipboard";
 import { fakeApi, renderInProject, settle } from "./helpers";
 
 type Props = Partial<Parameters<typeof Composer>[0]>;
@@ -128,6 +129,53 @@ describe("Composer", () => {
     fireEvent.click(button("Attach files"));
     await settle();
     expect(onAddFiles).toHaveBeenLastCalledWith([{ uri: "file:///a.txt", name: "a.txt", type: "text/plain", size: 5, base64: undefined }]);
+  });
+
+  it("takes a photo with the camera, and says so in the sheet when the camera is refused", async () => {
+    const onAddFiles = vi.fn();
+    render(<Box onAddFiles={onAddFiles} />);
+    imagePicked.camera = { canceled: false, assets: [{ uri: "file:///c.jpg", fileName: null, mimeType: "image/jpeg", fileSize: 4096, base64: "BBBB", width: 1, height: 1 }] };
+    fireEvent.click(button("Attach"));
+    fireEvent.click(button("Take a photo"));
+    await settle();
+    expect(onAddFiles).toHaveBeenLastCalledWith([{ uri: "file:///c.jpg", name: "camera-1.jpeg", type: "image/jpeg", size: 4096, base64: "BBBB" }]);
+    imagePicked.granted = false;
+    try {
+      fireEvent.click(button("Attach"));
+      fireEvent.click(button("Take a photo"));
+      await settle();
+      expect(screen.getByRole("alert").textContent).toBe("Studio may not use the camera. Allow it in the phone's settings.");
+      expect(onAddFiles).toHaveBeenCalledTimes(1);
+    } finally {
+      imagePicked.granted = true;
+    }
+  });
+
+  it("offers Paste image only while the clipboard holds one, and attaches it as a png", async () => {
+    const onAddFiles = vi.fn();
+    render(<Box onAddFiles={onAddFiles} />);
+    fireEvent.click(button("Attach"));
+    await settle();
+    expect(screen.queryByRole("button", { name: "Paste the copied image" })).toBeNull();
+    fireEvent.click(screen.getAllByRole("button", { name: "Close" })[0]);
+    clip.image = { data: "data:image/png;base64,iVBORw0KGgo=", size: { width: 1, height: 1 } };
+    try {
+      fireEvent.click(button("Attach"));
+      await settle();
+      fireEvent.click(button("Paste the copied image"));
+      await settle();
+      const [[files]] = onAddFiles.mock.calls as [[PickedFile[]]];
+      expect(files).toHaveLength(1);
+      expect(files[0]).toMatchObject({ type: "image/png", base64: "iVBORw0KGgo=", size: 9 });
+      expect(files[0].name).toMatch(/^pasted-\d{8}-\d{6}\.png$/);
+    } finally {
+      clip.image = null;
+    }
+  });
+
+  it("hints at the keys only at a tablet's width: a phone has no shortcuts to hint at", () => {
+    render(<Box onQueue={() => undefined} />);
+    expect(screen.queryByText("Enter to send, Shift+Enter for a new line")).toBeNull();
   });
 
   it("the resize handle: steps with the screen reader's adjust actions, and a double tap forgets the height", () => {
@@ -351,7 +399,7 @@ describe("ModelPicker", () => {
     expect(screen.getByText("Sonnet 5.5 · Medium")).toBeTruthy();
     expect(screen.getByText("Anthropic")).toBeTruthy();
     expect(screen.getByText("Claude sign-in")).toBeTruthy();
-    expect(screen.getByText("sign in")).toBeTruthy();
+    expect(screen.getAllByText("Connect on your computer")[0]).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "High" }));
     await settle();
     expect(a.saveSettings).toHaveBeenCalledWith({ effort: "high" });
@@ -364,6 +412,8 @@ describe("ModelPicker", () => {
     renderInProject(<ModelPicker settings={settings} onSettings={vi.fn()} up />, a);
     await settle();
     await openPicker("Sonnet 5.5");
+    // Greyed, and it says where it can be connected: the phone cannot add a sign-in or a key.
+    expect(within(screen.getByRole("menuitem", { name: "GPT Y" })).getByText("Connect on your computer")).toBeTruthy();
     fireEvent.click(screen.getByRole("menuitem", { name: "GPT Y" }));
     expect(screen.getByText("Change this from Studio on the computer.")).toBeTruthy();
     expect(screen.getByText(/Use your own OpenAI API key instead/)).toBeTruthy();
