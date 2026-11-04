@@ -4,7 +4,18 @@
  * routes over fetch and moves onto this as its views move.
  */
 import type {
+  ActionDescription,
+  ActionListing,
+  ActionRunRequest,
+  Attachment,
+  AttachmentUpload,
+  FlowListing,
+  FlowRunRequest,
+  MentionSearchRequest,
+  MentionSearchResponse,
   ApprovalDecision,
+  BusyState,
+  StudioRefusal,
   CheckpointChange,
   DialogAnswer,
   DialogsState,
@@ -23,6 +34,7 @@ import type {
   VcsStatus,
 } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
+import type { UpdateRun } from "./update-run.js";
 
 const enc = encodeURIComponent;
 const S = "/v1/ext/studio";
@@ -33,6 +45,12 @@ export interface ReviewDiff {
   change: CheckpointChange;
   before?: string;
   after?: string;
+}
+
+/** Another project installed a newer Studio than this one uses. */
+export interface StudioVersionNotice {
+  installed: string;
+  current: string;
 }
 
 export function studioApi(t: Transport) {
@@ -69,6 +87,24 @@ export function studioApi(t: Transport) {
     vcs: () => get<{ vcs: VcsStatus | null }>(`${S}/vcs`),
     vcsChanges: () => get<{ changes: VcsChange[]; truncated: boolean }>(`${S}/vcs/changes`),
     vcsDiff: (path: string) => get<{ diff: string | null; reason?: string }>(`${S}/vcs/diff?path=${enc(path)}`),
+    versionNotice: () => get<{ notice: StudioVersionNotice | null }>(`${S}/version-notice`),
+    keepStudio: (version: string) => send<{ notice: StudioVersionNotice | null }>("POST", `${S}/version-notice/keep`, { version }),
+    useInstalledStudio: (version: string) => send<unknown>("POST", `${S}/version-notice/update`, { version }),
+    busy: () => get<BusyState>(`${S}/busy`),
+    stopBusy: () => send<{ stopped: string[] }>("POST", `${S}/busy/stop`),
+    editor: (op: "start" | "stop" | "restart" | "rebuild") => send<Record<string, unknown>>("POST", `/v1/editor/${op}`),
+    refusal: () => get<StudioRefusal>(`${S}/refusal`),
+    saveUpdateRun: (run: UpdateRun | null) => send<unknown>("PUT", `${S}/updates/run`, { run }),
+    updatesDeferredNow: () => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),
+    // The composer: attachments, @-mentions, and the /flow and /action launchers.
+    uploadAttachment: (id: string, upload: AttachmentUpload) => send<Attachment>("POST", `${session(id)}/attachments`, upload),
+    searchMentions: (request: MentionSearchRequest, signal?: AbortSignal) => requestJson<MentionSearchResponse>(t, "POST", `${S}/mentions/search`, { json: request, ...(signal ? { signal } : {}) }),
+    flows: () => get<{ flows: FlowListing[] }>("/v1/flows"),
+    planFlow: (name: string) => get<unknown>(`/v1/flows/${enc(name)}/plan`),
+    flow: (id: string, request: FlowRunRequest) => send<{ sessionId: string }>("POST", `${session(id)}/flow`, request),
+    actions: () => get<{ actions: ActionListing[] }>(`${S}/actions`),
+    describeAction: (name: string) => get<ActionDescription>(`${S}/actions/${enc(name)}`),
+    action: (id: string, request: ActionRunRequest) => send<{ sessionId: string }>("POST", `${session(id)}/action`, request),
   };
 }
 

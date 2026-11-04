@@ -6,7 +6,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { AppState } from "react-native";
-import { createLock, STREAM_IDLE_MS, subscribeEvents, type Lock, type StreamEvent, type Transport } from "@ue-mcp-studio/client-core";
+import { createLock, fromUeMcp, STREAM_IDLE_MS, subscribeEvents, type Lock, type StreamEvent, type Transport } from "@ue-mcp-studio/client-core";
 import { transportFor, type Device } from "./relay";
 
 export type Live = "connecting" | "live" | "offline";
@@ -19,6 +19,10 @@ export interface Project {
   /** Why the stream last dropped, shown while offline. */
   dropCause: string | null;
   onEvent(listener: (e: StreamEvent) => void): () => void;
+  /** Any answer from ue-mcp itself (not the relay saying the computer is away): it is up, whatever the stream says. */
+  onAlive?(listener: (at: number) => void): () => void;
+  /** Drop the event stream and open it again now. */
+  reconnect?(): void;
 }
 
 /** A sleep longer than this gets a fresh stream on return, even if the old one looks open. */
@@ -28,8 +32,17 @@ const WAKE_REFRESH_MS = 30_000;
 export function useProject(device: Device, override?: Transport): Project {
   const raw = useMemo(() => override ?? transportFor(device), [device, override]);
   const lock = useMemo(() => createLock(raw), [raw]);
-  const transport = useMemo(() => lock.guard(raw), [lock, raw]);
+  const aliveListeners = useRef(new Set<(at: number) => void>());
+  const transport = useMemo<Transport>(() => {
+    const guarded = lock.guard(raw);
+    return async (method, path, options) => {
+      const reply = await guarded(method, path, options);
+      if (fromUeMcp(reply.status)) aliveListeners.current.forEach((l) => l(Date.now()));
+      return reply;
+    };
+  }, [lock, raw]);
   const listeners = useRef(new Set<(e: StreamEvent) => void>());
+  const kick = useRef<() => void>(() => undefined);
   const [live, setLive] = useState<Live>("connecting");
   const [dropCause, setDropCause] = useState<string | null>(null);
 
@@ -44,6 +57,7 @@ export function useProject(device: Device, override?: Transport): Project {
       },
       { idleMs: STREAM_IDLE_MS, onDrop: setDropCause },
     );
+    kick.current = () => stream.kick(true);
     let backgroundAt: number | null = null;
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") {
@@ -66,7 +80,13 @@ export function useProject(device: Device, override?: Transport): Project {
     return () => void listeners.current.delete(l);
   }, []);
 
-  return { device, transport, lock, live, dropCause, onEvent };
+  const onAlive = useCallback((l: (at: number) => void) => {
+    aliveListeners.current.add(l);
+    return () => void aliveListeners.current.delete(l);
+  }, []);
+  const reconnect = useCallback(() => kick.current(), []);
+
+  return { device, transport, lock, live, dropCause, onEvent, onAlive, reconnect };
 }
 
 export function useLockView(lock: Lock) {

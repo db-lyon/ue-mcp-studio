@@ -64,18 +64,30 @@ const server = await createServer({
       { find: /^react\/(.*)$/, replacement: `${mod("react")}/$1` },
       { find: /^react-dom$/, replacement: mod("react-dom") },
       { find: /^react-dom\/(.*)$/, replacement: `${mod("react-dom")}/$1` },
+      // The library's web build: its elements drawn as DOM svg, as the web client draws its glyphs.
+      { find: /^react-native-svg$/, replacement: path.join(app, "node_modules/react-native-svg/lib/module/elements.web.js") },
+      { find: "@react-native/assets-registry/registry", replacement: mock("assets-registry.ts") },
+      // Android only: the touch sound the web build never plays.
+      { find: /fabric\/NativeSvgSoundModule(\.js)?$/, replacement: mock("svg-sound.ts") },
       { find: /^expo-secure-store$/, replacement: mock("secure-store.ts") },
       { find: /^expo-camera$/, replacement: mock("camera.tsx") },
       { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
-      { find: /^expo-(constants|application|image-picker|document-picker)$/, replacement: mock("expo-modules.ts") },
+      { find: /^expo-(constants|application)$/, replacement: mock("expo-modules.ts") },
       { find: /^expo-font$/, replacement: mock("expo-font.ts") },
       { find: new RegExp("^@expo-google-fonts/.*$"), replacement: mock("google-fonts.ts") },
       { find: /^expo-status-bar$/, replacement: mock("status-bar.tsx") },
       { find: /^react-native-safe-area-context$/, replacement: mock("safe-area.tsx") },
+      { find: /^react-native-svg$/, replacement: mock("svg-web.tsx") },
+      { find: /^expo-image-picker$/, replacement: mock("image-picker.ts") },
+      { find: /^expo-document-picker$/, replacement: mock("document-picker.ts") },
       { find: /^@ue-mcp-studio\/(remote|client-core|shared|extension-api)$/, replacement: `${root}/packages/$1/src/index.ts` },
     ],
   },
-  optimizeDeps: { include: [mod("react"), mod("react-dom"), "react-native-web", "marked"] },
+  optimizeDeps: {
+    include: [mod("react"), mod("react-dom"), "react-native-web", "marked"],
+    // Prebundling skips the aliases for a dependency's own relative requires: react-native-svg's Android touch sound.
+    esbuildOptions: { plugins: [{ name: "svg-sound", setup: (b) => b.onResolve({ filter: /NativeSvgSoundModule$/ }, () => ({ path: mock("svg-sound.ts") })) }] },
+  },
 });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, "");
@@ -123,6 +135,38 @@ for (const name of picked) {
       } catch (e) {
         errors.push(String(e.message ?? e));
       }
+    }
+    const { focus, type: typed, afterType } = parity[name];
+    if (focus) {
+      // A key press first, so the page treats the focus as the keyboard's.
+      await page.keyboard.press("Shift");
+      const el = page.locator(`[aria-label="${focus.replace(/"/g, '\\"')}"]`).first();
+      if (!(await el.count())) errors.push(`nothing to focus: ${focus}`);
+      else await el.focus();
+      await page.waitForTimeout(200);
+    }
+    if (typed) {
+      // Typed key by key at the end of what the element holds, as the web harness types, then left to settle.
+      const el = page.locator(typed.into).first();
+      if (!(await el.count())) errors.push(`nothing matched ${typed.into}`);
+      else {
+        await el.focus();
+        await page.keyboard.press("End");
+        await page.keyboard.type(typed.text, { delay: 20 });
+        await page.mouse.move(1, 1);
+        await page.waitForTimeout(700);
+      }
+    }
+    for (const c of afterType?.clicks ?? []) {
+      try {
+        await press(page, c);
+      } catch (e) {
+        errors.push(String(e.message ?? e));
+      }
+    }
+    if (afterType) {
+      await page.mouse.move(1, 1);
+      await page.waitForTimeout(afterType.wait);
     }
     const appPng = path.join(out, `${name}-${theme}-app.png`);
     await page.screenshot({ path: appPng });

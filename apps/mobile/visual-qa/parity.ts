@@ -14,10 +14,20 @@ export interface ParityEntry {
   notOnPhone?: string;
   /** Pressed in the app before the shot, by accessibility label (or text), in order: the app's form of the web scenario's clicks. */
   clicks?: string[];
+  /** Focused from the keyboard after the clicks, by accessibility label: the app's form of the web scenario's focus. */
+  focus?: string;
+  /** Typed key by key at the end of an element (a CSS selector in the app's page) after the focus: the web scenario's type. */
+  type?: { into: string; text: string };
+  /** Pressed one after another once the typing settles, then left for wait milliseconds: the web scenario's afterType. */
+  afterType?: { clicks: string[]; wait: number };
 }
+
+/** The message box, as the app's page draws it. */
+const BOX = "textarea";
 
 export const PARITY: Record<string, ParityEntry> = {
   "version-notice": {owner: "shell"},
+  "nav-drawer": {owner: "shell", clicks: ["Open navigation"]},
   "tools-open": {owner: "chat"},
   "tools-open-edit": {owner: "chat"},
   "approvals-waiting": {owner: "chat"},
@@ -28,9 +38,9 @@ export const PARITY: Record<string, ParityEntry> = {
   "vcs-changes-tree-remote": {owner: "agent-a"},
   "checkpoints": {owner: "chat"},
   "remote-lock-screen": {owner: "shell"},
-  "remote-lock-screen-typing": {owner: "shell"},
+  "remote-lock-screen-typing": {owner: "shell", clicks: ["1", "5", "9"]},
   "remote-lock-screen-wrong": {owner: "shell"},
-  "remote-pin-sheet": {owner: "shell"},
+  "remote-pin-sheet": {owner: "shell", clicks: ["Allow"]},
   "plugins-remote": {owner: "agent-b"},
   "agents-long": {owner: "chat"},
   "agents-tokens": {owner: "chat"},
@@ -39,13 +49,13 @@ export const PARITY: Record<string, ParityEntry> = {
   "endpoints-error": {owner: "agent-b"},
   "endpoints-add": {owner: "agent-b"},
   "endpoints-edit": {owner: "agent-b"},
-  "composer-handle-focus": {owner: "chat"},
+  "composer-handle-focus": {owner: "chat", focus: "Resize the message box"},
   "composer-idle": {owner: "chat"},
   "composer-running": {owner: "chat"},
-  "composer-menu": {owner: "chat"},
-  "mention-menu": {owner: "chat"},
-  "mention-actor": {owner: "chat"},
-  "mention-empty": {owner: "chat"},
+  "composer-menu": {owner: "chat", clicks: ["Model and effort: Sonnet 5.5, Medium"]},
+  "mention-menu": {owner: "chat", type: { into: BOX, text: "@Door" }},
+  "mention-actor": {owner: "chat", type: { into: BOX, text: "@actor:Fro" }},
+  "mention-empty": {owner: "chat", type: { into: BOX, text: "@Zebra" }},
   "mention-sent": {owner: "chat"},
   "remote-upgrade-reply": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},
   "remote-checkout-opened-reply": {notOnPhone: "Remote control pairing and its plan run on the computer: a paired browser is refused /v1/ext/studio/remote, so /remote is not offered there."},

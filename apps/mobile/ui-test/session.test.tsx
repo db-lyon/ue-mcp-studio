@@ -47,7 +47,7 @@ describe("SessionScreen", () => {
     const { api } = setup();
     api.send.mockResolvedValue({ sessionId: "s1" });
     await settle();
-    fireEvent.change(screen.getByPlaceholderText("Ask Studio"), { target: { value: "Add a lamp" } });
+    fireEvent.change(screen.getByPlaceholderText("Ask for something in the editor, or drop files here"), { target: { value: "Add a lamp" } });
     fireEvent.click(screen.getByText("Send"));
     expect(api.send).toHaveBeenCalledWith("s1", "Add a lamp", false);
     await settle();
@@ -59,7 +59,7 @@ describe("SessionScreen", () => {
     api.stop.mockResolvedValue({});
     await settle();
     expect(screen.getByText("Working")).toBeTruthy();
-    const box = screen.getByPlaceholderText("Queue a message, or send it now");
+    const box = screen.getByPlaceholderText("The agent is working. Write the next message to queue it.");
     fireEvent.change(box, { target: { value: "Then the window" } });
     fireEvent.click(screen.getByText("Queue"));
     expect(api.queue).toHaveBeenCalledWith("s1", "Then the window");

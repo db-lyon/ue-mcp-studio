@@ -1,36 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { formatBytes, type PendingFile } from "./attachments";
+import { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, extOf, fitHeight, formatBytes } from "@ue-mcp-studio/client-core";
+import type { PendingFile } from "./attachments";
 import { useSlashMenu } from "./SlashMenu";
 import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
 import { BarTierContext, atMost, barTier, useBarTier, type BarTier } from "./barTier";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 
-/** The text box grows with what is written up to this many lines, then scrolls. */
-export const MAX_LINES = 15;
-/** The text box is never shorter than this, in pixels. */
-export const MIN_HEIGHT = 60;
-/** The transcript keeps at least this much height, however far the divider is dragged. */
-export const MIN_TRANSCRIPT = 120;
-/** One arrow key press on the divider moves it this far. */
-export const NUDGE = 16;
-/** Arrow key presses are saved once they stop for this long, so a held key sends one save. */
-export const NUDGE_SAVE_MS = 400;
-
-/** A dragged height, kept between MIN_HEIGHT and the room the transcript can give up. */
-export function clampHeight(h: number, room: number): number {
-  return Math.round(Math.max(MIN_HEIGHT, Math.min(h, Math.max(MIN_HEIGHT, room))));
-}
-
-/**
- * The text box's height for what is written: the content's height, at least the
- * dragged height (`floor`), and at most the larger of 15 lines and that floor,
- * never more than `room`. Past the top it scrolls.
- */
-export function fitHeight({ content, line, chrome, floor, room }: { content: number; line: number; chrome: number; floor: number | null; room: number }): { height: number; scroll: boolean } {
-  const top = Math.max(MIN_HEIGHT, Math.min(Math.max(line * MAX_LINES + chrome, floor ?? 0), room));
-  const want = Math.max(content, floor ?? 0, MIN_HEIGHT);
-  return { height: Math.round(Math.min(want, top)), scroll: content > top + 1 };
-}
+// The box's sizing rules are client-core's, shared with the mobile app's composer.
+export { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, fitHeight };
 
 /**
  * Where the user writes: the text, the files added to it (dropped, pasted or
@@ -321,8 +298,6 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     </div>
   );
 }
-
-const extOf = (name: string): string => (name.includes(".") ? name.split(".").pop()!.slice(0, 4).toUpperCase() : "FILE");
 
 /**
  * A bar button that keeps its words while there is room and becomes an icon

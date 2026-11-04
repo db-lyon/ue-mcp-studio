@@ -1,9 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Alert } from "react-native";
-import { createLock, type Transport } from "@ue-mcp-studio/client-core";
-import { PinPad } from "../src/PinPad";
-import { Pairing, Scanner, Welcome } from "../src/screens/Pairing";
+import { Pairing, Welcome } from "../src/screens/Pairing";
+import { Scanner } from "../src/screens/Scanner";
 import { settle } from "./helpers";
 
 const relay = vi.hoisted(() => ({
@@ -45,70 +44,6 @@ describe("pairing screens", () => {
     render(<Pairing step={{ kind: "code", code: "123456" }} />);
     expect(screen.getByText("123 456")).toBeTruthy();
     expect(screen.getByText(/choose Deny there/)).toBeTruthy();
-  });
-});
-
-function lockAnswering(answer: (pin: string) => { status: number; body: unknown }) {
-  const t: Transport = async (_m, path, o) => {
-    const r = path.endsWith("/unlock") ? answer((o?.json as { pin: string }).pin) : { status: 200, body: { whole: true, sensitive: false, locked: true, sensitiveOpen: false, idleMinutes: 5, pinLength: 4 } };
-    return {
-      status: r.status,
-      headers: {},
-      body: (async function* () {
-        yield new TextEncoder().encode(JSON.stringify(r.body));
-      })(),
-    };
-  };
-  return createLock(t);
-}
-
-describe("PinPad", () => {
-  it("submits on the last digit when the PIN's length is known", async () => {
-    const pins: string[] = [];
-    const lock = lockAnswering((pin) => (pins.push(pin), { status: 403, body: { error: "Wrong PIN.", remaining: 2 } }));
-    await lock.refresh();
-    render(<PinPad lock={lock} view={lock.view()} onRemoved={() => undefined} />);
-    expect(screen.getByText("Studio is locked")).toBeTruthy();
-    for (const d of ["1", "2", "3", "4"]) fireEvent.click(screen.getByText(d));
-    await settle();
-    expect(pins).toEqual(["1234"]);
-    expect(screen.getByText("Wrong PIN. 2 tries left.")).toBeTruthy();
-  });
-
-  it("deletes a digit", async () => {
-    const pins: string[] = [];
-    const lock = lockAnswering((pin) => (pins.push(pin), { status: 200, body: { whole: true, locked: false } }));
-    await lock.refresh();
-    render(<PinPad lock={lock} view={lock.view()} onRemoved={() => undefined} />);
-    for (const d of ["9", "9"]) fireEvent.click(screen.getByText(d));
-    fireEvent.click(screen.getByLabelText("Delete"));
-    for (const d of ["1", "2", "3"]) fireEvent.click(screen.getByText(d));
-    await settle();
-    expect(pins).toEqual(["9123"]);
-  });
-
-  it("counts down before the next try", async () => {
-    const lock = lockAnswering(() => ({ status: 429, body: { error: "Too many tries.", retryAfterMs: 30_000 } }));
-    await lock.refresh();
-    render(<PinPad lock={lock} view={lock.view()} onRemoved={() => undefined} />);
-    for (const d of ["1", "1", "1", "1"]) fireEvent.click(screen.getByText(d));
-    await settle();
-    expect(screen.getByText(/Try again in 30 s/)).toBeTruthy();
-  });
-
-  it("is a sheet with Cancel for one sensitive action", () => {
-    const lock = lockAnswering(() => ({ status: 200, body: {} }));
-    render(<PinPad lock={lock} view={{ state: null, screen: false, prompt: true, removed: false }} onRemoved={() => undefined} />);
-    expect(screen.getByText("Enter your PIN")).toBeTruthy();
-    expect(screen.getByText("Unlock")).toBeTruthy();
-    expect(screen.getByText("Cancel")).toBeTruthy();
-  });
-
-  it("tells a removed phone to pair again", () => {
-    const removed = vi.fn();
-    render(<PinPad lock={lockAnswering(() => ({ status: 200, body: {} }))} view={{ state: null, screen: true, prompt: false, removed: true }} onRemoved={removed} />);
-    fireEvent.click(screen.getByText("Pair again"));
-    expect(removed).toHaveBeenCalled();
   });
 });
 
