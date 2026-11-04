@@ -10,50 +10,27 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   playtestMatches,
   playtestShown,
-  qaEnded,
   type PlaytestEntry,
   type PlaytestFilter,
   type PlaytestIndexAnswer,
   type QaRun,
 } from "@ue-mcp-studio/shared";
+import { PLAYTEST_FILTERS as FILTERS, PLAYTEST_RELOAD_MS as RELOAD_MS, PLAYTEST_RELOAD_ON as RELOAD_ON, defaultPlaytestFilter, playtestFilterOf, playtestTarget, playtestWhen } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
+
+export { ranAgo } from "@ue-mcp-studio/client-core";
 import type { DaemonState } from "../state";
 import { PathLegend, QaCard, QaContext, savedScriptActions, type QaCardActions, type QaLive } from "../chat/Qa";
 import { AssetLinksContext, useAssetLinks } from "../chat/asset-links";
 
-const FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [
-  { id: "active", label: "Active", empty: "No playtest is running." },
-  { id: "needs-you", label: "Needs you", empty: "Nothing needs you. A playtest step that needs your verdict, or a loop that stops for you, shows here." },
-  { id: "failing", label: "Failing", empty: "No playtest is failing: every last run passed." },
-  { id: "all", label: "All", empty: "No playtests in this project yet. Ask the agent for one in a session, or type /playtest in the message box." },
-];
 const FILTER_KEY = "studio.playtests.filter";
-/** Events after which the list is read again, once they have stopped for a moment. */
-const RELOAD_ON = new Set(["studio.qa.changed", "studio.session.changed", "studio.transcript.added"]);
-const RELOAD_MS = 800;
-
 function readFilter(): PlaytestFilter | null {
   try {
     const v = window.localStorage.getItem(FILTER_KEY);
-    return v === "active" || v === "needs-you" || v === "failing" || v === "all" ? v : null;
+    return playtestFilterOf(v);
   } catch {
     return null;
   }
-}
-
-/** "just now", "5 minutes ago", "3 hours ago", "yesterday", "4 days ago", or the date. */
-export function ranAgo(iso: string, now = Date.now()): string {
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return "";
-  const m = Math.round((now - t) / 60_000);
-  if (m < 1) return "just now";
-  if (m < 60) return `${m} minute${m === 1 ? "" : "s"} ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h} hour${h === 1 ? "" : "s"} ago`;
-  const d = Math.round(h / 24);
-  if (d === 1) return "yesterday";
-  if (d < 14) return `${d} days ago`;
-  return new Date(t).toLocaleDateString();
 }
 
 /** The project's playtests, read again as runs change. */
@@ -98,7 +75,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   const counts = useMemo(() => Object.fromEntries(FILTERS.map((f) => [f.id, all.filter((e) => playtestMatches(e, f.id)).length])) as Record<PlaytestFilter, number>, [all]);
   const [picked, setPicked] = useState<PlaytestFilter | null>(readFilter);
   // Until the user picks one: Active when something runs, then Needs you, otherwise All.
-  const filter: PlaytestFilter = picked ?? (counts.active > 0 ? "active" : counts["needs-you"] > 0 ? "needs-you" : "all");
+  const filter: PlaytestFilter = picked ?? defaultPlaytestFilter(counts);
   const pick = (f: PlaytestFilter) => {
     setPicked(f);
     try {
@@ -164,7 +141,7 @@ function metaOf(e: PlaytestEntry, open?: () => void): ReactNode {
       ? <button type="button" className="qa-meta-session link" title={`Open the card in ${title}`} onClick={open}><span className="qa-meta-session-name">{title}</span><span aria-hidden="true">{"↗"}</span></button>
       : <span className="qa-meta-session" title={title}>{title}</span>}</>
     : e.last ? " outside Studio" : "";
-  const when = e.last ? `${qaEnded(e.last.state) ? "Ran" : "Started"} ${ranAgo(e.last.seenAt)}` : e.card ? "Never run, drafted" : "Never run";
+  const when = playtestWhen(e);
   return <>{when}{where}</>;
 }
 
@@ -188,7 +165,7 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
     script: savedScriptActions(entry.script, onChanged),
   };
   if (!shown) return null;
-  const target = entry.session && entry.last?.sessionId === entry.session.id ? entry.last : entry.card;
+  const target = playtestTarget(entry);
   const go = target?.sessionId ? () => onOpenSession(target.sessionId!, target.runId) : undefined;
   return (
     <div className="playtests-row">
