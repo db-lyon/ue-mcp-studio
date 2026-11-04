@@ -5,7 +5,7 @@ import { useLockView, useProject, type Project } from "../connection";
 import { NotPairedError, RelayError, type Device } from "../relay";
 import { PinPad } from "../PinPad";
 import { Button, Dot, Header, s, tap } from "../legacy-ui";
-import { SessionScreen } from "./Session";
+import { TranscriptPreview } from "./TranscriptPreview";
 import { ReviewItemScreen, ReviewScreen } from "./Review";
 import { CheckpointsScreen } from "./Checkpoints";
 import { ChangeScreen, ChangesScreen } from "./Changes";
@@ -43,7 +43,7 @@ export function ProjectScreen({ device, onBack, onUnpaired, transport, initial }
     <ProjectContext.Provider value={nav}>
       <View style={{ flex: 1 }} onTouchStart={() => project.lock.touched()}>
         {!top ? <Sessions project={project} onBack={onBack} onOpen={(id) => nav.push({ name: "session", id })} onChanges={() => nav.push({ name: "changes" })} onUnpaired={onUnpaired} /> : null}
-        {top?.name === "session" ? <SessionScreen key={top.id} id={top.id} /> : null}
+        {top?.name === "session" ? <TranscriptPreview key={top.id} id={top.id} /> : null}
         {top?.name === "review" ? <ReviewScreen sessionId={top.sessionId} review={top.review} /> : null}
         {top?.name === "reviewItem" ? <ReviewItemScreen sessionId={top.sessionId} reviewId={top.reviewId} path={top.path} /> : null}
         {top?.name === "checkpoints" ? <CheckpointsScreen sessionId={top.sessionId} /> : null}
