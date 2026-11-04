@@ -17,10 +17,12 @@
  * that closes it, so the relay cannot reorder, drop or cut a response short
  * without the browser noticing.
  *
- * Runs unchanged in browsers, service workers and Node 20+ (WebCrypto).
+ * Runs unchanged in browsers, service workers, Node 20+ and React Native with
+ * a WebCrypto shim (WebCrypto).
  */
 
-const subtle = globalThis.crypto.subtle;
+/** Read on each use, so a platform that installs WebCrypto after this module loads (React Native) still works. */
+const subtle = (): SubtleCrypto => globalThis.crypto.subtle;
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
@@ -63,54 +65,54 @@ const ECDH = { name: "ECDH", namedCurve: "P-256" } as const;
 
 /** A new key pair. The private key is not extractable unless asked, so a browser can keep it in IndexedDB as is. */
 export async function generateKeyPair(extractable = false): Promise<CryptoKeyPair> {
-  return (await subtle.generateKey(ECDH, extractable, ["deriveBits"])) as CryptoKeyPair;
+  return (await subtle().generateKey(ECDH, extractable, ["deriveBits"])) as CryptoKeyPair;
 }
 
 export async function exportPublic(key: CryptoKey): Promise<string> {
-  return b64u(new Uint8Array(await subtle.exportKey("raw", key)));
+  return b64u(new Uint8Array(await subtle().exportKey("raw", key)));
 }
 
 export async function importPublic(raw: string): Promise<CryptoKey> {
   const bytes = unb64u(raw);
   if (bytes.length !== 65 || bytes[0] !== 4) throw new Error("not a P-256 public key");
-  return subtle.importKey("raw", bytes, ECDH, true, []);
+  return subtle().importKey("raw", bytes, ECDH, true, []);
 }
 
 export async function exportPrivateJwk(key: CryptoKey): Promise<JsonWebKey> {
-  return subtle.exportKey("jwk", key);
+  return subtle().exportKey("jwk", key);
 }
 
 export async function importPrivateJwk(jwk: JsonWebKey): Promise<CryptoKey> {
-  return subtle.importKey("jwk", jwk, ECDH, false, ["deriveBits"]);
+  return subtle().importKey("jwk", jwk, ECDH, false, ["deriveBits"]);
 }
 
 /** A short id for a public key: the first 16 bytes of its SHA-256, base64url. */
 export async function keyId(publicRaw: string): Promise<string> {
-  return b64u(new Uint8Array(await subtle.digest("SHA-256", unb64u(publicRaw))).slice(0, 16));
+  return b64u(new Uint8Array(await subtle().digest("SHA-256", unb64u(publicRaw))).slice(0, 16));
 }
 
 /** The ECDH secret two parties share, imported as HKDF input. Derive once per peer and reuse. */
 export async function sharedSecret(own: CryptoKey, peerPublicRaw: string): Promise<CryptoKey> {
-  const bits = await subtle.deriveBits({ name: "ECDH", public: await importPublic(peerPublicRaw) }, own, 256);
-  return subtle.importKey("raw", bits, "HKDF", false, ["deriveKey"]);
+  const bits = await subtle().deriveBits({ name: "ECDH", public: await importPublic(peerPublicRaw) }, own, 256);
+  return subtle().importKey("raw", bits, "HKDF", false, ["deriveKey"]);
 }
 
 async function aesKey(secret: CryptoKey, salt: Bytes, info: string): Promise<CryptoKey> {
-  return subtle.deriveKey({ name: "HKDF", hash: "SHA-256", salt, info: enc.encode(`uemcp-remote/v${E2E_VERSION}/${info}`) }, secret, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  return subtle().deriveKey({ name: "HKDF", hash: "SHA-256", salt, info: enc.encode(`uemcp-remote/v${E2E_VERSION}/${info}`) }, secret, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
 
 // ── Pairing ─────────────────────────────────────────────────────
 
 /** Proof that `phonePublic` came from whoever read the QR code holding `secret`. */
 export async function pairingMac(secret: string, phonePublic: string, computerPublic: string): Promise<string> {
-  const key = await subtle.importKey("raw", unb64u(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  return b64u(new Uint8Array(await subtle.sign("HMAC", key, concat(enc.encode("uemcp-remote/pair/"), unb64u(phonePublic), unb64u(computerPublic)))));
+  const key = await subtle().importKey("raw", unb64u(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return b64u(new Uint8Array(await subtle().sign("HMAC", key, concat(enc.encode("uemcp-remote/pair/"), unb64u(phonePublic), unb64u(computerPublic)))));
 }
 
 export async function verifyPairingMac(secret: string, phonePublic: string, computerPublic: string, mac: string): Promise<boolean> {
-  const key = await subtle.importKey("raw", unb64u(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const key = await subtle().importKey("raw", unb64u(secret), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
   try {
-    return await subtle.verify("HMAC", key, unb64u(mac), concat(enc.encode("uemcp-remote/pair/"), unb64u(phonePublic), unb64u(computerPublic)));
+    return await subtle().verify("HMAC", key, unb64u(mac), concat(enc.encode("uemcp-remote/pair/"), unb64u(phonePublic), unb64u(computerPublic)));
   } catch {
     return false;
   }
@@ -125,8 +127,8 @@ export const PAIR_APPROVAL_TTL_MS = 2 * 60_000;
  * that is not the owner's shows a different number than the computer does.
  */
 export async function pairingCode(secret: string, phonePublic: string): Promise<string> {
-  const key = await subtle.importKey("raw", unb64u(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
-  const mac = new Uint8Array(await subtle.sign("HMAC", key, concat(enc.encode("uemcp-remote/pair-code/"), unb64u(phonePublic))));
+  const key = await subtle().importKey("raw", unb64u(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const mac = new Uint8Array(await subtle().sign("HMAC", key, concat(enc.encode("uemcp-remote/pair-code/"), unb64u(phonePublic))));
   const n = ((mac[0] << 24) | (mac[1] << 16) | (mac[2] << 8) | mac[3]) >>> 0;
   return String(n % 1_000_000).padStart(6, "0");
 }
@@ -176,7 +178,7 @@ export async function sealRequest(secret: CryptoKey, phoneId: string, req: Plain
   const salt = randomBytes(16);
   const nonce = randomBytes(12);
   const key = await aesKey(secret, salt, "req");
-  const ct = await subtle.encrypt({ name: "AES-GCM", iv: nonce, additionalData: enc.encode(`req/${phoneId}`) }, key, enc.encode(JSON.stringify(req)));
+  const ct = await subtle().encrypt({ name: "AES-GCM", iv: nonce, additionalData: enc.encode(`req/${phoneId}`) }, key, enc.encode(JSON.stringify(req)));
   return {
     sealed: { v: E2E_VERSION, phone: phoneId, salt: b64u(salt), nonce: b64u(nonce), ct: b64u(new Uint8Array(ct)) },
     responseKey: await aesKey(secret, salt, "res"),
@@ -189,7 +191,7 @@ export async function openRequest(secret: CryptoKey, sealed: SealedRequest): Pro
   try {
     const salt = unb64u(sealed.salt);
     const key = await aesKey(secret, salt, "req");
-    const pt = await subtle.decrypt({ name: "AES-GCM", iv: unb64u(sealed.nonce), additionalData: enc.encode(`req/${sealed.phone}`) }, key, unb64u(sealed.ct));
+    const pt = await subtle().decrypt({ name: "AES-GCM", iv: unb64u(sealed.nonce), additionalData: enc.encode(`req/${sealed.phone}`) }, key, unb64u(sealed.ct));
     const req = JSON.parse(dec.decode(pt)) as PlainRequest;
     if (typeof req.id !== "string" || typeof req.ts !== "number" || typeof req.device !== "string" || typeof req.method !== "string" || typeof req.path !== "string") return null;
     return { req, responseKey: await aesKey(secret, salt, "res") };
@@ -240,7 +242,7 @@ export class ResponseSealer {
 
   private async frame(kind: "h" | "d" | "f", payload: Bytes): Promise<Bytes> {
     const seq = this.seq++;
-    const ct = new Uint8Array(await subtle.encrypt({ name: "AES-GCM", iv: frameNonce(seq), additionalData: enc.encode(`res/${seq}/${kind}`) }, this.key, payload));
+    const ct = new Uint8Array(await subtle().encrypt({ name: "AES-GCM", iv: frameNonce(seq), additionalData: enc.encode(`res/${seq}/${kind}`) }, this.key, payload));
     const out = new Uint8Array(5 + ct.length);
     new DataView(out.buffer).setUint32(0, ct.length);
     out[4] = kind.charCodeAt(0);
@@ -292,7 +294,7 @@ export class ResponseOpener {
       const seq = this.seq++;
       let payload: Bytes;
       try {
-        payload = new Uint8Array(await subtle.decrypt({ name: "AES-GCM", iv: frameNonce(seq), additionalData: enc.encode(`res/${seq}/${kind}`) }, this.key, ct));
+        payload = new Uint8Array(await subtle().decrypt({ name: "AES-GCM", iv: frameNonce(seq), additionalData: enc.encode(`res/${seq}/${kind}`) }, this.key, ct));
       } catch {
         throw new Error("a response frame failed to decrypt");
       }
