@@ -4,13 +4,18 @@
  * signs it out of the relay and forgets every computer here.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Alert } from "react-native";
+import { Alert, View } from "react-native";
 import { account, forgetComputer, removeViewer, trusted, type Device, type Viewer } from "../relay";
-import { Banner, Button, font, Loading, T, useTheme } from "../ui";
+import { Button, font, Loading, Panel, T, useTheme } from "../ui";
 import { Chevron, ListCard, ListRow, Page, SectionLabel } from "./StudioPage";
 
-/** "Paired 4 Nov 2026". */
-const paired = (iso: string) => `Paired ${new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}`;
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "Paired 4 Nov 2026", the same on every phone whatever its language. */
+export const paired = (iso: string) => {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? "Paired" : `Paired ${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+};
 
 export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; onRemoved: () => void; onAbout?: () => void }) {
   const t = useTheme();
@@ -27,8 +32,8 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
       setDevices(a.devices);
       setError(null);
     } catch (e) {
+      // What was last read stays; nothing is said to be empty that only failed to load.
       setError(String((e as Error).message ?? e));
-      setViewers([]);
     }
   }, []);
   useEffect(() => void load(), [load]);
@@ -64,13 +69,11 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
   return (
     <Page title="Paired devices" back="Projects" onBack={onBack}>
       <T style={{ color: t.c.dim }}>The phones and browsers that reach your projects, and the computers this phone trusts.</T>
-      {error ? (
-        <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
-          {error}
-        </Banner>
-      ) : null}
+      {error ? <Panel bad head="Could not reach the relay" text={error} note="The lists below are what this phone last read." actions={<Button title="Try again" variant="primary" onPress={() => void load()} />} /> : null}
       <SectionLabel>Phones and browsers</SectionLabel>
-      {viewers === null ? <Loading>Loading paired devices</Loading> : null}
+      {viewers === null ? (
+        <View style={{ alignItems: "center", paddingVertical: 12 }}>{error ? <T style={{ color: t.c.dim }}>Not loaded.</T> : <Loading>Loading paired devices</Loading>}</View>
+      ) : null}
       {viewers ? (
         <ListCard>
           {viewers.length === 0 ? <ListRow title="None yet" sub="Phones and browsers you pair show here." /> : null}
@@ -84,7 +87,8 @@ export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; o
         {trustedKeys.length === 0 ? <ListRow title="None yet" sub="A computer shows here once this phone has scanned its pairing code." /> : null}
         {trustedKeys.map(([key, info]) => {
           const names = devices.filter((d) => d.computerKey === key).map((d) => d.name);
-          const name = names.length ? names.join(", ") : "A computer";
+          // The relay knows a computer by its projects; until it has answered, it is just a paired computer.
+          const name = names.length ? names.join(", ") : "A paired computer";
           return <ListRow key={key} title={name} sub={paired(info.pairedAt)} right={danger("Forget", () => forgetKey(key, name), `Forget ${name}`)} />;
         })}
       </ListCard>

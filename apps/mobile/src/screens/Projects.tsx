@@ -5,9 +5,9 @@
  * this phone has not paired with say how to reach them.
  */
 import { useCallback, useEffect, useState } from "react";
-import { RefreshControl } from "react-native";
+import { RefreshControl, View } from "react-native";
 import { account, NotPairedError, selected, trusted, type Device } from "../relay";
-import { Banner, Button, Dot, font, Loading, Panel, T, useTheme } from "../ui";
+import { Button, Dot, font, Loading, Panel, T, useTheme } from "../ui";
 import { Chevron, ListCard, ListRow, Page, PageHead } from "./StudioPage";
 
 /** "Offline, last seen 5 min ago": how long ago, in the largest whole unit. */
@@ -55,32 +55,51 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
     <Page
       refreshControl={<RefreshControl refreshing={busy && list !== null} onRefresh={() => void load()} tintColor={t.c.accent} colors={[t.c.accent]} progressBackgroundColor={t.c.panel} />}
       actions={<Button title="Devices" variant="ghost" label="Paired devices" onPress={onSettings} />}
-      footer={<Button title="Pair another computer" onPress={onPair} />}
+      footer={rows !== null || error ? <Button title="Pair another computer" onPress={onPair} /> : undefined}
     >
-      <PageHead eyebrow="Projects" lead="Choose the project to open in Studio." />
+      <PageHead eyebrow="Projects" lead={rows?.length === 0 ? undefined : "Choose the project to open in Studio."} />
       {error ? (
-        <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
-          {error}
-        </Banner>
+        <Panel
+          bad
+          head="Could not reach the relay"
+          text={error}
+          note="This page checks again every 10 seconds."
+          actions={<Button title="Try again" variant="primary" onPress={() => void load()} />}
+        />
       ) : null}
-      {rows === null && !error ? <Loading>Loading your projects</Loading> : null}
-      {rows?.length === 0 ? <Panel head="No projects yet" text="Turn on Remote in a project in Studio on your computer. It shows here once it connects." note="Pull down to check again." /> : null}
+      {rows === null && !error ? (
+        <View style={{ alignItems: "center", paddingTop: 24 }}>
+          <Loading>Loading your projects</Loading>
+        </View>
+      ) : null}
+      {rows?.length === 0 ? <Panel head="No projects yet" text="Turn on Remote control for a project in Studio on your computer. It shows here once it connects." note="Pull down to check again." /> : null}
       {rows?.length ? (
         <ListCard>
           {rows.map((d) => {
             const paired = d.computerKey in keys;
-            const sub = !d.online ? lastSeen(d.lastSeen) : !paired ? "On a computer this phone has not paired with. Scan its pairing code to open it here." : d.id === last ? "Opened last" : undefined;
+            // A project on a computer this phone has not paired with opens the scanner: its code is the way in.
+            if (!paired)
+              return (
+                <ListRow
+                  key={d.id}
+                  lead={<Dot />}
+                  title={d.name}
+                  sub={d.online ? "Not paired with this phone. Scan its computer's code to open it." : lastSeen(d.lastSeen)}
+                  label={`Scan the code for ${d.name}`}
+                  onPress={onPair}
+                  right={<T style={t.editor ? { ...font(t, "sans", 400, 12, 1.2), color: t.c.accent } : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23, color: t.c.accentHi }}>Scan code</T>}
+                />
+              );
             return (
               <ListRow
                 key={d.id}
-                current={paired && d.online && d.id === last}
+                current={d.online && d.id === last}
                 lead={<Dot kind={d.online ? "ok" : undefined} />}
                 title={d.name}
-                sub={sub}
-                disabled={!paired}
-                label={paired ? `Open ${d.name}` : d.name}
+                sub={!d.online ? lastSeen(d.lastSeen) : d.id === last ? "Opened last" : undefined}
+                label={`Open ${d.name}`}
                 onPress={() => onOpen(d)}
-                right={paired ? <Chevron /> : null}
+                right={<Chevron />}
               />
             );
           })}
