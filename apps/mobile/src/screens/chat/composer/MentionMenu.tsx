@@ -266,6 +266,7 @@ const styles = (t: Theme) => {
     chips: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6 },
     chip: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, maxWidth: "100%" as const, paddingTop: 2, paddingRight: 2, paddingBottom: 2, paddingLeft: 4, borderWidth: 1, borderColor: t.c.line, borderRadius: 6, backgroundColor: t.c.panel2 },
     chipName: { ...font(t, "mono", 400, 12, lh), color: t.c.text, flexShrink: 1, minWidth: 0 },
-    sent: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, paddingRight: 6, paddingLeft: 3, borderWidth: 1, borderColor: t.c.line, borderRadius: 6, backgroundColor: t.c.panel2 },
+    // The web chip sits on the text baseline without raising the line; a View inside Text needs its outer 1 px given back.
+    sent: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, marginVertical: -1, paddingRight: 6, paddingLeft: 3, borderWidth: 1, borderColor: t.c.line, borderRadius: 6, backgroundColor: t.c.panel2 },
   };
 };
