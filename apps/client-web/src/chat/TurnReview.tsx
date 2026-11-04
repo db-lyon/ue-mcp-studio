@@ -23,7 +23,7 @@ import { AssetDiffView } from "./AssetDiff";
 import { AssetTile } from "./AssetTile";
 import { DiffView } from "./Diff";
 import { SessionIdContext } from "./attachments";
-import { EngineText } from "./breakable";
+import { EngineText, engineParts } from "./breakable";
 
 const STATUS: Record<ReviewItem["status"], string> = { added: "Added", modified: "Modified", deleted: "Deleted" };
 const fileName = (p: string): string => p.split("/").pop() || p;
@@ -42,6 +42,21 @@ const Chevron = () => (
     <path d="M2 3.5l3 3 3-3" />
   </svg>
 );
+
+/**
+ * A file name that wraps only between its parts, its last two parts held
+ * together with the chevron, so "uasset" is never alone on a line.
+ */
+const FileName = ({ name }: { name: string }) => {
+  const parts = engineParts(name);
+  const head = parts.slice(0, -2);
+  return (
+    <span className="review-item-file">
+      {head.map((p, i) => [p, <wbr key={i} />])}
+      <span className="review-item-ext">{parts.slice(-2).join("")}<Chevron /></span>
+    </span>
+  );
+};
 
 type Verb = "Reverting" | "Keeping" | "Undoing";
 
@@ -116,13 +131,14 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                 const acting = busy?.paths.includes(it.path) ? busy.verb : null;
                 const failed = error?.path === it.path ? error.text : null;
                 return (
-                  <li key={it.path} className={`review-item state-${it.state}${open === it.path ? " open" : ""}${acting ? " acting" : ""}`} data-path={it.path}>
+                  <li key={it.path} className={`review-item state-${it.state}${open === it.path ? " open" : ""}${acting ? " acting" : ""}${failed ? " failed" : ""}`} data-path={it.path}>
                     <button className="review-item-name" aria-expanded={open === it.path} onClick={() => setOpen(open === it.path ? null : it.path)} title={it.path}>
-                      <span className="review-item-file"><EngineText text={fileName(it.path)} /></span>
-                      <Chevron />
+                      <FileName name={fileName(it.path)} />
                     </button>
                     <span className="review-item-tags">
                       <span className={`pill small review-status ${it.status}`}>{STATUS[it.status]}</span>
+                      {it.state === "kept" && <span className="pill small ok">Kept</span>}
+                      {it.state === "reverted" && <span className="pill small">Reverted</span>}
                       {it.untracked && <span className="pill small warn" title="Written outside the agent's calls">Outside the agent</span>}
                     </span>
                     <button
@@ -137,20 +153,16 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                       {acting ? (
                         <span className="review-acting small" role="status">{acting}</span>
                       ) : it.state === "reverted" ? (
-                        <>
-                          <span className="pill small">Reverted</span>
-                          {it.undo && <button className="small-button" disabled={!!busy} onClick={() => undo(it.path)}>Undo revert</button>}
-                        </>
+                        it.undo && <button className="small-button" disabled={!!busy} onClick={() => undo(it.path)}>Undo revert</button>
                       ) : (
                         <>
-                          {it.state === "kept" && <span className="pill small ok">Kept</span>}
                           {it.state === "pending" && <button className="small-button" disabled={!!busy} onClick={() => keep([it.path])}>Keep</button>}
                           {!it.conflict && <button className="small-button" disabled={!!busy} onClick={() => revert([it.path])}>Revert</button>}
                         </>
                       )}
                     </span>
                     {it.summary && <div className={`review-item-summary small${it.diffError ? " bad" : ""}`}><EngineText text={it.summary} /></div>}
-                    <div className="review-item-path dim small mono"><EngineText text={it.path} /></div>
+                    <div className="review-item-path dim small mono">{it.path.split("/").map((p, i, all) => (i < all.length - 1 ? [`${p}/`, <wbr key={i} />] : p))}</div>
                     {opened?.path === it.path && <div className={`review-opened small ${opened.bad ? "bad" : "dim"}`} role="status">{opened.text}</div>}
                     {failed && <div className="review-failed banner bad small" role="alert">{failed}</div>}
                     {it.conflict && it.state !== "reverted" && (

@@ -2066,6 +2066,9 @@ button.review-revert-all, .review-items button.review-native {
 button.review-revert-all { margin: -4px -8px -4px 0; }
 button.review-revert-all:hover:not(:disabled), .review-items button.review-native:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--text); }
 button.review-revert-all:disabled, .review-items button.review-native:disabled { background: transparent; border-color: transparent; color: var(--dim); }
+.review-items button.review-native:disabled { opacity: 0.5; }
+.review-group + .review-group { margin-top: 6px; }
+.review-item.failed { border-left-color: var(--bad); }
 .review-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .review-item {
   display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr) auto auto; align-items: center; column-gap: 8px; min-width: 0;
@@ -2088,7 +2091,8 @@ button.review-item-name {
 }
 button.review-item-name:hover:not(:disabled) { background: none; border: 0; color: var(--accent-hi); }
 .review-item-file { min-width: 0; overflow-wrap: break-word; }
-.review-chevron { flex: none; color: var(--muted); transition: transform 0.15s; }
+.review-item-ext { white-space: nowrap; }
+.review-chevron { margin-left: 6px; vertical-align: -1px; color: var(--muted); transition: transform 0.15s; }
 .review-item-name[aria-expanded="true"] .review-chevron { transform: rotate(180deg); color: var(--accent); }
 .review-status.added { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, transparent); }
 .review-status.deleted { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, transparent); }
@@ -2102,27 +2106,31 @@ button.review-item-name:hover:not(:disabled) { background: none; border: 0; colo
   .review-card { padding: 10px 12px; }
   .review-item {
     grid-template-columns: minmax(0, 1fr) auto;
-    grid-template-areas: "name name" "tags actions" "summary summary" "path path" "native native" "opened opened" "failed failed" "conflict conflict" "diff diff";
+    grid-template-areas: "name name" "tags actions" "summary summary" "path path" "failed failed" "conflict conflict" "native native" "opened opened" "diff diff";
     padding: 0 0 4px 10px;
   }
   .review-item > .review-item-name { justify-self: start; }
   .review-item > .review-native { justify-self: start; margin: 2px 0 -6px -8px; }
-  .review-items button.review-native { color: var(--accent-hi); }
+  .review-items button.review-native { color: var(--accent-hi); font: 500 12px/1.3 var(--sans); letter-spacing: 0; }
+  .review-items { gap: 10px; }
   /* Shown for the opened file only, and only where Unreal can open it: a phone has no tooltip to say
      why not, and the opened diff says so instead. */
   .review-item:not(.open) > .review-native, .review-item > .review-native:disabled { display: none; }
-  .review-item > .review-item-summary { margin-top: 2px; line-height: 1.45; }
+  .review-item > .review-item-summary { margin-top: 6px; line-height: 1.45; }
 }
 
 /* A finger: the name and Open in Unreal diff are 44 pixels tall. Keep and Revert are drawn 32 pixels
    tall and take taps over their whole 44 pixel line, so every control is a 44 pixel target without a slab. */
 @media (pointer: coarse) {
-  button.review-item-name { min-height: 44px; padding-block: 12px; }
+  /* The name is drawn 36 pixels tall; its reach is 44. */
+  button.review-item-name { position: relative; min-height: 36px; padding-block: 8px; }
+  button.review-item-name::after { content: ""; position: absolute; inset: -4px 0; }
   .review-items button.review-native, button.review-revert-all { min-height: 44px; border-color: transparent; background: transparent; }
   button.review-revert-all { margin-block: -10px; color: var(--accent-hi); }
-  .review-item > .review-actions { min-height: 44px; gap: 8px; }
-  .review-actions > button.small-button { position: relative; min-height: 32px; height: 32px; padding: 0 12px; }
-  .review-actions > button.small-button::after { content: ""; position: absolute; inset: -7px -5px; }
+  .review-item > .review-actions { min-height: 32px; gap: 8px; }
+  .review-actions > button.small-button, .review-conflict > button.small-button { position: relative; min-height: 32px; height: 32px; padding: 0 12px; }
+  .review-actions > button.small-button::after, .review-conflict > button.small-button::after { content: ""; position: absolute; inset: -7px -5px; }
+  .review-conflict { row-gap: 14px; }
   .review-acting { min-height: 32px; }
   /* The unchanged facts' toggle: a 44 pixel target that takes no more room than its line. */
   .review-item .diff-unchanged > summary { min-height: 0; padding-block: 13px; margin-block: -10px; }
