@@ -33,8 +33,10 @@ export function ConfigView() {
         <h2>Project config</h2>
         <span className="muted mono small" title={file.path}>{file.path.split(/[\\/]/).pop()}</span>
         <span className="spacer" />
-        <button disabled={!dirty} onClick={() => setText(file.text)}>Revert</button>
-        <button disabled={!dirty} onClick={save}>Save</button>
+        <span className="row-actions">
+          <button disabled={!dirty} onClick={() => setText(file.text)}>Revert</button>
+          <button disabled={!dirty} onClick={save}>Save</button>
+        </span>
       </div>
       {message && <div className={`banner ${message.ok ? "ok" : "bad"}`}>{message.text}</div>}
       <YamlEditor label="ue-mcp.yml" value={text} onChange={setText} />

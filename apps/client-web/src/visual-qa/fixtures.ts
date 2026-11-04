@@ -482,6 +482,10 @@ export const SCENARIOS: Record<string, Scenario> = {
   "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },
   "endpoints-add": { title: "Adding a custom endpoint", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], click: ".endpoints-card h2.cfg-label button", fullPage: true },
   "endpoints-edit": { title: "Editing a custom endpoint: its models", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, click: ".endpoint-row:nth-of-type(2) .endpoint-actions button:nth-child(2)", fullPage: true },
+  "composer-handle-focus": (() => {
+    const s = inSession("The message box's resize handle focused from the keyboard: its active state, as while dragging", "Door playtest", []);
+    return { ...s, focus: ".composer-divider" };
+  })(),
   "composer-idle": (() => {
     const s = inSession("The composer bar idle, with a draft: Send at the right end", "Door playtest", []);
     return { ...s, session: { ...s.session!, draft: "Add a second door trigger by the ledge" } };

@@ -3,7 +3,7 @@
  * changes the steps in place (instruction, player, auto or manual, the
  * expectation) and saves them through pie(script_update).
  */
-import { useState } from "react";
+import { useState, useId } from "react";
 import type { QaExpect, QaRun, QaScriptStep } from "@ue-mcp-studio/shared";
 import { qaScriptSteps } from "@ue-mcp-studio/shared";
 
@@ -114,13 +114,15 @@ export function stepsOf(rows: Row[]): QaScriptStep[] {
 export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun; busy: boolean; error?: string | null; onSave: (steps: QaScriptStep[], map: string) => void; onCancel: () => void }) {
   const [rows, setRows] = useState<Row[]>(() => qaScriptSteps(run).map(rowOf));
   const [map, setMap] = useState(run.map ?? "");
+  const mapHelp = useId();
   const set = (i: number, patch: Partial<Row>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const valid = rows.length > 0 && rows.every((r) => r.instruction.trim());
   return (
     <div className="qa-edit" role="group" aria-label="Edit the playtest">
       <label className="qa-edit-map small">
         <span className="dim">Level</span>
-        <input className="mono" value={map} placeholder="/Game/Maps/L_Example (empty: the level that is open)" onChange={(e) => setMap(e.target.value)} />
+        <input className="mono" value={map} placeholder="/Game/Maps/L_Example" aria-describedby={mapHelp} onChange={(e) => setMap(e.target.value)} />
+        <span id={mapHelp} className="dim small qa-edit-map-help">Empty: the level that is open.</span>
       </label>
       <ol className="qa-edit-steps">
         {rows.map((r, i) => (
