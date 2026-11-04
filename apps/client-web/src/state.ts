@@ -8,6 +8,7 @@ import type { DaemonEvent, DaemonHealth } from "ue-mcp/daemon";
 import { STREAM_IDLE_MS, api, subscribeEvents } from "./api";
 import { onRemotePage } from "./connection";
 import { publishEvent } from "./extensions/events";
+import { onDiag } from "./diag";
 
 const KEEP = 500;
 
@@ -42,13 +43,17 @@ export function useDaemon(): DaemonState {
 
   useEffect(() => {
     refresh();
-    return subscribeEvents(
+    const keep = (e: DaemonEvent): void =>
+      setEvents((prev) => {
+        const next = prev.length >= KEEP ? prev.slice(prev.length - KEEP + 1) : prev.slice();
+        next.push(e);
+        return next;
+      });
+    // The page's own connection diagnostics sit in the same log as the daemon's events.
+    const unDiag = onDiag(keep);
+    const unsubscribe = subscribeEvents(
       (e) => {
-        setEvents((prev) => {
-          const next = prev.length >= KEEP ? prev.slice(prev.length - KEEP + 1) : prev.slice();
-          next.push(e);
-          return next;
-        });
+        keep(e);
         publishEvent(e);
         if (e.type.startsWith("editor.") || e.type.startsWith("client.") || e.type.startsWith("daemon.")) refresh();
       },
@@ -59,6 +64,10 @@ export function useDaemon(): DaemonState {
       // Through the relay a quiet stream still carries keepalives, so silence means it died unseen.
       onRemotePage() ? { idleMs: STREAM_IDLE_MS } : {},
     );
+    return () => {
+      unDiag();
+      unsubscribe();
+    };
   }, []);
 
   return { health, error, streaming, events, refresh };

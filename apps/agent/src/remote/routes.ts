@@ -152,6 +152,7 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
         api.events.publish("remote.status", { ...status() });
       },
       log: (m) => api.log.info(m),
+      onDiagnostic: (d) => api.events.publish("remote.diagnostic", { ...d }),
       refusedRetryMs: o.refusedRetryMs,
       // A daemon whose discovery record a newer one replaced must not keep the project's relay connection.
       owns:
@@ -296,13 +297,41 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
   void recheck(true);
   const timer = setInterval(() => void recheck(true), o.planRecheckMs ?? PLAN_CHECK_TTL_MS);
   timer.unref?.();
+  // Long synchronous work in this process (saving a large session, building a big answer) holds every remote call
+  // and the relay socket. Report a stall for Diagnostics, so a paired browser that waited has a cause on record.
+  const stopLag = watchLag((ms) => {
+    api.log.info(`remote control: this process was busy for ${(ms / 1000).toFixed(1)}s; remote calls waited`);
+    api.events.publish("remote.diagnostic", { kind: "lag", ms });
+  });
   return {
     dispose: () => {
       disposed = true;
       unwatch();
       generation++;
       clearInterval(timer);
+      stopLag();
       connector?.stop();
     },
   };
+}
+
+/** How often the lag watch ticks, and the stall it reports. */
+export const LAG_TICK_MS = 250;
+export const LAG_REPORT_MS = 1000;
+
+/** Call `report` with the length of each stall of the event loop of at least LAG_REPORT_MS, at most once every 10 seconds. */
+export function watchLag(report: (ms: number) => void, now: () => number = Date.now): () => void {
+  let expected = now() + LAG_TICK_MS;
+  let lastReport = Number.NEGATIVE_INFINITY;
+  const t = setInterval(() => {
+    const at = now();
+    const lag = at - expected;
+    expected = at + LAG_TICK_MS;
+    if (lag >= LAG_REPORT_MS && at - lastReport >= 10_000) {
+      lastReport = at;
+      report(lag);
+    }
+  }, LAG_TICK_MS);
+  t.unref?.();
+  return () => clearInterval(t);
 }

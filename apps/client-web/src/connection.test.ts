@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ATTEMPT_MS, BACKOFF_MS, LOST_PAUSE_MS, MAX_ATTEMPTS, RECONNECT_MS, RESTART_MS, UPDATE_RESTART_MS, WAKE_GRACE_MS, connected, headline, step, stoppingWhy, waking, type Conn, type ConnEvent } from "./connection";
+import { ALIVE_GRACE_MS, ATTEMPT_MS, BACKOFF_MS, REMOTE_RECONNECT_MS, LOST_PAUSE_MS, MAX_ATTEMPTS, RECONNECT_MS, RESTART_MS, UPDATE_RESTART_MS, WAKE_GRACE_MS, connected, headline, step, stoppingWhy, waking, type Conn, type ConnEvent } from "./connection";
 
 /** Feed events in order; collect when an attempt is launched. */
 function run(events: ConnEvent[], canStart = true, from: Conn = connected()): { conn: Conn; starts: number[] } {
@@ -18,6 +18,7 @@ const up = (at: number): ConnEvent => ({ type: "stream", up: true, at });
 const tick = (at: number): ConnEvent => ({ type: "tick", at });
 const stopping = (reason: string, at: number, updating = false): ConnEvent => ({ type: "stopping", reason, updating, at });
 const started = (ok: boolean, at: number, noNode = false): ConnEvent => ({ type: "started", ok, noNode, at });
+const alive = (at: number): ConnEvent => ({ type: "alive", at });
 
 describe("the connection to ue-mcp", () => {
   it("a brief gap reconnects, and the stream back is connected again", () => {
@@ -147,5 +148,49 @@ describe("a paired browser's page out of view", () => {
   it("a page that was connected the whole time stays connected when shown", () => {
     const { conn } = run([hidden(0), shown(900_000)], false);
     expect(conn).toEqual(connected());
+  });
+});
+
+describe("a paired browser while ue-mcp still answers", () => {
+  const remoteRun = (events: ConnEvent[], from: Conn = connected()): Conn => {
+    let conn = from;
+    for (const e of events) conn = step(conn, e, false, { remote: true }).conn;
+    return conn;
+  };
+
+  it("waits REMOTE_RECONNECT_MS, not the desktop window, before saying ue-mcp is offline", () => {
+    expect(remoteRun([down(0), tick(RECONNECT_MS + 1000)]).phase).toBe("reconnecting");
+    expect(remoteRun([down(0), tick(REMOTE_RECONNECT_MS + 1)]).phase).toBe("lost");
+  });
+
+  it("keeps to the quiet line while answers keep arriving, however long the stream takes", () => {
+    const events: ConnEvent[] = [down(0)];
+    for (let t = 5000; t <= 120_000; t += 5000) events.push(alive(t), tick(t + 500));
+    const conn = remoteRun(events);
+    expect(conn.phase).toBe("reconnecting");
+    expect(waking(conn, 120_500)).toBe(true);
+  });
+
+  it("an answer after the page already said offline goes back to the quiet line", () => {
+    const lost = remoteRun([down(0), tick(REMOTE_RECONNECT_MS + 1)]);
+    expect(lost.phase).toBe("lost");
+    const back = remoteRun([alive(REMOTE_RECONNECT_MS + 2000)], lost);
+    expect(back.phase).toBe("reconnecting");
+    expect(waking(back, REMOTE_RECONNECT_MS + 2500)).toBe(true);
+  });
+
+  it("with no answers at all it still says offline in the end", () => {
+    const conn = remoteRun([down(0), alive(1000), tick(1000 + ALIVE_GRACE_MS + REMOTE_RECONNECT_MS + 1)]);
+    expect(conn.phase).toBe("lost");
+  });
+
+  it("an answer while connected changes nothing", () => {
+    expect(remoteRun([alive(10)])).toEqual(connected());
+  });
+
+  it("the desktop page is not held back by answers once it is starting ue-mcp", () => {
+    const r = run([down(0), tick(RECONNECT_MS + 1), tick(RECONNECT_MS + 1 + LOST_PAUSE_MS)]);
+    expect(r.conn.phase).toBe("starting");
+    expect(step(r.conn, alive(RECONNECT_MS + 5000), true).conn.phase).toBe("starting");
   });
 });

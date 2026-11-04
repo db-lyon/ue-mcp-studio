@@ -88,8 +88,8 @@ function writePrivate(file: string, value: unknown): void {
 export const STREAM_KEEPALIVE_MS = 20_000;
 const KEEPALIVE = new TextEncoder().encode(": keepalive\n\n");
 
-/** Large daemon responses are sealed in pieces this size. */
-const FRAME_BYTES = 256 * 1024;
+/** Large bodies are sealed in frames this size, small enough that a frame of one call never holds another's for long on a slow upload. */
+const FRAME_BYTES = 32 * 1024;
 
 export class RemoteService {
   private readonly approvals = new Map<string, Approval>();

@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
-import { LOST_PAUSE_MS, QUIET_MS, RECONNECT_MS, isRemotePage } from "../connection";
+import { alive } from "../diag";
+import { LOST_PAUSE_MS, QUIET_MS, RECONNECT_MS, REMOTE_RECONNECT_MS, isRemotePage } from "../connection";
 
 function Harness({ streaming, events }: { streaming: boolean; events: DaemonEvent[] }) {
   return <ConnectionOverlay c={useConnection(streaming, events, false)} />;
@@ -96,7 +97,10 @@ describe("the panel while ue-mcp is away", () => {
     }
     const { rerender } = render(<Remote streaming />);
     rerender(<Remote streaming={false} />);
+    // A paired browser waits longer than the desktop before it says so.
     await advance(RECONNECT_MS + LOST_PAUSE_MS + 2000);
+    expect(screen.queryByText("ue-mcp on your computer is offline")).toBeNull();
+    await advance(REMOTE_RECONNECT_MS);
     expect(screen.getByText("ue-mcp on your computer is offline")).toBeTruthy();
     expect(screen.getByText(/reconnects by itself/)).toBeTruthy();
     expect(screen.queryByText(/npx/)).toBeNull();
@@ -106,6 +110,23 @@ describe("the panel while ue-mcp is away", () => {
     rerender(<Remote streaming />);
     await advance(0);
     expect(screen.queryByText("ue-mcp on your computer is offline")).toBeNull();
+  });
+
+  it("in a paired browser, never shows the offline panel while ue-mcp keeps answering", async () => {
+    delete window.ue;
+    function Remote({ streaming }: { streaming: boolean }) {
+      return <ConnectionOverlay c={useConnection(streaming, [], false, async () => ({ type: "started", ok: false, at: Date.now() }), true)} />;
+    }
+    const { rerender } = render(<Remote streaming />);
+    rerender(<Remote streaming={false} />);
+    // The stream is down for two minutes, but requests keep coming back from ue-mcp the whole time.
+    for (let t = 0; t < 120_000; t += 3000) {
+      act(() => alive());
+      await advance(3000);
+      expect(screen.queryByText("ue-mcp on your computer is offline")).toBeNull();
+      expect(screen.queryByText(/No answer for/)).toBeNull();
+    }
+    expect(screen.getByRole("status").textContent).toContain("Reconnecting to ue-mcp");
   });
 
   it("in a paired browser, a tab back from the background reconnects under a quiet line, not the offline panel", async () => {
