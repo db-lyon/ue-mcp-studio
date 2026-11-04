@@ -9,7 +9,7 @@ describe("Scanner", () => {
     const codes: string[] = [];
     (globalThis as { __scan?: string }).__scan = "https://remote.ue-mcp.com/pair#a.b.c";
     render(<Scanner onCode={(c) => codes.push(c)} onCancel={() => undefined} />);
-    expect(screen.getByText("Point the camera at the pairing code Studio shows on your computer.")).toBeTruthy();
+    expect(screen.getByText("Point the camera at the code")).toBeTruthy();
     const torch = screen.getByLabelText("Torch");
     fireEvent.click(torch);
     expect(torch.getAttribute("aria-checked")).toBe("true");
