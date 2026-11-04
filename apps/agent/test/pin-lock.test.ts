@@ -374,3 +374,33 @@ describe("the lock in the connector, for sealed requests", () => {
     expect(hits).toEqual([]);
   });
 });
+
+describe("the PIN's length, for the keypad", () => {
+  it("is kept when the PIN is set and shown to the paired browser, never the PIN", async () => {
+    const file = path.join(tmp(), "remote-lock.json");
+    const lock = new PinLock({ file });
+    expect(lock.state("p").pinLength).toBeUndefined();
+    await lock.setPin("482915");
+    lock.configure({ whole: true });
+    expect(lock.state("p").pinLength).toBe(6);
+    expect(new PinLock({ file }).state("p").pinLength).toBe(6);
+    lock.removePin();
+    expect(lock.state("p").pinLength).toBeUndefined();
+  });
+
+  it("is learned from the first right PIN when it was set before the length was kept", async () => {
+    const file = path.join(tmp(), "remote-lock.json");
+    const lock = new PinLock({ file });
+    await lock.setPin("1234");
+    lock.configure({ whole: true });
+    const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
+    delete raw.length;
+    fs.writeFileSync(file, JSON.stringify(raw));
+    const old = new PinLock({ file });
+    expect(old.state("p").pinLength).toBeUndefined();
+    expect((await old.unlock("p", "9999")).ok).toBe(false);
+    expect(old.state("p").pinLength).toBeUndefined();
+    expect((await old.unlock("p", "1234")).ok).toBe(true);
+    expect(old.state("p").pinLength).toBe(4);
+  });
+});

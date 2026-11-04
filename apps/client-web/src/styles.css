@@ -1883,10 +1883,11 @@ pre.diff > .meta { color: var(--dim); }
 .pin-key-go:hover:not(:disabled) { background: var(--accent-hi); }
 .pin-key-go:active:not(:disabled) { background: var(--accent-deep); }
 .pin-key-go:disabled { background: var(--panel-2); border-color: var(--line-strong); color: var(--dim); }
+.pin-key-gap { width: 72px; height: 72px; }
 .pin-cancel { min-height: 44px; padding: 0 20px; background: transparent; border-color: transparent; color: var(--muted); }
 @media (max-height: 640px) {
   .pin-pad { grid-template-columns: repeat(3, 62px); gap: 10px 22px; }
-  .pin-key { width: 62px; height: 62px; }
+  .pin-key, .pin-key-gap { width: 62px; height: 62px; }
   :root .pin-pad button.pin-key { font-size: 24px; }
   .lock-glyph { display: none; }
 }

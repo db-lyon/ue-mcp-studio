@@ -39,6 +39,8 @@ interface Stored {
   v: 1;
   salt?: string;
   hash?: string;
+  /** The PIN's digit count, for the keypad. */
+  length?: number;
   whole: boolean;
   sensitive: boolean;
   idleMinutes: number;
@@ -173,11 +175,13 @@ export class PinLock {
       }
       const idle = REMOTE_LOCK_IDLE_CHOICES.includes(raw.idleMinutes as number) ? (raw.idleMinutes as number) : REMOTE_LOCK_IDLE_DEFAULT;
       const pin = typeof raw.salt === "string" && typeof raw.hash === "string";
+      const length = pin && Number.isInteger(raw.length) && (raw.length as number) >= 4 && (raw.length as number) <= 8 ? (raw.length as number) : undefined;
       this.cache = {
         mtime,
         stored: {
           v: 1,
           ...(pin ? { salt: raw.salt, hash: raw.hash } : {}),
+          ...(length ? { length } : {}),
           whole: pin && raw.whole === true,
           sensitive: pin && raw.sensitive === true,
           idleMinutes: idle,
@@ -208,7 +212,7 @@ export class PinLock {
     const salt = crypto.randomBytes(16);
     const key = await hash(pin, salt);
     const s = this.stored();
-    this.save({ ...s, salt: salt.toString("base64"), hash: key.toString("base64"), failures: {} });
+    this.save({ ...s, salt: salt.toString("base64"), hash: key.toString("base64"), length: pin.length, failures: {} });
     this.grants.clear();
     this.nextTry.clear();
   }
@@ -259,6 +263,7 @@ export class PinLock {
       idleMinutes: s.idleMinutes,
       ...(failures > 0 ? { remaining: REMOTE_PIN_ATTEMPTS - failures } : {}),
       ...(wait > 0 ? { retryAfterMs: wait } : {}),
+      ...(s.hash && s.length ? { pinLength: s.length } : {}),
     };
   }
 
@@ -301,9 +306,11 @@ export class PinLock {
     // Read again after the slow hash: another try may have counted meanwhile.
     const fresh = this.stored();
     if (right) {
-      if (fresh.failures[phone]) {
+      // A PIN set before its length was kept learns it here.
+      const learn = fresh.length !== (pin as string).length;
+      if (fresh.failures[phone] || learn) {
         delete fresh.failures[phone];
-        this.save(fresh);
+        this.save({ ...fresh, length: (pin as string).length });
       }
       this.nextTry.delete(phone);
       const now = this.now();
