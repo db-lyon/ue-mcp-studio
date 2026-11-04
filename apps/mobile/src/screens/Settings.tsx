@@ -9,7 +9,7 @@ import { account, forgetComputer, removeViewer, trusted, type Device, type Viewe
 import { Header, s, Spinner, tap } from "../legacy-ui";
 import { colors } from "../theme";
 
-export function Settings({ onBack, onRemoved }: { onBack: () => void; onRemoved: () => void }) {
+export function Settings({ onBack, onRemoved, onAbout }: { onBack: () => void; onRemoved: () => void; onAbout?: () => void }) {
   const [viewers, setViewers] = useState<Viewer[] | null>(null);
   const [devices, setDevices] = useState<Device[]>([]);
   const [keys, setKeys] = useState<Record<string, { pairedAt: string }>>({});
@@ -86,6 +86,12 @@ export function Settings({ onBack, onRemoved }: { onBack: () => void; onRemoved:
           </View>
         );
       })}
+      {onAbout ? (
+        <Pressable accessibilityRole="button" onPress={onAbout} style={[s.row, { borderBottomWidth: 0, marginTop: 16 }]}>
+          <Text style={[s.name, { flex: 1 }]}>About</Text>
+          <Text style={s.sub}>{"›"}</Text>
+        </Pressable>
+      ) : null}
     </ScrollView>
   );
 }
