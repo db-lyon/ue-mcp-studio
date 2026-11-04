@@ -8,7 +8,7 @@
  * editor. The card applies the daemon's events itself (useLiveRun).
  */
 import { lhOf } from "./live";
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, View, type ViewStyle, Text } from "react-native";
 import {
   QA_VERDICTS,
@@ -37,7 +37,7 @@ import { assetLinkTarget, qaAgentMayJudge, qaAgentVerdict, qaIsDraft, qaSummaryO
 import { useProjectNav } from "../../nav";
 import { Banner, T, bannerText, font, labelFont, useStyles, useTheme, type Theme } from "../../ui";
 import { Chevron } from "../../ui/glyphs";
-import { useLiveRun, useQaLive } from "./live";
+import { RevealContext, useLiveRun, useQaLive, type Measurable } from "./live";
 import { Capture, Disclosure, FailNote, IconButton, StepSetup, SmallButton } from "./parts";
 import { DraftEditor, LoopPanel, RunPanel } from "./panels";
 import { StepPath } from "./StepPath";
@@ -116,10 +116,20 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const asked = new Set(form?.q?.steps ?? []);
   const waiting = run.steps.filter((x) => x.status === "awaiting_verdict");
 
+  const reveal = useContext(RevealContext);
+  const cardRef = useRef<Measurable | null>(null);
+  const [revealing, setRevealing] = useState(false);
   const openAt = (index: number | null) => {
     setOpen(true);
     setMarked(index);
+    if (index === null) setRevealing(true);
   };
+  // Opened at its top: brought into view once its body is drawn.
+  useEffect(() => {
+    if (!revealing) return;
+    setRevealing(false);
+    reveal(cardRef.current);
+  }, [revealing, reveal]);
   // A step that settled is no longer being sent.
   useEffect(() => {
     setSending((cur) => Object.fromEntries(Object.entries(cur).filter(([i]) => run.steps.find((x) => x.index === Number(i))?.status === "awaiting_verdict")));
@@ -272,8 +282,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   if (canAssign && !assigned) ownActions.push(<IconButton key="assign" label={needsYouLoop ? "Assign again" : "Assign to subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="assign" />);
   if (needsYouLoop) ownActions.push(<IconButton key="end" label="End loop" disabled={assigning || off} onPress={closeLoop} glyph="cancel" />);
   if (editable) {
-    ownActions.push(<IconButton key="edit" label="Edit" disabled={working || !!blocked} expanded={panel === "edit"} onPress={toggleEdit} glyph="edit" />);
-    ownActions.push(<IconButton key="delete" label="Delete" disabled={working || !!blocked} onPress={() => setPanel("delete")} glyph="trash" />);
+    ownActions.push(<IconButton key="edit" label={`Edit ${run.scriptName}`} disabled={working || !!blocked} expanded={panel === "edit"} onPress={toggleEdit} glyph="edit" />);
+    ownActions.push(<IconButton key="delete" label={`Delete ${run.scriptName}`} disabled={working || !!blocked} onPress={() => setPanel("delete")} glyph="trash" />);
   }
   if (extra) ownActions.push(<Fragment key="extra">{extra}</Fragment>);
   if (onDismiss && ended) ownActions.push(<IconButton key="dismiss" label="Dismiss this run" onPress={onDismiss} glyph="cancel" />);
@@ -307,7 +317,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   );
 
   return (
-    <View style={[s.card, draft && s.draft, border]} accessibilityLabel={`Playtest ${run.scriptName}`} testID={testID ?? `qa-card-${run.runId}`}>
+    <View ref={cardRef as never} style={[s.card, draft && s.draft, border]} accessibilityLabel={`Playtest ${run.scriptName}`} testID={testID ?? `qa-card-${run.runId}`}>
       <View style={s.head}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} aria-expanded={open} accessibilityLabel={`${open ? "Close" : "Open"} ${run.scriptName}`} onPress={() => (open ? setOpen(false) : openAt(null))} style={s.toggle}>
           <Chevron open={open} color={t.c.text} />

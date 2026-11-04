@@ -83,7 +83,7 @@ describe("QaCard", () => {
     api.qaSaveScript.mockResolvedValue({ run: RUNS.draft });
     renderInProject(<QaCard run={RUNS.draft} />, api);
     press("Open PT_DoorOpens");
-    press("Edit");
+    press("Edit PT_DoorOpens");
     expect(screen.getByLabelText("Edit the playtest")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Step 1 instruction"), { target: { value: "Jump twice" } });
     press("Remove step 5");
@@ -99,11 +99,11 @@ describe("QaCard", () => {
     const api = fakeApi();
     api.qaPlaytestDelete.mockResolvedValue({ script: RUNS.failed.script });
     renderInProject(<QaCard run={RUNS.failed} />, api);
-    press("Delete");
+    press("Delete PT_LandingCheck");
     expect(screen.getByText("Delete this playtest?")).toBeTruthy();
     press("Keep");
     expect(screen.queryByText("Delete this playtest?")).toBeNull();
-    press("Delete");
+    press("Delete PT_LandingCheck");
     press("Delete");
     expect(api.qaPlaytestDelete).toHaveBeenCalledWith(RUNS.failed.script);
   });

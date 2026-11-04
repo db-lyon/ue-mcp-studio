@@ -80,5 +80,11 @@ export function useLiveRun(run: QaRun, live: Pick<QaLive, "events" | "streaming"
 
 export const useQaLive = () => useContext(QaContext);
 
+/** Brings a card to the top of the scroller it is in; nothing where none is given. */
+export interface Measurable {
+  measureLayout(relativeTo: unknown, onSuccess: (x: number, y: number) => void, onFail?: () => void): void;
+}
+export const RevealContext = createContext<(node: Measurable | null) => void>(() => undefined);
+
 /** The theme's body line height as a multiple, as CSS's unitless line-height carries to smaller text: 1.55 in ue-mcp, 1.5 in the editor themes. */
 export const lhOf = (t: { base: { size: number; lineHeight: number } }): number => t.base.lineHeight / t.base.size;

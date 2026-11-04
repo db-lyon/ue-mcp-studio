@@ -23,7 +23,7 @@ import {
 import { playtestMatches, playtestShown, type PlaytestEntry, type PlaytestFilter, type PlaytestIndexAnswer, type QaRun } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
 import { Banner, Button, T, bannerText, font, useStyles, useTheme, type Theme } from "../../ui";
-import { QaContext, useDaemonEvents, type QaLive } from "./live";
+import { QaContext, RevealContext, useDaemonEvents, type Measurable, type QaLive } from "./live";
 import { QaCard, useSavedScript, type QaCardActions } from "./QaCard";
 import { PathLegend } from "./StepPath";
 import { AssetLinksContext, useAssetLinks } from "./StepText";
@@ -89,6 +89,13 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   const live: QaLive = useMemo(() => ({ events, streaming, forms: [], sessionId: null }), [events, streaming]);
   const assetLinks = useAssetLinks(null);
   const [pulling, setPulling] = useState(false);
+  const scroller = useRef<{ scrollTo(o: { y: number; animated: boolean }): void } | null>(null);
+  const content = useRef<Measurable | null>(null);
+  // An opened card comes to the top of the page, as the web client scrolls it into view.
+  const reveal = useMemo(() => (node: Measurable | null) => {
+    if (!node || !content.current) return;
+    node.measureLayout(content.current, (_x, y) => scroller.current?.scrollTo({ y: y + 10, animated: true }), () => undefined);
+  }, []);
   const pulled = useRef(false);
   useEffect(() => {
     if (pulled.current && index) setPulling(false);
@@ -96,11 +103,13 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
 
   return (
     <ScrollView
+      ref={scroller as never}
       style={s.scroll}
       contentContainerStyle={s.page}
       refreshControl={<RefreshControl refreshing={pulling} onRefresh={() => ((pulled.current = true), setPulling(true), reload(true))} tintColor={t.c.accent} colors={[t.c.accent]} progressBackgroundColor={t.c.panel} />}
       testID="playtests-page"
     >
+      <View ref={content as never} style={s.content}>
       <View style={s.head}>
         <T style={s.title} accessibilityRole="header">Playtests</T>
         <T style={s.count} numberOfLines={1}>
@@ -114,12 +123,11 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
         <View style={s.filters} accessibilityLabel="Show">
           {PLAYTEST_FILTERS.map((f) => {
             const on = filter === f.id;
-            const attention = f.id === "needs-you" && counts[f.id] > 0;
             return (
               <Pressable key={f.id} accessibilityRole="button" accessibilityState={{ selected: on }} aria-pressed={on} accessibilityLabel={`${f.label} ${counts[f.id]}`} onPress={() => pick(f.id)} style={[s.chip, on && s.chipOn]}>
                 <T style={[s.chipText, on && { color: t.c.text }]}>
                   {f.label}{" "}
-                  <T style={[s.chipCount, on && { color: t.c.muted }, attention && { color: t.c.warn, fontFamily: font(t, "sans", 700, 12).fontFamily }]}>{counts[f.id]}</T>
+                  <Text style={[s.chipCount, { color: on ? t.c.text : t.c.muted }]}>{counts[f.id]}</Text>
                 </T>
               </Pressable>
             );
@@ -128,12 +136,12 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
       ) : null}
       {rows.length > 0 ? <PathLegend runs={rows.map(playtestShown).filter((r): r is QaRun => !!r)} /> : null}
       {error ? (
-        <Banner kind="bad" role="alert" style={{ marginBottom: 0 }}>
+        <Banner kind="bad" role="alert" >
           <T style={[s.small, { color: bannerText(t, "bad") }]}>{error}</T>
         </Banner>
       ) : null}
       {index && !index.listed ? (
-        <Banner kind="warn" style={{ marginBottom: 0 }}>
+        <Banner kind="warn" >
           <T style={[s.small, { color: bannerText(t, "warn") }]}>The editor is not connected: scripts that have never run are missing, and runs, verdicts and subagents are unavailable until it is back.</T>
         </Banner>
       ) : null}
@@ -153,13 +161,16 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
       ) : null}
       <QaContext.Provider value={live}>
         <AssetLinksContext.Provider value={assetLinks}>
+          <RevealContext.Provider value={reveal}>
           <View style={s.list}>
             {rows.map((e) => (
               <PlaytestRow key={e.script} entry={e} offline={index?.listed === false} onOpenSession={onOpenSession} onChanged={() => reload(true)} />
             ))}
           </View>
+          </RevealContext.Provider>
         </AssetLinksContext.Provider>
       </QaContext.Provider>
+      </View>
     </ScrollView>
   );
 }
@@ -216,7 +227,8 @@ export function PlaytestRow({ entry, offline = false, onOpenSession, onChanged }
 
 const styles = (t: Theme) => ({
   scroll: { flex: 1 },
-  page: { paddingTop: 10, paddingHorizontal: 10, paddingBottom: 18, gap: 10 },
+  page: { paddingTop: 10, paddingHorizontal: 10, paddingBottom: 18 },
+  content: { gap: 10 },
   head: { flexDirection: "row" as const, alignItems: "center" as const, flexWrap: "wrap" as const, gap: 10 },
   title: { ...font(t, "sans", 600, 20, 1.2), color: t.c.text },
   count: { ...font(t, "sans", 400, 12, lhOf(t)), color: t.c.dim, flexShrink: 1 },

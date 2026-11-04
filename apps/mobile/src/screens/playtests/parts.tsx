@@ -40,7 +40,8 @@ const iconStyles = (t: Theme) => ({
   primary: { backgroundColor: t.c.accent, borderColor: t.c.accent },
   primaryOff: { backgroundColor: "transparent", borderColor: t.c.lineStrong },
   expanded: { borderColor: t.c.accentLine },
-  off: { borderColor: t.c.disabledLine },
+  // button.icon-button keeps its hairline when disabled; only the colour of its glyph says so.
+  off: { borderColor: t.c.line },
   pressed: { borderColor: t.c.accentLine, backgroundColor: t.c.panel3 },
 });
 

@@ -168,7 +168,8 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
           </View>
         ) : null}
         {tab !== "Chat" ? (
-          <View style={[s.main, s.padded]}>
+          // The Playtests page pads inside its own scroller, as the web main scrolls with its padding.
+          <View style={[s.main, tab !== "Playtests" && s.padded]}>
             <ErrorBoundary what={tab} resetKey={tab}>
               {tab === "Playtests" ? <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} /> : null}
               {tab === "Plugins" ? <PluginsView daemon={daemon} remote /> : null}

@@ -85,7 +85,8 @@ export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun
   const [rows, setRows] = useState<EditRow[]>(() => qaScriptSteps(run).map(rowOf));
   const [map, setMap] = useState(run.map ?? "");
   const set = (i: number, patch: Partial<EditRow>) => setRows(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const mono = font(t, "mono", 400, 16);
+  // input.mono: the mono face at 0.92 of the 12 point row, as the web client sizes it.
+  const mono = font(t, "mono", 400, 12 * 0.92, lhOf(t));
   return (
     <View style={s.edit} accessibilityLabel="Edit the playtest">
       <View style={s.map}>
@@ -96,13 +97,13 @@ export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun
       {rows.map((r, i) => (
         <View key={i} style={s.editStep}>
           <View style={s.editHead}>
-            <T style={{ ...font(t, "mono", 400, t.base.size * 0.92, lhOf(t)), color: t.c.dim, width: t.base.size * 1.6, textAlign: "right" }}>{i + 1}</T>
+            <T style={{ ...font(t, "mono", 400, t.base.size * 0.92, lhOf(t)), color: t.c.dim, width: t.base.size * 0.92 * 1.6, textAlign: "right" }}>{i + 1}</T>
             <Input
               accessibilityLabel={`Step ${i + 1} instruction`}
               multiline
               value={r.instruction}
               onChangeText={(v) => set(i, { instruction: v.replace(/\r?\n/g, " ") })}
-              style={{ flex: 1, minWidth: 0, lineHeight: 22.4 }}
+              style={{ flex: 1, minWidth: 0, ...font(t, "sans", 400, t.base.size), lineHeight: t.base.lineHeight }}
             />
             <SmallButton title="Remove" label={`Remove step ${i + 1}`} onPress={() => setRows(rows.filter((_, j) => j !== i))} />
           </View>
