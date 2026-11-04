@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { EFFORTS, EFFORT_NAMES, routesInOrder, type Effort, type ModelCatalog, type ModelOption, type StudioSettings } from "@ue-mcp-studio/shared";
-import { requestJson, type Transport } from "@ue-mcp-studio/client-core";
+import type { StudioApi } from "@ue-mcp-studio/client-core";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { s as ui, Spinner } from "./ui";
 import { colors } from "./theme";
@@ -24,7 +24,7 @@ export function modelName(catalog: ModelCatalog | null, settings: StudioSettings
   return v?.models.find((m) => m.id === settings.model)?.name ?? settings.model ?? "Model";
 }
 
-export function ModelPicker({ transport, settings, onSave, disabled }: { transport: Transport; settings: StudioSettings; onSave: (u: { provider?: StudioSettings["provider"]; model?: string; effort?: Effort }) => Promise<unknown>; disabled?: boolean }) {
+export function ModelPicker({ api, settings, onSave, disabled }: { api: StudioApi; settings: StudioSettings; onSave: (u: { provider?: StudioSettings["provider"]; model?: string; effort?: Effort }) => Promise<unknown>; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,8 +32,8 @@ export function ModelPicker({ transport, settings, onSave, disabled }: { transpo
   const insets = useSafeAreaInsets();
 
   useEffect(() => {
-    requestJson<ModelCatalog>(transport, "GET", "/v1/ext/studio/models").then(setCatalog, () => setCatalog(null));
-  }, [transport, settings.provider, settings.model, settings.connected]);
+    api.models().then(setCatalog, () => setCatalog(null));
+  }, [api, settings.provider, settings.model, settings.connected]);
 
   const save = async (u: Parameters<typeof onSave>[0], close: boolean) => {
     setSaving(true);

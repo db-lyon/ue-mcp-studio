@@ -4,11 +4,9 @@
  * session's events, with the turn's streamed text collected between them.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DetailLoader, requestJson } from "@ue-mcp-studio/client-core";
-import type { SessionDetail, SessionSync, StudioSettings } from "@ue-mcp-studio/shared";
+import { DetailLoader, type StudioApi } from "@ue-mcp-studio/client-core";
+import type { SessionDetail, StudioSettings, StudioSettingsUpdate } from "@ue-mcp-studio/shared";
 import type { Project } from "./connection";
-
-const sessionPath = (id: string) => `/v1/ext/studio/sessions/${encodeURIComponent(id)}`;
 
 export interface SessionApi {
   send(text: string, now?: boolean): Promise<unknown>;
@@ -19,8 +17,8 @@ export interface SessionApi {
   saveDraft(draft: string): Promise<unknown>;
 }
 
-export function useSession(project: Project, id: string) {
-  const { transport, onEvent, live } = project;
+export function useSession(project: Project, studio: StudioApi, id: string) {
+  const { onEvent, live } = project;
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [streaming, setStreaming] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +27,7 @@ export function useSession(project: Project, id: string) {
   const loader = useMemo(
     () =>
       new DetailLoader(
-        (sid, have) => requestJson<SessionSync | SessionDetail>(transport, "GET", `${sessionPath(sid)}?sync=1${have !== undefined ? `&have=${have}` : ""}`),
+        (sid, have) => studio.sessionSync(sid, have),
         (d) => {
           setDetail(d);
           setError(null);
@@ -38,7 +36,7 @@ export function useSession(project: Project, id: string) {
           if (e.name !== "AbortError") setError(e.message);
         },
       ),
-    [transport],
+    [studio],
   );
   const reload = useCallback(() => loader.load(id), [loader, id]);
 
@@ -74,35 +72,34 @@ export function useSession(project: Project, id: string) {
   );
 
   const api: SessionApi = useMemo(() => {
-    const post = (sub: string, json?: unknown) => requestJson(transport, "POST", `${sessionPath(id)}${sub}`, json !== undefined ? { json } : {});
     const after = <T,>(p: Promise<T>) => p.finally(() => void reload());
     return {
-      send: (text, now = false) => after(post("/messages", now ? { text, attachments: [], now } : { text, attachments: [] })),
-      queue: (text) => after(post("/queue", { text, attachments: [] })),
-      removeQueued: (qid) => after(requestJson(transport, "DELETE", `${sessionPath(id)}/queue/${encodeURIComponent(qid)}`)),
-      sendQueued: () => after(post("/queue/next")),
-      stop: () => after(post("/stop")),
-      saveDraft: (draft) => requestJson(transport, "PUT", `${sessionPath(id)}/draft`, { json: { draft } }),
+      send: (text, now = false) => after(studio.send(id, text, now)),
+      queue: (text) => after(studio.queue(id, text)),
+      removeQueued: (qid) => after(studio.removeQueued(id, qid)),
+      sendQueued: () => after(studio.sendQueued(id)),
+      stop: () => after(studio.stop(id)),
+      saveDraft: (draft) => studio.saveDraft(id, draft),
     };
-  }, [transport, id, reload]);
+  }, [studio, id, reload]);
 
   return { detail, streaming, error, setError, reload, api };
 }
 
 /** The project's Studio settings (the selected model and effort), following settings events. */
-export function useSettings(project: Project) {
-  const { transport, onEvent } = project;
+export function useSettings(project: Project, studio: StudioApi) {
+  const { onEvent } = project;
   const [settings, setSettings] = useState<StudioSettings | null>(null);
-  const load = useCallback(() => requestJson<StudioSettings>(transport, "GET", "/v1/ext/studio/settings").then(setSettings, () => undefined), [transport]);
+  const load = useCallback(() => studio.settings().then(setSettings, () => undefined), [studio]);
   useEffect(() => void load(), [load]);
   useEffect(() => onEvent((e) => void (e.type === "studio.settings.changed" && load())), [onEvent, load]);
   const save = useCallback(
-    async (update: Partial<Pick<StudioSettings, "provider" | "model" | "effort">>) => {
-      const next = await requestJson<StudioSettings>(transport, "PUT", "/v1/ext/studio/settings", { json: update });
+    async (update: Pick<StudioSettingsUpdate, "provider" | "model" | "effort">) => {
+      const next = await studio.saveSettings(update);
       setSettings(next);
       return next;
     },
-    [transport],
+    [studio],
   );
   return { settings, save, reload: load };
 }

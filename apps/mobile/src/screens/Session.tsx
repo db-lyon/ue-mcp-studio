@@ -1,15 +1,18 @@
 /**
  * One session: its main thread as the web client draws it (client-core's
  * mainTimeline), the turn's text as it streams, the queued messages, and the
- * composer with send, send now, queue, stop and the model picker. Approvals,
- * reviews, dialogs and playtests show as one line each until their own screens.
+ * composer with send, send now, queue, stop and the model picker. Calls to
+ * approve and editor dialogs wait as cards under the thread; a turn's review
+ * opens its own screen, and the header opens the checkpoints.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { FlatList, KeyboardAvoidingView, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { agentStatus, mainTimeline, OUTCOME_LABEL, summarize, TOOL_TAG, toolLabel, type MainItem } from "@ue-mcp-studio/client-core";
-import type { TranscriptEntry } from "@ue-mcp-studio/shared";
-import type { Project } from "../connection";
+import type { TranscriptEntry, TurnReview } from "@ue-mcp-studio/shared";
+import { useProjectNav } from "../nav";
+import { ApprovalCard, DialogCard, useDialogs } from "../Cards";
+import { Markdown } from "../Markdown";
 import { useSession, useSettings } from "../session";
 import { ModelPicker } from "../ModelPicker";
 import { Dot, s as ui, Spinner } from "../ui";
@@ -17,9 +20,12 @@ import { colors } from "../theme";
 
 const STATUS_LABEL: Record<string, string> = { idle: "Idle", running: "Working", waiting: "Waiting", error: "Error", stopped: "Stopped" };
 
-export function SessionScreen({ project, id, onBack }: { project: Project; id: string; onBack: () => void }) {
-  const { detail, streaming, error, setError, api } = useSession(project, id);
-  const { settings, save } = useSettings(project);
+export function SessionScreen({ id }: { id: string }) {
+  const { project, api: studio, pop: onBack, push } = useProjectNav();
+  const { detail, streaming, error, setError, api } = useSession(project, studio, id);
+  const dialogs = useDialogs(project, studio);
+  const mine = (dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === id);
+  const { settings, save } = useSettings(project, studio);
   const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -62,9 +68,14 @@ export function SessionScreen({ project, id, onBack }: { project: Project; id: s
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <View style={[st.head, { paddingTop: insets.top + 8 }]}>
-        <Pressable accessibilityRole="button" onPress={onBack} hitSlop={12}>
-          <Text style={ui.link}>Sessions</Text>
-        </Pressable>
+        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+          <Pressable accessibilityRole="button" onPress={onBack} hitSlop={12}>
+            <Text style={ui.link}>Sessions</Text>
+          </Pressable>
+          <Pressable accessibilityRole="button" onPress={() => push({ name: "checkpoints", sessionId: id })} hitSlop={12}>
+            <Text style={ui.link}>Checkpoints</Text>
+          </Pressable>
+        </View>
         <Text style={[ui.name, { fontSize: 17, marginTop: 6 }]} numberOfLines={1}>
           {detail?.title || "New session"}
         </Text>
@@ -77,18 +88,23 @@ export function SessionScreen({ project, id, onBack }: { project: Project; id: s
         </View>
       </View>
       {error ? <Text style={[ui.error, { paddingHorizontal: 16 }]}>{error}</Text> : null}
-      {detail?.approvals?.length ? (
-        <View style={[ui.banner, { marginHorizontal: 16 }]}>
-          <Text style={ui.sub}>{detail.approvals.length === 1 ? "1 change waits" : `${detail.approvals.length} changes wait`} for approval. Answer it in Studio on your computer.</Text>
-        </View>
-      ) : null}
       <FlatList
         ref={list}
         style={{ flex: 1 }}
         contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 12 }}
         data={rows}
         keyExtractor={(r) => r.key}
-        renderItem={({ item }) => <Item row={item} transcript={detail?.transcript ?? []} waiting={detail?.status === "waiting"} />}
+        renderItem={({ item }) => <Item row={item} transcript={detail?.transcript ?? []} waiting={detail?.status === "waiting"} onReview={(review) => push({ name: "review", sessionId: id, review })} />}
+        ListFooterComponent={
+          <View>
+            {mine.map((d) => (
+              <DialogCard key={d.id} api={studio} dialog={d} now={dialogs.now} />
+            ))}
+            {(detail?.approvals ?? []).map((a) => (
+              <ApprovalCard key={a.id} api={studio} sessionId={id} approval={a} />
+            ))}
+          </View>
+        }
         ListEmptyComponent={detail ? <Text style={[ui.sub, { marginTop: 24 }]}>Ask Studio something to start.</Text> : <View style={{ marginTop: 24 }}><Spinner /></View>}
         onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
       />
@@ -123,7 +139,7 @@ export function SessionScreen({ project, id, onBack }: { project: Project; id: s
           style={st.input}
         />
         <View style={st.bar}>
-          {settings ? <ModelPicker transport={project.transport} settings={settings} onSave={save} /> : <View />}
+          {settings ? <ModelPicker api={studio} settings={settings} onSave={save} /> : <View />}
           <View style={{ flexDirection: "row", gap: 8 }}>
             {busy ? (
               <>
@@ -155,7 +171,7 @@ function SmallButton({ title, onPress, primary, danger, disabled }: { title: str
   );
 }
 
-function Item({ row, transcript, waiting }: { row: Row; transcript: TranscriptEntry[]; waiting: boolean }) {
+function Item({ row, transcript, waiting, onReview }: { row: Row; transcript: TranscriptEntry[]; waiting: boolean; onReview: (r: TurnReview) => void }) {
   const [open, setOpen] = useState(false);
   const { item } = row;
   if (item.kind === "agents") {
@@ -167,13 +183,13 @@ function Item({ row, transcript, waiting }: { row: Row; transcript: TranscriptEn
     return (
       <Pressable onPress={() => setOpen((o) => !o)}>
         <Line tag="progress" text={`${item.entries.length} progress ${item.entries.length === 1 ? "message" : "messages"}${open ? "" : ", tap to show"}`} />
-        {open ? item.entries.map((e, i) => <Entry key={i} entry={e} />) : null}
+        {open ? item.entries.map((e, i) => <Entry key={i} entry={e} onReview={onReview} />) : null}
       </Pressable>
     );
-  return <Entry entry={item.entry} live={row.live} />;
+  return <Entry entry={item.entry} live={row.live} onReview={onReview} />;
 }
 
-function Entry({ entry, live }: { entry: TranscriptEntry; live?: boolean }) {
+function Entry({ entry, live, onReview }: { entry: TranscriptEntry; live?: boolean; onReview?: (r: TurnReview) => void }) {
   switch (entry.kind) {
     case "user":
       return (
@@ -185,9 +201,9 @@ function Entry({ entry, live }: { entry: TranscriptEntry; live?: boolean }) {
       );
     case "assistant":
       return (
-        <Text style={[st.assistant, live && { color: colors.muted }]} selectable>
-          {entry.text}
-        </Text>
+        <View style={st.assistant}>
+          <Markdown text={entry.text} dim={live} />
+        </View>
       );
     case "tool":
       return <Line tag={TOOL_TAG[entry.call.name] ?? entry.call.name} text={toolLabel(entry.call)} state={OUTCOME_LABEL[entry.call.outcome]} bad={entry.call.outcome === "error"} />;
@@ -201,8 +217,19 @@ function Entry({ entry, live }: { entry: TranscriptEntry; live?: boolean }) {
       return <Line tag="playtest" text={entry.state === "failed" ? "Playtest failed" : `Playtest ${entry.state}`} bad={entry.state === "failed"} />;
     case "playtest-failed":
       return <Line tag="playtest" text={`Playtest failed: ${entry.reason}`} bad />;
-    case "review":
-      return <Line tag="review" text={`${entry.review.items.length} ${entry.review.items.length === 1 ? "change" : "changes"} to review on your computer`} />;
+    case "review": {
+      const left = entry.review.items.filter((i) => i.state === "pending").length;
+      return (
+        <Pressable accessibilityRole="button" accessibilityLabel="Review this turn's changes" onPress={() => onReview?.(entry.review)} style={st.reviewRow}>
+          <Text style={st.tag}>review</Text>
+          <Text style={[ui.sub, { flex: 1, color: colors.text }]}>
+            {entry.review.items.length === 1 ? "1 change" : `${entry.review.items.length} changes`}
+            {left ? `, ${left} to decide` : ", all decided"}
+          </Text>
+          <Text style={ui.link}>Review</Text>
+        </Pressable>
+      );
+    }
     case "flow":
       return <Line tag="flow" text={`${entry.name}: ${entry.state}`} />;
     default:
@@ -226,7 +253,8 @@ const st = StyleSheet.create({
   head: { paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   user: { alignSelf: "flex-end", maxWidth: "88%", backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8, marginVertical: 8 },
   userText: { color: colors.text, fontSize: 15, lineHeight: 21 },
-  assistant: { color: colors.text, fontSize: 15, lineHeight: 22, marginVertical: 8 },
+  assistant: { marginVertical: 6 },
+  reviewRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 10, marginVertical: 6, borderWidth: 1, borderColor: colors.border, borderRadius: 8, backgroundColor: colors.panel },
   line: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 4 },
   tag: { color: colors.accent, fontSize: 11, fontWeight: "600", fontFamily: "monospace", minWidth: 56 },
   queue: { paddingHorizontal: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },

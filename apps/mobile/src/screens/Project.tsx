@@ -1,11 +1,15 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BackHandler, FlatList, Pressable, RefreshControl, Text, View } from "react-native";
-import { requestJson } from "@ue-mcp-studio/client-core";
+import { requestJson, studioApi } from "@ue-mcp-studio/client-core";
 import { useLockView, useProject, type Project } from "../connection";
 import { NotPairedError, RelayError, type Device } from "../relay";
 import { PinPad } from "../PinPad";
 import { Button, Dot, Header, s } from "../ui";
 import { SessionScreen } from "./Session";
+import { ReviewItemScreen, ReviewScreen } from "./Review";
+import { CheckpointsScreen } from "./Checkpoints";
+import { ChangeScreen, ChangesScreen } from "./Changes";
+import { ProjectContext, type ProjectNav, type Route } from "../nav";
 import { colors } from "../theme";
 
 export interface SessionRow {
@@ -23,25 +27,44 @@ const STATUS_LABEL: Record<string, string> = { idle: "Idle", running: "Working",
 
 export function ProjectScreen({ device, onBack, onUnpaired }: { device: Device; onBack: () => void; onUnpaired: (message: string) => void }) {
   const project = useProject(device);
-  const lockView = useLockView(project.lock);
-  const [open, setOpen] = useState<string | null>(null);
+  const [stack, setStack] = useState<Route[]>([]);
+  const api = useMemo(() => studioApi(project.transport), [project.transport]);
+  const nav = useMemo<ProjectNav>(() => ({ project, api, push: (r) => setStack((s) => [...s, r]), pop: () => setStack((s) => s.slice(0, -1)) }), [project, api]);
+  const top = stack[stack.length - 1];
 
-  // Android back from a session goes to the list; registered after the app's handler, so it runs first.
+  // Android back pops the project's own stack first; registered after the app's handler, so it runs first.
   useEffect(() => {
-    if (!open) return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => (setOpen(null), true));
+    if (!top) return;
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => (nav.pop(), true));
     return () => sub.remove();
-  }, [open]);
+  }, [top, nav]);
 
   return (
-    <View style={{ flex: 1 }} onTouchStart={() => project.lock.touched()}>
-      {open ? <SessionScreen project={project} id={open} onBack={() => setOpen(null)} /> : <Sessions project={project} onBack={onBack} onOpen={setOpen} onUnpaired={onUnpaired} />}
-      {lockView.screen || lockView.prompt || lockView.removed ? <PinPad lock={project.lock} view={lockView} onRemoved={() => onUnpaired("This phone was removed after too many wrong PINs. Pair it again.")} /> : null}
-    </View>
+    <ProjectContext.Provider value={nav}>
+      <View style={{ flex: 1 }} onTouchStart={() => project.lock.touched()}>
+        {!top ? <Sessions project={project} onBack={onBack} onOpen={(id) => nav.push({ name: "session", id })} onChanges={() => nav.push({ name: "changes" })} onUnpaired={onUnpaired} /> : null}
+        {top?.name === "session" ? <SessionScreen key={top.id} id={top.id} /> : null}
+        {top?.name === "review" ? <ReviewScreen sessionId={top.sessionId} review={top.review} /> : null}
+        {top?.name === "reviewItem" ? <ReviewItemScreen sessionId={top.sessionId} reviewId={top.reviewId} path={top.path} /> : null}
+        {top?.name === "checkpoints" ? <CheckpointsScreen sessionId={top.sessionId} /> : null}
+        {top?.name === "changes" ? <ChangesScreen /> : null}
+        {top?.name === "change" ? <ChangeScreen path={top.path} /> : null}
+        <Lock project={project} onUnpaired={onUnpaired} />
+      </View>
+    </ProjectContext.Provider>
   );
 }
 
-function Sessions({ project, onBack, onOpen, onUnpaired }: { project: Project; onBack: () => void; onOpen: (id: string) => void; onUnpaired: (message: string) => void }) {
+function Lock({ project, onUnpaired }: { project: Project; onUnpaired: (message: string) => void }) {
+  const lockView = useLockView(project.lock);
+  return (
+    <>
+      {lockView.screen || lockView.prompt || lockView.removed ? <PinPad lock={project.lock} view={lockView} onRemoved={() => onUnpaired("This phone was removed after too many wrong PINs. Pair it again.")} /> : null}
+    </>
+  );
+}
+
+function Sessions({ project, onBack, onOpen, onChanges, onUnpaired }: { project: Project; onBack: () => void; onOpen: (id: string) => void; onChanges: () => void; onUnpaired: (message: string) => void }) {
   const { device, transport, live, dropCause, onEvent, lock } = project;
   const lockView = useLockView(lock);
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
@@ -104,11 +127,16 @@ function Sessions({ project, onBack, onOpen, onUnpaired }: { project: Project; o
         back="Projects"
         onBack={onBack}
         right={
-          lockView.state?.whole ? (
-            <Pressable accessibilityRole="button" onPress={() => void lock.lockNow()} hitSlop={12}>
-              <Text style={s.link}>Lock</Text>
+          <View style={{ flexDirection: "row", gap: 18 }}>
+            <Pressable accessibilityRole="button" onPress={onChanges} hitSlop={12}>
+              <Text style={s.link}>Changes</Text>
             </Pressable>
-          ) : undefined
+            {lockView.state?.whole ? (
+              <Pressable accessibilityRole="button" onPress={() => void lock.lockNow()} hitSlop={12}>
+                <Text style={s.link}>Lock</Text>
+              </Pressable>
+            ) : null}
+          </View>
         }
       />
       <View style={[s.row, { paddingTop: 0 }]}>
