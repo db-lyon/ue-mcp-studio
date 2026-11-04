@@ -73,7 +73,8 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
     setOpen(true);
     button.current?.measureInWindow((_x, y) => setBottom(win.height - y + 6));
   };
-  const p = (children: ReactNode, extra?: object) => <T style={[small(t), { color: t.c.dim, marginVertical: 4 }, extra]}>{children}</T>;
+  // .context-pop p { margin: 4px 0 }: the web's margins collapse, so each paragraph keeps only its top margin here and the box adds the last one's bottom.
+  const p = (children: ReactNode, extra?: object) => <T style={[small(t), { color: t.c.dim, marginTop: 4 }, extra]}>{children}</T>;
   return (
     <View>
       <Pressable
@@ -95,9 +96,9 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
           accessibilityRole="none"
           accessibilityLabel="Context and session totals"
           accessibilityViewIsModal
-          style={{ position: "absolute", left: 10, right: 10, bottom, maxHeight: win.height * 0.6, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radiusLg, shadowColor: "#000", shadowOpacity: t.shadow ? 0.6 : 0, shadowRadius: 20, shadowOffset: { width: 0, height: 20 }, elevation: 12 }}
+          style={{ position: "absolute", left: 10, right: 10, bottom, maxHeight: win.height * 0.6, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radiusLg, ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}) }}
         >
-          <ScrollView contentContainerStyle={{ paddingVertical: 10, paddingHorizontal: 12 }}>
+          <ScrollView contentContainerStyle={{ paddingTop: 10, paddingBottom: 14, paddingHorizontal: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
               <T style={labelFont(t)}>{owner ? `${owner} agent's context` : "Context"}</T>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
@@ -114,10 +115,11 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
             </View>
             {view ? (
               <>
-                <View style={{ paddingTop: 4, paddingBottom: 2 }}>
+                {/* .context-pop-bar: the bar is inline-block on a line of body text, 10px down its line box. */}
+                <View style={{ paddingTop: 14, paddingBottom: 8 }}>
                   <ContextBar view={view} wide />
                 </View>
-                <T style={{ fontSize: 13, lineHeight: 13 * (t.editor ? 1.5 : 1.55), marginVertical: 4 }}>
+                <T style={{ fontSize: 13, lineHeight: 13 * (t.editor ? 1.5 : 1.55), marginTop: 4 }}>
                   <T weight={700} size={13} lh={t.editor ? 1.5 : 1.55}>{`${view.estimated ? "about " : ""}${view.used.toLocaleString("en-US")}`}</T>
                   {` of ${view.window.toLocaleString("en-US")} tokens `}
                   <T style={[font(t, "mono", 600, 12, 1), { color: levelColor(t, view.level) === t.c.ok ? t.c.text : levelColor(t, view.level) }]}>{` ${view.estimated ? "~" : ""}${pct(view.fraction)}`}</T>
@@ -139,7 +141,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
                   <T style={labelFont(t)}>Session totals</T>
                   <T style={[small(t), { color: t.c.dim }]}>every agent, every request</T>
                 </View>
-                <View style={{ marginTop: 4, marginBottom: 6, gap: 3 }}>
+                <View style={{ marginBottom: 2, gap: 3 }}>
                   <Total name="Input" value={tokenCount(totals.input)} />
                   <Total name="Cache reads" value={tokenCount(totals.cacheRead)} />
                   {totals.cacheWrite > 0 ? <Total name="Cache writes" value={tokenCount(totals.cacheWrite)} /> : null}
@@ -171,11 +173,12 @@ function SmallButtonWide({ title, onPress, disabled }: { title: string; onPress:
 function Total({ name, value, note }: { name: string; value: string; note?: string }) {
   const t = useTheme();
   return (
-    <View style={{ flexDirection: "row", alignItems: "baseline", gap: 14 }}>
+    // dl.context-totals is a grid: each cell's text from the top of its row, no baseline alignment.
+    <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 14 }}>
       <T style={{ fontSize: 12.5, lineHeight: 12.5 * (t.editor ? 1.5 : 1.55), color: t.c.muted }}>{name}</T>
       <T style={[font(t, "mono", 400, 12, t.editor ? 1.5 : 1.55), { flex: 1, textAlign: "right", color: t.c.text }]}>
         {value}
-        {note ? <T style={{ fontSize: 12, color: t.c.dim }}>{note}</T> : null}
+        {note ? <T style={{ ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.dim }}>{note}</T> : null}
       </T>
     </View>
   );

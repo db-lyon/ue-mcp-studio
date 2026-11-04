@@ -6,7 +6,7 @@
  * .composer-bar, at a phone's width and coarse pointer.
  */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Image, PanResponder, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
+import { Image, PanResponder, Platform, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, extOf, fitHeight, formatBytes } from "@ue-mcp-studio/client-core";
@@ -235,6 +235,11 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     const n = e.nativeEvent as typeof e.nativeEvent & { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean };
     if (n.key === "Enter") {
       enter.current = { shift: !!n.shiftKey, ctrl: !!(n.ctrlKey || n.metaKey) };
+      // react-native-web submits a multiline box only by blurring it: there Enter sends here, and Shift+Enter is a new line.
+      if (Platform.OS === "web" && !n.shiftKey) {
+        e.preventDefault?.();
+        submit();
+      }
       return;
     }
     if (key({ key: n.key, shiftKey: !!n.shiftKey, ctrlKey: !!n.ctrlKey, metaKey: !!n.metaKey })) e.preventDefault?.();
