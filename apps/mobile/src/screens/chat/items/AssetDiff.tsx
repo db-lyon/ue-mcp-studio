@@ -1,3 +1,4 @@
+
 /**
  * A package's diff in the review: Unreal's own diff records, as ue-mcp
  * serializes them, grouped under the engine's categories with both values side
@@ -20,13 +21,13 @@ import {
 } from "@ue-mcp-studio/shared";
 import { diffErrorConsequence, kindClass, kindOf, nodeOf, nodeSubtitle, pictureOf, pictureWhy, thumbnailErrors } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
-import { Banner, font, T, useTheme, type Theme } from "./ui";
-import { DiffView } from "./Diff";
-import { engineText } from "./breakable";
+import { Banner, font, T, useTheme, type Theme } from "../../../ui";
+import { DiffView } from "../../../chat/Diff";
+import { engineText } from "../../../chat/breakable";
 import { AssetTile, TILE_FACTS, tileOf } from "./AssetTile";
 import { CompareGroup, CompareRow, CompareTable, KeyValues, Swatch, useCompareTier, type CompareSide, type CompareTier } from "./compare";
-import { useDaemonImage } from "./daemon-image";
-import { small } from "./styles";
+import { useDaemonImage } from "../../../chat/daemon-image";
+import { small } from "../../../chat/styles";
 import { OutlineButton } from "./TurnReview";
 
 const lh = (t: Theme): number => (t.editor ? 1.5 : 1.55);
@@ -103,7 +104,7 @@ function Pictures({ diff, name, asset, status }: { diff: AssetDiff; name: string
         return (
           <View key={s.label} style={{ flex: 1, minWidth: 0, maxWidth: 220, paddingTop: 2, gap: 2 }}>
             <T style={[small(t), { color: t.c.dim }]}>{s.label}</T>
-            <T style={[small(t), { color: t.c.dim }]}>{engineText(pictureWhy(s.v, s.missing, !!failed[s.label]))}</T>
+            <T style={[small(t), { color: t.c.dim }]}>{engineText(pictureWhy(s.v, s.missing, failed[s.label] ? "unreadable" : undefined))}</T>
           </View>
         );
       })}

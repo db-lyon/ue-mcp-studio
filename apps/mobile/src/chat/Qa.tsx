@@ -22,3 +22,11 @@ export function useOutsideRuns(_events: StreamEvent[], _streaming: boolean): { r
 export function OutsideRuns(_props: { runs: QaRun[]; onDismiss: (runId: string) => void }) {
   return null;
 }
+
+export function QaCard(_props: { run: QaRun; form?: PendingForm; onDismiss?: () => void; offline?: boolean }) {
+  return null;
+}
+
+export function qaRunFromForm(_form: PendingForm): QaRun | null {
+  return null;
+}

@@ -1,3 +1,4 @@
+
 /**
  * The Change | Before | After comparison every change card uses: Blueprint
  * graphs, a level's actors, material parameters, a version's facts. Its
@@ -12,8 +13,8 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 import { View, type LayoutChangeEvent } from "react-native";
 import { colorOf, compareTier, COMPARE_TIERS, type CompareTier } from "@ue-mcp-studio/client-core";
-import { font, T, useTheme } from "./ui";
-import { engineText } from "./breakable";
+import { font, T, useTheme } from "../../../ui";
+import { engineText } from "../../../chat/breakable";
 
 export { colorOf, compareTier, COMPARE_TIERS, type CompareTier };
 

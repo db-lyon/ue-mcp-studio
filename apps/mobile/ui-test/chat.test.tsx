@@ -8,7 +8,7 @@ import { Threads } from "../src/chat/Threads";
 import { QueuedMessages } from "../src/chat/Queue";
 import { ContextMeter, ContextWarning } from "../src/chat/ContextMeter";
 import { SessionLoading, SessionRowsLoading } from "../src/chat/Skeleton";
-import { ReviewPanel, TurnReviewCard } from "../src/chat/TurnReview";
+import { ReviewPanel, TurnReviewCard } from "../src/screens/chat/items";
 import { SessionIdContext } from "../src/chat/attachments";
 import { Chat } from "../src/views/Chat";
 import { fakeApi, renderInProject, session, settle } from "./helpers";

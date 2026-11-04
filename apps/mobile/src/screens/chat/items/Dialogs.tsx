@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
 import type { DialogAnswer, EditorDialog } from "@ue-mcp-studio/shared";
 import { decider, outcomeLine, readyIn, statusLine, whoLine } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, Check, ContentButton, font, labelFont, Output, useTheme, type Theme } from "./ui";
+import { Banner, baseFont, Check, ContentButton, font, labelFont, Output, useTheme, type Theme } from "../../../ui";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
 import { approvalCard, CardsRegion } from "./Approvals";

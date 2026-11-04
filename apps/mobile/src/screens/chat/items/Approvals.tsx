@@ -2,10 +2,10 @@ import { useState, type ReactNode } from "react";
 import { ScrollView, Text, View, useWindowDimensions } from "react-native";
 import type { ApprovalDecision, ApprovalRequest } from "@ue-mcp-studio/shared";
 import { RESTART_OPERATION, approvalTitle } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, ContentButton, font, labelFont, Output, useTheme, type Theme } from "./ui";
+import { Banner, baseFont, ContentButton, font, labelFont, Output, useTheme, type Theme } from "../../../ui";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
-import { DiffView } from "./Diff";
+import { DiffView } from "../../../chat/Diff";
 
 /**
  * .approvals: the cards waiting for the user under the conversation, 10px

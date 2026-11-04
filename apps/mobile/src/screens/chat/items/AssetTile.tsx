@@ -1,8 +1,9 @@
+
 /** The tile a review shows for an asset version with no picture: its class, status, path, what changed and its facts. */
 import type { ReactNode } from "react";
 import { View } from "react-native";
 import type { AssetDiff, AssetDiffSection, AssetVersion } from "@ue-mcp-studio/shared";
-import { T, useTheme } from "./ui";
+import { T, useTheme } from "../../../ui";
 
 /** How many facts the tile lists. */
 export const TILE_FACTS = 4;

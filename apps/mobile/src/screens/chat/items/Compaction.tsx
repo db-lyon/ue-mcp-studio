@@ -2,7 +2,7 @@ import { createContext, useContext, useState } from "react";
 import { Pressable, ScrollView, Text, View, useWindowDimensions, type TextStyle } from "react-native";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { formatDuration, tokenCount } from "@ue-mcp-studio/client-core";
-import { baseFont, ContentButton, font, Markdown, Pulse, useTheme, type Theme } from "./ui";
+import { baseFont, ContentButton, font, Markdown, Pulse, useTheme, type Theme } from "../../../ui";
 
 type CompactionEntry = Extract<TranscriptEntry, { kind: "compaction" }>;
 

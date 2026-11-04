@@ -2,25 +2,25 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
 import { formContent, formInitial } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, Card, Check, ContentButton, font, fontName, Input, Sheet, useTheme } from "./ui";
+import { Banner, baseFont, Card, Check, ContentButton, font, fontName, Input, Sheet, useTheme } from "../../../ui";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
 import { CardsRegion } from "./Approvals";
-import { QaCard, qaRunFromForm } from "./Qa";
+import { QaCard, qaRunFromForm } from "../../../chat/Qa";
+import type { DaemonState } from "../../../chat/hooks";
 
 export { formContent };
 
 /** The forms waiting in this session, kept current from studio.form.changed. */
-export function useForms(sessionId: string | null): PendingForm[] {
-  const { project, api } = useProjectNav();
+export function useForms(daemon: Pick<DaemonState, "events" | "streaming">, sessionId: string | null): PendingForm[] {
+  const { api } = useProjectNav();
   const [forms, setForms] = useState<PendingForm[]>([]);
-  const [changed, setChanged] = useState(0);
-  useEffect(() => project.onEvent((e) => e.type === "studio.form.changed" && setChanged((n) => n + 1)), [project]);
+  const last = [...daemon.events].reverse().find((e) => e.type === "studio.form.changed");
   useEffect(() => {
-    if (project.live !== "live" || !sessionId) return void setForms([]);
+    if (!daemon.streaming || !sessionId) return void setForms([]);
     // An older Studio agent has no route; nothing shows then.
     api.forms(sessionId).then((r) => setForms(r.forms), () => setForms([]));
-  }, [project.live, sessionId, changed, api]);
+  }, [daemon.streaming, sessionId, last?.id, api]);
   return forms;
 }
 
@@ -168,6 +168,6 @@ export function FormCard({ form }: { form: PendingForm }) {
 }
 
 /** The forms of one session, where the chat shows them. */
-export function SessionForms({ sessionId, runs }: { sessionId: string; runs?: ReadonlySet<string> }) {
-  return <FormCards forms={useForms(sessionId)} runs={runs} />;
+export function SessionForms({ daemon, sessionId, runs }: { daemon: Pick<DaemonState, "events" | "streaming">; sessionId: string; runs?: ReadonlySet<string> }) {
+  return <FormCards forms={useForms(daemon, sessionId)} runs={runs} />;
 }

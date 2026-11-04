@@ -1,3 +1,4 @@
+
 /**
  * Per-turn review in the chat: the turn card listing what a turn changed,
  * grouped by type, each with a one-line summary and Keep or Revert, and Revert
@@ -12,14 +13,14 @@ import { REVIEW_GROUPS, unifiedLines, type CheckpointChange, type RestoreOutcome
 import { REVIEW_STATUS, blueprintLines, fileName, markKind, markTime, nativeTitle, openedText, outcomeNote } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
-import { Banner, Check, font, labelFont, Pill, T, useTheme, type Theme } from "./ui";
+import { Banner, Check, font, labelFont, Pill, T, useTheme, type Theme } from "../../../ui";
 import { AssetDiffView } from "./AssetDiff";
 import { AssetTile } from "./AssetTile";
-import { DiffView } from "./Diff";
-import { SessionIdContext } from "./attachments";
-import { engineText } from "./breakable";
-import { useDaemonImage } from "./daemon-image";
-import { buttonText, small } from "./styles";
+import { DiffView } from "../../../chat/Diff";
+import { SessionIdContext } from "../../../chat/attachments";
+import { engineText } from "../../../chat/breakable";
+import { useDaemonImage } from "../../../chat/daemon-image";
+import { buttonText, small } from "../../../chat/styles";
 
 export { outcomeNote };
 
