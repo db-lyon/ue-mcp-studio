@@ -18,7 +18,6 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const web = path.join(root, "apps", "client-web");
-const app = path.join(root, "apps", "mobile");
 const arg = (name) => {
   const i = process.argv.indexOf(`--${name}`);
   return i > 0 ? process.argv[i + 1] : undefined;
@@ -55,67 +54,16 @@ const { chromium } = await import("playwright-core");
 const { PNG } = await import("pngjs");
 const pixelmatch = (await import("pixelmatch")).default;
 
-// The web client's harness, its pictures drawn as scripts/visual-qa.mjs draws them.
-const pictures = {
-  name: "visual-qa-pictures",
-  configureServer(s) {
-    s.middlewares.use((req, res, next) => {
-      if (!/^\/v1\/ext\/studio\/review\/(?:thumbnails|images)\/[^/?]+/.test(req.url ?? "")) return next();
-      if (/unreadable/.test(req.url)) {
-        res.statusCode = 404;
-        return res.end();
-      }
-      res.setHeader("content-type", "image/svg+xml");
-      if (/blank/.test(req.url)) return res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><rect width="256" height="256" fill="#000"/></svg>`);
-      const hue = [...req.url].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 360, 7);
-      res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256"><defs><radialGradient id="g" cx="0.38" cy="0.34" r="0.7"><stop offset="0" stop-color="hsl(${hue},55%,78%)"/><stop offset="0.55" stop-color="hsl(${hue},45%,42%)"/><stop offset="1" stop-color="hsl(${hue},40%,14%)"/></radialGradient></defs><rect width="256" height="256" fill="#1d1f24"/><ellipse cx="128" cy="214" rx="78" ry="12" fill="#000" opacity="0.45"/><circle cx="128" cy="124" r="86" fill="url(#g)"/></svg>`);
-    });
-  },
-};
+// Pictures drawn as scripts/visual-qa.mjs draws them, for both sides.
+const { pictures } = await import("./visual-qa-pictures.mjs");
 delete process.env.STUDIO_PROJECT;
 const webServer = await createServer({ root: web, configFile: path.join(web, "vite.config.ts"), server: { port: 0, strictPort: false }, logLevel: "warn", plugins: [pictures] });
 await webServer.listen();
 const webBase = webServer.resolvedUrls.local[0].replace(/\/$/, "");
 
-const mod = (name) => path.join(app, "node_modules", name);
-const mock = (name) => path.join(app, "ui-test", "mocks", name);
-const appServer = await createServer({
-  root: path.join(app, "visual-qa"),
-  configFile: false,
-  logLevel: "warn",
-  server: { port: 0, strictPort: false, fs: { allow: [root] } },
-  define: { __DEV__: "false", "process.env.NODE_ENV": JSON.stringify("development"), "process.env.EXPO_OS": JSON.stringify("android") },
-  esbuild: { jsx: "automatic" },
-  resolve: {
-    extensions: [".web.tsx", ".web.ts", ".web.js", ".tsx", ".ts", ".mjs", ".js", ".json"],
-    alias: [
-      { find: /^react-native$/, replacement: path.join(root, "node_modules/react-native-web/dist/index.js") },
-      { find: /^react$/, replacement: mod("react") },
-      { find: /^react\/(.*)$/, replacement: `${mod("react")}/$1` },
-      { find: /^react-dom$/, replacement: mod("react-dom") },
-      { find: /^react-dom\/(.*)$/, replacement: `${mod("react-dom")}/$1` },
-      { find: /^react-native-svg$/, replacement: path.join(app, "node_modules/react-native-svg/lib/module/elements.web.js") },
-      { find: "@react-native/assets-registry/registry", replacement: mock("assets-registry.ts") },
-      { find: /fabric\/NativeSvgSoundModule(\.js)?$/, replacement: mock("svg-sound.ts") },
-      { find: /^expo-secure-store$/, replacement: mock("secure-store.ts") },
-      { find: /^expo-camera$/, replacement: mock("camera.tsx") },
-      { find: /^expo-crypto$/, replacement: mock("crypto.ts") },
-      { find: /^expo-(constants|application)$/, replacement: mock("expo-modules.ts") },
-      { find: /^expo-clipboard$/, replacement: mock("clipboard.ts") },
-      { find: /^expo-font$/, replacement: mock("expo-font.ts") },
-      { find: new RegExp("^@expo-google-fonts/.*$"), replacement: mock("google-fonts.ts") },
-      { find: /^expo-status-bar$/, replacement: mock("status-bar.tsx") },
-      { find: /^react-native-safe-area-context$/, replacement: mock("safe-area.tsx") },
-      { find: /^expo-image-picker$/, replacement: mock("image-picker.ts") },
-      { find: /^expo-document-picker$/, replacement: mock("document-picker.ts") },
-      { find: /^@ue-mcp-studio\/(remote|client-core|shared|extension-api)$/, replacement: `${root}/packages/$1/src/index.ts` },
-    ],
-  },
-  optimizeDeps: {
-    include: [mod("react"), mod("react-dom"), "react-native-web", "marked"],
-    esbuildOptions: { plugins: [{ name: "svg-sound", setup: (b) => b.onResolve({ filter: /NativeSvgSoundModule$/ }, () => ({ path: mock("svg-sound.ts") })) }] },
-  },
-});
+// The app's side from the same server scripts/parity-mobile.mjs uses.
+const { mobileQaServer } = await import("./mobile-qa-server.mjs");
+const appServer = await mobileQaServer(root);
 await appServer.listen();
 const appBase = appServer.resolvedUrls.local[0].replace(/\/$/, "");
 const browser = await chromium.launch({ executablePath: browserPath, headless: true });
