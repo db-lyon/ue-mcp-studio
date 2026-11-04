@@ -134,6 +134,18 @@ const auditPage = (page) =>
       }
       if (tops.size >= 3 && tops.size >= words * 0.75) out.push({ kind: "one-word-per-line", el: label(el), by: `${tops.size} lines, ${words} words` });
     }
+    // A child that spills out of a box with a border: the box no longer holds what it draws around.
+    for (const el of document.querySelectorAll("body *")) {
+      if (!visible(el)) continue;
+      const st = getComputedStyle(el);
+      if (!(parseFloat(st.borderTopWidth) > 0 && parseFloat(st.borderBottomWidth) > 0) || st.overflowY !== "visible" || st.display === "inline") continue;
+      const r = el.getBoundingClientRect();
+      for (const c of el.children) {
+        if (!visible(c) || getComputedStyle(c).position === "absolute" || getComputedStyle(c).position === "fixed") continue;
+        const cr = c.getBoundingClientRect();
+        if (cr.bottom > r.bottom + 1 || cr.top < r.top - 1) { out.push({ kind: "spills-out-of-border", el: label(el), by: `${label(c)} ${Math.round(cr.bottom - r.bottom)}px` }); break; }
+      }
+    }
     // The message box must stay on screen: a card above it that grows must not push it away.
     const composer = document.querySelector(".composer");
     if (composer && visible(composer)) {

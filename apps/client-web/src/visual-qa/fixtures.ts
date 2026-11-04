@@ -479,6 +479,33 @@ export const SCENARIOS: Record<string, Scenario> = {
       ] }
       : undefined,
   },
+  "agents-long": {
+    title: "Three subagents started one at a time, with long titles, in a conversation long enough to scroll: each tile holds its title and activity inside its border",
+    hash: `#/chat/${SESSION_ID}`,
+    index: { playtests: [], listed: true },
+    session: (() => {
+      const d = withAgents();
+      const call = (id: string, description: string, minutes: number): TranscriptEntry =>
+        ({ kind: "tool", call: { id, name: "agent", input: { description, prompt: description }, outcome: "pending", startedAt: ago(minutes) } });
+      const talk: TranscriptEntry[] = Array.from({ length: 6 }, (_, i) => ({ kind: "assistant", text: `Step ${i + 1}: I read the region restore code and the checkpoints it writes, and noted what each one keeps and what it drops when a level reloads.`, at: ago(30 - i) }));
+      return {
+        ...d,
+        transcript: [
+          { kind: "user", text: "Review the region restore design and the checkpoint format, and check the streaming edge cases.", at: ago(32) },
+          ...talk,
+          // Started one at a time, with a message between, so each is a tile of its own in the transcript, not a group.
+          call("agent-a", "Review #96 region restore design and the checkpoints it writes for each streamed cell", 5),
+          { kind: "assistant", text: "That one reads the design. Next, the streaming edge cases.", at: ago(5) },
+          call("agent-b", "Check World Partition streaming edge cases when a cell unloads during a restore", 5),
+          { kind: "assistant", text: "And the notes for anyone upgrading.", at: ago(4) },
+          call("agent-c", "Write the migration notes", 4),
+          { kind: "assistant", text: "Three subagents are on it. I will summarise when they report back.", at: ago(3) },
+        ],
+        agents: { total: 3, running: 3 },
+        tokens: { main: 52_000, "agent-a": 9_100, "agent-b": 7_300, "agent-c": 2_200 },
+      };
+    })(),
+  },
   "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
   "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], fullPage: true },
   "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, fullPage: true },
