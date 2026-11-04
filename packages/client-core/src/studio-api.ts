@@ -5,6 +5,8 @@
  */
 import type {
   ApprovalDecision,
+  BusyState,
+  StudioRefusal,
   CheckpointChange,
   DialogAnswer,
   DialogsState,
@@ -23,6 +25,7 @@ import type {
   VcsStatus,
 } from "@ue-mcp-studio/shared";
 import { requestJson, type Transport } from "./transport.js";
+import type { UpdateRun } from "./update-run.js";
 
 const enc = encodeURIComponent;
 const S = "/v1/ext/studio";
@@ -33,6 +36,12 @@ export interface ReviewDiff {
   change: CheckpointChange;
   before?: string;
   after?: string;
+}
+
+/** Another project installed a newer Studio than this one uses. */
+export interface StudioVersionNotice {
+  installed: string;
+  current: string;
 }
 
 export function studioApi(t: Transport) {
@@ -69,6 +78,15 @@ export function studioApi(t: Transport) {
     vcs: () => get<{ vcs: VcsStatus | null }>(`${S}/vcs`),
     vcsChanges: () => get<{ changes: VcsChange[]; truncated: boolean }>(`${S}/vcs/changes`),
     vcsDiff: (path: string) => get<{ diff: string | null; reason?: string }>(`${S}/vcs/diff?path=${enc(path)}`),
+    versionNotice: () => get<{ notice: StudioVersionNotice | null }>(`${S}/version-notice`),
+    keepStudio: (version: string) => send<{ notice: StudioVersionNotice | null }>("POST", `${S}/version-notice/keep`, { version }),
+    useInstalledStudio: (version: string) => send<unknown>("POST", `${S}/version-notice/update`, { version }),
+    busy: () => get<BusyState>(`${S}/busy`),
+    stopBusy: () => send<{ stopped: string[] }>("POST", `${S}/busy/stop`),
+    editor: (op: "start" | "stop" | "restart" | "rebuild") => send<Record<string, unknown>>("POST", `/v1/editor/${op}`),
+    refusal: () => get<StudioRefusal>(`${S}/refusal`),
+    saveUpdateRun: (run: UpdateRun | null) => send<unknown>("PUT", `${S}/updates/run`, { run }),
+    updatesDeferredNow: () => send<{ ok?: boolean; error?: string }>("POST", `${S}/updates/deferred/now`),
   };
 }
 
