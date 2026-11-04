@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "UE-MCP Studio",
+    "slug": "ue-mcp-studio",
+    "scheme": "uemcpstudio",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0c0c0b",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.uemcp.studio.remote",
+      "infoPlist": {
+        "NSCameraUsageDescription": "UE-MCP Studio scans the pairing code your computer shows."
+      }
+    },
+    "android": {
+      "package": "com.uemcp.studio.remote",
+      "versionCode": 2,
+      "adaptiveIcon": {
+        "backgroundColor": "#0c0c0b",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "UE-MCP Studio scans the pairing code your computer shows.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-secure-store",
+      "./plugins/with-release-signing"
+    ]
+  }
+}
