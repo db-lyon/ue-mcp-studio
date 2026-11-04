@@ -12,8 +12,8 @@ import { exportNumber, factRows, lineDiff, nodeValues, readableValue, recordsByG
 import { b64u } from "@ue-mcp-studio/remote";
 import { useProjectNav } from "../nav";
 import { CardButton, c } from "../Cards";
-import { DiffView } from "../Diff";
-import { Header, s as ui, Spinner } from "../ui";
+import { DiffView } from "../ui";
+import { Header, s as ui, Spinner } from "../legacy-ui";
 import { colors, mono } from "../theme";
 
 const STATUS: Record<ReviewItem["status"], string> = { added: "Added", modified: "Modified", deleted: "Deleted" };

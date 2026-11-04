@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, Linking } from "react-native";
+import { BackHandler, Linking, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import * as SecureStore from "expo-secure-store";
+import { THEMES, ThemeProvider, useStudioFonts, type ThemeName } from "./src/ui";
 import { isPairLink, pair, select, selected, trusted, forget, type Device, type PairStep } from "./src/relay";
-import { Center, Spinner, s } from "./src/ui";
+import { Center, Spinner, s } from "./src/legacy-ui";
 import { Welcome, Scanner, Pairing } from "./src/screens/Pairing";
 import { Projects } from "./src/screens/Projects";
 import { Settings } from "./src/screens/Settings";
@@ -18,7 +20,25 @@ type Screen =
   | { name: "settings" }
   | { name: "project"; device: Device };
 
+/** The fonts and the theme around everything; the theme last used is drawn until the project says otherwise. */
 export default function App() {
+  const fonts = useStudioFonts();
+  const [theme, setTheme] = useState<ThemeName>("ue-mcp");
+  useEffect(() => {
+    SecureStore.getItemAsync("theme").then((v) => v && v in THEMES && setTheme(v as ThemeName), () => undefined);
+  }, []);
+  const choose = useCallback((name: ThemeName) => {
+    setTheme(name);
+    void SecureStore.setItemAsync("theme", name).catch(() => undefined);
+  }, []);
+  return (
+    <ThemeProvider name={theme} onChange={choose}>
+      <View style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>{fonts ? <Root /> : null}</View>
+    </ThemeProvider>
+  );
+}
+
+function Root() {
   const [screen, setScreen] = useState<Screen>({ name: "loading" });
   const pairing = useRef(false);
 

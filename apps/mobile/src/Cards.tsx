@@ -8,8 +8,8 @@ import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 import { APPROVAL_KIND, RESTART_OPERATION, approvalTitle, decider, readyIn, statusLine, whoLine, type StudioApi } from "@ue-mcp-studio/client-core";
 import type { ApprovalDecision, ApprovalRequest, DialogAnswer, DialogsState, EditorDialog } from "@ue-mcp-studio/shared";
 import type { Project } from "./connection";
-import { DiffView } from "./Diff";
-import { s as ui } from "./ui";
+import { DiffView } from "./ui";
+import { s as ui } from "./legacy-ui";
 import { colors, mono } from "./theme";
 
 export function CardButton({ title, onPress, primary, ghost, disabled, label }: { title: string; onPress: () => void; primary?: boolean; ghost?: boolean; disabled?: boolean; label?: string }) {

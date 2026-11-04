@@ -3,7 +3,7 @@
  * component tests): the same paths as glyphs.tsx, drawn as plain SVG, since
  * react-native-svg's web build needs the native asset registry.
  */
-import { css } from "./css";
+import { useTheme } from "./ThemeProvider";
 
 const PATHS = {
   play: "M5 3.5v9l7.5-4.5z",
@@ -17,7 +17,9 @@ const FILLED = new Set(["play", "stop"]);
 
 export type GlyphName = keyof typeof PATHS;
 
-export function Glyph({ name, color = css.muted, size = 14 }: { name: GlyphName; color?: string; size?: number }) {
+export function Glyph({ name, color, size = 14 }: { name: GlyphName; color?: string; size?: number }) {
+  const t = useTheme();
+  color ??= t.c.muted;
   const fill = FILLED.has(name);
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill={fill ? color : "none"} stroke={color} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block" }}>
@@ -26,7 +28,10 @@ export function Glyph({ name, color = css.muted, size = 14 }: { name: GlyphName;
   );
 }
 
-export function OptionsGlyph({ color = css.muted, knob = css.panel2 }: { color?: string; knob?: string }) {
+export function OptionsGlyph({ color, knob }: { color?: string; knob?: string }) {
+  const t = useTheme();
+  color ??= t.c.muted;
+  knob ??= t.c.panel2;
   return (
     <svg width={14} height={14} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={1.5} strokeLinecap="round" aria-hidden="true" style={{ display: "block" }}>
       <path d="M2.5 4h11M2.5 8h11M2.5 12h11" />
@@ -37,7 +42,9 @@ export function OptionsGlyph({ color = css.muted, knob = css.panel2 }: { color?:
   );
 }
 
-export function Chevron({ open, color = css.muted, size = 12 }: { open: boolean; color?: string; size?: number }) {
+export function Chevron({ open, color, size = 12 }: { open: boolean; color?: string; size?: number }) {
+  const t = useTheme();
+  color ??= t.c.muted;
   return (
     <svg width={size} height={size} viewBox="0 0 12 12" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" style={{ display: "block", transform: open ? "rotate(90deg)" : undefined, opacity: 0.85 }}>
       <path d="M4.5 2.5 8 6l-3.5 3.5" />

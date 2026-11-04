@@ -3,8 +3,8 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { StudioApi } from "@ue-mcp-studio/client-core";
 import type { ApprovalRequest, EditorDialog } from "@ue-mcp-studio/shared";
 import { ApprovalCard, DialogCard } from "../src/Cards";
-import { DiffView } from "../src/Diff";
-import { Markdown } from "../src/Markdown";
+import { DiffView } from "../src/ui";
+import { Markdown } from "../src/ui";
 import { fakeApi, settle } from "./helpers";
 
 const approval = (over: Partial<ApprovalRequest>): ApprovalRequest => ({ id: "a1", toolUseId: "t1", tool: "shell", parent: null, at: "2026-11-04T12:00:00Z", ...over });
@@ -114,7 +114,7 @@ describe("Markdown", () => {
     expect(screen.getByText("Door")).toBeTruthy();
     expect(screen.getByText("one")).toBeTruthy();
     expect(screen.getByText("int x = 1;")).toBeTruthy();
-    expect(screen.getByText("cpp")).toBeTruthy();
+    expect(screen.getByLabelText("cpp code")).toBeTruthy();
     expect(screen.getByText("docs")).toBeTruthy();
   });
 
@@ -131,12 +131,10 @@ describe("Markdown", () => {
 });
 
 describe("DiffView", () => {
-  it("marks added and removed lines and folds a long diff", () => {
-    const lines = Array.from({ length: 5 }, (_, i) => ({ op: "+" as const, text: `line ${i}` }));
-    render(<DiffView lines={[{ op: "-", text: "gone" }, { op: "gap", count: 4 }, ...lines]} label="Changes" max={3} />);
-    expect(screen.getByText(/gone/)).toBeTruthy();
+  it("marks added and removed lines and says how many unchanged lines it left out", () => {
+    render(<DiffView lines={[{ op: "-", text: "gone" }, { op: "gap", count: 4 }, { op: "+", text: "line 0" }]} label="Changes" />);
+    expect(screen.getByText("gone")).toBeTruthy();
     expect(screen.getByText(/4 unchanged lines/)).toBeTruthy();
-    expect(screen.getByText("4 more lines not shown")).toBeTruthy();
+    expect(screen.getByText("line 0")).toBeTruthy();
   });
 });
-
