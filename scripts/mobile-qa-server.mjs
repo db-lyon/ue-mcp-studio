@@ -1,10 +1,11 @@
 // The Vite server for the mobile app's visual QA page (apps/mobile/visual-qa): the app's own
 // screens through react-native-web, its native modules replaced by ui-test/mocks, and the
-// fixture pictures. scripts/parity-mobile.mjs and scripts/parity-cards-mobile.mjs serve from it.
+// fixture pictures. scripts/parity-mobile.mjs, scripts/parity-cards-mobile.mjs and scripts/e2e-mobile-live.mjs serve from it;
+// the last adds its relay proxy through `plugins`.
 import * as path from "node:path";
 import { pictures } from "./visual-qa-pictures.mjs";
 
-export async function mobileQaServer(root) {
+export async function mobileQaServer(root, { plugins = [] } = {}) {
   const { createServer } = await import("vite");
   const app = path.join(root, "apps", "mobile");
   const mod = (name) => path.join(app, "node_modules", name);
@@ -13,7 +14,7 @@ export async function mobileQaServer(root) {
     root: path.join(app, "visual-qa"),
     configFile: false,
     logLevel: "warn",
-    plugins: [pictures],
+    plugins: [pictures, ...plugins],
     server: { port: 0, strictPort: false, fs: { allow: [root] } },
     define: { __DEV__: "false", "process.env.NODE_ENV": JSON.stringify("development"), "process.env.EXPO_OS": JSON.stringify("android") },
     esbuild: { jsx: "automatic" },
