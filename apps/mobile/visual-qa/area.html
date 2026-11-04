@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobile visual QA: one area's screens</title>
+    <style>
+      /* The page behind the screens as client-web's body draws it; in the app the shell paints it. */
+      html, body, #root { height: 100%; margin: 0; }
+      #root { display: flex; }
+      body { background: radial-gradient(900px 420px at 50% -120px, rgba(232, 114, 12, 0.07), transparent 70%), #0c0c0b; background-attachment: fixed; }
+      html[data-theme="editor"] body, html[data-theme="editor-orange"] body { background: #151515; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./area.tsx"></script>
+  </body>
+</html>

@@ -14,6 +14,12 @@ export interface ParityEntry {
   notOnPhone?: string;
   /** Pressed in the app before the shot, by accessibility label (or text), in order: the app's form of the web scenario's clicks. */
   clicks?: string[];
+  /** A testID scrolled to the top of its scroller after the clicks: the app's form of the web scenario's scroll. */
+  scroll?: string;
+  /** Typed after the clicks, into fields by accessibility label: the web scenario's type and types. */
+  type?: Array<{ into: string; text: string }>;
+  /** Pressed after typing, as the web scenario's afterType clicks. */
+  after?: string[];
 }
 
 export const PARITY: Record<string, ParityEntry> = {
@@ -149,4 +155,21 @@ export const PARITY: Record<string, ParityEntry> = {
   "compaction-running": {owner: "chat"},
   "compaction-failed": {owner: "chat"},
   "compaction-subagent": {owner: "chat"},
+  "feedback-remote": {owner: "agent-b"},
+  "feedback-remote-filled": {owner: "agent-b"},
+  "feedback-remote-idea": {owner: "agent-b"},
+  "feedback-remote-filed": {owner: "agent-b"},
+  "feedback-remote-link": {owner: "agent-b"},
+  "feedback-remote-error": {owner: "agent-b"},
+  "update-waiting-remote": {owner: "agent-b"},
+  "update-running-remote": {owner: "agent-b"},
+  "update-failed-remote": {owner: "agent-b"},
+  "update-done-remote": {owner: "agent-b"},
+  "plugins-remote-details": {owner: "agent-b", clicks: ["Details"]},
+  "plugins-remote-empty": {owner: "agent-b"},
+  "plugins-remote-search": {owner: "agent-b", type: [{ into: "Search plugins", text: "voxel" }]},
+  "plugins-remote-error": {owner: "agent-b"},
+  "plugins-remote-unsupported": {owner: "agent-b"},
+  "settings-diagnostics-filtered": {owner: "agent-b"},
+  "settings-diagnostics-no-editor": {owner: "agent-b"},
 };

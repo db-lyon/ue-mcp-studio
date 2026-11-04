@@ -10,6 +10,7 @@ import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { parseLocation, type Reply, type Transport } from "@ue-mcp-studio/client-core";
 import type { StudioTheme } from "@ue-mcp-studio/shared";
+import { remoteBodyAllowed, remotePath } from "@ue-mcp-studio/remote";
 import { daemonFor, SCENARIOS } from "../../client-web/src/visual-qa/daemon";
 import type { Scenario } from "../../client-web/src/visual-qa/fixtures";
 import { ProjectScreen } from "../src/screens/Project";
@@ -37,6 +38,9 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
   return async (method, path, options = {}) => {
     const url = new URL(path, "http://daemon.invalid");
     const m = method.toUpperCase();
+    // The phone is a paired client: the computer refuses it what it refuses a paired browser.
+    const sent = options.json !== undefined ? enc.encode(JSON.stringify(options.json)) : undefined;
+    if (!remotePath(m, path) || !remoteBodyAllowed(m, url.pathname, sent)) return json(403, { error: "Not available remotely." });
     if (scenario.remoteOffline && (url.pathname === "/v1/events" || url.pathname === "/v1/health")) return json(503, { error: "The project is offline." });
     if (url.pathname === "/v1/events") {
       const first = !streamed;

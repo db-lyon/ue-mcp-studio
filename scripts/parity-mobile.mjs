@@ -78,7 +78,13 @@ const server = await createServer({
 });
 await server.listen();
 const base = server.resolvedUrls.local[0].replace(/\/$/, "");
-const browser = await chromium.launch({ executablePath: browserPath, headless: true });
+// Grayscale text antialiasing: react-native-web's text is drawn without subpixel antialiasing beside the
+// web client's, so the web shots are taken with visual-qa.mjs --grayscale-text and these the same way.
+const browser = await chromium.launch({ executablePath: browserPath, headless: true, args: ["--disable-lcd-text"] });
+// --page area draws a scenario's screen on its own (visual-qa/area.html) for an area whose screens the
+// shell does not route to yet; its top bar is a stand-in, so the top 50 pixels are left out of the diff.
+const area = arg("page") === "area";
+const PAGE = area ? "area.html" : "index.html";
 
 const first = await browser.newPage();
 await first.goto(`${base}/index.html?scenario=session-empty`);
@@ -113,9 +119,34 @@ for (const name of picked) {
     const page = await browser.newPage({ viewport: { width: WIDTH, height }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
-    await page.goto(`${base}/index.html?scenario=${encodeURIComponent(name)}&theme=${theme}`);
+    await page.goto(`${base}/${PAGE}?scenario=${encodeURIComponent(name)}&theme=${theme}`);
     await page.waitForTimeout(1500);
     for (const c of parity[name].clicks ?? []) {
+      try {
+        await press(page, c);
+        await page.waitForTimeout(700);
+      } catch (e) {
+        errors.push(String(e.message ?? e));
+      }
+    }
+    if (parity[name].scroll) {
+      // The app's form of the web scenario's scroll: the element with this testID at the top of its scroller.
+      const found = await page.evaluate((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        el?.scrollIntoView({ block: "start" });
+        return !!el;
+      }, parity[name].scroll);
+      if (!found) errors.push(`nothing has testID ${parity[name].scroll}`);
+      await page.waitForTimeout(300);
+    }
+    if (parity[name].type) {
+      for (const each of parity[name].type) {
+        await page.locator(`[aria-label="${each.into}"]`).first().focus();
+        await page.keyboard.type(each.text, { delay: 10 });
+      }
+      await page.waitForTimeout(500);
+    }
+    for (const c of parity[name].after ?? []) {
       try {
         await press(page, c);
         await page.waitForTimeout(700);
@@ -141,6 +172,8 @@ for (const name of picked) {
       };
       const ca = crop(a);
       const cb = crop(b);
+      // The area page's top bar is a stand-in for the shell's: both are blanked before the diff.
+      if (area) for (const img of [ca, cb]) img.data.fill(0, 0, w * Math.min(50, h) * 4);
       const diff = new PNG({ width: w, height: h });
       const n = pixelmatch(ca.data, cb.data, diff.data, w, h, { threshold: 0.1 });
       mismatch = n / (w * h);
