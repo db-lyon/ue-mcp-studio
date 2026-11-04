@@ -51,8 +51,8 @@ beforeEach(() => {
     }
     const last = new Headers(init?.headers).get("last-event-id");
     eventCalls.push({ lastEventId: last });
-    // The daemon's behaviour: asked to resume past its newest id, it sends no head until its next event.
-    if (daemon.stallHead || (last !== null && Number(last) > daemon.lastEventId)) {
+    // The daemon's behaviour: asked to resume at or past its newest id, it sends no head until its next event.
+    if (daemon.stallHead || (last !== null && Number(last) >= daemon.lastEventId)) {
       return new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
     }
     const after = Number(last ?? 0);
@@ -99,15 +99,50 @@ describe("subscribeEvents", () => {
     stop();
   });
 
-  it("resumes from the last id on the same daemon", async () => {
+  it("resumes from the last id on the same daemon when it has newer events", async () => {
     daemon.lastEventId = 5;
     daemon.events = [{ id: 5, type: "a" }];
     daemon.closeAfterSend = true;
-    const stop = subscribeEvents(() => {}, () => {});
+    const seen: number[] = [];
+    const stop = subscribeEvents((e) => seen.push(e.id), () => {});
     await flush();
+    daemon.lastEventId = 7;
+    daemon.events = [{ id: 5, type: "a" }, { id: 6, type: "b" }, { id: 7, type: "c" }];
     daemon.closeAfterSend = false;
     await flush(1000);
     expect(eventCalls[1].lastEventId).toBe("5");
+    expect(seen).toEqual([5, 6, 7]);
+    stop();
+  });
+
+  it("reconnects to a quiet daemon without resuming, since it would hold the head until its next event", async () => {
+    daemon.lastEventId = 5;
+    daemon.events = [{ id: 5, type: "a" }];
+    daemon.closeAfterSend = true;
+    const status: boolean[] = [];
+    const stop = subscribeEvents(() => {}, (c) => status.push(c));
+    await flush();
+    daemon.events = [];
+    daemon.closeAfterSend = false;
+    await flush(1000);
+    expect(eventCalls[1].lastEventId).toBeNull();
+    expect(status[status.length - 1]).toBe(true);
+    stop();
+  });
+
+  it("does not resume when the identity check gets no answer", async () => {
+    daemon.lastEventId = 5;
+    daemon.events = [{ id: 5, type: "a" }];
+    daemon.closeAfterSend = true;
+    const status: boolean[] = [];
+    const stop = subscribeEvents(() => {}, (c) => status.push(c));
+    await flush();
+    daemon.closeAfterSend = false;
+    daemon.events = [];
+    daemon.loseHealth = 1;
+    await flush(IDENTITY_TIMEOUT_MS + 1000);
+    expect(eventCalls[1].lastEventId).toBeNull();
+    expect(status[status.length - 1]).toBe(true);
     stop();
   });
 

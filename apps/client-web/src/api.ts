@@ -62,6 +62,7 @@ import type {
   RemotePairing,
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
+import { alive, fromUeMcp, recordDiag } from "./diag";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
@@ -125,6 +126,7 @@ async function call<T>(method: string, url: string, body?: unknown, signal?: Abo
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "same-origin",
   });
+  if (fromUeMcp(res.status)) alive();
   const text = await res.text();
   const parsed = text ? (JSON.parse(text) as unknown) : undefined;
   if (!res.ok) {
@@ -340,12 +342,19 @@ async function daemonIdentity(signal?: AbortSignal): Promise<DaemonIdentity | nu
   const timer = setTimeout(() => c.abort(), IDENTITY_TIMEOUT_MS);
   const stop = (): void => c.abort();
   signal?.addEventListener("abort", stop, { once: true });
+  const t0 = Date.now();
   try {
     const res = await fetch("/v1/health", { credentials: "same-origin", signal: c.signal, headers: { [HEAD_TIMEOUT_HEADER]: String(IDENTITY_TIMEOUT_MS) } });
-    if (!res.ok) return null;
+    if (fromUeMcp(res.status)) alive();
+    if (!res.ok) {
+      recordDiag("check", { result: `HTTP ${res.status}`, ms: Date.now() - t0 });
+      return null;
+    }
     const h = (await res.json()) as { startedAt?: unknown; lastEventId?: unknown };
+    if (Date.now() - t0 > 2000) recordDiag("check", { result: "slow", ms: Date.now() - t0 });
     return { startedAt: String(h.startedAt ?? ""), lastEventId: Number(h.lastEventId ?? 0) || 0 };
   } catch {
+    if (!signal?.aborted) recordDiag("check", { result: c.signal.aborted ? `no answer within ${IDENTITY_TIMEOUT_MS / 1000}s` : "network error", ms: Date.now() - t0 });
     return null;
   } finally {
     clearTimeout(timer);
@@ -439,25 +448,42 @@ export function subscribeEvents(
     for (let attempt = 0; !stopped; attempt++) {
       controller = new AbortController();
       const signal = controller.signal;
+      /** Why this attempt ended, for Diagnostics. */
+      let cause = "";
+      let openedAt = 0;
+      const t0 = Date.now();
       try {
+        // Resume only when the daemon has events this page has not seen. Asked to resume at its newest id, ue-mcp
+        // sends nothing, not even its response head, until its next event, so a quiet daemon would look offline.
+        let resumeFrom = 0;
         if (lastId > 0) {
           const who = await daemonIdentity(signal);
-          if (signal.aborted) throw new Error("events: woken");
-          if (who && ((daemonStarted && who.startedAt !== daemonStarted) || who.lastEventId < lastId)) lastId = 0;
+          if (signal.aborted) throw new Error("woken");
+          const sameDaemon = !!who && (!daemonStarted || who.startedAt === daemonStarted);
+          if (who && sameDaemon && who.lastEventId > lastId) resumeFrom = lastId;
+          if (!sameDaemon || (who && who.lastEventId < lastId)) lastId = 0;
         }
-        const headTimer = setTimeout(() => controller?.abort(), EVENTS_HEAD_TIMEOUT_MS);
+        const headTimer = setTimeout(() => {
+          cause = `no response head within ${EVENTS_HEAD_TIMEOUT_MS / 1000}s`;
+          controller?.abort();
+        }, EVENTS_HEAD_TIMEOUT_MS);
         let res: Response;
         try {
           res = await fetch("/v1/events", {
-            headers: { [HEAD_TIMEOUT_HEADER]: String(EVENTS_HEAD_TIMEOUT_MS), ...(lastId > 0 ? { "last-event-id": String(lastId) } : {}) },
+            headers: { [HEAD_TIMEOUT_HEADER]: String(EVENTS_HEAD_TIMEOUT_MS), ...(resumeFrom > 0 ? { "last-event-id": String(resumeFrom) } : {}) },
             credentials: "same-origin",
             signal,
           });
         } finally {
           clearTimeout(headTimer);
         }
-        if (!res.ok || !res.body) throw new Error(`events: ${res.status}`);
+        if (fromUeMcp(res.status)) alive();
+        if (!res.ok || !res.body) {
+          cause = `HTTP ${res.status}`;
+          throw new Error(`events: ${res.status}`);
+        }
         connected = true;
+        openedAt = Date.now();
         onStatus?.(true);
         attempt = 0;
         void daemonIdentity(signal).then(async (who) => {
@@ -475,7 +501,10 @@ export function subscribeEvents(
         const quiet = (): void => {
           if (!options.idleMs) return;
           if (idle) clearTimeout(idle);
-          idle = setTimeout(() => controller?.abort(), options.idleMs);
+          idle = setTimeout(() => {
+            cause = `no bytes for ${Math.round((options.idleMs ?? 0) / 1000)}s`;
+            controller?.abort();
+          }, options.idleMs);
         };
         quiet();
         for (;;) {
@@ -486,7 +515,11 @@ export function subscribeEvents(
             if (idle) clearTimeout(idle);
           }
           const { done, value } = chunk;
-          if (done) break;
+          if (done) {
+            cause ||= "ended by ue-mcp or the relay";
+            break;
+          }
+          alive();
           quiet();
           buf += decoder.decode(value, { stream: true });
           let cut: number;
@@ -502,9 +535,11 @@ export function subscribeEvents(
             onEvent({ id: id ? Number(id) : 0, type, at: at ?? new Date().toISOString(), data: rest });
           }
         }
-      } catch {
+      } catch (e) {
         // Dropped, refused or stalled; reconnect below.
+        if (!cause) cause = skipWait || stopped ? "reconnect asked (woken, focus or retry)" : e instanceof Error && e.name !== "AbortError" ? `network error: ${e.message}` : "aborted";
       }
+      if (!stopped) recordDiag("drop", { cause, ...(openedAt ? { openFor: Date.now() - openedAt } : { tookMs: Date.now() - t0 }), attempt });
       connected = false;
       onStatus?.(false);
       if (stopped) return;

@@ -37,7 +37,8 @@ export type ConnEvent =
   | { type: "tick"; at: number }
   | { type: "started"; ok: boolean; noNode?: boolean; error?: string; at: number }
   | { type: "retry"; at: number }
-  | { type: "visibility"; visible: boolean; at: number };
+  | { type: "visibility"; visible: boolean; at: number }
+  | { type: "alive"; at: number };
 
 /** Stream down this long before the panel says so. A stream through the relay that drops usually resumes within a second or two, unseen. */
 export const QUIET_MS = 4000;
@@ -56,6 +57,21 @@ export const BACKOFF_MS = [5000, 15_000];
 export const MAX_ATTEMPTS = 3;
 /** Back in view after being hidden: this long of a quiet line while the stream reconnects, before any panel. */
 export const WAKE_GRACE_MS = 8000;
+/**
+ * A paired browser goes through the relay and often a phone network: a stream
+ * that drops there is usually back within seconds. It shows the panel only
+ * after this long with no answer at all from ue-mcp, and says ue-mcp is
+ * offline only after REMOTE_RECONNECT_MS.
+ */
+export const REMOTE_QUIET_MS = 12_000;
+export const REMOTE_RECONNECT_MS = 30_000;
+/** Any answer from ue-mcp while the stream reconnects: a quiet line for this long, and the wait starts again. */
+export const ALIVE_GRACE_MS = 15_000;
+
+export interface StepOptions {
+  /** A paired browser: the longer waits above. */
+  remote?: boolean;
+}
 
 export const connected = (hidden = false): Conn => ({ phase: "connected", downSince: null, why: "", attempt: 0, deadline: 0, launched: false, failure: "", noNode: false, hidden, wakeUntil: 0 });
 
@@ -79,13 +95,20 @@ const attempt = (s: Conn, n: number, at: number): Conn => ({ ...s, phase: "start
  * One step. `start` says to launch a start attempt now; the caller reports
  * how it went with a "started" event.
  */
-export function step(s: Conn, e: ConnEvent, canStart: boolean): { conn: Conn; start: boolean } {
+export function step(s: Conn, e: ConnEvent, canStart: boolean, opts: StepOptions = {}): { conn: Conn; start: boolean } {
   const same = { conn: s, start: false };
+  const reconnectMs = opts.remote ? REMOTE_RECONNECT_MS : RECONNECT_MS;
   switch (e.type) {
     case "stream":
       if (e.up) return { conn: connected(s.hidden), start: false };
       if (s.phase !== "connected") return same;
-      return { conn: { ...s, phase: "reconnecting", downSince: e.at, why: "", deadline: e.at + RECONNECT_MS }, start: false };
+      return { conn: { ...s, phase: "reconnecting", downSince: e.at, why: "", deadline: e.at + reconnectMs }, start: false };
+    case "alive": {
+      // ue-mcp answered: it is up and only the stream is reconnecting. Keep to the quiet line and start the wait again.
+      const quietable = s.phase === "reconnecting" || (opts.remote === true && (s.phase === "lost" || s.phase === "needsYou"));
+      if (!quietable) return same;
+      return { conn: { ...s, phase: "reconnecting", why: "", failure: "", noNode: false, attempt: 0, launched: false, wakeUntil: e.at + ALIVE_GRACE_MS, deadline: e.at + ALIVE_GRACE_MS + reconnectMs }, start: false };
+    }
     case "stopping": {
       const w = stoppingWhy(e.reason, e.updating);
       const down = s.downSince ?? e.at;
@@ -98,7 +121,7 @@ export function step(s: Conn, e: ConnEvent, canStart: boolean): { conn: Conn; st
       if (!s.hidden || s.phase === "connected") return { conn: back, start: false };
       // Away a while and not connected: what was seen while hidden is stale. Reconnect quietly, counting from now.
       return {
-        conn: { ...back, phase: "reconnecting", downSince: e.at, why: "", attempt: 0, launched: false, failure: "", noNode: false, wakeUntil: e.at + WAKE_GRACE_MS, deadline: e.at + WAKE_GRACE_MS + RECONNECT_MS },
+        conn: { ...back, phase: "reconnecting", downSince: e.at, why: "", attempt: 0, launched: false, failure: "", noNode: false, wakeUntil: e.at + WAKE_GRACE_MS, deadline: e.at + WAKE_GRACE_MS + reconnectMs },
         start: false,
       };
     }

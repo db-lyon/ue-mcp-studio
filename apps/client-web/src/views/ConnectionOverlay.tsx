@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { reconnectEvents } from "../api";
 import { native } from "../native";
-import { QUIET_MS, REMOTE_OFFLINE, connected, elapsed, headline, isRemotePage, step, waking, type Conn, type ConnEvent } from "../connection";
+import { QUIET_MS, REMOTE_OFFLINE, REMOTE_QUIET_MS, connected, elapsed, headline, isRemotePage, step, waking, type Conn, type ConnEvent } from "../connection";
+import { onAlive } from "../diag";
 
 interface HostStatus {
   node?: boolean;
@@ -56,7 +57,7 @@ export function useConnection(
   const canStart = !!native().startdaemon;
 
   const send = (e: ConnEvent): void => {
-    const r = step(conn.current, e, canStart);
+    const r = step(conn.current, e, canStart, { remote });
     const changed = r.conn.phase !== conn.current.phase || r.conn.attempt !== conn.current.attempt;
     conn.current = r.conn;
     if (changed) report(r.conn);
@@ -82,6 +83,10 @@ export function useConnection(
     };
   }, [remote]);
   useEffect(() => send({ type: "stream", up: streaming, at: Date.now() }), [streaming]);
+  // Any answer from ue-mcp while the stream is down: it is up, so no panel saying it is away.
+  useEffect(() => onAlive((at) => {
+    if (conn.current.phase !== "connected") send({ type: "alive", at });
+  }), []);
 
   const last = events[events.length - 1];
   useEffect(() => {
@@ -130,7 +135,7 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
       document.body,
     );
   }
-  if (conn.phase === "reconnecting" && conn.downSince !== null && now - conn.downSince < QUIET_MS) return null;
+  if (conn.phase === "reconnecting" && conn.downSince !== null && now - conn.downSince < (remote ? REMOTE_QUIET_MS : QUIET_MS)) return null;
   // A paired browser cannot start ue-mcp: past the wait it only says so and keeps reconnecting.
   const offline = remote && (conn.phase === "lost" || conn.phase === "needsYou");
   const needs = conn.phase === "needsYou";
