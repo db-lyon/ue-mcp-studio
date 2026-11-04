@@ -2,7 +2,7 @@ import { createContext, useContext, useState } from "react";
 import { Pressable, ScrollView, Text, View, useWindowDimensions, type TextStyle } from "react-native";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { formatDuration, tokenCount } from "@ue-mcp-studio/client-core";
-import { baseFont, ContentButton, font, Markdown, Pulse, useTheme, type Theme } from "../../../ui";
+import { baseFont, ContentButton, font, lineBox, Markdown, Pulse, useTheme, type Theme } from "../../../ui";
 
 type CompactionEntry = Extract<TranscriptEntry, { kind: "compaction" }>;
 
@@ -51,7 +51,9 @@ export function CompactionMarker({ entry }: { entry: CompactionEntry }) {
   const lf = lineFont(t);
   const lh = (lf.lineHeight as number) / 12;
   const meta: TextStyle = { ...font(t, "mono", t.editor ? 400 : 500, 11.5, lh), color: t.c.muted };
-  const small: TextStyle = { ...baseFont(t), fontSize: 12, lineHeight: 12 * (t.base.lineHeight / t.base.size), color: t.c.dim };
+  // A font-size under --base-font keeps its line-height multiple, laid out as Chrome lays a multiple out.
+  const baseLh = (size: number) => lineBox(size, t.editor ? 1.5 : 1.55);
+  const small: TextStyle = { ...baseFont(t), fontSize: 12, lineHeight: baseLh(12), color: t.c.dim };
   return (
     <View testID="compaction" accessibilityRole="none" accessibilityLabel={`${title}, ${numbers}, ${time(entry.at)}`} style={{ marginVertical: 14 }}>
       <Pressable
@@ -80,7 +82,7 @@ export function CompactionMarker({ entry }: { entry: CompactionEntry }) {
         <View style={{ marginTop: -1, paddingVertical: 10, paddingHorizontal: 14, borderWidth: 1, borderColor: t.c.lineStrong, borderTopWidth: 2, borderTopColor: t.c.accentLine, borderBottomLeftRadius: t.radiusLg, borderBottomRightRadius: t.radiusLg, backgroundColor: t.c.panel2 }}>
           {failed ? (
             <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-              <Text style={{ ...baseFont(t), fontSize: 12.5, lineHeight: 12.5 * (t.base.lineHeight / t.base.size), color: t.c.badText, flexGrow: 1, flexShrink: 1, flexBasis: 220 }}>
+              <Text style={{ ...baseFont(t), fontSize: 12.5, lineHeight: baseLh(12.5), color: t.c.badText, flexGrow: 1, flexShrink: 1, flexBasis: 220 }}>
                 {`${entry.error ?? "The conversation could not be compacted."} Nothing was cut; the agent still has the whole conversation.`}
               </Text>
               {retry && !entry.parent ? <ContentButton title="Try again" onPress={() => retry()} /> : null}
@@ -95,7 +97,7 @@ export function CompactionMarker({ entry }: { entry: CompactionEntry }) {
           )}
           {entry.summary ? (
             <ScrollView nestedScrollEnabled style={{ maxHeight: vh * 0.46 }} contentContainerStyle={{ paddingRight: 4 }}>
-              <Markdown text={entry.summary} breaks={false} tone={{ fontSize: 13, lineHeight: 13 * (t.base.lineHeight / t.base.size) }} />
+              <Markdown text={entry.summary} breaks={false} tone={{ fontSize: 13, lineHeight: baseLh(13) }} />
             </ScrollView>
           ) : !failed ? (
             <Text style={[small, { marginBottom: 8 }]}>The runtime did not hand over its summary.</Text>
