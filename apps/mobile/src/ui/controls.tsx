@@ -3,7 +3,8 @@
  * pointer: 44px buttons and fields, 20px checkboxes). Each names the CSS it
  * mirrors so a change there has an obvious place to land here.
  */
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 import { Animated, Modal, Pressable, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { font, labelFont, T } from "./Text";
@@ -71,8 +72,25 @@ export function Card({ children, style, padded = true, testID }: { children: Rea
   // The editor themes draw cards flat: no outline (styles.css :root[data-theme="editor"] .card). ue-mcp's panel has a faint tint at its top.
   return (
     <View testID={testID} style={[{ backgroundColor: t.c.panel, borderColor: t.editor ? "transparent" : t.c.line, borderWidth: 1, borderRadius: t.radiusLg, padding: padded ? 12 : 0, minWidth: 0 }, style]}>
-      {t.c.tint !== "transparent" ? <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: 120, borderTopLeftRadius: t.radiusLg, borderTopRightRadius: t.radiusLg, experimental_backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent)` } as ViewStyle} /> : null}
+      {t.c.tint !== "transparent" ? <CardTint color={t.c.tint} radius={t.radiusLg} /> : null}
       {children}
+    </View>
+  );
+}
+
+/** linear-gradient(180deg, tint, transparent 120px) over a card's top, drawn with svg so it shows on every platform. */
+function CardTint({ color, radius }: { color: string; radius: number }) {
+  return (
+    <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: 120, borderTopLeftRadius: radius, borderTopRightRadius: radius, overflow: "hidden" }}>
+      <Svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 1 1">
+        <Defs>
+          <LinearGradient id="cardTint" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={color} />
+            <Stop offset="1" stopColor={color} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Rect x="0" y="0" width="1" height="1" fill="url(#cardTint)" />
+      </Svg>
     </View>
   );
 }
@@ -133,12 +151,16 @@ export function Pill({ kind, children, style }: { kind?: "ok" | "warn" | "bad"; 
 /** .dot, .dot.ok/.warn/.bad. */
 export function Dot({ kind, size = 8, style }: { kind?: "ok" | "warn" | "bad"; size?: number; style?: StyleProp<ViewStyle> }) {
   const t = useTheme();
-  return <View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: kind ? t.c[kind] : t.c.dim }, style]} />;
+  // .dot.ok glows on ue-mcp (--ok-glow: 0 0 8px of the ok green at 60%); the editor themes draw it flat.
+  const glow: ViewStyle | null = kind === "ok" && !t.editor ? { shadowColor: t.c.ok, shadowOpacity: 0.6, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } } : null;
+  return <View style={[{ width: size, height: size, borderRadius: size / 2, backgroundColor: kind ? t.c[kind] : t.c.dim }, glow, style]} />;
 }
 
 /** input, textarea: panel-2, strong hairline, 16px text at phone width (no zoom on focus), accent ring on focus. */
-export function Input({ style, multiline, ...rest }: TextInputProps) {
+export function Input({ style, multiline, onFocus, onBlur, ...rest }: TextInputProps) {
   const t = useTheme();
+  // input:focus: the accent line and a 3px wash around it, not the browser's own outline.
+  const [focused, setFocused] = useState(false);
   return (
     <TextInput
       placeholderTextColor={t.c.dim}
@@ -146,7 +168,9 @@ export function Input({ style, multiline, ...rest }: TextInputProps) {
       cursorColor={t.c.accent}
       multiline={multiline}
       {...rest}
-      style={[{ backgroundColor: t.c.panel2, color: t.c.text, borderColor: t.c.lineStrong, borderWidth: 1, borderRadius: t.radius, paddingVertical: 6, paddingHorizontal: 10, minHeight: 44, ...font(t, "sans", 400, 16) }, style]}
+      onFocus={(e) => (setFocused(true), onFocus?.(e))}
+      onBlur={(e) => (setFocused(false), onBlur?.(e))}
+      style={[{ backgroundColor: t.c.panel2, color: t.c.text, borderColor: focused ? t.c.accentLine : t.c.lineStrong, borderWidth: 1, borderRadius: t.radius, paddingVertical: 6, paddingHorizontal: 10, minHeight: 44, ...font(t, "sans", 400, 16) }, focused ? ({ outlineStyle: "none", boxShadow: `0 0 0 3px ${t.c.accentWash}` } as object) : null, style]}
     />
   );
 }

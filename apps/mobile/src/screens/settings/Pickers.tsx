@@ -116,10 +116,11 @@ export function EffortPicker({ settings, onSettings, follow, disabled }: { setti
               </T>
             ))}
           </View>
-          <T numberOfLines={1} style={[font(t, "sans", 500, 16, 1.2), { color: t.c.text }]}>
+          {/* A disabled select draws its value and arrow at 70%, as the browser does. */}
+          <T numberOfLines={1} style={[font(t, "sans", 500, 16, 1.2), { color: t.c.text, opacity: off ? 0.7 : 1 }]}>
             {value === null ? follow?.same : EFFORT_NAMES[value]}
           </T>
-          <View style={{ position: "absolute", right: 4, top: 0, bottom: 0, justifyContent: "center" }}>
+          <View style={{ position: "absolute", right: 4, top: 0, bottom: 0, justifyContent: "center", opacity: off ? 0.7 : 1 }}>
             <Chevron color={t.c.text} />
           </View>
         </View>

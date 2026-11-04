@@ -6,6 +6,7 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { Pressable, Text, TextInput, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
+import Svg, { Path } from "react-native-svg";
 import { segStacks } from "@ue-mcp-studio/client-core";
 import { T, font, labelFont, useTheme, type Theme } from "../../ui";
 
@@ -130,7 +131,7 @@ export function Seg<K extends string>({ value, options, onChange, label, disable
             ]}
           >
             {on ? <View pointerEvents="none" style={stack ? { position: "absolute", left: 0, top: 0, bottom: 0, width: 3, backgroundColor: t.c.accent } : { position: "absolute", left: 0, right: 0, bottom: 0, height: 2, backgroundColor: t.c.accent }} /> : null}
-            <T style={[text, { color: off ? t.c.dim : on ? t.c.text : t.c.muted, textAlign: stack ? "left" : "center" }]}>{o.name}</T>
+            <T style={[text, { color: on ? t.c.text : t.c.muted, textAlign: stack ? "left" : "center" }]}>{o.name}</T>
           </Pressable>
         );
       })}
@@ -235,7 +236,12 @@ export function Box({ on, disabled, style }: { on: boolean; disabled?: boolean; 
   const color = disabled ? t.c.disabledLine : t.c.accent;
   return (
     <View style={[{ width: 20, height: 20, borderRadius: 3, borderWidth: on ? 0 : 1.5, borderColor: disabled ? t.c.disabledLine : t.c.muted, backgroundColor: on ? color : "transparent", alignItems: "center", justifyContent: "center", flexShrink: 0 }, style]}>
-      {on ? <Text style={{ color: "#ffffff", fontSize: 14, lineHeight: 16, fontWeight: "700" }}>{"✓"}</Text> : null}
+      {/* The browser's check, in the colour that reads on the accent (dark on orange, white on blue). */}
+      {on ? (
+        <Svg width={14} height={14} viewBox="0 0 14 14" fill="none" stroke={disabled ? "#ffffff" : t.c.onAccent} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round">
+          <Path d="M3 7.2l2.8 2.8L11 4.6" />
+        </Svg>
+      ) : null}
     </View>
   );
 }

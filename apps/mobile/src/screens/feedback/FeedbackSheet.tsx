@@ -6,6 +6,7 @@
  */
 import { useEffect, useState } from "react";
 import { Linking, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
+import Svg, { Path } from "react-native-svg";
 import type { FeedbackReport, FeedbackResult } from "@ue-mcp-studio/shared";
 import { Banner, Button, Input, Spacer, bannerText, font, T, useTheme } from "../../ui";
 import { Box, Txt, ratio } from "../settings/controls";
@@ -89,6 +90,7 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
                   })}
                 </View>
                 <Input accessibilityLabel="Title" placeholder={kind === "problem" ? "What went wrong, in a line" : "The idea, in a line"} value={title} onChangeText={setTitle} maxLength={200} />
+                <View>
                 <TextInput
                   accessibilityLabel="Description"
                   multiline
@@ -101,6 +103,11 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
                   textAlignVertical="top"
                   style={[field, { color: t.c.text, minHeight: 120, height: 7 * t.base.lineHeight + 14, backgroundColor: t.c.panel2, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, paddingVertical: 6, paddingHorizontal: 10 }]}
                 />
+                {/* The textarea's resize grip (resize: vertical), drawn where the browser draws it. */}
+                <Svg pointerEvents="none" width={9} height={9} viewBox="0 0 9 9" style={{ position: "absolute", right: 2, bottom: 2 }} stroke={t.c.dim} strokeWidth={1}>
+                  <Path d="M8.5 1.5L1.5 8.5M8.5 5.5L5.5 8.5" />
+                </Svg>
+                </View>
                 <Pressable accessibilityRole="checkbox" accessibilityState={{ checked: includeEnvironment }} onPress={() => setIncludeEnvironment(!includeEnvironment)} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, minHeight: 44, paddingVertical: 10, marginVertical: 6 }}>
                   <Box on={includeEnvironment} style={{ marginTop: 1 }} />
                   <Txt size={12} tone="muted" style={{ flex: 1 }}>

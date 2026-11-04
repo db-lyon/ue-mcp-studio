@@ -9,3 +9,6 @@ export const Path = Shape;
 export const Rect = Shape;
 export const Circle = Shape;
 export const G = Shape;
+export const Defs = Shape;
+export const LinearGradient = Shape;
+export const Stop = Shape;

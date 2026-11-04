@@ -7,8 +7,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, ScrollView, View } from "react-native";
 import { HttpError, REMOTE_PLUGINS_NOTE, isInstalled, searchCatalog, type CatalogPlugin, type InstalledPlugin } from "@ue-mcp-studio/client-core";
-import { Banner, Button, Card, Input, Markdown, Pill, Spacer, bannerText, useTheme } from "../../ui";
-import { CardLabel, Txt } from "../settings/controls";
+import { Banner, Button, Card, Input, labelFont, Markdown, Pill, Spacer, T, bannerText, useTheme } from "../../ui";
+import { CardLabel, Span, Txt } from "../settings/controls";
 import { useSettingsApi } from "../settings/hooks";
 import type { DaemonState } from "../../state";
 
@@ -42,11 +42,11 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
 
   if (unsupported) {
     return (
-      <ScrollView testID="plugins" style={{ flex: 1 }} contentContainerStyle={{}}>
+      <ScrollView testID="plugins" style={{ flex: 1, margin: -6 }} contentContainerStyle={{ padding: 6 }}>
         <Card>
           <CardLabel>Plugins</CardLabel>
           <Txt tone="muted" style={{ marginBottom: para }}>
-            Managing plugins here needs ue-mcp 1.4.0-beta.2 or later. Until then: <Txt mono>npx ue-mcp plugin install &lt;name&gt;</Txt> in the project folder.
+            Managing plugins here needs ue-mcp 1.4.0-beta.2 or later. Until then: <Span mono size={t.base.size * 0.8125} tone="muted">npx ue-mcp plugin install &lt;name&gt;</Span> in the project folder.
           </Txt>
         </Card>
       </ScrollView>
@@ -54,7 +54,8 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
   }
 
   return (
-    <ScrollView testID="plugins" style={{ flex: 1 }} contentContainerStyle={{ gap: 14 }} keyboardShouldPersistTaps="handled">
+    // The page scrolls under the shell's 6px padding, as the web page's main does: the padding goes inside the scroller.
+    <ScrollView testID="plugins" style={{ flex: 1, margin: -6 }} contentContainerStyle={{ padding: 6, gap: 14 }} keyboardShouldPersistTaps="handled">
       {error ? (
         <Pressable accessibilityRole="alert" onPress={() => setError(null)}>
           <Banner kind="bad">
@@ -96,7 +97,8 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
 
       <Card>
         <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginVertical: 6 }}>
-          <CardLabel>Browse</CardLabel>
+          {/* .row h2: no margin, centred on the search field. */}
+          <T accessibilityRole="header" style={labelFont(t)}>Browse</T>
           <Spacer />
           <Input accessibilityLabel="Search plugins" placeholder="Search plugins" value={query} onChangeText={setQuery} style={{ width: 240, maxWidth: "100%" }} />
         </View>

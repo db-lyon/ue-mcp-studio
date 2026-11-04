@@ -115,7 +115,8 @@ export function ApprovalsSection() {
               ) : null}
             </View>
           ))}
-          {dialogMode === null ? <Txt size={12} tone="dim">Not set. Studio shows them.</Txt> : null}
+          {/* A paragraph in the options' flex column: its 12px margins stay. */}
+          {dialogMode === null ? <Txt size={12} tone="dim" style={{ marginVertical: 12 }}>Not set. Studio shows them.</Txt> : null}
         </View>
       </Card>
 

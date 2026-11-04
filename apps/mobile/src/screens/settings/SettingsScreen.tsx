@@ -79,7 +79,8 @@ export function SettingsScreen({ daemon, section, onSection, onTheme, updates = 
   const named = sectionOf(section);
   const open = named && !named.startsWith("ext:") ? (named as BuiltinSection) : null;
   return (
-    <ScrollView testID="settings" style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: 10 }} keyboardShouldPersistTaps="handled">
+    // The page scrolls under the shell's 6px padding, as the web page's main does: the padding goes inside the scroller.
+    <ScrollView testID="settings" style={{ flex: 1, margin: -6 }} contentContainerStyle={{ padding: 6, paddingHorizontal: 16 }} keyboardShouldPersistTaps="handled">
       {open ? <Section id={open} daemon={daemon} onSection={onSection} onTheme={onTheme} /> : <SectionList listed={listed} updates={updates} daemon={daemon} onSection={onSection} />}
     </ScrollView>
   );

@@ -72,7 +72,7 @@ function StatusView({ daemon }: { daemon: DaemonState }) {
             ) : null}
           </View>
         ))}
-        <View style={{ flexDirection: "row", gap: 8, marginTop: h.editors.length ? 8 : 14, flexWrap: "wrap" }}>
+        <View style={{ flexDirection: "row", gap: 8, marginTop: h.editors.length ? 8 : 2, flexWrap: "wrap" }}>
           {(["start", "stop", "restart", "rebuild"] as const).map((op) => (
             <Button key={op} title={busy === op ? `${op}...` : op[0].toUpperCase() + op.slice(1)} disabled={busy !== null || (op === "start" ? any : !any)} onPress={() => run(op)} />
           ))}
@@ -128,7 +128,8 @@ function LogsView({ daemon }: { daemon: DaemonState }) {
           <Event key={`${e.id}-${e.type}`} testID={`event-${i + 1}`} at={e.at} type={e.type} data={e.data} mono={mono} />
         ))}
       </View>
-      {shown.length === 0 ? <Txt tone="muted" style={{ marginVertical: t.base.size }}>No events yet.</Txt> : null}
+      {/* Its margin collapses through the empty list into the row's 6px above. */}
+      {shown.length === 0 ? <Txt tone="muted" style={{ marginTop: t.base.size - 6, marginBottom: t.base.size }}>No events yet.</Txt> : null}
     </Card>
   );
 }

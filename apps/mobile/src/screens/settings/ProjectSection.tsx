@@ -127,7 +127,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
             {context.envOverride ? (
               <Banner kind="warn">
                 <Txt size={12} style={{ color: bannerText(t, "warn") }}>
-                  <Span mono>UE_MCP_CONTEXT_STRATEGY={context.envOverride}</Span> overrides this. A choice here applies once it is unset.
+                  <Span mono size={12 * 0.92}>UE_MCP_CONTEXT_STRATEGY={context.envOverride}</Span> overrides this. A choice here applies once it is unset.
                 </Txt>
               </Banner>
             ) : null}
@@ -164,7 +164,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
 
       <Card>
         <CardLabel>MCP clients</CardLabel>
-        {clients.length === 0 ? <Txt size={12} tone="dim">None configured.</Txt> : null}
+        {clients.length === 0 ? <Txt size={12} tone="dim" style={{ marginBottom: 12 }}>None configured.</Txt> : null}
         <Txt size={12} tone="dim" style={{ marginBottom: 12 }}>
           Change these from Studio in the editor. It runs ue-mcp init.
         </Txt>
@@ -206,7 +206,8 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
         </Card>
       ) : null}
 
-      <View accessibilityLabel="Advanced">
+      {/* .advanced: 12px more above it. */}
+      <View accessibilityLabel="Advanced" style={{ marginTop: 12 }}>
       <Card>
         {/* The Advanced card's summary is a 44px flex row: no disclosure triangle, its line centred. */}
         <Details label="Advanced: ue-mcp.yml" marker={false} summary={<Txt size={12} tone="muted">Advanced: ue-mcp.yml</Txt>} summaryStyle={{ marginVertical: -10, alignItems: "center" }} testID="advanced">
