@@ -14,12 +14,14 @@ export interface ParityEntry {
   notOnPhone?: string;
   /** Pressed in the app before the shot, by accessibility label (or text), in order: the app's form of the web scenario's clicks. */
   clicks?: string[];
+  /** Scrolled to the top of the conversation before the shot, by accessibility label (or text): the web scenario's `scroll`. */
+  scroll?: string;
 }
 
 export const PARITY: Record<string, ParityEntry> = {
   "version-notice": {owner: "shell"},
-  "tools-open": {owner: "chat"},
-  "tools-open-edit": {owner: "chat"},
+  "tools-open": {owner: "chat", clicks: ["shell"]},
+  "tools-open-edit": {owner: "chat", clicks: ["edit"], scroll: "edit"},
   "approvals-waiting": {owner: "chat"},
   "vcs-changes": {owner: "agent-a"},
   "vcs-changes-remote": {owner: "agent-a"},
@@ -145,8 +147,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "context-estimated": {owner: "chat"},
   "context-claude-runtime": {owner: "chat"},
   "compaction-collapsed": {owner: "chat"},
-  "compaction-expanded": {owner: "chat"},
+  "compaction-expanded": {owner: "chat", clicks: ["Context compacted"]},
   "compaction-running": {owner: "chat"},
-  "compaction-failed": {owner: "chat"},
-  "compaction-subagent": {owner: "chat"},
+  "compaction-failed": {owner: "chat", clicks: ["Compaction failed"]},
+  "compaction-subagent": {owner: "chat", clicks: ["Open thread ›"]},
 };

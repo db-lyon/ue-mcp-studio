@@ -124,6 +124,18 @@ for (const name of picked) {
         errors.push(String(e.message ?? e));
       }
     }
+    if (parity[name].scroll) {
+      // The web scenario's scroll: the element brought to the top of its scrolling list, by its row (the pressable around a text).
+      const what = parity[name].scroll;
+      const found = await page.evaluate((w) => {
+        const all = [...document.querySelectorAll(`[aria-label="${w.replace(/"/g, '\\"')}"]`), ...[...document.querySelectorAll("div, span")].filter((e) => e.childElementCount === 0 && e.textContent === w)];
+        const el = all.find((e) => e.getBoundingClientRect().height > 0);
+        (el?.closest('[role="button"]') ?? el)?.scrollIntoView({ block: "start" });
+        return !!el;
+      }, what);
+      if (!found) errors.push(`nothing to scroll to: ${what}`);
+      await page.waitForTimeout(200);
+    }
     const appPng = path.join(out, `${name}-${theme}-app.png`);
     await page.screenshot({ path: appPng });
     await page.close();

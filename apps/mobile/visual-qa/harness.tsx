@@ -48,7 +48,13 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
         body: (async function* () {
           if (first) for (const [n, e] of (scenario.events ?? []).entries()) yield enc.encode(`id: ${n + 1}\nevent: ${e.type}\ndata: ${JSON.stringify({ ...e.data, at: e.at })}\n\n`);
           if (first && scenario.arrives && scenario.session) {
-            await new Promise((r) => setTimeout(r, 850));
+            // The reader scrolls up, then a line arrives below them, as the web harness does it.
+            // Once the conversation is drawn: the app may take longer to start than the web page.
+            for (let i = 0; i < 50 && !document.getElementById("transcript")?.scrollHeight; i++) await new Promise((r) => setTimeout(r, 100));
+            await new Promise((r) => setTimeout(r, 700));
+            const list = document.getElementById("transcript");
+            if (list) list.scrollTop = 0;
+            await new Promise((r) => setTimeout(r, 150));
             arrived = true;
             yield enc.encode(`id: 1\nevent: studio.transcript.added\ndata: ${JSON.stringify({ sessionId: scenario.session.id, at: new Date().toISOString() })}\n\n`);
           }
