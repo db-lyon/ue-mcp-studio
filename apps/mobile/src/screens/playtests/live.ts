@@ -79,3 +79,6 @@ export function useLiveRun(run: QaRun, live: Pick<QaLive, "events" | "streaming"
 }
 
 export const useQaLive = () => useContext(QaContext);
+
+/** The theme's body line height as a multiple, as CSS's unitless line-height carries to smaller text: 1.55 in ue-mcp, 1.5 in the editor themes. */
+export const lhOf = (t: { base: { size: number; lineHeight: number } }): number => t.base.lineHeight / t.base.size;

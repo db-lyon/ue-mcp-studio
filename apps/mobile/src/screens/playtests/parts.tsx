@@ -4,6 +4,7 @@
  * captures the agent saw (fetched through the project's tunnel), and the
  * disclosure rows that stand in for <details>.
  */
+import { lhOf } from "./live";
 import { useEffect, useState, type ReactNode } from "react";
 import * as RN from "react-native";
 import { Image, Linking, Pressable, View, type StyleProp, type ViewStyle, Text } from "react-native";
@@ -86,7 +87,7 @@ export function FailNote({ step, initial, onSubmit, onCancel, inset = true }: { 
 const noteStyles = (t: Theme) => ({
   note: { gap: 4 },
   inset: { marginLeft: t.base.size * 1.6 + 8 },
-  label: { ...font(t, "sans", 400, 12, 1.55), color: t.c.muted },
+  label: { ...font(t, "sans", 400, 12, lhOf(t)), color: t.c.muted },
   box: { width: "100%" as const, minHeight: 44 },
   row: { flexDirection: "row" as const, alignItems: "center" as const, flexWrap: "wrap" as const, gap: 10, marginVertical: 6 },
   ghost: { borderColor: t.c.lineStrong, backgroundColor: t.c.panel2 },
@@ -124,7 +125,7 @@ export function StepSetup({ step }: { step: Pick<QaStep, "arrange" | "act"> }) {
   const t = useTheme();
   const { arrange, act } = stepSetup(step);
   if (!arrange.length && !act.length) return null;
-  const text = { ...font(t, "sans", 400, 12, 1.55), color: t.c.dim };
+  const text = { ...font(t, "sans", 400, 12, lhOf(t)), color: t.c.dim };
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 12, marginLeft: 12 * 1.6 + 8 }}>
       {arrange.length > 0 ? <T style={text}><Text style={{ color: t.c.muted }}>Arrange: </Text><Entries entries={arrange} /></T> : null}
@@ -157,7 +158,7 @@ export function Capture({ transport, runId, step, n, name, onOpen }: { transport
   if (uri === null) {
     return (
       <View style={{ minHeight: 44, alignItems: "center", maxWidth: "100%" }}>
-        <T style={{ ...font(t, "mono", 400, 12 * 0.92, 1.55), color: t.c.accentHi, paddingVertical: 2 }}>
+        <T style={{ ...font(t, "mono", 400, 12 * 0.92, lhOf(t)), color: t.c.accentHi, paddingVertical: 2 }}>
           {short}
           <Text style={{ color: t.c.dim }}> could not be read</Text>
         </T>
@@ -179,7 +180,7 @@ export function Capture({ transport, runId, step, n, name, onOpen }: { transport
       ) : (
         <View style={{ width: 240, height: 240, borderWidth: 1, borderColor: t.c.line, borderRadius: t.radius, backgroundColor: t.c.panel2 }} />
       )}
-      <T style={{ ...font(t, "mono", 400, 12 * 0.92, 1.55), color: t.c.dim }}>{short}</T>
+      <T style={{ ...font(t, "mono", 400, 12 * 0.92, lhOf(t)), color: t.c.dim }}>{short}</T>
     </Pressable>
   );
 }

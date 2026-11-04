@@ -28,6 +28,9 @@ const BROWSERS = [arg("browser"), process.env.STUDIO_QA_BROWSER, path.join(os.ho
 const browserPath = BROWSERS.find((p) => fs.existsSync(p));
 if (!browserPath) throw new Error("no Chrome or Edge found: pass --browser <path> or set STUDIO_QA_BROWSER");
 
+/** A web scenario's keyboard focus, as the control the app focuses (by accessibility label). */
+const FOCUS = { "focus-step-bar": "Step 2, person, Passed", "focus-verdict": "Pass step 4" };
+
 /** Scenarios whose session holds playtest cards. */
 const CARDS = ["draft", "draft-asset-links", "armed", "running", "waiting", "waiting-open", "focus-step-bar", "focus-verdict", "finished-failures", "finished-failures-open", "stopped", "agent-captures", "loop-running", "loop-needs-you", "waiting-remote", "loop-needs-you-open", "strip-two-need-you", "strip-several"];
 
@@ -143,6 +146,11 @@ async function appCards(name, theme, errors) {
     } catch (e) {
       errors.push(String(e.message ?? e));
     }
+  }
+  if (FOCUS[name]) {
+    await page.keyboard.press("Shift");
+    await page.locator(`[aria-label="${FOCUS[name]}"]`).first().focus();
+    await page.waitForTimeout(200);
   }
   await page.addStyleTag({ content: still });
   const shots = [];

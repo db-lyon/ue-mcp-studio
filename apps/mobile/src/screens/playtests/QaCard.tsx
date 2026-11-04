@@ -7,6 +7,7 @@
  * verdicts, the loop's attempts, Start playtest's options and the draft
  * editor. The card applies the daemon's events itself (useLiveRun).
  */
+import { lhOf } from "./live";
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, View, type ViewStyle, Text } from "react-native";
 import {
@@ -522,7 +523,7 @@ function ScriptPath({ script }: { script: string }) {
   const { api } = useProjectNav();
   const path = assetLinkTarget(script);
   const text = { ...font(t, "mono", 400, 12), lineHeight: 15.84, letterSpacing: t.editor ? 0 : 0.24, color: t.c.dim };
-  if (!path) return <T style={[font(t, "mono", 400, t.base.size * 0.92, 1.55), { color: t.c.dim }]}>{script}</T>;
+  if (!path) return <T style={[font(t, "mono", 400, t.base.size * 0.92, lhOf(t)), { color: t.c.dim }]}>{script}</T>;
   return (
     <Pressable accessibilityRole="link" accessibilityLabel={script} onPress={() => void api.openAsset(path).catch(() => undefined)} style={{ alignSelf: "flex-start", maxWidth: "100%", backgroundColor: t.c.panel2, borderRadius: 4, paddingVertical: 1, paddingHorizontal: 4, boxShadow: `inset 0 -1px 0 ${t.c.accentLine}` } as ViewStyle}>
       <T style={text}>{script}</T>
@@ -540,7 +541,7 @@ function Results({ transport, runId }: { transport: Transport; runId: string }) 
       .catch(() => setText("results.json could not be read."));
   return (
     <>
-      <T style={{ ...font(t, "sans", 400, 12, 1.55), color: t.c.accentHi, paddingVertical: 13, marginVertical: -13 }} accessibilityRole="link" onPress={read}>
+      <T style={{ ...font(t, "sans", 400, 12, lhOf(t)), color: t.c.accentHi, paddingVertical: 13, marginVertical: -13 }} accessibilityRole="link" onPress={read}>
         results.json
       </T>
       {text !== null ? (
@@ -556,7 +557,7 @@ function Results({ transport, runId }: { transport: Transport; runId: string }) 
 
 const styles = (t: Theme) => {
   const inset = t.base.size * 1.6 + 8;
-  const small = font(t, "sans", 400, 12, 1.55);
+  const small = font(t, "sans", 400, 12, lhOf(t));
   return {
     card: {
       backgroundColor: t.c.panel,
@@ -572,7 +573,7 @@ const styles = (t: Theme) => {
     draft: { borderStyle: "dashed" as const },
     head: { flexDirection: "row" as const, alignItems: "center" as const, flexWrap: "wrap" as const, rowGap: 6, columnGap: 8, minWidth: 0 },
     toggle: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, minHeight: 44, width: "100%" as const, minWidth: 0, borderRadius: t.radius },
-    title: { ...font(t, "sans", 700, 14, 1.55), color: t.c.text, letterSpacing: t.editor ? 0 : 0.27, flexShrink: 1, minWidth: 0 },
+    title: { ...font(t, "sans", 700, 14, lhOf(t)), color: t.c.text, letterSpacing: t.editor ? 0 : 0.27, flexShrink: 1, minWidth: 0 },
     actions: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, flexShrink: 0 },
     start: { flexDirection: "row" as const, alignItems: "stretch" as const, gap: 4 },
     states: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6, flexShrink: 0, marginLeft: "auto" as const },
@@ -583,26 +584,26 @@ const styles = (t: Theme) => {
     answer: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, rowGap: 6, columnGap: 10, marginTop: 2, paddingVertical: 6, paddingHorizontal: 8, borderWidth: 1, borderColor: t.c.warn, borderRadius: t.radius, backgroundColor: t.c.panel2 },
     answerFailing: { flexDirection: "column" as const, alignItems: "stretch" as const },
     answerStep: { flexGrow: 1, flexShrink: 1, flexBasis: 200, minWidth: 0, flexDirection: "row" as const, alignItems: "baseline" as const, gap: 8 },
-    answerNum: { ...font(t, "mono", 700, t.base.size * 0.92, 1.55), color: t.c.warn },
+    answerNum: { ...font(t, "mono", 700, t.base.size * 0.92, lhOf(t)), color: t.c.warn },
     answerText: { ...font(t, "sans", 400, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text, flex: 1, minWidth: 0 },
     verdict: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, gap: 6 },
     body: { gap: 8, minWidth: 0 },
     scriptPath: { marginTop: -4, marginBottom: 10 },
     small,
-    mono: font(t, "mono", 400, 12 * 0.92, 1.55),
-    monoBase: font(t, "mono", 400, t.base.size * 0.92, 1.55),
+    mono: font(t, "mono", 400, 12 * 0.92, lhOf(t)),
+    monoBase: font(t, "mono", 400, t.base.size * 0.92, lhOf(t)),
     ghost: { borderColor: t.c.lineStrong, backgroundColor: t.c.panel2 },
     assignment: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "baseline" as const, gap: 10 },
     steps: { gap: 2 },
     step: { borderLeftWidth: 2, borderLeftColor: t.c.lineStrong, paddingTop: 5, paddingBottom: 5, paddingLeft: 10, paddingRight: 8, gap: 4 },
     target: { backgroundColor: "rgba(236, 233, 227, 0.07)" },
     stepRow: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "baseline" as const, rowGap: 2, columnGap: 8, minWidth: 0 },
-    num: { ...font(t, "mono", 400, t.base.size * 0.92, 1.55), color: t.c.dim, width: t.base.size * 0.92 * 1.6, textAlign: "right" as const },
+    num: { ...font(t, "mono", 400, t.base.size * 0.92, lhOf(t)), color: t.c.dim, width: t.base.size * 0.92 * 1.6, textAlign: "right" as const },
     instruction: { ...font(t, "sans", 400, t.base.size), lineHeight: t.base.size * 1.75, color: t.c.text, flexGrow: 1, flexShrink: 1, flexBasis: 200, minWidth: 0 },
     tags: { flexBasis: "100%" as const, marginLeft: inset, flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "baseline" as const, gap: 8 },
-    player: { ...font(t, "sans", 400, 10, 1.55), color: t.c.muted, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 4, paddingHorizontal: 5, textTransform: "uppercase" as const, letterSpacing: 0.6 },
+    player: { ...font(t, "sans", 400, 10, lhOf(t)), color: t.c.muted, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 4, paddingHorizontal: 5, textTransform: "uppercase" as const, letterSpacing: 0.6 },
     judge: { ...font(t, "sans", 600, 10.5, 1.4), color: t.c.muted, letterSpacing: 0.42, textTransform: "uppercase" as const },
-    badge: { ...font(t, "sans", 400, 10, 1.55), color: t.c.accent, borderWidth: 1, borderColor: t.c.accentLine, backgroundColor: t.c.accentWash, borderRadius: 999, paddingHorizontal: 7, letterSpacing: 0.6, textTransform: "uppercase" as const },
+    badge: { ...font(t, "sans", 400, 10, lhOf(t)), color: t.c.accent, borderWidth: 1, borderColor: t.c.accentLine, backgroundColor: t.c.accentWash, borderRadius: 999, paddingHorizontal: 7, letterSpacing: 0.6, textTransform: "uppercase" as const },
     inset: { marginLeft: inset },
     monoInset: { marginLeft: t.base.size * 0.92 * 1.6 + 8 },
     smallInset: { marginLeft: 12 * 1.6 + 8 },

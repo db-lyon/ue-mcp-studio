@@ -4,6 +4,7 @@
  * through its flow or why it made no playtest (web: chat/Qa.tsx OutsideRuns,
  * chat/Transcript.tsx PlaytestProgress and PlaytestFailed).
  */
+import { lhOf } from "./live";
 import { createContext, useContext, useEffect, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import type { PlaytestRequest, PlaytestStage, QaRun, TranscriptEntry } from "@ue-mcp-studio/shared";
@@ -105,6 +106,6 @@ export function PlaytestFailed({ errors, request }: { errors: string[]; request:
 const styles = (t: Theme) => ({
   progress: { paddingVertical: 9, paddingHorizontal: 12, borderRadius: 8, marginBottom: 10, borderWidth: 1, borderColor: t.c.line, backgroundColor: t.c.panel2 },
   stages: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, gap: 14, marginVertical: 6 },
-  small: font(t, "sans", 400, 12, 1.55),
+  small: font(t, "sans", 400, 12, lhOf(t)),
   row: { flexDirection: "row" as const, alignItems: "center" as const, flexWrap: "wrap" as const, gap: 10, marginVertical: 6 },
 });

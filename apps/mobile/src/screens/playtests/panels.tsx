@@ -2,6 +2,7 @@
  * The panels an open playtest card shows: Start playtest's options, the
  * draft editor (Edit), and the Assign to subagent loop with its attempts.
  */
+import { lhOf } from "./live";
 import { useState } from "react";
 import { Pressable, View, Text } from "react-native";
 import {
@@ -24,7 +25,7 @@ import { Banner, Check, Input, Pill, T, bannerText, font, useStyles, useTheme, t
 import { Disclosure, chooseFrom, SmallButton } from "./parts";
 import { StepText } from "./StepText";
 
-const small = (t: Theme) => font(t, "sans", 400, 12, 1.55);
+const small = (t: Theme) => font(t, "sans", 400, 12, lhOf(t));
 
 export function RunPanel({ run, busy, onStart, onCancel }: { run: QaRun; busy: boolean; onStart: (o: RunOptions) => void; onCancel: () => void }) {
   const t = useTheme();
@@ -95,7 +96,7 @@ export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun
       {rows.map((r, i) => (
         <View key={i} style={s.editStep}>
           <View style={s.editHead}>
-            <T style={{ ...font(t, "mono", 400, t.base.size * 0.92, 1.55), color: t.c.dim, width: t.base.size * 1.6, textAlign: "right" }}>{i + 1}</T>
+            <T style={{ ...font(t, "mono", 400, t.base.size * 0.92, lhOf(t)), color: t.c.dim, width: t.base.size * 1.6, textAlign: "right" }}>{i + 1}</T>
             <Input
               accessibilityLabel={`Step ${i + 1} instruction`}
               multiline
@@ -200,7 +201,7 @@ export function LoopPanel({ loop, busy, onRevert, onThread, showReason = false }
                     <View key={group} style={{ marginTop: 2 }}>
                       <T style={[small(t), { color: t.c.dim }]}>{label}:</T>
                       {items.map((c) => (
-                        <T key={c.path} style={[font(t, "mono", 400, 12 * 0.92, 1.55), { color: t.c.text, paddingLeft: 16 }]}>
+                        <T key={c.path} style={[font(t, "mono", 400, 12 * 0.92, lhOf(t)), { color: t.c.text, paddingLeft: 16 }]}>
                           {"• "}
                           {c.path} <Text style={{ color: t.c.dim }}>{c.status}</Text>
                         </T>

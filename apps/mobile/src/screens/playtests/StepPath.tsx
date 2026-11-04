@@ -4,6 +4,7 @@
  * 44 point target that opens the card on its step; a bar with keyboard focus
  * names its step under the path. The legend says what the marks on screen mean.
  */
+import { lhOf } from "./live";
 import { useState } from "react";
 import { Platform, Pressable, View, type ViewStyle } from "react-native";
 import { PATH_MARKS, markOf, marksOf, statusLabel, stepBarLabel, stepPlain, type PathMark } from "@ue-mcp-studio/client-core";
@@ -40,6 +41,13 @@ export function markStyle(t: Theme, mark: PathMark, legend = false): ViewStyle {
   }
 }
 
+/** Only keyboard focus names a step, as the web's :focus-visible: a tap focuses a bar on the web build too, and opens the card instead. */
+const keyboardFocus = (e: { target?: unknown; nativeEvent?: { target?: unknown } }): boolean => {
+  if (Platform.OS !== "web") return true;
+  const el = (e.target ?? e.nativeEvent?.target) as { matches?: (q: string) => boolean } | undefined;
+  return !!el?.matches?.(":focus-visible");
+};
+
 export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; onStep?: (index: number) => void; ended?: boolean }) {
   const t = useTheme();
   const s = useStyles(styles);
@@ -64,7 +72,7 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
                   accessibilityRole="button"
                   accessibilityLabel={stepBarLabel(step, ended)}
                   onPress={() => onStep(step.index)}
-                  onFocus={() => setFocused(step.index)}
+                  onFocus={(e) => setFocused(keyboardFocus(e) ? step.index : null)}
                   onBlur={() => setFocused(null)}
                   style={s.hit}
                 >
@@ -125,13 +133,13 @@ const styles = (t: Theme) => ({
   hit: { position: "relative" as const, height: 44, marginTop: -10, marginBottom: -10, borderRadius: 3 },
   bar: { position: "absolute" as const, left: 0, right: 0, top: 22, height: 8, borderRadius: 3 },
   dot: { position: "absolute" as const, left: "50%" as const, top: 24, width: 4, height: 4, marginLeft: -2, borderRadius: 2, backgroundColor: t.c.text, opacity: 0.85, zIndex: 1 },
-  caption: { position: "absolute" as const, left: 0, right: 0, top: "100%" as const, zIndex: 4, flexDirection: "row" as const, alignItems: "baseline" as const, gap: 8, paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, backgroundColor: t.c.panel3 },
-  captionNum: { ...font(t, "mono", 400, 12 * 0.92, 1.55), color: t.c.text },
-  captionText: { ...font(t, "sans", 400, 12, 1.55), flex: 1, minWidth: 0, color: t.c.text },
-  captionState: { ...font(t, "sans", 400, 12, 1.55), flexShrink: 0, color: t.c.muted },
+  caption: { marginTop: 4, flexDirection: "row" as const, alignItems: "baseline" as const, gap: 8, paddingVertical: 4, paddingHorizontal: 8, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, backgroundColor: t.c.panel3 },
+  captionNum: { ...font(t, "mono", 400, 12 * 0.92, lhOf(t)), color: t.c.text },
+  captionText: { ...font(t, "sans", 400, 12, lhOf(t)), flex: 1, minWidth: 0, color: t.c.text },
+  captionState: { ...font(t, "sans", 400, 12, lhOf(t)), flexShrink: 0, color: t.c.muted },
   legend: { flexDirection: "row" as const, flexWrap: "wrap" as const, rowGap: 4, columnGap: 12 },
   legendItem: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
   legendMark: { width: 18, height: 8, borderRadius: 3, position: "relative" as const },
   legendPip: { position: "absolute" as const, left: "50%" as const, top: 2, width: 4, height: 4, marginLeft: -2, borderRadius: 2, backgroundColor: t.c.text, opacity: 0.85 },
-  legendText: { ...font(t, "sans", 400, 12, 1.55), color: t.c.muted },
+  legendText: { ...font(t, "sans", 400, 12, lhOf(t)), color: t.c.muted },
 });

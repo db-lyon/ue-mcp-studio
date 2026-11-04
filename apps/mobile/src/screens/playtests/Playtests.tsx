@@ -6,6 +6,7 @@
  * Each card works as it does in a session; a script no session has gets one
  * on its first action. Read again when runs change and when the stream is back.
  */
+import { lhOf } from "./live";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Pressable, RefreshControl, ScrollView, View, Text } from "react-native";
 import * as SecureStore from "expo-secure-store";
@@ -218,14 +219,14 @@ const styles = (t: Theme) => ({
   page: { paddingTop: 10, paddingHorizontal: 10, paddingBottom: 18, gap: 10 },
   head: { flexDirection: "row" as const, alignItems: "center" as const, flexWrap: "wrap" as const, gap: 10 },
   title: { ...font(t, "sans", 600, 20, 1.2), color: t.c.text },
-  count: { ...font(t, "sans", 400, 12, 1.55), color: t.c.dim, flexShrink: 1 },
+  count: { ...font(t, "sans", 400, 12, lhOf(t)), color: t.c.dim, flexShrink: 1 },
   refresh: { flexShrink: 0 },
   filters: { flexDirection: "row" as const, flexWrap: "wrap" as const, gap: 6 },
   chip: { minHeight: 44, paddingHorizontal: 12, borderRadius: 999, borderWidth: 1, borderColor: t.c.lineStrong, justifyContent: "center" as const },
   chipOn: { backgroundColor: t.c.accentWash, borderColor: t.c.accent },
   chipText: { ...font(t, "sans", 500, 12, 1), color: t.c.muted },
   chipCount: { fontFamily: font(t, "sans", 600, 12).fontFamily },
-  small: font(t, "sans", 400, 12, 1.55),
+  small: font(t, "sans", 400, 12, lhOf(t)),
   list: { gap: 8 },
   empty: {
     alignItems: "flex-start" as const,
