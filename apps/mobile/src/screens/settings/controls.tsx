@@ -126,8 +126,8 @@ export function Seg<K extends string>({ value, options, onChange, label, disable
             onPress={() => !on && onChange(o.id)}
             style={[
               { minHeight: 44, minWidth: 44, paddingVertical: 6, paddingHorizontal: 11, justifyContent: "center", backgroundColor: on ? t.c.accentWash : "transparent", opacity: off ? 0.45 : 1 },
-              // Stacked, the browser leaves 12px between the choices, each after the first under its own line.
-              stack ? { borderTopWidth: i ? 1 : 0, borderTopColor: t.c.lineStrong, marginTop: i ? 12 : 0 } : { borderLeftWidth: i ? 1 : 0, borderLeftColor: t.c.lineStrong, flexGrow: compact ? 0 : 1, flexShrink: 1, flexBasis: "auto" },
+              // Stacked, the choices touch, each after the first under its own line.
+              stack ? { borderTopWidth: i ? 1 : 0, borderTopColor: t.c.lineStrong } :{ borderLeftWidth: i ? 1 : 0, borderLeftColor: t.c.lineStrong, flexGrow: compact ? 0 : 1, flexShrink: 1, flexBasis: "auto" },
             ]}
           >
             {on ? <View pointerEvents="none" style={stack ? { position: "absolute", left: 0, top: 0, bottom: 0, width: 3, backgroundColor: t.c.accent } : { position: "absolute", left: 0, right: 0, bottom: 0, height: 2, backgroundColor: t.c.accent }} /> : null}
