@@ -16,6 +16,7 @@ import { EditorBanner } from "./views/EditorBanner";
 import { DialogBanner } from "./views/DialogBanner";
 import { VersionNotice } from "./views/VersionNotice";
 import { RemoteApprovalBanner } from "./views/remote/approvals";
+import { RemoteLock } from "./views/remote/RemoteLock";
 import { DockToggle } from "./views/DockToggle";
 import { NavDrawer } from "./views/NavDrawer";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
@@ -186,6 +187,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
       </div>
       <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
       {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
+      <RemoteLock />
     </div>
   );
 }

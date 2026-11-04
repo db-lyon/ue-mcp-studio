@@ -87,6 +87,50 @@ export interface RemoteApproval {
   project: string;
 }
 
+/** Idle times, in minutes, after which a whole-client PIN lock closes a paired browser again. */
+export const REMOTE_LOCK_IDLE_CHOICES: readonly number[] = [5, 15, 60];
+export const REMOTE_LOCK_IDLE_DEFAULT = 15;
+/** Wrong PINs in a row that remove a paired browser. */
+export const REMOTE_PIN_ATTEMPTS = 10;
+
+/**
+ * The remote PIN lock as Settings on the computer shows it: GET /remote/lock,
+ * PUT /remote/lock { whole?, sensitive?, idleMinutes? }, PUT /remote/lock/pin
+ * { pin }, DELETE /remote/lock/pin. Off until a PIN is set and a switch is on.
+ */
+export interface RemoteLockSettings {
+  /** A PIN is set. */
+  pin: boolean;
+  /** A paired browser needs the PIN to open Studio, and again after it sits idle. */
+  whole: boolean;
+  /** A paired browser needs the PIN for sensitive actions. */
+  sensitive: boolean;
+  idleMinutes: number;
+}
+
+/**
+ * The lock as a paired browser sees it: GET /v1/ext/studio/lock, answered by
+ * the computer. POST .../lock/unlock { pin }, .../lock/touch, .../lock/lock.
+ * A refused request answers 423 with `code` "locked" (the whole client) or
+ * "pin-required" (a sensitive action).
+ */
+export interface RemoteLockState {
+  whole: boolean;
+  sensitive: boolean;
+  /** The whole client is locked: only the lock screen works. */
+  locked: boolean;
+  /** Sensitive actions run without asking for the PIN right now. */
+  sensitiveOpen: boolean;
+  idleMinutes: number;
+  /** Wrong PINs left before this browser is removed, once one was wrong. */
+  remaining?: number;
+  /** Wait this long before the next try. */
+  retryAfterMs?: number;
+}
+
+/** A 423 from the computer: why the PIN is asked for. */
+export type RemoteLockCode = "locked" | "pin-required";
+
 /** "123456" as "123 456", the way Studio and the paired device both show it. */
 export function formatPairingCode(code: string): string {
   return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;

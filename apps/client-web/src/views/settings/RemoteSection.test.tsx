@@ -8,6 +8,7 @@ const m = vi.hoisted(() => ({
   pairRemote: vi.fn(),
   remoteBrowsers: vi.fn(),
   revokeRemoteBrowser: vi.fn(),
+  remoteLock: vi.fn(async () => ({ pin: false, whole: false, sensitive: false, idleMinutes: 15 })),
 }));
 const e = vi.hoisted(() => ({
   ApiError: class ApiError extends Error {
@@ -16,7 +17,7 @@ const e = vi.hoisted(() => ({
     }
   },
 }));
-vi.mock("../../api", () => ({ api: m, ApiError: e.ApiError }));
+vi.mock("../../api", () => ({ api: m, ApiError: e.ApiError, notThere: (x: unknown) => x instanceof e.ApiError && x.status === 404 }));
 import { NO_PLAN_TEXT, RemoteSection } from "./RemoteSection";
 
 const RELAY = "https://remote.ue-mcp.com";

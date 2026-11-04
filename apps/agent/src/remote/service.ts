@@ -27,6 +27,7 @@ import {
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ComputerKeys, PairedPhone } from "./keys.js";
+import { LOCK_PATH, type PinLock } from "./pin-lock.js";
 
 /** Where a call's answer goes. `chunk` resolves once the bytes may be sent on. */
 export interface CallSink {
@@ -49,6 +50,12 @@ export interface ServiceOptions {
   now?: () => number;
   /** Silence on an event stream before a keepalive comment goes out. Default STREAM_KEEPALIVE_MS. */
   keepaliveMs?: number;
+  /** The remote PIN lock; no lock when absent. */
+  lock?: PinLock;
+  /** Whether shell commands or file changes run without asking, so any turn could run them. */
+  risky?: () => boolean;
+  /** A browser was removed for too many wrong PINs. */
+  onLockout?: (phone: PairedPhone) => void;
 }
 
 /** A browser that proved it read this computer's code, waiting for the owner to allow it. */
@@ -271,6 +278,18 @@ export class RemoteService {
 
     const target = remotePath(req.method, req.path);
     if (!target) return error(403, "Not available remotely.");
+    const pathname = target.split("?")[0];
+    // The lock's own routes are answered here: only this side knows which browser is asking.
+    if (pathname === LOCK_PATH || pathname.startsWith(`${LOCK_PATH}/`)) {
+      const answer = await this.lockRoute(sealed.phone, req.method, pathname, req.body);
+      return reply(answer.status, { "content-type": "application/json", "cache-control": "no-store" }, new TextEncoder().encode(JSON.stringify(answer.body)));
+    }
+    if (this.o.lock) {
+      const verdict = this.o.lock.check(sealed.phone, req.method, pathname, this.o.risky?.() ?? true);
+      if (verdict === "locked") return reply(423, { "content-type": "application/json" }, new TextEncoder().encode(JSON.stringify({ error: "Locked. Enter your PIN.", code: "locked" })));
+      if (verdict === "pin-required") return reply(423, { "content-type": "application/json" }, new TextEncoder().encode(JSON.stringify({ error: "Enter your PIN to do this.", code: "pin-required" })));
+      if (req.method !== "GET" && req.method !== "HEAD") this.o.lock.touch(sealed.phone);
+    }
     const daemon = this.o.daemon();
     if (!daemon) return error(503, "The daemon is not running for that project.");
     const reqBody = req.body !== undefined ? Buffer.from(req.body, "base64") : undefined;
@@ -331,6 +350,42 @@ export class RemoteService {
       if (!signal.aborted) sink.fail(502, e instanceof Error ? e.message : String(e));
       else sink.end();
     }
+  }
+  /** GET .../lock, POST .../lock/unlock { pin }, .../lock/touch and .../lock/lock, for the browser `phone`. */
+  private async lockRoute(phone: string, method: string, pathname: string, body: string | undefined): Promise<{ status: number; body: unknown }> {
+    const lock = this.o.lock;
+    const sub = pathname.slice(LOCK_PATH.length);
+    const off = { whole: false, sensitive: false, locked: false, sensitiveOpen: true, idleMinutes: 0 };
+    if (method === "GET" && sub === "") return { status: 200, body: lock ? lock.state(phone) : off };
+    if (method !== "POST") return { status: 405, body: { error: "Method not allowed." } };
+    if (!lock) return { status: 409, body: { error: "No PIN is set on the computer." } };
+    if (sub === "/touch") {
+      lock.touch(phone);
+      return { status: 200, body: lock.state(phone) };
+    }
+    if (sub === "/lock") {
+      lock.lock(phone);
+      return { status: 200, body: lock.state(phone) };
+    }
+    if (sub !== "/unlock") return { status: 404, body: { error: "Not found." } };
+    let pin: unknown;
+    try {
+      pin = (JSON.parse(body ? Buffer.from(body, "base64").toString("utf-8") : "{}") as { pin?: unknown }).pin;
+    } catch {
+      pin = undefined;
+    }
+    const r = await lock.unlock(phone, pin);
+    if (r.ok) return { status: 200, body: r.state };
+    if (r.unpaired) {
+      const removed = this.o.keys.phones().find((p) => p.id === phone);
+      this.o.keys.removePhone(phone);
+      lock.forget(phone);
+      if (removed) this.o.onLockout?.(removed);
+      // Its open calls end after this answer, the event stream included.
+      setTimeout(() => this.cutOff(phone), 0);
+    }
+    const { status, error, retryAfterMs, remaining, unpaired } = r;
+    return { status, body: { error, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}), ...(remaining !== undefined ? { remaining } : {}), ...(unpaired ? { unpaired: true } : {}) } };
   }
 }
 
