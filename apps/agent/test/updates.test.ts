@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { Updater, isNewer, readPluginRecord, newestAsset, readChannel, writeChannel } from "../src/updates.js";
+import { Updater, isNewer, readPluginRecord, newestAsset, readChannel, updateEnv, writeChannel } from "../src/updates.js";
 
 // The user's own channel choice never reaches these tests.
 process.env.STUDIO_CHANNEL_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "studio-chan-")), "update-channel.json");
@@ -281,5 +281,12 @@ describe("the update channel", () => {
     expect(seen.some((u) => u.includes("api.github.com"))).toBe(false);
     // Going back to stable never offers an older version over a beta.
     expect(stable.studio.available).toBe(false);
+  });
+});
+
+describe("the environment an update runs in", () => {
+  it("drops what the npx that started the daemon left behind, so the nested npx fetches the package it is given", () => {
+    const env = updateEnv({ PATH: "p", npm_config_package: "ue-mcp@1.4.11", NPM_COMMAND: "exec", npm_lifecycle_event: "npx", npm_lifecycle_script: "ue-mcp", npm_config_call: "", npm_config_min_release_age: "7", npm_config_cache: "c" });
+    expect(env).toEqual({ PATH: "p", npm_config_cache: "c", npm_config_min_release_age: "0" });
   });
 });
