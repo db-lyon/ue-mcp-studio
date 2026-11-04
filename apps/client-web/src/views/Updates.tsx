@@ -15,7 +15,16 @@ export interface StudioUpdates {
   ueMcpMin?: string;
   /** The step the agent is running now (the plugin swap). */
   running?: string;
+  /** The last background step (the Studio update, the restart) that failed, kept across the daemon it stopped. */
+  failure?: { step: "studio" | "restart"; error: string; at: string } | null;
   error?: string;
+}
+
+/** What the card says about a background step that failed, or null when the last one did not. */
+export function failureLine(s: StudioUpdates | null | undefined): string | null {
+  const f = s?.failure;
+  if (!f?.error) return null;
+  return `${f.step === "studio" ? "The last Studio update failed" : "The last ue-mcp restart failed"}: ${f.error}`;
 }
 
 /** Update installs the plugin itself: never for a Fab install, which the Fab Library updates. */
@@ -220,6 +229,7 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
       )}
       {remote && <p className="dim small update-remote">{REMOTE_UPDATES}</p>}
       {stopped && !working && <div className="banner bad small update-error" role="alert">The last update stopped: {stopped}</div>}
+      {!stopped && !working && failureLine(u?.studio) && <div className="banner bad small update-error" role="alert">{failureLine(u?.studio)}</div>}
       {u?.studio && (
         <div className="row update-channel" role="radiogroup" aria-label="Release channel">
           <span className="dim small">Channel</span>

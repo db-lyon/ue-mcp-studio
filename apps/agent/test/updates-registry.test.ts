@@ -32,7 +32,17 @@ function packFake(): Buffer {
   const pkg = path.join(root, "pkg");
   fs.mkdirSync(pkg, { recursive: true });
   fs.writeFileSync(path.join(pkg, "package.json"), JSON.stringify({ name: "ue-mcp", version: TODAY, bin: { "ue-mcp": "cli.js" } }));
-  fs.writeFileSync(path.join(pkg, "cli.js"), '#!/usr/bin/env node\nrequire("fs").appendFileSync(process.env.FAKE_UE_MCP_CALLS, JSON.stringify(process.argv.slice(2)) + "\\n");\n');
+  const cli = [
+    "#!/usr/bin/env node",
+    'const fs = require("fs");',
+    'fs.appendFileSync(process.env.FAKE_UE_MCP_CALLS, JSON.stringify(process.argv.slice(2)) + "\\n");',
+    // What npm's age gate is set to for the npm runs ue-mcp makes inside an update.
+    'if (process.env.FAKE_UE_MCP_ENV) fs.appendFileSync(process.env.FAKE_UE_MCP_ENV, JSON.stringify({ minAge: process.env.npm_config_min_release_age ?? null }) + "\\n");',
+    // ue-mcp prints its errors on stdout, in colour, as fail() in its src/cli/ui/ansi.ts does.
+    'if (process.env.FAKE_UE_MCP_FAIL) { console.log("  \\x1b[31mx\\x1b[0m " + process.env.FAKE_UE_MCP_FAIL); process.exit(1); }',
+    "",
+  ];
+  fs.writeFileSync(path.join(pkg, "cli.js"), cli.join("\n"));
   const out = execFileSync(process.execPath, [path.join(npmBin, "npm-cli.js"), "pack", "--pack-destination", root, "--json"], { cwd: pkg, encoding: "utf-8" });
   return fs.readFileSync(path.join(root, (JSON.parse(out) as Array<{ filename: string }>)[0].filename));
 }
@@ -73,7 +83,7 @@ function bridge(dir: string, kind: "source" | "binary"): string {
   return dir;
 }
 
-const host = (dir: string) => ({ projectDir: dir, editors: () => [], editorOperation: async () => ({}) });
+const host = (dir: string) => ({ projectDir: dir, dataDir: path.join(dir, "studio-data"), editors: () => [], editorOperation: async () => ({}) });
 const manifestNaming = (pkg: string) => (async () => new Response(JSON.stringify({ version: "0.0.1", url: "x", sha256: "x", ueMcp: { package: pkg } }))) as unknown as typeof fetch;
 const recorded = (): string[][] => (fs.existsSync(calls) ? fs.readFileSync(calls, "utf-8").trim().split("\n").filter(Boolean).map((l) => JSON.parse(l) as string[]) : []);
 
@@ -272,6 +282,58 @@ describe("updates through an age-gated npm", () => {
     for (const [, e] of failures) {
       expect(e).toMatch(/ETARGET|No matching version found for ue-mcp@9\.9\.9/);
       expect(e).not.toMatch(/A complete log of this run/);
+    }
+  }, 120_000);
+
+  it("keeps what a failed Studio update printed on stdout, written by the chain itself", async () => {
+    const dir = project();
+    const failures: string[] = [];
+    process.env.FAKE_UE_MCP_FAIL = "could not download studio-9.9.9.zip: HTTP 404";
+    try {
+      const u = new Updater(host(dir), "0.0.1", () => {}, manifestNaming(`ue-mcp@${TODAY}`), () => "stable", (_, e) => failures.push(e));
+      expect(await u.updateStudio()).toEqual({ started: true });
+      // Kept on disk, so it is there even when the step took the daemon that started it down.
+      const kept = await until(() => u.lastFailure() ?? undefined);
+      expect(kept.step).toBe("studio");
+      expect(kept.error).toContain("could not download studio-9.9.9.zip: HTTP 404");
+      expect(kept.error).not.toContain("\x1b");
+      await until(() => (failures.length ? true : undefined));
+      expect(failures[0]).toContain("could not download studio-9.9.9.zip: HTTP 404");
+    } finally {
+      delete process.env.FAKE_UE_MCP_FAIL;
+    }
+  }, 90_000);
+
+  it("a new attempt clears the last failure", async () => {
+    const dir = project();
+    const u = new Updater(host(dir), "0.0.1", () => {}, manifestNaming(`ue-mcp@${TODAY}`), () => "stable");
+    process.env.FAKE_UE_MCP_FAIL = "first try failed";
+    try {
+      await u.updateStudio();
+      await until(() => u.lastFailure() ?? undefined);
+    } finally {
+      delete process.env.FAKE_UE_MCP_FAIL;
+    }
+    await u.updateStudio();
+    expect(u.lastFailure()).toBeNull();
+  }, 90_000);
+
+  it("lifts npm's age gate for the npm runs inside a Studio update and a bridge update", async () => {
+    const dir = bridge(project(), "binary");
+    const envLog = path.join(dir, "env.log");
+    process.env.FAKE_UE_MCP_ENV = envLog;
+    process.env.npm_config_min_release_age = "7";
+    try {
+      const u = new Updater(host(dir), "0.0.1", () => {}, manifestNaming(`ue-mcp@${TODAY}`), () => "stable");
+      await u.updateStudio();
+      await until(() => (fs.existsSync(envLog) ? true : undefined));
+      expect(await u.updateUeMcp(TODAY)).toEqual({ ok: true });
+      const seen = fs.readFileSync(envLog, "utf-8").trim().split("\n").map((l) => (JSON.parse(l) as { minAge: string | null }).minAge);
+      expect(seen.length).toBeGreaterThanOrEqual(2);
+      expect(new Set(seen)).toEqual(new Set(["0"]));
+    } finally {
+      delete process.env.FAKE_UE_MCP_ENV;
+      delete process.env.npm_config_min_release_age;
     }
   }, 120_000);
 });

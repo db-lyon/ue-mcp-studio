@@ -421,7 +421,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (!r.ok) return { status: 500, body: { error: r.error } };
     return { status: r.started ? 202 : 200, body: r };
   };
-  api.route("GET", "/updates", async () => ({ body: { ...(await updater.check()), deferred: updates.steps() } }));
+  api.route("GET", "/updates", async () => ({ body: { ...(await updater.check()), deferred: updates.steps(), failure: updater.lastFailure() } }));
   // Stable or beta, for every project: Update follows it for Studio and the editor plugin.
   api.route("PUT", "/updates/channel", (req) => {
     const channel = (req.body as { channel?: unknown } | undefined)?.channel;
@@ -449,11 +449,18 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   // The panel's update run, kept here because the page that resumes it is served on the next daemon's port.
   const runFile = path.join(api.dataDir, "update-run.json");
   api.route("GET", "/updates/run", () => {
+    let run: { steps?: Array<{ key: string; state: string }>; error?: string } | null;
     try {
-      return { body: { run: JSON.parse(fs.readFileSync(runFile, "utf-8")) as unknown } };
+      run = JSON.parse(fs.readFileSync(runFile, "utf-8")) as typeof run;
     } catch {
       return { body: { run: null } };
     }
+    // A step that failed after it took the old daemon down: the chain kept the failure, so the run stops on it here.
+    const failure = updater.lastFailure();
+    if (run && !run.error && failure && Array.isArray(run.steps) && run.steps.some((s) => s.key === failure.step && s.state !== "done")) {
+      run = { ...run, error: failure.error, steps: run.steps.map((s) => (s.key === failure.step ? { ...s, state: "failed" } : s)) };
+    }
+    return { body: { run } };
   });
   api.route("PUT", "/updates/run", (req) => {
     const run = (req.body as { run?: unknown } | undefined)?.run ?? null;
