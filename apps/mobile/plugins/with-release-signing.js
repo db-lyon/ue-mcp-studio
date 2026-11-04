@@ -32,8 +32,10 @@ module.exports = function withReleaseSigning(config) {
       if (item) item.value = value;
       else c.modResults.push({ type: "property", key, value });
     };
-    // Phones only: no x86 emulator builds in the release APK.
-    set("reactNativeArchitectures", "armeabi-v7a,arm64-v8a");
+    // 64-bit phones only: no 32-bit or emulator builds, which keeps the APK small enough to send.
+    set("reactNativeArchitectures", "arm64-v8a");
+    set("android.enableMinifyInReleaseBuilds", "true");
+    set("android.enableShrinkResourcesInReleaseBuilds", "true");
     return c;
   });
 };
