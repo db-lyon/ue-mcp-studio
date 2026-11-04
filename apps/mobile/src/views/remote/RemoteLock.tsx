@@ -245,7 +245,8 @@ export function RememberOffer({ onYes, onNo }: { onYes: () => void; onNo: () => 
   return (
     <View style={s.backdrop}>
       <View style={s.sheet} accessibilityViewIsModal accessibilityLabel="Use fingerprint next time">
-        <T style={s.sheetTitle} accessibilityRole="header">
+        {/* A question, so in sentence case where the PIN sheet's title is a label. */}
+        <T style={[s.sheetTitle, { textTransform: "none", letterSpacing: 0 }]} accessibilityRole="header">
           Unlock with your fingerprint?
         </T>
         <T style={s.sheetLead}>Next time, your fingerprint can enter the PIN for you. The PIN stays on this phone, and your computer still checks it.</T>
