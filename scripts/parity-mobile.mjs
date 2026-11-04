@@ -132,6 +132,8 @@ for (const name of picked) {
     const page = await browser.newPage({ viewport: { width: WIDTH, height }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
     const errors = [];
     page.on("pageerror", (e) => errors.push(e.message));
+    // A link the app opens in the browser (Upgrade's checkout) is closed at once, as the web harness never opens one.
+    page.on("popup", (p) => void p.close().catch(() => undefined));
     await page.goto(`${base}/index.html?scenario=${encodeURIComponent(name)}&theme=${theme}`);
     await page.waitForTimeout(1500);
     for (const c of parity[name].clicks ?? []) {

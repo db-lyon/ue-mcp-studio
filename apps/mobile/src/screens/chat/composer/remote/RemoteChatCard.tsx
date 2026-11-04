@@ -5,12 +5,12 @@
  * why when it does not come.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, View } from "react-native";
+import { View } from "react-native";
 import { HttpError } from "@ue-mcp-studio/client-core";
 import { REMOTE_NO_PLAN, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../../nav";
-import { Banner, Button, Dot, T, useTheme } from "../../../../ui";
-import { buttonText, small } from "../../../../chat/styles";
+import { Banner, Button, Dot, T, font, useTheme } from "../../../../ui";
+import { small } from "../../../../chat/styles";
 import { ApprovalPrompt, PairedBrowsers, useApprovalsInCard, useRemoteApprovals } from "./approvals";
 import { PairingCode } from "./PairingCode";
 
@@ -119,8 +119,9 @@ export function RemoteChatCard({ onSettings }: { onSettings?: () => void }) {
         </View>
       ) : null}
       {state.at === "error" ? (
-        <Banner kind="bad" role="alert" style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 0 }}>
-          <T style={{ flex: 1, minWidth: 0, color: t.c.badText }}>
+        // .banner.bad.row: the words grow from their own width, so a long reason takes the line and Retry wraps under it.
+        <Banner kind="bad" role="alert" style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap", marginTop: 6, marginBottom: 10 }}>
+          <T style={{ flexGrow: 1, flexShrink: 1, flexBasis: "auto", minWidth: 0, color: t.c.badText }}>
             {state.message}
             {state.recovers ? <T style={{ color: t.c.dim }}> The code shows here once it connects.</T> : null}
           </T>
@@ -136,10 +137,11 @@ export function RemoteChatCard({ onSettings }: { onSettings?: () => void }) {
       ) : null}
       {state.at !== "connecting" ? <PairedBrowsers /> : null}
       {onSettings ? (
-        // button.ghost.small-button.remote-manage: the accent's words, at the start.
-        <Pressable accessibilityRole="button" onPress={onSettings} style={({ pressed }) => ({ alignSelf: "flex-start", minHeight: 44, paddingHorizontal: 10, justifyContent: "center", borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.accentLine : "transparent", backgroundColor: pressed ? t.c.panel3 : "transparent" })}>
-          <T style={[buttonText(t), { color: t.c.accent }]}>Manage paired browsers in Settings</T>
-        </Pressable>
+        // button.ghost.small-button.remote-manage, which a reply on a touch screen draws as an outlined button (.local-reply button.ghost).
+        // button.small-button takes the reply's font size (font-size: inherit), keeping the button's face and its 0.02em.
+        <Button label="Manage paired browsers in Settings" onPress={onSettings} size="small" style={{ alignSelf: "flex-start" }}>
+          <T style={t.editor ? font(t, "sans", 400, t.base.size, 1.2) : { ...font(t, "mono", 500, t.base.size, 1.2), letterSpacing: t.base.size * 0.02 }}>Manage paired browsers in Settings</T>
+        </Button>
       ) : null}
     </View>
   );

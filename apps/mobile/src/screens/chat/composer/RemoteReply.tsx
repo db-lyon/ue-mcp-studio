@@ -6,10 +6,11 @@
  * until the next message or Dismiss.
  */
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { ScrollView, useWindowDimensions, View } from "react-native";
 import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_AVAILABLE, isLocalCommand, remoteCommand, remoteShown, type SlashCommand } from "@ue-mcp-studio/shared";
 import { T, useTheme } from "../../../ui";
 import { SignInForm } from "./ModelPicker";
+import { IconButton } from "./ContextMeter";
 import { RemoteChatCard } from "./remote/RemoteChatCard";
 import { REMOTE_NOW_ON, REMOTE_SIGN_IN, UpgradeAction } from "./remote/Upgrade";
 import { useRemoteAvailable } from "./remote/remote-available";
@@ -68,20 +69,13 @@ export function RemoteReply({ remote, onDismiss, onSettings }: { remote: RemoteS
   return (
     <ScrollView
       accessibilityLiveRegion="polite"
-      style={{ alignSelf: "flex-start", marginHorizontal: 14, marginBottom: 8, maxHeight: height * 0.6, maxWidth: "100%" }}
+      style={{ flexGrow: 0, flexShrink: 0, alignSelf: "stretch", marginHorizontal: 14, marginBottom: 8, maxHeight: height * 0.6 }}
       contentContainerStyle={{ paddingVertical: 10, paddingRight: 13, paddingLeft: 2, gap: 8 }}
     >
       <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10 }}>
         <T style={{ flex: 1, minWidth: 0, alignSelf: "center", fontSize: t.base.size, lineHeight: t.base.lineHeight, color: t.c.text }}>{text}</T>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Dismiss"
-          onPress={onDismiss}
-          style={({ pressed }) => ({ width: 24, height: 24, alignItems: "center", justifyContent: "center", borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.lineStrong : t.c.line, backgroundColor: t.c.panel2 })}
-          hitSlop={10}
-        >
-          <T style={{ color: t.c.muted, fontSize: 14, lineHeight: 16 }}>{"×"}</T>
-        </Pressable>
+        {/* .reply-close on a touch screen: a 44 px icon button. */}
+        <IconButton label="Dismiss" glyph={"×"} onPress={onDismiss} />
       </View>
       {remote.available ? (
         <RemoteChatCard onSettings={onSettings && (() => {
