@@ -87,7 +87,7 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
       </Pressable>
       <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
         {thread ? (
-          <T numberOfLines={1} style={{ fontSize: 11, lineHeight: t.editor ? 16.5 : 17.05, color: t.c.dim }}>
+          <T numberOfLines={1} style={{ fontSize: 11, lineHeight: lineBox(11, t.base.lineHeight / t.base.size), color: t.c.dim }}>
             {title}
           </T>
         ) : null}
@@ -98,7 +98,7 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
       {st && thread ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 6, flexShrink: 0 }}>
           <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: stateColors(t, st.state).dot }} />
-          <T style={{ fontSize: 11, lineHeight: 17, color: stateColors(t, st.state).label }}>{STATE_LABEL[st.state]}</T>
+          <T style={{ fontSize: 11, lineHeight: lineBox(11, t.base.lineHeight / t.base.size), color: stateColors(t, st.state).label }}>{STATE_LABEL[st.state]}</T>
         </View>
       ) : null}
       {st && thread && isActive(st.state) ? (
