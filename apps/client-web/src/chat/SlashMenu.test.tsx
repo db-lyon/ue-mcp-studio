@@ -10,7 +10,7 @@ afterEach(cleanup);
 
 describe("the command registry", () => {
   it("has /playtest, /flow and /action", () => {
-    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["playtest", "flow", "action"]);
+    expect(SLASH_COMMANDS.map((c) => c.name)).toEqual(["playtest", "flow", "action", "compact"]);
   });
 
   it("reads a command and its text from a message, and leaves any other message alone", () => {
@@ -35,7 +35,7 @@ describe("the command registry", () => {
   });
 
   it("matches by the start of the name", () => {
-    expect(matchCommands("").map((c) => c.name)).toEqual(["playtest", "flow", "action"]);
+    expect(matchCommands("").map((c) => c.name)).toEqual(["playtest", "flow", "action", "compact"]);
     expect(matchCommands("PLAY").map((c) => c.name)).toEqual(["playtest"]);
     expect(matchCommands("x")).toEqual([]);
   });
@@ -132,7 +132,7 @@ describe("the slash menu", () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} />);
     fireEvent.change(box(), { target: { value: "/" } });
-    expect(options()).toEqual([{ text: "/playtest", selected: true }, { text: "/flow", selected: false }, { text: "/action", selected: false }]);
+    expect(options()).toEqual([{ text: "/playtest", selected: true }, { text: "/flow", selected: false }, { text: "/action", selected: false }, { text: "/compact", selected: false }]);
     fireEvent.keyDown(box(), { key: "Enter" });
     fireEvent.change(box(), { target: { value: "/playtest the door opens" } });
     fireEvent.keyDown(box(), { key: "Enter" });
