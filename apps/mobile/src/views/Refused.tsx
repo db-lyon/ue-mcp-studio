@@ -37,7 +37,7 @@ export function RefusedScreen({ refusal }: { refusal: StudioRefusal; remote?: bo
       <View style={s.main}>
         <View style={s.empty}>
           <T style={s.head} accessibilityRole="header">
-            Studio needs ue-mcp {refusal.needs}. You have {refusal.have}.
+            Studio needs ue-mcp {refusal.needs} or later. You have {refusal.have}.
           </T>
           <T style={s.lead}>{REMOTE_UPDATES}</T>
         </View>

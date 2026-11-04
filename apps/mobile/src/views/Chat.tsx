@@ -648,7 +648,7 @@ function Empty({ settings, onSettings, onCreate }: { settings: StudioSettings | 
     <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", paddingVertical: 28, paddingHorizontal: 14 }}>
       <Display t={t} />
       <T style={{ ...font(t, "sans", 400, 13.5, t.base.lineHeight / t.base.size), color: t.c.muted, textAlign: "center", maxWidth: 460, marginBottom: 20 }}>
-        The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project&apos;s files, and read the web, asking you first before a command or an edit.
+        The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project&apos;s files, and read the web. Approvals in Settings set what it asks you first.
       </T>
       {settings && disconnected ? <ConnectCard settings={settings} onSettings={onSettings} /> : null}
       {settings && !disconnected ? (

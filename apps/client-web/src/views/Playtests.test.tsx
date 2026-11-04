@@ -148,7 +148,7 @@ describe("the Playtests page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Needs you 0" }));
     expect(screen.getByText(/Nothing needs you/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Failing 0" }));
-    expect(screen.getByText(/No playtest is failing/)).toBeTruthy();
+    expect(screen.getByText(/No playtest.s last run failed/)).toBeTruthy();
   });
 
   it("keeps every row's actions in one place, the card's top-right corner, in one order", () => {

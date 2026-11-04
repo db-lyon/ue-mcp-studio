@@ -4,7 +4,7 @@
  * sizes, and a session's live playtest runs. The web client and the app draw
  * these the same way.
  */
-import type { ContextView, QaRun, SessionSummary, TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { ContextUsage, ContextView, QaRun, SessionSummary, TranscriptEntry } from "@ue-mcp-studio/shared";
 import { tokenCount } from "./chat-model.js";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -70,11 +70,47 @@ export function compactLine(view: ContextView, runtime: boolean): string {
     : `Studio compacts it on its own at ${at} tokens (${pct(view.compactAt)}).`;
 }
 
-/** The context meter's name for a screen reader and its tooltip. */
-export function contextLabel(view: ContextView | null, owner?: string): string {
+/** The context meter's name for a screen reader. */
+export function contextLabel(view: ContextView | null, owner?: string, compacting = false): string {
   return view
-    ? `${owner ? `${owner} agent's context` : "Context"} ${pct(view.fraction)} full: ${tokenCount(view.used)} of ${tokenCount(view.window)} tokens${view.estimated ? ", estimated" : ""}`
+    ? `${owner ? `${owner} agent's context` : "Context"} ${pct(view.fraction)} full: ${tokenCount(view.used)} of ${tokenCount(view.window)} tokens${view.estimated ? ", estimated" : ""}${compacting ? ", compacting" : ""}`
     : "Context not measured yet";
+}
+
+/** The meter's numeral beside the ring. */
+export const contextPct = (view: ContextView | null): string => (view ? `${view.estimated ? "~" : ""}${pct(view.fraction)}` : "ctx");
+
+/** The hover card's lines: tokens of the window, the model it was measured on, where it compacts. */
+export function tipLines(view: ContextView, context: ContextUsage | undefined, opts: { nameOf: (id: string) => string; modelName: string; runtime: boolean; compacting: boolean; owner?: string }): string[] {
+  const lines: string[] = [];
+  if (opts.owner) lines.push(`${opts.owner} agent's context`);
+  lines.push(`${view.estimated ? "About " : ""}${tokenCount(view.used)} of ${tokenCount(view.window)} tokens${view.estimated ? ", estimated" : ""}`);
+  const on = view.measuredOn ?? (context?.model || null);
+  if (view.estimated && !on) lines.push("Estimated from the conversation's text");
+  else if (on) lines.push(view.measuredOn ? `Measured on ${opts.nameOf(on)}, next turn on ${opts.modelName}` : `Measured on ${opts.nameOf(on)}`);
+  const at = tokenCount(Math.round(view.window * view.compactAt));
+  const who = opts.runtime ? "Claude's runtime compacts" : "Studio compacts";
+  if (opts.compacting) lines.push("Compacting now");
+  else if (view.fraction >= 1) lines.push(`Over the window: ${opts.runtime ? "the runtime compacts it next turn" : "Studio compacts it before the next request"}`);
+  else if (view.fraction >= view.compactAt) lines.push(`Past where it compacts (${at}): ${opts.runtime ? "compacts next turn" : "compacts before the next request"}`);
+  else lines.push(`${who} at ${opts.runtime ? "about " : ""}${at} (${pct(view.compactAt)})`);
+  return lines;
+}
+
+/**
+ * The context ring's geometry in a 16 unit box: a circle of radius 6 whose
+ * fill is a dash from the top, clockwise (a sliver once anything is
+ * measured), and a tick from radius 4 to 8 where it compacts.
+ */
+export function contextRing(view: ContextView): { r: number; circumference: number; dash: number; tick: { x1: number; y1: number; x2: number; y2: number } } {
+  const r = 6;
+  const circumference = 2 * Math.PI * r;
+  const f = Math.min(1, Math.max(0, view.fraction));
+  const dash = view.used > 0 ? Math.max(f * circumference, 0.6) : 0;
+  const a = view.compactAt * 2 * Math.PI;
+  const tx = (rad: number) => 8 + rad * Math.sin(a);
+  const ty = (rad: number) => 8 - rad * Math.cos(a);
+  return { r, circumference, dash, tick: { x1: tx(4), y1: ty(4), x2: tx(8), y2: ty(8) } };
 }
 
 /** The context warning's sentence. */

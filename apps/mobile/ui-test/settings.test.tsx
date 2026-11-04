@@ -86,8 +86,8 @@ describe("Settings > Remote control", () => {
   it("says it is set up on the computer, once the computer refuses its routes", async () => {
     open("settings-remote-pin-on", "remote");
     await settled();
-    expect(screen.getByText("Remote control is turned on and paired from the computer running the project, not from a paired browser.")).toBeTruthy();
-    expect(screen.queryByLabelText("Lock the whole browser")).toBeNull();
+    expect(screen.getByText("Remote control is turned on and paired from the computer running the project, not from a paired device.")).toBeTruthy();
+    expect(screen.queryByLabelText("Lock Studio on paired devices")).toBeNull();
   });
 });
 
@@ -154,6 +154,16 @@ describe("Settings > Approvals & review", () => {
     await settled();
     expect(writes()).toContainEqual(expect.objectContaining({ json: { reviewTurns: false } }));
   });
+
+  it("says what each rule does as the code does it", async () => {
+    open("settings-approvals", "approvals");
+    await settled(6);
+    expect(screen.getByText("What needs your approval in this project. Applies to every agent.")).toBeTruthy();
+    expect(screen.getByText("Stop, start, restart or rebuild the editor")).toBeTruthy();
+    expect(screen.getByText("An open editor dialog blocks editor calls until it is answered.")).toBeTruthy();
+    expect(screen.getAllByText(/Editor calls are refused until you answer it in the editor\./).length).toBeGreaterThan(0);
+    expect(screen.getByText(/With no Cancel or Keep button, it keeps waiting\./)).toBeTruthy();
+  });
 });
 
 describe("Settings > Project", () => {
@@ -163,6 +173,7 @@ describe("Settings > Project", () => {
     expect(screen.getByText("The bridge plugin needs a rebuild.")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Rebuild"));
     expect(screen.getByLabelText("Close the editor and rebuild")).toBeTruthy();
+    expect(screen.getByText(/builds the project's C\+\+ including the bridge plugin.*Unsaved changes get the editor's save prompt before it closes\./)).toBeTruthy();
   });
 
   it("shows ue-mcp.yml read only, highlighted, under Advanced", async () => {

@@ -20,8 +20,10 @@ export function buttonFont(t: Theme, primary = false, fontSize?: number): TextSt
   return { ...font(t, "mono", primary ? 600 : 500, size, 1.2), letterSpacing: size * 0.02 };
 }
 
-export function ContentButton({ title, onPress, kind = "default", small, fontSize, disabled, label, style, textStyle, children, accessibilityState }: {
+export function ContentButton({ title, onPress, kind = "default", small, fontSize, disabled, label, hint, style, textStyle, children, accessibilityState }: {
   title?: string;
+  /** The web button's title (its tooltip), for a screen reader. */
+  hint?: string;
   onPress?: () => void;
   kind?: ContentButtonKind;
   small?: boolean;
@@ -45,6 +47,7 @@ export function ContentButton({ title, onPress, kind = "default", small, fontSiz
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={label ?? title}
+      accessibilityHint={hint}
       accessibilityState={{ disabled: !!disabled, ...accessibilityState }}
       disabled={disabled}
       onPress={onPress}

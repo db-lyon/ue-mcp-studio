@@ -297,7 +297,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         />
         <span className="spacer" />
         {onQueue && tier === "full" && <span className="composer-hint dim small">{busy ? "Enter to queue, Ctrl+Enter to stop and send now" : "Enter to send, Shift+Enter for a new line"}</span>}
-        {busy && onQueue && <button className="composer-queue" disabled={!canSend} onClick={onQueue} title="Send when the running turn ends">Queue</button>}
+        {busy && onQueue && <button className="composer-queue" disabled={!canSend} onClick={onQueue} title="Send after the running turn completes. A stopped or failed turn holds the queue.">Queue</button>}
         {busy ? <button className="composer-send" onClick={onStop}>Stop</button> : <button className="composer-send primary" disabled={!canSend} onClick={onSend}>Send</button>}
       </div>
       {children}

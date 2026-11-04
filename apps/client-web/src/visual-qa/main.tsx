@@ -129,6 +129,7 @@ window.open = () => null;
   afterType: scenario.afterType ?? null,
   fullPage: scenario.fullPage ?? false,
   waitFor: scenario.waitFor ?? null,
+  hover: scenario.hover ?? null,
 };
 
 // The fonts are loaded before the first render, so a shot never catches a font swap after a scroll to the

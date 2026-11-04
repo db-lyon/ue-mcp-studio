@@ -94,7 +94,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
               {copy.action === "rebuild" && rebuild === "confirm" ? (
                 <Banner kind="warn" role="alert">
                   <Txt size={12} style={{ color: bannerText(t, "warn") }}>
-                    Rebuild closes the editor, builds the bridge plugin, and opens the editor again. It can take a few minutes. The editor does not close while it has unsaved changes.
+                    Rebuild closes the editor, builds the project&apos;s C++ including the bridge plugin, and opens the editor again. It can take a few minutes. Unsaved changes get the editor&apos;s save prompt before it closes.
                   </Txt>
                   <View style={{ flexDirection: "row", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
                     <Button variant="primary" title="Close the editor and rebuild" onPress={() => void runRebuild()} />
@@ -104,7 +104,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
               ) : null}
               {copy.action === "rebuild" && rebuild === "running" ? (
                 <Banner kind="ok" role="status">
-                  <Txt size={12}>Rebuilding. The editor closes, the bridge plugin builds, then the editor opens again.</Txt>
+                  <Txt size={12}>Rebuilding. The editor closes, the project&apos;s C++ builds, then the editor opens again.</Txt>
                 </Banner>
               ) : null}
               {copy.action === "updates" ? (
@@ -120,7 +120,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
       <Card>
         <CardLabel>Context strategy</CardLabel>
         <Txt size={12} tone="muted" style={{ marginBottom: 12 }}>
-          What every client loads at session start, Studio's agent included.
+          What MCP clients load at session start. Studio&apos;s agent reads it each turn.
         </Txt>
         {context ? (
           <>
@@ -156,7 +156,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
             </ReadOnly>
             <Txt size={12} tone="dim" style={{ marginTop: 8, marginBottom: 12 }}>
               {clients.length ? `Used by ${clients.map((c) => c.name).join(" and ")}. ` : "No other MCP client configured. "}
-              Applies from each client's next session.{context.fromFile ? "" : " Default: Micro."} Token counts measured by ue-mcp.
+              Studio&apos;s agent switches at its next turn, other clients at their next session.{context.fromFile ? "" : " Default: Micro."} Token counts measured by ue-mcp.
             </Txt>
           </>
         ) : null}
@@ -246,7 +246,7 @@ function ConfigView() {
         <Txt style={{ color: bannerText(t, "bad") }}>{error}</Txt>
       </Banner>
     ) : (
-      <Txt tone="muted">Loading...</Txt>
+      <Txt tone="muted">Loading</Txt>
     );
   const color: Record<string, string> = { key: synKey(t), string: t.c.ok, number: t.c.warn, bool: t.c.warn, null: t.c.warn, anchor: t.c.bad, tag: t.c.bad, comment: t.c.dim, dash: t.c.muted, punct: t.c.muted, doc: t.c.muted };
   return (

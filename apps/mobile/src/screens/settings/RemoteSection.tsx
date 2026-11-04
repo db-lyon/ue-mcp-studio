@@ -38,13 +38,13 @@ export function RemoteSection() {
     };
   }, [api]);
 
-  const head = <Head title="Remote control" lead="Use this project from a phone or another computer's browser. What they exchange with this computer is encrypted end to end; the relay cannot read it." />;
+  const head = <Head title="Remote control" lead="Use this project from a phone or another computer. Requests and answers between a paired device and this computer are encrypted end to end, so the relay cannot read them." />;
   if (refused) {
     return (
       <>
         {head}
         <Banner kind="warn" role="status">
-          <Txt style={{ color: bannerText(t, "warn") }}>Remote control is turned on and paired from the computer running the project, not from a paired browser.</Txt>
+          <Txt style={{ color: bannerText(t, "warn") }}>Remote control is turned on and paired from the computer running the project, not from a paired device.</Txt>
         </Banner>
       </>
     );
@@ -59,7 +59,7 @@ export function RemoteSection() {
       ) : null}
       <Card>
         <CardLabel>Connection</CardLabel>
-        <SettingRow first title="Remote control" help="While it is on, this project stays reachable from browsers paired with this computer, and the daemon keeps running.">
+        <SettingRow first title="Remote control" help="While it is on and connected, devices paired with this computer can reach this project, and the daemon does not stop for being idle.">
           <Switch on={false} onChange={() => undefined} label="Remote control" disabled />
         </SettingRow>
         <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", paddingVertical: 11, borderTopWidth: 1, borderTopColor: t.c.line }}>
@@ -70,11 +70,11 @@ export function RemoteSection() {
       <Card>
         <CardLabel actions={<Button variant="primary" title="New code" disabled />}>Pair a phone or browser</CardLabel>
         <Txt size={12} tone="muted">
-          Scan the code on the device, or open the link there. It works once, for ten minutes, and pairs the device with every project on this computer. Turn remote control on and wait for it to connect first.
+          Scan the code on the device or open the link there, then allow the device when Studio here asks. A code works once, for 10 minutes. The device is paired with every project on this computer. Turn remote control on and wait for it to connect first.
         </Txt>
       </Card>
       <Card>
-        <CardLabel>Paired browsers</CardLabel>
+        <CardLabel>Paired devices</CardLabel>
         <Txt size={12} tone="muted">
           Loading
         </Txt>

@@ -5,6 +5,7 @@ import type { StudioUpdates, UeMcpUpdate } from "./Updates";
 import { STEP_NAME, STEP_NOTE, afterRunning, execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
 import { onRemotePage } from "../connection";
+import { waitingWho } from "@ue-mcp-studio/client-core";
 
 let current: UpdateRun | null = null;
 const listeners = new Set<() => void>();
@@ -91,15 +92,15 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
 export function UpdateWaiting({ run }: { run: UpdateRun }) {
   const [sure, setSure] = useState(false);
   const steps = waitingSteps(run);
-  const restarts = steps.some((k) => k === "studio" || k === "restart");
+  const who = waitingWho(steps);
   return (
     <div className="banner warn update-waiting" role="status">
       <span className="editor-banner-text">
-        <strong>Update ready,</strong> {restarts ? "restarts" : "the editor restarts for it"} when the current turn finishes.
-        {sure && <span className="dim"> Restarting now stops the turn in progress.</span>}
+        <strong>Update ready.</strong> {who} once no turn is in progress.
+        {sure && <span className="dim"> Restarting now stops every turn in progress.</span>}
       </span>
       {sure && <button className="ghost" onClick={() => setSure(false)}>Cancel</button>}
-      <button className={sure ? "primary" : ""} onClick={() => (sure ? void restartNow(run, setRun) : setSure(true))}>{sure ? "Restart and stop the turn" : "Restart now"}</button>
+      <button className={sure ? "primary" : ""} onClick={() => (sure ? void restartNow(run, setRun) : setSure(true))}>{sure ? "Restart and stop turns" : "Restart now"}</button>
     </div>
   );
 }
@@ -127,7 +128,7 @@ export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boo
             </li>
           ))}
         </ol>
-        {slow && !failed && <p className="dim small">Taking longer than it should. If Studio does not reload, close its tab and open it again.</p>}
+        {slow && !failed && <p className="dim small">Taking longer than it should. If Studio does not reload, close Studio and open it again.</p>}
         {failed && <div className="banner bad small update-error">{run.error}</div>}
         {finished && run.summary && <p className="muted small">{run.summary}</p>}
         {(finished || failed) && (

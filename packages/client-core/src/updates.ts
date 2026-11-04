@@ -48,6 +48,30 @@ export function updateFailureLine(s: StudioUpdates | null | undefined): string |
   return `${f.step === "studio" ? "The last Studio update failed" : "The last ue-mcp restart failed"}: ${f.error}`;
 }
 
+/** Why the check could not say what is newer, or null when both checks answered. */
+export function checkFailure(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null } | null): string | null {
+  if (!u) return null;
+  if (!u.studio || !u.ueMcp) return "no answer";
+  return u.studio.error ?? u.ueMcp.error ?? null;
+}
+
+/**
+ * A plugin installed outside the project's Plugins folder, which Update does not replace. location
+ * defaults to engine when no plugin was found: only an installed one is outside the project.
+ */
+export const pluginOutside = (s: StudioUpdates | null | undefined): boolean => s?.plugin.location === "engine" && s.plugin.source !== "fab" && !!s.plugin.installed && !!s.plugin.latest;
+
+export const PLUGIN_OUTSIDE = "Installed outside this project's Plugins folder, so Update does not replace it.";
+
+/** The card's status: its pill and line. */
+export function updateStatus(o: { steps: number; unchecked: string | null; waiting: boolean; working: boolean; ready: string }): { pill: string; tone: "warn" | "ok"; line: string } {
+  return {
+    pill: o.steps ? "Update available" : o.unchecked ? "Not checked" : "Up to date",
+    tone: o.steps || o.unchecked ? "warn" : "ok",
+    line: o.waiting ? "Update ready. It runs once no turn is in progress." : o.working ? "Updating" : o.steps ? o.ready : o.unchecked ? "Could not check for updates." : "Up to date.",
+  };
+}
+
 /** Update installs the plugin itself: never for a Fab install, which the Fab Library updates. */
 export const pluginStep = (s: StudioUpdates | null | undefined): boolean => !!s?.plugin.available && s.plugin.source !== "fab";
 

@@ -94,7 +94,7 @@ describe("the editor banner", () => {
     render(<EditorBanner daemon={daemon(false)} />);
     fireEvent.click(await screen.findByText("Start"));
     await waitFor(() => expect(posted).toEqual(["/v1/editor/start"]));
-    expect(screen.getByText("Editor not running")).toBeTruthy();
+    expect(screen.getByText("Editor not connected")).toBeTruthy();
   });
 
   it("shows a rebuild step by step with its time, and no Start while the editor is down for it", async () => {
@@ -105,13 +105,13 @@ describe("the editor banner", () => {
     expect(screen.getByText("building the C++ (step 2 of 3)", { exact: false })).toBeTruthy();
     expect(screen.getByText("1:15")).toBeTruthy();
     expect(screen.queryByText("Start")).toBeNull();
-    expect(screen.queryByText("Editor not running")).toBeNull();
+    expect(screen.queryByText("Editor not connected")).toBeNull();
   });
 
   it("folds into a chip that opens the banner and its Start, at phone width", async () => {
     const posted = stubFetch({ now: Date.now(), calls: [] });
     render(<EditorBanner daemon={daemon(false)} compact />);
-    const chip = await screen.findByText("Editor off");
+    const chip = await screen.findByText("Editor offline");
     expect(screen.queryByText("Start")).toBeNull();
     fireEvent.click(chip);
     expect(chip.getAttribute("aria-expanded")).toBe("true");

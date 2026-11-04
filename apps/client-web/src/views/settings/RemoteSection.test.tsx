@@ -41,7 +41,7 @@ describe("Settings > Remote control", () => {
     await show(OFF);
     expect(screen.getByRole("switch", { name: "Remote control" }).getAttribute("aria-checked")).toBe("false");
     expect(screen.getByText("Off")).toBeTruthy();
-    expect(screen.getByText("No browsers paired.")).toBeTruthy();
+    expect(screen.getByText("No devices paired.")).toBeTruthy();
     expect((screen.getByRole("button", { name: "New code" }) as HTMLButtonElement).disabled).toBe(true);
   });
 

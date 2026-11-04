@@ -223,7 +223,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
                   ["Model", `${a.runs.model}${a.model ? ` (file says ${a.model})` : ""}`],
                   ["Tools", a.tools],
                   ["Turns", a.maxTurns ? `${a.maxTurns} max` : "no limit"],
-                  ["Effort", a.effort ? EFFORT_NAMES[a.effort as Effort] ?? a.effort : "the main agent's"],
+                  ["Effort", a.effort ? EFFORT_NAMES[a.effort as Effort] ?? a.effort : "not set in the file"],
                   ["Size", `${tokens(a.tokens)} tokens`],
                 ]}
               />

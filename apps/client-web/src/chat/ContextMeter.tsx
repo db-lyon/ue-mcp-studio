@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
-import { atMost, useBarTier } from "./barTier";
-import { compactLine, dollars, pct, tokenCount } from "@ue-mcp-studio/client-core";
+import { compactLine, contextLabel, contextPct, contextRing, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
 
-export { dollars };
+export { dollars, tipLines };
 
 /** The context bar: how full, and a tick where it compacts. */
 export function ContextBar({ view, className = "" }: { view: ContextView; className?: string }) {
@@ -17,10 +16,27 @@ export function ContextBar({ view, className = "" }: { view: ContextView; classN
 }
 
 /**
+ * The context ring: how full, as an arc from the top, clockwise, with a tick
+ * where it compacts. Past the window the ring is closed and glows.
+ */
+export function ContextRing({ view, className = "" }: { view: ContextView; className?: string }) {
+  const { r, circumference, dash, tick } = contextRing(view);
+  return (
+    <svg className={`context-ring level-${view.level} ${view.fraction > 1 ? "over" : ""} ${className}`} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+      <circle className="context-ring-track" cx="8" cy="8" r={r} />
+      <circle className="context-ring-fill" cx="8" cy="8" r={r} strokeDasharray={`${dash} ${circumference}`} transform="rotate(-90 8 8)" />
+      <line className="context-ring-tick" x1={tick.x1} y1={tick.y1} x2={tick.x2} y2={tick.y2} />
+    </svg>
+  );
+}
+
+/**
  * The composer's context meter: how much of the model's window the
- * conversation takes now, as a percentage and a thin bar that turns amber and
- * then red near the point it compacts. Opened, it has the numbers behind it,
- * Compact now, and the session's totals, which are spend, not context.
+ * conversation takes now, as a small ring and a percentage that turn amber and
+ * then red near the point it compacts. Hovered, a card says the tokens, the
+ * model they were measured on and where it compacts. Opened (a click, or a tap
+ * on a touch screen), it has the numbers behind it, Compact now, and the
+ * session's totals, which are spend, not context.
  */
 export function ContextMeter({ context, totals, model, modelName, nameOf = (id) => id, listedWindow, busy, compacting, runtime, onCompact, owner }: {
   context: ContextUsage | undefined;
@@ -42,7 +58,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
-  const tight = atMost("merged", useBarTier());
+  const tipId = useId();
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {
@@ -58,9 +74,9 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   }, [open]);
   const view = contextView(context, model, listedWindow);
   if (!view && !totals?.requests) return null;
-  const label = view
-    ? `${owner ? `${owner} agent's context` : "Context"} ${pct(view.fraction)} full: ${tokenCount(view.used)} of ${tokenCount(view.window)} tokens${view.estimated ? ", estimated" : ""}`
-    : "Context not measured yet";
+  const runtimeNow = runtime && !view?.measuredOn && !!context?.window;
+  const tip = view ? tipLines(view, context, { nameOf, modelName: modelName ?? model, runtime: runtimeNow, compacting, owner }) : ["Context is measured after the next reply"];
+  const label = contextLabel(view, owner, compacting);
   return (
     <div className="context-meter" ref={box}>
       <button
@@ -68,20 +84,23 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label={label}
-        title={`${label}. Session totals inside.`}
+        aria-describedby={open ? undefined : tipId}
         onClick={() => setOpen(!open)}
       >
-        {owner && <span className="context-owner">{owner}</span>}
-        {view && <ContextBar view={view} />}
-        <span className="context-pct">{compacting && !tight ? "Compacting" : view ? `${view.estimated ? "~" : ""}${pct(view.fraction)}` : "ctx"}</span>
-        {view && !tight && !compacting && <span className="context-of dim">{view.estimated ? "~" : ""}{tokenCount(view.used)}/{tokenCount(view.window)}</span>}
+        {view ? <ContextRing view={view} /> : <span className="context-ring-empty" aria-hidden="true" />}
+        <span className="context-pct">{contextPct(view)}</span>
+        {!open && (
+          <span className="context-tip" role="tooltip" id={tipId}>
+            {tip.map((l, i) => <span key={i} className={i === (owner ? 1 : 0) ? "context-tip-main" : undefined}>{l}</span>)}
+          </span>
+        )}
       </button>
       {open && (
         <div className="picker-menu up context-pop" role="dialog" aria-label="Context and session totals">
           <div className="context-pop-head">
             <span className="eyebrow">{owner ? `${owner} agent's context` : "Context"}</span>
             <span className="context-pop-actions">
-              <button disabled={busy || compacting || !view} onClick={() => { setOpen(false); onCompact(); }} title={busy ? "Compact when the turn ends" : "Summarize the conversation to free context; the transcript stays"}>
+              <button disabled={busy || compacting || !view} onClick={() => { setOpen(false); onCompact(); }} title={busy ? "Available when the turn ends" : "Summarize the conversation to free context; the transcript stays"}>
                 Compact now
               </button>
               <button className="icon-button" aria-label="Close" title="Close" onClick={() => setOpen(false)}>{"\u00d7"}</button>
@@ -98,7 +117,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
                   Last request: {tokenCount(context.input)} prompt{context.cached ? ` (${tokenCount(context.cached)} from the cache)` : ""} and {tokenCount(context.output)} answer, on {nameOf(context.model)} at {new Date(context.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
                 </p>
               )}
-              <p className="dim small">{compactLine(view, runtime && !view.measuredOn && !!context?.window)}</p>
+              <p className="dim small">{compactLine(view, runtimeNow)}</p>
               {view.estimated && <p className="dim small">Estimated from the conversation's text. The next reply measures it.</p>}
               {view.measuredOn && <p className="dim small context-note">Measured on {nameOf(view.measuredOn)}. The next turn runs on {modelName ?? model}, whose window is {tokenCount(view.window)}.</p>}
               {view.windowAssumed && <p className="dim small context-note">Studio does not know {modelName ?? model}'s window, so {tokenCount(view.window)} is assumed.</p>}
@@ -135,13 +154,13 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
 export function ContextWarning({ view, runtime, busy, onCompact, onDismiss }: { view: ContextView; runtime: boolean; busy: boolean; onCompact: () => void; onDismiss: () => void }) {
   return (
     <div className={`context-warning level-${view.level}`} role="status">
-      <ContextBar view={view} />
+      <ContextRing view={view} />
       <span className="context-warning-text">
         {view.fraction >= 1
           ? <>Context is past this model's window: {tokenCount(view.used)} of {tokenCount(view.window)}. {runtime ? "Claude's runtime compacts it" : "Studio compacts it before the next request"}, or compact now.</>
           : <>Context is {pct(view.fraction)} full. {runtime ? "Claude's runtime" : "Studio"} compacts it at {pct(view.compactAt)}; compact now to choose the moment.</>}
       </span>
-      <button className="primary" disabled={busy} onClick={onCompact} title={busy ? "Compact when the turn ends" : undefined}>Compact now</button>
+      <button className="primary" disabled={busy} onClick={onCompact} title={busy ? "Available when the turn ends" : undefined}>Compact now</button>
       <button className="icon-button" aria-label="Dismiss" title="Dismiss" onClick={onDismiss}>{"×"}</button>
     </div>
   );

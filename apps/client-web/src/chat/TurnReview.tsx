@@ -162,11 +162,11 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                     {failed && <div className="review-failed banner bad small" role="alert">{failed}</div>}
                     {it.conflict && it.state !== "reverted" && (
                       <div className="banner warn small review-conflict" role="alert">
-                        You edited this file after the agent, so Revert left it alone.
+                        This file was changed outside the agent, so Revert left it alone.
                         {confirming === it.path ? (
                           <>
-                            <button className="danger-button small-button" disabled={!!busy} onClick={() => revert([it.path], true)}>Revert and lose my edits</button>
-                            <button className="ghost small-button" onClick={() => setConfirming(null)}>Keep my edits</button>
+                            <button className="danger-button small-button" disabled={!!busy} onClick={() => revert([it.path], true)}>Revert and lose those changes</button>
+                            <button className="ghost small-button" onClick={() => setConfirming(null)}>Keep those changes</button>
                           </>
                         ) : (
                           <button className="small-button" disabled={!!busy} onClick={() => setConfirming(it.path)}>Revert anyway</button>
@@ -338,7 +338,7 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
     <div className="review-panel stack">
       <label className="row toggle">
         <input type="checkbox" checked={on} disabled={busy || !status} onChange={(e) => toggle(e.target.checked)} />
-        <span>Review this session's turns <span className="dim small">A checkpoint before and after each turn, and a card to keep or revert its changes.{review === null ? " Following Settings." : ""}</span></span>
+        <span>Review this session's turns <span className="dim small">A checkpoint before and after each turn, and a card to keep or revert the files it changed.{review === null ? " Following Settings." : ""}</span></span>
       </label>
       {note && (
         <div className="banner warn small">

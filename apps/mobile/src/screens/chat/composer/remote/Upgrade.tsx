@@ -17,10 +17,13 @@ const INTERVALS: Array<{ key: BillingInterval; title: string }> = [
 ];
 
 /** What the row says once the payment page is open. */
-export const CHECKOUT_OPENED = "Checkout opened in your browser. Remote control turns on here once the payment goes through.";
+export const CHECKOUT_OPENED = "Checkout opened in your browser. Remote control shows here once the payment goes through.";
+
+/** What the row says when the account already has a subscription, so its portal opened instead. */
+export const PORTAL_OPENED = "This account already has a subscription. Its billing page opened in your browser.";
 
 /** The /remote reply once the plan shows. */
-export const REMOTE_NOW_ON = "Remote control is on for this account.";
+export const REMOTE_NOW_ON = "This account's plan includes remote control.";
 
 /** The /remote reply on a computer with no ue-mcp account signed in. */
 export const REMOTE_SIGN_IN = "Sign in to your ue-mcp account to use remote control.";
@@ -37,13 +40,17 @@ export function UpgradeAction() {
     setError(null);
     setNote(null);
     try {
+      let portal = false;
       const link = await api.billingCheckout({ plan: "pro", interval }).catch(async (e: unknown) => {
-        if (e instanceof HttpError && e.status === 409) return api.billingPortal();
+        if (e instanceof HttpError && e.status === 409) {
+          portal = true;
+          return api.billingPortal();
+        }
         throw e;
       });
       void Linking.openURL(link.url);
       watchForCheckout(api);
-      setNote(CHECKOUT_OPENED);
+      setNote(portal ? PORTAL_OPENED : CHECKOUT_OPENED);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

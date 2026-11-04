@@ -25,4 +25,4 @@ export function flowParamsFrom(inputs: FlowInput[], content: Record<string, unkn
 
 /** The message a step-scoped flow's form cannot address. */
 export const STEP_SCOPED_UNREACHABLE =
-  "This flow takes its params per step, and one of them is read by a nested flow's step, a hook step or no step, so this form cannot address it. Run the flow with flow(run) and params per step.";
+  "This flow takes its params per step, and one of them is read by a nested flow's step, a hook step or no step, so this form cannot address it. Ask the agent to run it with flow(run) and params per step.";

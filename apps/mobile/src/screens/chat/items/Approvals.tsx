@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { ScrollView, Text, View, useWindowDimensions } from "react-native";
 import type { ApprovalDecision, ApprovalRequest } from "@ue-mcp-studio/shared";
-import { RESTART_OPERATION, approvalTitle } from "@ue-mcp-studio/client-core";
+import { APPROVAL_KIND, approvalTitle, restartLine } from "@ue-mcp-studio/client-core";
 import { Banner, baseFont, ContentButton, font, labelFont, Output, useTheme, type Theme } from "../../../ui";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
@@ -81,7 +81,7 @@ export function ApprovalCard({ sessionId, approval: a }: { sessionId: string; ap
         </>
       ) : a.tool === "editor_restart" ? (
         <>
-          <Text style={body}>{`${RESTART_OPERATION[a.operation ?? "restart"]}. Unsaved work in the editor is lost.`}</Text>
+          <Text style={body}>{restartLine(a.operation)}</Text>
           {a.reason ? <Text style={small}>{`Why: ${a.reason}`}</Text> : null}
         </>
       ) : a.tool === "ue_mcp" ? (
@@ -99,7 +99,7 @@ export function ApprovalCard({ sessionId, approval: a }: { sessionId: string; ap
       {error ? <Banner kind="bad">{error}</Banner> : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginVertical: 6 }}>
         <ContentButton kind="primary" title="Allow" disabled={sent !== null} onPress={() => answer("allow")} />
-        <ContentButton title="Allow for this session" disabled={sent !== null} onPress={() => answer("session")} />
+        <ContentButton title="Allow for this session" hint={`Allow ${APPROVAL_KIND[a.tool]} without asking for the rest of this session`} disabled={sent !== null} onPress={() => answer("session")} />
         <ContentButton kind="ghost" title="Deny" disabled={sent !== null} onPress={() => answer("deny")} />
       </View>
     </View>

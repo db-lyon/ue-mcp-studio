@@ -9,8 +9,8 @@ import { EndpointsCard } from "./EndpointsCard";
 import { RemoteReadOnly } from "./RemoteReadOnly";
 
 const ROUTE_ORDER_OPTIONS: ReadonlyArray<{ id: RouteOrder; name: string; title: string }> = [
-  { id: "signins-first", name: "Sign-ins first", title: "Use the plan; fall back to the key." },
-  { id: "keys-first", name: "Keys first", title: "Use the key; fall back to the sign-in." },
+  { id: "signins-first", name: "Sign-ins first", title: "The sign-in runs it; the key only when not signed in." },
+  { id: "keys-first", name: "Keys first", title: "The key runs it; the sign-in only when no key is saved." },
 ];
 
 /** The vendor whose models each sign-in runs. */

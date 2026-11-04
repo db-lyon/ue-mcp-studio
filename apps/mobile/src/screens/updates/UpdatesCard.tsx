@@ -5,7 +5,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import { Linking, View } from "react-native";
-import { REMOTE_UPDATES, fabUpdate, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
+import { PLUGIN_OUTSIDE, REMOTE_UPDATES, checkFailure, fabUpdate, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
 import { Banner, Button, Card, Pill, Spacer, bannerText, labelFont, T, useTheme } from "../../ui";
 import { Details } from "../settings/Details";
 import { Radio, Txt } from "../settings/controls";
@@ -55,8 +55,10 @@ export function UpdatesCard() {
   const steps = u ? updateSteps(u) : [];
   const ready = u ? readyLine(u) : "";
   const fab = fabUpdate(u?.studio);
-  const engineOnly = u?.studio?.plugin.location === "engine" && u.studio?.plugin.source !== "fab" && !!u.studio?.plugin.latest;
+  const engineOnly = pluginOutside(u?.studio);
   const failure = updateFailureLine(u?.studio);
+  const unchecked = checkFailure(u);
+  const status = updateStatus({ steps: steps.length, unchecked, waiting: waits, working, ready });
 
   return (
     <Card testID="updates">
@@ -71,10 +73,11 @@ export function UpdatesCard() {
       {/* The card is block flow: margins between its rows collapse, so each top here is what is left after the one above. */}
       {u ? (
         <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
-          <Pill kind={steps.length ? "warn" : "ok"} style={{ alignSelf: "center" }}>
-            {steps.length ? "Update available" : "Up to date"}
+          <Pill kind={status.tone} style={{ alignSelf: "center" }}>
+            {status.pill}
           </Pill>
-          <Txt tone="muted">{waits ? "Update ready. Restarts after the current turn." : working ? "Updating" : steps.length ? ready : "Up to date."}</Txt>
+          {/* The web's title (the check's error) names it for a screen reader. */}
+          <Txt tone="muted" label={unchecked && !steps.length ? `${status.line} ${unchecked}` : undefined}>{status.line}</Txt>
         </View>
       ) : null}
       <Txt size={12} tone="dim" style={{ marginTop: u ? 6 : 0, marginBottom: 12 }}>
@@ -127,7 +130,7 @@ export function UpdatesCard() {
       ) : null}
       {engineOnly ? (
         <Txt size={12} tone="dim" style={{ marginVertical: 12 }}>
-          Installed with the engine. The Epic launcher updates it.
+          {PLUGIN_OUTSIDE}
         </Txt>
       ) : null}
       {u ? (

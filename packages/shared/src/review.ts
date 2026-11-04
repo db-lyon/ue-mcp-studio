@@ -297,7 +297,7 @@ export function textChangeSummary(diff: string): string {
 }
 
 /** Why a file outside Content has no view in Unreal. */
-const NO_NATIVE_FOR_TEXT = "Config and source files have no diff view in Unreal; the text diff here is the whole change.";
+const NO_NATIVE_FOR_TEXT = "Unreal's diff view opens assets only.";
 
 /** The one line the card shows for a change. */
 export function changeSummary(c: CheckpointChange): string {

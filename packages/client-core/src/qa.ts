@@ -410,7 +410,7 @@ export function cardControls(run: QaRun, o: { outside?: { start?: boolean; assig
 export const PLAYTEST_FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [
   { id: "active", label: "Active", empty: "No playtest is running." },
   { id: "needs-you", label: "Needs you", empty: "Nothing needs you. A playtest step that needs your verdict, or a loop that stops for you, shows here." },
-  { id: "failing", label: "Failing", empty: "No playtest is failing: every last run passed." },
+  { id: "failing", label: "Failing", empty: "No playtest's last run failed." },
   { id: "all", label: "All", empty: "No playtests in this project yet. Ask the agent for one in a session, or type /playtest in the message box." },
 ];
 

@@ -330,7 +330,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           <View style={s.spacer} />
           {/* A phone has no keyboard shortcuts to hint at: the hint is for a tablet's width, with a hardware keyboard. */}
           {onQueue && tier === "full" && window.width > 760 && <Text style={s.hint} numberOfLines={1}>{busy ? "Enter to queue, Ctrl+Enter to stop and send now" : "Enter to send, Shift+Enter for a new line"}</Text>}
-          {busy && onQueue && <Button title="Queue" label="Queue" disabled={!canSend} onPress={queue} />}
+          {busy && onQueue && <Button title="Queue" label="Queue" hint="Send after the running turn completes. A stopped or failed turn holds the queue." disabled={!canSend} onPress={queue} />}
           {busy ? <Button title="Stop" onPress={stop} /> : <Button title="Send" variant="primary" disabled={!canSend} onPress={send} />}
         </View>
         {children}

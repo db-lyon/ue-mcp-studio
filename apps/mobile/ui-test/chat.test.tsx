@@ -152,7 +152,7 @@ describe("QueuedMessages", () => {
 
   it("says the queue goes one by one while a turn runs, without Send next", () => {
     renderInProject(<QueuedMessages queue={queue} busy onEdit={() => undefined} onRemove={() => undefined} onSendNext={() => undefined} />);
-    expect(screen.getByText("Queued (2), sent one by one as each turn ends")).toBeTruthy();
+    expect(screen.getByText("Queued (2), sent one by one as each turn completes")).toBeTruthy();
     expect(screen.queryByLabelText("Send next")).toBeNull();
   });
 });
@@ -171,6 +171,25 @@ describe("ContextMeter", () => {
     expect(screen.getByText(/Studio compacts it on its own at 850k tokens \(85%\)/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Compact now"));
     expect(onCompact).toHaveBeenCalled();
+  });
+
+  it("draws the ring: the fill as an arc of the circle, a tick where it compacts, and only the percentage beside it", () => {
+    const { container } = renderInProject(<ContextMeter context={usage(698_000)} totals={totals} model="claude-sonnet-5-5" listedWindow={1_000_000} busy={false} compacting={false} runtime={false} onCompact={() => undefined} />);
+    const circles = [...container.querySelectorAll("circle")];
+    expect(circles).toHaveLength(2);
+    const c = 2 * Math.PI * 6;
+    const [dash, gap] = (circles[1].getAttribute("stroke-dasharray") ?? "").split(/[ ,]+/).map(Number);
+    expect(dash).toBeCloseTo(contextView(usage(698_000), "claude-sonnet-5-5", 1_000_000)!.fraction * c, 3);
+    expect(gap).toBeCloseTo(c, 3);
+    expect(container.querySelectorAll("line")).toHaveLength(1);
+    expect(screen.queryByText(/\d+k\/1M/)).toBeNull();
+  });
+
+  it("keeps the percentage while compacting and says so to a screen reader", () => {
+    renderInProject(<ContextMeter context={usage(862_000)} totals={totals} model="claude-sonnet-5-5" listedWindow={1_000_000} busy compacting runtime={false} onCompact={() => undefined} />);
+    expect(screen.getByText("86%")).toBeTruthy();
+    expect(screen.queryByText("Compacting")).toBeNull();
+    expect(screen.getByLabelText(/^Context 86% full: .* of 1M tokens, compacting$/)).toBeTruthy();
   });
 
   it("marks an estimate with ~ and has nothing to show before any measurement", () => {
@@ -248,7 +267,7 @@ describe("TurnReviewCard", () => {
     fireEvent.click(screen.getByLabelText("Revert all"));
     await settle();
     expect(api.reviewRevert).toHaveBeenCalledWith("s1", "r1", ["Config/DefaultEngine.ini", "Content/BP_Door.uasset"], false);
-    expect(screen.getByText("1 file was edited after the agent and left as they are.")).toBeTruthy();
+    expect(screen.getByText("1 file was changed outside the agent and left as they are.")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("DefaultEngine.ini"));
     await settle();
     expect(api.reviewDiff).toHaveBeenCalledWith("s1", "r1", "Config/DefaultEngine.ini");

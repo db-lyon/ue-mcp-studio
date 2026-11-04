@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { ApprovalDecision, ApprovalRequest } from "@ue-mcp-studio/shared";
 import { api } from "../api";
-import { APPROVAL_KIND, RESTART_OPERATION, approvalTitle } from "@ue-mcp-studio/client-core";
+import { APPROVAL_KIND, approvalTitle, restartLine } from "@ue-mcp-studio/client-core";
 import { DiffView } from "./Diff";
 
 /** The calls waiting for the user, oldest first, each with its own buttons. */
@@ -41,7 +41,7 @@ export function ApprovalCard({ sessionId, approval: a }: { sessionId: string; ap
         </>
       ) : a.tool === "editor_restart" ? (
         <>
-          <div>{RESTART_OPERATION[a.operation ?? "restart"]}. Unsaved work in the editor is lost.</div>
+          <div>{restartLine(a.operation)}</div>
           {a.reason && <div className="dim small">Why: {a.reason}</div>}
         </>
       ) : a.tool === "ue_mcp" ? (

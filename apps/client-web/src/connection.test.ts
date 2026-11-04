@@ -49,7 +49,7 @@ describe("the connection to ue-mcp", () => {
     expect(u.conn.phase).toBe("restarting");
     expect(u.conn.why).toBe("ue-mcp is restarting for an update");
     expect(run([tick(UPDATE_RESTART_MS)], true, u.conn).conn.phase).toBe("lost");
-    expect(run([stopping("shutdown requested", 0)]).conn.why).toBe("ue-mcp is restarting");
+    expect(run([stopping("shutdown requested", 0)]).conn.why).toBe("ue-mcp was asked to stop");
   });
 
   it("a restart with no successor is lost, saying what it was waiting for", () => {

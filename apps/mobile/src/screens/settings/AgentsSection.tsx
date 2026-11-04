@@ -21,7 +21,7 @@ export const IMAGE_SIZES: ReadonlyArray<{ id: ImageSize; name: string }> = [
 ];
 
 const SAME = "Same as main agent";
-const CONCURRENCY_HELP = "Maximum number of active workers allowed at one time. Additional workers are queued. Use -1 for no limit.";
+const CONCURRENCY_HELP = "Most subagents one turn runs at once. Extra ones wait for a free slot. -1 for no limit.";
 
 const STARTS: ReadonlyArray<{ id: SubagentMode; name: string }> = [
   { id: "off", name: "Never" },
@@ -50,7 +50,7 @@ export function AgentsSection({ onSection }: { onSection: (s: SettingsSection) =
   const workerOff = settings.usage.subagents === "off";
   return (
     <>
-      <Head title="Agents" lead="The chat model, and the project's agent files (read only)." />
+      <Head title="Agents" lead="The chat model, the worker, and the project's agent files (read only)." />
       <Message msg={msg} />
       <Card>
         <CardLabel>Main agent</CardLabel>

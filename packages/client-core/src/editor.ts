@@ -105,12 +105,12 @@ export const DISCONNECT_CAUSE: Record<string, string> = {
 
 /**
  * What the editor banner shows, or null for nothing: an operation, a busy
- * call, or the editor not running. `now` is the daemon's clock.
+ * call, or the editor not connected. `now` is the daemon's clock.
  */
 export type EditorBannerState =
   | { kind: "operation"; title: string; step: string; elapsed: string; chip: string }
   | { kind: "busy"; stopped: boolean; stoppable: boolean; call: string; more: number; client: string | null; elapsed: string; chip: string }
-  | { kind: "off"; failure: EditorOperationFailure | null; title: string };
+  | { kind: "off"; failure: EditorOperationFailure | null; title: string; chip: string };
 
 export function editorBanner(busy: BusyView, o: { now: number; streaming: boolean; healthKnown: boolean; connected: boolean }): EditorBannerState | null {
   // A restart or rebuild the daemon runs: the editor is meant to be down, so no Start.
@@ -137,7 +137,8 @@ export function editorBanner(busy: BusyView, o: { now: number; streaming: boolea
     };
   }
   if (o.streaming && o.healthKnown && !o.connected) {
-    return { kind: "off", failure: busy.failure, title: busy.failure ? `${failureLine(busy.failure)}.` : "Editor not running" };
+    // Not connected, which a running editor without the bridge also is.
+    return { kind: "off", failure: busy.failure, title: busy.failure ? `${failureLine(busy.failure)}.` : "Editor not connected", chip: "Editor offline" };
   }
   return null;
 }

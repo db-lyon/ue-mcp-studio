@@ -85,7 +85,7 @@ export function useLockoutNotice(): { removed: { label: string } | null; dismiss
 export function LockoutNotice({ label, onDismiss }: { label: string; onDismiss: () => void }) {
   return (
     <div className="banner bad remote-lockout" role="alert">
-      <span className="grow">{label} entered a wrong PIN {REMOTE_PIN_ATTEMPTS} times and was removed. Pair it again if that was you.</span>
+      <span className="grow">{label} entered a wrong PIN {REMOTE_PIN_ATTEMPTS} times in a row and was removed. Pair it again if that was you.</span>
       <button className="ghost" aria-label="Dismiss" onClick={onDismiss}>×</button>
     </div>
   );
@@ -114,7 +114,7 @@ export function ApprovalPrompt({ approval, onDecide }: { approval: RemoteApprova
         <div className="remote-approval-code-line">
           Code <span className="remote-approval-code">{formatPairingCode(approval.code)}</span>
         </div>
-        <div className="dim small">Allow it only if your device shows the same code. Anyone you allow can run the agent on this computer.</div>
+        <div className="dim small">Allow it only if your device shows the same code. An allowed device can use Studio in every project on this computer.</div>
         {error && <div className="small remote-err" role="alert">{error}</div>}
       </div>
       <div className="remote-approval-actions">
@@ -129,7 +129,7 @@ export function ApprovalPrompt({ approval, onDecide }: { approval: RemoteApprova
 export function PairedNotice({ label, onDismiss }: { label: string; onDismiss: () => void }) {
   return (
     <div className="banner ok remote-paired" role="status">
-      <span className="grow">{label} is paired and can control the projects on this computer. Remove it under Paired browsers if that was not you.</span>
+      <span className="grow">{label} is paired and can use Studio in every project on this computer. Remove it under Paired devices if that was not you.</span>
       <button className="ghost" aria-label="Dismiss" onClick={onDismiss}>×</button>
     </div>
   );
@@ -204,8 +204,8 @@ export function PairedBrowsers() {
   if (!browsers) return error ? <p className="small remote-err">{error}</p> : null;
   return (
     <div className="remote-browsers">
-      <div className="remote-browsers-title small">Paired browsers</div>
-      {browsers.length === 0 && <p className="muted small">No browsers paired yet.</p>}
+      <div className="remote-browsers-title small">Paired devices</div>
+      {browsers.length === 0 && <p className="muted small">No devices paired yet.</p>}
       {browsers.map((b) => (
         <div key={b.id} className="remote-browser-row">
           <div className="grow">

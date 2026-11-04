@@ -68,12 +68,56 @@ describe("ContextMeter", () => {
     return onCompact;
   };
 
-  it("shows the current context as a share of the window, not the session's spend", () => {
+  it("shows the current context as a ring and a percentage, not the session's spend", () => {
     meter();
     const b = screen.getByRole("button", { name: /Context 70% full: 699k of 1M tokens/ });
     expect(b.className).toContain("level-warn");
-    expect(b.textContent).toContain("70%");
+    expect(b.querySelector("svg.context-ring.level-warn")).not.toBeNull();
+    expect(b.querySelector(".context-pct")!.textContent).toBe("70%");
+    // Nothing else is drawn in the bar: the tokens are in the hover card only.
+    expect(b.querySelector(".context-of, .context-bar")).toBeNull();
     expect(b.textContent).not.toContain("1.3M");
+  });
+
+  it("draws the ring's arc to the share and a tick where it compacts", () => {
+    meter();
+    const svg = screen.getByRole("button", { name: /Context 70%/ }).querySelector("svg")!;
+    const [len, circ] = svg.querySelector(".context-ring-fill")!.getAttribute("stroke-dasharray")!.split(" ").map(Number);
+    expect(len / circ).toBeCloseTo(0.699, 2);
+    // 85% of the way round, clockwise from the top: left of centre and above it.
+    const tick = svg.querySelector(".context-ring-tick")!;
+    expect(Number(tick.getAttribute("x2"))).toBeLessThan(8);
+    expect(Number(tick.getAttribute("y2"))).toBeLessThan(8);
+  });
+
+  it("has a hover card with the tokens of the window, the model it was measured on and where it compacts", () => {
+    meter({ nameOf: (id) => (id === "claude-sonnet-5-5" ? "Sonnet 5.5" : id) });
+    const b = screen.getByRole("button", { name: /Context 70%/ });
+    const tip = screen.getByRole("tooltip", { hidden: true });
+    expect(b.getAttribute("aria-describedby")).toBe(tip.id);
+    expect([...tip.children].map((c) => c.textContent)).toEqual(["699k of 1M tokens", "Measured on Sonnet 5.5", "Studio compacts at 850k (85%)"]);
+    // Opened, the details replace it.
+    fireEvent.click(b);
+    expect(screen.queryByRole("tooltip", { hidden: true })).toBeNull();
+    expect(b.getAttribute("aria-describedby")).toBeNull();
+  });
+
+  it("says where Claude's runtime compacts, and when it is past that point", () => {
+    meter({ context: ctx(150_000, "claude-sonnet-5-5", { window: 1_000_000, compactAt: 967_000 }), runtime: true });
+    expect(screen.getByRole("tooltip", { hidden: true }).textContent).toContain("Claude's runtime compacts at about 967k (97%)");
+    cleanup();
+    meter({ context: ctx(860_000) });
+    expect(screen.getByRole("tooltip", { hidden: true }).textContent).toContain("Past where it compacts (850k): compacts before the next request");
+  });
+
+  it("closes the ring and makes it glow past the window", () => {
+    meter({ context: ctx(310_000), model: "claude-haiku-4-5", modelName: "Haiku 4.5", nameOf: (id) => (id === "claude-sonnet-5-5" ? "Sonnet 5.5" : id) });
+    const b = screen.getByRole("button", { name: /Context 15\d%/ });
+    expect(b.querySelector("svg.context-ring.over.level-high")).not.toBeNull();
+    const tip = screen.getByRole("tooltip", { hidden: true }).textContent;
+    expect(tip).toContain("311k of 200k tokens");
+    expect(tip).toContain("Measured on Sonnet 5.5, next turn on Haiku 4.5");
+    expect(tip).toContain("Over the window: Studio compacts it before the next request");
   });
 
   it("opens to the numbers behind it and the session totals, labelled as spend, with Compact now", () => {
@@ -90,10 +134,12 @@ describe("ContextMeter", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("disables Compact now while a turn runs, and says Compacting while it compacts", () => {
+  it("disables Compact now while a turn runs, and pulses and says Compacting while it compacts", () => {
     meter({ busy: true, compacting: true });
-    const b = screen.getByRole("button", { name: /Context 70%/ });
-    expect(b.textContent).toContain("Compacting");
+    const b = screen.getByRole("button", { name: /Context 70% full: .*, compacting/ });
+    expect(b.className).toContain("compacting");
+    expect(b.querySelector(".context-pct")!.textContent).toBe("70%");
+    expect(screen.getByRole("tooltip", { hidden: true }).textContent).toContain("Compacting now");
     fireEvent.click(b);
     expect((screen.getByRole("button", { name: "Compact now" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -101,7 +147,8 @@ describe("ContextMeter", () => {
   it("marks an estimate, and says so inside", () => {
     meter({ context: ctx(40_000, "", { estimated: true, cached: 0, output: 0 }), totals: undefined });
     const b = screen.getByRole("button", { name: /estimated/ });
-    expect(b.textContent).toContain("~4%");
+    expect(b.querySelector(".context-pct")!.textContent).toBe("~4%");
+    expect(screen.getByRole("tooltip", { hidden: true }).textContent).toBe("About 40k of 1M tokens, estimatedEstimated from the conversation's textStudio compacts at 850k (85%)");
     fireEvent.click(b);
     expect(screen.getByRole("dialog").textContent).toContain("The next reply measures it");
   });
@@ -123,6 +170,7 @@ describe("ContextWarning", () => {
     const onCompact = vi.fn();
     const { rerender } = render(<ContextWarning view={contextView(ctx(830_000), "claude-sonnet-5-5")!} runtime={false} busy={false} onCompact={onCompact} onDismiss={() => {}} />);
     expect(screen.getByRole("status").textContent).toContain("Context is 83% full. Studio compacts it at 85%");
+    expect(screen.getByRole("status").querySelector("svg.context-ring.level-high")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Compact now" }));
     expect(onCompact).toHaveBeenCalled();
     rerender(<ContextWarning view={contextView(ctx(310_000), "claude-haiku-4-5")!} runtime={false} busy={false} onCompact={onCompact} onDismiss={() => {}} />);
