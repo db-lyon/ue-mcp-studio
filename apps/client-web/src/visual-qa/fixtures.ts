@@ -442,6 +442,15 @@ export const SCENARIOS: Record<string, Scenario> = {
     get: (p) => (p === "/v1/ext/studio/lock" ? { whole: true, sensitive: false, locked: true, sensitiveOpen: true, idleMinutes: 15 } : undefined),
     waitFor: { selector: ".lock-screen", timeout: 10_000 },
   },
+  "remote-lock-screen-typing": {
+    title: "The lock screen with three digits typed on the keypad: three filled dots, enter still off until the fourth",
+    hash: "#/chat",
+    index: { playtests: [], listed: true },
+    remotePage: true,
+    get: (p) => (p === "/v1/ext/studio/lock" ? { whole: true, sensitive: false, locked: true, sensitiveOpen: true, idleMinutes: 15 } : undefined),
+    waitFor: { selector: ".lock-screen", timeout: 10_000 },
+    clicks: [".pin-pad .pin-key:nth-child(1)", ".pin-pad .pin-key:nth-child(5)", ".pin-pad .pin-key:nth-child(9)"],
+  },
   "remote-lock-screen-wrong": {
     title: "The lock screen after wrong PINs: the wait before the next try and how many tries are left before the browser is removed",
     hash: "#/chat",
