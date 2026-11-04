@@ -21,9 +21,12 @@ const PATHS = {
   level: "Content/Maps/L_Playtest.umap",
   crate: "Content/Props/SM_CrateWoodenLarge.uasset",
   input: "Content/Input/Actions/IA_WallRunWhileCrouched.uasset",
+  widget: "Content/UI/HUD/WBP_GameHUD.uasset",
+  widgetOld: "Content/UI/HUD/WBP_PauseMenu.uasset",
+  sound: "Content/Audio/SW_WardChime.uasset",
 };
 
-/** A rendered thumbnail; the harness draws one for any id, and 404s an id with "unreadable" in it. */
+/** A rendered thumbnail; the harness draws one for any id, 404s an id with "unreadable" in it, and draws flat black for one with "blank" in it. */
 const shot = (id: string) => ({ id, url: "", source: "rendered" as const });
 
 const ready = (d: Partial<AssetDiff>): AssetDiff => refineAssetDiff({ state: "ready", status: "modified", summary: "", nativeDiff: { available: true }, ...d } as AssetDiff);
@@ -129,6 +132,48 @@ const INPUT_ACTION = ready({
   sections: [],
 });
 
+const HUD_FACTS = [{ name: "Parent class", value: "ValeHUDWidget" }, { name: "Blueprint type", value: "BPTYPE_Normal" }, { name: "Variables", value: "0" }, { name: "Graphs", value: "1" }, { name: "Components", value: "0" }];
+
+/**
+ * WBP_GameHUD as ue-mcp diffs it with UBlueprint::FindDiffs: one property of a
+ * widget in the widget tree changed, every fact the same, and both rendered
+ * thumbnails black (the Widget Blueprint renderer draws nothing for a Blueprint
+ * loaded for diff), as an older bridge sent them.
+ */
+const WIDGET = ready({
+  assetClass: "WidgetBlueprint",
+  packageName: "/Game/UI/HUD/WBP_GameHUD",
+  engine: { tool: "SBlueprintDiff", note: "The Blueprint diff: the Blueprint type's own differences (a Widget Blueprint's widget tree) through UBlueprint::FindDiffs, graphs through FGraphDiffControl::DiffGraphs, components through DiffUtils::CompareUnrelatedSCS, My Blueprint variables, Defaults on the class default object and Class Settings, the last three through DiffUtils::CompareUnrelatedStructs.", native: "window", nativeAvailable: true, blueprintTypeDiff: true },
+  before: { class: "WidgetBlueprint", thumbnail: shot("hud-before-blank"), facts: HUD_FACTS },
+  after: { class: "WidgetBlueprint", thumbnail: shot("hud-after-blank"), facts: HUD_FACTS },
+  summary: "1 difference: Widget WardMeter > Hide when Full False to True",
+  sections: [{ category: "Widget Blueprint", kind: "properties", engineSource: "UBlueprint::FindDiffs", notes: ["Warning: This may be missing changes to Animations and Bindings"], hiddenChanges: 0, entries: [
+    { group: "Widget WardMeter", path: "bHideWhenFull", label: "Hide when Full", property: "bHideWhenFull", diffType: "PropertyValueChanged", displayString: "bHideWhenFull changed value in WardMeter", before: "False", after: "True" },
+  ] }],
+});
+
+/** A Widget Blueprint diffed by a bridge that does not compare the widget tree: never "no difference". */
+const WIDGET_OLD = ready({
+  assetClass: "WidgetBlueprint",
+  packageName: "/Game/UI/HUD/WBP_PauseMenu",
+  engine: { tool: "SBlueprintDiff", note: "The Blueprint diff: graphs through FGraphDiffControl::DiffGraphs, components through DiffUtils::CompareUnrelatedSCS, My Blueprint variables, Defaults on the class default object and Class Settings, the last three through DiffUtils::CompareUnrelatedStructs.", native: "window", nativeAvailable: true },
+  before: { class: "WidgetBlueprint", thumbnail: shot("pause-before-blank"), facts: HUD_FACTS },
+  after: { class: "WidgetBlueprint", thumbnail: shot("pause-after-blank"), facts: HUD_FACTS },
+  summary: "WidgetBlueprint: the file changed, and Unreal's diff finds no difference",
+  sections: [],
+});
+
+/** A binary asset Unreal diffs as a whole file: no records, only facts about each version. */
+const SOUND = ready({
+  assetClass: "SoundWave",
+  packageName: "/Game/Audio/SW_WardChime",
+  engine: { tool: "DiffUtils::CompareUnrelatedObjects", note: "Unreal has no diff view of its own for SoundWave: its asset diff exports both versions as text for an external diff tool. These records are the details-panel property diff.", native: "details", nativeAvailable: true },
+  before: { class: "SoundWave", thumbnail: { error: "Unreal has no thumbnail renderer for SoundWave; and this version's package has no saved thumbnail" }, facts: [{ name: "Duration", value: "1.250 s" }, { name: "Channels", value: "2" }, { name: "Sample rate", value: "48000" }] },
+  after: { class: "SoundWave", thumbnail: { error: "Unreal has no thumbnail renderer for SoundWave; and this version's package has no saved thumbnail" }, facts: [{ name: "Duration", value: "0.980 s" }, { name: "Channels", value: "2" }, { name: "Sample rate", value: "48000" }] },
+  summary: "SoundWave: the file changed, and Unreal's diff finds no difference",
+  sections: [],
+});
+
 const CONFIG_DIFF = "--- a/Config/DefaultEngine.ini\n+++ b/Config/DefaultEngine.ini\n@@ -12,3 +12,4 @@\n [/Script/Engine.RendererSettings]\n-r.DefaultFeature.AutoExposure=True\n+r.DefaultFeature.AutoExposure=False\n+r.Lumen.HardwareRayTracing.LightingMode=2\n r.ReflectionMethod=1\n";
 
 const CHANGES: CheckpointChange[] = [
@@ -138,6 +183,9 @@ const CHANGES: CheckpointChange[] = [
   { path: PATHS.level, status: "modified", kind: "package", assetDiff: LEVEL },
   { path: PATHS.input, status: "added", kind: "package", assetDiff: INPUT_ACTION },
   { path: PATHS.config, status: "modified", kind: "config", diff: CONFIG_DIFF },
+  { path: PATHS.widget, status: "modified", kind: "package", assetDiff: WIDGET },
+  { path: PATHS.widgetOld, status: "modified", kind: "package", assetDiff: WIDGET_OLD },
+  { path: PATHS.sound, status: "modified", kind: "package", assetDiff: SOUND },
   { path: PATHS.crate, status: "modified", kind: "package", assetDiff: { state: "error", error: "Failed to load /Game/Props/SM_CrateWoodenLarge: the package was saved by a newer engine version", summary: "Could not diff: Failed to load /Game/Props/SM_CrateWoodenLarge: the package was saved by a newer engine version", nativeDiff: { available: false, reason: "Unreal could not load it." } } },
 ];
 
@@ -185,7 +233,10 @@ export const REVIEW_SCENARIOS: Record<string, Scenario> = {
   "review-blueprint-variables": card("Review card, the same Blueprint scrolled to My Blueprint and Defaults: each variable once", "bp", "section[aria-label='My Blueprint']"),
   "review-material-instance": card("Review card, a material instance opened: its parameters in words, not the engine's struct text", "mi"),
   "review-material": card("Review card, a material opened: the added Constant shows its value, the removed Multiply its set constant", "material"),
-  "review-level": card("Review card, a level opened: no thumbnail for a World, so its type, path, what changed and its facts", "level"),
+  "review-level": card("Review card, a level opened: no thumbnail for a World, so its records and the fact that differs, with no tile", "level"),
   "review-input-action": card("Review card, an added Input Action opened: no thumbnail and no earlier version", "input"),
+  "review-widget": card("Review card, a Widget Blueprint opened: one widget property changed, its black thumbnails hidden, every unchanged fact folded into one line", "widget"),
+  "review-widget-old-bridge": card("Review card, a Widget Blueprint diffed by a bridge that does not compare the widget tree: says so, never no difference", "widgetOld"),
+  "review-binary": card("Review card, a sound wave opened: no structured diff, only the fact that differs", "sound"),
   "review-config": card("Review card, a reverted config file opened: its text diff", "config"),
 };
