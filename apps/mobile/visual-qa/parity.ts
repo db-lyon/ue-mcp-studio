@@ -12,8 +12,10 @@ export interface ParityEntry {
   owner?: Owner;
   /** Not reachable from a paired phone, and why. */
   notOnPhone?: string;
-  /** Pressed in the app before the shot, by accessibility label (or text), in order: the app's form of the web scenario's clicks. */
+  /** Pressed in the app before the shot, by accessibility label (or text), in order: the app's form of the web scenario's clicks. A label ending in * matches by its start. */
   clicks?: string[];
+  /** Scrolled to the top of the window after the clicks, by accessibility label: the web scenario's scroll. */
+  scroll?: string;
 }
 
 export const PARITY: Record<string, ParityEntry> = {
@@ -26,7 +28,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "vcs-changes-list-narrow": {owner: "agent-a"},
   "vcs-changes-tree": {owner: "agent-a"},
   "vcs-changes-tree-remote": {owner: "agent-a"},
-  "checkpoints": {owner: "chat"},
+  "checkpoints": {owner: "chat", clicks: ["Checkpoints"]},
   "remote-lock-screen": {owner: "shell"},
   "remote-lock-screen-typing": {owner: "shell"},
   "remote-lock-screen-wrong": {owner: "shell"},
@@ -126,24 +128,24 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-diagnostics": {owner: "agent-b"},
   "settings-diagnostics-events": {owner: "agent-b"},
   "review-card": {owner: "chat"},
-  "review-blueprint": {owner: "chat"},
-  "review-blueprint-variables": {owner: "chat"},
-  "review-material-instance": {owner: "chat"},
-  "review-material": {owner: "chat"},
-  "review-level": {owner: "chat"},
-  "review-input-action": {owner: "chat"},
-  "review-config": {owner: "chat"},
+  "review-blueprint": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "Content/Characters/Player/BP_PlayerCharacterMovementComponent.uasset"},
+  "review-blueprint-variables": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "My Blueprint"},
+  "review-material-instance": {owner: "chat", clicks: ["MI_RockMossyCliffFace_Variant02.uasset"], scroll: "Content/Environment/Materials/MI_RockMossyCliffFace_Variant02.uasset"},
+  "review-material": {owner: "chat", clicks: ["M_RockMaster.uasset"], scroll: "Content/Environment/Materials/M_RockMaster.uasset"},
+  "review-level": {owner: "chat", clicks: ["L_Playtest.umap"], scroll: "Content/Maps/L_Playtest.umap"},
+  "review-input-action": {owner: "chat", clicks: ["IA_WallRunWhileCrouched.uasset"], scroll: "Content/Input/Actions/IA_WallRunWhileCrouched.uasset"},
+  "review-config": {owner: "chat", clicks: ["DefaultEngine.ini"], scroll: "Config/DefaultEngine.ini"},
   "refused-by-daemon": {owner: "shell"},
   "refused-by-studio": {owner: "shell"},
   "refused-update-failed": {owner: "shell"},
   "context-low": {owner: "chat"},
   "context-high": {owner: "chat"},
   "context-near-full": {owner: "chat"},
-  "context-details": {owner: "chat"},
-  "context-model-switch": {owner: "chat"},
+  "context-details": {owner: "chat", clicks: ["Context *"]},
+  "context-model-switch": {owner: "chat", clicks: ["Context *"]},
   "context-over-window": {owner: "chat"},
-  "context-estimated": {owner: "chat"},
-  "context-claude-runtime": {owner: "chat"},
+  "context-estimated": {owner: "chat", clicks: ["Context *"]},
+  "context-claude-runtime": {owner: "chat", clicks: ["Context *"]},
   "compaction-collapsed": {owner: "chat"},
   "compaction-expanded": {owner: "chat"},
   "compaction-running": {owner: "chat"},

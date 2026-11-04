@@ -98,9 +98,11 @@ if (list) {
 fs.mkdirSync(out, { recursive: true });
 const picked = Object.keys(scenarios).filter((n) => parity[n]?.owner && (!owners || owners.includes(parity[n].owner)) && (!only || only.some((o) => (o.endsWith("*") ? n.startsWith(o.slice(0, -1)) : n === o))));
 
-/** The app's form of a click: an element whose accessibility label or text is `what`, the first visible. */
+/** The app's form of a click: an element whose accessibility label or text is `what`, the first visible. A `what` ending in * matches a label by its start. */
 async function press(page, what) {
-  const byLabel = page.locator(`[aria-label="${what.replace(/"/g, '\\"')}"]`);
+  const prefix = what.endsWith("*");
+  const label = (prefix ? what.slice(0, -1) : what).replace(/"/g, '\\"');
+  const byLabel = page.locator(prefix ? `[aria-label^="${label}"]` : `[aria-label="${label}"]`);
   for (const h of await byLabel.all()) if (await h.isVisible()) return h.click();
   const byText = page.getByText(what, { exact: true });
   for (const h of await byText.all()) if (await h.isVisible()) return h.click();
@@ -123,6 +125,14 @@ for (const name of picked) {
       } catch (e) {
         errors.push(String(e.message ?? e));
       }
+    }
+    // The web scenario's scroll: the element with this label at the top of its scroller.
+    if (parity[name].scroll) {
+      const target = page.locator(`[aria-label="${parity[name].scroll.replace(/"/g, '\\"')}"]`).first();
+      if (await target.count()) {
+        await target.evaluate((el) => el.scrollIntoView({ block: "start" }));
+        await page.waitForTimeout(300);
+      } else errors.push(`nothing to scroll to: ${parity[name].scroll}`);
     }
     const appPng = path.join(out, `${name}-${theme}-app.png`);
     await page.screenshot({ path: appPng });
