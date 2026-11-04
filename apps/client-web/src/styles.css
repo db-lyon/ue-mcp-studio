@@ -478,21 +478,6 @@ label.toggle { gap: 10px; cursor: pointer; }
 .composer textarea { flex: none; resize: none; padding: 10px 12px; border-radius: 8px; line-height: 1.5; }
 .composer textarea.composer-mirror { position: absolute; top: 0; left: 0; height: 0; min-height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
 /* The divider between the transcript and the composer: drag, arrow keys, double-click to reset. */
-.composer-divider { position: absolute; left: 0; right: 0; top: -9px; height: 18px; cursor: row-resize; z-index: 2; outline: none; touch-action: none; }
-.composer-divider::after { content: ""; position: absolute; left: 0; right: 0; top: 8px; height: 1px; background: transparent; transition: background 0.15s; }
-.composer-divider:hover::after, .composer-divider:focus-visible::after, .composer.resizing .composer-divider::after { background: var(--accent); height: 2px; top: 8px; }
-/* The visible handle: a pill on the composer's top edge, so the box reads as resizable. */
-.composer-grip { position: absolute; left: 50%; top: 5px; width: 36px; height: 8px; margin-left: -18px; border-radius: 4px; background: var(--composer-bg); border: 1px solid var(--line); box-sizing: border-box; transition: background 0.15s, border-color 0.15s; }
-.composer-grip::before { content: ""; position: absolute; left: 9px; right: 9px; top: 2px; height: 2px; border-radius: 1px; background: var(--dim, currentColor); opacity: 0.7; }
-.composer-divider:hover .composer-grip, .composer-divider:focus-visible .composer-grip, .composer.resizing .composer-grip { border-color: var(--accent); }
-.composer-divider:hover .composer-grip::before, .composer-divider:focus-visible .composer-grip::before, .composer.resizing .composer-grip::before { background: var(--accent); opacity: 1; }
-/* A finger needs a taller target than a cursor: 44 pixels, centred on the edge, with a wider handle. */
-@media (pointer: coarse) {
-  .composer-divider { top: -22px; height: 44px; }
-  .composer-divider::after { top: 21px; }
-  .composer-grip { top: 16px; width: 48px; height: 12px; margin-left: -24px; border-radius: 6px; }
-  .composer-grip::before { left: 12px; right: 12px; top: 4px; }
-}
 body.row-resizing, body.row-resizing * { cursor: row-resize !important; user-select: none; }
 .composer button { height: 36px; }
 
@@ -1926,11 +1911,21 @@ fieldset.remote-readonly[disabled] > :not(.remote-readonly-note) { opacity: 0.7;
 /* The script path stands alone, so its reach is the full 44 pixels. */
 @media (pointer: coarse) { .qa-script-path .asset-link::after { inset: -13px -2px; } }
 
-/* Touch: the composer's top edge sits on the divider line, so its dark background fills up to the line,
-   with the grip inside it 14 pixels below the line. The 44 pixel target is unchanged. */
+}
+
+/* The divider between the transcript and the message box. The composer's top border is the line;
+   its dark background fills from the line down. A bare bar sits centred in the 12 pixel gap
+   between the line and the text box. The drag target reaches up over the transcript, never over
+   the text box: 26 pixels with a mouse, 44 with a finger. */
+.composer { padding-top: 12px; }
+.composer-divider { position: absolute; left: 0; right: 0; top: -14px; height: 26px; cursor: row-resize; z-index: 2; outline: none; touch-action: none; }
+.composer-divider::after { content: ""; position: absolute; left: 0; right: 0; top: 13px; height: 2px; background: transparent; transition: background 0.15s; }
+.composer-divider:hover::after, .composer-divider:focus-visible::after, .composer.resizing .composer-divider::after { background: var(--accent); }
+.composer-grip { position: absolute; left: 50%; top: 18.5px; width: 36px; height: 3px; margin-left: -18px; border-radius: 2px; background: var(--dim); transition: background 0.15s; }
+.composer-divider:hover .composer-grip, .composer-divider:focus-visible .composer-grip, .composer.resizing .composer-grip { background: var(--accent); }
 @media (pointer: coarse) {
-  .composer { padding-top: 24px; }
-  .composer-divider { top: -8px; height: 44px; }
-  .composer-divider::after, .composer-divider:hover::after, .composer-divider:focus-visible::after, .composer.resizing .composer-divider::after { top: 8px; }
-  .composer-grip { top: 16px; }
+  .composer { padding-top: 12px; }
+  .composer-divider { top: -32px; height: 44px; }
+  .composer-divider::after { top: 31px; }
+  .composer-grip { top: 36.5px; }
 }
