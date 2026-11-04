@@ -45,9 +45,14 @@ export function App() {
   useEffect(() => {
     api.settings().then((s) => void applyTheme(s.theme), () => void applyTheme("ue-mcp"));
   }, []);
-  if (refusal === undefined) return <div className="app" />;
-  if (refusal) return <RefusedScreen refusal={refusal} />;
-  return <Studio daemon={daemon} />;
+  // The PIN lock sits outside the loading gate: a locked computer holds the first requests
+  // until the PIN is in, so the lock screen must show before Studio has loaded anything.
+  return (
+    <>
+      {refusal === undefined ? <div className="app" /> : refusal ? <RefusedScreen refusal={refusal} /> : <Studio daemon={daemon} />}
+      <RemoteLock />
+    </>
+  );
 }
 
 function Studio({ daemon }: { daemon: DaemonState }) {
@@ -187,7 +192,6 @@ function Studio({ daemon }: { daemon: DaemonState }) {
       </div>
       <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
       {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
-      <RemoteLock />
     </div>
   );
 }

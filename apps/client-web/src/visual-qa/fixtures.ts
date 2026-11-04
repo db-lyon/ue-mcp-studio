@@ -196,6 +196,8 @@ export interface Scenario {
   get?: (path: string, url: URL) => unknown;
   /** Writes the scenario answers itself, with their status; undefined is the harness's 409. */
   post?: (path: string, body?: unknown) => { status: number; body: unknown } | undefined;
+  /** Writes to a path this matches never answer, for a state shown while a call is in flight. */
+  hold?: RegExp;
   /** Typed from the keyboard into an element after the page settles: a CSS selector and the keys. */
   type?: { into: string; text: string };
   /** Typed into several elements one after another, as `type` does for one. */

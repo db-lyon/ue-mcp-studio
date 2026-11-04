@@ -16,6 +16,11 @@ export function breakable(children: ReactNode): ReactNode {
  * bCanWallRunWhileCrouched stay whole.
  */
 export function EngineText({ text }: { text: string }) {
-  const parts = text.split(/(?<=\.)(?!\d)|(?<=[/\\_:,\s])|(?<==)(?!\u00a0)/).flatMap((p) => (p.trim().length > 32 ? p.split(/(?<=[a-z0-9])(?=[A-Z])/) : [p]));
+  const parts = engineParts(text);
   return <>{parts.map((p, i) => (i < parts.length - 1 ? [p, <wbr key={i} />] : p))}</>;
+}
+
+/** The parts EngineText lets a line break between. */
+export function engineParts(text: string): string[] {
+  return text.split(/(?<=\.)(?!\d)|(?<=[/\\_:,\s])|(?<==)(?!\u00a0)/).flatMap((p) => (p.trim().length > 32 ? p.split(/(?<=[a-z0-9])(?=[A-Z])/) : [p]));
 }

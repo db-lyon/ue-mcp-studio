@@ -79,6 +79,8 @@ data: ${data}
   } catch {
     sent = undefined;
   }
+  // A write the scenario holds never answers, to show the page while it waits.
+  if (method !== "GET" && scenario.hold?.test(url.pathname)) return new Promise<Response>(() => {});
   const written = method === "GET" ? undefined : scenario.post?.(url.pathname, sent);
   if (written) return new Response(JSON.stringify(written.body), { status: written.status, headers: { "content-type": "application/json" } });
   const body = answer(method, url);

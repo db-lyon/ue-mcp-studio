@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { daemonMoves, fabUpdate, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
+import { daemonMoves, daemonTarget, fabUpdate, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
 
 /** The update check's model lives in client-core, shared with the mobile app. */
-export { daemonMoves, fabUpdate, failureLine, pluginStep, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate };
+export { daemonMoves, daemonTarget, fabUpdate, failureLine, pluginStep, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate };
 
 /** Opens in the system browser from the editor panel; a plain browser opens a tab. */
 const openLink = (url: string) => void window.open(url, "_blank", "noopener");

@@ -44,6 +44,25 @@ describe("an update run", () => {
     expect(planRun({ studio: needs, ueMcp: ueMcp("1.4.11-beta.6", null) })!.steps.map((s) => s.key)).toEqual(["studio"]);
   });
 
+  it("restarts a daemon left behind its bridge, with nothing else to install", () => {
+    const left = { installed: { version: "1.4.12-beta.2" }, server: "1.4.11", latest: "1.4.12-beta.2", target: null, binaries: null };
+    const run = planRun({ studio: studio(false, false), ueMcp: left })!;
+    expect(run.steps.map((s) => s.key)).toEqual(["restart"]);
+    expect(run.target).toBeNull();
+    // Studio's own update restarts it already.
+    expect(planRun({ studio: studio(true, false), ueMcp: left })!.steps.map((s) => s.key)).toEqual(["studio"]);
+    // A daemon ahead of its bridge is not moved back.
+    expect(planRun({ studio: studio(false, false), ueMcp: { ...left, installed: { version: "1.4.10" } } })).toBeNull();
+    // The restart landed only when the daemon runs the bridge's version.
+    const active: UpdateRun = { target: null, at: Date.now(), steps: [{ key: "restart", state: "active" }] };
+    expect(settle(active, { studio: studio(false, false), ueMcp: left }).steps[0].state).toBe("failed");
+    expect(settle(active, { studio: studio(false, false), ueMcp: { ...left, server: "1.4.12-beta.2" } }).steps[0].state).toBe("done");
+    // The Studio step of an older Studio restarted it below its bridge: the same run restarts it again.
+    const studioRan: UpdateRun = { target: null, at: Date.now(), steps: [{ key: "studio", state: "active" }] };
+    expect(settle(studioRan, { studio: studio(false, false), ueMcp: left }).steps).toEqual([{ key: "studio", state: "done" }, { key: "restart", state: "pending" }]);
+    expect(settle(studioRan, { studio: studio(false, false), ueMcp: { ...left, server: "1.4.12-beta.2" } }).steps).toEqual([{ key: "studio", state: "done" }]);
+  });
+
   it("updates only the bridge when the daemon already runs its target", () => {
     const behind = { installed: { version: "1.4.0-beta.1" }, server: "1.4.3", latest: "1.4.3", target: "1.4.3", binaries: null };
     const run = planRun({ studio: studio(false, false), ueMcp: behind })!;

@@ -180,10 +180,10 @@
   .cfg .toggle-row:not(.inline) > .seg, .cfg .seg { display: flex; flex-wrap: nowrap; width: 100%; align-self: stretch; }
   /* Segments size to their names and share what is left, so a long name such as File automatically stays on one line. */
   .cfg .seg button { flex: 1 1 auto; min-width: min-content; white-space: normal; text-align: center; overflow-wrap: normal; }
-  .cfg .seg.stack { flex-direction: column; }
-  .cfg .seg.stack button { flex: none; text-align: left; }
-  .cfg .seg.stack button + button { border-left: 0; border-top: 1px solid var(--line-strong); }
-  .cfg .seg.stack button.on { box-shadow: inset 3px 0 0 var(--accent); }
+  .cfg .seg.seg-stack { flex-direction: column; }
+  .cfg .seg.seg-stack button { flex: none; text-align: left; }
+  .cfg .seg.seg-stack button + button { border-left: 0; border-top: 1px solid var(--line-strong); }
+  .cfg .seg.seg-stack button.on { box-shadow: inset 3px 0 0 var(--accent); }
   .cfg { padding: 0 10px; }
 }
 .cfg .nowrap { white-space: nowrap; }

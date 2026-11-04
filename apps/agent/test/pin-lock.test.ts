@@ -182,6 +182,7 @@ describe("the PIN lock's state", () => {
     expect(after.check("p1", "GET", "/v1/ext/studio/sessions", false)).toBe("locked");
   });
 
+  // Ten scrypt hashes: seconds on a busy machine, so more than the default 5 s.
   it("wrong PINs: a growing wait after the third, the count survives a restart, the tenth removes the browser", async () => {
     let lock = new PinLock({ file, now });
     await lock.setPin("4821");
@@ -199,8 +200,7 @@ describe("the PIN lock's state", () => {
     }
     clock += 5 * 60_000;
     expect(await lock.unlock("p1", "1111")).toMatchObject({ ok: false, status: 403, unpaired: true });
-    // Twelve scrypt hashes at the production cost: seconds of CPU, more on a machine busy with other work.
-  }, 60_000);
+  }, 20_000);
 
   it("the right PIN clears the count; changing the PIN locks everyone; removing it turns both switches off", async () => {
     const lock = new PinLock({ file, now });
@@ -348,6 +348,7 @@ describe("the lock in the connector, for sealed requests", () => {
     expect((await browser.send("GET", "/v1/ext/studio/sessions")).status).toBe(423);
   });
 
+  // Ten scrypt hashes: seconds on a busy machine, so more than the default 5 s.
   it("ten wrong PINs remove the browser and tell the computer", async () => {
     const { lock, browser, keys, lockouts } = await setup();
     await lock.setPin("4821");
@@ -363,7 +364,7 @@ describe("the lock in the connector, for sealed requests", () => {
     expect(lockouts.map((p) => p.label)).toEqual(["Android (Chrome)"]);
     // Not paired any more: refused before anything opens.
     expect((await browser.send("GET", "/v1/ext/studio/sessions")).status).toBe(403);
-  });
+  }, 20_000);
 
   it("a paired browser is refused the PIN's settings", async () => {
     const { lock, browser } = await setup();

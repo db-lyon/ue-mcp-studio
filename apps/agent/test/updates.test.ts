@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import { Updater, isNewer, readPluginRecord, newestAsset, readChannel, writeChannel } from "../src/updates.js";
+import { UPDATE_FAILURE_FILE, Updater, daemonPackage, cleanPath, describeFailure, failureText, isNewer, readPluginRecord, readUpdateFailure, newestAsset, readChannel, shownCommand, updateEnv, writeChannel } from "../src/updates.js";
 
 // The user's own channel choice never reaches these tests.
 process.env.STUDIO_CHANNEL_FILE = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "studio-chan-")), "update-channel.json");
@@ -84,6 +84,24 @@ describe("Studio updates", () => {
     const m = { version: "0.1.0-beta.27", url: "s", sha256: "x", pluginMin: "0.1.0-beta.27", plugin: { version: "0.1.0-beta.27", files: { "5.8": { url: "u", sha256: "y" } } } };
     expect((await new Updater(fakeHost(project("0.1.0-beta.26")), "0.1.0-beta.26", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ latest: "0.1.0-beta.27", available: true, required: true });
     expect((await new Updater(fakeHost(project("0.1.0-beta.27")), "0.1.0-beta.26", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ available: false, required: false });
+  });
+
+  it("runs the daemon on the bridge's own ue-mcp, so a beta channel's bridge brings its daemon along", () => {
+    expect(daemonPackage("1.4.12-beta.2", "1.4.11", "ue-mcp@latest")).toBe("ue-mcp@1.4.12-beta.2");
+    expect(daemonPackage("1.4.11", "1.4.11", "ue-mcp@latest")).toBe("ue-mcp@1.4.11");
+    // Older than Studio needs, missing, or not a version: the manifest's package.
+    expect(daemonPackage("1.4.10", "1.4.11", "ue-mcp@latest")).toBe("ue-mcp@latest");
+    expect(daemonPackage(null, "1.4.11", "ue-mcp@latest")).toBe("ue-mcp@latest");
+    expect(daemonPackage("1.4.12 && calc", undefined, "ue-mcp@beta")).toBe("ue-mcp@beta");
+  });
+
+  it("reads the project's bridge version from its .uplugin", () => {
+    const dir = project(null);
+    const u = new Updater(fakeHost(dir), "0.1.0", () => {});
+    expect(u.bridgeVersion()).toBeNull();
+    fs.mkdirSync(path.join(dir, "Plugins", "UE_MCP_Bridge"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "Plugins", "UE_MCP_Bridge", "UE_MCP_Bridge.uplugin"), JSON.stringify({ VersionName: "1.4.12-beta.2" }));
+    expect(u.bridgeVersion()).toBe("1.4.12-beta.2");
   });
 
   it("passes on the oldest ue-mcp the latest Studio runs on", async () => {
@@ -281,5 +299,60 @@ describe("the update channel", () => {
     expect(seen.some((u) => u.includes("api.github.com"))).toBe(false);
     // Going back to stable never offers an older version over a beta.
     expect(stable.studio.available).toBe(false);
+  });
+});
+
+/** A Windows path, whatever this test runs on. */
+const win = (...parts: string[]) => parts.join("\\");
+
+describe("the environment an update runs in", () => {
+  const npxAdded = (hash: string) => [
+    win("C:", "Users", "u", "AppData", "Local", "npm-cache", "_npx", hash, "node_modules", ".bin"),
+    win("C:", "Users", "u", "Game", "node_modules", ".bin"),
+    win("C:", "Users", "u", "node_modules", ".bin"),
+    win("C:", "node_modules", ".bin"),
+    win("C:", "nodejs", "node_modules", "npm", "node_modules", "@npmcli", "run-script", "lib", "node-gyp-bin"),
+  ];
+  const user = [win("C:", "Windows", "system32"), win("C:", "nodejs"), win("C:", "Users", "u", "bin")];
+
+  it("drops what the npx that started the daemon left behind, so the nested npx fetches the package it is given", () => {
+    const env = updateEnv({ PATH: "p", npm_config_package: "ue-mcp@1.4.11", NPM_COMMAND: "exec", npm_lifecycle_event: "npx", npm_lifecycle_script: "ue-mcp", npm_config_call: "", npm_config_min_release_age: "7", npm_config_cache: "c" });
+    expect(env).toEqual({ PATH: "p", npm_config_cache: "c", npm_config_min_release_age: "0" });
+  });
+
+  it("gives npx the PATH the daemon's own npx was given, however many updates deep", () => {
+    const inherited = [...Array.from({ length: 50 }, (_, i) => npxAdded(`a${i}`)).flat(), ...user, win("c:", "NODEJS", ""), ...user].join(";");
+    expect(inherited.length).toBeGreaterThan(8191);
+    expect(cleanPath(inherited, ";")).toBe(user.join(";"));
+  });
+
+  it("keeps one PATH under the name Windows had", () => {
+    const env = updateEnv({ Path: [...npxAdded("x"), ...user].join(";"), HOME: "h" }, ";");
+    expect(env).toEqual({ Path: user.join(";"), HOME: "h", npm_config_min_release_age: "0" });
+  });
+
+  it("keeps a POSIX PATH in order without npm's folders", () => {
+    expect(cleanPath("/home/u/.npm/_npx/ab/node_modules/.bin:/usr/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/usr/bin:/bin:/usr/bin", ":")).toBe("/usr/bin:/bin");
+  });
+});
+
+describe("a failed update, for the Updates card", () => {
+  const notFound = "'ue-mcp' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n";
+
+  it("says what went wrong in plain words, with the command it ran", () => {
+    const command = shownCommand([win("C:", "nodejs", "npx-cli.js"), "-y", "--min-release-age=0", "ue-mcp@latest", "extension", "install", "https://x/latest.json", "C:/My Games/Vale/Vale.uproject"]);
+    expect(command).toBe('npx -y --min-release-age=0 ue-mcp@latest extension install https://x/latest.json "C:/My Games/Vale/Vale.uproject"');
+    const said = failureText(notFound);
+    expect(describeFailure(said, 1, command)).toBe(`Windows could not find the program "ue-mcp" that npx was asked to start.\nCommand: ${command}\n${said}`);
+    expect(describeFailure("sh: 1: ue-mcp: not found", 127)).toMatch(/^The system could not find the program "ue-mcp"/);
+    expect(describeFailure("", 3)).toBe("The command exited with code 3.");
+  });
+
+  it("reads the kept failure with its command, and an older record without one", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-fail-"));
+    fs.writeFileSync(path.join(dir, UPDATE_FAILURE_FILE), JSON.stringify({ step: "studio", at: "2026-11-04T18:24:58.067Z", code: 1, log: notFound, command: "npx -y ue-mcp@latest extension install u p" }));
+    expect(readUpdateFailure(dir)?.error.split("\n").slice(0, 2)).toEqual(['Windows could not find the program "ue-mcp" that npx was asked to start.', "Command: npx -y ue-mcp@latest extension install u p"]);
+    fs.writeFileSync(path.join(dir, UPDATE_FAILURE_FILE), JSON.stringify({ step: "restart", at: "t", code: 2, log: "" }));
+    expect(readUpdateFailure(dir)).toEqual({ step: "restart", error: "The command exited with code 2.", at: "t" });
   });
 });

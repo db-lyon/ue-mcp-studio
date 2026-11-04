@@ -115,18 +115,25 @@ export async function readUpdatesWith(get: (path: string) => Promise<unknown>): 
 
 /** How many parts have an update waiting. */
 export function waiting(u: Updates): number {
-  return (u.studio?.studio.available ? 1 : 0) + (pluginStep(u.studio) ? 1 : 0) + (u.ueMcp?.target ? 1 : 0);
+  return (u.studio?.studio.available ? 1 : 0) + (pluginStep(u.studio) ? 1 : 0) + (u.ueMcp?.target || daemonMoves(u.ueMcp) ? 1 : 0);
 }
 
-/** The bridge update restarts the daemon onto the target only when it runs another version. */
-export const daemonMoves = (u: UeMcpUpdate | null | undefined): boolean => !!u?.target && u.server !== u.target;
+/** The ue-mcp the daemon should run: the bridge's target, else the bridge installed now. */
+export const daemonTarget = (u: UeMcpUpdate | null | undefined): string | null => u?.target ?? u?.installed.version ?? null;
 
-/** The steps one Update runs, in order: the bridge plugin, then the editor plugin, then Studio, which restarts ue-mcp. */
-export function updateSteps(u: Updates): Array<"ueMcp" | "plugin" | "studio"> {
-  const steps: Array<"ueMcp" | "plugin" | "studio"> = [];
+/** The daemon restarts onto the bridge's version when it runs an older one, as after a bridge update it did not follow. */
+export const daemonMoves = (u: UeMcpUpdate | null | undefined): boolean => {
+  const t = daemonTarget(u);
+  return !!u && !!t && isNewer(t, u.server);
+};
+
+/** The steps one Update runs, in order: the bridge plugin, then the editor plugin, then Studio, which restarts ue-mcp; else a restart when only the daemon is behind. */
+export function updateSteps(u: Updates): Array<"ueMcp" | "plugin" | "studio" | "restart"> {
+  const steps: Array<"ueMcp" | "plugin" | "studio" | "restart"> = [];
   if (u.ueMcp?.target) steps.push("ueMcp");
   if (pluginStep(u.studio)) steps.push("plugin");
   if (u.studio?.studio.available) steps.push("studio");
+  else if (!u.ueMcp?.target && daemonMoves(u.ueMcp)) steps.push("restart");
   return steps;
 }
 
@@ -136,6 +143,7 @@ export function readyLine(u: Updates): string {
   if (u.ueMcp?.target) parts.push(`the bridge plugin ${u.ueMcp.target}`);
   if (pluginStep(u.studio)) parts.push(`the editor plugin ${u.studio?.plugin.latest}`);
   if (u.studio?.studio.available) parts.push(`Studio ${u.studio.studio.latest}`);
+  if (!u.ueMcp?.target && daemonMoves(u.ueMcp)) parts.push(`ue-mcp ${daemonTarget(u.ueMcp)}`);
   if (!parts.length) return "";
   const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
   return `Ready to install: ${list}.`;
@@ -147,6 +155,6 @@ export function updateRows(u: Updates): Array<[string, string | null, string | n
     ["Studio", u.studio?.studio.installed ?? null, u.studio?.studio.latest ?? null, !!u.studio?.studio.available],
     ["Editor plugin", u.studio?.plugin.installed ?? null, u.studio?.plugin.latest ?? null, !!(u.studio?.plugin.available || u.studio?.plugin.newer)],
     ["Bridge plugin", u.ueMcp?.installed.version ?? null, u.ueMcp?.target ?? null, !!u.ueMcp?.target],
-    ["ue-mcp", u.ueMcp?.server ?? null, u.ueMcp?.target ?? null, daemonMoves(u.ueMcp)],
+    ["ue-mcp", u.ueMcp?.server ?? null, daemonTarget(u.ueMcp), daemonMoves(u.ueMcp)],
   ];
 }

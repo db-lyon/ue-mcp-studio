@@ -7,7 +7,7 @@
  * what the updates now say, then runs the rest.
  */
 import { STEP_NAME, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
-import { daemonMoves, pluginStep, readUpdates, withFloor, type StudioUpdates, type UeMcpUpdate } from "./Updates";
+import { daemonMoves, daemonTarget, pluginStep, readUpdates, withFloor, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 
 export { STEP_NAME, STEP_NOTE, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
 
@@ -37,7 +37,7 @@ export async function loadRun(now = Date.now()): Promise<UpdateRun | null> {
 const WAITS: StepKey[] = ["plugin", "studio", "restart"];
 
 /**
- * The steps one Update runs: the bridge plugin, the editor plugin, then Studio, which restarts ue-mcp; else a restart onto the new ue-mcp when the daemon runs another version.
+ * The steps one Update runs: the bridge plugin, the editor plugin, then Studio, which restarts ue-mcp; else a restart onto the bridge's ue-mcp when the daemon runs an older one.
  * The ue-mcp step targets at least the latest Studio's floor, so Studio never lands on a ue-mcp that refuses it.
  */
 export function planRun(read: Updates, now = Date.now()): UpdateRun | null {
@@ -46,7 +46,7 @@ export function planRun(read: Updates, now = Date.now()): UpdateRun | null {
   if (u.ueMcp?.target) keys.push("ueMcp");
   if (pluginStep(u.studio)) keys.push("plugin");
   if (u.studio?.studio.available) keys.push("studio");
-  else if (keys.includes("ueMcp") && daemonMoves(u.ueMcp)) keys.push("restart");
+  else if (daemonMoves(u.ueMcp)) keys.push("restart");
   return keys.length ? { steps: keys.map((key) => ({ key, state: "pending" })), target: u.ueMcp?.target ?? null, at: now } : null;
 }
 
@@ -67,11 +67,13 @@ export function settle(run: UpdateRun, u: Updates): UpdateRun {
       case "studio":
         return { ...s, state: read && !read.studio.available ? "done" : "failed" };
       case "restart":
-        return { ...s, state: !run.target || u.ueMcp?.server === run.target ? "done" : "failed" };
+        return { ...s, state: !daemonMoves(u.ueMcp) ? "done" : "failed" };
     }
   });
   // A Studio that reads the plugin's own channel can find a plugin update the run did not plan.
   if (!steps.some((s) => s.key === "plugin") && pluginStep(read)) steps.push({ key: "plugin", state: "pending" });
+  // An older Studio restarted ue-mcp on its own package: the new one moves the daemon to its bridge.
+  if (!steps.some((s) => s.key === "restart") && steps.some((s) => s.key === "studio" && s.state === "done") && daemonMoves(u.ueMcp)) steps.push({ key: "restart", state: "pending" });
   const failed = steps.find((s) => s.state === "failed");
   return { ...run, steps, detail: undefined, error: failed ? unfinished(failed.key, u) : run.error };
 }
@@ -95,7 +97,7 @@ function unfinished(key: StepKey, u: Updates): string {
     installed && latest ? `${name} is still ${installed}; ${latest} did not install. Update tries again.` : `${name} did not finish. Update tries again.`;
   if (key === "plugin") return still("The editor plugin", u.studio?.plugin.installed, u.studio?.plugin.latest);
   if (key === "studio") return still("Studio", u.studio?.studio.installed, u.studio?.studio.latest);
-  if (key === "restart") return still("ue-mcp", u.ueMcp?.server, u.ueMcp?.target);
+  if (key === "restart") return still("ue-mcp", u.ueMcp?.server, daemonTarget(u.ueMcp));
   return `${STEP_NAME[key]} did not finish. Update tries again.`;
 }
 
