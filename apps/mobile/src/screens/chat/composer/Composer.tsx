@@ -411,7 +411,8 @@ const styles = (t: Theme) => ({
   attachName: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.text, flexShrink: 1, minWidth: 0 },
   attachSize: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.dim, flexShrink: 0 },
   mirror: { position: "absolute" as const, top: 0, opacity: 0 },
-  mirrorText: { paddingVertical: 8, paddingHorizontal: 11 },
+  // A browser's textarea wraps its text a caret's width before its edge, and the web client's mirror is a textarea: the same 2 px here.
+  mirrorText: { paddingVertical: 8, paddingLeft: 11, paddingRight: 11 + (Platform.OS === "web" ? 2 : 0) },
   box: { width: "100%" as const, backgroundColor: t.c.panel2, color: t.c.text, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 10, textAlignVertical: "top" as const, outlineStyle: "none" as never },
   boxFocus: { borderColor: t.c.accentLine, boxShadow: `0 0 0 3px ${t.c.accentWash}` },
   bar: { flexDirection: "row" as const, flexWrap: "nowrap" as const, alignItems: "center" as const, gap: 6, minWidth: 0, position: "relative" as const },

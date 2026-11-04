@@ -10,7 +10,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type DimensionValue, type HostInstance } from "react-native";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
 import { compactLine, contextLabel, contextWarningText, dollars, pct, tokenCount } from "@ue-mcp-studio/client-core";
-import { font, labelFont, T, useTheme, type Theme } from "../../../ui";
+import { Button, font, labelFont, T, useTheme, type Theme } from "../../../ui";
 import { buttonText, small } from "../../../chat/styles";
 
 export { dollars };
@@ -191,7 +191,7 @@ function Total({ name, value, note }: { name: string; value: string; note?: stri
  */
 export function ContextWarning({ view, runtime, busy, onCompact, onDismiss }: { view: ContextView; runtime: boolean; busy: boolean; onCompact: () => void; onDismiss: () => void }) {
   const t = useTheme();
-  // .context-warning-text { flex-basis: calc(100% - 90px) }: the text takes the line beside the bar, the buttons the next.
+  // .context-warning-text { flex: 1; flex-basis: calc(100% - 90px) }: the text grows across the line beside the bar, the buttons take the next.
   const [inner, setInner] = useState(0);
   return (
     <View
@@ -201,19 +201,15 @@ export function ContextWarning({ view, runtime, busy, onCompact, onDismiss }: { 
       style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginHorizontal: 10, marginBottom: 6, paddingVertical: 6, paddingRight: 8, paddingLeft: 12, borderWidth: 1, borderColor: t.c.lineStrong, borderLeftWidth: 3, borderLeftColor: view.level === "high" ? t.c.bad : t.c.warn, borderRadius: t.radius, backgroundColor: t.c.panel2 }}
     >
       <ContextBar view={view} width={44} />
-      <T style={{ ...(inner > 0 ? { width: inner - 90 } : { flex: 1 }), fontSize: 12.5, lineHeight: 12.5 * (t.editor ? 1.5 : 1.55), color: t.c.text }}>{contextWarningText(view, runtime)}</T>
+      <T style={{ ...(inner > 0 ? { flexBasis: inner - 90, flexGrow: 1, flexShrink: 1 } : { flex: 1 }), minWidth: 0, fontSize: 12.5, lineHeight: 12.5 * (t.editor ? 1.5 : 1.55), color: t.c.text }}>{contextWarningText(view, runtime)}</T>
       <SmallButtonPrimary title="Compact now" disabled={busy} onPress={onCompact} />
       <IconButton label="Dismiss" glyph={"×"} onPress={onDismiss} />
     </View>
   );
 }
 
+/** button.primary: the ui Button, which draws editor-orange's black bold words on the orange. */
 function SmallButtonPrimary({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
-  const t = useTheme();
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingVertical: 6, paddingHorizontal: 12, justifyContent: "center", borderRadius: t.radius, borderWidth: 1, borderColor: disabled ? t.c.disabledLine : pressed ? t.c.accentHi : t.c.accent, backgroundColor: disabled ? "transparent" : pressed ? t.c.accentHi : t.c.accent })}>
-      <T style={[buttonText(t, 600), { color: disabled ? t.c.dim : t.c.onAccent }]}>{title}</T>
-    </Pressable>
-  );
+  return <Button title={title} variant="primary" disabled={disabled} onPress={onPress} />;
 }
 
