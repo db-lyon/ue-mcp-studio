@@ -38,6 +38,8 @@ function packFake(): Buffer {
     'fs.appendFileSync(process.env.FAKE_UE_MCP_CALLS, JSON.stringify(process.argv.slice(2)) + "\\n");',
     // What npm's age gate is set to for the npm runs ue-mcp makes inside an update.
     'if (process.env.FAKE_UE_MCP_ENV) fs.appendFileSync(process.env.FAKE_UE_MCP_ENV, JSON.stringify({ minAge: process.env.npm_config_min_release_age ?? null }) + "\\n");',
+    // The PATH npx ran it with, which a daemon it starts inherits.
+    'if (process.env.FAKE_UE_MCP_PATH) fs.writeFileSync(process.env.FAKE_UE_MCP_PATH, process.env.PATH ?? process.env.Path ?? "");',
     // ue-mcp prints its errors on stdout, in colour, as fail() in its src/cli/ui/ansi.ts does.
     'if (process.env.FAKE_UE_MCP_FAIL) { console.log("  \\x1b[31mx\\x1b[0m " + process.env.FAKE_UE_MCP_FAIL); process.exit(1); }',
     "",
@@ -223,7 +225,7 @@ describe("updates through an age-gated npm", () => {
   it("says what npm said when the version cannot be installed", async () => {
     const r = await new Updater(host(project()), "0.0.1").updateUeMcp("9.9.9");
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/^ue-mcp 9\.9\.9 update exited with 1:\n/);
+    expect(r.error).toMatch(/^npm could not find that version of the package\.\nCommand: npx -y --min-release-age=0 ue-mcp@9\.9\.9 update .*Game\.uproject --apply-only\n/);
     expect(r.error).toMatch(/ETARGET|No matching version found for ue-mcp@9\.9\.9/);
     expect(r.error).not.toMatch(/A complete log of this run/);
   }, 90_000);
@@ -297,6 +299,9 @@ describe("updates through an age-gated npm", () => {
       expect(kept.step).toBe("studio");
       expect(kept.error).toContain("could not download studio-9.9.9.zip: HTTP 404");
       expect(kept.error).not.toContain("\x1b");
+      // What went wrong in plain words, then the command as the user could run it.
+      const command = `npx -y --min-release-age=0 ue-mcp@${TODAY} extension install https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/latest.json ${path.join(dir, "Game.uproject")}`;
+      expect(kept.error.split("\n").slice(0, 2)).toEqual(["The command exited with code 1.", `Command: ${command}`]);
       await until(() => (failures.length ? true : undefined));
       expect(failures[0]).toContain("could not download studio-9.9.9.zip: HTTP 404");
     } finally {
@@ -334,6 +339,41 @@ describe("updates through an age-gated npm", () => {
     } finally {
       delete process.env.FAKE_UE_MCP_ENV;
       delete process.env.npm_config_min_release_age;
+    }
+  }, 120_000);
+});
+
+describe("a daemon started by an update, updating again", () => {
+  // npx puts its cache's .bin and every node_modules/.bin above the project on PATH, and the
+  // daemon an update starts inherits it, so each update ran with a longer PATH. Past 8191
+  // characters cmd.exe finds no command at all: "'ue-mcp' is not recognized".
+  it("runs ue-mcp with the PATH the first update had, however many updates started the daemon", async () => {
+    const dir = project();
+    const seen = path.join(dir, "path.txt");
+    const original = process.env.PATH ?? "";
+    const failures: string[] = [];
+    const update = async (): Promise<string> => {
+      fs.rmSync(seen, { force: true });
+      const u = new Updater(host(dir), "0.0.1", () => {}, manifestNaming(`ue-mcp@${TODAY}`), () => "stable", (_, e) => failures.push(e));
+      expect(await u.updateStudio()).toEqual({ started: true });
+      return until(() => (fs.existsSync(seen) ? fs.readFileSync(seen, "utf-8") : failures.length ? "" : undefined));
+    };
+    process.env.FAKE_UE_MCP_PATH = seen;
+    try {
+      const first = await update();
+      expect(failures).toEqual([]);
+      // What npx added for this run, as a daemon thirty updates deep would have it, each from its own npx cache folder.
+      const added = first.split(path.delimiter).filter((d) => !original.split(path.delimiter).includes(d));
+      expect(added.some((d) => /_npx/.test(d))).toBe(true);
+      const layers = Array.from({ length: 30 }, (_, i) => added.map((d) => d.replace(/(_npx[\\/])([^\\/]+)/,`$1$2${i}`)).join(path.delimiter));
+      process.env.PATH = [...layers, original].join(path.delimiter);
+      expect(process.env.PATH.length).toBeGreaterThan(8191);
+      const later = await update();
+      expect(failures).toEqual([]);
+      expect(later).toBe(first);
+    } finally {
+      process.env.PATH = original;
+      delete process.env.FAKE_UE_MCP_PATH;
     }
   }, 120_000);
 });

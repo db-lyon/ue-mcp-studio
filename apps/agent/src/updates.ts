@@ -122,10 +122,9 @@ export const UPDATE_FAILURE_FILE = "update-failure.json";
 export function readUpdateFailure(dataDir: string | undefined): UpdateFailure | null {
   if (!dataDir) return null;
   try {
-    const f = JSON.parse(fs.readFileSync(path.join(dataDir, UPDATE_FAILURE_FILE), "utf-8")) as { step?: string; at?: string; code?: number | null; log?: string; error?: string };
+    const f = JSON.parse(fs.readFileSync(path.join(dataDir, UPDATE_FAILURE_FILE), "utf-8")) as { step?: string; at?: string; code?: number | null; log?: string; error?: string; command?: string };
     if (f.step !== "studio" && f.step !== "restart") return null;
-    const said = f.error ?? failureText(f.log ?? "");
-    return { step: f.step, error: said || `the update exited with ${f.code ?? "an error"}`, at: f.at ?? "" };
+    return { step: f.step, error: f.error ?? describeFailure(failureText(f.log ?? ""), f.code ?? null, f.command), at: f.at ?? "" };
   } catch {
     return null;
   }
@@ -212,6 +211,28 @@ export function failureText(output: string): string {
     .map((l) => l.replace(/^npm (error|ERR!)\s?/, ""))
     .filter((l) => l && !/^A complete log of this run|^\S*[\\/]_logs[\\/]/.test(l));
   return (npm.length ? npm : lines.slice(-5)).join("\n").slice(-2000);
+}
+
+/** What a failed run's output means, in plain words, for the ones a user can act on. */
+export function plainReason(said: string, code: number | null): string {
+  let m = /'([^']+)' is not recognized as an internal or external command/i.exec(said);
+  if (m) return `Windows could not find the program "${m[1]}" that npx was asked to start.`;
+  m = /(?:^|\s)([^\s:]+): (?:command )?not found/m.exec(said);
+  if (m) return `The system could not find the program "${m[1]}" that npx was asked to start.`;
+  if (/ETARGET|notarget|No matching version/i.test(said)) return "npm could not find that version of the package.";
+  if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ECONNRESET|ETIMEDOUT/.test(said)) return "npm could not reach the package registry.";
+  if (/EPERM|EBUSY|EACCES/.test(said)) return "A file the update needed was locked or could not be written.";
+  return code === null ? "The command could not be started." : `The command exited with code ${code}.`;
+}
+
+/** A failed run for the Updates card: what went wrong, the command, then what it printed. */
+export function describeFailure(said: string, code: number | null, command?: string): string {
+  return [plainReason(said, code), command ? `Command: ${command}` : "", said].filter(Boolean).join("\n");
+}
+
+/** The npx command line that node `args` (npx-cli.js first) run, as a user would type it. */
+export function shownCommand(args: string[]): string {
+  return ["npx", ...args.slice(1)].map((a) => (/[\s"]/.test(a) ? JSON.stringify(a) : a)).join(" ");
 }
 
 const sha256 = (file: string) => crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
@@ -338,12 +359,13 @@ export class Updater {
     const npx = npxCli();
     if (!npx) return { started: false, error: "npx was not found beside Node" };
     clearUpdateFailure(this.host.dataDir);
-    runHidden([...npxArgs(npx, await this.ueMcpPackage()), ...args], this.host.projectDir, (error) => this.onBackgroundFailure(step, error), this.failureSink(step));
+    const run = [...npxArgs(npx, await this.ueMcpPackage()), ...args];
+    runHidden(run, this.host.projectDir, (error) => this.onBackgroundFailure(step, error), this.failureSink(step, shownCommand(run)));
     return { started: true };
   }
 
-  private failureSink(step: UpdateFailure["step"]): { file: string; step: UpdateFailure["step"] } | undefined {
-    return this.host.dataDir ? { file: path.join(this.host.dataDir, UPDATE_FAILURE_FILE), step } : undefined;
+  private failureSink(step: UpdateFailure["step"], command: string): { file: string; step: UpdateFailure["step"]; command: string } {
+    return { file: this.host.dataDir ? path.join(this.host.dataDir, UPDATE_FAILURE_FILE) : "", step, command };
   }
 
   /** The last background step that failed (the Studio update, the restart), for the Updates card. */
@@ -393,8 +415,9 @@ export class Updater {
     const npx = npxCli();
     if (!npx) return { ok: false, error: "npx was not found beside Node" };
     let output = "";
+    const run = [...npxArgs(npx, `ue-mcp@${version}`), ...args];
     const code = await new Promise<number | null>((resolve) => {
-      const c = spawn(process.execPath, [...npxArgs(npx, `ue-mcp@${version}`), ...args], { cwd: this.host.projectDir, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: updateEnv() });
+      const c = spawn(process.execPath, run, { cwd: this.host.projectDir, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, env: updateEnv() });
       for (const s of [c.stdout, c.stderr]) {
         s.setEncoding("utf-8");
         s.on("data", (d: string) => void (output = (output + d).slice(-64_000)));
@@ -406,8 +429,7 @@ export class Updater {
       });
     });
     if (code === 0) return { ok: true };
-    const said = failureText(output);
-    return { ok: false, error: `ue-mcp ${version} ${args[0]} exited with ${code ?? "an error"}${said ? `:\n${said}` : ""}` };
+    return { ok: false, error: describeFailure(failureText(output), code, shownCommand(run)) };
   }
 
   /**
@@ -457,7 +479,8 @@ export class Updater {
     // The start's stderr is the chain's, which runHidden keeps for a failure this daemon outlives.
     const npx = npxCli();
     if (!npx) return { started: false, error: "npx was not found beside Node" };
-    const script = `const {execFileSync}=require("child_process");const a=${JSON.stringify(npxArgs(npx, await this.ueMcpPackage()))};` +
+    const a = npxArgs(npx, await this.ueMcpPackage());
+    const script = `const {execFileSync}=require("child_process");const a=${JSON.stringify(a)};` +
       `try{execFileSync(process.execPath,[...a,"daemon","stop",${JSON.stringify(uproject)}],{stdio:"ignore",windowsHide:true})}catch{}` +
       // Older ue-mcp returns from stop before the daemon exits; a start beside it leaves two daemons on one editor.
       `const pid=${this.host.daemonPid ?? process.pid},until=Date.now()+${RESTART_EXIT_WAIT_MS},nap=new Int32Array(new SharedArrayBuffer(4));` +
@@ -465,7 +488,8 @@ export class Updater {
       `while(alive()&&Date.now()<until)Atomics.wait(nap,0,0,200);` +
       `try{execFileSync(process.execPath,[...a,"daemon","start",${JSON.stringify(uproject)}],{stdio:["ignore","ignore","inherit"],windowsHide:true})}catch(e){process.exit(e.status||1)}`;
     clearUpdateFailure(this.host.dataDir);
-    runHidden(["-e", script], this.host.projectDir, (error) => this.onBackgroundFailure("restart", error), this.failureSink("restart"));
+    const command = `${shownCommand([...a, "daemon", "stop", uproject])}, then ${shownCommand([...a, "daemon", "start", uproject])}`;
+    runHidden(["-e", script], this.host.projectDir, (error) => this.onBackgroundFailure("restart", error), this.failureSink("restart", command));
     return { started: true };
   }
 
@@ -571,15 +595,45 @@ async function startFailure(host: UpdaterHost): Promise<string | null> {
  * the environment. An inherited npm_config_package makes the nested npx treat
  * `ue-mcp@<version>` as a command to run rather than the package to fetch
  * ("'ue-mcp@1.4.12-beta.2' is not recognized"), so those are dropped too.
+ *
+ * That npx also put its own folders on PATH, and each update inherited them
+ * and added its own, until PATH passed the 8191 characters cmd.exe reads and
+ * it found no command at all ("'ue-mcp' is not recognized"). So an update gets
+ * PATH without npm's folders, each folder once.
  */
 const NOT_INHERITED = /^(npm_config_min_release_age|npm_config_package|npm_config_call|npm_command|npm_lifecycle_event|npm_lifecycle_script)$/i;
 
-export function updateEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function updateEnv(base: NodeJS.ProcessEnv = process.env, delimiter = path.delimiter): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
+  let pathKey: string | null = null;
+  const paths: string[] = [];
   // Windows keeps environment names in any case; drop every spelling before setting ours.
-  for (const [k, v] of Object.entries(base)) if (!NOT_INHERITED.test(k)) env[k] = v;
+  for (const [k, v] of Object.entries(base)) {
+    if (/^path$/i.test(k)) {
+      pathKey ??= k;
+      if (v) paths.push(v);
+    } else if (!NOT_INHERITED.test(k)) env[k] = v;
+  }
+  if (pathKey) env[pathKey] = cleanPath(paths.join(delimiter), delimiter);
   env.npm_config_min_release_age = "0";
   return env;
+}
+
+/** A folder npm's run-script puts on PATH: a node_modules/.bin, or the node-gyp-bin it ships. */
+const NPM_RUN_DIR = /[\\/]node_modules[\\/]\.bin[\\/]*$|[\\/]run-script[\\/]lib[\\/]node-gyp-bin[\\/]*$/i;
+
+/** PATH without the folders npm's runs added, each folder once, in order. */
+export function cleanPath(value: string, delimiter = path.delimiter): string {
+  const seen = new Set<string>();
+  const kept: string[] = [];
+  for (const dir of value.split(delimiter)) {
+    if (!dir.trim() || NPM_RUN_DIR.test(dir)) continue;
+    const key = delimiter === ";" ? dir.replace(/[\\/]+$/, "").toLowerCase() : dir.replace(/\/+$/, "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    kept.push(dir);
+  }
+  return kept.join(delimiter);
 }
 
 /**
@@ -592,20 +646,21 @@ export function updateEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Process
  * `failure.file`, so the failure is kept even after this daemon is gone, and
  * `onFailure` gets what it said while this daemon still runs.
  */
-export function runHidden(args: string[], cwd: string, onFailure?: (error: string) => void, failure?: { file: string; step: string }): void {
+export function runHidden(args: string[], cwd: string, onFailure?: (error: string) => void, failure?: { file: string; step: string; command?: string }): void {
   const log = path.join(os.tmpdir(), `studio-update-${crypto.randomUUID()}.log`);
   const wrapper =
     'const fs=require("fs");const e=process.env;const out=fs.openSync(e.STUDIO_CHAIN_LOG,"w");' +
     'const failed=(code)=>{if(!e.STUDIO_CHAIN_FAILURE)return;let log="";try{log=fs.readFileSync(e.STUDIO_CHAIN_LOG,"utf-8").slice(-16000)}catch{}' +
-    'try{fs.mkdirSync(require("path").dirname(e.STUDIO_CHAIN_FAILURE),{recursive:true});fs.writeFileSync(e.STUDIO_CHAIN_FAILURE,JSON.stringify({step:e.STUDIO_CHAIN_STEP,at:new Date().toISOString(),code,log}))}catch{}};' +
+    'try{fs.mkdirSync(require("path").dirname(e.STUDIO_CHAIN_FAILURE),{recursive:true});fs.writeFileSync(e.STUDIO_CHAIN_FAILURE,JSON.stringify({step:e.STUDIO_CHAIN_STEP,at:new Date().toISOString(),code,log,command:e.STUDIO_CHAIN_COMMAND}))}catch{}};' +
     'const c=require("child_process").spawn(process.execPath,JSON.parse(e.STUDIO_CHAIN),{stdio:["ignore",out,out],windowsHide:true});' +
     'c.on("exit",(x)=>{fs.closeSync(out);if(x!==0){failed(x)}else{try{fs.rmSync(e.STUDIO_CHAIN_LOG,{force:true})}catch{}}process.exit(x??1)});' +
     'c.on("error",(err)=>{fs.writeSync(out,String(err.message));fs.closeSync(out);failed(null);process.exit(1)});';
   const env: NodeJS.ProcessEnv = { ...updateEnv(), STUDIO_CHAIN: JSON.stringify(args), STUDIO_CHAIN_LOG: log };
-  if (failure) {
+  if (failure?.file) {
     env.STUDIO_CHAIN_FAILURE = failure.file;
     env.STUDIO_CHAIN_STEP = failure.step;
   }
+  if (failure?.command) env.STUDIO_CHAIN_COMMAND = failure.command;
   const w = spawn(process.execPath, ["-e", wrapper], { detached: true, stdio: "ignore", windowsHide: true, cwd, env });
   w.on("exit", (code) => {
     let said = "";
@@ -615,7 +670,7 @@ export function runHidden(args: string[], cwd: string, onFailure?: (error: strin
       // No log: the wrapper did not start.
     }
     fs.rm(log, { force: true }, () => {});
-    if (code !== 0) onFailure?.(said || `the update exited with ${code ?? "an error"}`);
+    if (code !== 0) onFailure?.(describeFailure(said, code, failure?.command));
   });
   w.on("error", (e) => onFailure?.(e.message));
   w.unref();
