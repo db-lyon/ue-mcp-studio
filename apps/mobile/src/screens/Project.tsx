@@ -8,8 +8,8 @@ import { Button, Dot, Header, s, tap } from "../legacy-ui";
 import { SessionScreen } from "./Session";
 import { ReviewItemScreen, ReviewScreen } from "./Review";
 import { CheckpointsScreen } from "./Checkpoints";
-import { ChangeScreen, ChangesScreen } from "./Changes";
 import { PlaytestsScreen } from "./playtests/Playtests";
+import { useChangesSheet } from "./git/VcsChip";
 import { ProjectContext, type ProjectNav, type Route } from "../nav";
 import { colors } from "../theme";
 
@@ -43,13 +43,11 @@ export function ProjectScreen({ device, onBack, onUnpaired, transport, initial }
   return (
     <ProjectContext.Provider value={nav}>
       <View style={{ flex: 1 }} onTouchStart={() => project.lock.touched()}>
-        {!top ? <Sessions project={project} onBack={onBack} onOpen={(id) => nav.push({ name: "session", id })} onChanges={() => nav.push({ name: "changes" })} onUnpaired={onUnpaired} /> : null}
+        {!top ? <Sessions project={project} onBack={onBack} onOpen={(id) => nav.push({ name: "session", id })} onUnpaired={onUnpaired} /> : null}
         {top?.name === "session" ? <SessionScreen key={top.id} id={top.id} /> : null}
         {top?.name === "review" ? <ReviewScreen sessionId={top.sessionId} review={top.review} /> : null}
         {top?.name === "reviewItem" ? <ReviewItemScreen sessionId={top.sessionId} reviewId={top.reviewId} path={top.path} /> : null}
         {top?.name === "checkpoints" ? <CheckpointsScreen sessionId={top.sessionId} /> : null}
-        {top?.name === "changes" ? <ChangesScreen /> : null}
-        {top?.name === "change" ? <ChangeScreen path={top.path} /> : null}
         {top?.name === "playtests" ? <PlaytestsScreen onOpenSession={(id) => nav.push({ name: "session", id })} onChat={() => nav.pop()} /> : null}
         <Lock project={project} onUnpaired={onUnpaired} />
       </View>
@@ -66,7 +64,8 @@ function Lock({ project, onUnpaired }: { project: Project; onUnpaired: (message:
   );
 }
 
-function Sessions({ project, onBack, onOpen, onChanges, onUnpaired }: { project: Project; onBack: () => void; onOpen: (id: string) => void; onChanges: () => void; onUnpaired: (message: string) => void }) {
+function Sessions({ project, onBack, onOpen, onUnpaired }: { project: Project; onBack: () => void; onOpen: (id: string) => void; onUnpaired: (message: string) => void }) {
+  const changes = useChangesSheet();
   const { device, transport, live, dropCause, onEvent, lock } = project;
   const lockView = useLockView(lock);
   const [sessions, setSessions] = useState<SessionRow[] | null>(null);
@@ -130,7 +129,7 @@ function Sessions({ project, onBack, onOpen, onChanges, onUnpaired }: { project:
         onBack={onBack}
         right={
           <View style={{ flexDirection: "row", gap: 18 }}>
-            <Pressable accessibilityRole="button" onPress={onChanges} hitSlop={8} style={tap}>
+            <Pressable accessibilityRole="button" onPress={changes.open} hitSlop={8} style={tap}>
               <Text style={s.link}>Changes</Text>
             </Pressable>
             {lockView.state?.whole ? (
@@ -147,7 +146,7 @@ function Sessions({ project, onBack, onOpen, onChanges, onUnpaired }: { project:
           {liveText}
         </Text>
       </View>
-      {error ? <Text style={[s.error, { marginTop: 8 }]}>{error}</Text> : null}
+      {error ?? changes.error ? <Text style={[s.error, { marginTop: 8 }]}>{error ?? changes.error}</Text> : null}
       <Text style={s.section}>Sessions</Text>
       <FlatList
         data={sessions ?? []}
@@ -170,6 +169,7 @@ function Sessions({ project, onBack, onOpen, onChanges, onUnpaired }: { project:
         )}
       />
       <Button title="New session" primary disabled={creating || live !== "live"} onPress={() => void create()} />
+      {changes.sheet}
     </View>
   );
 }

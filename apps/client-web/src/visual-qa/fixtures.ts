@@ -365,6 +365,12 @@ const vcsGet = (p: string) =>
   : p === "/v1/ext/studio/vcs/diff" ? { diff: VCS_DIFF }
   : undefined;
 
+/** The same project with nothing changed, with more changes than the list holds, and with a file that has no text diff. */
+const VCS_CLEAN = { ...VCS, changes: 0, ahead: 0 };
+const vcsCleanGet = (p: string) => (p === "/v1/ext/studio/vcs" ? { vcs: VCS_CLEAN } : p === "/v1/ext/studio/vcs/changes" ? { changes: [], truncated: false } : undefined);
+const vcsTruncatedGet = (p: string) => (p === "/v1/ext/studio/vcs/changes" ? { changes: VCS_CHANGES, truncated: true } : vcsGet(p));
+const vcsNoDiffGet = (p: string) => (p === "/v1/ext/studio/vcs/diff" ? { diff: null, reason: "C_DoorHinge.uasset is a binary file: there is no text diff to show." } : vcsGet(p));
+
 /** A session's checkpoints: a turn, a restore that can be undone, and a loop attempt. */
 function withTimeline(): SessionDetail {
   const d = withTools();
@@ -434,6 +440,10 @@ export const SCENARIOS: Record<string, Scenario> = {
   "vcs-changes-list-narrow": { title: "The source control chip opened on a phone: only the changed files, no diff until one is tapped", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
   "vcs-changes-tree": { title: "The source control changes as a folder tree: collapsible folders with change counts, status letters on files", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-view button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child"] },
   "vcs-changes-tree-remote": { title: "A paired browser: the changes as a folder tree", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, remotePage: true, clicks: ["button.chip.vcs", ".changes-view button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child"] },
+  "vcs-changes-empty": { title: "The source control chip opened on a project with nothing changed: No changes.", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsCleanGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
+  "vcs-changes-truncated": { title: "More files changed than the list holds: the note under the list", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsTruncatedGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
+  "vcs-changes-tree-collapsed": { title: "The changes tree with every folder collapsed", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-view button:last-child", ".changes-toolbar > button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child", ".changes-toolbar > button:last-child"] },
+  "vcs-changes-no-diff": { title: "A changed file with no text diff opened: the reason in place of the diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsNoDiffGet, clicks: ["button.chip.vcs", ".changes-list li:nth-child(3) button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li:nth-child(3) button"] },
   "checkpoints": { title: "Checkpoints opened from the session header: the review switch and the timeline", hash: `#/chat/${SESSION_ID}`, session: withTimeline(), index: { playtests: [], listed: true }, clicks: [".composer-checkpoints"], narrowClicks: [".chat-review-button"] },
   "remote-lock-screen": {
     title: "A paired browser with the whole-client PIN lock on: Studio locked until the PIN set on the computer is entered",
