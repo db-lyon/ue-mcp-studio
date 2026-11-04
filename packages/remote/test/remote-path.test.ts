@@ -72,8 +72,46 @@ describe("remotePath", () => {
     ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
   });
 
+  it("lets a paired browser read update status and refuses every update, install and channel change", () => {
+    expect(remotePath("GET", "/v1/ext/studio/updates")).toBe("/v1/ext/studio/updates");
+    expect(remotePath("GET", "/v1/ext/studio/updates/run")).toBe("/v1/ext/studio/updates/run");
+    expect(remotePath("GET", "/v1/update")).toBe("/v1/update");
+    expect(remotePath("GET", "/v1/install")).toBe("/v1/install");
+    expect(remotePath("POST", "/v1/ext/studio/version-notice/keep")).toBe("/v1/ext/studio/version-notice/keep");
+    expect(remotePath("GET", "/v1/ext/studio/refusal")).toBe("/v1/ext/studio/refusal");
+    const steps = ["studio", "plugin", "ueMcp", "restart", "deferred/now", "channel", "anything"];
+    const refused: Array<[string, string]> = [];
+    for (const m of ["GET", "POST", "PUT", "PATCH", "DELETE", "post"]) for (const s of steps) refused.push([m, `/v1/ext/studio/updates/${s}`]);
+    for (const m of ["POST", "PUT", "PATCH", "DELETE", "OPTIONS", "put"]) {
+      refused.push([m, "/v1/ext/studio/updates"], [m, "/v1/ext/studio/updates/"], [m, "/v1/ext/studio/updates/run"], [m, "/v1/ext/studio/updates/run/"]);
+    }
+    refused.push(
+      ["POST", "/v1/ext/studio/Updates/studio"],
+      ["POST", "/v1/ext/studio/UPDATES/plugin"],
+      ["POST", "/v1/ext/studio/updates/studio/"],
+      ["POST", "/v1/ext/studio/updates/studio?now=1"],
+      ["POST", "/v1/ext/studio/updates/run/../studio"],
+      ["POST", "/v1/ext/studio/x/../updates/ueMcp"],
+      ["POST", "/v1/ext/studio/./updates/restart"],
+      ["POST", "/v1/ext/studio//updates/studio"],
+      ["POST", "/v1/ext/studio/updates%2fstudio"],
+      ["POST", "/v1/ext/studio/updates/%2e%2e/updates/studio"],
+      ["PUT", "/v1/ext/studio/updates/channel?x=1"],
+      ["POST", "/v1/ext/studio/updates/deferred/now/"],
+      ["POST", "/v1/ext/studio/refusal/update"],
+      ["POST", "/v1/ext/studio/Refusal/Update/"],
+      ["POST", "/v1/ext/studio/version-notice/update"],
+      ["POST", "/v1/ext/studio/Version-Notice/update/"],
+      ["POST", "/v1/update/apply"],
+      ["POST", "/v1/update"],
+      ["POST", "/v1/install"],
+    );
+    for (const [m, p] of refused) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
+  });
+
   it("still allows Studio routes that only start with the same letters", () => {
     expect(remotePath("GET", "/v1/ext/studio/remotes")).toBe("/v1/ext/studio/remotes");
     expect(remotePath("GET", "/v1/ext/studio/sessions/remote")).toBe("/v1/ext/studio/sessions/remote");
+    expect(remotePath("GET", "/v1/ext/studio/updatesx")).toBe("/v1/ext/studio/updatesx");
   });
 });

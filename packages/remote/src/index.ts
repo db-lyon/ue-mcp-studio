@@ -72,11 +72,18 @@ const ALLOW: Array<{ methods: string[] | "any"; path: RegExp }> = [
   { methods: "any", path: /^\/v1\/ext\/studio(\/.*)?$/ },
 ];
 
-const DENY: RegExp[] = [
+/** Refused whatever ALLOW says: every method, or every method but those in `except`. */
+const DENY: Array<{ path: RegExp; except?: string[] }> = [
   // Opens a window on the machine, which nobody remote can see.
-  /^\/v1\/ext\/studio\/window(\/.*)?$/i,
+  { path: /^\/v1\/ext\/studio\/window(\/.*)?$/i },
   // Remote control itself: a paired browser may not pair others, turn it off or revoke anyone.
-  /^\/v1\/ext\/studio\/remote(\/.*)?$/i,
+  { path: /^\/v1\/ext\/studio\/remote(\/.*)?$/i },
+  // Updates install and restart software on the computer. A paired browser may read their status (GET /updates, /updates/run), nothing else.
+  { path: /^\/v1\/ext\/studio\/updates\/(?!run\/?$).+$/i },
+  { path: /^\/v1\/ext\/studio\/updates(\/run)?\/?$/i, except: ["GET"] },
+  // Installing ue-mcp when Studio refused an older one, and moving to a Studio another project installed.
+  { path: /^\/v1\/ext\/studio\/refusal\/update\/?$/i },
+  { path: /^\/v1\/ext\/studio\/version-notice\/update\/?$/i },
 ];
 
 /**
@@ -84,8 +91,9 @@ const DENY: RegExp[] = [
  * way the daemon's URL parser will read it, or null when it is refused. Forward
  * the returned path, never the raw one. The connector enforces this on the
  * computer, after opening the sealed request. Never reachable: the MCP
- * endpoint, shutdown and handoff, applying updates, installing, updating or removing plugins, Studio's
- * window and remote-control routes, and any extension other than Studio.
+ * endpoint, shutdown and handoff, applying or starting any update (ue-mcp, Studio, the editor plugin,
+ * the update channel), installing, updating or removing plugins, Studio's window and remote-control
+ * routes, and any extension other than Studio.
  */
 export function remotePath(method: string, rawPath: string): string | null {
   if (!rawPath.startsWith("/") || /\\|%2e|%2f|%5c/i.test(rawPath)) return null;
@@ -97,8 +105,8 @@ export function remotePath(method: string, rawPath: string): string | null {
   }
   if (url.host !== "daemon.invalid") return null;
   const pathname = url.pathname;
-  if (pathname.includes("//") || DENY.some((d) => d.test(pathname))) return null;
   const m = method.toUpperCase();
+  if (pathname.includes("//") || DENY.some((d) => !d.except?.includes(m) && d.path.test(pathname))) return null;
   if (!ALLOW.some((a) => (a.methods === "any" || a.methods.includes(m)) && a.path.test(pathname))) return null;
   return pathname + url.search;
 }
