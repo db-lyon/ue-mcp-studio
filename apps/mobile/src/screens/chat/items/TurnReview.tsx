@@ -569,11 +569,15 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
       ) : (
         <View accessibilityRole="list" accessibilityLabel="Checkpoint timeline" style={{ gap: 2 }}>
           {marks.map((m) => (
-            <View key={`${m.kind}-${m.checkpoint}`} style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", columnGap: 8, rowGap: 8, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: t.c.line, opacity: m.undone ? 0.6 : 1 }}>
-              <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: m.kind === "restore" ? t.c.warn : m.kind === "attempt" ? t.c.ok : t.c.accent }} />
-              <T style={{ flexShrink: 1 }}>{m.label}</T>
-              <T style={dimSmall}>{`${markKind(m)} ${markTime(m.at)}`}</T>
-              <View style={{ flexGrow: 1 }} />
+            // One layout whatever the subject's length: the dot and the subject on one line, cut with an ellipsis,
+            // then the kind and time with the row's action at the end of a second line.
+            <View key={`${m.kind}-${m.checkpoint}`} testID="timeline-mark" style={{ paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: t.c.line, opacity: m.undone ? 0.6 : 1 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <View testID="timeline-dot" style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, backgroundColor: m.kind === "restore" ? t.c.warn : m.kind === "attempt" ? t.c.ok : t.c.accent }} />
+                <T testID="timeline-label" numberOfLines={1} ellipsizeMode="tail" style={{ flex: 1, minWidth: 0 }}>{m.label}</T>
+              </View>
+              <View testID="timeline-foot" style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 16 }}>
+              <T style={[dimSmall, { flex: 1, minWidth: 0 }]} numberOfLines={1}>{`${markKind(m)} ${markTime(m.at)}`}</T>
               {m.kind === "restore" ? (
                 !m.undone && m.undo ? <GhostSmall title="Undo" disabled={busy} onPress={() => undo(m)} /> : null
               ) : confirming === m.checkpoint ? (
@@ -584,6 +588,7 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
               ) : (
                 <OutlineButton title="Restore to here" disabled={busy} onPress={() => setConfirming(m.checkpoint)} />
               )}
+              </View>
             </View>
           ))}
         </View>

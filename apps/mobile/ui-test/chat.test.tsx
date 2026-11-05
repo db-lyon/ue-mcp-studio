@@ -300,6 +300,37 @@ describe("ReviewPanel", () => {
     expect(api.timelineUndo).toHaveBeenCalledWith("s1", "c2");
     expect(onChanged).toHaveBeenCalledTimes(2);
   });
+
+  it("draws every mark the same way: the dot beside a one-line subject, the time and the action on the line under it", async () => {
+    const api = fakeApi();
+    api.reviewStatus.mockResolvedValue({ default: true });
+    const long = "I just noticed the Main thread here is claiming 1.7M tokens. Can you check where they went and why the meter disagrees?";
+    const timeline: TimelineMark[] = [
+      { checkpoint: "c1", label: long, at: "2026-11-04T12:00:00Z", kind: "turn", turn: 0 },
+      { checkpoint: "c2", label: "okay build the playtest", at: "2026-11-04T12:05:00Z", kind: "turn", turn: 1 },
+    ];
+    renderInProject(<ReviewPanel sessionId="s1" review={null} timeline={timeline} onChanged={() => undefined} />, api);
+    await settle();
+    const marks = screen.getAllByTestId("timeline-mark");
+    expect(marks).toHaveLength(2);
+    for (const mark of marks) {
+      const [first, foot] = Array.from(mark.children) as HTMLElement[];
+      // The first line holds the dot and the subject, nothing else, so the dot is never alone on a line.
+      expect(first.children).toHaveLength(2);
+      expect(first.children[0].getAttribute("data-testid")).toBe("timeline-dot");
+      const label = first.children[1] as HTMLElement;
+      expect(label.getAttribute("data-testid")).toBe("timeline-label");
+      // numberOfLines={1}: one line, cut with an ellipsis (react-native-web draws it as nowrap + text-overflow).
+      expect(getComputedStyle(label).whiteSpace).toBe("nowrap");
+      expect(getComputedStyle(label).textOverflow).toBe("ellipsis");
+      // The time and Restore share the second line, whatever the subject's length.
+      expect(foot.getAttribute("data-testid")).toBe("timeline-foot");
+      expect(foot.textContent).toMatch(/^Turn .*Restore to here$/);
+    }
+    // Newest first.
+    expect(screen.getAllByTestId("timeline-label")[0].textContent).toBe("okay build the playtest");
+    expect(screen.getAllByTestId("timeline-label")[1].textContent).toBe(long);
+  });
 });
 
 describe("Chat", () => {
