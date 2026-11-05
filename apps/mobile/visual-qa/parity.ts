@@ -52,6 +52,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "plugins-remote": {owner: "agent-b"},
   "agents-long": {owner: "chat"},
   "agents-tokens": {owner: "chat"},
+  "agents-sheet": {owner: "chat", clicks: ["Subagents (2)"]},
   "endpoints-empty": {owner: "agent-b"},
   "endpoints-populated": {owner: "agent-b"},
   "endpoints-error": {owner: "agent-b"},

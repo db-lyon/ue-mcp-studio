@@ -108,6 +108,12 @@ describe("Threads", () => {
     );
     expect(screen.getByText(/^context 4\d/)).toBeTruthy();
     expect(screen.getByText("3.0k spent")).toBeTruthy();
+    // A row's calls and tokens stay on one line each (.agents-meta, .agents-tokens: nowrap).
+    for (const meta of [screen.getByText("3.0k spent"), screen.getByText(/^\d+ calls?, /)]) expect(getComputedStyle(meta).whiteSpace).toBe("nowrap");
+    // Main's numbers sit beside its name, as the web's main row has no spacer.
+    const main = screen.getByLabelText("Main");
+    expect(main.children[1].textContent).toBe("Main");
+    expect(main.children[2].textContent).toMatch(/^context /);
     expect(screen.queryByLabelText("Fog")).toBeNull();
     fireEvent.click(screen.getByLabelText("Stop Rocks"));
     expect(onStop).toHaveBeenCalledWith("a1");
@@ -327,6 +333,8 @@ describe("ReviewPanel", () => {
       expect(foot.getAttribute("data-testid")).toBe("timeline-foot");
       expect(foot.textContent).toMatch(/^Turn .*Restore to here$/);
     }
+    // Restore is a small button: 32 px drawn, a 44 px target through its hit slop.
+    for (const b of screen.getAllByLabelText("Restore to here")) expect(getComputedStyle(b).height).toBe("32px");
     // Newest first.
     expect(screen.getAllByTestId("timeline-label")[0].textContent).toBe("okay build the playtest");
     expect(screen.getAllByTestId("timeline-label")[1].textContent).toBe(long);

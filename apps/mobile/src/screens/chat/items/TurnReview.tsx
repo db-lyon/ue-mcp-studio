@@ -81,13 +81,17 @@ const folders = (path: string): string => path.split("/").join("/​");
  * Keep, Revert, Undo revert and the conflict's buttons on a phone: drawn 32
  * pixels tall, taking taps over a 44 pixel line (`.review-actions > button.small-button`
  * and `.review-conflict > button.small-button` under a coarse pointer). A
- * disabled one is drawn as a disabled button at 40%.
+ * disabled one is drawn as a disabled button at 40%. The checkpoint timeline's
+ * Restore, Cancel and Undo take the same size, so its rows stay tight.
  */
-function SmallButton({ title, onPress, disabled, kind, fontSize }: { title: string; onPress: () => void; disabled?: boolean; kind?: "danger"; fontSize?: number }) {
+function SmallButton({ title, onPress, disabled, kind, fontSize }: { title: string; onPress: () => void; disabled?: boolean; kind?: "danger" | "primary" | "ghost"; fontSize?: number }) {
   const t = useTheme();
   const danger = kind === "danger";
-  const line = disabled ? t.c.disabledLine : danger ? t.c.bad : t.c.lineStrong;
-  const color = disabled ? t.c.dim : danger ? t.c.bad : t.c.text;
+  const primary = kind === "primary";
+  const ghost = kind === "ghost";
+  const line = ghost ? "transparent" : disabled ? t.c.disabledLine : danger ? t.c.bad : primary ? t.c.accent : t.c.lineStrong;
+  const color = disabled ? t.c.dim : danger ? t.c.bad : primary ? t.c.onAccent : ghost ? t.c.muted : t.c.text;
+  const bg = ghost ? "transparent" : primary ? t.c.accent : t.c.panel2;
   return (
     <Pressable
       accessibilityRole="button"
@@ -96,9 +100,9 @@ function SmallButton({ title, onPress, disabled, kind, fontSize }: { title: stri
       disabled={disabled}
       onPress={onPress}
       hitSlop={{ top: 7, bottom: 7, left: 5, right: 5 }}
-      style={({ pressed }) => ({ height: 32, paddingHorizontal: 12, justifyContent: "center", alignItems: "center", borderRadius: t.radius, borderWidth: 1, borderColor: pressed && !disabled ? t.c.accentLine : line, backgroundColor: pressed && !disabled ? t.c.panel3 : t.c.panel2, opacity: disabled ? 0.4 : 1 })}
+      style={({ pressed }) => ({ height: 32, paddingHorizontal: 12, justifyContent: "center", alignItems: "center", borderRadius: t.radius, borderWidth: 1, borderColor: pressed && !disabled ? t.c.accentLine : line, backgroundColor: pressed && !disabled ? (primary ? t.c.accentHi : t.c.panel3) : bg, opacity: disabled ? 0.4 : 1 })}
     >
-      <T style={[...smallButtonText(t, fontSize), { color }]}>{title}</T>
+      <T style={[...smallButtonText(t, fontSize), primary ? buttonFont(t, true, fontSize ?? t.base.size) : null, { color }]}>{title}</T>
     </Pressable>
   );
 }
@@ -579,14 +583,14 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
               <View testID="timeline-foot" style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 16 }}>
               <T style={[dimSmall, { flex: 1, minWidth: 0 }]} numberOfLines={1}>{`${markKind(m)} ${markTime(m.at)}`}</T>
               {m.kind === "restore" ? (
-                !m.undone && m.undo ? <GhostSmall title="Undo" disabled={busy} onPress={() => undo(m)} /> : null
+                !m.undone && m.undo ? <SmallButton title="Undo" kind="ghost" disabled={busy} onPress={() => undo(m)} /> : null
               ) : confirming === m.checkpoint ? (
                 <>
-                  <OutlineButton title="Restore every file" kind="primary" disabled={busy} onPress={() => restore(m)} />
-                  <GhostSmall title="Cancel" onPress={() => setConfirming(null)} />
+                  <SmallButton title="Restore every file" kind="primary" disabled={busy} onPress={() => restore(m)} />
+                  <SmallButton title="Cancel" kind="ghost" onPress={() => setConfirming(null)} />
                 </>
               ) : (
-                <OutlineButton title="Restore to here" disabled={busy} onPress={() => setConfirming(m.checkpoint)} />
+                <SmallButton title="Restore to here" disabled={busy} onPress={() => setConfirming(m.checkpoint)} />
               )}
               </View>
             </View>
@@ -594,15 +598,5 @@ export function ReviewPanel({ sessionId, review, timeline, onChanged }: {
         </View>
       )}
     </View>
-  );
-}
-
-/** button.ghost.small-button outside the conversation: no outline, muted. */
-function GhostSmall({ title, onPress, disabled }: { title: string; onPress: () => void; disabled?: boolean }) {
-  const t = useTheme();
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={title} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 10, justifyContent: "center", borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.line : "transparent", backgroundColor: pressed ? t.c.panel2 : "transparent" })}>
-      <T style={[...smallButtonText(t), { color: disabled ? t.c.dim : t.c.muted }]}>{title}</T>
-    </Pressable>
   );
 }

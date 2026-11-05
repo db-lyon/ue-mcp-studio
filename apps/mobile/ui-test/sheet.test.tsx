@@ -90,6 +90,14 @@ describe("Sheet closing", () => {
   });
 });
 
+describe("Sheet head", () => {
+  it("draws Close 32 px tall so the title sits close under the grip", () => {
+    render(<Host onClose={() => undefined} />);
+    const close = screen.getAllByRole("button", { name: "Close" }).find((b) => b.textContent === "Close")!;
+    expect(getComputedStyle(close).minHeight).toBe("32px");
+  });
+});
+
 describe("Sheet drag to dismiss", () => {
   const make = (height = 400) => {
     const drag = new Animated.Value(0);

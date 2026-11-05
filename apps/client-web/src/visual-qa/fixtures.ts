@@ -639,6 +639,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     })(),
   },
   "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
+  "agents-sheet": { title: "A narrow conversation's subagents opened from its header: the thread list in a sheet", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true }, narrowClicks: [".chat-agents-button"] },
   "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], fullPage: true },
   "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, fullPage: true },
   "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },

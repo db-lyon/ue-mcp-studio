@@ -44,10 +44,12 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
   if (listed.length === 0) return null;
 
   const dimSmall = [small(t), { color: t.c.dim }];
+  // .agents-meta and .agents-tokens: `.dim.small` inside .agents-open, so the row's mono at 12 px, never wrapped.
+  const rowMeta = [font(t, "mono", 400, 12, 1.5), { color: t.c.dim, flexShrink: 0 }];
   /** An agent's line: its context now when measured, else what it spent this session. */
   const usage = (key: string) => {
     const c = context[key];
-    return <T style={[dimSmall, { flexShrink: 0 }]} accessibilityHint={`${(tokens[key] ?? 0).toLocaleString("en-US")} input and output tokens spent this session`}>{c ? `context ${tokenCount(c.input + c.output)}` : `${tokenCount(tokens[key] ?? 0)} spent`}</T>;
+    return <T numberOfLines={1} style={rowMeta} accessibilityHint={`${(tokens[key] ?? 0).toLocaleString("en-US")} input and output tokens spent this session`}>{c ? `context ${tokenCount(c.input + c.output)}` : `${tokenCount(tokens[key] ?? 0)} spent`}</T>;
   };
   const rows = listed.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now, asked) }));
   const active = rows.filter((r) => isActive(r.state));
@@ -87,7 +89,7 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
           ) : null}
           <T style={[rowText, { fontSize: 11, color: colors.label }]}>{STATE_LABEL[r.state]}</T>
           {r.activity ? <T numberOfLines={1} style={[font(t, "mono", 400, 11, 1.5), { flex: 1, minWidth: 0, color: t.c.dim }]}>{r.activity}</T> : <View style={{ flex: 1 }} />}
-          <T style={dimSmall}>{`${calls} ${calls === 1 ? "call" : "calls"}, ${formatDuration(r.secs)}`}</T>
+          <T numberOfLines={1} style={rowMeta}>{`${calls} ${calls === 1 ? "call" : "calls"}, ${formatDuration(r.secs)}`}</T>
           {usage(r.call.id)}
         </Pressable>
         {isActive(r.state) ? iconButton(`Stop ${describe(r.call)}`, "■", 9, () => onStop(r.call.id)) : null}
@@ -105,7 +107,6 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
         <Pressable accessibilityRole="tab" accessibilityState={{ selected: thread === null }} accessibilityLabel="Main" onPress={() => onThread(null)} style={openStyle}>
           <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.c.text }} />
           <T numberOfLines={1} style={[rowText, { flexShrink: 1, color: t.c.text }]}>Main</T>
-          <View style={{ flex: 1 }} />
           {usage("main")}
         </Pressable>,
         "main",

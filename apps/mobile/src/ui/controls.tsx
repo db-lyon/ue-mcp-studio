@@ -23,6 +23,7 @@ export function Button({
   hint,
   style,
   children,
+  hitSlop,
 }: {
   title?: string;
   onPress?: () => void;
@@ -37,6 +38,8 @@ export function Button({
   /** button.small-button takes the font size of the text around it (the editor themes keep 12px). */
   fontSize?: number;
   testID?: string;
+  /** Taps this far outside the drawn button still press it: a button drawn under 44 px keeps a finger's target. */
+  hitSlop?: number;
 }) {
   const t = useTheme();
   const s = useStyles(buttonStyles);
@@ -47,7 +50,7 @@ export function Button({
   const orangePrimary = primary && !disabled && t.name === "editor-orange";
   const color = disabled ? t.c.dim : orangePrimary ? "#000" : primary ? t.c.onAccent : ghost ? t.c.muted : t.c.text;
   return (
-    <Pressable testID={testID} accessibilityRole="button" accessibilityLabel={label ?? title} accessibilityHint={hint} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [box, pressed && !disabled && (primary ? s.primaryPressed : s.pressed), style]}>
+    <Pressable testID={testID} hitSlop={hitSlop} accessibilityRole="button" accessibilityLabel={label ?? title} accessibilityHint={hint} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={({ pressed }) => [box, pressed && !disabled && (primary ? s.primaryPressed : s.pressed), style]}>
       {children ?? <T style={[s.text, primary && !disabled && s.primaryText, orangePrimary && font(t, "sans", 700, 12, 1.2), size === "large" && s.largeText, fontSize && !t.editor ? { fontSize, lineHeight: fontSize * 1.2, letterSpacing: fontSize * 0.02 } : null, { color }]}>{title}</T>}
     </Pressable>
   );

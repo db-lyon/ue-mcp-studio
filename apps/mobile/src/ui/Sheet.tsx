@@ -115,7 +115,8 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
             {title}
           </T>
           <Spacer />
-          <Button title="Close" variant="ghost" onPress={onClose} />
+          {/* Drawn 32 px tall, taking taps over 44, so the title sits close under the grip. */}
+          <Button title="Close" variant="ghost" onPress={onClose} hitSlop={6} style={{ minHeight: 32 }} />
         </View>
         <ScrollView style={{ minHeight: 0 }}>{children}</ScrollView>
       </Animated.View>
