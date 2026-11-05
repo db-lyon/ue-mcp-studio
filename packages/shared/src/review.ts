@@ -378,7 +378,7 @@ export function unifiedLines(diff: string): Array<{ op: " " | "-" | "+"; text: s
 }
 
 /** The fields of one struct as ExportText writes it, (A=1,B=(C=2)), split at its top level; null when the text is not one. */
-function exportFields(text: string): Map<string, string> | null {
+export function exportFields(text: string): Map<string, string> | null {
   const items = exportItems(text);
   if (!items) return null;
   const out = new Map<string, string>();
@@ -391,7 +391,7 @@ function exportFields(text: string): Map<string, string> | null {
 }
 
 /** The top-level items of a parenthesised ExportText list, quotes and nesting respected; null when it is not one. */
-function exportItems(text: string): string[] | null {
+export function exportItems(text: string): string[] | null {
   const t = text.trim();
   if (!t.startsWith("(") || !t.endsWith(")")) return null;
   const items: string[] = [];

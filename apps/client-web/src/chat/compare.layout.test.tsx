@@ -1,10 +1,10 @@
 /**
- * The change card's Change | Before | After comparison laid out at every card
- * width from 320 to 1280 pixels (db-lyon/ue-mcp-studio#112): every cell inside
- * its column, nothing past the card, Before and After side by side or stacked
- * by the card's own tier. The tier logic is unit tested here too; the layout
- * half runs in a real browser (Chrome or Edge, through playwright-core) and is
- * skipped on a machine without one.
+ * The asset diff's tree grid laid out at every card width from 320 to 1280
+ * pixels (db-lyon/ue-mcp-studio#112): every cell inside the card, Before and
+ * After under their column headers on a wide card and on one line under the
+ * property's name on a narrow one. The tier logic is unit tested here too; the
+ * layout half runs in a real browser (Chrome or Edge, through playwright-core)
+ * and is skipped on a machine without one.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -15,7 +15,7 @@ import type { AssetDiff } from "@ue-mcp-studio/shared";
 import { AssetDiffView } from "./AssetDiff";
 import { COMPARE_TIERS, colorOf, compareTier } from "./compare";
 
-describe("the comparison's tier", () => {
+describe("the card's tier", () => {
   it("steps down by the card's width in ems of its font", () => {
     expect(compareTier(700, 13.5)).toBe("wide");
     expect(compareTier(520, 13.5)).toBe("medium");
@@ -87,15 +87,17 @@ type Layout = {
   tier: string;
   overflow: string[];
   outOfColumn: string[];
-  sideBySide: boolean[];
-  stacked: boolean[];
-  hiddenEmpty: number;
-  /** Parameter lists whose parts share a line. */
-  partsInline: number;
+  /** Rows with both values: whether Before and After share a line, Before first. */
+  oneLine: boolean[];
+  /** Rows with values: whether the values sit under the name. */
+  underName: boolean[];
+  hiddenBlank: number;
   headerShown: boolean;
+  /** The tallest row with no opened cell, in pixels. */
+  tallest: number;
 };
 
-describe.skipIf(!browserPath)("the comparison, laid out in a browser at every card width", () => {
+describe.skipIf(!browserPath)("the tree grid, laid out in a browser at every card width", () => {
   type Page = { setViewportSize(s: object): Promise<void>; setContent(h: string): Promise<void>; evaluate<T, A>(f: (a: A) => T, a: A): Promise<T> };
   let browser: { close(): Promise<void>; newPage(o: object): Promise<Page> };
   let page: Page;
@@ -121,82 +123,74 @@ describe.skipIf(!browserPath)("the comparison, laid out in a browser at every ca
       const card = diff.getBoundingClientRect();
       const overflow: string[] = [];
       const outOfColumn: string[] = [];
-      const sideBySide: boolean[] = [];
-      const stacked: boolean[] = [];
-      let hiddenEmpty = 0;
-      const visible = (e: Element) => getComputedStyle(e).display !== "none" && (e as HTMLElement).offsetParent !== null;
-      for (const wrap of Array.from(document.querySelectorAll(".diff-table-wrap"))) {
-        if (wrap.scrollWidth > wrap.clientWidth + 1) overflow.push(`a table scrolls sideways: ${wrap.scrollWidth} > ${wrap.clientWidth}`);
-      }
+      const oneLine: boolean[] = [];
+      const underName: boolean[] = [];
+      let hiddenBlank = 0;
+      let tallest = 0;
+      const visible = (e: Element) => getComputedStyle(e).display !== "none";
       if (document.documentElement.scrollWidth > document.documentElement.clientWidth) overflow.push("the page scrolls sideways");
-      for (const td of Array.from(document.querySelectorAll(".diff-table td"))) {
-        if (!visible(td)) {
-          hiddenEmpty++;
-          continue;
+      const grid = document.querySelector(".dtree") as HTMLElement;
+      if (grid.scrollWidth > grid.clientWidth + 1) overflow.push(`the grid scrolls sideways: ${grid.scrollWidth} > ${grid.clientWidth}`);
+      const head = Array.from(document.querySelectorAll(".dt-head > span")).map((h) => h.getBoundingClientRect());
+      const headerShown = visible(document.querySelector(".dt-head")!);
+      for (const row of Array.from(document.querySelectorAll(".dtree > .dt-row:not(.dt-head)"))) {
+        const [name, before, after] = Array.from(row.children) as HTMLElement[];
+        tallest = Math.max(tallest, row.getBoundingClientRect().height);
+        for (const cell of [name, before, after]) {
+          if (!visible(cell)) {
+            hiddenBlank++;
+            continue;
+          }
+          const b = cell.getBoundingClientRect();
+          if (b.right > card.right + 1 || b.left < card.left - 1) overflow.push(`a cell runs past the card: ${cell.textContent}`);
         }
-        const box = td.getBoundingClientRect();
-        if (box.right > card.right + 1 || box.left < card.left - 1) overflow.push(`a cell runs past the card: ${td.textContent}`);
-        // Every line of text inside its own cell.
-        const walker = document.createTreeWalker(td, NodeFilter.SHOW_TEXT);
+        // On a narrow card a name wraps inside its cell; with columns it and the values are cut to their cells.
+        const nb = name.getBoundingClientRect();
+        const walker = document.createTreeWalker(name, NodeFilter.SHOW_TEXT);
         for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          if ((n.parentElement as HTMLElement).closest(".dt-note, .sr-only")) continue;
           const r = document.createRange();
           r.selectNodeContents(n);
-          for (const rect of Array.from(r.getClientRects())) {
-            if (rect.width > 0 && (rect.right > box.right + 1 || rect.left < box.left - 1)) overflow.push(`text leaves its cell: ${n.textContent}`);
-          }
+          if (!headerShown) for (const rect of Array.from(r.getClientRects())) if (rect.width > 0 && rect.right > nb.right + 1) overflow.push(`a name leaves its cell: ${n.textContent}`);
+        }
+        if (headerShown) {
+          [before, after].forEach((c, i) => {
+            const b = c.getBoundingClientRect();
+            if (Math.abs(b.left - head[i + 1].left) > 1 || Math.abs(b.right - head[i + 1].right) > 1) outOfColumn.push(`${c.textContent} is not under ${i ? "After" : "Before"}`);
+          });
+        }
+        const shown = [before, after].filter((c) => visible(c) && !c.classList.contains("dt-blank"));
+        if (shown.length) underName.push(shown.every((c) => c.getBoundingClientRect().top >= nb.bottom - 1));
+        if (row.classList.contains("dt-both")) {
+          const b = before.getBoundingClientRect();
+          const a = after.getBoundingClientRect();
+          oneLine.push(Math.abs(b.top - a.top) < 1 && b.right <= a.left + 1);
         }
       }
-      const header = document.querySelector(".diff-table thead") as HTMLElement;
-      const headerShown = visible(header);
-      for (const table of Array.from(document.querySelectorAll(".diff-table"))) {
-        const ths = Array.from(table.querySelectorAll("thead th")).map((th) => th.getBoundingClientRect());
-        for (const tr of Array.from(table.querySelectorAll("tbody tr.diff-row"))) {
-          const cells = Array.from(tr.children) as HTMLElement[];
-          if (tier === "wide") {
-            cells.forEach((td, i) => {
-              const b = td.getBoundingClientRect();
-              const col = ths[i];
-              if (Math.abs(b.left - col.left) > 1 || Math.abs(b.right - col.right) > 1) outOfColumn.push(`${td.textContent} is not under ${table.querySelectorAll("thead th")[i].textContent}`);
-            });
-          }
-          const [, before, after] = cells;
-          if (before && after && visible(before) && visible(after)) {
-            const b = before.getBoundingClientRect();
-            const a = after.getBoundingClientRect();
-            sideBySide.push(Math.abs(b.top - a.top) < 1 && b.right <= a.left + 1);
-            stacked.push(b.bottom <= a.top + 1);
-          }
-        }
-      }
-      // A parameter list keeps one parameter per line.
-      const partsInline = Array.from(document.querySelectorAll(".diff-parts")).filter((p) => {
-        const tops = Array.from(p.children).map((c) => Math.round(c.getBoundingClientRect().top));
-        return new Set(tops).size !== tops.length;
-      }).length;
-      return { tier, overflow, outOfColumn, sideBySide, stacked, hiddenEmpty, headerShown, partsInline };
+      return { tier, overflow, outOfColumn, oneLine, underName, hiddenBlank, headerShown, tallest };
     }, COMPARE_TIERS);
   };
 
   for (const width of WIDTHS) {
-    it(`keeps every cell in its column and inside the card at ${width} px`, async () => {
+    it(`keeps every cell inside the card and the values in their columns or under the name at ${width} px`, async () => {
       const l = await layoutAt(width);
       expect(l.overflow).toEqual([]);
       expect(l.outOfColumn).toEqual([]);
-      expect(l.partsInline).toBe(0);
-      expect(l.sideBySide.length).toBeGreaterThan(0);
-      if (l.tier === "wide") {
+      expect(l.oneLine.length).toBeGreaterThan(0);
+      // Before and After share a line in every tier: side by side in columns, or "False → True" under the name.
+      expect(l.oneLine.every(Boolean)).toBe(true);
+      if (l.tier === "wide" || l.tier === "medium") {
         expect(l.headerShown).toBe(true);
-        expect(l.sideBySide.every(Boolean)).toBe(true);
-        expect(l.hiddenEmpty).toBe(0);
-      } else if (l.tier === "medium") {
-        expect(l.headerShown).toBe(false);
-        expect(l.sideBySide.every(Boolean)).toBe(true);
+        expect(l.underName.some(Boolean)).toBe(false);
+        expect(l.hiddenBlank).toBe(0);
       } else {
         expect(l.headerShown).toBe(false);
-        expect(l.stacked.every(Boolean)).toBe(true);
-        // An empty side, and Before on an added row, are left out.
-        expect(l.hiddenEmpty).toBeGreaterThan(0);
+        expect(l.underName.every(Boolean)).toBe(true);
+        // An added row's empty Before, and a group's empty cells, are left out.
+        expect(l.hiddenBlank).toBeGreaterThan(0);
       }
+      // Compact: no row with no cell opened is taller than five lines.
+      expect(l.tallest).toBeLessThan(96);
     });
   }
 

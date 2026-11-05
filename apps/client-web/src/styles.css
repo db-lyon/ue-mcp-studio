@@ -22,8 +22,6 @@
   --warn: #e0a43a;
   --bad: #e5604f;
   --bad-text: #f2b3aa;
-  --diff-before: rgba(229, 96, 79, 0.05);
-  --diff-after: rgba(108, 192, 139, 0.05);
   --warn-text: #efd09a;
   --glow: rgba(232, 114, 12, 0.07);
   --selection: rgba(232, 114, 12, 0.35);
@@ -78,8 +76,6 @@
   --warn: var(--ue-warning, #ffb800);
   --bad: var(--ue-error, #ef3535);
   --bad-text: var(--ue-foreground, #c0c0c0);
-  --diff-before: rgba(239, 53, 53, 0.07);
-  --diff-after: rgba(31, 228, 75, 0.05);
   --warn-text: var(--ue-foreground, #c0c0c0);
   --glow: transparent;
   --selection: color-mix(in srgb, var(--ue-select, #0070e0) 45%, transparent);
@@ -1302,84 +1298,95 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .review-item-summary.bad { color: var(--bad); }
 .asset-diff .review-pictures { flex-wrap: nowrap; }
 .asset-diff .review-pictures figure, .asset-diff .review-pictures .review-picture-side { flex: 1 1 0; min-width: 0; max-width: 220px; }
+.asset-diff .review-pictures .review-picture-side { justify-content: space-between; }
 .asset-diff .review-pictures img { width: 100%; height: auto; }
 /* A picture is shown once it has loaded and is known not to be one flat colour. */
 .review-pictures img.picture-pending { visibility: hidden; }
 .diff-section-note { overflow-wrap: break-word; }
-/* A single version's facts: listed once, uncoloured. */
-.diff-table td.cmp-plain { background: none; }
 .asset-diff .review-pictures figcaption { display: flex; flex-direction: column; min-width: 0; }
 .picture-class { overflow-wrap: break-word; }
 .review-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
 .review-opened.bad { color: var(--bad); }
-.diff-toggle { text-align: left; white-space: normal; }
-.diff-hidden { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
-.diff-hidden .diff-table-wrap { width: 100%; }
-.diff-parts { display: flex; flex-direction: column; gap: 2px; }
 .review-diff .output.diff { white-space: pre-wrap; overflow-wrap: break-word; }
-.diff-value { overflow-wrap: break-word; word-break: normal; hyphens: none; }
 .asset-diff { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .diff-section { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .diff-section-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .diff-section-head .mono { overflow-wrap: break-word; }
 .diff-section-title { font-weight: 600; }
-/* The Change | Before | After comparison of every change card (chat/compare.tsx). Its tier
-   is the card's own width, set by a ResizeObserver as data-tier on .asset-diff: Chrome 90
-   has no container queries. Wide is the default, so an unmeasured card is a table. */
-.diff-table-wrap { max-width: 100%; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
-.diff-table { border-collapse: collapse; width: 100%; font-size: 12px; table-layout: fixed; }
-.diff-table th, .diff-table td { text-align: left; vertical-align: top; padding: 5px 8px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; min-width: 0; }
-.diff-table tr:last-child > td { border-bottom: 0; }
-.diff-table thead th { color: var(--muted); font-weight: 600; background: var(--panel-2); }
-.diff-table th:first-child, .diff-table td:first-child { width: 40%; }
-.diff-table th + th, .diff-table td + td { border-left: 1px solid var(--line-strong); }
-.diff-table th.cmp-before, .diff-table td[data-label="Before"] { background: var(--diff-before); }
-.diff-table th.cmp-after, .diff-table td[data-label="After"] { background: var(--diff-after); }
-.diff-table tbody tr.diff-row:nth-child(even) > td.cmp-change { background: var(--tint); }
-.diff-table tr.diff-group th { background: var(--panel-2); color: var(--text); font-weight: 600; }
-.diff-table tr.diff-row.sub > td.cmp-change { padding-left: 22px; }
-.diff-table tr.diff-row.minor { font-size: 11px; color: var(--muted); }
-.diff-table tr.diff-row.minor .diff-kind { opacity: 0.7; }
-.diff-table tr.diff-row.minor .cmp-side { opacity: 0.75; }
-/* A change with nothing on either side (a pin's link count, a node moved): its message says it all, so its cells are not coloured as values. */
-.diff-table tr.diff-row.bare > td.cmp-side { background: none; }
-.diff-table td.cmp-absent { background-image: repeating-linear-gradient(135deg, transparent 0 6px, var(--tint) 6px 7px); }
-.diff-table td.cmp-side { color: var(--text); }
-.cmp-subtitle { margin-top: 2px; overflow-wrap: anywhere; }
-/* Pin and fact values: muted labels, monospace values, one per line. */
-.cmp-kv { margin: 0; display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 2px 10px; }
-.cmp-kv > div { display: contents; }
-.cmp-kv dt { color: var(--muted); min-width: 0; overflow-wrap: anywhere; }
-.cmp-kv dd { margin: 0; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
+/* The asset diff's tree grid (chat/AssetDiff.tsx): Property, Before, After, one row per
+   change. Its tier is the card's own width, set by a ResizeObserver as data-tier on
+   .asset-diff (Chrome 90 has no container queries). Wide and medium keep the columns;
+   narrow and tiny put the values under the name on one line, "False → True". */
+.dtree { position: relative; --dt-indent: 14px; --dt-lead: 28px; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 12px; line-height: 18px; min-width: 0; overflow: hidden; }
+.dt-row { display: grid; grid-template-columns: minmax(0, 42fr) minmax(0, 29fr) minmax(0, 29fr); align-items: start; border-top: 1px solid var(--line); min-width: 0; }
+.dt-row:first-child { border-top: 0; }
+.dt-row:not(.dt-head):hover { background: var(--tint); }
+.dt-head { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--line-strong); }
+.dt-head > span { padding: 2px 6px; }
+.dt-head > span:first-child { padding-left: calc(6px + var(--dt-lead)); }
+.dt-name { display: flex; align-items: flex-start; gap: 0; min-width: 0; padding: 2px 6px 2px calc(6px + var(--depth, 0) * var(--dt-indent)); }
+.dt-toggle { all: unset; flex: 1 1 auto; display: flex; align-items: flex-start; min-width: 0; cursor: pointer; border-radius: 3px; }
+.dt-toggle:focus-visible { outline: 1px solid var(--accent, var(--warn)); outline-offset: 1px; }
+.dt-twisty { flex: 0 0 14px; width: 14px; color: var(--muted); font-size: 14px; line-height: 18px; text-align: center; }
+.dt-glyph { flex: 0 0 14px; width: 14px; text-align: center; font-family: ui-monospace, Consolas, monospace; font-weight: 700; }
+.dtree .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.dt-glyph.add { color: var(--ok); }
+.dt-glyph.del { color: var(--bad); }
+.dt-glyph.mod { color: var(--warn); }
+.dt-glyph.minor { color: var(--dim); }
+.dt-label { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
+/* An added asset's grid has no Before column, a deleted one's no After. */
+.dtree.dt-no-before .dt-row { grid-template-columns: minmax(0, 42fr) 0 minmax(0, 58fr); }
+.dtree.dt-no-after .dt-row { grid-template-columns: minmax(0, 42fr) minmax(0, 58fr) 0; }
+.dtree.dt-no-before .dt-row > .dt-before, .dtree.dt-no-after .dt-row > .dt-after { padding: 0; overflow: hidden; }
+.dt-sep { color: var(--dim); }
+.dt-count { flex: 0 0 auto; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; line-height: 16px; margin-top: 1px; color: var(--muted); background: var(--panel-2); }
+.dt-note { margin-left: 8px; min-width: 0; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
+.dtree .dt-row.dt-section:not(:nth-child(2)) { border-top-color: var(--line-strong); }
+.dt-section .dt-label { font-weight: 600; }
+.dt-parent:not(.dt-section) > .dt-name .dt-label { font-weight: 500; }
+.dt-detail .dt-label { color: var(--muted); }
+.dt-row.minor .dt-label { color: var(--muted); }
+.dt-val { min-width: 0; padding: 2px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.dt-val.long { cursor: pointer; }
+.dt-val.long:focus-visible { outline: 1px solid var(--line-strong); outline-offset: -1px; }
+.dt-val.open { white-space: pre-wrap; overflow-wrap: anywhere; text-overflow: clip; }
+.dt-val.open .dt-line { display: block; }
+.dt-val .dt-line-add { color: var(--ok); }
+.dt-val .dt-line-del { color: var(--bad-text); }
+.dt-both > .dt-before { color: var(--muted); }
+.dt-detail > .dt-val { color: var(--muted); }
+/* A short row on a narrow card: its values on the name's line. */
+.asset-diff[data-tier="narrow"] .dt-inline > .dt-name, .asset-diff[data-tier="tiny"] .dt-inline > .dt-name { flex: 0 1 auto; }
+.asset-diff[data-tier="narrow"] .dt-row.dt-inline > .dt-val:not(.dt-blank), .asset-diff[data-tier="tiny"] .dt-row.dt-inline > .dt-val:not(.dt-blank) { margin-left: 0; max-width: none; padding-top: 2px; }
+.asset-diff[data-tier="narrow"] .dt-row.dt-inline > .dt-name + .dt-val, .asset-diff[data-tier="narrow"] .dt-row.dt-inline > .dt-blank + .dt-val,
+.asset-diff[data-tier="tiny"] .dt-row.dt-inline > .dt-name + .dt-val, .asset-diff[data-tier="tiny"] .dt-row.dt-inline > .dt-blank + .dt-val { margin-left: 8px; }
+/* Two values too long to share a line: a line each, Before then After. */
+.asset-diff[data-tier="narrow"] .dt-row.dt-split > .dt-val:not(.dt-blank), .asset-diff[data-tier="tiny"] .dt-row.dt-split > .dt-val:not(.dt-blank) { flex: 0 0 auto; width: calc(100% - 6px - var(--depth, 0) * var(--dt-indent) - var(--dt-lead)); max-width: none; margin-left: calc(6px + var(--depth, 0) * var(--dt-indent) + var(--dt-lead)); }
+/* A value on its own line with no column header over it says which it is; a removed value reads as gone. */
+.asset-diff[data-tier="narrow"] .dt-row.dt-split > .dt-val:not(.dt-blank)::before, .asset-diff[data-tier="tiny"] .dt-row.dt-split > .dt-val:not(.dt-blank)::before { content: attr(data-label) "\00a0"; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); }
+.asset-diff[data-tier="narrow"] .dt-row:not(.dt-both) > .dt-before:not(.dt-blank), .asset-diff[data-tier="tiny"] .dt-row:not(.dt-both) > .dt-before:not(.dt-blank) { text-decoration: line-through; text-decoration-color: var(--dim); color: var(--muted); }
+/* A group's triangle on a touch screen: the whole name is its target, a little taller, not a 44px button per row. */
+@media (pointer: coarse) {
+  .dtree button.dt-toggle { min-height: 0; }
+  .dtree .dt-parent > .dt-name { padding-top: 5px; padding-bottom: 5px; }
+}
 .cmp-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 5px; border-radius: 2px; border: 1px solid var(--line-strong); vertical-align: -1px; }
-/* Medium: the change across the card, then Before and After side by side, each labelled. */
-.asset-diff:not([data-tier="wide"]) .diff-table thead { display: none; }
-.asset-diff:not([data-tier="wide"]) .diff-table, .asset-diff:not([data-tier="wide"]) .diff-table tbody { display: block; }
-.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-group, .asset-diff:not([data-tier="wide"]) .diff-table tr.diff-group th { display: block; width: auto; }
-.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--line); }
-.asset-diff:not([data-tier="wide"]) .diff-table tbody tr.diff-row:last-child { border-bottom: 0; }
-.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row > td { border-bottom: 0; width: auto; }
-.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row > td.cmp-change { grid-column: 1 / -1; background: none; }
-.asset-diff:not([data-tier="wide"]) .diff-table td.cmp-side::before { content: attr(data-label); display: block; color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
-.asset-diff:not([data-tier="wide"]) .diff-table td.cmp-side + td.cmp-side { border-left: 1px solid var(--line-strong); }
-.asset-diff[data-tier="medium"] .diff-table td.cmp-change + td.cmp-side { border-left: 0; }
-/* A row with nothing on either side is its change alone. */
-.asset-diff:not([data-tier="wide"]) .diff-table tr.diff-row.bare > td.cmp-side { display: none; }
-/* Narrow: the change, then a labelled Before, then a labelled After; an empty side is left out. */
-.asset-diff[data-tier="narrow"] .diff-table tr.diff-row, .asset-diff[data-tier="tiny"] .diff-table tr.diff-row { grid-template-columns: minmax(0, 1fr); }
-.asset-diff[data-tier="narrow"] .diff-table td.cmp-side, .asset-diff[data-tier="tiny"] .diff-table td.cmp-side { border-left: 0; border-top: 1px dashed var(--line); }
-.asset-diff[data-tier="narrow"] .diff-table td.cmp-empty, .asset-diff[data-tier="narrow"] .diff-table td.cmp-absent,
-.asset-diff[data-tier="tiny"] .diff-table td.cmp-empty, .asset-diff[data-tier="tiny"] .diff-table td.cmp-absent { display: none; }
-.asset-diff[data-tier="tiny"] .cmp-kv { grid-template-columns: minmax(0, 1fr); gap: 0; }
-.asset-diff[data-tier="tiny"] .cmp-kv dd { margin-bottom: 3px; }
-.diff-kind { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; padding: 0 5px; margin-right: 6px; border-radius: 3px; border: 1px solid var(--line-strong); color: var(--muted); }
-.diff-kind.add { color: var(--ok); border-color: var(--ok); }
-.diff-kind.del { color: var(--bad); border-color: var(--bad); }
-.diff-kind.mod { color: var(--warn); border-color: var(--warn); }
-.diff-path, .diff-message { overflow-wrap: break-word; }
-.diff-node-values { margin-top: 2px; }
-.diff-facts { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; min-width: 0; }
-.diff-facts .diff-table-wrap { width: 100%; }
+/* Narrow and tiny: the name, then its values on the line under it, indented to the name. */
+.asset-diff[data-tier="narrow"] .dt-row.dt-head, .asset-diff[data-tier="tiny"] .dt-row.dt-head { display: none; }
+.asset-diff[data-tier="narrow"] .dt-row:nth-child(2), .asset-diff[data-tier="tiny"] .dt-row:nth-child(2) { border-top: 0; }
+.asset-diff[data-tier="narrow"] .dt-row, .asset-diff[data-tier="tiny"] .dt-row { display: flex; flex-wrap: wrap; padding-bottom: 1px; }
+.asset-diff[data-tier="narrow"] .dt-name, .asset-diff[data-tier="tiny"] .dt-name { flex: 1 0 100%; }
+.asset-diff[data-tier="narrow"] .dt-val, .asset-diff[data-tier="tiny"] .dt-val { flex: 0 1 auto; max-width: calc(100% - 12px - var(--depth, 0) * var(--dt-indent) - var(--dt-lead)); padding: 0 6px 2px 0; }
+.asset-diff[data-tier="narrow"] .dt-val.dt-blank, .asset-diff[data-tier="tiny"] .dt-val.dt-blank { display: none; }
+.asset-diff[data-tier="narrow"] .dt-both > .dt-val, .asset-diff[data-tier="tiny"] .dt-both > .dt-val { max-width: calc(50% - 6px - (var(--depth, 0) * var(--dt-indent) + var(--dt-lead)) / 2); }
+.asset-diff[data-tier="narrow"] .dt-val:not(.dt-blank):nth-child(2),
+.asset-diff[data-tier="tiny"] .dt-val:not(.dt-blank):nth-child(2),
+.asset-diff[data-tier="narrow"] .dt-blank + .dt-val,
+.asset-diff[data-tier="tiny"] .dt-blank + .dt-val { margin-left: calc(6px + var(--depth, 0) * var(--dt-indent) + var(--dt-lead)); }
+.asset-diff[data-tier="narrow"] .dt-both > .dt-after::before, .asset-diff[data-tier="tiny"] .dt-both > .dt-after::before { content: "\2192\00a0"; color: var(--dim); }
+.asset-diff[data-tier="narrow"] .dt-val.open, .asset-diff[data-tier="tiny"] .dt-val.open { flex: 0 0 auto; width: calc(100% - 6px - var(--depth, 0) * var(--dt-indent) - var(--dt-lead)); max-width: none; margin-left: calc(6px + var(--depth, 0) * var(--dt-indent) + var(--dt-lead)); }
+.asset-diff[data-tier="narrow"] .dt-both > .dt-val.open::before, .asset-diff[data-tier="tiny"] .dt-both > .dt-val.open::before { content: attr(data-label); display: block; font-family: var(--font, inherit); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); }
 .blueprint-diff { list-style: none; margin: 0; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; max-height: 320px; overflow: auto; }
 .review-panel { gap: 10px; }
 .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
