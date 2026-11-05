@@ -352,6 +352,15 @@ async function fakeNotify() {
     await page.waitForTimeout(800);
     await shot(page, "07a-fake-notify-tap-opened-session");
     step("fake notify: the tap opens the session", true);
+    // A notification from another project on the same computer: the tap switches to that project, on its session.
+    await page.evaluate((d) => window.__studioNotifyTap(d), { deviceId: "e2e-fake-2", kind: "turn.finished", sessionId: "qa-session" });
+    await page.waitForTimeout(1500);
+    await page.waitForSelector("#transcript", { state: "visible", timeout: 30_000 });
+    await (await visible(page, "Open navigation")).click();
+    await page.getByText("Lyra on DEV-PC", { exact: true }).first().waitFor({ state: "visible", timeout: 10_000 });
+    await page.waitForTimeout(500);
+    await shot(page, "07b-fake-notify-other-project");
+    step("fake notify: a tap from another project switches to it, on its session", true);
   } catch (e) {
     await shot(page, "fake-notify-failure").catch(() => undefined);
     step("fake notify", false, `${e.message}${errors.length ? ` | page errors: ${errors.slice(0, 5).join(" | ")}` : ""}`);

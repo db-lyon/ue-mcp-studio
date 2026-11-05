@@ -90,6 +90,8 @@ function Root() {
   const [screen, setScreen] = useState<Screen>({ name: "loading" });
   const pairing = useRef(false);
   const opened = useRef(0);
+  /** A notification tap has chosen the project; startup does not override it. */
+  const tapped = useRef(false);
   const shared = useSharedFiles();
 
   const openProject = useCallback((device: Device, initial?: PanelLocation, from: "projects" | "start" = "projects") => {
@@ -125,10 +127,12 @@ function Root() {
       if (await dropPairingsWithoutKey()) return setScreen({ name: "welcome", error: "This phone's pairing was lost when the app was reinstalled. Pair it again." });
       const t = await trusted();
       if (!Object.keys(t).length) return setScreen({ name: "welcome" });
-      // The last project when the relay says it is online; otherwise Projects, the app's home.
+      // The last project when the relay says it is online; otherwise Projects, the app's home. A notification tap that opened the app wins.
       const last = await selected();
+      if (tapped.current) return;
       if (!last || !(last.computerKey in t)) return setScreen({ name: "projects" });
       const listed = await Promise.race([account().then((a) => a.devices, () => null), new Promise<null>((done) => setTimeout(() => done(null), STARTUP_LIST_MS))]);
+      if (tapped.current) return;
       const now = listed?.find((d) => d.id === last.id);
       if (now?.online) openProject({ ...last, ...now }, undefined, "start");
       else setScreen({ name: "projects" });
@@ -158,9 +162,14 @@ function Root() {
     () =>
       onNotificationTap((d) => {
         void (async () => {
+          // The tap decides where the app opens: startup's own choice (the last project) gives way to it.
+          tapped.current = true;
           const t = await trusted();
-          const device = (await account().catch(() => null))?.devices.find((x) => x.id === d.deviceId);
-          if (!device || !(device.computerKey in t)) return;
+          const listed = (await account().catch(() => null))?.devices.find((x) => x.id === d.deviceId);
+          // Without the relay's list, the project this phone last had open is the notified one if the ids match.
+          const last = listed ? null : await selected().catch(() => null);
+          const device = listed ?? (last?.id === d.deviceId ? last : null);
+          if (!device || !(device.computerKey in t)) return setScreen(Object.keys(t).length ? { name: "projects" } : { name: "welcome" });
           if (!d.sessionId) pendingLatest.set(device.id, d.kind);
           openProject(device, { tab: "Chat", session: d.sessionId ?? null, section: null });
         })();
