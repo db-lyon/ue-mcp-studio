@@ -6,7 +6,7 @@ import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-c
 import * as SecureStore from "expo-secure-store";
 import type { PanelLocation } from "@ue-mcp-studio/client-core";
 import { THEMES, ThemeProvider, useStudioFonts, type ThemeName } from "./src/ui";
-import { account, isPairLink, pair, PairError, select, selected, trusted, forget, type Device, type PairStep } from "./src/relay";
+import { account, dropPairingsWithoutKey, forgetComputer, isPairLink, pair, PairError, select, selected, trusted, forget, type Device, type PairStep } from "./src/relay";
 import { applySystemTheme, hideSplash } from "./src/native/system";
 import { KeyboardProvider } from "./src/native/keyboard";
 import { ShareProvider, useSharedFiles } from "./src/native/share";
@@ -117,6 +117,8 @@ function Root() {
       // Opened through the app's own uemcpstudio://pair link (an explicit Open in app): pair first.
       const initial = await Linking.getInitialURL().catch(() => null);
       if (initial && isPairLink(initial)) return startPairing(initial);
+      // Pairings remembered without their key (a reinstall restored from a backup) can never work: pair again.
+      if (await dropPairingsWithoutKey()) return setScreen({ name: "welcome", error: "This phone's pairing was lost when the app was reinstalled. Pair it again." });
       const t = await trusted();
       if (!Object.keys(t).length) return setScreen({ name: "welcome" });
       const last = await selected();
@@ -154,6 +156,13 @@ function Root() {
     void forget().then(() => setScreen({ name: "welcome", error: message }));
   }, []);
 
+  // One computer no longer knows this phone: drop that pairing only, and pair again.
+  const unpairedFrom = useCallback((device: Device, message: string) => {
+    void forgetComputer(device.computerKey)
+      .catch(() => undefined)
+      .then(() => setScreen({ name: "welcome", error: `${message.replace(/\s*Pair it again.*$/i, "")} Pair it again with a new code from that computer.`.trim() }));
+  }, []);
+
   // After a pairing that stopped: the projects when a computer is already paired, else the welcome.
   const startOver = useCallback(() => {
     void trusted().then(
@@ -189,7 +198,14 @@ function Root() {
       {screen.name === "about" && <About onBack={() => setScreen({ name: "settings" })} />}
       {screen.name === "project" && (
         <BackLayer>
-          <ProjectScreen key={screen.n} device={screen.device} initial={screen.initial} onBack={() => setScreen({ name: "projects" })} onUnpaired={unpaired} />
+          <ProjectScreen
+            key={screen.n}
+            device={screen.device}
+            initial={screen.initial}
+            onBack={() => setScreen({ name: "projects" })}
+            onUnpaired={(m) => unpairedFrom(screen.device, m)}
+            onPair={() => setScreen({ name: "scan", from: "projects" })}
+          />
         </BackLayer>
       )}
       <OfflineBanner />

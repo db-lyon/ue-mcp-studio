@@ -26,6 +26,11 @@ describe("app.json", () => {
   it("leaves predictive back off, so system back reaches BackHandler", () => {
     expect(app.android?.predictiveBackGestureEnabled).toBe(false);
   });
+
+  // Build 11: a reinstall restored the old pairings from Android's backup while the key they were made with was gone.
+  it("keeps Android from backing up and restoring the app's data", () => {
+    expect(app.android?.allowBackup).toBe(false);
+  });
 });
 
 describe("the generated Android manifest", () => {
@@ -34,6 +39,9 @@ describe("the generated Android manifest", () => {
     const xml = fs.readFileSync(manifest, "utf8");
     expect(xml).not.toMatch(/android:host="[^"]*ue-mcp\.com"/);
     expect(xml).not.toMatch(/android:autoVerify="true"/);
+  });
+  it.skipIf(!fs.existsSync(manifest))("does not allow backup", () => {
+    expect(fs.readFileSync(manifest, "utf8")).toMatch(/android:allowBackup="false"/);
   });
   it.skipIf(!fs.existsSync(manifest))("does not opt into OnBackInvokedCallback", () => {
     expect(fs.readFileSync(manifest, "utf8")).not.toMatch(/android:enableOnBackInvokedCallback="true"/);

@@ -6,6 +6,6 @@ import type { PanelLocation, Transport } from "@ue-mcp-studio/client-core";
 import type { Device } from "../relay";
 import { AppShell } from "../AppShell";
 
-export function ProjectScreen(props: { device: Device; onBack: () => void; onUnpaired: (message: string) => void; transport?: Transport; initial?: PanelLocation }) {
+export function ProjectScreen(props: { device: Device; onBack: () => void; onUnpaired: (message: string) => void; onPair?: () => void; transport?: Transport; initial?: PanelLocation }) {
   return <AppShell {...props} />;
 }

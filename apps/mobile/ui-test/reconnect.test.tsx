@@ -107,6 +107,8 @@ const panel = () => screen.queryByText("ue-mcp on your computer is offline");
 
 beforeEach(() => {
   store.clear();
+  // The key the pairing was made with: without it the app drops the pairing at startup.
+  store.set("phone", JSON.stringify({ jwk: {}, publicKey: "phone" }));
   store.set("trusted", JSON.stringify({ k1: { pairedAt: "2026-11-04T12:00:00Z" } }));
   store.set("selected", JSON.stringify(DEVICE));
   vi.useFakeTimers();
