@@ -22,6 +22,8 @@ import { ProjectScreen } from "./src/screens/Project";
 import { BackLayer, BackToast, useBack, useBackExit } from "./src/back";
 import { ErrorBoundary } from "./src/views/ErrorBoundary";
 import { keepAliveOnErrors } from "./src/native/keep-alive";
+import { onTap as onNotificationTap } from "./src/native/notify";
+import { pendingLatest } from "./src/notifications/state";
 
 keepAliveOnErrors();
 
@@ -141,6 +143,21 @@ function Root() {
       },
       [openProject],
     ),
+  );
+
+  // A tap on a notification: open its project on its session, or on the latest notice's when a push named only the project.
+  useEffect(
+    () =>
+      onNotificationTap((d) => {
+        void (async () => {
+          const t = await trusted();
+          const device = (await account().catch(() => null))?.devices.find((x) => x.id === d.deviceId);
+          if (!device || !(device.computerKey in t)) return;
+          if (!d.sessionId) pendingLatest.set(device.id, d.kind);
+          openProject(device, { tab: "Chat", session: d.sessionId ?? null, section: null });
+        })();
+      }),
+    [openProject],
   );
 
   // Something shared into Studio from another app while no project is open: open the last one, whose chat takes it.

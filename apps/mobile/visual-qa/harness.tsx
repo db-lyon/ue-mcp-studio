@@ -30,6 +30,15 @@ function json(status: number, body: unknown): Reply {
   };
 }
 
+/** Open event streams waiting for the next emitted event. */
+const emitters = new Set<(e: { type: string; data: Record<string, unknown> }) => void>();
+/** Send one daemon event down every open stream: the e2e's way of having the computer publish something. */
+(globalThis as { __studioEmit?: (type: string, data: Record<string, unknown>) => void }).__studioEmit = (type, data) => {
+  const waiting = [...emitters];
+  emitters.clear();
+  waiting.forEach((r) => r({ type, data }));
+};
+
 /** The scenario's daemon as a Transport: its GETs, its writes, and an event stream that stays open. */
 export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Transport {
   let arrived = false;
@@ -68,11 +77,21 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
             arrived = true;
             yield enc.encode(`id: 1\nevent: studio.transcript.added\ndata: ${JSON.stringify({ sessionId: scenario.session.id, at: new Date().toISOString() })}\n\n`);
           }
-          // Open and quiet until the app lets go of it.
-          await new Promise<void>((resolve) => {
-            if (signal?.aborted) return resolve();
-            signal?.addEventListener("abort", () => resolve(), { once: true });
-          });
+          // Open until the app lets go of it, carrying what the e2e emits (window.__studioEmit) as the daemon would.
+          let id = 1000;
+          while (!signal?.aborted) {
+            const next = await new Promise<{ type: string; data: Record<string, unknown> } | null>((resolve) => {
+              if (signal?.aborted) return resolve(null);
+              emitters.add(resolve);
+              signal?.addEventListener("abort", () => resolve(null), { once: true });
+            });
+            if (!next) break;
+            yield enc.encode(`id: ${++id}
+event: ${next.type}
+data: ${JSON.stringify({ ...next.data, at: new Date().toISOString() })}
+
+`);
+          }
         })(),
       };
     }

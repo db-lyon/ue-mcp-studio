@@ -68,6 +68,17 @@ function remoteLockGet(lock: { pin: boolean; whole: boolean; sensitive: boolean;
   };
 }
 
+/** Settings > Notifications as the agent answers it: the defaults, with one session muted. */
+const NOTIFY_STATE = {
+  project: "StudioE2E",
+  prefs: {
+    events: { "turn.finished": true, "turn.failed": true, "approval.waiting": true, "dialog.waiting": true, "playtest.needs-you": true, "playtest.finished": true, "subagent.finished": false, "context.limit": false, "project.offline": false, "project.online": false },
+    mutedSessions: ["qa-muted"],
+  },
+  recent: [],
+  titles: { "qa-muted": "Bake lighting overnight" },
+};
+
 const page = (title: string, section: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: `#/settings/${section}`, index: { playtests: [], listed: true }, height: 2600, ...o });
 
 /**
@@ -137,6 +148,24 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     focus: ".yaml-editor textarea",
   }),
   "settings-general": page("General: themes and updates", "general"),
+  "settings-notifications": page("Notifications in Studio's window: this device's choices, every event at its default, one muted session", "notifications", {
+    studioWindow: true,
+    get: (p) => (p === "/v1/ext/studio/notifications" ? NOTIFY_STATE : undefined),
+  }),
+  "settings-notifications-quiet": page("Notifications with quiet hours on, details hidden, the project muted here, and two events changed for the project", "notifications", {
+    studioWindow: true,
+    storage: { "studio.notify.device": JSON.stringify({ enabled: true, mutedProjects: ["StudioE2E"], quiet: { on: true, from: "22:30", to: "07:00" }, privacy: "minimal", sound: "default", vibrate: "default", onlyWhenAway: true }) },
+    get: (p) => (p === "/v1/ext/studio/notifications" ? { ...NOTIFY_STATE, prefs: { ...NOTIFY_STATE.prefs, events: { ...NOTIFY_STATE.prefs.events, "turn.finished": false, "subagent.finished": true } } } : undefined),
+  }),
+  "settings-notifications-off": page("Notifications turned off on this device: its other choices disabled, the project's events still shown", "notifications", {
+    studioWindow: true,
+    storage: { "studio.notify.device": JSON.stringify({ enabled: false }) },
+    get: (p) => (p === "/v1/ext/studio/notifications" ? { ...NOTIFY_STATE, prefs: { ...NOTIFY_STATE.prefs, mutedSessions: [] }, titles: {} } : undefined),
+  }),
+  "settings-notifications-remote": page("Notifications in a paired browser that has not allowed notifications yet: the Allow button", "notifications", {
+    remotePage: true,
+    get: (p) => (p === "/v1/ext/studio/notifications" ? NOTIFY_STATE : undefined),
+  }),
   "settings-general-signed-in": page("General with the ue-mcp account signed in from the panel, no paid plan: the login and Sign out", "general", {
     settings: { account: { login: "dev", via: "studio" } },
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),

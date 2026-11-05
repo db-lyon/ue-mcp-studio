@@ -117,6 +117,8 @@ interface Call {
 const relay = {
   /** Say hello with `binary`, as the deployed relay does, so chunks come as binary frames. */
   binary: false,
+  /** Say hello with `push`: the relay takes notify frames. */
+  push: false,
   mode: "allow" as "allow" | "deny",
   pairMode: "allow" as "allow" | "deny",
   upgrades: [] as http.IncomingHttpHeaders[],
@@ -161,7 +163,7 @@ relayServer.on("upgrade", (req, socket, head) => {
       else c.failed = { status: f.status, error: f.error };
     });
     ws.on("close", () => relay.socket === ws && (relay.socket = null));
-    send({ t: "hello", deviceId: String(req.headers["x-ue-mcp-device"]), login: "dev", ...(relay.binary ? { binary: true } : {}) });
+    send({ t: "hello", deviceId: String(req.headers["x-ue-mcp-device"]), login: "dev", ...(relay.binary ? { binary: true } : {}), ...(relay.push ? { push: true } : {}) });
   });
 });
 function send(frame: RelayFrame): void {
@@ -188,6 +190,7 @@ interface Host {
   dataDir: string;
   computerDir: string;
   dispose: () => void;
+  publish: (type: string, data: Record<string, unknown>) => void;
 }
 const hosts: Host[] = [];
 
@@ -204,13 +207,23 @@ function host(o: { plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; plan
   }
   const routes = new Map<string, ExtensionHandler>();
   const events: Host["events"] = [];
+  const listeners = new Set<(e: unknown) => void>();
   let busy: () => boolean = () => false;
   const api = {
     projectDir,
     dataDir,
     route: (method: string, p: string, h: ExtensionHandler) => void routes.set(`${method} ${p}`, h),
     setBusy: (fn: () => boolean) => void (busy = fn),
-    events: { publish: (type: string, data: Record<string, unknown>) => void events.push({ type, data }) },
+    events: {
+      publish: (type: string, data: Record<string, unknown>) => {
+        events.push({ type, data });
+        for (const l of listeners) l({ id: events.length, type, data, at: "" });
+      },
+      subscribe: (l: (e: unknown) => void) => {
+        listeners.add(l);
+        return () => listeners.delete(l);
+      },
+    },
     registryAccount: async () => (o.signedIn === false ? null : { login: "dev", token: "uemcp_dev", registry: "https://registry.invalid" }),
     log: { info() {}, warn() {}, error() {} },
   } as unknown as DaemonExtensionApi;
@@ -233,6 +246,7 @@ function host(o: { plan?: PlanCheck; signedIn?: boolean; enabled?: boolean; plan
     computerDir,
     busy: () => busy(),
     dispose: r.dispose,
+    publish: (type, data) => api.events.publish(type, data),
     call: async (key, body, params = {}) => (await routes.get(key)!({ method: "", path: "", params, query: {}, headers: {}, body } as never)) ?? {},
   };
   hosts.push(h);
@@ -607,6 +621,26 @@ function keys(h: Host): string[] {
   const file = path.join(h.computerDir, "phones.json");
   return fs.existsSync(file) ? (JSON.parse(fs.readFileSync(file, "utf-8")) as Array<{ id: string }>).map((p) => p.id) : [];
 }
+
+describe("notifications through the relay", () => {
+  it("sends a notice's kind only, to a relay that pushes, and nothing to one that does not", async () => {
+    const notice = { id: "n1", kind: "turn.finished", project: "Game", title: "Done: secret plan", text: "The secret text", target: { sessionId: "s1" }, active: ["desktop"] };
+    relay.push = true;
+    try {
+      const h = host();
+      await h.call("PUT /remote/config", { enabled: true });
+      await until(() => h.events.some((e) => e.data.state === "online"));
+      // As the daemon carries the agent's own event: prefixed with the extension's name.
+      h.publish("studio.notify", notice);
+      await until(() => relay.wire.some((w) => w.includes('"t":"notify"')));
+      const sent = relay.wire.find((w) => w.includes('"t":"notify"'))!;
+      expect(JSON.parse(sent)).toEqual({ t: "notify", kind: "turn.finished", desktop: true });
+      expect(sent).not.toContain("secret");
+    } finally {
+      relay.push = false;
+    }
+  }, 20_000);
+});
 
 describe("a quiet event stream through the relay", () => {
   it("gets a keepalive comment while the project has nothing to say, so no proxy closes it as idle", async () => {

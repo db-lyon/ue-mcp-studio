@@ -13,8 +13,11 @@ export * from "./e2e.js";
  * "sealed", an EnrollRequest for "enroll".
  */
 export type RelayFrame =
-  /** `binary`: this relay reads chunks as binary frames (encodeChunk); an older relay leaves it out and gets base64 `chunk` frames. */
-  | { t: "hello"; deviceId: string; login: string; binary?: boolean; acks?: boolean }
+  /**
+   * `binary`: this relay reads chunks as binary frames (encodeChunk); an older relay leaves it out and gets base64 `chunk` frames.
+   * `push`: this relay takes `notify` frames and pushes them to the account's devices.
+   */
+  | { t: "hello"; deviceId: string; login: string; binary?: boolean; acks?: boolean; push?: boolean }
   | { t: "call"; id: string; kind: "sealed" | "enroll"; body: string }
   | { t: "abort"; id: string }
   /** `acks`: bytes this relay has read from the connector so far, so it keeps only a small window unread on the way. */
@@ -47,7 +50,20 @@ export type ConnectorFrame =
   | { t: "head"; id: string; status: number; headers: Record<string, string> }
   | { t: "chunk"; id: string; data: string }
   | { t: "end"; id: string }
-  | { t: "fail"; id: string; status: number; error: string };
+  | { t: "fail"; id: string; status: number; error: string }
+  | NotifyFrame;
+
+/**
+ * A notification for the account's devices that are away (push). Phase A: the
+ * relay sees only the event kind, and names the project itself from the
+ * connection; `desktop` says the Studio window is in use, so a device set to
+ * "only when I'm away" is skipped. The text stays on the computer.
+ */
+export interface NotifyFrame {
+  t: "notify";
+  kind: string;
+  desktop?: boolean;
+}
 
 /** Headers the connector sends with every WebSocket upgrade. */
 export const DEVICE_HEADER = "x-ue-mcp-device";

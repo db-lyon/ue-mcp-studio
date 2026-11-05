@@ -63,6 +63,8 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
+import { notificationsOf } from "@ue-mcp-studio/client-core";
+import type { NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
 import type { CatalogPlugin, InstalledPlugin, PluginCommandResult } from "@ue-mcp-studio/client-core";
@@ -122,6 +124,9 @@ export interface StudioVersionNotice {
 }
 
 export const api = {
+  notifications: () => call<unknown>("GET", "/v1/ext/studio/notifications").then(notificationsOf),
+  saveNotifications: (u: ProjectNotifyUpdate) => call<unknown>("PUT", "/v1/ext/studio/notifications", u).then(notificationsOf),
+  notifyPresence: (body: { id: string; device: NotifyDevice; active: boolean }) => call<void>("POST", "/v1/ext/studio/notifications/presence", body),
   versionNotice: () => call<{ notice: StudioVersionNotice | null }>("GET", "/v1/ext/studio/version-notice"),
   keepStudio: (version: string) => call<{ notice: StudioVersionNotice | null }>("POST", "/v1/ext/studio/version-notice/keep", { version }),
   useInstalledStudio: (version: string) => call<unknown>("POST", "/v1/ext/studio/version-notice/update", { version }),

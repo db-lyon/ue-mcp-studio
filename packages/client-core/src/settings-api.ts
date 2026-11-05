@@ -25,10 +25,14 @@ import type {
   StudioSettings,
   StudioSettingsUpdate,
   StudioSignIn,
+  NotificationsState,
+  NotifyDevice,
+  ProjectNotifyUpdate,
 } from "@ue-mcp-studio/shared";
 import { HttpError, readJson, requestJson, type Transport } from "./transport.js";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize.js";
 import type { CatalogPlugin, InstalledPlugin } from "./plugins.js";
+import { notificationsOf } from "./notifications.js";
 import type { StudioVersionNotice } from "./studio-api.js";
 
 const S = "/v1/ext/studio";
@@ -46,6 +50,9 @@ export function settingsApi(t: Transport) {
     health: () => get<unknown>("/v1/health").then(healthOf) as Promise<DaemonHealth>,
     install: () => get<unknown>("/v1/install").then(installOf) as Promise<StatusReport>,
     settings: () => get<unknown>(`${S}/settings`).then(settingsOf) as Promise<StudioSettings>,
+    notifications: () => get<unknown>(`${S}/notifications`).then(notificationsOf) as Promise<NotificationsState>,
+    saveNotifications: (u: ProjectNotifyUpdate) => send<unknown>("PUT", `${S}/notifications`, u).then(notificationsOf) as Promise<NotificationsState>,
+    notifyPresence: (body: { id: string; device: NotifyDevice; active: boolean }) => send<void>("POST", `${S}/notifications/presence`, body),
     saveSettings: (u: StudioSettingsUpdate) => send<unknown>("PUT", `${S}/settings`, u).then(settingsOf) as Promise<StudioSettings>,
     models: () => get<unknown>(`${S}/models`).then(catalogOf) as Promise<ModelCatalog>,
     agentSettings: () => get<unknown>(`${S}/agent-settings`).then(agentSettingsOf) as Promise<AgentSettings>,

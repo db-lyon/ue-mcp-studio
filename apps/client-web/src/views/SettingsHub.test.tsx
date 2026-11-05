@@ -28,7 +28,7 @@ describe("Settings sections", () => {
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
     expect([...nav.querySelectorAll(".cfg-rail-label")].map((e) => e.textContent)).toEqual(["Studio", "Work", "Project"]);
     expect([...nav.querySelectorAll(".cfg-rail-text > span:first-child")].map((e) => e.textContent)).toEqual([
-      "General", "Agents", "Models & accounts", "Approvals & review", "Project", "Diagnostics",
+      "General", "Notifications", "Agents", "Models & accounts", "Approvals & review", "Project", "Diagnostics",
     ]);
     expect(screen.getByText("ProjectSection body")).toBeTruthy();
   });
@@ -49,7 +49,7 @@ describe("Settings sections", () => {
       await act(async () => void render(<SettingsHub daemon={daemon} section="remote" onSection={vi.fn()} onTheme={vi.fn()} />));
       expect(withRemote.remoteAvailable).toHaveBeenCalledWith(true);
       const nav = screen.getByRole("navigation", { name: "Settings sections" });
-      expect([...nav.querySelectorAll(".cfg-rail-text > span:first-child")].map((e) => e.textContent).slice(0, 2)).toEqual(["General", "Remote control"]);
+      expect([...nav.querySelectorAll(".cfg-rail-text > span:first-child")].map((e) => e.textContent).slice(0, 3)).toEqual(["General", "Notifications", "Remote control"]);
       expect(screen.getByText("RemoteSection body")).toBeTruthy();
     });
 

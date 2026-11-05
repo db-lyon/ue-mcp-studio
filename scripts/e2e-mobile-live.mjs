@@ -317,6 +317,49 @@ async function fake() {
   }
 }
 
+/**
+ * A turn that finishes while the app is in the background: the computer publishes studio.notify, the app
+ * asks for a local notification with the notice's title, the project and its text, carrying the project and
+ * the session; a tap on it opens that session.
+ */
+async function fakeNotify() {
+  const { context, page, errors } = await openPage(`?fake=${encodeURIComponent(scenario)}`);
+  try {
+    await visible(page, sessionTitle, 60_000);
+    await page.waitForTimeout(800);
+    // The app goes to the background, as when the phone is locked.
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    const notice = { id: "e2e-n1", kind: "turn.finished", project: "StudioE2E", at: new Date().toISOString(), sessionId: "qa-session", sessionTitle: sessionTitle, title: `Done: ${sessionTitle}`, text: "The hinge eases in and out now.", target: { sessionId: "qa-session" }, active: [] };
+    await page.evaluate((n) => window.__studioEmit("studio.notify", n), notice);
+    await page.waitForFunction(() => (window.__studioNotifications ?? []).length > 0, null, { timeout: 10_000 });
+    const req = await page.evaluate(() => window.__studioNotifications.at(-1));
+    const want = { title: `Done: ${sessionTitle}`, body: "StudioE2E: The hinge eases in and out now.", tag: "uemcp:turn.finished:StudioE2E", data: { deviceId: "e2e-fake", kind: "turn.finished", sessionId: "qa-session" } };
+    const got = { title: req.title, body: req.body, tag: req.tag, data: req.data };
+    if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`the request was ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`);
+    step("fake notify: a finished turn asks for a notification with its title, project, text and session", true, JSON.stringify(got));
+    // Back in front, the owner taps it.
+    await page.evaluate(() => {
+      Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+      Object.defineProperty(document, "hidden", { configurable: true, get: () => false });
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await page.evaluate((d) => window.__studioNotifyTap(d), req.data);
+    await page.waitForSelector("#transcript", { state: "visible", timeout: 30_000 });
+    await page.waitForTimeout(800);
+    await shot(page, "07a-fake-notify-tap-opened-session");
+    step("fake notify: the tap opens the session", true);
+  } catch (e) {
+    await shot(page, "fake-notify-failure").catch(() => undefined);
+    step("fake notify", false, `${e.message}${errors.length ? ` | page errors: ${errors.slice(0, 5).join(" | ")}` : ""}`);
+  } finally {
+    await context.close();
+  }
+}
+
 /** The relay's own words for an away computer, which the app must never show as an error. */
 const OFFLINE_TEXT = "That project is offline.";
 const RESTART_MS = 6000;
@@ -405,6 +448,7 @@ try {
   if (!flag("skip-live")) await live();
   if (!flag("skip-fake")) {
     await fake();
+    await fakeNotify();
     await fakeRestart();
     await fakeLongSession();
   }

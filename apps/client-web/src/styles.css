@@ -2154,3 +2154,6 @@ button.review-item-name:hover:not(:disabled) { background: none; border: 0; colo
   .review-conflict { row-gap: 14px; }
   .review-acting { min-height: 32px; }
 }
+
+/* A session whose notifications are muted: a small struck bell after its title. */
+.session-muted { display: inline-block; width: 11px; height: 11px; margin-left: 6px; vertical-align: -1px; color: var(--dim); }

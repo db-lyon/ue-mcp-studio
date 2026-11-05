@@ -17,6 +17,8 @@ import { ProjectContext, useProjectNav, type ProjectNav, type Route } from "./na
 import { useDaemon } from "./state";
 import { readLocation, resetLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
+import { useNotifications } from "./notifications/useNotifications";
+import { useSettingsApi } from "./screens/settings/hooks";
 import { Banner, font, PageGlow, T, useInsets, useSetTheme, useStyles, useTheme, type Theme } from "./ui";
 import { Chat } from "./views/Chat";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
@@ -72,7 +74,7 @@ export function AppShell({ device, onBack, onUnpaired, transport, initial }: App
   return (
     <ProjectContext.Provider value={nav}>
       <View style={{ flex: 1 }} onTouchStart={() => project.lock.touched()}>
-        <Root initial={initial} onBack={onBack} />
+        <Root initial={initial} onBack={onBack} device={device} />
         {top ? (
           <View style={StyleSheet.absoluteFill}>
           </View>
@@ -84,17 +86,17 @@ export function AppShell({ device, onBack, onUnpaired, transport, initial }: App
 }
 
 /** Studio, or the one screen that says it needs a newer ue-mcp. */
-function Root({ initial, onBack }: { initial?: PanelLocation; onBack: () => void }) {
+function Root({ initial, onBack, device }: { initial?: PanelLocation; onBack: () => void; device: Device }) {
   const t = useTheme();
   const { project } = useProjectNav();
   const daemon = useDaemon(project);
   const refusal = useRefusal(daemon.health);
   if (refusal === undefined) return <View style={{ flex: 1, backgroundColor: t.c.bg }} />;
   if (refusal) return <RefusedScreen refusal={refusal} />;
-  return <Studio daemon={daemon} initial={initial} onBack={onBack} />;
+  return <Studio daemon={daemon} initial={initial} onBack={onBack} device={device} />;
 }
 
-function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaemon>; initial?: PanelLocation; onBack: () => void }) {
+function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof useDaemon>; initial?: PanelLocation; onBack: () => void; device: Device }) {
   const t = useTheme();
   const s = useStyles(styles);
   const insets = useInsets();
@@ -119,6 +121,9 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
     setTab("Chat");
     setChatNav((c) => ({ session, n: c.n + 1 }));
   };
+  // Notifications while the project is open; a tap on one opens its session.
+  const settings = useSettingsApi();
+  useNotifications({ events: daemon.events, device, api: settings, streaming: daemon.streaming, onOpen: (n) => n.sessionId && openChat(n.sessionId) });
   const newSession = () => void api.newSession().then((d) => openChat(d.id), () => openChat(null));
   const updates = useUpdateCount();
   const playtests = usePlaytestIndex(daemon);
