@@ -220,7 +220,7 @@ function RecordRows({ entries, sub, owner }: { entries: AssetDiffRecord[]; sub?:
         const node = nodeOf(r);
         const subtitle = nodeSubtitle(r) ?? (r.toolTip && r.toolTip !== r.displayString ? r.toolTip : null);
         const size = tone === "minor" ? 11 : 12;
-        const text = values && r.path !== undefined ? (owner ? `${owner} > ${r.label ?? r.path}` : r.label ?? r.path) : withoutVerb(r.displayString, k);
+        const text = values && r.path !== undefined ? (owner ? `${owner} > ${r.label ?? r.path}` : r.label ?? r.path) : withoutVerb(r.displayString, tone);
         const change = (
           <View>
             {/* A minor row's 11px line is shorter than its badge, which sits inline-block on the web and stretches the line to 18 pixels. */}
