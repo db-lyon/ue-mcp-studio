@@ -14,6 +14,8 @@
 // answering from a web visual-qa scenario with no lock, already paired: the Chat tab, then a session.
 // Then a restart: the computer away when the app opens (Reconnecting, then the sessions with no
 // banner once it answers), and away again under an open session, whose transcript is read again.
+// Then a long session (about 8 MB of transcript): it opens on its newest line, and older lines
+// come a page at a time.
 import * as fs from "node:fs";
 import * as https from "node:https";
 import * as os from "node:os";
@@ -346,11 +348,45 @@ async function fakeRestart() {
   }
 }
 
+/** The long session's title and newest line (apps/mobile/visual-qa/huge-session.ts). */
+const HUGE_TITLE = "Long session";
+const HUGE_LAST = "Everything is in place: the loop runs end to end.";
+/** Opening it must take no longer than this, from the tap to its newest line on screen. */
+const HUGE_OPEN_MS = 15_000;
+
+async function fakeLongSession() {
+  const { context, page, errors } = await openPage(`?fake=${encodeURIComponent(scenario)}&huge=1`);
+  try {
+    const row = await visible(page, HUGE_TITLE, 60_000);
+    const started = Date.now();
+    await row.click();
+    await visible(page, HUGE_LAST, HUGE_OPEN_MS);
+    const took = Date.now() - started;
+    await page.waitForTimeout(800);
+    await shot(page, "11-fake-long-session");
+    step("fake long session: opens on its newest line", true, `${took} ms`);
+    const earlier = page.locator('[aria-label^="Show earlier messages"]').first();
+    await earlier.waitFor({ state: "attached", timeout: 5000 });
+    const before = await page.getByText(/^Turn \d+$/).count();
+    await earlier.click();
+    await page.waitForTimeout(800);
+    const after = await page.getByText(/^Turn \d+$/).count();
+    if (after <= before) throw new Error(`Show earlier drew nothing more (${before} turns, then ${after})`);
+    step("fake long session: older lines a page at a time", true, `${before} then ${after} turns drawn`);
+  } catch (e) {
+    await shot(page, "fake-long-failure").catch(() => undefined);
+    step("fake long session", false, `${e.message}${errors.length ? ` | page errors: ${errors.slice(0, 5).join(" | ")}` : ""}`);
+  } finally {
+    await context.close();
+  }
+}
+
 try {
   if (!flag("skip-live")) await live();
   if (!flag("skip-fake")) {
     await fake();
     await fakeRestart();
+    await fakeLongSession();
   }
 } finally {
   await browser.close();

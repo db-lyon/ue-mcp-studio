@@ -9,11 +9,14 @@
  * `offlineMs` starts the computer away for that long, the relay answering
  * every request as it does while the daemon restarts; window.__fakeRelay
  * takes it away again later (a restart under an open session) and counts the
- * requests the computer answered, by path.
+ * requests the computer answered, by path. `huge` adds a long session (about
+ * 8 MB of transcript) to the computer's sessions.
  */
 import { exportPublic, generateKeyPair, openRequest, ResponseSealer, sharedSecret, unb64u } from "@ue-mcp-studio/remote";
 import { store } from "../ui-test/mocks/secure-store";
+import type { Reply, Transport } from "@ue-mcp-studio/client-core";
 import { scenarioTransport, SCENARIOS } from "./harness";
+import { HUGE_ID, hugeSession } from "./huge-session";
 
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
@@ -26,7 +29,29 @@ export interface FakeRelayControl {
   answered: string[];
 }
 
-export async function installFakeRelay(name: string, offlineMs = 0): Promise<void> {
+/** The scenario's daemon with a long session beside its own. */
+function withHugeSession(inner: Transport): Transport {
+  const detail = hugeSession();
+  const { transcript: _t, ...summary } = detail;
+  const body = (value: unknown): Reply => ({
+    status: 200,
+    headers: { "content-type": "application/json" },
+    body: (async function* () {
+      yield new TextEncoder().encode(JSON.stringify(value));
+    })(),
+  });
+  return async (method, path, options) => {
+    if (method === "GET" && path.startsWith(`/v1/ext/studio/sessions/${HUGE_ID}?`)) return body(detail);
+    const reply = await inner(method, path, options);
+    if (method !== "GET" || path !== "/v1/ext/studio/sessions" || reply.status !== 200 || !reply.body) return reply;
+    let text = "";
+    for await (const c of reply.body) text += new TextDecoder().decode(c, { stream: true });
+    const listed = JSON.parse(text) as { sessions: unknown[] };
+    return body({ ...listed, sessions: [summary, ...listed.sessions] });
+  };
+}
+
+export async function installFakeRelay(name: string, offlineMs = 0, huge = false): Promise<void> {
   const scenario = SCENARIOS[name];
   if (!scenario) throw new Error(`no visual-qa scenario ${name}`);
   const computer = await generateKeyPair();
@@ -34,7 +59,7 @@ export async function installFakeRelay(name: string, offlineMs = 0): Promise<voi
   const device = { id: "e2e-fake", name: "StudioE2E", online: true, computerKey, lastSeen: new Date().toISOString() };
   store.set("trusted", JSON.stringify({ [computerKey]: { pairedAt: new Date().toISOString() } }));
   store.set("selected", JSON.stringify(device));
-  const transport = scenarioTransport(scenario, "ue-mcp");
+  const transport = huge ? withHugeSession(scenarioTransport(scenario, "ue-mcp")) : scenarioTransport(scenario, "ue-mcp");
   const base = `${location.origin}/fake-relay`;
   const real = window.fetch.bind(window);
   let awayUntil = offlineMs > 0 ? Date.now() + offlineMs : 0;
