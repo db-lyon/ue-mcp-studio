@@ -22,7 +22,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { playtestMatches, playtestShown, type PlaytestEntry, type PlaytestFilter, type PlaytestIndexAnswer, type QaRun } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
-import { Banner, T, bannerText, font, useSheetInsets, useStyles, useTheme, type Theme } from "../../ui";
+import { Banner, NavBarBacking, T, bannerText, font, useSheetInsets, useStyles, useTheme, type Theme } from "../../ui";
 import { QaContext, RevealContext, useDaemonEvents, type Measurable, type QaLive, type RevealBlock } from "./live";
 import { QaCard, useSavedScript, type QaCardActions } from "./QaCard";
 import { PathLegend } from "./StepPath";
@@ -110,6 +110,7 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   }, [index]);
 
   return (
+    <>
     <ScrollView
       ref={scroller as never}
       style={s.scroll}
@@ -181,6 +182,8 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
       </QaContext.Provider>
       </View>
     </ScrollView>
+    <NavBarBacking />
+    </>
   );
 }
 

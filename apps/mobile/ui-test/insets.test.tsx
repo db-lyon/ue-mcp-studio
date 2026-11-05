@@ -181,6 +181,40 @@ describe("pages scroll their end clear of the bar", () => {
     expect(px(content("playtests-page"), "paddingBottom")).toBe(18 + 280);
   });
 
+  // Build 7: mid-scroll, a page's rows showed through the see-through navigation bar (Settings > General's Channel row).
+  it("draws an opaque strip behind the bar on every page that scrolls to the screen's bottom", async () => {
+    setSafeAreaInsets({ bottom: BAR });
+    const backing = () => {
+      const el = screen.getByTestId("navbar-backing");
+      const cs = getComputedStyle(el);
+      expect(cs.position).toBe("absolute");
+      expect(cs.bottom).toBe("0px");
+      expect(cs.height).toBe(`${BAR}px`);
+      expect(cs.backgroundColor).not.toMatch(/rgba\([^)]*,\s*0?\.\d+\)|transparent/);
+    };
+    const api = fakeApi();
+    api.sessions.mockResolvedValue({ sessions: [session()] });
+    api.settings.mockResolvedValue({ provider: "anthropic", model: "m", effort: "medium", route: "key", connected: true });
+    api.models.mockResolvedValue({ signedIn: {}, providers: [] });
+    const c = renderInProject(<Chat />, api);
+    await settle();
+    backing();
+    c.unmount();
+    for (const page of [
+      <SettingsScreen key="s" daemon={daemon()} section={null} onSection={none} onTheme={none} />,
+      <PluginsScreen key="p" daemon={daemon()} />,
+      <PlaytestsView key="t" daemon={daemon()} index={{ index: null, error: null, reload: none }} onOpenSession={none} />,
+    ]) {
+      const r = renderInProject(page);
+      backing();
+      r.unmount();
+    }
+    // No bar inset (a gesture bar the system reports as 0): nothing drawn.
+    setSafeAreaInsets({ bottom: 0 });
+    renderInProject(<SettingsScreen daemon={daemon()} section={null} onSection={none} onTheme={none} />);
+    expect(screen.queryByTestId("navbar-backing")).toBeNull();
+  });
+
   it("the pairing, projects and about pages, and the scanner's foot", async () => {
     setSafeAreaInsets({ top: 24, bottom: BAR });
     // A page without a footer ends the relay stage's 24 above the bar.

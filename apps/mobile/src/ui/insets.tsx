@@ -10,7 +10,9 @@
  */
 import { useContext } from "react";
 import { initialWindowMetrics, SafeAreaInsetsContext, type EdgeInsets } from "react-native-safe-area-context";
+import { View } from "react-native";
 import { useKeyboardHeight } from "../native/keyboard";
+import { useTheme } from "./ThemeProvider";
 
 const NONE: EdgeInsets = { top: 0, bottom: 0, left: 0, right: 0 };
 
@@ -32,6 +34,19 @@ export function useSheetInsets(): EdgeInsets {
   const insets = useInsets();
   const keyboard = useKeyboardHeight();
   return keyboard > 0 ? { ...insets, bottom: keyboard } : insets;
+}
+
+/**
+ * An opaque strip behind the navigation bar, for a page that scrolls to the
+ * bottom of the screen: its content passes under the bar mid-scroll, and the
+ * system draws the bar see-through edge to edge. The page still pads its end
+ * by the inset, so the last row stops above the strip.
+ */
+export function NavBarBacking({ color }: { color?: string }) {
+  const insets = useInsets();
+  const t = useTheme();
+  if (insets.bottom <= 0) return null;
+  return <View testID="navbar-backing" pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: insets.bottom, backgroundColor: color ?? t.c.bg }} />;
 }
 
 /**

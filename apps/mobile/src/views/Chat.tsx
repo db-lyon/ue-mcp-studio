@@ -14,7 +14,7 @@ import { haptic } from "../native/haptics";
 import { KeyboardAvoidingView } from "../native/keyboard";
 import { useSharedFiles } from "../native/share";
 import { publishRecentSessions } from "../native/shortcuts";
-import { Banner, Button, font, labelFont, T, useAvoidedInsets, useSheetInsets, useTheme, type Theme } from "../ui";
+import { Banner, Button, font, labelFont, NavBarBacking, T, useAvoidedInsets, useSheetInsets, useTheme, type Theme } from "../ui";
 import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
 import { useDaemonState, useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
@@ -485,6 +485,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
             </>
           ) : null}
         </ScrollView>
+        <NavBarBacking color={t.c.panel} />
       </AskedContext.Provider>
     );
   }

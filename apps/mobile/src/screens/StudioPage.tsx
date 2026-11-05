@@ -8,7 +8,7 @@
 import type { ReactElement, ReactNode } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View, type RefreshControlProps, type StyleProp, type ViewStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { Button, Card, font, Label, PageGlow, Panel, StateGlyph, T, useInsets, useSheetInsets, useTheme, type StateGlyphName } from "../ui";
+import { Button, Card, font, Label, NavBarBacking, PageGlow, Panel, StateGlyph, T, useInsets, useSheetInsets, useTheme, type StateGlyphName } from "../ui";
 import { Brand } from "../views/NavDrawer";
 import { OFFLINE_STRIP } from "../views/OfflineBanner";
 import { useDeviceOnline } from "../native/online";
@@ -107,6 +107,7 @@ export function Page({
       ) : (
         <View style={[{ flex: 1 }, pad]}>{children}</View>
       )}
+      {scroll && !footer ? <NavBarBacking /> : null}
       {footer ? <View testID="page-footer" style={{ paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right, paddingTop: 12, paddingBottom: 16 + insets.bottom, gap: 8, borderTopWidth: 1, borderTopColor: t.c.line, backgroundColor: t.c.barBg }}>{footer}</View> : null}
     </View>
   );
