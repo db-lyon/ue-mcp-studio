@@ -16,7 +16,6 @@
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import qrcode from "qrcode-generator";
 import { readLiveDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
@@ -24,6 +23,8 @@ import { pairingFragment } from "@ue-mcp-studio/remote";
 import { type RemoteApproval, type RemoteAvailability, type RemoteBrowser, type RemoteLockSettings, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import type { ExtensionHandler } from "ue-mcp/daemon";
 import { SettingsStore } from "../settings.js";
+import { relayName } from "../about.js";
+import { projectName } from "../window.js";
 import { AccountSource } from "../account-source.js";
 import { Connector, NOT_SIGNED_IN, NO_PLAN, type ConnectorState } from "./connector.js";
 import { PLAN_CHECK_TTL_MS, RemotePlanCheck, type PlanCheck } from "./plan.js";
@@ -83,11 +84,6 @@ export function deviceId(dir: string, legacyDir?: string): string {
   return id;
 }
 
-function projectName(projectDir: string): string {
-  const uproject = fs.existsSync(projectDir) ? fs.readdirSync(projectDir).find((f) => f.endsWith(".uproject")) : undefined;
-  return uproject ? uproject.replace(/\.uproject$/, "") : path.basename(projectDir);
-}
-
 /** Registers /remote/* and starts the connector when it is on and remote control is offered. */
 export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): { dispose(): void } {
   const env = o.env ?? process.env;
@@ -138,7 +134,7 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     new Connector({
       relayUrl: relayUrl(),
       deviceId: device,
-      deviceName: `${project} on ${os.hostname()}`,
+      deviceName: relayName(api.projectDir),
       computerPublic: (await keys.identity()).publicKey,
       token: () => account.token(),
       handle: (kind, body, sink, signal) => (kind === "enroll" ? service.enroll(body, sink) : service.sealed(body, sink, signal)),

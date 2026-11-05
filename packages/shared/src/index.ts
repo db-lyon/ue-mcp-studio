@@ -21,6 +21,8 @@ export interface StudioAbout {
   /** Version of the UI bundle the daemon is serving, or null. */
   uiVersion: string | null;
   projectDir: string;
+  /** The name the relay lists this project under: "<project> on <computer>". Absent from an older agent. */
+  name?: string;
   /** The extension API versions this Studio offers. Absent from an older agent. */
   extensionApi?: { agent: number; ui: number };
 }
