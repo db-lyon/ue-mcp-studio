@@ -11,6 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as zlib from "node:zlib";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { ComputerKeys } from "../src/remote/keys.js";
 import { WebSocketServer, type WebSocket } from "ws";
 import type { DaemonExtensionApi, ExtensionHandler } from "ue-mcp/daemon";
 import {
@@ -342,7 +343,7 @@ afterAll(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-const REMOTE_ROUTES = ["DELETE /remote/browsers/:id", "GET /remote/approvals", "GET /remote/browsers", "POST /remote/approvals/:id", "GET /remote/status", "POST /remote/pair", "PUT /remote/config", "GET /remote/lock", "PUT /remote/lock", "PUT /remote/lock/pin", "DELETE /remote/lock/pin"];
+const REMOTE_ROUTES = ["DELETE /remote/browsers/:id", "GET /remote/approvals", "GET /remote/browsers", "POST /remote/approvals/:id", "GET /remote/status", "POST /remote/pair", "PUT /remote/config", "GET /remote/lock", "PUT /remote/lock", "PUT /remote/lock/pin", "DELETE /remote/lock/pin", "POST /remote/lock/forget"];
 const available = async (h: Host, refresh = false) =>
   ((await h.routes.get("GET /remote/available")!({ method: "GET", path: "", params: {}, query: refresh ? { refresh: "1" } : {}, headers: {}, body: undefined } as never))!.body as { available: boolean }).available;
 const settle = () => new Promise((r) => setTimeout(r, 100));
@@ -785,28 +786,104 @@ describe("the account remote control uses", () => {
 });
 
 describe("the PIN lock, set on the computer", () => {
+  // The computer folder is shared by every host here: start each test without a PIN.
+  const fresh = () => fs.rmSync(path.join(root, "home", "remote", "remote-lock.json"), { force: true });
+
   it("off by default; a PIN, then the switches; removing the PIN turns them off; each change is announced", async () => {
+    fresh();
     const h = host({ plan: new FakePlan(true) });
     await settle();
     expect((await h.call("GET /remote/lock")).body).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 15 });
     expect((await h.call("PUT /remote/lock", { whole: true })).status).toBe(409);
     expect((await h.call("PUT /remote/lock/pin", { pin: "12" })).status).toBe(400);
-    expect((await h.call("PUT /remote/lock/pin", { pin: "48219" })).body).toMatchObject({ pin: true, whole: false });
-    expect((await h.call("PUT /remote/lock", { whole: true, sensitive: true, idleMinutes: 60 })).body).toEqual({ pin: true, whole: true, sensitive: true, idleMinutes: 60 });
+    expect((await h.call("PUT /remote/lock/pin", { pin: "48219", confirm: "48218" })).status).toBe(400);
+    expect((await h.call("PUT /remote/lock/pin", { pin: "48219", confirm: "48219" })).body).toMatchObject({ pin: true, whole: false });
+    expect((await h.call("PUT /remote/lock", { whole: true, sensitive: true, idleMinutes: 5 })).body).toEqual({ pin: true, whole: true, sensitive: true, idleMinutes: 5 });
     expect((await h.call("PUT /remote/lock", { whole: "yes" })).status).toBe(400);
-    expect(h.events).toContainEqual({ type: "remote.lock", data: { pin: true, whole: true, sensitive: true, idleMinutes: 60 } });
+    expect(h.events).toContainEqual({ type: "remote.lock", data: { pin: true, whole: true, sensitive: true, idleMinutes: 5 } });
     // One PIN for the computer, beside the paired browsers, never the PIN itself.
     const file = path.join(h.computerDir, "remote-lock.json");
     expect(fs.readFileSync(file, "utf-8")).not.toContain("48219");
-    expect((await h.call("DELETE /remote/lock/pin")).body).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 60 });
+    expect((await h.call("DELETE /remote/lock/pin", { current: "48219" })).body).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 5 });
+  });
+
+  it("removing, changing or weakening needs the current PIN: none and a wrong one are refused and change nothing", async () => {
+    fresh();
+    const h = host({ plan: new FakePlan(true) });
+    await settle();
+    await h.call("PUT /remote/lock/pin", { pin: "4821" });
+    await h.call("PUT /remote/lock", { whole: true, sensitive: true });
+    const before = (await h.call("GET /remote/lock")).body;
+    const weakening: Array<[string, Record<string, unknown>]> = [
+      ["DELETE /remote/lock/pin", {}],
+      ["PUT /remote/lock/pin", { pin: "1111", confirm: "1111" }],
+      ["PUT /remote/lock", { whole: false }],
+      ["PUT /remote/lock", { sensitive: false }],
+      ["PUT /remote/lock", { idleMinutes: 60 }],
+    ];
+    for (const [key, body] of weakening) {
+      expect(await h.call(key, body), `${key} ${JSON.stringify(body)} without`).toMatchObject({ status: 401, body: { code: "pin-required" } });
+      expect(await h.call(key, { ...body, current: "0000" }), `${key} ${JSON.stringify(body)} wrong`).toMatchObject({ status: 401, body: { code: "wrong-pin" } });
+      // A right PIN clears the count, so the next case starts before any wait.
+      expect((await h.call("PUT /remote/lock", { sensitive: false, current: "4821" })).status).toBeUndefined();
+      await h.call("PUT /remote/lock", { sensitive: true });
+    }
+    expect((await h.call("GET /remote/lock")).body).toEqual(before);
+    // Strengthening needs nothing.
+    expect((await h.call("PUT /remote/lock", { idleMinutes: 5 })).body).toMatchObject({ idleMinutes: 5 });
+    // With the PIN each goes through.
+    expect((await h.call("PUT /remote/lock", { idleMinutes: 60, current: "4821" })).body).toMatchObject({ idleMinutes: 60 });
+    expect((await h.call("PUT /remote/lock", { sensitive: false, current: "4821" })).body).toMatchObject({ sensitive: false });
+    expect((await h.call("PUT /remote/lock/pin", { pin: "1111", confirm: "1111", current: "4821" })).body).toMatchObject({ pin: true });
+    expect((await h.call("DELETE /remote/lock/pin", { current: "4821" })).status).toBe(401);
+    expect((await h.call("DELETE /remote/lock/pin", { current: "1111" })).body).toMatchObject({ pin: false, whole: false, sensitive: false });
+  }, 30_000);
+
+  it("wrong PINs on the computer wait like a paired device's and remove nobody", async () => {
+    fresh();
+    const h = host({ plan: new FakePlan(true) });
+    await settle();
+    const keys = new ComputerKeys(h.computerDir);
+    const phone = await keys.addPhone(await exportPublic((await generateKeyPair()).publicKey), "Phone");
+    await h.call("PUT /remote/lock/pin", { pin: "4821" });
+    for (let i = 1; i <= 3; i++) expect((await h.call("DELETE /remote/lock/pin", { current: "0000" })).status).toBe(401);
+    expect(await h.call("DELETE /remote/lock/pin", { current: "0000" })).toMatchObject({ status: 401, body: { code: "wrong-pin", retryAfterMs: 2000 } });
+    expect((await h.call("DELETE /remote/lock/pin", { current: "4821" })).status).toBe(429);
+    expect(keys.phones().map((p) => p.id)).toContain(phone.id);
+    expect((await h.call("GET /remote/lock")).body).toMatchObject({ pin: true });
+    keys.removePhone(phone.id);
+    fresh();
+  }, 30_000);
+
+  it("Forgot PIN removes the PIN and the lock only together with every paired device", async () => {
+    fresh();
+    const h = host({ plan: new FakePlan(true) });
+    await settle();
+    const keys = new ComputerKeys(h.computerDir);
+    for (const p of keys.phones()) keys.removePhone(p.id);
+    await keys.addPhone(await exportPublic((await generateKeyPair()).publicKey), "Phone");
+    await keys.addPhone(await exportPublic((await generateKeyPair()).publicKey), "Laptop");
+    await h.call("PUT /remote/lock/pin", { pin: "4821" });
+    await h.call("PUT /remote/lock", { whole: true, sensitive: true, idleMinutes: 60, current: "4821" });
+    const r = await h.call("POST /remote/lock/forget");
+    expect(r.body).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 15, unpaired: 2 });
+    expect(keys.phones()).toEqual([]);
+    expect(((await h.call("GET /remote/browsers")).body as { browsers: unknown[] }).browsers).toEqual([]);
+    expect(h.events).toContainEqual({ type: "remote.unpaired", data: { all: true, count: 2 } });
+    expect(h.events).toContainEqual({ type: "remote.lock", data: { pin: false, whole: false, sensitive: false, idleMinutes: 15 } });
+    // A first PIN afterwards needs nothing.
+    expect((await h.call("PUT /remote/lock/pin", { pin: "2468" })).body).toMatchObject({ pin: true });
+    fresh();
   });
 
   it("the desktop's own Studio is never locked", async () => {
+    fresh();
     const h = host({ plan: new FakePlan(true) });
     await settle();
     await h.call("PUT /remote/lock/pin", { pin: "4821" });
     await h.call("PUT /remote/lock", { whole: true, sensitive: true });
     expect((await h.call("GET /lock")).body).toMatchObject({ whole: false, sensitive: false, locked: false, sensitiveOpen: true });
+    fresh();
   });
 });
 

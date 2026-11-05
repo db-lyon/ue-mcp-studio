@@ -29,7 +29,7 @@ import { Connector, NOT_SIGNED_IN, NO_PLAN, type ConnectorState } from "./connec
 import { PLAN_CHECK_TTL_MS, RemotePlanCheck, type PlanCheck } from "./plan.js";
 import { ComputerKeys } from "./keys.js";
 import { RemoteService } from "./service.js";
-import { PIN_PATTERN, PinLock } from "./pin-lock.js";
+import { LockRefusal, PIN_PATTERN, PinLock } from "./pin-lock.js";
 
 export const DEFAULT_RELAY = "https://remote.ue-mcp.com";
 
@@ -264,30 +264,56 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     return { status: 204 };
   });
   // The PIN lock, set here on the computer. Under /remote, so a paired browser can never set, change or remove it (remotePath).
+  // Weakening it (removing or changing the PIN, a switch off, a longer idle time) needs the current PIN, checked here, not in the page.
   const lockChanged = (): { body: RemoteLockSettings } => {
     const body = lock.settings();
     api.events.publish("remote.lock", { ...body });
     return { body };
   };
+  const refused = (e: unknown) => {
+    if (!(e instanceof LockRefusal)) throw e;
+    return { status: e.status, body: { error: e.message, code: e.code, ...(e.retryAfterMs !== undefined ? { retryAfterMs: e.retryAfterMs } : {}) } };
+  };
   route("GET", "/remote/lock", () => ({ body: lock.settings() }));
   route("PUT", "/remote/lock/pin", async (req) => {
-    const pin = (req.body as { pin?: unknown } | undefined)?.pin;
-    if (typeof pin !== "string" || !PIN_PATTERN.test(pin)) return { status: 400, body: { error: "A PIN is 4 to 8 digits." } };
-    await lock.setPin(pin);
+    const b = (req.body ?? {}) as { pin?: unknown; confirm?: unknown; current?: unknown };
+    if (typeof b.pin !== "string" || !PIN_PATTERN.test(b.pin)) return { status: 400, body: { error: "A PIN is 4 to 8 digits." } };
+    if (b.confirm !== undefined && b.confirm !== b.pin) return { status: 400, body: { error: "The two new PINs differ." } };
+    try {
+      await lock.setPin(b.pin, b.current);
+    } catch (e) {
+      return refused(e);
+    }
     return lockChanged();
   });
-  route("DELETE", "/remote/lock/pin", () => {
-    lock.removePin();
+  route("DELETE", "/remote/lock/pin", async (req) => {
+    try {
+      await lock.removePin((req.body as { current?: unknown } | undefined)?.current);
+    } catch (e) {
+      return refused(e);
+    }
     return lockChanged();
   });
-  route("PUT", "/remote/lock", (req) => {
-    const b = (req.body ?? {}) as { whole?: unknown; sensitive?: unknown; idleMinutes?: unknown };
+  // Forgot PIN: anyone at this computer can already use it, so the PIN and lock go, but only with every paired device.
+  route("POST", "/remote/lock/forget", () => {
+    let unpaired = 0;
+    for (const p of keys.phones()) {
+      if (!keys.removePhone(p.id)) continue;
+      service.cutOff(p.id);
+      unpaired++;
+    }
+    lock.reset();
+    api.events.publish("remote.unpaired", { all: true, count: unpaired });
+    return { body: { ...lockChanged().body, unpaired } };
+  });
+  route("PUT", "/remote/lock", async (req) => {
+    const b = (req.body ?? {}) as { whole?: unknown; sensitive?: unknown; idleMinutes?: unknown; current?: unknown };
     for (const k of ["whole", "sensitive"] as const) if (b[k] !== undefined && typeof b[k] !== "boolean") return { status: 400, body: { error: `${k} must be true or false` } };
     if (b.idleMinutes !== undefined && typeof b.idleMinutes !== "number") return { status: 400, body: { error: "idleMinutes must be a number" } };
     try {
-      lock.configure({ whole: b.whole as boolean | undefined, sensitive: b.sensitive as boolean | undefined, idleMinutes: b.idleMinutes as number | undefined });
+      await lock.configure({ whole: b.whole as boolean | undefined, sensitive: b.sensitive as boolean | undefined, idleMinutes: b.idleMinutes as number | undefined }, b.current);
     } catch (e) {
-      return { status: 409, body: { error: e instanceof Error ? e.message : String(e) } };
+      return refused(e);
     }
     return lockChanged();
   });

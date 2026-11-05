@@ -612,7 +612,8 @@ describe("stopping while the editor is busy", () => {
     host.handler = () => new Promise((resolve) => (finish = () => resolve({ isError: false, content: [{ type: "text", text: "{\"success\":true}" }] })));
     const busy = new BusyTracker();
     const model = new ScriptedModel([() => call("t1", "editor", "execute_python", { code: "import time; time.sleep(20)" }), () => text("never")]);
-    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", busy });
+    // Python asks as a shell command; allowed here, so the call runs and holds the editor.
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", busy, approvals: () => ({ shell: "allow", files: "ask", editorRestart: "ask", destructive: "ask" }) });
     const s = store.create();
     const turn = runner.send(s.id, "block the editor");
     await until(() => busy.state().calls.length === 1);

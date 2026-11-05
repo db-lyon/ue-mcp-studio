@@ -13,7 +13,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ResponseOpener, exportPublic, generateKeyPair, remotePath, sealRequest, sharedSecret, type PlainRequest } from "@ue-mcp-studio/remote";
 import { REMOTE_PIN_ATTEMPTS } from "@ue-mcp-studio/shared";
 import { ComputerKeys, type PairedPhone } from "../src/remote/keys.js";
-import { PinLock, SENSITIVE_GRANT_MS, attemptDelayMs, openWhileLocked, sensitiveRequest } from "../src/remote/pin-lock.js";
+import { COMPUTER, PinLock, SENSITIVE_GRANT_MS, attemptDelayMs, openWhileLocked, sensitiveRequest } from "../src/remote/pin-lock.js";
 import { RemoteService, type CallSink } from "../src/remote/service.js";
 
 const DEVICE = "11111111-2222-3333-4444-555555555555";
@@ -137,10 +137,10 @@ describe("the PIN lock's state", () => {
     const lock = new PinLock({ file, now });
     expect(lock.settings()).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 15 });
     expect(lock.check("p1", "POST", "/v1/editor/restart", true)).toBe("ok");
-    expect(() => lock.configure({ whole: true })).toThrow(/PIN first/);
+    await expect(lock.configure({ whole: true })).rejects.toThrow(/PIN first/);
     await lock.setPin("4821");
-    expect(lock.configure({ whole: true, idleMinutes: 5 })).toEqual({ pin: true, whole: true, sensitive: false, idleMinutes: 5 });
-    expect(() => lock.configure({ idleMinutes: 7 })).toThrow(/idle time/);
+    expect(await lock.configure({ whole: true, idleMinutes: 5 })).toEqual({ pin: true, whole: true, sensitive: false, idleMinutes: 5 });
+    await expect(lock.configure({ idleMinutes: 7 })).rejects.toThrow(/idle time/);
   });
 
   it("keeps a salted hash, never the PIN", async () => {
@@ -154,7 +154,7 @@ describe("the PIN lock's state", () => {
   it("whole client: locked until the PIN, open while used, locked again after sitting idle", async () => {
     const lock = new PinLock({ file, now });
     await lock.setPin("4821");
-    lock.configure({ whole: true, idleMinutes: 5 });
+    await lock.configure({ whole: true, idleMinutes: 5 });
     expect(lock.check("p1", "GET", "/v1/ext/studio/sessions", false)).toBe("locked");
     expect(lock.state("p1").locked).toBe(true);
     expect((await lock.unlock("p1", "4821")).ok).toBe(true);
@@ -175,7 +175,7 @@ describe("the PIN lock's state", () => {
   it("sensitive only: reads and plain requests go, a sensitive one asks, and one PIN covers a short while", async () => {
     const lock = new PinLock({ file, now });
     await lock.setPin("4821");
-    lock.configure({ sensitive: true });
+    await lock.configure({ sensitive: true });
     expect(lock.check("p1", "GET", "/v1/ext/studio/sessions", true)).toBe("ok");
     expect(lock.check("p1", "POST", "/v1/ext/studio/sessions/s1/messages", false)).toBe("ok");
     expect(lock.check("p1", "POST", "/v1/ext/studio/sessions/s1/approvals/a1", false)).toBe("pin-required");
@@ -188,7 +188,7 @@ describe("the PIN lock's state", () => {
   it("both: the whole client opens with the PIN and sensitive actions still need it once the short grant ends", async () => {
     const lock = new PinLock({ file, now });
     await lock.setPin("4821");
-    lock.configure({ whole: true, sensitive: true, idleMinutes: 60 });
+    await lock.configure({ whole: true, sensitive: true, idleMinutes: 60 }, "4821");
     await lock.unlock("p1", "4821");
     clock += SENSITIVE_GRANT_MS + 1;
     lock.touch("p1");
@@ -199,7 +199,7 @@ describe("the PIN lock's state", () => {
   it("a restart locks every browser again", async () => {
     const lock = new PinLock({ file, now });
     await lock.setPin("4821");
-    lock.configure({ whole: true });
+    await lock.configure({ whole: true });
     await lock.unlock("p1", "4821");
     expect(lock.check("p1", "GET", "/v1/ext/studio/sessions", false)).toBe("ok");
     const after = new PinLock({ file, now });
@@ -210,7 +210,7 @@ describe("the PIN lock's state", () => {
   it("wrong PINs: a growing wait after the third, the count survives a restart, the tenth removes the browser", async () => {
     let lock = new PinLock({ file, now });
     await lock.setPin("4821");
-    lock.configure({ whole: true });
+    await lock.configure({ whole: true });
     for (let i = 1; i <= 3; i++) expect(await lock.unlock("p1", "0000")).toMatchObject({ ok: false, status: 401, remaining: REMOTE_PIN_ATTEMPTS - i });
     const fourth = await lock.unlock("p1", "0000");
     expect(fourth).toMatchObject({ ok: false, status: 401, retryAfterMs: 2000 });
@@ -229,17 +229,110 @@ describe("the PIN lock's state", () => {
   it("the right PIN clears the count; changing the PIN locks everyone; removing it turns both switches off", async () => {
     const lock = new PinLock({ file, now });
     await lock.setPin("4821");
-    lock.configure({ whole: true, sensitive: true });
+    await lock.configure({ whole: true, sensitive: true });
     await lock.unlock("p1", "0000");
     expect(lock.state("p1").remaining).toBe(REMOTE_PIN_ATTEMPTS - 1);
     await lock.unlock("p1", "4821");
     expect(lock.state("p1").remaining).toBeUndefined();
     expect(lock.state("p1").locked).toBe(false);
-    await lock.setPin("9999");
+    await lock.setPin("9999", "4821");
     expect(lock.state("p1").locked).toBe(true);
-    lock.removePin();
+    await lock.removePin("9999");
     expect(lock.settings()).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 15 });
     expect(lock.check("p1", "POST", "/v1/editor/restart", true)).toBe("ok");
+  });
+});
+
+describe("changes on the computer: weakening the lock needs the current PIN", () => {
+  let clock = 1_000_000;
+  const now = () => clock;
+  let file = "";
+  beforeEach(() => {
+    clock = 1_000_000;
+    file = path.join(tmp(), "remote-lock.json");
+  });
+  const locked = async () => {
+    const lock = new PinLock({ file, now });
+    await lock.setPin("4821");
+    await lock.configure({ whole: true, sensitive: true, idleMinutes: 15 });
+    return lock;
+  };
+  const refusal = (code: string, status: number) => expect.objectContaining({ code, status });
+
+  it("removing the PIN: no PIN and a wrong one are refused, the right one removes it", async () => {
+    const lock = await locked();
+    await expect(lock.removePin(undefined)).rejects.toEqual(refusal("pin-required", 401));
+    await expect(lock.removePin("0000")).rejects.toEqual(refusal("wrong-pin", 401));
+    expect(lock.settings()).toEqual({ pin: true, whole: true, sensitive: true, idleMinutes: 15 });
+    await lock.removePin("4821");
+    expect(lock.settings()).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 15 });
+  });
+
+  it("changing the PIN needs the old one; the first PIN needs none", async () => {
+    const lock = new PinLock({ file, now });
+    await lock.setPin("4821");
+    await expect(lock.setPin("1111")).rejects.toEqual(refusal("pin-required", 401));
+    await expect(lock.setPin("1111", "9999")).rejects.toEqual(refusal("wrong-pin", 401));
+    await lock.setPin("1111", "4821");
+    await expect(lock.removePin("4821")).rejects.toEqual(refusal("wrong-pin", 401));
+    await lock.removePin("1111");
+    await expect(lock.setPin("12")).rejects.toEqual(refusal("bad-pin", 400));
+  });
+
+  it("each switch off needs the PIN; on does not", async () => {
+    const lock = await locked();
+    for (const off of [{ whole: false }, { sensitive: false }]) {
+      await expect(lock.configure(off)).rejects.toEqual(refusal("pin-required", 401));
+      await expect(lock.configure(off, "0000")).rejects.toEqual(refusal("wrong-pin", 401));
+    }
+    expect(lock.settings()).toMatchObject({ whole: true, sensitive: true });
+    await lock.configure({ whole: false }, "4821");
+    await lock.configure({ sensitive: false }, "4821");
+    expect(lock.settings()).toMatchObject({ whole: false, sensitive: false });
+    await lock.configure({ whole: true, sensitive: true });
+    expect(lock.settings()).toMatchObject({ whole: true, sensitive: true });
+    // Saying what is already so weakens nothing.
+    await lock.configure({ whole: true, sensitive: true });
+  });
+
+  it("a longer idle time needs the PIN; a shorter or the same one does not", async () => {
+    const lock = await locked();
+    await expect(lock.configure({ idleMinutes: 60 })).rejects.toEqual(refusal("pin-required", 401));
+    await expect(lock.configure({ idleMinutes: 60 }, "0000")).rejects.toEqual(refusal("wrong-pin", 401));
+    expect((await lock.configure({ idleMinutes: 5 })).idleMinutes).toBe(5);
+    expect((await lock.configure({ idleMinutes: 5 })).idleMinutes).toBe(5);
+    expect((await lock.configure({ idleMinutes: 60 }, "4821")).idleMinutes).toBe(60);
+    // A switch on with a longer time still needs it: one weakening is enough.
+    await expect(lock.configure({ whole: true, idleMinutes: 60 })).resolves.toMatchObject({ idleMinutes: 60 });
+  });
+
+  // Enough scrypt hashes to pass the free tries: more than the default 5 s.
+  it("wrong PINs here wait like a paired device's, survive a restart, and never unpair anything", async () => {
+    let lock = await locked();
+    for (let i = 1; i <= 3; i++) await expect(lock.removePin("0000")).rejects.toEqual(expect.objectContaining({ code: "wrong-pin", retryAfterMs: undefined }));
+    await expect(lock.removePin("0000")).rejects.toEqual(expect.objectContaining({ code: "wrong-pin", retryAfterMs: attemptDelayMs(4) }));
+    // Even the right PIN waits out the delay.
+    await expect(lock.removePin("4821")).rejects.toEqual(refusal("wait", 429));
+    clock += attemptDelayMs(4) + 1;
+    lock = new PinLock({ file, now });
+    expect(JSON.parse(fs.readFileSync(file, "utf-8")).failures).toEqual({ [COMPUTER]: 4 });
+    // Past the paired device's limit: still only a wait.
+    for (let i = 5; i <= REMOTE_PIN_ATTEMPTS + 1; i++) {
+      await expect(lock.configure({ whole: false }, "0000")).rejects.toEqual(expect.objectContaining({ code: "wrong-pin", retryAfterMs: attemptDelayMs(i) }));
+      clock += attemptDelayMs(i) + 1;
+    }
+    // A paired device's own count is its own.
+    expect(lock.state("p1").remaining).toBeUndefined();
+    await lock.configure({ whole: false }, "4821");
+    expect(JSON.parse(fs.readFileSync(file, "utf-8")).failures).toEqual({});
+    expect(lock.settings()).toMatchObject({ pin: true, whole: false, sensitive: true });
+  }, 30_000);
+
+  it("Forgot PIN resets the PIN and every switch without the PIN", async () => {
+    const lock = await locked();
+    await lock.configure({ idleMinutes: 60 }, "4821");
+    lock.reset();
+    expect(lock.settings()).toEqual({ pin: false, whole: false, sensitive: false, idleMinutes: 15 });
   });
 });
 
@@ -327,7 +420,7 @@ describe("the lock in the connector, for sealed requests", () => {
   it("whole client: refused with 423 before the daemon until the PIN, then carried; the page and health stay open", async () => {
     const { lock, browser } = await setup();
     await lock.setPin("4821");
-    lock.configure({ whole: true });
+    await lock.configure({ whole: true });
     const refused = await browser.send("GET", "/v1/ext/studio/sessions");
     expect(refused).toEqual({ status: 423, json: { error: "Locked. Enter your PIN.", code: "locked" } });
     expect((await browser.send("GET", "/v1/events")).status).toBe(423);
@@ -348,7 +441,7 @@ describe("the lock in the connector, for sealed requests", () => {
   it("sensitive only: an approval answer asks for the PIN, a message asks only while commands run without asking", async () => {
     const calm = await setup({ risky: false });
     await calm.lock.setPin("4821");
-    calm.lock.configure({ sensitive: true });
+    await calm.lock.configure({ sensitive: true });
     expect((await calm.browser.send("GET", "/v1/ext/studio/sessions")).status).toBe(200);
     expect((await calm.browser.send("POST", "/v1/ext/studio/sessions/s1/messages", { text: "hi" })).status).toBe(200);
     const approval = await calm.browser.send("POST", "/v1/ext/studio/sessions/s1/approvals/a1", { allow: true });
@@ -358,14 +451,14 @@ describe("the lock in the connector, for sealed requests", () => {
 
     const risky = await setup({ risky: true });
     await risky.lock.setPin("4821");
-    risky.lock.configure({ sensitive: true });
+    await risky.lock.configure({ sensitive: true });
     expect((await risky.browser.send("POST", "/v1/ext/studio/sessions/s1/messages", { text: "hi" })).status).toBe(423);
   });
 
   it("a daemon restart locks the browser again", async () => {
     const { lock, browser, restart } = await setup();
     await lock.setPin("4821");
-    lock.configure({ whole: true });
+    await lock.configure({ whole: true });
     await browser.send("POST", "/v1/ext/studio/lock/unlock", { pin: "4821" });
     expect((await browser.send("GET", "/v1/ext/studio/sessions")).status).toBe(200);
     restart();
@@ -376,7 +469,7 @@ describe("the lock in the connector, for sealed requests", () => {
   it("ten wrong PINs remove the browser and tell the computer", async () => {
     const { lock, browser, keys, lockouts } = await setup();
     await lock.setPin("4821");
-    lock.configure({ whole: true });
+    await lock.configure({ whole: true });
     const fast = lock as unknown as { nextTry: Map<string, number> };
     let last: { status: number; json: Record<string, unknown> } = { status: 0, json: {} };
     for (let i = 0; i < REMOTE_PIN_ATTEMPTS; i++) {
@@ -393,9 +486,20 @@ describe("the lock in the connector, for sealed requests", () => {
   it("a paired browser is refused the PIN's settings", async () => {
     const { lock, browser } = await setup();
     await lock.setPin("4821");
-    for (const [m, p] of [["DELETE", "/v1/ext/studio/remote/lock/pin"], ["PUT", "/v1/ext/studio/remote/lock"], ["PUT", "/v1/ext/studio/remote/lock/pin"]] as const) {
-      expect((await browser.send(m, p, { pin: "1111", whole: false })).status).toBe(403);
+    await lock.configure({ sensitive: true });
+    for (const [m, p] of [
+      ["DELETE", "/v1/ext/studio/remote/lock/pin"],
+      ["PUT", "/v1/ext/studio/remote/lock"],
+      ["PUT", "/v1/ext/studio/remote/lock/pin"],
+      ["POST", "/v1/ext/studio/remote/lock/forget"],
+      ["POST", "/v1/ext/studio/Remote/lock/forget"],
+      ["POST", "/v1/ext/studio/remote/lock%2Fforget"],
+      ["POST", "/v1/ext/studio/sessions/../remote/lock/forget"],
+      ["DELETE", "/v1/ext/studio/remote/browsers/x"],
+    ] as const) {
+      expect((await browser.send(m, p, { pin: "1111", confirm: "1111", current: "4821", whole: false, sensitive: false })).status, `${m} ${p}`).toBe(403);
     }
+    expect(lock.settings()).toMatchObject({ pin: true, sensitive: true });
     expect(lock.settings().pin).toBe(true);
     expect(hits).toEqual([]);
   });
@@ -407,10 +511,10 @@ describe("the PIN's length, for the keypad", () => {
     const lock = new PinLock({ file });
     expect(lock.state("p").pinLength).toBeUndefined();
     await lock.setPin("482915");
-    lock.configure({ whole: true });
+    await lock.configure({ whole: true });
     expect(lock.state("p").pinLength).toBe(6);
     expect(new PinLock({ file }).state("p").pinLength).toBe(6);
-    lock.removePin();
+    await lock.removePin("482915");
     expect(lock.state("p").pinLength).toBeUndefined();
   });
 
@@ -418,7 +522,7 @@ describe("the PIN's length, for the keypad", () => {
     const file = path.join(tmp(), "remote-lock.json");
     const lock = new PinLock({ file });
     await lock.setPin("1234");
-    lock.configure({ whole: true });
+    await lock.configure({ whole: true });
     const raw = JSON.parse(fs.readFileSync(file, "utf-8"));
     delete raw.length;
     fs.writeFileSync(file, JSON.stringify(raw));
