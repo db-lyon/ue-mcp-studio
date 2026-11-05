@@ -6,6 +6,7 @@
  * behind it, Compact now, and the session's totals, which are spend, not
  * context, across the whole composer bar.
  */
+import { useBack } from "../../../back";
 import { useRef, useState, type ReactNode } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type HostInstance } from "react-native";
 import Svg, { Circle, Line } from "react-native-svg";
@@ -103,6 +104,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   const win = useWindowDimensions();
   const insets = useInsets();
   const [open, setOpen] = useState(false);
+  useBack(open ? () => setOpen(false) : null, { overlay: true });
   const [bottom, setBottom] = useState(0);
   const button = useRef<HostInstance>(null);
   const tight = atMost("merged", useBarTier());

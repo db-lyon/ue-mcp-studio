@@ -1,6 +1,6 @@
 import "./src/native/system";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, Linking, View } from "react-native";
+import { Linking, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
 import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
@@ -19,6 +19,7 @@ import { Projects } from "./src/screens/Projects";
 import { Settings } from "./src/screens/Settings";
 import { About } from "./src/screens/About";
 import { ProjectScreen } from "./src/screens/Project";
+import { BackLayer, BackToast, useBack, useBackExit } from "./src/back";
 
 type Screen =
   | { name: "loading" }
@@ -30,7 +31,8 @@ type Screen =
   | { name: "projects" }
   | { name: "settings" }
   | { name: "about" }
-  | { name: "project"; device: Device; initial?: PanelLocation; n: number };
+  /** from: the projects list, or straight in at start (then its sessions list is the root). */
+  | { name: "project"; device: Device; initial?: PanelLocation; n: number; from: "projects" | "start" };
 
 /** How long Paired stays up before the projects open. */
 const PAIRED_MS = 1200;
@@ -75,8 +77,8 @@ function Root() {
   const opened = useRef(0);
   const shared = useSharedFiles();
 
-  const openProject = useCallback((device: Device, initial?: PanelLocation) => {
-    void select(device).then(() => setScreen({ name: "project", device, initial, n: ++opened.current }));
+  const openProject = useCallback((device: Device, initial?: PanelLocation, from: "projects" | "start" = "projects") => {
+    void select(device).then(() => setScreen({ name: "project", device, initial, n: ++opened.current, from }));
   }, []);
 
   const startPairing = useCallback((scanned: string) => {
@@ -107,7 +109,7 @@ function Root() {
       const t = await trusted();
       if (!Object.keys(t).length) return setScreen({ name: "welcome" });
       const last = await selected();
-      if (last && last.computerKey in t) openProject(last);
+      if (last && last.computerKey in t) openProject(last, undefined, "start");
       else setScreen({ name: "projects" });
     })().catch((e) => setScreen({ name: "welcome", error: String(e?.message ?? e) }));
     const sub = Linking.addEventListener("url", ({ url }) => {
@@ -149,17 +151,20 @@ function Root() {
     );
   }, []);
 
-  // System back (and the predictive back gesture): up one level rather than out of the app.
-  useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (screen.name === "pair-failed") return startOver(), true;
-      if (screen.name === "project" || screen.name === "settings") return setScreen({ name: "projects" }), true;
-      if (screen.name === "about") return setScreen({ name: "settings" }), true;
-      if (screen.name === "scan") return setScreen(screen.from === "welcome" ? { name: "welcome" } : { name: "projects" }), true;
-      return false;
-    });
-    return () => sub.remove();
-  }, [screen, startOver]);
+  // System back (and the predictive back gesture): up one level; the screens inside a project go first.
+  const root = screen.name === "welcome" || screen.name === "projects" || (screen.name === "project" && screen.from === "start");
+  useBack(
+    root
+      ? null
+      : () => {
+          if (screen.name === "pair-failed") return startOver();
+          if (screen.name === "project" || screen.name === "settings") return setScreen({ name: "projects" });
+          if (screen.name === "about") return setScreen({ name: "settings" });
+          if (screen.name === "scan") return setScreen(screen.from === "welcome" ? { name: "welcome" } : { name: "projects" });
+          // Loading, pairing and the moment on Paired: nothing to go back to yet, and not a way out.
+        },
+  );
+  useBackExit(root);
 
   return (
     <View style={{ flex: 1 }}>
@@ -171,8 +176,13 @@ function Root() {
       {screen.name === "projects" && <Projects onOpen={(d) => openProject(d)} onPair={() => setScreen({ name: "scan", from: "projects" })} onSettings={() => setScreen({ name: "settings" })} onUnpaired={unpaired} />}
       {screen.name === "settings" && <Settings onBack={() => setScreen({ name: "projects" })} onRemoved={() => setScreen({ name: "welcome" })} onAbout={() => setScreen({ name: "about" })} />}
       {screen.name === "about" && <About onBack={() => setScreen({ name: "settings" })} />}
-      {screen.name === "project" && <ProjectScreen key={screen.n} device={screen.device} initial={screen.initial} onBack={() => setScreen({ name: "projects" })} onUnpaired={unpaired} />}
+      {screen.name === "project" && (
+        <BackLayer>
+          <ProjectScreen key={screen.n} device={screen.device} initial={screen.initial} onBack={() => setScreen({ name: "projects" })} onUnpaired={unpaired} />
+        </BackLayer>
+      )}
       <OfflineBanner />
+      <BackToast />
     </View>
   );
 }

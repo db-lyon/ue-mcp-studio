@@ -5,6 +5,7 @@
  * package's mentions.ts and client-core's composer-menus.ts.
  * styles.css: .mention-menu, .mention-kind, .mention-list, .mention-chip.
  */
+import { useBack } from "../../../back";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Platform, Pressable, ScrollView, Text, View, type ScrollViewInstance, type TextInputInstance } from "react-native";
 import {
@@ -83,6 +84,7 @@ export function useMentionMenu(draft: string, onDraft: (text: string) => void, b
   const searching = !!q && !!q.query.trim() && !fresh && failed !== key;
 
   const open = !!q && closedAt !== draft;
+  useBack(open ? () => setClosedAt(draft) : null, { overlay: true });
   const index = Math.min(active, Math.max(0, items.length - 1));
 
   // After an insert, the caret goes after the token once the box holds the new text.

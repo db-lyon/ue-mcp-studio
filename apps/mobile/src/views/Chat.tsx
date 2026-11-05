@@ -5,6 +5,7 @@
  * session follows the daemon's events through client-core's DetailLoader,
  * asking only for what changed.
  */
+import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
@@ -70,7 +71,7 @@ function sharedNoun(files: Array<{ mimeType: string }>): string {
   return files[0].mimeType.startsWith("image/") ? "shared image" : "shared file";
 }
 
-export function Chat({ nav, initialSession = null, onSettings, active: _active = true }: {
+export function Chat({ nav, initialSession = null, onSettings, active = true }: {
   /** The shell asked for a session, or for the list (null); `n` counts the asks. */
   nav?: { session: string | null; n: number };
   /** The Chat tab is the one shown (the web client's prop; the shell parks the chat while another tab is up). */
@@ -442,6 +443,16 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
     />
   );
   const pane = chatPane(selected, listed, sessions.length);
+  // Back: a subagent thread to the main thread, a session to the sessions list (the root).
+  useBack(
+    active && (thread || selected)
+      ? () => {
+          if (thread) return setThread(null);
+          setSelected(null);
+          setDetail(null);
+        }
+      : null,
+  );
   const bannerBox = { marginTop: 10, marginHorizontal: 10, marginBottom: 0 };
 
   if (pane === "list") {

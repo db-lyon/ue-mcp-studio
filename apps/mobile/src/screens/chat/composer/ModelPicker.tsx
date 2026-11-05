@@ -5,6 +5,7 @@
  * say so, as the web client's do on a paired page.
  * styles.css: .picker, .picker-menu, .picker-item, .picker-effort, .effort.
  */
+import { useBack } from "../../../back";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, Text, View, useWindowDimensions, type HostInstance } from "react-native";
 import {
@@ -101,6 +102,7 @@ export function ModelPicker({
     setOpen(null);
     setConnecting(null);
   };
+  useBack(open ? done : null, { overlay: true });
   const select = (vendor: VendorId, model: string | null) =>
     (follow
       ? follow.onPick(model).then(done)

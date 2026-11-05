@@ -4,6 +4,7 @@
  * versions when the user includes them. When it cannot be filed, the same
  * report opens on GitHub in the phone's browser to send from there.
  */
+import { useBack } from "../../back";
 import { useEffect, useState } from "react";
 import { Linking, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
@@ -27,6 +28,7 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FeedbackResult | null>(null);
+  useBack(onClose, { overlay: true });
   useEffect(() => {
     api.feedbackEnvironment().then((e) => setEnvironment(e.body), () => setEnvironment(null));
   }, [api]);
