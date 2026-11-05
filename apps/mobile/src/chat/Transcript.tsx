@@ -6,7 +6,7 @@
  * when they have scrolled up; a subagent's own thread is drawn the same way.
  */
 import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Image, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type TextStyle } from "react-native";
+import { Image, Pressable, RefreshControl, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
@@ -349,7 +349,7 @@ function JumpLatest({ onPress }: { onPress: () => void }) {
  * subpixel text only over an opaque background, and react-native-web's
  * ScrollViews scroll there.
  */
-function Column({ follow, hidden, children }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; children: ReactNode }) {
+function Column({ follow, hidden, refreshing, onRefresh, children }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; refreshing?: boolean; onRefresh?: () => void; children: ReactNode }) {
   const t = useTheme();
   const [width, setWidth] = useState<number | null>(null);
   const window = useWindowDimensions().width;
@@ -363,6 +363,7 @@ function Column({ follow, hidden, children }: { follow: ReturnType<typeof useFol
         nativeID="transcript"
         {...follow.props}
         onLayout={onLayout}
+        refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={t.c.accent} colors={[t.c.accent]} progressBackgroundColor={t.c.panel2} /> : undefined}
         accessibilityElementsHidden={hidden}
         importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
         style={{ flex: 1, backgroundColor: t.c.panel }}
@@ -379,7 +380,7 @@ function Column({ follow, hidden, children }: { follow: ReturnType<typeof useFol
  * bottom, with a way back down when they have scrolled up. Memoized: typing in
  * the composer does not render it again.
  */
-export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden, sent }: {
+export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden, sent, refreshing, onRefresh }: {
   transcript: TranscriptEntry[];
   status: TurnStatus;
   streaming: string;
@@ -389,6 +390,9 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   hidden: boolean;
   /** Counts the reader's sends; each one snaps the thread to its newest line. */
   sent?: number;
+  /** Pull to refresh: the session read again. */
+  refreshing?: boolean;
+  onRefresh?: () => void;
 }) {
   const t = useTheme();
   // The app has no extension cards, so an extension's card entry is left out of the timeline.
@@ -398,7 +402,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   const asked = useAsked().size;
   return (
     <>
-      <Column follow={follow} hidden={hidden}>
+      <Column follow={follow} hidden={hidden} refreshing={refreshing} onRefresh={onRefresh}>
         {items.map((item, i) => {
           if (item.kind === "entry") return <Entry key={i} entry={item.entry} />;
           if (item.kind === "progress") return <ProgressFold key={i} entries={item.entries} />;

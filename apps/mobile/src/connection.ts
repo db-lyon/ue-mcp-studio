@@ -33,16 +33,21 @@ export function useProject(device: Device, override?: Transport): Project {
   const raw = useMemo(() => override ?? transportFor(device), [device, override]);
   const lock = useMemo(() => createLock(raw), [raw]);
   const aliveListeners = useRef(new Set<(at: number) => void>());
+  const kick = useRef<() => void>(() => undefined);
+  const retryNow = useRef<() => void>(() => undefined);
   const transport = useMemo<Transport>(() => {
     const guarded = lock.guard(raw);
     return async (method, path, options) => {
       const reply = await guarded(method, path, options);
-      if (fromUeMcp(reply.status)) aliveListeners.current.forEach((l) => l(Date.now()));
+      if (fromUeMcp(reply.status)) {
+        aliveListeners.current.forEach((l) => l(Date.now()));
+        // ue-mcp answered while the stream waits out a backoff: try the stream now.
+        retryNow.current();
+      }
       return reply;
     };
   }, [lock, raw]);
   const listeners = useRef(new Set<(e: StreamEvent) => void>());
-  const kick = useRef<() => void>(() => undefined);
   const [live, setLive] = useState<Live>("connecting");
   const [dropCause, setDropCause] = useState<string | null>(null);
 
@@ -58,6 +63,7 @@ export function useProject(device: Device, override?: Transport): Project {
       { idleMs: STREAM_IDLE_MS, onDrop: setDropCause },
     );
     kick.current = () => stream.kick(true);
+    retryNow.current = () => stream.retryNow();
     let backgroundAt: number | null = null;
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") {

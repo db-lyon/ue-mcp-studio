@@ -210,3 +210,17 @@ export function headline(s: Conn, now: number, remote = false): string {
 export function fromUeMcp(status: number): boolean {
   return status > 0 && status !== 502 && status !== 503 && status !== 504;
 }
+
+/**
+ * Whether a failed request only says ue-mcp could not be reached (the relay
+ * answering that the computer is away, a dropped network, a timeout) rather
+ * than that ue-mcp refused it. The connection line and panel say that; it is
+ * not an error to show beside the request, and the request is made again once
+ * ue-mcp answers.
+ */
+export function unreachable(e: unknown): boolean {
+  const status = (e as { status?: unknown } | null)?.status;
+  if (typeof status === "number") return !fromUeMcp(status);
+  const name = (e as { name?: unknown } | null)?.name;
+  return name === "AbortError" || name === "TimeoutError" || name === "TypeError";
+}
