@@ -330,6 +330,8 @@ export class RemoteService {
         // An event stream can sit silent for minutes; a comment line every so often keeps proxies on the way from closing it as idle.
         const stream = (out["content-type"] ?? "").split(";")[0].trim().toLowerCase() === "text/event-stream";
         let next = reader.read();
+        // A cut-off call rejects the read in flight while a write is awaited: handled here, rethrown where it is awaited.
+        next.catch(() => undefined);
         for (;;) {
           let timer: NodeJS.Timeout | undefined;
           const idle = stream ? new Promise<"idle">((r) => (timer = setTimeout(() => r("idle"), this.o.keepaliveMs ?? STREAM_KEEPALIVE_MS))) : null;
@@ -341,6 +343,7 @@ export class RemoteService {
           }
           if (got.done) break;
           next = reader.read();
+          next.catch(() => undefined);
           const value = got.value;
           for (let i = 0; i < value.byteLength; i += FRAME_BYTES) await sink.chunk(await sealer.data(value.subarray(i, i + FRAME_BYTES)));
         }
