@@ -124,8 +124,8 @@ export const SENSITIVE_ACTIONS: readonly string[] = [
   "Start a checkout",
 ];
 
-/** TURN_ROUTES: asked only while shell commands or file changes run without asking. */
-export const SENSITIVE_TURNS = "While shell commands or file changes run without asking, also to send, queue or edit a message, or run a flow or action from a chat.";
+/** TURN_ROUTES: asked only while shell commands or file changes run without asking. A /flow or /playtest message always asks (TEXT_ROUTES). */
+export const SENSITIVE_TURNS = "A /flow or /playtest message always asks. While shell commands or file changes run without asking, so does sending, queueing or editing any message, or running an action from a chat.";
 
 /** SENSITIVE_GRANT_MS, and what ends it sooner: PinLock.open (an idle lock), setPin, a daemon restart. */
 export const SENSITIVE_GRANT = "A right PIN allows these on that device, in that project, for 5 minutes. An idle lock, a PIN change or a daemon restart ends that sooner.";

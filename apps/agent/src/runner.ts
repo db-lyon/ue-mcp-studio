@@ -16,7 +16,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { DEFAULT_USAGE, type ApprovalDecision, type Approvals, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
+import { DEFAULT_USAGE, type ApprovalDecision, type ApprovalKind, type Approvals, type ApprovalRequest, type Effort, type PlaytestRunsMode, type TranscriptEntry, type UsageSettings } from "@ue-mcp-studio/shared";
 import { AUTO_COMPACT_FRACTION, EMPTY_TOTALS, contextTokens, contextWindowOf, estimateTokens, requestCost, type CompactionRecord } from "@ue-mcp-studio/shared";
 import type { ContentBlock, ModelProvider, ModelTurn, MessageParam, WebSearchRecord } from "./providers.js";
 import { promptTokens, usageTokens, type TokenUsage } from "./usage.js";
@@ -44,7 +44,7 @@ import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
-import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, type ActionEffects } from "./approval-kind.js";
+import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flowStepKind, type ActionEffects } from "./approval-kind.js";
 import { AGENT_TOOL } from "./tools.js";
 import { SKILL_TOOL, agentTool, sdkAgents, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
 
@@ -52,6 +52,8 @@ import { SKILL_TOOL, agentTool, sdkAgents, skillResult, skillsSection, type Nati
 export const ACTION_NOTE_CHARS = 4000;
 /** The id a /action's call is recorded under, so a daemon restart can tell it from a turn's. */
 export const ACTION_CALL_PREFIX = "action-";
+/** The id of an approval a flow step asks before the flow runs. */
+export const FLOW_STEP_PREFIX = "flow-step-";
 
 /**
  * Testing gameplay with the user: a playtest, which is a test script the agent
@@ -961,6 +963,19 @@ export class AgentRunner {
       this.o.host.events.publish("flowrun.changed", { sessionId: s.id, name, state: card.state });
     };
     try {
+      if (this.o.flows) {
+        const held = await this.gateFlowSteps(s, name, controller.signal);
+        if (held) {
+          card.state = held === "stopped" ? "stopped" : "failed";
+          card.errors = [held === "stopped" ? "Stopped before the flow started." : held];
+          changed();
+          // A Stop already set the session's status.
+          if (held === "stopped") return;
+          s.notes.push(`The user ran ${shown}, then declined a step at the approval, so the flow did not run.`);
+          this.setStatus(s, "idle", null);
+          return;
+        }
+      }
       const outcome = this.o.flows
         ? await this.o.flows.run(name, request.params, (e) => {
           if (!controller.signal.aborted && applyStepEvent(card.steps, e)) changed();
@@ -986,6 +1001,30 @@ export class AgentRunner {
     } finally {
       if (this.active.get(s.id) === controller) this.active.delete(s.id);
     }
+  }
+
+  /**
+   * Before a flow runs, each of its steps whose task falls under an approval
+   * row asks the way the agent's own call would (Settings > Approvals & review,
+   * Allow for this session): Python, console commands, editor restarts,
+   * destructive actions, and any task that is not a ue-mcp action. One answer
+   * per distinct task. Returns why the flow must not run, "stopped", or null.
+   */
+  private async gateFlowSteps(s: StoredSession, name: string, signal: AbortSignal): Promise<string | "stopped" | null> {
+    const tasks = await this.o.flows!.plan(name, signal);
+    if (signal.aborted) return "stopped";
+    // Without a plan nothing says what the steps run: ask once, as a shell command, for the whole flow.
+    const asked = tasks ?? [name];
+    const effects = this.o.effects ?? NO_EFFECTS;
+    for (const task of [...new Set(asked)]) {
+      const kind = tasks ? flowStepKind(task, effects) : "shell";
+      if (!kind) continue;
+      const input = tasks ? flowStepCall(task) : { action: "call", category: "flow", method: "run", args: { flowName: name } };
+      const gate = await this.gate(s, `${FLOW_STEP_PREFIX}${crypto.randomUUID()}`, "ue_mcp", input, signal, kind);
+      if (gate && "stopped" in gate) return "stopped";
+      if (gate) return `Declined at the approval for ${tasks ? `the step ${task}` : "the flow"}, so the flow did not run.`;
+    }
+    return null;
   }
 
   /**
@@ -1454,8 +1493,8 @@ ${result}`);
    * Hold a command or a file change until the user answers. Returns null to
    * run it, or why it must not run: declined, or the turn was stopped.
    */
-  private async gate(s: StoredSession, toolUseId: string, name: string, input: Record<string, unknown>, signal: AbortSignal): Promise<GateResult> {
-    const kind = approvalKind(name, input, this.o.effects ?? NO_EFFECTS);
+  private async gate(s: StoredSession, toolUseId: string, name: string, input: Record<string, unknown>, signal: AbortSignal, kindOf?: ApprovalKind | null): Promise<GateResult> {
+    const kind = kindOf !== undefined ? kindOf : approvalKind(name, input, this.o.effects ?? NO_EFFECTS);
     if (!kind) return null;
     // A bad input fails in the executor without changing anything.
     if (validateInput(name, input)) return null;

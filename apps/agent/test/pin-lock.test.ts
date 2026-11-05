@@ -74,6 +74,7 @@ describe("which requests the PIN guards", () => {
       ["Start, stop, restart or rebuild the editor", "POST", "/v1/editor/stop"],
       ["or stop turns waiting on it", "POST", "/v1/ext/studio/busy/stop"],
       ["Run playtests or flows", "POST", "/v1/ext/studio/sessions/s1/playtest"],
+      ["Run playtests or flows", "POST", "/v1/ext/studio/sessions/s1/flow"],
       ["or change playtest scripts", "PUT", "/v1/ext/studio/qa/playtests/script"],
       ["or change playtest scripts", "DELETE", "/v1/ext/studio/qa/runs/r1/script"],
       ["Keep, revert or undo changes", "POST", "/v1/ext/studio/sessions/s1/reviews/r1/keep"],
@@ -84,10 +85,24 @@ describe("which requests the PIN guards", () => {
       ["Start a checkout", "POST", "/v1/ext/studio/billing/checkout"],
     ];
     for (const [line, m, p] of always) expect(sensitiveRequest(m, p, false), `${line}: ${m} ${p}`).toBe(true);
-    for (const p of ["/v1/ext/studio/sessions/s1/transcript/t1/edit", "/v1/ext/studio/sessions/s1/flow", "/v1/ext/studio/sessions/s1/action"]) {
+    for (const p of ["/v1/ext/studio/sessions/s1/transcript/t1/edit", "/v1/ext/studio/sessions/s1/action"]) {
       expect(sensitiveRequest("POST", p, false), p).toBe(false);
       expect(sensitiveRequest("POST", p, true), p).toBe(true);
     }
+  });
+
+  it("a message that is /flow or /playtest runs a flow: always guarded, however it is sent", () => {
+    const body = (text: string) => new TextEncoder().encode(JSON.stringify({ text }));
+    for (const p of ["/v1/ext/studio/sessions/s1/messages", "/v1/ext/studio/sessions/s1/queue", "/v1/ext/studio/sessions/s1/queue/q1", "/v1/ext/studio/sessions/s1/transcript/3/edit", "/v1/ext/studio/quick"]) {
+      for (const text of ["/flow beacon", "  /flow rebuild force=true", "/playtest BP_Door", "/flow"]) {
+        expect(sensitiveRequest("POST", p, false, body(text)), `${p} ${text}`).toBe(true);
+        expect(sensitiveRequest("POST", p, false, JSON.stringify({ text })), `${p} ${text} as a string`).toBe(true);
+      }
+      for (const text of ["run /flow beacon", "/compact", "/flows", "hello"]) expect(sensitiveRequest("POST", p, false, body(text)), `${p} ${text}`).toBe(false);
+      expect(sensitiveRequest("POST", p, false, new TextEncoder().encode("not json"))).toBe(false);
+    }
+    // The flow route itself, with no PIN-free case.
+    expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/flow", false, JSON.stringify({ name: "beacon" }))).toBe(true);
   });
 
   it("not: renaming a session, a new session, a verdict, the lock's own routes", () => {
@@ -453,6 +468,23 @@ describe("the lock in the connector, for sealed requests", () => {
     await risky.lock.setPin("4821");
     await risky.lock.configure({ sensitive: true });
     expect((await risky.browser.send("POST", "/v1/ext/studio/sessions/s1/messages", { text: "hi" })).status).toBe(423);
+  });
+
+  it("sensitive only: a flow from a chat asks for the PIN whatever the approval rows, and never reaches the daemon without it", async () => {
+    const { lock, browser } = await setup({ risky: false });
+    await lock.setPin("4821");
+    await lock.configure({ sensitive: true });
+    hits.length = 0;
+    for (const [p, body] of [
+      ["/v1/ext/studio/sessions/s1/flow", { name: "beacon" }],
+      ["/v1/ext/studio/sessions/s1/messages", { text: "/flow beacon" }],
+      ["/v1/ext/studio/sessions/s1/queue", { text: "/flow beacon" }],
+      ["/v1/ext/studio/sessions/s1/messages", { text: "/playtest BP_Door" }],
+    ] as const) expect(await browser.send("POST", p, body), p).toEqual({ status: 423, json: { error: "Enter your PIN to do this.", code: "pin-required" } });
+    expect(hits).toEqual([]);
+    expect((await browser.send("POST", "/v1/ext/studio/sessions/s1/messages", { text: "hi" })).status).toBe(200);
+    await browser.send("POST", "/v1/ext/studio/lock/unlock", { pin: "4821" });
+    expect((await browser.send("POST", "/v1/ext/studio/sessions/s1/flow", { name: "beacon" })).status).toBe(200);
   });
 
   it("a daemon restart locks the browser again", async () => {

@@ -96,6 +96,28 @@ export class FlowCaller {
     return next;
   }
 
+  /**
+   * The task each step of a flow runs, from the daemon's plan (GET
+   * /v1/flows/<name>/plan), before a step runs. Null when the plan cannot be
+   * read.
+   */
+  async plan(name: string, signal: AbortSignal): Promise<string[] | null> {
+    const end = this.o.endpoint();
+    if (!end) return null;
+    try {
+      const res = await (this.o.fetchImpl ?? fetch)(`http://127.0.0.1:${end.port}/v1/flows/${encodeURIComponent(name)}/plan`, {
+        signal,
+        headers: { authorization: `Bearer ${end.token}` },
+      });
+      if (!res.ok) return null;
+      const body = (await res.json().catch(() => ({}))) as { steps?: unknown };
+      if (!Array.isArray(body.steps)) return null;
+      return body.steps.flatMap((st) => (st && typeof (st as { name?: unknown }).name === "string" ? [(st as { name: string }).name] : []));
+    } catch {
+      return null;
+    }
+  }
+
   private async runOne(name: string, params: Record<string, unknown>, onEvent: (e: FlowEventLike) => void, signal: AbortSignal): Promise<FlowCallOutcome> {
     const fail = (error: string): FlowCallOutcome => ({ success: false, errors: [error], steps: [] });
     if (signal.aborted) return fail("Stopped.");

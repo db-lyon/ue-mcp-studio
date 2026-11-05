@@ -7,7 +7,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { Approvals, TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { ActionEffects } from "../src/approval-kind.js";
 import { FlowCaller, applyStepEvent, flowOutcome } from "../src/flow-run.js";
 import type { FlowEventLike } from "../src/playtest-flow.js";
 import { AgentRunner } from "../src/runner.js";
@@ -16,10 +17,16 @@ import type { AgentHost } from "../src/tools.js";
 import type { ModelProvider } from "../src/providers.js";
 
 /** A daemon: the run route answers from `answer`, and emits `script` while the run is in progress. */
-function fakeDaemon(answer: () => { status: number; body: unknown }, script: FlowEventLike[] = []) {
+function fakeDaemon(answer: () => { status: number; body: unknown }, script: FlowEventLike[] = [], plan: () => { status: number; body: unknown } = () => ({ status: 200, body: { success: true, steps: [{ stepNumber: 1, type: "task", name: "editor.stop" }, { stepNumber: 2, type: "task", name: "project.build" }] } })) {
   const listeners = new Set<(e: FlowEventLike) => void>();
   const requests: Array<{ url: string; init: RequestInit }> = [];
+  const plans: string[] = [];
   const fetchImpl = (async (url: string, init: RequestInit) => {
+    if (url.endsWith("/plan")) {
+      plans.push(url);
+      const p = plan();
+      return new Response(JSON.stringify(p.body), { status: p.status, headers: { "content-type": "application/json" } });
+    }
     requests.push({ url, init });
     for (const e of script) for (const l of [...listeners]) l(e);
     const a = answer();
@@ -33,7 +40,7 @@ function fakeDaemon(answer: () => { status: number; body: unknown }, script: Flo
     },
     fetchImpl,
   });
-  return { caller, requests, listeners };
+  return { caller, requests, listeners, plans };
 }
 
 const started = (runId: string, flowName: string): FlowEventLike => ({ type: "flow.run_started", data: { runId, flowName } });
@@ -108,7 +115,7 @@ describe("a /flow in a session", () => {
   });
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  function setup(answer: () => { status: number; body: unknown }, events: FlowEventLike[] = []) {
+  function setup(answer: () => { status: number; body: unknown }, events: FlowEventLike[] = [], o: { plan?: () => { status: number; body: unknown }; approvals?: Partial<Approvals>; effects?: ActionEffects } = {}) {
     const host = {
       projectDir: path.join(root, "project"),
       dataDir: path.join(root, "data"),
@@ -120,8 +127,9 @@ describe("a /flow in a session", () => {
       log: { info() {}, warn() {} },
     } as unknown as AgentHost;
     const model: ModelProvider = { run: async () => { throw new Error("a /flow runs no chat turn"); } };
-    const d = fakeDaemon(answer, events);
-    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", flows: d.caller });
+    const d = fakeDaemon(answer, events, o.plan);
+    const approvals = o.approvals ? () => ({ shell: "ask", files: "ask", editorRestart: "ask", destructive: "ask", ...o.approvals }) as Approvals : undefined;
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", flows: d.caller, ...(approvals ? { approvals } : {}), ...(o.effects ? { effects: o.effects } : {}) });
     const s = store.create("New session");
     return { runner, s, d };
   }
@@ -180,6 +188,77 @@ describe("a /flow in a session", () => {
     live.status = "idle";
     store.save(live);
     await expect(runner.flow(s.id, { name: " ", params: {} })).rejects.toThrow(/name the flow/);
+  });
+
+  const until = async (cond: () => boolean) => {
+    const end = Date.now() + 3000;
+    while (!cond()) {
+      if (Date.now() > end) throw new Error("condition not met");
+      await new Promise((r) => setTimeout(r, 5));
+    }
+  };
+  const planOf = (...names: string[]) => () => ({ status: 200, body: { success: true, steps: names.map((name, i) => ({ stepNumber: i + 1, type: "task", name })) } });
+  const effects: ActionEffects = { destructive: (c, m) => c === "asset" && m === "delete", readOnly: () => null };
+
+  it("asks before a step that runs Python, a console command, a destructive action or an unknown task, as the agent's own call would; a denial runs nothing", async () => {
+    for (const task of ["editor.execute_python", "editor.execute_command", "asset.delete", "my_project_task"]) {
+      const { runner, s, d } = setup(() => ok, [], { plan: planOf("level.place_actor", task), approvals: {}, effects });
+      const run = runner.flow(s.id, { name: "f", params: {} });
+      await until(() => (store.get(s.id)!.approvals ?? []).length > 0);
+      const a = store.get(s.id)!.approvals![0];
+      const dot = task.indexOf(".");
+      expect(a, task).toMatchObject({ tool: "ue_mcp", call: dot > 0 ? { category: task.slice(0, dot), method: task.slice(dot + 1) } : { category: "flow", method: task } });
+      expect(store.get(s.id)!.approvals).toHaveLength(1);
+      runner.answerApproval(s.id, a.id, "deny");
+      await run;
+      expect(d.requests, task).toHaveLength(0);
+      expect(card(s.id)).toMatchObject({ state: "failed" });
+      expect(card(s.id).errors?.[0]).toContain(task);
+      expect(store.get(s.id)!.status).toBe("idle");
+      expect(store.get(s.id)!.notes.join("\n")).toContain("declined a step at the approval");
+    }
+  });
+
+  it("allowed, the flow runs; one answer per task, and Allow for this session covers the next run", async () => {
+    const { runner, s, d } = setup(() => ok, [], { plan: planOf("editor.execute_python", "level.place_actor", "editor.execute_python"), approvals: {}, effects });
+    const first = runner.flow(s.id, { name: "f", params: {} });
+    await until(() => (store.get(s.id)!.approvals ?? []).length > 0);
+    runner.answerApproval(s.id, store.get(s.id)!.approvals![0].id, "session");
+    await first;
+    expect(d.requests).toHaveLength(1);
+    expect(published.filter((p) => p.type === "approval.requested")).toHaveLength(1);
+    await runner.flow(s.id, { name: "f", params: {} });
+    expect(d.requests).toHaveLength(2);
+    expect(published.filter((p) => p.type === "approval.requested")).toHaveLength(1);
+  });
+
+  it("asks nothing for plain ue-mcp actions, or when the rows allow the kind", async () => {
+    const plain = setup(() => ok, [], { plan: planOf("level.place_actor", "material.create"), approvals: {}, effects });
+    await plain.runner.flow(plain.s.id, { name: "f", params: {} });
+    expect(plain.d.requests).toHaveLength(1);
+    const allowed = setup(() => ok, [], { plan: planOf("editor.execute_python"), approvals: { shell: "allow" }, effects });
+    await allowed.runner.flow(allowed.s.id, { name: "f", params: {} });
+    expect(allowed.d.requests).toHaveLength(1);
+    expect(published.filter((p) => p.type === "approval.requested")).toHaveLength(0);
+  });
+
+  it("asks once for the whole flow when its plan cannot be read", async () => {
+    const { runner, s, d } = setup(() => ok, [], { plan: () => ({ status: 404, body: {} }), approvals: {}, effects });
+    const run = runner.flow(s.id, { name: "f", params: {} });
+    await until(() => (store.get(s.id)!.approvals ?? []).length > 0);
+    expect(store.get(s.id)!.approvals![0]).toMatchObject({ tool: "ue_mcp", call: { category: "flow", method: "run", args: { flowName: "f" } } });
+    runner.answerApproval(s.id, store.get(s.id)!.approvals![0].id, "allow");
+    await run;
+    expect(d.requests).toHaveLength(1);
+  });
+
+  it("a /flow message goes through the same approvals", async () => {
+    const { runner, s, d } = setup(() => ok, [], { plan: planOf("editor.execute_command"), approvals: { shell: "project" }, effects });
+    const run = runner.send(s.id, "/flow f");
+    await until(() => (store.get(s.id)!.approvals ?? []).length > 0);
+    runner.answerApproval(s.id, store.get(s.id)!.approvals![0].id, "deny");
+    await run;
+    expect(d.requests).toHaveLength(0);
   });
 
   it("ends a card a daemon restart cut off as failed", () => {
