@@ -3,10 +3,9 @@
  * pointer: 44px buttons and fields, 20px checkboxes). Each names the CSS it
  * mirrors so a change there has an obvious place to land here.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import Svg, { Defs, LinearGradient, Polyline, Rect, Stop } from "react-native-svg";
-import { Animated, Modal, Pressable, ScrollView, StyleSheet, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
-import { useSheetInsets } from "./insets";
+import { Pressable, TextInput, View, type StyleProp, type TextInputProps, type ViewStyle } from "react-native";
 import { font, labelFont, T } from "./Text";
 import { useStyles, useTheme } from "./ThemeProvider";
 import { lineBox, type Theme } from "./theme";
@@ -218,55 +217,3 @@ export function Row({ children, style, wrap = true, gap = 10 }: { children: Reac
 }
 
 export const Spacer = () => <View style={{ flex: 1 }} />;
-
-/**
- * Sheet.tsx: slides up over a 55% scrim, a grip, the title, Close; at most 70%
- * of the screen, its body scrolling.
- */
-export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
-  const t = useTheme();
-  // Its actions end above the navigation bar, or above the keyboard while one of its fields has it up.
-  const insets = useSheetInsets();
-  const slide = useRef(new Animated.Value(open ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.timing(slide, { toValue: open ? 1 : 0, duration: 240, useNativeDriver: true }).start();
-  }, [open, slide]);
-  return (
-    <Modal visible={open} transparent animationType="none" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
-      <Animated.View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.55)", opacity: slide }]}>
-        <Pressable accessibilityLabel="Close" style={StyleSheet.absoluteFill} onPress={onClose} />
-      </Animated.View>
-      <Animated.View
-        accessibilityViewIsModal
-        accessibilityLabel={title}
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          bottom: 0,
-          maxHeight: "70%",
-          paddingTop: 6,
-          paddingLeft: 10 + insets.left,
-          paddingRight: 10 + insets.right,
-          paddingBottom: 12 + insets.bottom,
-          backgroundColor: t.c.panel,
-          borderTopWidth: 1,
-          borderTopColor: t.c.lineStrong,
-          borderTopLeftRadius: 14,
-          borderTopRightRadius: 14,
-          transform: [{ translateY: slide.interpolate({ inputRange: [0, 1], outputRange: [600, 0] }) }],
-        }}
-      >
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 12, paddingHorizontal: 4, paddingBottom: 8 }}>
-          <View style={{ position: "absolute", top: 0, left: "50%", width: 36, height: 4, marginLeft: -18, borderRadius: 2, backgroundColor: t.c.lineStrong }} />
-          <T weight={700} size={t.base.size}>
-            {title}
-          </T>
-          <Spacer />
-          <Button title="Close" variant="ghost" onPress={onClose} />
-        </View>
-        <ScrollView style={{ minHeight: 0 }}>{children}</ScrollView>
-      </Animated.View>
-    </Modal>
-  );
-}
