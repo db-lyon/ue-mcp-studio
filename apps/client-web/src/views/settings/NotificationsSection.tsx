@@ -15,7 +15,7 @@ const PRIVACY: ReadonlyArray<{ id: NotifyPrivacy; name: string }> = [
 function deliveryNote(): string {
   if (native().notify && window.ue?.studioWindow) return "Studio's window shows Windows notifications. Clicking one opens its session.";
   if (window.ue?.studio) return "The editor tab flashes the editor's taskbar button. Studio's own window shows Windows notifications.";
-  if (onRemotePage()) return "This browser shows notifications while a Studio tab is open, and while it is closed once notifications are allowed.";
+  if (onRemotePage()) return "This browser shows notifications while a Studio tab is open. Allow them here to get them while it is closed too.";
   return "This browser shows notifications while a Studio tab is open.";
 }
 
@@ -46,7 +46,6 @@ export function NotificationsSection() {
           <Row
             title="Browser permission"
             help={permission === "denied" ? "Notifications are blocked for this site. Allow them in the browser's site settings." : permission === "unsupported" ? "This browser cannot show notifications." : "The browser asks once before it shows any."}
-            inline
           >
             {permission === "default" && <button className="primary" onClick={ask}>Allow notifications</button>}
           </Row>
@@ -54,7 +53,8 @@ export function NotificationsSection() {
         <Row title="Notifications on this device" help="Off: this device shows none, whatever the events below say." inline>
           <Switch on={device.enabled} onChange={(v) => set({ enabled: v })} label="Notifications on this device" />
         </Row>
-        <Row title="Only when I'm away" help="Not while you are using this device. A phone or another browser also stays quiet while Studio's window on the computer is in use." inline>
+        <div className={device.enabled ? "" : "notify-dim"} aria-disabled={!device.enabled || undefined}>
+        <Row title="Only when I'm away" help="Not while you are using this device. Phones and other browsers also stay quiet while you use Studio on the computer." inline>
           <Switch on={device.onlyWhenAway} onChange={(v) => set({ onlyWhenAway: v })} label="Only when I'm away" disabled={!device.enabled} />
         </Row>
         <Row title="What a notification shows" help="Event and project keeps your messages and file names off the lock screen.">
@@ -85,6 +85,7 @@ export function NotificationsSection() {
             />
           </Row>
         )}
+        </div>
       </Card>
       <Card label="Events">
         <p className="cfg-note">Shared by every device paired with {projectName || "this project"}.</p>
@@ -98,7 +99,7 @@ export function NotificationsSection() {
         {project && project.prefs.mutedSessions.length > 0 ? (
           project.prefs.mutedSessions.map((id) => (
             <Row key={id} title={project.titles[id] ?? "A session that was deleted"} inline>
-              <button className="ghost" onClick={() => void unmute(id)}>Unmute</button>
+              <button onClick={() => void unmute(id)}>Unmute</button>
             </Row>
           ))
         ) : (
