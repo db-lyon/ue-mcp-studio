@@ -15,7 +15,8 @@ export default defineConfig({
     // The app's web variants (src/native/*.web.ts) stand in for native modules here, as on the web harness.
     extensions: [".web.tsx", ".web.ts", ".web.js", ".tsx", ".ts", ".mjs", ".js", ".json"],
     alias: [
-      { find: /^react-native$/, replacement: path.join(root, "node_modules/react-native-web/dist/index.js") },
+      // react-native-web, failing where Android fails: text outside <Text>, an accessibilityRole Android rejects.
+      { find: /^react-native$/, replacement: mock("react-native.tsx") },
       // The ESM build, so its own imports of react-dom go through the aliases below.
       { find: "@testing-library/react", replacement: path.join(root, "node_modules/@testing-library/react/dist/@testing-library/react.esm.js") },
       { find: /^react$/, replacement: mod("react") },
