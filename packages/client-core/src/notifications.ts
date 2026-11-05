@@ -93,7 +93,7 @@ export const NOTIFY_COPY = {
   quiet: { title: "Quiet hours", help: "No notifications between these times, on this device's clock." },
   sound: { title: "Sound", help: "How a notification sounds on this phone." },
   vibrate: { title: "Vibration", help: "How this phone vibrates for one." },
-  mute: (project: string) => ({ title: `Mute ${project} here`, help: "This project's notifications stay off on this device. Other devices keep theirs." }),
+  mute: (project: string) => ({ title: `Mute ${project} on this device`, help: "This project's notifications stay off on this device. Other devices keep theirs." }),
   events: (project: string) => `Shared by every device paired with ${project || "this project"}.`,
   noMuted: "None. Mute a session from its menu in the session list.",
   deletedSession: "A session that was deleted",
