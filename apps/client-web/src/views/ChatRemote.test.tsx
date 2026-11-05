@@ -145,7 +145,7 @@ describe("/remote and /rc", () => {
     const reply = document.querySelector(".local-reply")!;
     expect(reply.textContent).toContain(REMOTE_COMMAND_REPLY);
     expect(reply.querySelector(`a[href="${STUDIO_PLAN_URL}"]`)).toBeNull();
-    expect(screen.getByRole("button", { name: "Upgrade to Pro" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade to Remote" })).toBeTruthy();
     expect(box.value).toBe("");
     // /rc does the same.
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Dismiss" })));
@@ -164,13 +164,13 @@ describe("the Upgrade action", () => {
     await enter(box);
   }
 
-  it("buys Pro at the chosen interval and opens the checkout in the system browser, never in the panel", async () => {
+  it("buys Remote at the chosen interval and opens the checkout in the system browser, never in the panel", async () => {
     const opened = vi.spyOn(window, "open").mockReturnValue(null);
     m.billingCheckout.mockResolvedValue({ url: "https://checkout.stripe.test/c/1", provider: "stripe" });
     await reply();
     await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Yearly" })));
-    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Pro" })));
-    expect(m.billingCheckout).toHaveBeenCalledWith({ plan: "pro", interval: "year" });
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Remote" })));
+    expect(m.billingCheckout).toHaveBeenCalledWith({ plan: "remote", interval: "year" });
     expect(opened).toHaveBeenCalledWith("https://checkout.stripe.test/c/1", "_blank", "noopener");
     expect(screen.getByText(CHECKOUT_OPENED)).toBeTruthy();
     expect(window.location.href).not.toContain("checkout.stripe.test");
@@ -181,8 +181,8 @@ describe("the Upgrade action", () => {
     m.billingCheckout.mockRejectedValue(new ApiError(409, "This account already has a subscription."));
     m.billingPortal.mockResolvedValue({ url: "https://billing.stripe.test/p/1" });
     await reply();
-    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Pro" })));
-    expect(m.billingCheckout).toHaveBeenCalledWith({ plan: "pro", interval: "month" });
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Remote" })));
+    expect(m.billingCheckout).toHaveBeenCalledWith({ plan: "remote", interval: "month" });
     expect(opened).toHaveBeenCalledWith("https://billing.stripe.test/p/1", "_blank", "noopener");
   });
 
@@ -190,7 +190,7 @@ describe("the Upgrade action", () => {
     const opened = vi.spyOn(window, "open").mockReturnValue(null);
     m.billingCheckout.mockRejectedValue(new ApiError(503, "Plans cannot be bought yet."));
     await reply();
-    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Pro" })));
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Remote" })));
     expect(screen.getByRole("alert").textContent).toBe("Plans cannot be bought yet.");
     expect(opened).not.toHaveBeenCalled();
   });
@@ -220,7 +220,7 @@ describe("after checkout opens", () => {
     await type(box, "/remote ");
     await enter(box);
     vi.useFakeTimers();
-    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Pro" })));
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Remote" })));
     m.remoteAvailable.mockClear();
     return box;
   }
@@ -231,11 +231,11 @@ describe("after checkout opens", () => {
     await checkout();
     await tick(CHECKOUT_POLL_MS);
     expect(m.remoteAvailable).toHaveBeenCalledWith(true);
-    expect(screen.getByRole("button", { name: "Upgrade to Pro" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade to Remote" })).toBeTruthy();
     m.remoteAvailable.mockResolvedValue({ available: true, signedIn: true });
     await tick(CHECKOUT_POLL_MS);
     expect(screen.getByText(REMOTE_NOW_ON)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Upgrade to Pro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Upgrade to Remote" })).toBeNull();
     // Paid: the watch stops.
     m.remoteAvailable.mockClear();
     await tick(CHECKOUT_POLL_MS * 5);
@@ -274,7 +274,7 @@ describe("outside Settings, before /remote is typed", () => {
     await open({ flag: on, account });
     const text = document.body.textContent ?? "";
     expect(text).not.toMatch(/remote/i);
-    expect(text).not.toMatch(/Pro or Studio|Upgrade|plan/i);
+    expect(text).not.toMatch(/Remote plan|Pro plan|Upgrade|plan/i);
     expect(document.querySelector(`a[href="${STUDIO_PLAN_URL}"]`)).toBeNull();
     expect(document.querySelector(".remote-plan-note, .local-reply, .upgrade, [aria-label*='emote' i], [title*='emote' i]")).toBeNull();
   });

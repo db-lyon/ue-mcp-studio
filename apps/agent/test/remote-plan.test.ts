@@ -38,9 +38,9 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 describe("hasPaidPlan", () => {
   const now = new Date(NOW);
-  it("is pro or studio, active or past_due, with the period end not passed", () => {
+  it("is remote or pro, active or past_due, with the period end not passed", () => {
     expect(hasPaidPlan(usage(), now)).toBe(true);
-    expect(hasPaidPlan(usage({ plan: "studio", status: "past_due" }), now)).toBe(true);
+    expect(hasPaidPlan(usage({ plan: "remote", status: "past_due" }), now)).toBe(true);
     expect(hasPaidPlan(usage({ plan: "free" }), now)).toBe(false);
     expect(hasPaidPlan(usage({ status: "canceled" }), now)).toBe(false);
     expect(hasPaidPlan(usage({ status: "none" }), now)).toBe(false);

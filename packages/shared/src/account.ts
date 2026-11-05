@@ -36,12 +36,25 @@ export interface AccountUsage {
   remaining: number;
 }
 
-/** Plans that pay for hosted services, remote control among them. */
-export const PAID_PLAN_IDS: readonly string[] = ["pro", "studio"];
+/** Plans that include remote control: Remote, and Pro, which includes everything Remote has. */
+export const PAID_PLAN_IDS: readonly string[] = ["remote", "pro"];
 
 /**
- * Whether the account holds a paid plan at `now`: plan pro or studio, status
- * active or past_due, period end not passed. The gateway's own rule.
+ * Whether Studio offers the Pro plan. Off: no Pro checkout or Pro wording is
+ * shown, and remote control is sold as the Remote plan alone. A Pro account
+ * still gets remote control either way.
+ */
+export const PRO_PLAN_OFFERED = false;
+
+/** The plans remote control needs, as Studio names them. */
+export const REMOTE_PLANS = PRO_PLAN_OFFERED ? "the Remote or Pro plan" : "the Remote plan";
+
+/** What the Remote plan costs, as the gateway sells it. Tax is added at checkout. */
+export const REMOTE_PRICE = "$5 a month or $50 a year, before tax";
+
+/**
+ * Whether the account holds a plan with remote control at `now`: plan remote
+ * or pro, status active or past_due, period end not passed. The gateway's own rule.
  */
 export function hasPaidPlan(u: Pick<AccountUsage, "plan" | "status" | "periodEnd">, now: Date = new Date()): boolean {
   if (u.status !== "active" && u.status !== "past_due") return false;
@@ -70,9 +83,9 @@ export const STUDIO_AGENT_TOOL = "ue_mcp";
 export const ACCOUNT_SIGNED_OUT = "Not signed in. Sign in to your ue-mcp account in Settings > General.";
 
 /** The plans and billing intervals the gateway sells. */
-export type BillingPlan = "pro" | "studio";
+export type BillingPlan = "remote" | "pro";
 export type BillingInterval = "month" | "year";
-export const BILLING_PLANS: readonly BillingPlan[] = ["pro", "studio"];
+export const BILLING_PLANS: readonly BillingPlan[] = ["remote", "pro"];
 export const BILLING_INTERVALS: readonly BillingInterval[] = ["month", "year"];
 
 /** POST /v1/ext/studio/billing/checkout on the daemon, passed on to the gateway with the account token. */

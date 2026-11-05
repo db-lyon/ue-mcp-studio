@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { View } from "react-native";
 import { formatPairingCode } from "@ue-mcp-studio/remote";
+import { REMOTE_PLANS } from "@ue-mcp-studio/shared";
 import { isPairLink, type PairFailureKind, type PairStep } from "../relay";
 import { readClipboard } from "../native/clipboard";
 import { Banner, bannerText, Button, font, Input, Panel, T, useTheme, Waiting } from "../ui";
@@ -184,7 +185,7 @@ function wording(f: PairFailure): { head: string; text: string; note: string } {
     case "network":
       return { head: "The relay could not be reached", text: "Either this phone is offline or the relay is down.", note: "Check the connection, then try again." };
     case "plan":
-      return { head: "Remote control is not available", text: "This account's plan does not include remote control.", note: "It comes with the Pro and Studio plans. Upgrade the account in Studio on your computer, then make a new code there." };
+      return { head: "Remote control is not available", text: "This account's plan does not include remote control.", note: `It comes with ${REMOTE_PLANS}. Upgrade the account in Studio on your computer, then make a new code there.` };
     case "mismatch":
       return { head: "The codes did not match", text: "This phone was not paired.", note: NEW_CODE };
     default:

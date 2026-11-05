@@ -5,8 +5,10 @@
  * told it exists (Settings and /remote); with it off, neither ever sees it.
  */
 
+import { REMOTE_PLANS, REMOTE_PRICE } from "./account.js";
+
 /** What Studio says when the account's plan does not include remote control. */
-export const REMOTE_NO_PLAN = "Remote control needs a Pro or Studio plan on this account.";
+export const REMOTE_NO_PLAN = `Remote control needs ${REMOTE_PLANS} on this account.`;
 
 /** What the connector says when the relay no longer accepts the account's token. */
 export const REMOTE_SIGN_IN_AGAIN = "The relay did not accept this account. Sign in to your ue-mcp account again in Settings > General.";
@@ -27,8 +29,14 @@ export const STUDIO_PLAN_URL = "https://ue-mcp.com/pricing";
 /** The one line on what remote control does. */
 export const REMOTE_SUMMARY = "Use this project from your phone or another computer.";
 
+/** What Settings > Remote control says to an account without the plan, above the Upgrade action. */
+export const REMOTE_PLAN_NOTE = `Needs the Remote plan: ${REMOTE_PRICE}.`;
+
 /** What /remote answers a signed-in account without a paid plan in the chat, above the Upgrade action. */
-export const REMOTE_COMMAND_REPLY = "Remote control lets you use this project from your phone. It needs a Pro or Studio plan.";
+export const REMOTE_COMMAND_REPLY = `Remote control lets you use this project from your phone. It needs the Remote plan: ${REMOTE_PRICE}.`;
+
+/** The Upgrade action's button: checks out the Remote plan. */
+export const UPGRADE_LABEL = "Upgrade to Remote";
 
 /**
  * What remote control shows this account: the working thing on a paid plan;

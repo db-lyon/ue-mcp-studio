@@ -5,6 +5,7 @@
  */
 import {
   NOTIFY_KINDS,
+  REMOTE_PLANS,
   noticeOf,
   projectNotifyOf,
   type DeviceNotifyPrefs,
@@ -112,7 +113,7 @@ export const NOTIFY_COPY = {
   events: (project: string) => `Shared by every device paired with ${project || "this project"}.`,
   eventsLocal: (project: string) => `Which events in ${project || "this project"} notify you.`,
   /** The one line a computer without a paid plan sees, while the plan is offered. */
-  remotePlan: "Phone and browser notifications come with remote control, on a Pro or Studio plan.",
+  remotePlan: `Phone and browser notifications come with remote control, on ${REMOTE_PLANS}.`,
   noMuted: "None. Mute a session from its menu in the session list.",
   deletedSession: "A session that was deleted",
   permission: {

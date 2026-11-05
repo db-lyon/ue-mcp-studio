@@ -85,7 +85,7 @@ describe("RemoteChatCard", () => {
     api.pairRemote.mockRejectedValue(new HttpError(403, "forbidden"));
     renderInProject(<RemoteChatCard />, api);
     await settle();
-    expect(screen.getByText("Remote control needs a Pro or Studio plan on this account.")).toBeTruthy();
+    expect(screen.getByText("Remote control needs the Remote plan on this account.")).toBeTruthy();
     expect(screen.queryByText(/The code shows here once it connects\./)).toBeNull();
   });
 
@@ -147,11 +147,11 @@ describe("RemoteReply", () => {
     const open = vi.spyOn(Linking, "openURL").mockResolvedValue(undefined as never);
     const dismiss = vi.fn();
     renderInProject(<RemoteReply remote={state({ available: false, signedIn: true })} onDismiss={dismiss} />, api);
-    expect(screen.getByText("Remote control lets you use this project from your phone. It needs a Pro or Studio plan.")).toBeTruthy();
+    expect(screen.getByText("Remote control lets you use this project from your phone. It needs the Remote plan: $5 a month or $50 a year, before tax.")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Yearly" }));
-    fireEvent.click(button("Upgrade to Pro"));
+    fireEvent.click(button("Upgrade to Remote"));
     await settle();
-    expect(api.billingCheckout).toHaveBeenCalledWith({ plan: "pro", interval: "year" });
+    expect(api.billingCheckout).toHaveBeenCalledWith({ plan: "remote", interval: "year" });
     expect(open).toHaveBeenCalledWith("https://checkout.stripe.test/c/1");
     expect(screen.getByText("Checkout opened in your browser. Remote control shows here once the payment goes through.")).toBeTruthy();
     stopCheckoutWatch();
@@ -166,7 +166,7 @@ describe("RemoteReply", () => {
     api.billingPortal.mockResolvedValue({ url: "https://portal.stripe.test/p/1", provider: "stripe" });
     const open = vi.spyOn(Linking, "openURL").mockResolvedValue(undefined as never);
     renderInProject(<RemoteReply remote={state({})} onDismiss={() => undefined} />, api);
-    fireEvent.click(button("Upgrade to Pro"));
+    fireEvent.click(button("Upgrade to Remote"));
     await settle();
     expect(open).toHaveBeenCalledWith("https://portal.stripe.test/p/1");
     expect(screen.getByText("This account already has a subscription. Its billing page opened in your browser.")).toBeTruthy();
@@ -177,7 +177,7 @@ describe("RemoteReply", () => {
   it("a signed-out computer gets the sign-in", () => {
     renderInProject(<RemoteReply remote={state({ signedIn: false })} onDismiss={() => undefined} />, remoteApi());
     expect(screen.getByText("Sign in to your ue-mcp account to use remote control.")).toBeTruthy();
-    expect(screen.queryByText("Upgrade to Pro")).toBeNull();
+    expect(screen.queryByText("Upgrade to Remote")).toBeNull();
   });
 
   it("a paid plan says it is on and shows the pairing card", async () => {
@@ -284,14 +284,14 @@ describe("/remote on a paired phone", () => {
     renderInProject(<RemoteReply remote={state({ available: true, surface: "working" })} onDismiss={() => undefined} onSettings={() => undefined} />, api);
     await settle();
     expect(screen.getByText("This account's plan includes remote control.")).toBeTruthy();
-    expect(screen.getByText("Remote control needs a Pro or Studio plan on this account.")).toBeTruthy();
+    expect(screen.getByText("Remote control needs the Remote plan on this account.")).toBeTruthy();
     expect(screen.getByText("Not available remotely.")).toBeTruthy();
     expect(button("Retry")).toBeTruthy();
     expect(button("Manage paired devices in Settings")).toBeTruthy();
     expect(api.setRemote).not.toHaveBeenCalled();
     expect(api.pairRemote).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("Pairing QR code")).toBeNull();
-    expect(screen.queryByText("Upgrade to Pro")).toBeNull();
+    expect(screen.queryByText("Upgrade to Remote")).toBeNull();
     expect(screen.queryByText("Sign in to your ue-mcp account to use remote control.")).toBeNull();
   });
 });
