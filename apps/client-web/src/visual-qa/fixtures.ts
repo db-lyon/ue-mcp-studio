@@ -184,6 +184,10 @@ export interface Scenario {
   narrowClicks?: string[];
   /** Shown as a paired browser's page, through the relay. */
   remotePage?: boolean;
+  /** Shown in Studio's own window: the host binding with its Windows notifications. */
+  studioWindow?: boolean;
+  /** This device's own storage before the page loads, such as its notification settings. */
+  storage?: Record<string, string>;
   /** Daemon events sent as the event stream opens, oldest first. */
   events?: Array<{ type: string; at: string; data: Record<string, unknown> }>;
   /** Scrolled to the top of its scroller after the clicks, to show what lies below the fold: a CSS selector. */

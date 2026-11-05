@@ -183,6 +183,7 @@ data: ${data}
 };
 
 try {
+  for (const [k, v] of Object.entries(scenario.storage ?? {})) window.localStorage.setItem(k, v);
   if (scenario.filter) window.localStorage.setItem("studio.playtests.filter", scenario.filter);
   else window.localStorage.removeItem("studio.playtests.filter");
 } catch {
@@ -191,6 +192,7 @@ try {
 history.replaceState(null, "", `${location.pathname}${location.search}${scenario.hash}`);
 // A paired browser's page, though the harness is served from this computer.
 let sentEvents = false;
+if (scenario.studioWindow) window.ue = { studio: { notify: async () => true } as never, studioWindow: true };
 if (scenario.remoteOffline || scenario.remotePage) (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = true;
 if (scenario.wake) {
   // Away, then back: the page reconnects under its quiet line.
