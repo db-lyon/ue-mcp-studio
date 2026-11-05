@@ -163,6 +163,18 @@ export function valueFields(raw: string | null | undefined): Array<[string, stri
   return null;
 }
 
+/** A struct field's name as the details panel would show it: EnemyClass is Enemy Class, bHidden is Hidden. */
+export const fieldName = (name: string): string =>
+  /^\[\d+\]$/.test(name) ? name : name.replace(/^b(?=[A-Z])/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2");
+
+/** A row with one child and no values of its own, folded into that child: "Spawns" and "[0]" read "Spawns[0]". */
+function foldOne(row: DiffTreeRow): DiffTreeRow {
+  if (row.children.length !== 1 || row.before || row.after || row.beforeNone || row.afterNone) return row;
+  const only = row.children[0];
+  const label = /^\[/.test(only.label[0]) ? [...row.label.slice(0, -1), row.label[row.label.length - 1] + only.label[0], ...only.label.slice(1)] : [...row.label, ...only.label];
+  return { ...only, label, title: row.title ?? only.title };
+}
+
 /**
  * A value's fields as child rows: with both versions, only the fields that
  * differ, each a change; with one, every field on its side. Null when neither
@@ -184,11 +196,11 @@ function fieldRows(id: string, tone: DiffTone, before: string | null | undefined
     const t: DiffTone | null = tone !== "mod" ? null : bv === undefined ? "add" : av === undefined ? "del" : "mod";
     const rid = `${id}/f:${name}`;
     const kids = fieldRows(rid, t ?? tone, bv, av, depth + 1);
-    out.push({
-      id: rid, label: [name], tone: t, children: kids ?? [], count: 0,
+    out.push(foldOne({
+      id: rid, label: [fieldName(name)], tone: t ?? tone, children: kids ?? [], count: 0,
       ...(t === null ? { detail: true } : {}),
       ...(kids ? {} : sides(t ?? tone, bv, av)),
-    });
+    }));
   }
   return out;
 }
@@ -381,7 +393,7 @@ function rowOf(t: Trie, parent: string): DiffTreeRow {
   const details: DiffTreeRow[] = (t.details ?? []).map((d, i) => ({
     id: `${id}/d:${i}`,
     label: [d.name],
-    tone: null,
+    tone: d.side === "before" ? "del" as const : "add" as const,
     detail: true,
     children: [],
     count: 0,
@@ -392,6 +404,7 @@ function rowOf(t: Trie, parent: string): DiffTreeRow {
   const row = t.row && t.fields && !fields && !t.row.before && !t.row.after ? { ...t.row, ...sides(t.fields.tone, t.fields.before, t.fields.after) } : t.row;
   const children = [...details, ...(fields ?? []), ...rowsOf(t, id)];
   const own = row?.tone ? 1 : 0;
+  if (fields?.length === 1 && children.length === 1 && row) return { ...foldOne({ ...row, id, label: [t.label], children, count: 0 }), count: own };
   return { tone: null, ...row, id, label: [t.label], children, count: own + children.reduce((n, c) => n + c.count, 0) };
 }
 
@@ -417,7 +430,7 @@ export function sectionRow(s: AssetDiffSection): DiffTreeRow {
   if (hidden.length) {
     const hid = `${id}/hidden`;
     const rows = recordRows(hidden, s.kind === "graph", hid);
-    children.push({ id: hid, label: [HIDDEN_GROUP], tone: null, children: rows, count: rows.reduce((n, c) => n + c.count, 0), closed: shown.length > 0, title: "Properties Unreal keeps but its details panel does not list" });
+    children.push({ id: hid, label: [HIDDEN_GROUP], tone: null, children: rows, count: rows.reduce((n, c) => n + c.count, 0), title: "Properties Unreal keeps but its details panel does not list" });
   }
   return {
     id,
@@ -471,7 +484,7 @@ export function factsRow(before: AssetVersion | null | undefined, after: AssetVe
     const id = "s:version";
     return {
       id, label: [ONE_VERSION_SECTION], tone: null, section: true, closed: tile.shown, count: 0,
-      children: rows.map((r) => ({ id: `${id}/${r.name}`, label: [r.name], tone: null, detail: true, children: [], count: 0, ...(before ? { before: diffValue(r.before ?? "") } : { after: diffValue(r.after ?? "") }) })),
+      children: rows.map((r) => ({ id: `${id}/${r.name}`, label: [r.name], tone: before ? "del" as const : "add" as const, detail: true, children: [], count: 0, ...(before ? { before: diffValue(r.before ?? "") } : { after: diffValue(r.after ?? "") }) })),
     };
   }
   const isCovered = (name: string) => covered.has(name) || [...covered].some((c) => / parameter$/.test(c) && name.startsWith(`${c} `));

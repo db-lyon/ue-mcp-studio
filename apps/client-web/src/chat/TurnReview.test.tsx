@@ -222,9 +222,11 @@ describe("the diff view", () => {
     const mi: AssetDiff = { ...material, assetClass: "MaterialInstanceConstant", sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [{ displayString: "", diffType: "PropertyValueChanged", path: "Scalar Parameter Values", before: raw("0.500000"), after: raw("0.800000") }] }] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: mi } });
     await diffOf(REVIEW.items[1]);
-    expect(treeRow("Scalar Parameter Values").className).toContain("mod");
-    expect(cellsOf("Roughness").slice(1).map((c) => c.textContent)).toEqual(["0.5", "0.8"]);
-    expect(cellsOf("Roughness")[2].getAttribute("title")).toBe("0.800000");
+    // Only Roughness changed, so the list and its one parameter are one row.
+    const name = "Scalar Parameter Values \u203a Roughness";
+    expect(treeRow(name).className).toContain("mod");
+    expect(cellsOf(name).slice(1).map((c) => c.textContent)).toEqual(["0.5", "0.8"]);
+    expect(cellsOf(name)[2].getAttribute("title")).toBe("0.800000");
     // Moss is the same in both versions: no row.
     expect(labels()).not.toContain("Moss");
   });
@@ -311,12 +313,12 @@ describe("the diff view", () => {
     expect(treeRow("Node Constant").className).toContain("add");
     expect(cellsOf("Default Value").slice(1).map((c) => c.textContent)).toEqual(["0.2", "0.7"]);
     expect(cellsOf("Two Sided").slice(1).map((c) => c.textContent)).toEqual(["False", "True"]);
-    // What the details panel does not show is a closed group of its own.
-    expect(labels()).not.toContain("Lighting Guid");
+    // What the details panel does not show is a group of its own, open like the rest.
     const hidden = treeRow("Not in the details panel");
     expect(hidden.querySelector(".dt-count")!.textContent).toBe("2");
-    fireEvent.click(within(hidden).getByRole("button"));
     expect(cellsOf("Lighting Guid")[2].textContent).toBe("B2");
+    fireEvent.click(within(hidden).getByRole("button"));
+    expect(labels()).not.toContain("Lighting Guid");
     // The fact that differs is compared at once; none is the same, so there is no unchanged line.
     expect(cellsOf("Blend mode").slice(1).map((c) => c.textContent)).toEqual(["BLEND_Opaque", "BLEND_Masked"]);
     expect(screen.queryByText(/unchanged fact/)).toBeNull();

@@ -164,7 +164,8 @@ export function AssetDiffView({ diff, name, asset, status, nativeNote }: { diff:
 }
 
 /** A value cell: one line cut to its column, the whole value on hover; a long or many-line value opens its row's values in place on a click or tap. */
-function ValueCell({ v, none, side, open, toggle }: { v?: DiffValue; none?: boolean; side: "before" | "after"; open: boolean; toggle: () => void }) {
+function ValueCell({ v, none, side, open, toggle, other }: { v?: DiffValue; none?: boolean; side: "before" | "after"; open: boolean; toggle: () => void; other?: DiffValue }) {
+  const theirs = new Set(other?.lines ?? []);
   const label = side === "before" ? "Before" : "After";
   if (!v) return <div role="gridcell" data-label={label} className={`dt-val dt-${side}${none ? "" : " dt-blank"}`}>{none && <span className="dim">none</span>}</div>;
   const key = (e: KeyboardEvent) => {
@@ -174,7 +175,7 @@ function ValueCell({ v, none, side, open, toggle }: { v?: DiffValue; none?: bool
     }
   };
   const body = v.text === "" ? <span className="dim">empty</span>
-    : open && v.lines ? v.lines.map((l, i) => <span key={i} className="dt-line"><Swatch text={l} /><EngineText text={l} /></span>)
+    : open && v.lines ? v.lines.map((l, i) => <span key={i} className={`dt-line${other?.lines && !theirs.has(l) ? (side === "after" ? " dt-line-add" : " dt-line-del") : ""}`}><Swatch text={l} /><EngineText text={l} /></span>)
     : open ? <><Swatch text={v.raw} /><EngineText text={v.text} /></>
     // Cut to one line: no break opportunities, which Chrome takes even under nowrap.
     : <><Swatch text={v.raw} />{v.text}</>;
@@ -183,7 +184,7 @@ function ValueCell({ v, none, side, open, toggle }: { v?: DiffValue; none?: bool
       role="gridcell"
       data-label={label}
       className={`dt-val dt-${side} mono${v.long ? " long" : ""}${open ? " open" : ""}`}
-      title={`${v.raw !== v.text ? v.raw : v.text}${v.long && !open ? "\n\nClick to show all of it." : ""}`}
+      title={`${v.raw !== v.text ? v.raw : v.text}${v.long ? (open ? "\n\nClick to fold it back." : "\n\nClick to show all of it.") : ""}`}
       {...(v.long ? { tabIndex: 0, "aria-expanded": open, onClick: toggle, onKeyDown: key } : {})}
     >
       {body}
@@ -191,10 +192,17 @@ function ValueCell({ v, none, side, open, toggle }: { v?: DiffValue; none?: bool
   );
 }
 
+/** The rows with no children under a row: what a group's count says when its changes are one, such as an added node's values. */
+const leaves = (row: DiffTreeRow): number => row.children.reduce((n, c) => n + (c.children.length ? leaves(c) : 1), 0);
+
+/** Whether no row of the tree has anything on one side: an added asset's Before, a deleted one's After. */
+const sideless = (rows: DiffTreeRow[], side: "before" | "after"): boolean =>
+  rows.every((r) => !(side === "before" ? r.before || r.beforeNone : r.after || r.afterNone) && sideless(r.children, side));
+
 /** A row's name: its levels joined, an engine name breaking only between its parts. */
-const Label = ({ row, wrap }: { row: DiffTreeRow; wrap: boolean }) => (
+const Label = ({ row }: { row: DiffTreeRow }) => (
   <span className="dt-label" title={[row.label.join(LABEL_JOIN), row.title].filter(Boolean).join("\n")}>
-    {row.label.map((p, i) => <Fragment key={i}>{i > 0 && <span className="dt-sep" aria-hidden="true">{" › "}</span>}{wrap ? <EngineText text={p} /> : p}</Fragment>)}
+    {row.label.map((p, i) => <Fragment key={i}>{i > 0 && <span className="dt-sep" aria-hidden="true">{" › "}</span>}<EngineText text={p} /></Fragment>)}
   </span>
 );
 
@@ -224,7 +232,7 @@ export function DiffTreeGrid({ roots, name, tier, width }: { roots: DiffTreeRow[
     return n;
   });
   return (
-    <div className="dtree" role="treegrid" aria-label={`Differences in ${name}`}>
+    <div className={`dtree${sideless(roots, "before") ? " dt-no-before" : ""}${sideless(roots, "after") ? " dt-no-after" : ""}`} role="treegrid" aria-label={`Differences in ${name}`}>
       <div className="dt-row dt-head" role="row">
         <span role="columnheader">Property</span>
         <span role="columnheader" className="dt-before">Before</span>
@@ -235,7 +243,8 @@ export function DiffTreeGrid({ roots, name, tier, width }: { roots: DiffTreeRow[
         const both = !!(row.before || row.beforeNone) && !!(row.after || row.afterNone);
         const valued = !!(row.before || row.after || row.beforeNone || row.afterNone);
         const cls = ["dt-row", row.tone ?? "", row.section ? "dt-section" : "", parent ? "dt-parent" : "", row.detail ? "dt-detail" : "", both ? "dt-both" : "", valued ? "" : "dt-bare", stacked && inlineFits(row, depth, width) ? "dt-inline" : stacked && splitNeeded(row, depth, width) ? "dt-split" : ""].filter(Boolean).join(" ");
-        const count = parent && !row.tone && !row.detail && row.count > 0 ? <span className="dt-count" title={row.count === 1 ? "1 difference" : `${row.count} differences`}>{row.count}</span> : null;
+        const n = parent ? (row.count > (row.tone ? 1 : 0) && !row.tone ? row.count : leaves(row)) : 0;
+        const count = n > 0 ? <span className="dt-count" title={row.count > 1 ? `${row.count} differences` : n === 1 ? "1 row" : `${n} rows`}>{n}</span> : null;
         return (
           <div key={row.id} role="row" aria-level={depth + 1} aria-expanded={parent ? open : undefined} className={cls} data-id={row.id} style={{ ["--depth" as string]: depth }}>
             <div role="rowheader" className="dt-name">
@@ -243,20 +252,20 @@ export function DiffTreeGrid({ roots, name, tier, width }: { roots: DiffTreeRow[
                 <button type="button" className="dt-toggle" aria-expanded={open} onClick={() => toggle(row.id)}>
                   <span className="dt-twisty" aria-hidden="true">{open ? "▾" : "▸"}</span>
                   <Glyph row={row} />
-                  <Label row={row} wrap={stacked} />
+                  <Label row={row} />
                   {count}
                 </button>
               ) : (
                 <>
                   <span className="dt-twisty" aria-hidden="true" />
                   <Glyph row={row} />
-                  <Label row={row} wrap={stacked} />
+                  <Label row={row} />
                 </>
               )}
               {row.note && <span className="dt-note"><EngineText text={row.note} /></span>}
             </div>
-            <ValueCell v={row.before} none={row.beforeNone} side="before" open={opened.has(row.id)} toggle={() => openRow(row.id)} />
-            <ValueCell v={row.after} none={row.afterNone} side="after" open={opened.has(row.id)} toggle={() => openRow(row.id)} />
+            <ValueCell v={row.before} other={row.after} none={row.beforeNone} side="before" open={opened.has(row.id)} toggle={() => openRow(row.id)} />
+            <ValueCell v={row.after} other={row.before} none={row.afterNone} side="after" open={opened.has(row.id)} toggle={() => openRow(row.id)} />
           </div>
         );
       })}

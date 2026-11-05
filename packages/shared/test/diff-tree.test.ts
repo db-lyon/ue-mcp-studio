@@ -64,14 +64,14 @@ describe("the diff tree", () => {
     expect(lines([s])).toEqual([
       "0||Graph: EventGraph||",
       "1|add|PrintString||",
-      "2||In String||Hello",
-      "2||Duration||2",
+      "2|add|In String||Hello",
+      "2|add|Duration||2",
       "2|minor|Moved||",
       "1|mod|Event ActorBeginOverlap > then > Links|0|1",
       "1|mod|SetSpeed > Speed|600|450",
       "1|mod|Roughness > Default Value|0.2|0.7",
       "1|del|Delay||",
-      "2||Duration|0.2|",
+      "2|del|Duration|0.2|",
     ]);
     // An added node with a move under it is two changes; its values are not changes.
     expect(s.children[0].count).toBe(2);
@@ -79,13 +79,13 @@ describe("the diff tree", () => {
     expect(s.children[0].note).toBeUndefined();
   });
 
-  it("keeps what the details panel does not show in a closed group of its own", () => {
+  it("keeps what the details panel does not show in a group of its own", () => {
     const s = sectionRow(section({ entries: [
       { path: "Two Sided", diffType: "PropertyValueChanged", displayString: "", before: "False", after: "True" },
       { path: "Lighting Guid", diffType: "PropertyValueChanged", displayString: "", before: "A1", after: "B2", hidden: true },
     ] }));
-    expect(lines([s])).toEqual(["0||Details||", "1|mod|Two Sided|False|True", "1||Not in the details panel||"]);
-    expect(lines([s], new Set(["s:Details/hidden"]))).toContain("2|mod|Lighting Guid|A1|B2");
+    expect(lines([s])).toEqual(["0||Details||", "1|mod|Two Sided|False|True", "1||Not in the details panel||", "2|mod|Lighting Guid|A1|B2"]);
+    expect(lines([s], new Set(["s:Details/hidden"]))).not.toContain("2|mod|Lighting Guid|A1|B2");
     expect(s.count).toBe(1);
   });
 
@@ -106,7 +106,7 @@ describe("the diff tree", () => {
     const added: AssetDiff = { ...d, before: null, after: { class: "X", facts: [1, 2, 3, 4, 5].map((n) => ({ name: `F${n}`, value: String(n) })) } };
     const [one] = diffTree(added, { shown: true, facts: 4 });
     expect(one.closed).toBe(true);
-    expect(lines([one], new Set([one.id]))[1]).toBe("1||F1||1");
+    expect(lines([one], new Set([one.id]))[1]).toBe("1|add|F1||1");
   });
 
   it("puts a value in words, keeps several lines or items for the cell opened in place, and marks a long one", () => {
@@ -136,11 +136,10 @@ describe("the diff tree", () => {
       "2|mod|Roughness|0.55|0.8",
       "2|mod|Moss|0.3|0.65",
       "1|del|Waves[2]||",
-      "2||Spawns||",
-      "3||[0]||",
-      "4||EnemyClass|None|",
-      "4||Count|1|",
-      "2||DelayBeforeStart|4|",
+      "2|del|Spawns[0]||",
+      "3|del|Enemy Class|None|",
+      "3|del|Count|1|",
+      "2|del|Delay Before Start|4|",
       "1|add|Spawn Point Tag||Spawn.Gate.North",
       "1|mod|Tags|Gate|Gate, Destructible",
       "1|mod|Light Color|R\u00a0255, G\u00a0120, B\u00a040, A\u00a0255|R\u00a0255, G\u00a090, B\u00a020, A\u00a0255",

@@ -1318,7 +1318,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
    .asset-diff (Chrome 90 has no container queries). Wide and medium keep the columns;
    narrow and tiny put the values under the name on one line, "False → True". */
 .dtree { position: relative; --dt-indent: 14px; --dt-lead: 28px; border: 1px solid var(--line-strong); border-radius: 4px; font-size: 12px; line-height: 18px; min-width: 0; overflow: hidden; }
-.dt-row { display: grid; grid-template-columns: minmax(0, 36fr) minmax(0, 32fr) minmax(0, 32fr); align-items: start; border-top: 1px solid var(--line); min-width: 0; }
+.dt-row { display: grid; grid-template-columns: minmax(0, 42fr) minmax(0, 29fr) minmax(0, 29fr); align-items: start; border-top: 1px solid var(--line); min-width: 0; }
 .dt-row:first-child { border-top: 0; }
 .dt-row:not(.dt-head):hover { background: var(--tint); }
 .dt-head { color: var(--dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid var(--line-strong); }
@@ -1335,8 +1335,10 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .dt-glyph.mod { color: var(--warn); }
 .dt-glyph.minor { color: var(--dim); }
 .dt-label { flex: 0 1 auto; min-width: 0; overflow-wrap: anywhere; color: var(--text); }
-/* With columns, a name stays on one line, the whole of it on hover; a narrow card wraps it, having no hover. */
-.asset-diff[data-tier="wide"] .dt-label, .asset-diff[data-tier="medium"] .dt-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* An added asset's grid has no Before column, a deleted one's no After. */
+.dtree.dt-no-before .dt-row { grid-template-columns: minmax(0, 42fr) 0 minmax(0, 58fr); }
+.dtree.dt-no-after .dt-row { grid-template-columns: minmax(0, 42fr) minmax(0, 58fr) 0; }
+.dtree.dt-no-before .dt-row > .dt-before, .dtree.dt-no-after .dt-row > .dt-after { padding: 0; overflow: hidden; }
 .dt-sep { color: var(--dim); }
 .dt-count { flex: 0 0 auto; margin-left: 6px; padding: 0 5px; border-radius: 8px; font-size: 10px; line-height: 16px; margin-top: 1px; color: var(--muted); background: var(--panel-2); }
 .dt-note { margin-left: 8px; min-width: 0; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; }
@@ -1350,7 +1352,8 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .dt-val.long:focus-visible { outline: 1px solid var(--line-strong); outline-offset: -1px; }
 .dt-val.open { white-space: pre-wrap; overflow-wrap: anywhere; text-overflow: clip; }
 .dt-val.open .dt-line { display: block; }
-.dt-val.long.open::after { content: "\25b4"; display: block; color: var(--dim); }
+.dt-val .dt-line-add { color: var(--ok); }
+.dt-val .dt-line-del { color: var(--bad-text); }
 .dt-both > .dt-before { color: var(--muted); }
 .dt-detail > .dt-val { color: var(--muted); }
 /* A short row on a narrow card: its values on the name's line. */
@@ -1360,6 +1363,9 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .asset-diff[data-tier="tiny"] .dt-row.dt-inline > .dt-name + .dt-val, .asset-diff[data-tier="tiny"] .dt-row.dt-inline > .dt-blank + .dt-val { margin-left: 8px; }
 /* Two values too long to share a line: a line each, Before then After. */
 .asset-diff[data-tier="narrow"] .dt-row.dt-split > .dt-val:not(.dt-blank), .asset-diff[data-tier="tiny"] .dt-row.dt-split > .dt-val:not(.dt-blank) { flex: 0 0 auto; width: calc(100% - 6px - var(--depth, 0) * var(--dt-indent) - var(--dt-lead)); max-width: none; margin-left: calc(6px + var(--depth, 0) * var(--dt-indent) + var(--dt-lead)); }
+/* A value on its own line with no column header over it says which it is; a removed value reads as gone. */
+.asset-diff[data-tier="narrow"] .dt-row.dt-split > .dt-val:not(.dt-blank)::before, .asset-diff[data-tier="tiny"] .dt-row.dt-split > .dt-val:not(.dt-blank)::before { content: attr(data-label) "\00a0"; font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--dim); }
+.asset-diff[data-tier="narrow"] .dt-row:not(.dt-both) > .dt-before:not(.dt-blank), .asset-diff[data-tier="tiny"] .dt-row:not(.dt-both) > .dt-before:not(.dt-blank) { text-decoration: line-through; text-decoration-color: var(--dim); color: var(--muted); }
 /* A group's triangle on a touch screen: the whole name is its target, a little taller, not a 44px button per row. */
 @media (pointer: coarse) {
   .dtree button.dt-toggle { min-height: 0; }
