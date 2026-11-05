@@ -38,6 +38,12 @@ module.exports = function withReleaseSigning(config) {
     set("android.enableShrinkResourcesInReleaseBuilds", "true");
     // Native libraries compressed in the APK (extracted at install), so a build stays small enough to send.
     set("expo.useLegacyPackaging", "true");
+    // Fast rebuilds within a 6 GB budget: outputs reused from the build cache, one 2 GB JVM with
+    // Kotlin compiled in it (no second daemon), and the same settings every build so nothing native
+    // is reconfigured. scripts/build-android.sh caps native compile jobs to match.
+    set("org.gradle.caching", "true");
+    set("org.gradle.jvmargs", "-Xmx2g -XX:MaxMetaspaceSize=768m");
+    set("kotlin.compiler.execution.strategy", "in-process");
     return c;
   });
 };
