@@ -3,7 +3,7 @@
  * gives that role (sans, mono, serif) and `weight` the face, since React
  * Native chooses a custom font's weight by its name.
  */
-import { Text, type TextProps, type TextStyle } from "react-native";
+import { Platform, Text, type TextProps, type TextStyle } from "react-native";
 import { fontName, lineBox, type Theme, type Weight } from "./theme";
 import { useTheme } from "./ThemeProvider";
 
@@ -18,6 +18,18 @@ export function font(t: Theme, role: Role, weight: Weight, size: number, lh?: nu
     ...(lh ? { lineHeight: lineBox(size, lh) } : {}),
     ...(family === "system-mono" && weight >= 600 ? { fontWeight: "700" } : {}),
   };
+}
+
+/**
+ * `font-style: italic` in the theme's family for `role`. Android picks a
+ * bundled font by its file name, and a style that adds fontStyle (or
+ * fontWeight) looks for another face, finds none and draws the system font
+ * instead. The bundled sans and mono have no italic file, so on Android they
+ * stay upright in their own face; the system mono slants as the browser's does.
+ */
+export function italic(t: Theme, role: Role): TextStyle {
+  const family = role === "sans" ? t.sans : role === "mono" ? t.mono : t.serif;
+  return family === "system-mono" || Platform.OS !== "android" ? { fontStyle: "italic" } : {};
 }
 
 /**

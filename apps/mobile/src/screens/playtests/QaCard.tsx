@@ -35,7 +35,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { assetLinkTarget, qaAgentMayJudge, qaAgentVerdict, qaIsDraft, qaSummaryOf, qaVerdictForm, type PendingForm, type QaRun, type QaScriptStep, type QaStep, type QaVerdict } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
-import { Banner, T, bannerText, font, labelFont, useStyles, useTheme, type Theme } from "../../ui";
+import { Banner, T, bannerText, font, italic, labelFont, useStyles, useTheme, type Theme } from "../../ui";
 import { Chevron } from "../../ui/glyphs";
 import { RevealContext, useLiveRun, useQaLive, type Measurable } from "./live";
 import { Capture, Disclosure, FailNote, IconButton, StepSetup, SmallButton } from "./parts";
@@ -454,7 +454,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                     ) : null}
                     {step.note && !verdictable && !byAgent && !failBox ? (
                       <View style={[s.smallInset, s.note]}>
-                        <T style={[s.small, { color: t.c.muted, fontStyle: "italic" }]}>{step.note}</T>
+                        <T style={[s.small, { color: t.c.muted }, italic(t, "sans")]}>{step.note}</T>
                         {step.status === "failed" && step.judge === "manual" ? (
                           <SmallButton title="Edit note" label={`Edit the note on step ${step.index + 1}`} onPress={() => setFailing({ index: step.index, via: "edit" })} style={{ marginLeft: "auto" }} />
                         ) : null}

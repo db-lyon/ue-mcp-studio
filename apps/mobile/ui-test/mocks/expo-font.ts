@@ -29,4 +29,6 @@ export function useFonts(map: Record<string, unknown>): [boolean, Error | null] 
 }
 
 export const isLoaded = () => true;
+/** Nothing is built in on a web page: every font loads through useFonts. */
+export const getLoadedFonts = (): string[] => [];
 export const loadAsync = async () => undefined;

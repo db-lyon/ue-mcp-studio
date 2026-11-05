@@ -17,7 +17,7 @@ import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import remarkRehype from "remark-rehype";
 import { remarkAssets } from "@ue-mcp-studio/client-core";
-import { baseFont, font, labelFont, monoNormal } from "./Text";
+import { baseFont, font, italic, labelFont, monoNormal } from "./Text";
 import { useTheme } from "./ThemeProvider";
 import type { Theme } from "./theme";
 
@@ -364,7 +364,7 @@ function inline(ctx: Ctx, n: HNode, key: number, lineStart: boolean): ReactNode 
       return <Text key={key} style={font(t, "sans", 700, (body.fontSize as number) ?? t.base.size)}>{inlines(ctx, kids, lineStart)}</Text>;
     case "em":
     case "i":
-      return <Text key={key} style={{ fontStyle: "italic" }}>{inlines(ctx, kids, lineStart)}</Text>;
+      return <Text key={key} style={italic(t, "sans")}>{inlines(ctx, kids, lineStart)}</Text>;
     case "del":
       return <Text key={key} style={{ textDecorationLine: "line-through" }}>{inlines(ctx, kids, lineStart)}</Text>;
     case "code": {

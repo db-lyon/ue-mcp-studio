@@ -3,9 +3,9 @@
  * bundled: Plus Jakarta Sans and JetBrains Mono (ue-mcp theme), Instrument
  * Serif italic (display words), Roboto 400 and 700 (editor themes).
  */
-import { createContext, useContext, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { StyleSheet } from "react-native";
-import { useFonts } from "expo-font";
+import { getLoadedFonts, useFonts } from "expo-font";
 import { PlusJakartaSans_400Regular, PlusJakartaSans_500Medium, PlusJakartaSans_600SemiBold, PlusJakartaSans_700Bold } from "@expo-google-fonts/plus-jakarta-sans";
 import { JetBrainsMono_400Regular, JetBrainsMono_500Medium, JetBrainsMono_600SemiBold, JetBrainsMono_700Bold } from "@expo-google-fonts/jetbrains-mono";
 import { InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic } from "@expo-google-fonts/instrument-serif";
@@ -27,10 +27,37 @@ export const FONTS = {
   Roboto_700Bold,
 };
 
-/** True once every font is in; the app shows its splash colour until then. */
+/** The font names the app draws with: on Android each is the file the expo-font config plugin builds into assets/fonts. */
+export type FontFile = keyof typeof FONTS;
+export const FONT_FILES = Object.keys(FONTS) as FontFile[];
+
+/** The fonts the native build already holds (the config plugin's files), by the names they are drawn with. */
+function builtIn(): Set<string> {
+  try {
+    return new Set(getLoadedFonts());
+  } catch {
+    return new Set();
+  }
+}
+
+/** The fonts still to load at runtime: none in a build that has them built in (build 7 on), every one on the web harness. */
+export function fontsToLoad(have: ReadonlySet<string> = builtIn()): Partial<typeof FONTS> {
+  return Object.fromEntries(FONT_FILES.filter((n) => !have.has(n)).map((n) => [n, FONTS[n]]));
+}
+
+/**
+ * True once every font is in; the app shows its splash colour until then.
+ * Built-in fonts are ready at once, with nothing loaded again. A font that
+ * fails to load is reported, and the app goes on with the system font
+ * rather than holding the splash.
+ */
 export function useStudioFonts(): boolean {
-  const [loaded, error] = useFonts(FONTS);
-  return loaded || !!error;
+  const [missing] = useState(() => fontsToLoad());
+  const [loaded, error] = useFonts(missing);
+  useEffect(() => {
+    if (error) console.warn(`Studio's fonts did not load (${error.message}); drawing with the system font.`);
+  }, [error]);
+  return Object.keys(missing).length === 0 || loaded || !!error;
 }
 
 const ThemeContext = createContext<Theme>(THEMES["ue-mcp"]);

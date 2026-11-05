@@ -6,7 +6,7 @@
 import type { ReactNode } from "react";
 import { ScrollView, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import type { DiffLine } from "@ue-mcp-studio/shared";
-import { font, T } from "./Text";
+import { font, italic, T } from "./Text";
 import { useTheme } from "./ThemeProvider";
 import type { Theme } from "./theme";
 
@@ -60,7 +60,7 @@ export function DiffView({ lines, label, maxHeight, style }: { lines: DiffLine[]
       {lines.map((l, i) => {
         if (l.op === "gap")
           return (
-            <T key={i} style={{ ...mono, color: t.c.dim, fontStyle: "italic", paddingHorizontal: 12 }}>
+            <T key={i} style={{ ...mono, color: t.c.dim, ...italic(t, "mono"), paddingHorizontal: 12 }}>
               {`  ${l.count} unchanged ${l.count === 1 ? "line" : "lines"}`}
             </T>
           );
