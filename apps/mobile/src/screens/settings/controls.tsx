@@ -13,8 +13,8 @@ import { T, font, labelFont, useTheme, type Theme } from "../../ui";
 type Tone = "text" | "muted" | "dim" | "accent" | "accentHi" | "ok" | "warn" | "bad" | "badText" | "warnText" | "onAccent";
 type Weight = 400 | 500 | 600 | 700;
 
-/** The body font's line-height as a multiple of its size, in this theme (1.55 ue-mcp, 1.5 editor). */
-export const ratio = (t: Theme): number => t.base.lineHeight / t.base.size;
+/** The body font's line-height as a multiple of its size, in this theme (1.55 ue-mcp, 1.5 editor): base.lineHeight is cut to 1/64 px, so the CSS multiple is rounded back out of it. */
+export const ratio = (t: Theme): number => Math.round((t.base.lineHeight / t.base.size) * 100) / 100;
 
 /** Body text at a size (default the base), keeping the theme's line-height ratio: .small is 12. */
 export function Txt({ children, size, weight = 400, tone = "text", mono, style, numberOfLines, testID, onPress, label }: {
@@ -40,11 +40,14 @@ export function Txt({ children, size, weight = 400, tone = "text", mono, style, 
   );
 }
 
-/** Nested text in another weight, tone or the mono family; a size brings its own line-height, as CSS works it out from the unitless ratio. */
-export function Span({ children, weight = 400, tone, mono, size, style }: { children: ReactNode; weight?: Weight; tone?: Tone; mono?: boolean; size?: number; style?: StyleProp<TextStyle> }) {
+/**
+ * Nested text in another weight, tone or the mono family; a size brings its own line-height, as CSS works it out from the
+ * unitless ratio. With no weight and no family it keeps the parent's face, as a span inherits font-weight.
+ */
+export function Span({ children, weight, tone, mono, size, style }: { children: ReactNode; weight?: Weight; tone?: Tone; mono?: boolean; size?: number; style?: StyleProp<TextStyle> }) {
   const t = useTheme();
-  const f = font(t, mono ? "mono" : "sans", weight, size ?? 12);
-  return <Text style={[{ fontFamily: f.fontFamily, ...(f.fontWeight ? { fontWeight: f.fontWeight } : {}) }, size ? { fontSize: size, lineHeight: size * ratio(t) } : null, tone ? { color: t.c[tone] } : null, style]}>{children}</Text>;
+  const f = weight !== undefined || mono ? font(t, mono ? "mono" : "sans", weight ?? 400, size ?? 12) : null;
+  return <Text style={[f ? { fontFamily: f.fontFamily, ...(f.fontWeight ? { fontWeight: f.fontWeight } : {}) } : null, size ? { fontSize: size, lineHeight: size * ratio(t) } : null, tone ? { color: t.c[tone] } : null, style]}>{children}</Text>;
 }
 
 /** h2.cfg-label: a card's title, 12px above what follows, with optional actions at its end. */
@@ -126,8 +129,8 @@ export function Seg<K extends string>({ value, options, onChange, label, disable
             onPress={() => !on && onChange(o.id)}
             style={[
               { minHeight: 44, minWidth: 44, paddingVertical: 6, paddingHorizontal: 11, justifyContent: "center", backgroundColor: on ? t.c.accentWash : "transparent", opacity: off ? 0.45 : 1 },
-              // Stacked, the browser leaves 12px between the choices, each after the first under its own line.
-              stack ? { borderTopWidth: i ? 1 : 0, borderTopColor: t.c.lineStrong, marginTop: i ? 12 : 0 } : { borderLeftWidth: i ? 1 : 0, borderLeftColor: t.c.lineStrong, flexGrow: compact ? 0 : 1, flexShrink: 1, flexBasis: "auto" },
+              // Stacked, the choices touch, each after the first under its own line.
+              stack ? { borderTopWidth: i ? 1 : 0, borderTopColor: t.c.lineStrong } :{ borderLeftWidth: i ? 1 : 0, borderLeftColor: t.c.lineStrong, flexGrow: compact ? 0 : 1, flexShrink: 1, flexBasis: "auto" },
             ]}
           >
             {on ? <View pointerEvents="none" style={stack ? { position: "absolute", left: 0, top: 0, bottom: 0, width: 3, backgroundColor: t.c.accent } : { position: "absolute", left: 0, right: 0, bottom: 0, height: 2, backgroundColor: t.c.accent }} /> : null}
@@ -218,14 +221,32 @@ export function Radio({ on, disabled, style, width = 20 }: { on: boolean; disabl
   const t = useTheme();
   const d = Math.min(width, 20);
   const ring = disabled ? (on ? "#757575" : "#626262") : on ? t.c.accent : "#838383";
+  // A chosen radio whose accent reads too dark on the dark disc (the editor theme's blue) is drawn light, a white disc.
+  const disc = on && !disabled && lightRadio(t.c.accent) ? "#ffffff" : "#3b3b3b";
   return (
     // The browser's own margin around a radio: 3px above and right, 5px left.
     <View style={[{ width, height: 20, marginTop: 3, marginRight: 3, marginLeft: 5, alignItems: "center", justifyContent: "center", flexShrink: 0 }, style]}>
-      <View style={{ width: d, height: d, borderRadius: d / 2, borderWidth: 1, borderColor: ring, backgroundColor: "#3b3b3b", alignItems: "center", justifyContent: "center" }}>
+      <View style={{ width: d, height: d, borderRadius: d / 2, borderWidth: 1, borderColor: ring, backgroundColor: disc, alignItems: "center", justifyContent: "center" }}>
         {on ? <View style={{ width: d * 0.6, height: d * 0.6, borderRadius: d * 0.3, backgroundColor: disabled ? "#757575" : t.c.accent }} /> : null}
       </View>
     </View>
   );
+}
+
+/**
+ * Whether Chrome draws a chosen radio of this accent in its light form: when the accent's contrast with the
+ * dark control's #3b3b3b disc is under 3:1.
+ */
+export function lightRadio(accent: string): boolean {
+  const n = parseInt(accent.slice(1, 7), 16);
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = (r: number, g: number, b: number) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  const a = lum((n >> 16) & 255, (n >> 8) & 255, n & 255);
+  const disc = lum(0x3b, 0x3b, 0x3b);
+  return (Math.max(a, disc) + 0.05) / (Math.min(a, disc) + 0.05) < 3;
 }
 
 /** input[type=checkbox] at 20px. */

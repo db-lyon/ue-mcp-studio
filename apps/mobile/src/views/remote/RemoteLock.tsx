@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Animated, BackHandler, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path, Rect } from "react-native-svg";
 import type { Lock, LockView } from "@ue-mcp-studio/client-core";
-import { Button, font, T, useStyles, useTheme, type Theme } from "../../ui";
+import { Button, font, T, useInsets, useSheetInsets, useStyles, useTheme, type Theme } from "../../ui";
 import { useLockView } from "../../connection";
 import { haptic } from "../../native/haptics";
 import { useBiometricUnlock } from "../../native/biometric";
@@ -195,8 +195,9 @@ function LockGlyph() {
 export function LockScreen({ lock, bio, onUnlocked, onRemoved }: { lock: Lock; bio: Biometric; onUnlocked: (pin: string, typed: boolean) => void; onRemoved?: () => void }) {
   const s = useStyles(styles);
   const view = useLockView(lock);
+  const insets = useInsets();
   return (
-    <View style={s.screen} accessibilityViewIsModal accessibilityLabel={view.removed ? "This device was removed" : "Studio is locked"}>
+    <View style={[s.screen, { paddingTop: 16 + insets.top, paddingBottom: 16 + insets.bottom, paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right }]} accessibilityViewIsModal accessibilityLabel={view.removed ? "This device was removed" : "Studio is locked"}>
       <View style={s.card}>
         <LockGlyph />
         <T style={s.title} accessibilityRole="header">
@@ -221,6 +222,7 @@ export function LockScreen({ lock, bio, onUnlocked, onRemoved }: { lock: Lock; b
 /** A sensitive action asked for the PIN: it goes ahead once the PIN is in. */
 export function PinSheet({ lock, bio, onUnlocked }: { lock: Lock; bio: Biometric; onUnlocked: (pin: string, typed: boolean) => void }) {
   const s = useStyles(styles);
+  const edge = useSheetEdge();
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => (lock.cancelPrompt(), true));
     return () => sub.remove();
@@ -228,7 +230,7 @@ export function PinSheet({ lock, bio, onUnlocked }: { lock: Lock; bio: Biometric
   return (
     <View style={s.backdrop}>
       <Pressable accessibilityLabel="Cancel" style={StyleSheet.absoluteFill} onPress={() => lock.cancelPrompt()} />
-      <View style={s.sheet} accessibilityViewIsModal accessibilityLabel="Enter your PIN">
+      <View style={[s.sheet, edge]} accessibilityViewIsModal accessibilityLabel="Enter your PIN">
         <T style={s.sheetTitle} accessibilityRole="header">
           Enter your PIN
         </T>
@@ -239,12 +241,19 @@ export function PinSheet({ lock, bio, onUnlocked }: { lock: Lock; bio: Biometric
   );
 }
 
+/** A bottom sheet's padding: its actions end above the navigation bar (or the keyboard), its sides clear a landscape bar. */
+function useSheetEdge() {
+  const insets = useSheetInsets();
+  return { paddingBottom: 16 + insets.bottom, paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right };
+}
+
 /** After a typed PIN opened the lock: offered once, the fingerprint keeps it for next time. */
 export function RememberOffer({ onYes, onNo }: { onYes: () => void; onNo: () => void }) {
   const s = useStyles(styles);
+  const edge = useSheetEdge();
   return (
     <View style={s.backdrop}>
-      <View style={s.sheet} accessibilityViewIsModal accessibilityLabel="Use fingerprint next time">
+      <View style={[s.sheet, edge]} accessibilityViewIsModal accessibilityLabel="Use fingerprint next time">
         {/* A question, so in sentence case where the PIN sheet's title is a label. */}
         <T style={[s.sheetTitle, { textTransform: "none", letterSpacing: 0 }]} accessibilityRole="header">
           Unlock with your fingerprint?

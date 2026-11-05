@@ -15,7 +15,7 @@ const g = globalThis as { __qaCamera?: Permission | null; __scan?: string; __sca
 export const useCameraPermissions = () => [g.__qaCamera === undefined ? permission : g.__qaCamera, async () => g.__qaCamera ?? permission] as const;
 
 export const Camera = {
-  scanFromURLAsync: async (_uri: string, _types: string[]) => (g.__scanPicture ? [{ data: g.__scanPicture, type: "qr" }] : []),
+  scanFromURLAsync: async (_uri: string, _types?: string[]) => (g.__scanPicture ? [{ data: g.__scanPicture, type: "qr" }] : []),
 };
 
 /** A code's modules, 21 by 21, from a fixed seed: enough to read as a QR code in a picture. */

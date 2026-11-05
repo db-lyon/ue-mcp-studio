@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { REMOTE_UPDATES } from "@ue-mcp-studio/client-core";
 import { refusalInHealth, type RefusedExtension, type StudioRefusal } from "@ue-mcp-studio/shared";
-import { font, T, useStyles, type Theme } from "../ui";
+import { edgePadding, font, T, useInsets, useStyles, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 
 /** Studio's refusal, null when Studio runs, undefined until the agent has answered. */
@@ -32,9 +32,10 @@ export function useRefusal(health: { version: string; refusedExtensions?: Refuse
 /** `remote`: a paired client, which says the update runs on the computer instead of offering it. A phone always is. */
 export function RefusedScreen({ refusal }: { refusal: StudioRefusal; remote?: boolean }) {
   const s = useStyles(styles);
+  const insets = useInsets();
   return (
     <View style={s.app}>
-      <View style={s.main}>
+      <View style={[s.main, edgePadding(insets, 6)]}>
         <View style={s.empty}>
           <T style={s.head} accessibilityRole="header">
             Studio needs ue-mcp {refusal.needs} or later. You have {refusal.have}.

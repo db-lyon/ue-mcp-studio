@@ -7,9 +7,8 @@
  */
 import type { ReactElement, ReactNode } from "react";
 import { Pressable, ScrollView, useWindowDimensions, View, type RefreshControlProps, type StyleProp, type ViewStyle } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
-import { Button, Card, font, Label, PageGlow, Panel, StateGlyph, T, useTheme, type StateGlyphName } from "../ui";
+import { Button, Card, font, Label, PageGlow, Panel, StateGlyph, T, useInsets, useSheetInsets, useTheme, type StateGlyphName } from "../ui";
 import { Brand } from "../views/NavDrawer";
 import { OFFLINE_STRIP } from "../views/OfflineBanner";
 import { useDeviceOnline } from "../native/online";
@@ -17,7 +16,7 @@ import { useDeviceOnline } from "../native/online";
 /** .bar: the brand on a top-level page; a back button and the page's name on one under it. */
 export function AppBar({ title, back, onBack, actions }: { title?: string; back?: string; onBack?: () => void; actions?: ReactNode }) {
   const t = useTheme();
-  const insets = useSafeAreaInsets();
+  const insets = useInsets();
   return (
     <View
       style={{
@@ -26,8 +25,8 @@ export function AppBar({ title, back, onBack, actions }: { title?: string; back?
         gap: 4,
         height: 50 + insets.top,
         paddingTop: insets.top,
-        paddingLeft: Math.max(onBack ? 6 : 14, insets.left),
-        paddingRight: Math.max(actions ? 8 : 14, insets.right),
+        paddingLeft: (onBack ? 6 : 14) + insets.left,
+        paddingRight: (actions ? 8 : 14) + insets.right,
         backgroundColor: t.c.barBg,
         borderBottomWidth: 1,
         borderBottomColor: t.c.line,
@@ -83,15 +82,17 @@ export function Page({
   actions?: ReactNode;
 }) {
   const t = useTheme();
-  const insets = useSafeAreaInsets();
+  // The page's end (or its footer's buttons) clear of the navigation bar, or of the keyboard while a field has it up.
+  const insets = useSheetInsets();
   const { height } = useWindowDimensions();
   // The offline strip lies over the top of the page; the page starts below it.
   const offline = !useDeviceOnline();
+  const end = 24 + insets.bottom;
   const pad: ViewStyle = {
     paddingTop: (stage ? Math.min(180, Math.max(32, Math.round(height * 0.2))) : 24) + (offline ? OFFLINE_STRIP : 0),
-    paddingLeft: Math.max(16, insets.left),
-    paddingRight: Math.max(16, insets.right),
-    paddingBottom: footer ? 16 : Math.max(24, insets.bottom),
+    paddingLeft: 16 + insets.left,
+    paddingRight: 16 + insets.right,
+    paddingBottom: footer ? 16 : end,
     gap: 16,
     alignItems: stage ? "center" : "stretch",
   };
@@ -100,13 +101,13 @@ export function Page({
       <PageGlow top={insets.top} />
       <AppBar title={title} back={back} onBack={onBack} actions={actions} />
       {scroll ? (
-        <ScrollView style={{ flex: 1 }} refreshControl={refreshControl} keyboardShouldPersistTaps="handled" contentContainerStyle={[{ flexGrow: 1 }, pad]}>
+        <ScrollView testID="page" style={{ flex: 1 }} refreshControl={refreshControl} keyboardShouldPersistTaps="handled" contentContainerStyle={[{ flexGrow: 1 }, pad]}>
           {children}
         </ScrollView>
       ) : (
         <View style={[{ flex: 1 }, pad]}>{children}</View>
       )}
-      {footer ? <View style={{ paddingHorizontal: 16, paddingTop: 12, paddingBottom: Math.max(16, insets.bottom), gap: 8, borderTopWidth: 1, borderTopColor: t.c.line, backgroundColor: t.c.barBg }}>{footer}</View> : null}
+      {footer ? <View testID="page-footer" style={{ paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right, paddingTop: 12, paddingBottom: 16 + insets.bottom, gap: 8, borderTopWidth: 1, borderTopColor: t.c.line, backgroundColor: t.c.barBg }}>{footer}</View> : null}
     </View>
   );
 }

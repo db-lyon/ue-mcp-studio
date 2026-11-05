@@ -6,12 +6,11 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import type { VcsChange, VcsStatus } from "@ue-mcp-studio/shared";
 import { VCS_LETTER, baseName, buildTree, dirName, folderPaths, treeRows, vcsLine } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../nav";
-import { Button, font, labelFont, useStyles, useTheme, type Theme } from "../../ui";
+import { Button, font, labelFont, useInsets, useStyles, useTheme, type Theme } from "../../ui";
 
 export type ChangesView = "list" | "tree";
 export const VIEW_KEY = "changes.view";
@@ -29,7 +28,7 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
   const { api } = useProjectNav();
   const t = useTheme();
   const s = useStyles(styles);
-  const insets = useSafeAreaInsets();
+  const insets = useInsets();
   const [changes, setChanges] = useState<VcsChange[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
@@ -76,11 +75,11 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
   }, [api, picked]);
 
   const drilled = picked !== null;
-  // The phone's own edges, which the web page never has.
-  const pad = Platform.OS === "web" ? { top: 0, bottom: 0, left: 0, right: 0 } : insets;
+  // The phone's own edges, which the web page never has (the visual QA page gives zero).
+  const pad = insets;
 
   return (
-    <Modal transparent animationType="none" visible statusBarTranslucent onRequestClose={() => (drilled ? setPicked(null) : onClose())}>
+    <Modal transparent animationType="none" visible statusBarTranslucent navigationBarTranslucent onRequestClose={() => (drilled ? setPicked(null) : onClose())}>
       <View style={[s.backdrop, { paddingTop: 8 + pad.top, paddingBottom: 8 + pad.bottom, paddingLeft: 8 + pad.left, paddingRight: 8 + pad.right }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close the changes" />
         <View style={s.panel} testID="changes-panel" aria-label="Changes" role="dialog">

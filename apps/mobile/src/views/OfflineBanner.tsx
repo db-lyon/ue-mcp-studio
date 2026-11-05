@@ -5,16 +5,15 @@
  * the bar above it stays usable.
  */
 import { View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDeviceOnline } from "../native/online";
-import { Dot, font, T, useTheme } from "../ui";
+import { Dot, font, T, useInsets, useTheme } from "../ui";
 
 /** The strip's height on a phone (one line of its text): what a page under it leaves free. */
 export const OFFLINE_STRIP = 40;
 
 export function OfflineBanner() {
   const online = useDeviceOnline();
-  const insets = useSafeAreaInsets();
+  const insets = useInsets();
   const t = useTheme();
   if (online) return null;
   return (

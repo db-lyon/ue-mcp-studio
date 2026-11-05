@@ -10,10 +10,9 @@ import { useRef, useState, type ReactNode } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { Camera, CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Path } from "react-native-svg";
 import { haptic } from "../native/haptics";
-import { Banner, bannerText, Button, font, T, useTheme, Waiting } from "../ui";
+import { Banner, bannerText, Button, font, T, useInsets, useTheme, Waiting } from "../ui";
 import { Page, StateView } from "./StudioPage";
 import { Code } from "./Pairing";
 
@@ -51,7 +50,7 @@ function NoteBanner({ text }: { text: string }) {
 
 export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; onCancel: () => void }) {
   const t = useTheme();
-  const insets = useSafeAreaInsets();
+  const insets = useInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [torch, setTorch] = useState(false);
   const [note, setNote] = useState<string | null>(null);
@@ -136,7 +135,7 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
           ))}
         </View>
       </View>
-      <View style={{ position: "absolute", top: insets.top + 8, left: 12, right: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+      <View style={{ position: "absolute", top: insets.top + 8, left: 12 + insets.left, right: 12 + insets.right, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
         <Round label="Close" onPress={onCancel}>
           <Svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke={t.c.text} strokeWidth={1.8} strokeLinecap="round">
             <Path d="M4 4l8 8M12 4l-8 8" />
@@ -151,7 +150,8 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
           </Svg>
         </Round>
       </View>
-      <View style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 16, paddingBottom: Math.max(16, insets.bottom), gap: 12, backgroundColor: t.c.panel, borderTopWidth: 1, borderTopColor: t.c.line, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
+      {/* The foot above the navigation bar. */}
+      <View testID="scanner-foot" style={{ position: "absolute", left: 0, right: 0, bottom: 0, paddingLeft: 16 + insets.left, paddingRight: 16 + insets.right, paddingTop: 16, paddingBottom: 16 + insets.bottom, gap: 12, backgroundColor: t.c.panel, borderTopWidth: 1, borderTopColor: t.c.line, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
         <T style={{ ...font(t, "sans", 600, 15, 1.3), color: t.c.text, textAlign: "center" }}>Point the camera at the code</T>
         <T style={{ color: t.c.dim, textAlign: "center" }}>
           On the computer running Studio, type <Code>/remote</Code> in a chat, or open <T style={{ ...font(t, "sans", 600, t.base.size), color: t.c.muted }}>{"Settings > Remote control"}</T>.

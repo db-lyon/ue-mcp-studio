@@ -8,11 +8,9 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { Image, PanResponder, Platform, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, extOf, fitHeight, formatBytes } from "@ue-mcp-studio/client-core";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
-import { Button, font, RemoveButton, Sheet, useStyles, useTheme, type Theme } from "../../../ui";
-import { useKeyboardOpen } from "./keyboard";
+import { Button, font, RemoveButton, Sheet, useAvoidedInsets, useStyles, useTheme, type Theme } from "../../../ui";
 import { haptic } from "../../../native/haptics";
 import { clipboardHasImage, pastedImage, pickFiles, type PendingFile, type PickSource, type PickedFile } from "./attachments";
 import { useSlashMenu, type MenuKey } from "./SlashMenu";
@@ -93,10 +91,8 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     haptic.warning();
     onStop();
   };
-  const insets = useSafeAreaInsets();
-  // The chat's KeyboardAvoidingView lifts the whole composer; with the keyboard up, the home indicator's inset is under it.
-  const keyboard = useKeyboardOpen();
-  const bottomInset = keyboard ? 0 : insets.bottom;
+  // Above the navigation bar; with the keyboard up, the chat's KeyboardAvoidingView has lifted it onto the keys instead.
+  const insets = useAvoidedInsets();
   const box = useRef<TextInputInstance>(null);
   const slash = useSlashMenu(draft, onDraft, commands, flows, actions);
   const mention = useMentionMenu(draft, onDraft, box, mentions);
@@ -253,7 +249,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
 
   return (
     <>
-      <View style={[s.composer, { paddingBottom: Math.max(10, bottomInset), paddingLeft: Math.max(10, insets.left), paddingRight: Math.max(10, insets.right) }]}>
+      <View testID="composer" style={[s.composer, { paddingBottom: 10 + insets.bottom, paddingLeft: 10 + insets.left, paddingRight: 10 + insets.right }]}>
         <View
           style={s.divider}
           accessible
@@ -290,7 +286,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         )}
         {mentions && <MentionChips draft={draft} onDraft={onDraft} />}
         {/* The mirror: the text laid out at the box's width, measured instead of the box. */}
-        <View pointerEvents="none" style={[s.mirror, { left: Math.max(10, insets.left), right: Math.max(10, insets.right) }]} aria-hidden importantForAccessibility="no-hide-descendants">
+        <View pointerEvents="none" style={[s.mirror, { left: 10 + insets.left, right: 10 + insets.right }]} aria-hidden importantForAccessibility="no-hide-descendants">
           <Text style={[textFont, s.mirrorText]} onLayout={(e) => setContent(Math.round(e.nativeEvent.layout.height) + BORDER)}>{mirrorText}</Text>
         </View>
         {menu}

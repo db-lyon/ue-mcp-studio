@@ -2,7 +2,7 @@ import "./src/native/system";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, Linking, View } from "react-native";
 import { StatusBar } from "expo-status-bar";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-context";
 import * as SecureStore from "expo-secure-store";
 import type { PanelLocation } from "@ue-mcp-studio/client-core";
 import { THEMES, ThemeProvider, useStudioFonts, type ThemeName } from "./src/ui";
@@ -58,7 +58,8 @@ export default function App() {
     <ShareProvider>
       <ThemeProvider name={theme} onChange={choose}>
         <KeyboardProvider>
-          <SafeAreaProvider style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>
+          {/* The window's insets from the first frame, so nothing is laid out once under the navigation bar and then moves. */}
+          <SafeAreaProvider initialMetrics={initialWindowMetrics} style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>
             <StatusBar style="light" />
             <View style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>{fonts ? <Root /> : null}</View>
           </SafeAreaProvider>

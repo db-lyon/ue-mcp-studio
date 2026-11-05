@@ -8,10 +8,29 @@ import { CardsHarness } from "./cards";
 import { REFERENCE, SCENES, SceneHarness } from "./scenes";
 import { PARITY } from "./parity";
 import { store } from "../ui-test/mocks/secure-store";
+import { setSafeAreaInsets } from "../ui-test/mocks/safe-area";
 import { FILTER_KEY } from "../src/screens/playtests/Playtests";
+import { AppScreenHarness, APP_SCREENS } from "./screens";
 
-// The web reference has no safe area to match.
-(globalThis as { __qaInsets?: unknown }).__qaInsets = { top: 0, bottom: 0, left: 0, right: 0 };
+/** A phone's 3-button navigation bar over the bottom of the page: translucent, so whatever sits under it shows through. */
+function drawNavigationBar(height: number) {
+  const bar = document.createElement("div");
+  bar.setAttribute("aria-hidden", "true");
+  bar.style.cssText = `position:fixed;left:0;right:0;bottom:0;height:${height}px;z-index:2147483647;pointer-events:none;background:rgba(18,18,18,0.72);border-top:1px solid #ff2bd6;display:flex;align-items:center;justify-content:space-around;color:#cfcfcf;font:20px system-ui,sans-serif`;
+  for (const glyph of ["◁", "▢", "≡"]) {
+    const g = document.createElement("span");
+    g.textContent = glyph;
+    bar.appendChild(g);
+  }
+  document.body.appendChild(bar);
+}
+
+const params = new URLSearchParams(location.search);
+// The web reference has no safe area to match. ?insetBottom=48 gives the app a navigation bar that tall,
+// drawn over the page as a phone's 3-button bar is, to show nothing ends up under it.
+const insetBottom = Math.max(0, Number(params.get("insetBottom")) || 0);
+setSafeAreaInsets({ top: 0, bottom: insetBottom, left: 0, right: 0 });
+if (insetBottom) drawNavigationBar(insetBottom);
 // Animations are shot at full strength, as the web harness freezes them (ui/Pulse reads this).
 (globalThis as { __studioFreezeAnimations?: boolean }).__studioFreezeAnimations = true;
 
@@ -34,7 +53,6 @@ function dropScrollLayers() {
 dropScrollLayers();
 requestAnimationFrame(dropScrollLayers);
 
-const params = new URLSearchParams(location.search);
 const name = params.get("scenario") ?? "session-empty";
 const theme = (params.get("theme") ?? "ue-mcp") as StudioTheme;
 // The Playtests page's filter, as the viewer last picked it.
@@ -45,9 +63,14 @@ if (picked) store.set(FILTER_KEY, picked);
   scenarios: Object.fromEntries(Object.entries(SCENARIOS).map(([k, s]) => [k, { title: s.title, height: s.height ?? 860 }])),
   parity: PARITY,
   scenes: Object.fromEntries(Object.entries(SCENES).map(([k, s]) => [k, { title: s.title, clicks: s.clicks ?? [], type: s.type ?? null, reference: REFERENCE[k] ?? null }])),
+  screens: Object.keys(APP_SCREENS),
 };
 // ?cards=1: only the session's playtest cards, for scripts/parity-cards-mobile.mjs.
 const cards = params.get("cards") === "1";
-// ?scene=<name>: one of the app's own screens no web scenario draws (./scenes).
+// ?screen=<name>: one of the app's own screens outside a project (pairing, projects, the fingerprint offer, a sheet), one state each.
+const screen = params.get("screen");
+// ?scene=<name>: one of the app's own screens in one of its states (./scenes).
 const scene = params.get("scene");
-createRoot(document.getElementById("root")!).render(scene ? <SceneHarness name={scene} theme={theme} /> : cards ? <CardsHarness name={name} theme={theme} /> : <Harness name={name} theme={theme} />);
+createRoot(document.getElementById("root")!).render(
+  scene ? <SceneHarness name={scene} theme={theme} /> : screen ? <AppScreenHarness name={screen} theme={theme} /> : cards ? <CardsHarness name={name} theme={theme} /> : <Harness name={name} theme={theme} />,
+);

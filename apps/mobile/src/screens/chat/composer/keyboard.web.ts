@@ -1,2 +1,4 @@
-/** keyboard.ts on the web harness and in tests: a browser resizes the page itself, and there is no safe area to give up. */
-export const useKeyboardOpen = (): boolean => false;
+/** keyboard.ts on the web harness and in tests: up only when a test puts the stand-in keyboard up. */
+import { useKeyboardHeight } from "../../../native/keyboard";
+
+export const useKeyboardOpen = (): boolean => useKeyboardHeight() > 0;

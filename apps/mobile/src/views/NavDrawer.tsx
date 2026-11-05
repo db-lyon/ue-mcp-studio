@@ -9,7 +9,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { Animated, BackHandler, Easing, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import type { SessionSummary } from "@ue-mcp-studio/shared";
-import { font, T, useStyles, useTheme, type Theme } from "../ui";
+import { font, T, useInsets, useStyles, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 
 export type NavTab = "Chat" | "Playtests" | "Plugins" | "Settings";
@@ -65,6 +65,7 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
   const t = useTheme();
   const s = useStyles(styles);
   const { api } = useProjectNav();
+  const insets = useInsets();
   const [recent, setRecent] = useState<SessionSummary[] | null>(null);
   const slide = useRef(new Animated.Value(open ? 1 : 0)).current;
   const [shown, setShown] = useState(open);
@@ -107,7 +108,8 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
       <Animated.View
         accessibilityViewIsModal
         accessibilityLabel="Navigation"
-        style={[s.drawer, { transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [-DRAWER_W - 1, 0] }) }] }]}
+        // Over the whole screen: its brand under the status bar, its foot above the navigation bar.
+        style={[s.drawer, { paddingTop: 10 + insets.top, paddingBottom: 10 + insets.bottom, paddingLeft: 10 + insets.left }, { transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [-DRAWER_W - 1, 0] }) }] }]}
       >
         <View style={s.head}>
           <Brand />

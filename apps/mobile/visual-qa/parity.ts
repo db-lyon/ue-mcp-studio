@@ -18,11 +18,6 @@ export interface ParityEntry {
   focus?: string;
   /** Typed key by key at the end of an element (a CSS selector in the app's page) after the focus: the web scenario's type. */
   type?: { into: string; text: string };
-  /**
-   * Compared with the computer's capture (scripts/visual-qa.mjs without --remote), not a paired browser's:
-   * the state is the computer's own, and the app draws it the same way (the /remote reply).
-   */
-  reference?: "computer";
   /** Pressed one after another once the typing settles, then left for wait milliseconds: the web scenario's afterType. */
   afterType?: { clicks: string[]; wait: number };
   /** Scrolled to the top of the conversation before the shot, by accessibility label (or text): the web scenario's `scroll`. */
@@ -70,17 +65,19 @@ export const PARITY: Record<string, ParityEntry> = {
   "mention-actor": {owner: "chat", type: { into: BOX, text: "@actor:Fro" }},
   "mention-empty": {owner: "chat", type: { into: BOX, text: "@Zebra" }},
   "mention-sent": {owner: "chat"},
-  "remote-upgrade-reply": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }},
-  "remote-checkout-opened-reply": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: ["Upgrade to Pro"], wait: 700 }},
-  "remote-now-on-reply": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: ["Upgrade to Pro"], wait: 4000 }},
-  "remote-pair-connecting": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 1200 }},
-  "remote-pair-code": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 1200 }},
-  "remote-pair-expired": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 2000 }},
-  "remote-pair-error": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 1200 }},
-  "remote-pair-approval": {owner: "chat", reference: "computer", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 1200 }},
+  "remote-upgrade-reply": {notOnPhone: "The Upgrade reply answers a computer whose account has no paid plan. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
+  "remote-checkout-opened-reply": {notOnPhone: "The checkout opens from the Upgrade reply on the computer. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
+  "remote-now-on-reply": {notOnPhone: "The plan showing after a checkout is the computer's own state. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
+  "remote-pair-connecting": {notOnPhone: "Turning remote control on and connecting runs on the computer. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
+  "remote-pair-code": {notOnPhone: "The pairing code is made on the computer. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
+  "remote-pair-expired": {notOnPhone: "The pairing code is made on the computer. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
+  "remote-pair-error": {notOnPhone: "The relay status is read on the computer. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
+  "remote-pair-approval": {notOnPhone: "A device asking to be allowed is answered on the computer. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
+  "remote-command-menu-paired": {owner: "chat", type: { into: BOX, text: "/" }, afterType: { clicks: [], wait: 600 }},
+  "remote-command-paired": {owner: "chat", type: { into: BOX, text: "/remote \n" }, afterType: { clicks: [], wait: 1200 }},
   "remote-ue-mcp-offline": {owner: "shell"},
   "remote-waking": {owner: "shell"},
-  "remote-approval-banner": {notOnPhone: "The Studio-wide banner for a device asking to be allowed shows on the computer, the only place that can allow it; the app shows the request inside its /remote reply (remote-pair-approval)."},
+  "remote-approval-banner": {notOnPhone: "The Studio-wide banner for a device asking to be allowed shows on the computer, the only place that can allow it; a paired phone is refused the approvals route, and its /remote reply says so (remote-command-paired)."},
   "session-empty": {owner: "chat"},
   "draft": {owner: "agent-a"},
   "draft-asset-links": {owner: "agent-a", clicks: ["Open TS_Playtest_BP_Obstacle_BrokenBridge"]},

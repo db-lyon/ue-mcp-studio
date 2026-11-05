@@ -14,7 +14,7 @@ import { haptic } from "../native/haptics";
 import { KeyboardAvoidingView } from "../native/keyboard";
 import { useSharedFiles } from "../native/share";
 import { publishRecentSessions } from "../native/shortcuts";
-import { Banner, Button, font, labelFont, T, useTheme, type Theme } from "../ui";
+import { Banner, Button, font, labelFont, T, useAvoidedInsets, useSheetInsets, useTheme, type Theme } from "../ui";
 import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
 import { useDaemonState, useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
@@ -81,6 +81,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
   onSettings?: (section: string) => void;
 }) {
   const t = useTheme();
+  const listInsets = useSheetInsets();
   const { project, api } = useProjectNav();
   const daemon = useDaemonState(project);
   const shared = useSharedFiles();
@@ -446,7 +447,8 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
   if (pane === "list") {
     return (
       <AskedContext.Provider value={asked}>
-        <ScrollView style={{ flex: 1, backgroundColor: t.c.panel }} contentContainerStyle={{ paddingVertical: 10, paddingHorizontal: 12 }}>
+        {/* The list's end scrolls clear of the navigation bar, or of the keyboard while a rename has it up. */}
+        <ScrollView testID="sessions" style={{ flex: 1, backgroundColor: t.c.panel }} contentContainerStyle={{ paddingTop: 10, paddingBottom: 10 + listInsets.bottom, paddingHorizontal: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 6 }}>
             <T accessibilityRole="header" style={labelFont(t)}>Sessions</T>
             <View style={{ flex: 1 }} />
@@ -652,9 +654,10 @@ function Display({ t }: { t: Theme }) {
 /** A session not yet started: what the agent can do, the model, New session and three examples. */
 function Empty({ settings, onSettings, onCreate }: { settings: StudioSettings | null; onSettings: (s: StudioSettings) => void; onCreate: (prompt?: string) => void }) {
   const t = useTheme();
+  const insets = useAvoidedInsets();
   const disconnected = settings !== null && settings.route === null;
   return (
-    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", paddingVertical: 28, paddingHorizontal: 14 }}>
+    <ScrollView testID="chat-empty" style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", paddingTop: 28, paddingBottom: 28 + insets.bottom, paddingHorizontal: 14 }}>
       <Display t={t} />
       <T style={{ ...font(t, "sans", 400, 13.5, t.base.lineHeight / t.base.size), color: t.c.muted, textAlign: "center", maxWidth: 460, marginBottom: 20 }}>
         The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project&apos;s files, and read the web. Approvals in Settings set what it asks you first.

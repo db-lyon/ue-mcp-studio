@@ -6,9 +6,9 @@
  * press opens the full banner under the bar.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { editorBanner, editorSteps, stepFailed, type EditorBannerState } from "@ue-mcp-studio/client-core";
-import { Button, T, font, useTheme } from "../../ui";
+import { Button, T, font, useInsets, useTheme } from "../../ui";
 import { Spinner } from "../../ui/Spinner";
 import { monoFont, warnBanner } from "../../ui/type";
 import { useProjectNav } from "../../nav";
@@ -122,6 +122,8 @@ function Pulse({ color, animate }: { color: string; animate: boolean }) {
 export function EditorChip({ top, animate = true, daemon }: { top?: number; animate?: boolean; daemon?: ShellDaemon }) {
   const t = useTheme();
   const b = useEditorBanner(daemon);
+  const insets = useInsets();
+  const win = useWindowDimensions();
   const [open, setOpen] = useState(false);
   const [below, setBelow] = useState(top ?? 53);
   const chip = useRef<{ measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null>(null);
@@ -153,9 +155,10 @@ export function EditorChip({ top, animate = true, daemon }: { top?: number; anim
           {words}
         </Text>
       </Pressable>
-      <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)}>
+      {/* Edge to edge as the app is, so the chip's window position is the popover's. */}
+      <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent>
         <Pressable accessibilityLabel="Close the editor state" style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
-        <View testID="editor-pop" style={[s.pop, { top: below, backgroundColor: t.c.panel }]}>
+        <View testID="editor-pop" style={[s.pop, { top: below, left: 6 + insets.left, right: 6 + insets.right, maxHeight: Math.max(120, win.height - below - insets.bottom - 6), backgroundColor: t.c.panel }]}>
           <BannerView b={b as Banner & { state: EditorBannerState }} still={!animate} />
         </View>
       </Modal>
