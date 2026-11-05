@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { REMOTE_CHANGE_NOTE } from "@ue-mcp-studio/client-core";
 import { SettingsScreen } from "../src/screens/settings/SettingsScreen";
+import { openFileInline } from "../src/screens/settings/NativePanel";
 import { renderArea, settled } from "./area-b";
 
 const open = (scenario: string, section: string | null, onSection = vi.fn(), onTheme = vi.fn()) => ({ ...renderArea(scenario, (daemon) => <SettingsScreen daemon={daemon} section={section} onSection={onSection} onTheme={onTheme} />), onTheme });
@@ -116,8 +117,9 @@ describe("Settings > Agents", () => {
     expect(screen.getByText("Main agent")).toBeTruthy();
     expect(screen.getByLabelText("Worker model: Same as main agent")).toBeTruthy();
     expect(screen.getByText(/Read by: Claude sign-in\./)).toBeTruthy();
-    expect(screen.getByText("level-dresser")).toBeTruthy();
-    expect(screen.getByText("naming-conventions")).toBeTruthy();
+    // Each name is drawn once more off screen, hidden from screen readers, to measure whether Open file fits beside it.
+    expect(screen.getAllByText("level-dresser")).toHaveLength(2);
+    expect(screen.getAllByText("naming-conventions")).toHaveLength(2);
   });
 
   it("stacks the worker's Starts choices with no space between them (.seg.seg-stack)", async () => {
@@ -127,17 +129,33 @@ describe("Settings > Agents", () => {
     for (const c of choices) expect(getComputedStyle(c).marginTop).toMatch(/^(0px|)$/);
   });
 
-  it("keeps each subagent and skill row's text and Open file side by side, as the web's narrow rows do", async () => {
-    open("settings-agents", "agents");
+  it("gives each subagent and skill description the row's full width, with a small Open file at the end of the name line", async () => {
+    open("settings-agents-long", "agents");
     await settled(6);
-    for (const path of [".claude/agents/level-dresser.md", ".claude/skills/naming-conventions"]) {
+    for (const path of [".claude/agents/level-dresser.md", "~/.claude/skills/triage-all"]) {
       const button = screen.getByLabelText(`Open ${path}`);
-      const row = button.parentElement!;
-      expect(getComputedStyle(row).flexDirection).toBe("row");
-      // The text column takes what is left (flex 1); the button keeps its own width.
-      expect(getComputedStyle(row.children[0]).flexGrow).toBe("1");
-      expect(row.lastElementChild).toBe(button);
+      const nameLine = button.parentElement!;
+      expect(nameLine.getAttribute("data-testid")).toBe("agent-file-name");
+      expect(nameLine.lastElementChild).toBe(button);
+      // Drawn 30 px tall; its hit slop makes the target 44.
+      expect(getComputedStyle(button).height).toBe("30px");
+      // The description is the row's own child after the name line, not a column beside the button.
+      const row = nameLine.parentElement!;
+      expect(row.getAttribute("data-testid")).toBe("agent-file-row");
+      expect(getComputedStyle(row).flexDirection).toBe("column");
+      const description = nameLine.nextElementSibling as HTMLElement;
+      expect(description.contains(button)).toBe(false);
+      expect(description.textContent).toMatch(/^(Places props|Drive every open PR)/);
     }
+  });
+
+  it("puts Open file on the name line only when the name, the gap and the button fit the row", () => {
+    expect(openFileInline(120, 330, 72)).toBe(true);
+    expect(openFileInline(248, 330, 72)).toBe(true);
+    expect(openFileInline(249, 330, 72)).toBe(false);
+    expect(openFileInline(330, 330, 72)).toBe(false);
+    // Before the first layout: on the name line.
+    expect(openFileInline(0, 0, 0)).toBe(true);
   });
 
   it("changes the screenshot size from the phone", async () => {

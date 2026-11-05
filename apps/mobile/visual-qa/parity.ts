@@ -110,6 +110,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "page-editor-offline": {owner: "agent-a"},
   "settings-list": {owner: "agent-b"},
   "settings-agents": {owner: "agent-b"},
+  "settings-agents-long": {owner: "agent-b"},
   "settings-agents-not-connected": {owner: "agent-b"},
   "settings-agents-files-off": {owner: "agent-b"},
   "settings-models": {owner: "agent-b"},

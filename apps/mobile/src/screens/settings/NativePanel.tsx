@@ -21,14 +21,62 @@ export function PathText({ p, dim }: { p: string; dim?: boolean }) {
   return <T style={[font(t, "mono", 400, 12, 1.4), { color: dim ? t.c.dim : t.c.text }]}>{p.split(/(?<=[\\/])/).join("​")}</T>;
 }
 
-function OpenFile({ path, onError }: { path: string; onError: (e: Error) => void }) {
+function OpenFile({ path, onError, small, onWidth }: { path: string; onError: (e: Error) => void; small?: boolean; onWidth?: (w: number) => void }) {
   const api = useSettingsApi();
   const t = useTheme();
-  // .cfg button.open-file: the sans at 12px, 3px 10px, 44px tall at a finger.
+  // .cfg button.open-file: the sans at 12px, 3px 10px, 44px tall at a finger. Small, it is drawn 30 px tall and takes taps over 44.
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={`Open ${path}`} onPress={() => void api.openFile(path).catch(onError)} style={{ alignSelf: "flex-start", minHeight: 44, minWidth: 44, paddingVertical: 3, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, backgroundColor: t.c.panel2, justifyContent: "center" }}>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${path}`}
+      onPress={() => void api.openFile(path).catch(onError)}
+      onLayout={onWidth ? (e) => onWidth(e.nativeEvent.layout.width) : undefined}
+      hitSlop={small ? { top: 7, bottom: 7, left: 4, right: 4 } : undefined}
+      style={{ alignSelf: "flex-start", flexShrink: 0, ...(small ? { height: 30 } : { minHeight: 44, minWidth: 44, paddingVertical: 3 }), paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, backgroundColor: t.c.panel2, justifyContent: "center" }}
+    >
       <T style={[font(t, "sans", 500, 12, 1.4), { color: t.c.text }]}>Open file</T>
     </Pressable>
+  );
+}
+
+/** Open file sits on the name line when the name, the gap and the button fit the row; otherwise it goes under the description. */
+export function openFileInline(nameWidth: number, rowWidth: number, buttonWidth: number, gap = 10): boolean {
+  return rowWidth <= 0 || nameWidth + gap + buttonWidth <= rowWidth;
+}
+
+/**
+ * A subagent's or skill's row on a phone: the name line with a small Open
+ * file at its end, then the description and the rest at the row's full
+ * width. A name too long to share its line takes it alone, and Open file
+ * goes under the description. The name's own width is measured off screen,
+ * so where the button sits never changes what is measured.
+ */
+export function AgentFileRow({ name, path, onError, first, children }: { name: ReactNode; path: string; onError: (e: Error) => void; first: boolean; children: ReactNode }) {
+  const t = useTheme();
+  const [row, setRow] = useState(0);
+  const [nameWidth, setNameWidth] = useState(0);
+  const [button, setButton] = useState(0);
+  const inline = openFileInline(nameWidth, row, button);
+  return (
+    <View testID="agent-file-row" onLayout={(e) => setRow(e.nativeEvent.layout.width)} style={{ paddingVertical: 10, gap: 3, borderTopWidth: first ? 0 : 1, borderTopColor: t.c.line }}>
+      <View pointerEvents="none" accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ position: "absolute", left: 0, top: 0, opacity: 0 }}>
+        <View onLayout={(e) => setNameWidth(e.nativeEvent.layout.width)} style={{ alignSelf: "flex-start" }}>
+          <Txt>{name}</Txt>
+        </View>
+      </View>
+      <View testID="agent-file-name" style={{ flexDirection: "row", alignItems: "center", gap: 10, minHeight: 30 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Txt>{name}</Txt>
+        </View>
+        {inline ? <OpenFile small path={path} onError={onError} onWidth={setButton} /> : null}
+      </View>
+      {children}
+      {inline ? null : (
+        <View style={{ marginTop: 5 }}>
+          <OpenFile small path={path} onError={onError} onWidth={setButton} />
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -226,11 +274,18 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
           </Txt>
         ) : null}
         {view.subagents.map((a, i) => (
-          <View key={a.path} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start", paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: t.c.line }}>
-            <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-              <Txt>
-                <Span weight={700}>{a.name}</Span> <Tag>{SOURCE_NAME[a.source]}</Tag> <Span size={12} tone="muted">{a.description}</Span>
-              </Txt>
+          <AgentFileRow
+            key={a.path}
+            first={i === 0}
+            path={a.path}
+            onError={onError}
+            name={
+              <>
+                <Span weight={700}>{a.name}</Span> <Tag>{SOURCE_NAME[a.source]}</Tag>
+              </>
+            }
+          >
+              {a.description ? <Txt size={12} tone="muted">{a.description}</Txt> : null}
               <Fields
                 rows={[
                   ["Model", a.model ? <>{a.runs.model} (file says <Code>{a.model}</Code>)</> : a.runs.model],
@@ -247,9 +302,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
                 </Txt>
               ))}
               <PathText p={a.path} dim />
-            </View>
-            <OpenFile path={a.path} onError={onError} />
-          </View>
+          </AgentFileRow>
         ))}
       </Card>
 
@@ -261,14 +314,20 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
           </Txt>
         ) : null}
         {view.skills.map((s, i) => (
-          <View key={s.path} style={{ flexDirection: "row", gap: 10, alignItems: "flex-start", paddingVertical: 10, borderTopWidth: i ? 1 : 0, borderTopColor: t.c.line }}>
-            <View style={{ flex: 1, minWidth: 0, gap: 3 }}>
-              <Txt>
+          <AgentFileRow
+            key={s.path}
+            first={i === 0}
+            path={s.path}
+            onError={onError}
+            name={
+              <>
                 <Span weight={700} mono size={t.base.size * 0.92}>
                   {s.name}
                 </Span>{" "}
                 <Tag>{s.owner ? `Plugin: ${s.owner}` : SOURCE_NAME[s.source]}</Tag>
-              </Txt>
+              </>
+            }
+          >
               <Txt size={12} tone="muted">
                 {s.description || "No description."} <Span tone="dim">{tokens(s.tokens)} tokens{s.implicit ? "" : ", used only when named"}</Span>
               </Txt>
@@ -279,9 +338,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
                 </Txt>
               ))}
               <PathText p={`${s.path}/SKILL.md`} dim />
-            </View>
-            <OpenFile path={s.path} onError={onError} />
-          </View>
+          </AgentFileRow>
         ))}
       </Card>
     </>

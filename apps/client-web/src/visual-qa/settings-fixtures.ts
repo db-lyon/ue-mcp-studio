@@ -38,7 +38,21 @@ const NATIVE_FULL: NativeOverview = {
   ],
 } as NativeOverview;
 
-const NOTHING_CONNECTED: Partial<StudioSettings> = { route: null, connected: {} as StudioSettings["connected"] };
+/** Settings > Agents with long skill and subagent descriptions, and one name too long to share its line with Open file. */
+const LONG_SKILL = "Drive every open PR and issue in a GitHub repo to a terminal state (merge, close-with-fix, reject, approve, request changes, label planned/limitation) by orchestrating one subagent per item, then gate completion on a zero-context adversarial auditor.";
+const NATIVE_LONG: NativeOverview = {
+  ...NATIVE_FULL,
+  conventions: NATIVE_FULL.conventions.map((c) => c.convention !== "claude" ? c : {
+    ...c,
+    subagents: [{ ...c.subagents[0], description: "Places props and foliage in a level from a short brief, checking each placement against the navmesh and the art direction notes before it commits anything to the level." }],
+    skills: [
+      { name: "triage-all", description: LONG_SKILL, path: "~/.claude/skills/triage-all", source: "user", tokens: 1500, implicit: true, problems: [] },
+      { name: "pcg-level-assemblies-and-their-graphs", description: "Builds PCG level assemblies from a layout sketch.", path: ".claude/skills/pcg-level-assemblies-and-their-graphs", source: "project", tokens: 900, implicit: true, problems: [] },
+    ],
+  }),
+} as NativeOverview;
+
+const NOTHING_CONNECTED: Partial<StudioSettings> ={ route: null, connected: {} as StudioSettings["connected"] };
 
 
 /** Settings > Remote control on a paid, online computer with one paired phone, and the PIN lock as given, scrolled to it. */
@@ -94,6 +108,7 @@ export const OLD_DATA_SCENARIOS: Record<string, Scenario> = Object.fromEntries(S
 export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-list": page("Settings at narrow width: the list of sections, each with its state; wide opens Agents", "", { hash: "#/settings" }),
   "settings-agents": page("Agents: main agent, worker, and the project's Claude files with a subagent and a skill", "agents", { get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_FULL : undefined) }),
+  "settings-agents-long": page("Agents with long skill and subagent descriptions, and a skill name too long to share its line", "agents", { get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_LONG : undefined) }),
   "settings-agents-not-connected": page("Agents with nothing connected: the main agent cannot run yet, and no route reads the project's files", "agents", { settings: NOTHING_CONNECTED, get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_NONE() : undefined) }),
   "settings-agents-files-off": page("Agents with the project's own files switched off", "agents", { settings: { usage: { projectInstructions: false } } as Partial<StudioSettings> }),
   "settings-models": page("Models & accounts: Claude signed in, no keys", "models"),
