@@ -170,6 +170,10 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-remote-pin-off": page("Remote control with the PIN lock off: what it does and Set a PIN", "remote", remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 })),
   "settings-remote-pin-new": page("Remote control setting a PIN: the PIN twice, digits only", "remote", { ...remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button.primary"] }),
   "settings-remote-pin-on": page("Remote control with a PIN, both switches on: Studio locks on paired devices after the idle time, and sensitive actions ask", "remote", remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 })),
+  "settings-remote-pin-change": page("Remote control changing the PIN: the current PIN, then the new one twice", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button:nth-child(1)"] }),
+  "settings-remote-pin-remove": page("Remote control removing the PIN: asks for the current PIN first", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button:nth-child(2)"] }),
+  "settings-remote-pin-weaken": page("Remote control turning Ask for sensitive actions off: held until the current PIN", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: ['.pin-lock button[aria-label="Ask for sensitive actions"]'] }),
+  "settings-remote-pin-forgot": page("Remote control Forgot PIN: the confirm that every paired device goes with it", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: [".pin-lock .pin-forgot-link"] }),
   "settings-remote-signin": page("Remote control on a signed-out computer, while STUDIO_PLAN_AVAILABLE is on: the ue-mcp account sign-in inline. With the flag off it is not listed and this opens General", "remote", {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : undefined),
   }),

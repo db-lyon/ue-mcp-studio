@@ -143,9 +143,13 @@ export const api = {
   revokeRemoteBrowser: (id: string) => call<void>("DELETE", `/v1/ext/studio/remote/browsers/${encodeURIComponent(id)}`),
   /** The PIN lock, on the computer only. */
   remoteLock: () => call<RemoteLockSettings>("GET", "/v1/ext/studio/remote/lock"),
-  setRemotePin: (pin: string) => call<RemoteLockSettings>("PUT", "/v1/ext/studio/remote/lock/pin", { pin }),
-  removeRemotePin: () => call<RemoteLockSettings>("DELETE", "/v1/ext/studio/remote/lock/pin"),
-  setRemoteLock: (c: Partial<Pick<RemoteLockSettings, "whole" | "sensitive" | "idleMinutes">>) => call<RemoteLockSettings>("PUT", "/v1/ext/studio/remote/lock", c),
+  /** The first PIN, or a new one with the current PIN. */
+  setRemotePin: (pin: string, current?: string) => call<RemoteLockSettings>("PUT", "/v1/ext/studio/remote/lock/pin", { pin, confirm: pin, ...(current !== undefined ? { current } : {}) }),
+  removeRemotePin: (current: string) => call<RemoteLockSettings>("DELETE", "/v1/ext/studio/remote/lock/pin", { current }),
+  /** A switch off or a longer idle time needs `current`. */
+  setRemoteLock: (c: Partial<Pick<RemoteLockSettings, "whole" | "sensitive" | "idleMinutes">> & { current?: string }) => call<RemoteLockSettings>("PUT", "/v1/ext/studio/remote/lock", c),
+  /** Forgot PIN: removes the PIN and the lock together with every paired device. */
+  forgetRemotePin: () => call<RemoteLockSettings & { unpaired: number }>("POST", "/v1/ext/studio/remote/lock/forget"),
   /** The lock as this paired browser sees it, answered by the computer. */
   lockState: () => call<RemoteLockState>("GET", "/v1/ext/studio/lock"),
   saveConfig: (text: string) => call<StudioConfigFile>("PUT", "/v1/ext/studio/config", { text }),

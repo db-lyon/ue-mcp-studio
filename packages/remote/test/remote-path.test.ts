@@ -77,6 +77,16 @@ describe("remotePath", () => {
       ["POST", "/v1/ext/studio/remote%2fpair"],
       ["POST", "/v1/ext/studio/%2e%2e/studio/remote/pair"],
       ["POST", "/v1/ext/studio/remote#/pair"],
+      ["GET", "/v1/ext/studio/remote/lock"],
+      ["PUT", "/v1/ext/studio/remote/lock"],
+      ["PUT", "/v1/ext/studio/remote/lock/pin"],
+      ["DELETE", "/v1/ext/studio/remote/lock/pin"],
+      ["POST", "/v1/ext/studio/remote/lock/forget"],
+      ["POST", "/v1/ext/studio/REMOTE/lock/forget"],
+      ["POST", "/v1/ext/studio/remote/lock%2Fforget"],
+      ["POST", "/v1/ext/studio/remote%2Flock%2Fforget"],
+      ["POST", "/v1/ext/studio/x/..%2Fremote/lock/forget"],
+      ["POST", "/v1/ext/studio/lock/../remote/lock/forget"],
     ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
   });
 
