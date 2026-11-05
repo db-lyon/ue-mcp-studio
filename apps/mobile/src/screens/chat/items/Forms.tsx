@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
 import { formContent, formInitial } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, Card, Check, ContentButton, font, fontName, Input, Sheet, useTheme } from "../../../ui";
+import { Banner, bannerText, baseFont, Card, Check, ContentButton, font, fontName, Input, lineBox, SelectArrow, Sheet, useTheme } from "../../../ui";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
 import { CardsRegion } from "./Approvals";
@@ -53,8 +53,9 @@ function Select({ value, options, names, label, onChange }: { value: string; opt
   return (
     <>
       <Pressable accessibilityRole="combobox" accessibilityLabel={label} accessibilityState={{ expanded: open }} onPress={() => setOpen(true)} style={{ flexDirection: "row", alignItems: "center", minHeight: 44, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: t.c.panel2, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius }}>
-        <Text style={{ ...font(t, "sans", 400, 16), color: t.c.text, flex: 1 }} numberOfLines={1}>{name(value)}</Text>
-        <Text style={{ color: t.c.muted, fontSize: 12 }}>{"▾"}</Text>
+        {/* The browser's select sets its value 4px in from its own padding, and half a pixel lower than centring its line would. */}
+        <Text style={{ ...font(t, "sans", 400, 16), color: t.c.text, flex: 1, marginLeft: 4, position: "relative", top: 0.5 }} numberOfLines={1}>{name(value)}</Text>
+        <SelectArrow />
       </Pressable>
       <Sheet open={open} title={label} onClose={() => setOpen(false)}>
         {options.map((o) => (
@@ -88,40 +89,53 @@ export function FieldsForm({ fields, required, prefill, sent, error, submitLabel
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...formInitial(fields), ...prefill }));
   const set = (k: string, v: unknown) => setValues((cur) => ({ ...cur, [k]: v }));
   const missing = requireFilled && required.some((k) => values[k] === "" || values[k] === undefined);
+  // The body's line-height multiple (1.55, or 1.5 in the editor themes), not the quotient of its already-cut line box.
+  const lh = Math.round((t.base.lineHeight / t.base.size) * 100) / 100;
   const muted = { ...baseFont(t), color: t.c.muted };
-  const small = { ...baseFont(t), fontSize: 12, lineHeight: 12 * (t.base.lineHeight / t.base.size), color: t.c.dim };
+  const small = { ...font(t, "sans", 400, 12, lh), color: t.c.dim };
+  // The fields' 6px margins collapse into one another on the web, so each keeps only its top one here.
   return (
     <>
       {Object.entries(fields).map(([k, f]) => {
         const label = f.title ?? k;
         const isRequired = required.includes(k);
+        // label.row.toggle: the box (margins 1 3 3 4), the name and the description top-aligned on one line (.row's margin outranks label's 14px right margin).
         if (f.type === "boolean")
           return (
-            <View key={k}>
+            <View key={k} style={{ marginTop: 6, paddingLeft: 4 }}>
               <Check label={label} checked={!!values[k]} onChange={(v) => set(k, v)}>
-                <Text style={muted}>{label}</Text>
+                <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, marginLeft: 3 }}>
+                  <Text style={muted}>{label}</Text>
+                  {f.description ? <Text style={[small, { flexShrink: 1 }]}>{f.description}</Text> : null}
+                </View>
               </Check>
-              {f.description ? <Text style={small}>{f.description}</Text> : null}
             </View>
           );
+        // .form-field keeps label's align-items: center, so the name and description stand centred over a full-width control.
         return (
-          <View key={k} style={{ gap: 4, marginVertical: 6 }}>
+          <View key={k} style={{ gap: 4, marginTop: 6, alignItems: "center" }}>
             <Text style={muted}>
               {label}
               {isRequired ? "" : <Text style={small}> (optional)</Text>}
             </Text>
             {f.type === "string" && f.enum ? (
-              <Select label={label} value={String(values[k] ?? "")} options={f.enum} names={f.enumNames} onChange={(v) => set(k, v)} />
+              <View style={{ alignSelf: "stretch" }}>
+                <Select label={label} value={String(values[k] ?? "")} options={f.enum} names={f.enumNames} onChange={(v) => set(k, v)} />
+              </View>
             ) : f.type === "string" ? (
-              <Input accessibilityLabel={label} multiline numberOfLines={3} value={String(values[k] ?? "")} onChangeText={(v) => set(k, v)} style={{ minHeight: 3 * 24 + 14, textAlignVertical: "top" }} />
+              <Input accessibilityLabel={label} multiline numberOfLines={3} value={String(values[k] ?? "")} onChangeText={(v) => set(k, v)} style={{ alignSelf: "stretch", height: 3 * lineBox(16, lh) + 14, lineHeight: lineBox(16, lh), textAlignVertical: "top" }} />
             ) : (
-              <Input accessibilityLabel={label} keyboardType="numeric" value={String(values[k] ?? "")} onChangeText={(v) => set(k, v)} />
+              <Input accessibilityLabel={label} keyboardType="numeric" value={String(values[k] ?? "")} onChangeText={(v) => set(k, v)} style={{ alignSelf: "stretch" }} />
             )}
             {f.description ? <Text style={small}>{f.description}</Text> : null}
           </View>
         );
       })}
-      {error ? <Banner kind="bad" style={{ marginBottom: 10 }}>{error}</Banner> : null}
+      {error ? (
+        <Banner kind="bad" style={{ marginTop: 6, marginBottom: 4 }}>
+          <Text style={{ ...font(t, "sans", 400, 12, lh), color: bannerText(t, "bad") }}>{error}</Text>
+        </Banner>
+      ) : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 10, marginVertical: 6 }}>
         <View style={{ flex: 1 }} />
         <ContentButton kind="ghost" title={declineLabel} disabled={sent} onPress={onDecline} />

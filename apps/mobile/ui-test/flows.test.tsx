@@ -3,7 +3,14 @@ import { fireEvent, screen } from "@testing-library/react";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { FlowCard, FlowLauncher } from "../src/chat/FlowCommand";
 import { FlowsSheet } from "../src/screens/flows/FlowsSheet";
+import { THEMES } from "../src/ui";
 import { fakeApi, renderInProject, settle } from "./helpers";
+
+/** A theme colour as getComputedStyle reports it. */
+const rgb = (hex: string) => {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`;
+};
 
 const FLOWS = [
   { name: "build-and-test", description: "Build, then test." },
@@ -54,6 +61,29 @@ describe("FlowLauncher", () => {
     expect(screen.getByText("bake-lighting")).toBeTruthy();
     fireEvent.click(screen.getByText("Close"));
     expect(close).toHaveBeenCalled();
+  });
+
+  it("sits in the waiting cards' region, which scrolls past half the screen", async () => {
+    const a = api();
+    a.planFlow.mockResolvedValue(PLAN);
+    renderInProject(<FlowLauncher text="/flow bake-lighting" run={vi.fn()} onClose={vi.fn()} />, a);
+    await settle();
+    const region = screen.getByLabelText("Run a flow").closest("[aria-label='Run a flow']")!;
+    expect(getComputedStyle(region).maxHeight).not.toBe("");
+    expect(getComputedStyle(region).overflowY === "auto" || getComputedStyle(region).overflowY === "scroll").toBe(true);
+  });
+
+  it("centres a field's name and description over its full-width box, and sets a toggle's description beside its name", async () => {
+    const a = api();
+    a.planFlow.mockResolvedValue({ inputs: [{ ...PLAN.inputs[0] }, { ...PLAN.inputs[2], description: "Save it." }] });
+    renderInProject(<FlowLauncher text="/flow bake-lighting" run={vi.fn()} onClose={vi.fn()} />, a);
+    await settle();
+    const field = screen.getByText("map").parentElement!;
+    expect(getComputedStyle(field).alignItems).toBe("center");
+    expect(getComputedStyle(screen.getByLabelText("map")).alignSelf).toBe("stretch");
+    const toggle = screen.getByText("save").parentElement!;
+    expect(getComputedStyle(toggle).flexDirection).toBe("row");
+    expect(toggle.textContent).toBe("saveSave it.");
   });
 
   it("shows why the plan could not be read", async () => {
@@ -152,6 +182,17 @@ describe("FlowCard", () => {
     expect(screen.getByText("Failed in 1.0 s")).toBeTruthy();
     expect(screen.getByText(/Out of memory\./)).toBeTruthy();
     expect(screen.getByText(/level.save was not run./)).toBeTruthy();
+  });
+
+  it("draws a failed flow's own text in the bad banner's colour, and its steps' numbers outside them", () => {
+    renderInProject(<FlowCard entry={entry({ state: "failed", steps: [{ id: "1", name: "level.open", state: "done" }, { id: "2", name: "level.save", state: "skipped" }], errors: ["level.save was not run.", "Out of memory."] })} />);
+    const t = THEMES["ue-mcp"];
+    expect(getComputedStyle(screen.getByText("bake-lighting")).color).toBe(rgb(t.c.badText));
+    expect(getComputedStyle(screen.getByText("Out of memory.")).color).toBe(rgb(t.c.badText));
+    const marker = screen.getByText("2.");
+    expect(marker.textContent).toBe("2. ");
+    expect(getComputedStyle(marker).position).toBe("absolute");
+    expect(getComputedStyle(marker).right).toBe("100%");
   });
 
   it("shows a single error as a line", () => {

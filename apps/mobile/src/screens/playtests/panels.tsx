@@ -21,8 +21,7 @@ import {
   DEFAULT_RUN,
 } from "@ue-mcp-studio/client-core";
 import { qaScriptSteps, type QaLoop, type QaRun, type QaScriptStep } from "@ue-mcp-studio/shared";
-import { Banner, Check, Input, Pill, T, bannerText, font, useStyles, useTheme, type Theme } from "../../ui";
-import { Chevron } from "../../ui/glyphs";
+import { Banner, Check, Input, Pill, SelectArrow, T, bannerText, font, useStyles, useTheme, type Theme } from "../../ui";
 import { Disclosure, chooseFrom, SmallButton } from "./parts";
 import { StepText } from "./StepText";
 
@@ -74,8 +73,9 @@ export function Select({ label, value, options, onChange }: { label: string; val
   const pick = () => chooseFrom(label, options.map((o) => o.title), (i) => onChange(options[i].value));
   return (
     <Pressable accessibilityRole="combobox" accessibilityLabel={label} accessibilityValue={{ text: shown }} onPress={pick} style={s.select}>
-      <T style={{ ...font(t, "sans", 400, 16), color: t.c.text, flex: 1, paddingLeft: 4 }} numberOfLines={1}>{shown}</T>
-      <Chevron open color={t.c.text} size={10} />
+      {/* The browser sets a select's value 4px in, and half a pixel lower than centring its line would. */}
+      <T style={{ ...font(t, "sans", 400, 16), color: t.c.text, flex: 1, paddingLeft: 4, position: "relative", top: 0.5 }} numberOfLines={1}>{shown}</T>
+      <SelectArrow />
     </Pressable>
   );
 }
@@ -140,9 +140,10 @@ export function DraftEditor({ run, busy, error, onSave, onCancel }: { run: QaRun
                 )}
               </>
             ) : (
-              <View style={{ marginVertical: 6 }}>
+              // label.row.toggle in .qa-edit-step: the browser's checkbox margins (4px left, 3px right) and the step row's 6px gap.
+              <View style={{ marginVertical: 6, paddingLeft: 4 }}>
                 <Check checked={r.personOnly} onChange={(v) => set(i, { personOnly: v })} label="Only a person judges it">
-                  <T style={[small(t), { color: t.c.muted }]}>Only a person judges it</T>
+                  <T style={[small(t), { color: t.c.muted, marginLeft: -1 }]}>Only a person judges it</T>
                 </Check>
               </View>
             )}

@@ -5,7 +5,7 @@
  * styles.css: .approvals, .approval-card, .approval-head, .flow-names, .flow-card.
  */
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Pressable, Text, View } from "react-native";
+import { Pressable, Text, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
 import {
   closestNames,
   flowFormFields,
@@ -19,10 +19,11 @@ import {
   type FlowRunRequest,
   type TranscriptEntry,
 } from "@ue-mcp-studio/shared";
-import { STEP_SCOPED_UNREACHABLE, flowParamsFrom as paramsFrom, flowPrefillValue as prefillValue } from "@ue-mcp-studio/client-core";
+import { STEP_SCOPED_UNREACHABLE, flowParamsFrom as paramsFrom, flowPrefillValue as prefillValue, flowStateLine } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
-import { Banner, Button, Output, font, useStyles, useTheme, type Theme } from "../../../ui";
+import { Banner, ContentButton, Output, bannerText, font, useStyles, useTheme, type Theme } from "../../../ui";
 import { FieldsForm } from "../../../chat/Forms";
+import { CardsRegion } from "../items/Approvals";
 
 type Loaded =
   | { kind: "loading" }
@@ -33,12 +34,14 @@ type Loaded =
 
 /**
  * The card a /flow or /action opens above the composer: its title and command
- * over its body, in the approvals region.
+ * over its body, in the approvals region (at most half the screen, scrolling).
+ * Its parts' margins collapse into one another as the web's blocks do: a
+ * paragraph's 12px meets a row's 6px as 12px, so each part says what it keeps.
  */
 export function LauncherCard({ region, title, command, children }: { region: string; title: string; command: string; children: ReactNode }) {
   const s = useStyles(styles);
   return (
-    <View style={s.region} accessibilityLabel={region}>
+    <CardsRegion label={region}>
       <View style={s.card} accessibilityLabel={title}>
         <View style={s.head}>
           <Text style={s.title}>{title}</Text>
@@ -46,33 +49,40 @@ export function LauncherCard({ region, title, command, children }: { region: str
         </View>
         {children}
       </View>
-    </View>
+    </CardsRegion>
   );
 }
 
 /** A line of the launcher: .small or .dim.small in a paragraph's margins. */
-export function LauncherText({ children, dim, status }: { children: ReactNode; dim?: boolean; status?: boolean }) {
+export function LauncherText({ children, dim, status, style }: { children: ReactNode; dim?: boolean; status?: boolean; style?: StyleProp<TextStyle> }) {
   const s = useStyles(styles);
-  return <Text accessibilityLiveRegion={status ? "polite" : undefined} style={[s.p, dim && s.dim]}>{children}</Text>;
+  return <Text accessibilityLiveRegion={status ? "polite" : undefined} style={[s.p, dim && s.dim, style]}>{children}</Text>;
 }
 
-/** A name the launcher offers in place of the one typed. */
-export function NameButton({ name, onPress }: { name: string; onPress: () => void }) {
+/** .banner.bad.small in the launcher. */
+export function LauncherError({ children }: { children: ReactNode }) {
   const t = useTheme();
+  const s = useStyles(styles);
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={name} onPress={onPress} style={({ pressed }) => ({ minHeight: 44, paddingHorizontal: 10, justifyContent: "center", backgroundColor: pressed ? t.c.panel3 : t.c.panel2, borderWidth: 1, borderColor: pressed ? t.c.accentLine : t.c.lineStrong, borderRadius: t.radius })}>
-      <Text style={[font(t, "mono", 400, t.base.size * 0.92, 1.2), { color: t.c.text }]}>{name}</Text>
-    </Pressable>
+    <Banner kind="bad">
+      <Text style={[s.small, { color: bannerText(t, "bad") }]}>{children}</Text>
+    </Banner>
   );
 }
 
+/** A name the launcher offers in place of the one typed: button.small-button.mono, its text the size of the line around it. */
+export function NameButton({ name, onPress }: { name: string; onPress: () => void }) {
+  const t = useTheme();
+  return <ContentButton small fontSize={t.base.size} title={name} onPress={onPress} />;
+}
+
 /** .row with the launcher's Close at its end. */
-export function CloseRow({ onClose }: { onClose: () => void }) {
+export function CloseRow({ onClose, style }: { onClose: () => void; style?: StyleProp<ViewStyle> }) {
   const s = useStyles(styles);
   return (
-    <View style={s.row}>
+    <View style={[s.row, { marginTop: 0 }, style]}>
       <View style={{ flex: 1 }} />
-      <Button title="Close" variant="ghost" onPress={onClose} />
+      <ContentButton kind="ghost" title="Close" onPress={onClose} />
     </View>
   );
 }
@@ -81,7 +91,7 @@ export function CloseRow({ onClose }: { onClose: () => void }) {
 export function NameRow({ names, closest, onPick }: { names: string[]; closest?: boolean; onPick: (n: string) => void }) {
   const s = useStyles(styles);
   return (
-    <View style={[s.row, { flexWrap: "wrap", gap: 6 }]}>
+    <View style={[s.row, { flexWrap: "wrap", gap: 6, marginTop: 0 }]}>
       {closest ? <Text style={s.dimSmall}>Closest:</Text> : null}
       {names.map((n) => <NameButton key={n} name={n} onPress={() => onPick(n)} />)}
     </View>
@@ -158,12 +168,12 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
   } else if (loaded.kind === "error") {
     body = (
       <>
-        <Banner kind="bad">{loaded.message}</Banner>
+        <LauncherError>{loaded.message}</LauncherError>
         <CloseRow onClose={onClose} />
       </>
     );
   } else if (loaded.inputs.length === 0) {
-    body = error ? <><Banner kind="bad">{error}</Banner><CloseRow onClose={onClose} /></> : <LauncherText dim status>Starting</LauncherText>;
+    body = error ? <><LauncherError>{error}</LauncherError><CloseRow onClose={onClose} /></> : <LauncherText dim status>Starting</LauncherText>;
   } else {
     const inputs = loaded.inputs;
     const { fields, required } = flowFormFields(inputs);
@@ -179,7 +189,7 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
     };
     body = (
       <>
-        {loaded.flow?.description ? <LauncherText>{loaded.flow.description}</LauncherText> : null}
+        {loaded.flow?.description ? <LauncherText style={{ marginBottom: 6 }}>{loaded.flow.description}</LauncherText> : null}
         <FieldsForm
           key={name}
           fields={fields}
@@ -203,12 +213,11 @@ export function FlowLauncher({ text, run, onClose }: { text: string; run: (reque
   );
 }
 
-const STATE_LABEL: Record<Extract<TranscriptEntry, { kind: "flow" }>["state"], string> = {
-  running: "Running",
-  succeeded: "Succeeded",
-  failed: "Failed",
-  stopped: "Stopped",
-};
+/** A list item's number or bullet, outside it as the browser draws an ol's or ul's marker: its box ends where the item starts. */
+function Marker({ children, style }: { children: string; style: StyleProp<TextStyle> }) {
+  // The marker's trailing space is part of its box, kept by a no-break space.
+  return <Text aria-hidden style={[style, { position: "absolute", right: "100%", top: 0 }]}>{`${children}\u00a0`}</Text>;
+}
 
 /** A /flow's card in the transcript: its steps as they run, then its summary or errors. */
 export function FlowCard({ entry }: { entry: Extract<TranscriptEntry, { kind: "flow" }> }) {
@@ -218,25 +227,46 @@ export function FlowCard({ entry }: { entry: Extract<TranscriptEntry, { kind: "f
   const border = tone === "bad" ? t.c.badLine : tone === "warn" ? t.c.warnLine : t.c.line;
   const bg = tone === "bad" ? t.c.badWash : tone === "warn" ? t.c.warnWash : t.c.panel2;
   const stepColor = { done: t.c.ok, failed: t.c.bad } as Record<string, string>;
+  // .banner.bad and .banner.warn colour all their text; a step or line with no colour of its own takes it.
+  const ink = tone === "bad" ? t.c.badText : tone === "warn" ? t.c.warnText : t.c.text;
   return (
     <View accessibilityLabel={`Flow ${entry.name}`} accessibilityLiveRegion="polite" style={[s.flowCard, { borderColor: border, backgroundColor: bg }]}>
-      <View style={[s.row, { marginVertical: 0 }]}>
-        <Text style={[font(t, "mono", 700, t.base.size * 0.92, 1.4), { color: t.c.text }]}>{entry.name}</Text>
-        <Text style={s.dimSmall}>{STATE_LABEL[entry.state]}{entry.duration !== undefined ? ` in ${(entry.duration / 1000).toFixed(1)} s` : ""}</Text>
+      <View style={s.row}>
+        <Text style={[s.name, { color: ink }]}>{entry.name}</Text>
+        <Text style={s.dimSmall}>{flowStateLine(entry)}</Text>
       </View>
       {entry.steps.length > 0 && (
-        <View>
-          {entry.steps.map((st, i) => (
-            <Text key={st.id} style={[s.small, { marginLeft: 20 + (st.depth ?? 0) * 14, color: stepColor[st.state] ?? t.c.text }, st.state === "running" && { fontFamily: font(t, "sans", 600, 12).fontFamily }, st.state === "skipped" && { opacity: 0.55 }]}>
-              {`${i + 1}. `}
-              <Text style={font(t, "mono", 400, 11)}>{st.name}</Text>
-              {st.state === "skipped" ? <Text style={{ color: t.c.dim }}> skipped</Text> : null}
-              {st.error ? ` ${st.error}` : null}
-            </Text>
-          ))}
+        <View accessibilityRole="list">
+          {entry.steps.map((st, i) => {
+            const text: StyleProp<TextStyle> = [s.small, { color: stepColor[st.state] ?? ink }, st.state === "running" && { fontFamily: font(t, "sans", 600, 12).fontFamily }];
+            return (
+              <View key={st.id} style={[{ marginLeft: 20 + (st.depth ?? 0) * 14 }, st.state === "skipped" && { opacity: 0.55 }]}>
+                <Marker style={text}>{`${i + 1}.`}</Marker>
+                <Text style={text}>
+                  {/* The mono span keeps its own line-height multiple, which stands it a little taller in the line as the web's does. */}
+                  <Text style={s.stepName}>{st.name}</Text>
+                  {st.state === "skipped" ? <Text style={{ color: t.c.dim }}> skipped</Text> : null}
+                  {st.error ? ` ${st.error}` : null}
+                </Text>
+              </View>
+            );
+          })}
         </View>
       )}
-      {entry.errors && entry.errors.length > 0 ? (entry.errors.length === 1 ? <Text style={s.small}>{entry.errors[0]}</Text> : <View>{entry.errors.map((e, i) => <Text key={i} style={s.small}>{`• ${e}`}</Text>)}</View>) : null}
+      {entry.errors && entry.errors.length > 0 ? (
+        entry.errors.length === 1 ? (
+          <Text style={[s.small, { color: ink }]}>{entry.errors[0]}</Text>
+        ) : (
+          <View accessibilityRole="list" style={{ marginVertical: 12 }}>
+            {entry.errors.map((e, i) => (
+              <View key={i} style={{ marginLeft: 40 }}>
+                <Marker style={[s.small, { color: ink }]}>•</Marker>
+                <Text style={[s.small, { color: ink }]}>{e}</Text>
+              </View>
+            ))}
+          </View>
+        )
+      ) : null}
       {entry.summary ? <Output maxHeight={258}>{entry.summary}</Output> : null}
     </View>
   );
@@ -245,7 +275,8 @@ export function FlowCard({ entry }: { entry: Extract<TranscriptEntry, { kind: "f
 const styles = (t: Theme) => {
   const lh = t.editor ? 1.5 : 1.55;
   return {
-    region: { gap: 10, paddingTop: 8, paddingHorizontal: 10 },
+    name: { ...font(t, "mono", 700, t.base.size * 0.92, lh), color: t.c.text },
+    stepName: font(t, "mono", 400, 12 * 0.92, lh),
     card: { backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.editor ? "transparent" : t.c.line, borderRadius: t.radiusLg, padding: 12, ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}) },
     head: { flexDirection: "row" as const, alignItems: "baseline" as const, gap: 10 },
     title: { ...font(t, "sans", 700, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text },

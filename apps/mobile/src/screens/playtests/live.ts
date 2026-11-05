@@ -99,4 +99,5 @@ export const RevealContext = createContext<(node: Measurable | null, block?: Rev
 });
 
 /** The theme's body line height as a multiple, as CSS's unitless line-height carries to smaller text: 1.55 in ue-mcp, 1.5 in the editor themes. */
-export const lhOf = (t: { base: { size: number; lineHeight: number } }): number => t.base.lineHeight / t.base.size;
+// base.lineHeight is already cut to Chrome's 1/64 px, so the quotient is rounded back to the CSS multiple; a 12px line otherwise lays out a hair short.
+export const lhOf = (t: { base: { size: number; lineHeight: number } }): number => Math.round((t.base.lineHeight / t.base.size) * 100) / 100;
