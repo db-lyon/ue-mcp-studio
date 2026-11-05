@@ -121,3 +121,16 @@ describe("a notice on this device", () => {
     el.remove();
   });
 });
+
+describe("opened from a push", () => {
+  it("goes to the session of the newest notice, and drops the marker from the address", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ project: "Vale", prefs: DEFAULT_PROJECT_NOTIFY, recent: [notice({ id: "a", target: { sessionId: "old" } }), notice({ id: "b", target: { sessionId: "new", runId: "r2" } })] }), { status: 200 })));
+    window.history.replaceState(null, "", "/ui/?from=push#/chat");
+    const onOpen = vi.fn();
+    render(<Probe events={[]} onOpen={onOpen} />);
+    await act(async () => void (await new Promise((r) => setTimeout(r, 10))));
+    expect(onOpen).toHaveBeenCalledWith({ sessionId: "new", runId: "r2" });
+    expect(window.location.search).toBe("");
+    expect(window.location.hash).toBe("#/chat");
+  });
+});

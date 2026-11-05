@@ -1,10 +1,10 @@
 /** Settings sections, grouped by the decision being made. Kept apart from the views so the location code can read them. */
-export type BuiltinSection = "agents" | "models" | "approvals" | "project" | "general" | "remote" | "diagnostics";
+export type BuiltinSection = "agents" | "models" | "approvals" | "project" | "general" | "notifications" | "remote" | "diagnostics";
 /** A section an extension adds: `ext:<extension>:<contribution id>`. */
 export type ExtensionSection = `ext:${string}:${string}`;
 export type SettingsSection = BuiltinSection | ExtensionSection;
 /** Remote control is listed only while it is offered; the hub opens General for it otherwise (useRemoteAvailable). */
-export const SETTINGS_SECTIONS: readonly BuiltinSection[] = ["agents", "models", "approvals", "project", "general", "remote", "diagnostics"];
+export const SETTINGS_SECTIONS: readonly BuiltinSection[] = ["agents", "models", "approvals", "project", "general", "notifications", "remote", "diagnostics"];
 
 const EXT = /^ext:[A-Za-z0-9_-]{1,64}:[A-Za-z0-9_-]{1,64}$/;
 export const extensionSection = (ext: string, id: string): ExtensionSection => `ext:${ext}:${id}`;
@@ -23,6 +23,8 @@ const MOVED: Record<string, BuiltinSection> = {
   config: "project",
   status: "diagnostics",
   logs: "diagnostics",
+  notify: "notifications",
+  notification: "notifications",
 };
 
 /**

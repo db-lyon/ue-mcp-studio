@@ -58,15 +58,15 @@ describe("Settings > Remote control", () => {
     expect(content.textContent).not.toMatch(/remote|plan|upgrade/i);
   });
 
-  it.each([false, true])("paid account (flag %s): listed after General and opens the working section", async (on) => {
+  it.each([false, true])("paid account (flag %s): listed under Studio, after Notifications, and opens the working section", async (on) => {
     const { rail } = await open(on, "paid");
-    expect(rail.slice(0, 2)).toEqual(["General", "Remote control"]);
+    expect(rail.slice(0, 3)).toEqual(["General", "Notifications", "Remote control"]);
     expect(screen.getByText("RemoteSection body")).toBeTruthy();
   });
 
   it("flag on, signed out: listed, with the ue-mcp account sign-in inline and nothing that runs", async () => {
     const { rail, content } = await open(true, "signed-out");
-    expect(rail.slice(0, 2)).toEqual(["General", "Remote control"]);
+    expect(rail.slice(0, 3)).toEqual(["General", "Notifications", "Remote control"]);
     expect(screen.queryByText("RemoteSection body")).toBeNull();
     expect(screen.getByText("Sign in to your ue-mcp account to use remote control.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in to your ue-mcp account" })).toBeTruthy();

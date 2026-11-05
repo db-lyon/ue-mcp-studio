@@ -305,3 +305,9 @@
   .cfg .toggle-row.account-row { flex-wrap: wrap; }
   .cfg .toggle-row.account-row > .grow { flex: 1 1 calc(100% - 24px); }
 }
+
+/* Notifications: quiet hours, two times side by side under their switch. */
+.cfg .notify-quiet { display: flex; flex-wrap: wrap; gap: 12px; padding: 0 0 11px; }
+.cfg .notify-quiet label { display: flex; flex-direction: column; gap: 4px; }
+.cfg .notify-quiet input[type="time"] { width: 130px; color-scheme: dark; }
+.cfg .notify-muted .toggle-row { align-items: center; }

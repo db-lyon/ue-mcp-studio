@@ -63,6 +63,19 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
+import { noticeOf, projectNotifyOf, type NotificationsState, type NotifyDevice, type ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
+
+/** GET /notifications, made whole: an older agent's missing fields at their defaults. */
+export function notificationsOf(raw: unknown): NotificationsState {
+  const r = (raw ?? {}) as { project?: unknown; prefs?: unknown; recent?: unknown; titles?: unknown };
+  const titles = r.titles && typeof r.titles === "object" ? Object.fromEntries(Object.entries(r.titles).filter(([, v]) => typeof v === "string")) as Record<string, string> : {};
+  return {
+    project: typeof r.project === "string" ? r.project : "",
+    prefs: projectNotifyOf(r.prefs),
+    recent: Array.isArray(r.recent) ? r.recent.map(noticeOf).filter((n) => n !== null) : [],
+    titles,
+  };
+}
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
 /** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
@@ -151,6 +164,9 @@ export interface StudioVersionNotice {
 }
 
 export const api = {
+  notifications: () => call<unknown>("GET", "/v1/ext/studio/notifications").then(notificationsOf),
+  saveNotifications: (u: ProjectNotifyUpdate) => call<unknown>("PUT", "/v1/ext/studio/notifications", u).then(notificationsOf),
+  notifyPresence: (body: { id: string; device: NotifyDevice; active: boolean }) => call<void>("POST", "/v1/ext/studio/notifications/presence", body),
   versionNotice: () => call<{ notice: StudioVersionNotice | null }>("GET", "/v1/ext/studio/version-notice"),
   keepStudio: (version: string) => call<{ notice: StudioVersionNotice | null }>("POST", "/v1/ext/studio/version-notice/keep", { version }),
   useInstalledStudio: (version: string) => call<unknown>("POST", "/v1/ext/studio/version-notice/update", { version }),

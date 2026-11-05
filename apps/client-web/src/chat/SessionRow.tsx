@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { SessionSummary, SessionUpdate } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import { saveProjectNotify, useProjectNotify } from "../notify";
 
 const STATUS_LABEL: Record<string, string> = {
   idle: "",
@@ -30,8 +31,9 @@ export function sessionLine(s: SessionSummary): string {
 }
 
 /**
- * One session in the list: open it, or from its menu rename, archive (or
- * restore) and delete it. Delete asks once more before it removes anything.
+ * One session in the list: open it, or from its menu rename, mute its
+ * notifications, archive (or restore) and delete it. Delete asks once more
+ * before it removes anything.
  */
 export function SessionRow({ s, selected, onOpen, onChanged }: {
   s: SessionSummary;
@@ -44,6 +46,9 @@ export function SessionRow({ s, selected, onOpen, onChanged }: {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(s.title);
   const box = useRef<HTMLDivElement>(null);
+  // Read when the menu first opens; the app has usually read it already for its notifications.
+  const notify = useProjectNotify(menu);
+  const muted = !!notify?.prefs.mutedSessions.includes(s.id);
 
   useEffect(() => setTitle(s.title), [s.title]);
 
@@ -88,7 +93,12 @@ export function SessionRow({ s, selected, onOpen, onChanged }: {
           }}
         />
       ) : (
-        <strong><span className="session-dot" />{s.title}</strong>
+        <strong><span className="session-dot" />{s.title}{muted && (
+          <svg className="session-muted" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" role="img" aria-label="Notifications muted">
+            <title>Notifications muted</title>
+            <path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0M2 2l12 12" />
+          </svg>
+        )}</strong>
       )}
       <div className="muted small">{sessionLine(s)}</div>
       <button
@@ -105,6 +115,11 @@ export function SessionRow({ s, selected, onOpen, onChanged }: {
       {menu && (
         <div className="session-menu" role="menu" onClick={(e) => e.stopPropagation()}>
           <button role="menuitem" onClick={() => { setMenu(false); setEditing(true); }}>Rename</button>
+          {notify && (
+            <button role="menuitem" onClick={() => { setMenu(false); void saveProjectNotify(muted ? { unmute: [s.id] } : { mute: [s.id] }).catch(() => undefined); }}>
+              {muted ? "Unmute notifications" : "Mute notifications"}
+            </button>
+          )}
           <button role="menuitem" onClick={() => { setMenu(false); void update({ archived: !s.archived }); }}>{s.archived ? "Restore" : "Archive"}</button>
           <button role="menuitem" className={`danger ${confirm ? "confirm" : ""}`} onClick={() => (confirm ? void remove() : setConfirm(true))}>
             {confirm ? "Are you sure?" : "Delete"}
