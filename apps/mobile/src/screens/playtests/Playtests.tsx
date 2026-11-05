@@ -95,7 +95,13 @@ export function PlaytestsView({ daemon, index: source, onOpenSession, onChat }: 
   // An opened card comes to the top of the page, as the web client scrolls it into view.
   const reveal = useMemo(() => (node: Measurable | null, block: RevealBlock = "start") => {
     if (!node || !content.current || block !== "start") return;
-    node.measureLayout(content.current, (_x, y) => scroller.current?.scrollTo({ y: y + 10, animated: true }), () => undefined);
+    // scrollIntoView lands on the whole pixel below a card at a fractional offset, so the card sits just under the edge, never over it.
+    const go = (y: number) => scroller.current?.scrollTo({ y: Math.floor(y + 10), animated: true });
+    // The web build's measureLayout adds up offsetTops, each rounded; the boxes themselves keep the fraction.
+    const rect = (n: unknown) => (n as { getBoundingClientRect?: () => { top: number } }).getBoundingClientRect?.();
+    const [a, b] = Platform.OS === "web" ? [rect(node), rect(content.current)] : [];
+    if (a && b) go(a.top - b.top);
+    else node.measureLayout(content.current, (_x, y) => go(y), () => undefined);
   }, []);
   const pulled = useRef(false);
   useEffect(() => {
