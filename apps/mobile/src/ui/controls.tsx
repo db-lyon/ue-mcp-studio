@@ -9,6 +9,7 @@ import { Pressable, TextInput, View, type StyleProp, type TextInputProps, type V
 import { font, labelFont, T } from "./Text";
 import { useStyles, useTheme } from "./ThemeProvider";
 import { lineBox, type Theme } from "./theme";
+import { stopOf } from "./gradient";
 
 /** button, button.primary, button.ghost, button.small-button, button.large. */
 export function Button({
@@ -84,15 +85,20 @@ export function Card({ children, style, padded = true, testID }: { children: Rea
   );
 }
 
-/** linear-gradient(180deg, tint, transparent 120px) over a card's top, drawn with svg so it shows on every platform. */
-function CardTint({ color, radius }: { color: string; radius: number }) {
+/**
+ * linear-gradient(180deg, tint, transparent 120px) over a card's top, drawn with svg so it shows on every platform.
+ * The tint's alpha goes in stopOpacity (./gradient): Android drops it from an rgba stopColor and paints white.
+ */
+export function CardTint({ color, radius }: { color: string; radius: number }) {
+  if (color === "transparent") return null;
+  const stop = stopOf(color);
   return (
-    <View pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: 120, borderTopLeftRadius: radius, borderTopRightRadius: radius, overflow: "hidden" }}>
+    <View testID="card-tint" pointerEvents="none" style={{ position: "absolute", left: 0, right: 0, top: 0, height: 120, borderTopLeftRadius: radius, borderTopRightRadius: radius, overflow: "hidden" }}>
       <Svg width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 1 1">
         <Defs>
           <LinearGradient id="cardTint" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={color} />
-            <Stop offset="1" stopColor={color} stopOpacity={0} />
+            <Stop offset="0" stopColor={stop.color} stopOpacity={stop.opacity} />
+            <Stop offset="1" stopColor={stop.color} stopOpacity={0} />
           </LinearGradient>
         </Defs>
         <Rect x="0" y="0" width="1" height="1" fill="url(#cardTint)" />

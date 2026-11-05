@@ -35,7 +35,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { assetLinkTarget, qaAgentMayJudge, qaAgentVerdict, qaIsDraft, qaSummaryOf, qaVerdictForm, type PendingForm, type QaRun, type QaScriptStep, type QaStep, type QaVerdict } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
-import { Banner, T, bannerText, font, italic, labelFont, lineBox, monoNormal, useStyles, useTheme, type Theme } from "../../ui";
+import { Banner, CardTint, T, bannerText, font, italic, labelFont, lineBox, monoNormal, useStyles, useTheme, type Theme } from "../../ui";
 import { Chevron } from "../../ui/glyphs";
 import { RevealContext, useLiveRun, useQaLive, type Measurable } from "./live";
 import { Capture, Disclosure, FailNote, IconButton, StepSetup, SmallButton } from "./parts";
@@ -328,6 +328,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
 
   return (
     <View ref={cardRef as never} style={[s.card, !slotted && s.spaced, draft && s.draft, border]} accessibilityLabel={`Playtest ${run.scriptName}`} testID={testID ?? `qa-card-${run.runId}`}>
+      {Platform.OS === "web" ? null : <CardTint color={t.c.tint} radius={t.radiusLg} />}
       <View style={s.head}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} aria-expanded={open} accessibilityLabel={`${open ? "Close" : "Open"} ${run.scriptName}`} onPress={() => (open ? setOpen(false) : openAt(null))} style={s.toggle}>
           {/* svg.qa-chevron: flex-shrink 0, so a long title never narrows it. */}
@@ -602,7 +603,8 @@ const styles = (t: Theme) => {
       minWidth: 0,
       ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}),
       // .card: the faint tint fading out over the top 120 pixels.
-      ...(Platform.OS === "web" ? { backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent 120px)` } : { experimental_backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent 120px)` }),
+      // On native <CardTint> draws it, with the tint's alpha kept.
+      ...(Platform.OS === "web" ? { backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent 120px)` } : {}),
     } as ViewStyle,
     /** .qa-card's margin: 8px 0, which a Playtests page row sets to 0. */
     spaced: { marginVertical: 8 },

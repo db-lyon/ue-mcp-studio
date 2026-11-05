@@ -7,15 +7,11 @@
 import { StyleSheet, View } from "react-native";
 import Svg, { Defs, RadialGradient, Rect, Stop } from "react-native-svg";
 import { useTheme } from "./ThemeProvider";
+import { stopOf } from "./gradient";
 
 /** The ellipse's radii and centre above the viewport, and where it has faded out. */
 export const GLOW = { rx: 900, ry: 420, y: -120, fade: 0.7 };
 
-/** A CSS colour as an svg stop's colour and opacity: rgba() split, anything else whole. */
-export function stopOf(color: string): { color: string; opacity: number } {
-  const m = /^rgba\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/.exec(color);
-  return m ? { color: `rgb(${m[1]}, ${m[2]}, ${m[3]})`, opacity: Number(m[4]) } : { color, opacity: 1 };
-}
 
 export function PageGlow({ top = 0 }: { top?: number }) {
   const t = useTheme();

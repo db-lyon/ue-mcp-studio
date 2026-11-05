@@ -19,3 +19,4 @@ export * from "./Panel";
 export * from "./insets";
 export * from "./Sheet";
 export * from "./SelectArrow";
+export * from "./gradient";

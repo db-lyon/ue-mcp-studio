@@ -10,7 +10,7 @@ import * as SecureStore from "expo-secure-store";
 import type { VcsChange, VcsStatus } from "@ue-mcp-studio/shared";
 import { VCS_LETTER, baseName, buildTree, dirName, folderPaths, treeRows, vcsLine } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../nav";
-import { Button, font, labelFont, useInsets, useStyles, useTheme, type Theme } from "../../ui";
+import { Button, CardTint, font, labelFont, useInsets, useStyles, useTheme, type Theme } from "../../ui";
 
 export type ChangesView = "list" | "tree";
 export const VIEW_KEY = "changes.view";
@@ -83,6 +83,7 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
       <View style={[s.backdrop, { paddingTop: 8 + pad.top, paddingBottom: 8 + pad.bottom, paddingLeft: 8 + pad.left, paddingRight: 8 + pad.right }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close the changes" />
         <View style={s.panel} testID="changes-panel" aria-label="Changes" role="dialog">
+          {Platform.OS === "web" ? null : <CardTint color={t.c.tint} radius={t.radiusLg} />}
           {drilled ? (
             <View style={s.detailHead}>
               <Button variant="ghost" label="Back to the changed files" onPress={() => setPicked(null)} style={s.back}>
@@ -247,7 +248,8 @@ const styles = (t: Theme) => {
       borderWidth: 1,
       borderColor: t.editor ? "transparent" : t.c.line,
       borderRadius: t.radiusLg,
-      ...(Platform.OS === "web" ? { backgroundImage: tint } : { experimental_backgroundImage: tint }),
+      // .panel's tint: the CSS gradient on the web, <CardTint> on native (its alpha survives there).
+      ...(Platform.OS === "web" ? { backgroundImage: tint } : {}),
       boxShadow: "0 16px 48px rgba(0, 0, 0, 0.45)",
     } as ViewStyle,
     head: { marginVertical: 6, gap: 2 },

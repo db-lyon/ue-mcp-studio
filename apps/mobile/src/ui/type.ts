@@ -3,7 +3,7 @@
  * theme's line ratio) and `.mono` (the theme's mono at 0.92 of the text it
  * sits in).
  */
-import type { TextStyle } from "react-native";
+import { Platform, type TextStyle } from "react-native";
 import { font } from "./Text";
 import type { Theme, Weight } from "./theme";
 
@@ -27,5 +27,13 @@ export function warnBanner(t: Theme): { box: { backgroundColor: string; borderCo
 export function cardFrame(t: Theme): object {
   return t.editor
     ? { backgroundColor: t.c.panel, borderColor: "transparent", borderWidth: 1, borderRadius: t.radiusLg }
-    : { backgroundColor: t.c.panel, borderColor: t.c.line, borderWidth: 1, borderRadius: t.radiusLg, backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent 120px)`, boxShadow: "0px 20px 40px -24px rgba(0, 0, 0, 0.6)" };
+    : {
+        backgroundColor: t.c.panel,
+        borderColor: t.c.line,
+        borderWidth: 1,
+        borderRadius: t.radiusLg,
+        // Native cards draw the tint with <CardTint>, which keeps its alpha.
+        ...(Platform.OS === "web" ? { backgroundImage: `linear-gradient(180deg, ${t.c.tint}, transparent 120px)` } : {}),
+        boxShadow: "0px 20px 40px -24px rgba(0, 0, 0, 0.6)",
+      };
 }
