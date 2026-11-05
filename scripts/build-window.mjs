@@ -76,6 +76,8 @@ const cl = [
   "/link", "/SUBSYSTEM:WINDOWS", "/INCREMENTAL:NO",
   `"${path.join(sdk, "build", "native", "x64", "WebView2LoaderStatic.lib")}"`,
   "user32.lib", "gdi32.lib", "ole32.lib", "shell32.lib", "advapi32.lib", "dwmapi.lib", "shlwapi.lib", "version.lib",
+  // Windows notifications (WinRT toasts) and the PNG of Studio's mark they show.
+  "windowsapp.lib", "windowscodecs.lib",
 ].join(" ");
 const line = `"${vcvars()}" >nul 2>&1 && ${cl}`;
 const r = spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${line}"`], { stdio: "inherit", windowsVerbatimArguments: true });

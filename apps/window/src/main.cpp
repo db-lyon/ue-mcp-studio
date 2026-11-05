@@ -31,13 +31,20 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <unknwn.h>
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <shobjidl.h>
+#include <wincodec.h>
 #include <wrl.h>
+#include <winrt/Windows.Data.Xml.Dom.h>
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.UI.Notifications.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cwctype>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -46,6 +53,7 @@
 #include "dock.h"
 #include "json.h"
 #include "location.h"
+#include "toast.h"
 #include "update.h"
 
 #ifndef STUDIO_WINDOW_VERSION
@@ -62,12 +70,9 @@ constexpr UINT_PTR kEditorTimer = 2;
 constexpr UINT_PTR kTestTimer = 3;
 constexpr UINT_PTR kDockTimer = 4;
 constexpr UINT_PTR kRaiseTimer = 5;
-constexpr UINT_PTR kNotifyTimer = 6;
-constexpr UINT kNotifyId = 1;
-/** The tray icon's messages: a click on the notification opens what it is about. */
-constexpr UINT kTrayMessage = WM_APP + 2;
-/** How long a notification's tray icon stays after it was posted. */
-constexpr UINT kNotifyMs = 30000;
+/** A toast was clicked (wParam: its id) or Windows could not show it (wParam: id, lParam: HRESULT). */
+constexpr UINT kToastClicked = WM_APP + 2;
+constexpr UINT kToastFailed = WM_APP + 3;
 constexpr ULONG_PTR kCopyArgs = 0x53545544;  // "STUD"
 constexpr LRESULT kHandedOff = 1;
 constexpr LRESULT kReplaceMe = 2;
@@ -541,10 +546,11 @@ void saveState();
 void restack();
 void updateDock();
 bool drawAttention(const std::wstring& text);
-bool notify(const std::string& arg);
-void notificationClicked();
+std::string notify(const std::string& arg);
+void notificationClicked(const std::string& target);
 void bringToFront();
-void removeNotification();
+HICON makeIcon(int size);
+void logLine(const std::string& text);
 
 /** Follow the editor: its exit, its minimize and restore, and the z-order while either is in front. */
 void trackEditor() {
@@ -1077,7 +1083,7 @@ std::string dispatch(const std::string& method, const std::string& arg) {
     return b(true);
   }
   if (method == "drawattention") return b(drawAttention(widen(arg)));
-  if (method == "notify") return b(notify(arg));
+  if (method == "notify") return s(notify(arg));
   if (method == "opendocs") {
     std::string path = arg.empty() ? "/docs/" : arg;
     if (path.rfind("/docs", 0) != 0 || path.find("..") != std::string::npos || path.find("://") != std::string::npos) return b(false);
@@ -1113,6 +1119,111 @@ std::string dispatch(const std::string& method, const std::string& arg) {
   return "null";
 }
 
+// ---------------------------------------------------------------- notifications (toast.h)
+
+namespace wn = winrt::Windows::UI::Notifications;
+
+wn::ToastNotifier gNotifier{nullptr};
+/** The toasts shown, by id, kept so their click still arrives, with what each is about. */
+struct Toast {
+  wn::ToastNotification toast{nullptr};
+  std::string target;
+};
+std::map<UINT, Toast> gToasts;
+UINT gToastNext = 1;
+
+std::wstring profileDir() {
+  wchar_t buf[MAX_PATH];
+  DWORD n = GetEnvironmentVariableW(L"USERPROFILE", buf, MAX_PATH);
+  return n && n < MAX_PATH ? std::wstring(buf, n) : std::wstring();
+}
+
+/** Studio's mark as a PNG, for the icon Windows shows beside Studio's notifications and in its settings. */
+bool savePng(HICON icon, const std::wstring& path) {
+  ComPtr<IWICImagingFactory> f;
+  ComPtr<IWICBitmap> bmp;
+  ComPtr<IWICStream> stream;
+  ComPtr<IWICBitmapEncoder> enc;
+  ComPtr<IWICBitmapFrameEncode> frame;
+  UINT w = 0, h = 0;
+  WICPixelFormatGUID format = GUID_WICPixelFormat32bppBGRA;
+  return SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&f))) &&
+         SUCCEEDED(f->CreateBitmapFromHICON(icon, &bmp)) && SUCCEEDED(f->CreateStream(&stream)) &&
+         SUCCEEDED(stream->InitializeFromFilename(path.c_str(), GENERIC_WRITE)) && SUCCEEDED(f->CreateEncoder(GUID_ContainerFormatPng, nullptr, &enc)) &&
+         SUCCEEDED(enc->Initialize(stream.Get(), WICBitmapEncoderNoCache)) && SUCCEEDED(enc->CreateNewFrame(&frame, nullptr)) &&
+         SUCCEEDED(frame->Initialize(nullptr)) && SUCCEEDED(bmp->GetSize(&w, &h)) && SUCCEEDED(frame->SetSize(w, h)) &&
+         SUCCEEDED(frame->SetPixelFormat(&format)) && SUCCEEDED(frame->WriteSource(bmp.Get(), nullptr)) && SUCCEEDED(frame->Commit()) &&
+         SUCCEEDED(enc->Commit());
+}
+
+void setRegString(HKEY key, const wchar_t* name, const std::wstring& value) {
+  RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(value.c_str()), static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t)));
+}
+
+/**
+ * Studio's notifications under one fixed id (toast::kAumid), named and with
+ * its icon, so Windows lists Studio once in its notification settings and
+ * keeps the user's choices there across updates.
+ */
+void registerNotifications() {
+  SetCurrentProcessExplicitAppUserModelID(toast::kAumid);
+  std::wstring icon;
+  std::wstring home = profileDir();
+  if (!home.empty()) {
+    icon = join(join(join(home, L".ue-mcp"), L"studio"), L"notification-icon.png");
+    makeDirs(dirOf(icon));
+    std::wstring tmp = icon + L"." + std::to_wstring(GetCurrentProcessId()) + L".tmp";
+    HICON mark = makeIcon(256);
+    bool saved = savePng(mark, tmp) && MoveFileExW(tmp.c_str(), icon.c_str(), MOVEFILE_REPLACE_EXISTING);
+    DestroyIcon(mark);
+    if (!saved) {
+      DeleteFileW(tmp.c_str());
+      if (!exists(icon)) icon.clear();
+    }
+  }
+  HKEY key;
+  std::wstring path = std::wstring(L"Software\\Classes\\AppUserModelId\\") + toast::kAumid;
+  if (RegCreateKeyExW(HKEY_CURRENT_USER, path.c_str(), 0, nullptr, 0, KEY_SET_VALUE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+    setRegString(key, L"DisplayName", toast::kDisplayName);
+    if (!icon.empty()) setRegString(key, L"IconUri", icon);
+    RegCloseKey(key);
+  }
+}
+
+/**
+ * Show a Windows notification under Studio's id. Clicking it brings Studio
+ * forward and hands target (JSON, may be empty) to the page. Answers the
+ * page's notify call: toast::answer.
+ */
+std::string showToast(const std::wstring& title, const std::wstring& text, const std::string& target, const std::wstring& group) {
+  try {
+    if (!gNotifier) gNotifier = wn::ToastNotificationManager::CreateToastNotifier(toast::kAumid);
+    std::string setting;
+    try {
+      int st = static_cast<int>(gNotifier.Setting());
+      setting = toast::settingName(st);
+      if (st != 0) return toast::answer(false, "toast", setting);
+    } catch (const winrt::hresult_error&) {
+      // Windows has not seen Studio's id before: the first toast introduces it, with no setting to report.
+    }
+    winrt::Windows::Data::Xml::Dom::XmlDocument doc;
+    doc.LoadXml(toast::xml(title, text));
+    wn::ToastNotification t(doc);
+    UINT id = gToastNext++;
+    t.Tag(std::to_wstring(id));
+    t.Group(toast::group(group));
+    HWND main = gMain;
+    t.Activated([main, id](const wn::ToastNotification&, const winrt::Windows::Foundation::IInspectable&) { PostMessageW(main, kToastClicked, id, 0); });
+    t.Failed([main, id](const wn::ToastNotification&, const wn::ToastFailedEventArgs& a) { PostMessageW(main, kToastFailed, id, static_cast<LPARAM>(a.ErrorCode().value)); });
+    gNotifier.Show(t);
+    gToasts[id] = Toast{t, target};
+    while (gToasts.size() > 20) gToasts.erase(gToasts.begin());
+    return toast::answer(true, "toast", setting);
+  } catch (const winrt::hresult_error& e) {
+    return toast::answer(false, "toast", {}, e.code().value, narrow(std::wstring(e.message())));
+  }
+}
+
 /**
  * Studio needs the user while they are elsewhere: flash the taskbar button and
  * post a notification. Docked, Studio's window has no taskbar button, so the
@@ -1127,42 +1238,26 @@ bool drawAttention(const std::wstring& text) {
     FLASHWINFO fi = {sizeof fi, target, FLASHW_ALL | FLASHW_TIMERNOFG, 0, 0};
     FlashWindowEx(&fi);
   }
-  if (text.empty()) return true;
-  // A tray icon's balloon, which Windows 10 and 11 show as a notification. The icon goes
-  // again after a while; a newer message replaces the one showing.
-  NOTIFYICONDATAW nid = {};
-  nid.cbSize = sizeof nid;
-  nid.hWnd = gMain;
-  nid.uID = kNotifyId;
-  nid.uFlags = NIF_ICON | NIF_TIP | NIF_INFO;
-  nid.hIcon = reinterpret_cast<HICON>(GetClassLongPtrW(gMain, GCLP_HICONSM));
-  if (!nid.hIcon) nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-  wcsncpy_s(nid.szTip, L"UE-MCP Studio", _TRUNCATE);
-  wcsncpy_s(nid.szInfoTitle, L"UE-MCP Studio", _TRUNCATE);
-  wcsncpy_s(nid.szInfo, text.c_str(), _TRUNCATE);
-  nid.dwInfoFlags = NIIF_INFO;
-  bool shown = Shell_NotifyIconW(NIM_MODIFY, &nid) || Shell_NotifyIconW(NIM_ADD, &nid);
-  if (shown) SetTimer(gMain, kNotifyTimer, kNotifyMs, nullptr);
+  if (!text.empty()) logLine("attention: " + showToast(toast::kDisplayName, text, {}, gOpt.title));
   return true;
 }
 
-/** What the notification showing now is about, as JSON the page reads when it is clicked; empty for none. */
-std::string gNotifyTarget;
-
 /**
- * A notification the user can act on: { title?, text, target? }. It shows even
- * while Studio has focus, since the user may be on another session. Clicking
- * it brings Studio forward and hands target to the page, which opens it.
+ * A notification the user can act on: { title?, text, target?, group? }. It
+ * shows even while Studio has focus, since the user may be on another session.
+ * Clicking it brings Studio forward and hands target to the page, which opens
+ * it. Answers toast::answer's JSON, which the page reports to the agent.
  */
-bool notify(const std::string& arg) {
+std::string notify(const std::string& arg) {
   json::Value v;
-  if (!json::parse(arg, v) || !v.isObject()) return false;
+  if (!json::parse(arg, v) || !v.isObject()) return toast::answer(false, "toast", {}, 0, "the notification was not JSON");
   const json::Value* text = v.get("text");
-  if (!text || !text->isString() || text->s.empty()) return false;
+  if (!text || !text->isString() || text->s.empty()) return toast::answer(false, "toast", {}, 0, "the notification had no text");
   const json::Value* title = v.get("title");
   const json::Value* target = v.get("target");
-  gNotifyTarget.clear();
-  if (target && target->isObject()) json::write(*target, gNotifyTarget, 0, false);
+  const json::Value* group = v.get("group");
+  std::string targetJson;
+  if (target && target->isObject()) json::write(*target, targetJson, 0, false);
   HWND fg = GetForegroundWindow();
   HWND flash = gMain;
   if (docked() && gHost && IsWindow(gHost)) flash = GetAncestor(gHost, GA_ROOTOWNER);
@@ -1170,40 +1265,18 @@ bool notify(const std::string& arg) {
     FLASHWINFO fi = {sizeof fi, flash, FLASHW_ALL | FLASHW_TIMERNOFG, 0, 0};
     FlashWindowEx(&fi);
   }
-  NOTIFYICONDATAW nid = {};
-  nid.cbSize = sizeof nid;
-  nid.hWnd = gMain;
-  nid.uID = kNotifyId;
-  nid.uFlags = NIF_ICON | NIF_TIP | NIF_INFO | NIF_MESSAGE;
-  nid.uCallbackMessage = kTrayMessage;
-  nid.hIcon = reinterpret_cast<HICON>(GetClassLongPtrW(gMain, GCLP_HICONSM));
-  if (!nid.hIcon) nid.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-  wcsncpy_s(nid.szTip, L"UE-MCP Studio", _TRUNCATE);
-  wcsncpy_s(nid.szInfoTitle, title && title->isString() && !title->s.empty() ? widen(title->s).c_str() : L"UE-MCP Studio", _TRUNCATE);
-  wcsncpy_s(nid.szInfo, widen(text->s).c_str(), _TRUNCATE);
-  nid.dwInfoFlags = NIIF_WARNING;
-  bool shown = Shell_NotifyIconW(NIM_MODIFY, &nid) || Shell_NotifyIconW(NIM_ADD, &nid);
-  if (shown) SetTimer(gMain, kNotifyTimer, kNotifyMs, nullptr);
-  return shown;
+  std::string answer = showToast(title && title->isString() && !title->s.empty() ? widen(title->s) : std::wstring(toast::kDisplayName), widen(text->s), targetJson,
+                                 group && group->isString() ? widen(group->s) : gOpt.title);
+  logLine("notification: " + answer);
+  return answer;
 }
 
-/** The notification or its tray icon was clicked: Studio comes forward, and the page opens what it was about. */
-void notificationClicked() {
+/** A notification was clicked: Studio comes forward, and the page opens what it was about. */
+void notificationClicked(const std::string& target) {
   bringToFront();
-  if (gWeb && !gNotifyTarget.empty()) {
-    gWeb->ExecuteScript(widen("window.dispatchEvent(new CustomEvent('studio-notification', { detail: " + gNotifyTarget + " }))").c_str(), nullptr);
+  if (gWeb && !target.empty()) {
+    gWeb->ExecuteScript(widen("window.dispatchEvent(new CustomEvent('studio-notification', { detail: " + target + " }))").c_str(), nullptr);
   }
-  gNotifyTarget.clear();
-  KillTimer(gMain, kNotifyTimer);
-  removeNotification();
-}
-
-void removeNotification() {
-  NOTIFYICONDATAW nid = {};
-  nid.cbSize = sizeof nid;
-  nid.hWnd = gMain;
-  nid.uID = kNotifyId;
-  Shell_NotifyIconW(NIM_DELETE, &nid);
 }
 
 /** Load the UI from the project's daemon, follow it to a new port, and explain when it is gone. */
@@ -1735,10 +1808,7 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       if (wp == kDaemonTimer) pollDaemon();
       else if (wp == kEditorTimer) trackEditor();
       else if (wp == kDockTimer && gMode == dock::Mode::Docked) updateDock();
-      else if (wp == kNotifyTimer) {
-        KillTimer(w, kNotifyTimer);
-        removeNotification();
-      } else if (wp == kRaiseTimer) {
+      else if (wp == kRaiseTimer) {
         // The editor's windows rose: keep Studio over them.
         KillTimer(w, kRaiseTimer);
         restack();
@@ -1747,9 +1817,14 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_EXITSIZEMOVE:
       saveState();
       return 0;
-    case kTrayMessage:
-      if (LOWORD(lp) == NIN_BALLOONUSERCLICK || LOWORD(lp) == WM_LBUTTONUP) notificationClicked();
-      else if (LOWORD(lp) == NIN_BALLOONTIMEOUT) gNotifyTarget.clear();
+    case kToastClicked: {
+      auto it = gToasts.find(static_cast<UINT>(wp));
+      notificationClicked(it == gToasts.end() ? std::string() : it->second.target);
+      return 0;
+    }
+    case kToastFailed:
+      logLine("a notification failed to show: HRESULT " + toast::hresult(static_cast<int32_t>(lp)));
+      gToasts.erase(static_cast<UINT>(wp));
       return 0;
     case WM_APP + 1:
       // The editor restart finished: follow the new editor.
@@ -1761,7 +1836,8 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       DestroyWindow(w);
       return 0;
     case WM_DESTROY:
-      removeNotification();
+      gToasts.clear();
+      gNotifier = nullptr;
       for (HWINEVENTHOOK h : gHooks) if (h) UnhookWinEvent(h);
       if (gEditorHook) UnhookWinEvent(gEditorHook);
       gEditorHook = nullptr;
@@ -1882,6 +1958,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   }
 
   if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return 1;
+  registerNotifications();
   setEditor(gOpt.editorPid);
   if (gEditorProcess) gEditorMain = findEditorMain();
 

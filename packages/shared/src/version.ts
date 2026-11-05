@@ -6,7 +6,9 @@
 /** 0.1.0-beta.10 is newer than 0.1.0-beta.9: numbers compare as numbers, a release beats its prereleases. */
 export function isNewer(a: string, b: string): boolean {
   const split = (v: string) => {
-    const [core, pre] = v.split("-", 2);
+    const dash = v.indexOf("-");
+    const core = dash < 0 ? v : v.slice(0, dash);
+    const pre = dash < 0 ? "" : v.slice(dash + 1);
     return { core: core.split(".").map(Number), pre: pre ? pre.split(".") : [] };
   };
   const x = split(a);

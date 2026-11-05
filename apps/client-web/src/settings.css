@@ -313,3 +313,6 @@
 .cfg .notify-muted .toggle-row { align-items: center; }
 /* The device's choices under its master switch, when that is off. */
 .cfg .notify-dim { opacity: 0.45; }
+/* What became of a test notification, under its button. */
+.cfg .notify-test-result { margin: 0 0 11px; }
+.cfg .notify-test-result.bad { color: var(--bad-text); }

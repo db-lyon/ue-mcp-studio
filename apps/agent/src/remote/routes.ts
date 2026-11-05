@@ -329,7 +329,8 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
   const unwatchNotices = api.events.subscribe((e) => {
     if (e.type !== NOTIFY_EVENT) return;
     const n = noticeOf(e.data);
-    if (n) connector?.notify(n.kind, !!n.active?.includes("desktop"));
+    // A test is for the device that asked, which has the stream open: no push.
+    if (n && !n.test) connector?.notify(n.kind, !!n.active?.includes("desktop"));
   });
   return {
     dispose: () => {

@@ -33,7 +33,7 @@ UI bundles are Ed25519-signed (`signBundle` from `ue-mcp/daemon`). The daemon se
 npm install
 npm run keys:dev        # once
 npm run build
-npm run install:dev     # agent + signed UI into ~/.ue-mcp/extensions/studio
+npm run install:dev     # agent + signed UI into ~/.ue-mcp/extensions/studio@<version>
 npm run dev             # UI with hot reload, proxied to the project's daemon
 ```
 

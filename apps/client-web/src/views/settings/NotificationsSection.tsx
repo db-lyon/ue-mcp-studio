@@ -1,9 +1,9 @@
 import { useState } from "react";
 import type { DeviceNotifyPrefs, NotifyKind, RemoteSurface } from "@ue-mcp-studio/shared";
-import { NOTIFY_COPY as C, PRIVACY_CHOICES, notifyKindsFor } from "@ue-mcp-studio/client-core";
+import { NOTIFY_COPY as C, PRIVACY_CHOICES, notifyKindsFor, testResultText } from "@ue-mcp-studio/client-core";
 import { Head } from "../SettingsHub";
 import { Card, Row, Seg, Switch, useMessage } from "./controls";
-import { browserPermission, saveProjectNotify, useDevicePrefs, useProjectNotify } from "../../notify";
+import { browserPermission, saveProjectNotify, sendTestNotification, useDevicePrefs, useProjectNotify } from "../../notify";
 import { native } from "../../native";
 import { onRemotePage } from "../../connection";
 
@@ -38,6 +38,15 @@ export function NotificationsSection({ remote }: { remote: RemoteSurface }) {
     void Notification.requestPermission().then(setPermission, () => setPermission(browserPermission()));
   };
   const toggleEvent = (kind: NotifyKind, on: boolean) => saveProjectNotify({ events: { [kind]: on } }).catch(msg.fail);
+  const [testing, setTesting] = useState(false);
+  const [tested, setTested] = useState<{ ok: boolean; text: string } | null>(null);
+  const test = () => {
+    setTesting(true);
+    setTested(null);
+    void sendTestNotification()
+      .then((d) => setTested(testResultText(d)), (e: unknown) => setTested({ ok: false, text: `Could not send: ${e instanceof Error ? e.message : String(e)}` }))
+      .finally(() => setTesting(false));
+  };
   const unmute = (id: string) => saveProjectNotify({ unmute: [id] }).catch(msg.fail);
 
   return (
@@ -91,6 +100,14 @@ export function NotificationsSection({ remote }: { remote: RemoteSurface }) {
           </Row>
         )}
         </div>
+        <Row title={C.test.title} help={C.test.help}>
+          <button onClick={test} disabled={testing}>{testing ? C.test.sending : C.test.button}</button>
+        </Row>
+        {tested && (
+          <p className={`cfg-note notify-test-result ${tested.ok ? "ok" : "bad"}`} role="status">
+            {tested.text}
+          </p>
+        )}
       </Card>
       <Card label="Events">
         <p className="cfg-note">{relay ? C.events(projectName) : C.eventsLocal(projectName)}</p>

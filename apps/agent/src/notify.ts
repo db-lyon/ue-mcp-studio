@@ -8,18 +8,27 @@
  *   GET  /notifications            { project, prefs, recent }
  *   PUT  /notifications            a ProjectNotifyUpdate: events, mute, unmute
  *   POST /notifications/presence   { id, device, active }: a device the owner is using, for "only when I'm away"
+ *   POST /notifications/test       { id }: a test notice only the device with that presence id shows, or every device of a class (desktop, browser, phone)
+ *   POST /notifications/delivery   a NotifyDelivery: what a device did with a notice
+ *
+ * Every decision is one line in the daemon's log and one studio.notify.trace
+ * event (Settings > Diagnostics): the agent's here, each device's as it reports it.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import {
+  TEST_TITLE,
   applyProjectNotify,
   contextView,
+  deliveryLine,
+  notifyDeliveryOf,
   projectNotifyOf,
   type ContextUsage,
   type DialogsState,
   type Notice,
+  type NotifyDelivery,
   type NotifyDevice,
   type NotifyKind,
   type NotifyTarget,
@@ -46,6 +55,8 @@ export interface NotifierOptions {
   /** The context window a model list stated for a model. */
   window?: (model: string) => number | undefined;
   now?: () => number;
+  /** One line per decision, for the daemon's log. */
+  log?: (line: string) => void;
 }
 
 /** A device that reported itself active more than this long ago is away. */
@@ -199,8 +210,33 @@ export class Notifier {
   /** Publish a notice unless the project's settings turn its event or its session off. */
   emit(kind: NotifyKind, sessionId: string | undefined, title: string, text: string, target: NotifyTarget): Notice | null {
     const prefs = this.o.prefs();
-    if (!prefs.events[kind]) return null;
-    if (sessionId && prefs.mutedSessions.includes(sessionId)) return null;
+    const rule = !prefs.events[kind] ? "event" : sessionId && prefs.mutedSessions.includes(sessionId) ? "session-muted" : null;
+    if (rule) {
+      this.trace(`notify ${kind} project=${this.o.project}${sessionId ? ` session=${sessionId}` : ""} suppressed rule=${rule}`, { stage: "agent", kind, ...(sessionId ? { sessionId } : {}), decision: "suppressed", rule });
+      return null;
+    }
+    return this.send(kind, sessionId, title, text, target);
+  }
+
+  /**
+   * A test from Settings > Notifications, on the same way as a real notice:
+   * published as studio.notify, decided and shown by the device that asked.
+   */
+  test(device: string): Notice {
+    return this.send("turn.finished", undefined, TEST_TITLE, "Notifications from this project reach this device.", {}, { device });
+  }
+
+  /** A device's report of what it did with a notice: logged and traced. */
+  delivered(report: NotifyDelivery): void {
+    this.trace(`${deliveryLine(report)} project=${this.o.project}`, { stage: "device", ...report });
+  }
+
+  private trace(line: string, data: Record<string, unknown>): void {
+    this.o.log?.(line);
+    this.o.publish("notify.trace", data);
+  }
+
+  private send(kind: NotifyKind, sessionId: string | undefined, title: string, text: string, target: NotifyTarget, test?: { device: string }): Notice {
     const s = sessionId ? this.o.session(sessionId) : undefined;
     const clean = Object.fromEntries(Object.entries(target).filter(([, v]) => typeof v === "string")) as NotifyTarget;
     const n: Notice = {
@@ -214,9 +250,14 @@ export class Notifier {
       text,
       target: clean,
       active: this.presence.active(),
+      ...(test ? { test } : {}),
     };
-    this.recentList.push(n);
-    if (this.recentList.length > RECENT) this.recentList.shift();
+    // A test is not something that happened: "open the latest" never goes to it.
+    if (!test) {
+      this.recentList.push(n);
+      if (this.recentList.length > RECENT) this.recentList.shift();
+    }
+    this.trace(`notify ${test ? "test" : kind} id=${n.id} project=${this.o.project}${sessionId ? ` session=${sessionId}` : ""} sent active=${n.active?.join(",") || "none"}`, { stage: "agent", kind, noticeId: n.id, ...(sessionId ? { sessionId } : {}), ...(test ? { test: true } : {}), decision: "sent" });
     this.o.publish("notify", n as unknown as Record<string, unknown>);
     return n;
   }
@@ -247,7 +288,7 @@ const DEVICES: readonly NotifyDevice[] = ["desktop", "browser", "phone"];
 
 export function registerNotifications(api: DaemonExtensionApi, o: Omit<NotifierOptions, "prefs" | "publish">): { notifier: Notifier; dispose(): void } {
   const store = new NotifyPrefsStore(api.dataDir);
-  const notifier = new Notifier({ ...o, prefs: () => store.get(), publish: (type, data) => api.events.publish(type, data) });
+  const notifier = new Notifier({ ...o, prefs: () => store.get(), publish: (type, data) => api.events.publish(type, data), log: (line) => api.log.info(line) });
   const unsubscribe = api.events.subscribe((e) => {
     try {
       notifier.observe(e as { type: string; data: Record<string, unknown> });
@@ -275,6 +316,17 @@ export function registerNotifications(api: DaemonExtensionApi, o: Omit<NotifierO
       return { status: 400, body: { error: "body must be { id, device: desktop | browser | phone, active }" } };
     }
     notifier.presence.report(b.id, b.device as NotifyDevice, b.active);
+    return { status: 204 };
+  });
+  api.route("POST", "/notifications/test", (req) => {
+    const b = (req.body ?? {}) as { id?: unknown };
+    if (typeof b.id !== "string" || !b.id || b.id.length > 100) return { status: 400, body: { error: "body must be { id }: the asking device's presence id, or desktop, browser or phone" } };
+    return { body: { notice: notifier.test(b.id) } };
+  });
+  api.route("POST", "/notifications/delivery", (req) => {
+    const report = notifyDeliveryOf(req.body);
+    if (!report) return { status: 400, body: { error: "body must be a delivery report: { noticeId, kind, device, shown, why?, via?, ok?, detail? }" } };
+    notifier.delivered(report);
     return { status: 204 };
   });
   return { notifier, dispose: unsubscribe };

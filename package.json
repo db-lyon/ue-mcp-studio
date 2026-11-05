@@ -17,7 +17,7 @@
     "visual-qa": "node scripts/visual-qa.mjs",
     "visual-qa:live": "node scripts/visual-qa-live.mjs",
     "release": "node scripts/release.mjs",
-    "visual-qa:mobile": "node scripts/visual-qa-mobile.mjs"
+    "visual-qa:mobile": "node scripts/parity-mobile.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.24.2",
