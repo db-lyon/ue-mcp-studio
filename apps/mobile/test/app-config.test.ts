@@ -20,6 +20,12 @@ describe("app.json", () => {
   it("keeps its own scheme for an explicit Open in app", () => {
     expect(app.scheme).toBe("uemcpstudio");
   });
+
+  // Build 8: with predictive back on, Android 13+ sent back to OnBackInvokedCallback, never to
+  // React Native's BackHandler, and the system closed the app from every screen.
+  it("leaves predictive back off, so system back reaches BackHandler", () => {
+    expect(app.android?.predictiveBackGestureEnabled).toBe(false);
+  });
 });
 
 describe("the generated Android manifest", () => {
@@ -28,5 +34,8 @@ describe("the generated Android manifest", () => {
     const xml = fs.readFileSync(manifest, "utf8");
     expect(xml).not.toMatch(/android:host="[^"]*ue-mcp\.com"/);
     expect(xml).not.toMatch(/android:autoVerify="true"/);
+  });
+  it.skipIf(!fs.existsSync(manifest))("does not opt into OnBackInvokedCallback", () => {
+    expect(fs.readFileSync(manifest, "utf8")).not.toMatch(/android:enableOnBackInvokedCallback="true"/);
   });
 });
