@@ -8,7 +8,7 @@ import { FILTER_KEY, PlaytestsScreen } from "../src/screens/playtests/Playtests"
 import { QaContext, lhOf } from "../src/screens/playtests/live";
 import { AssetLinks } from "@ue-mcp-studio/client-core";
 import { AssetLinksContext } from "../src/chat/asset-links";
-import { THEMES, tickColor } from "../src/ui";
+import { THEMES, ThemeProvider, tickColor } from "../src/ui";
 import { store } from "./mocks/secure-store";
 import { ProjectContext } from "../src/nav";
 import { fakeApi, fakeProject, renderInProject, settle } from "./helpers";
@@ -333,6 +333,18 @@ describe("QaCard as the web lays it out", () => {
   it("carries the body's line-height multiple to smaller text, not the quotient of its cut line box", () => {
     expect(lhOf(THEMES["ue-mcp"])).toBe(1.55);
     expect(lhOf(THEMES.editor)).toBe(1.5);
+  });
+
+  it("outlines a card that does not need you in --line-strong in the editor themes", () => {
+    renderInProject(
+      <ThemeProvider name="editor">
+        <QaCard run={RUNS.armed} />
+      </ThemeProvider>,
+    );
+    const rgb = (hex: string) => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
+    const line = THEMES.editor.c.lineStrong;
+    const border = getComputedStyle(screen.getByLabelText(`Playtest ${RUNS.armed.scriptName}`)).borderTopColor;
+    expect(line.startsWith("#") ? border === rgb(line) : border.replace(/s/g, "") === line.replace(/s/g, "")).toBe(true);
   });
 
   it("ticks a box in the colour the browser picks against the accent", () => {
