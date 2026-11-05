@@ -1,5 +1,5 @@
 // Unit tests for dock.h (the shared-memory protocol and where the window goes),
-// location.h, connection.h and update.h.
+// location.h, connection.h, update.h and toast.h.
 // Built beside studio-window.exe; apps/window/test/dock.test.ts runs it.
 // Prints "ok <name>" or "FAIL <name>: <what>" per case and exits non-zero on a failure.
 
@@ -10,6 +10,7 @@
 #include "../src/connection.h"
 #include "../src/dock.h"
 #include "../src/location.h"
+#include "../src/toast.h"
 #include "../src/update.h"
 
 namespace {
@@ -441,6 +442,26 @@ int main() {
                       "npm error A complete log of this run can be found in: C:\\Users\\u\\AppData\\Local\\npm-cache\\_logs\\x.log\n";
     CHECK(ueupdate::failureText(out) == "code ETARGET\nNo matching version found for ue-mcp@9.9.9.");
     CHECK(ueupdate::failureText("1\n2\n3\n4\n5\n6\n7\n") == "3\n4\n5\n6\n7");
+  });
+
+  test("a toast's text is escaped into its XML", [] {
+    CHECK(toast::xml(L"Done: <a & b>", L"it's \"fine\"") ==
+          L"<toast launch=\"studio\"><visual><binding template=\"ToastGeneric\"><text>Done: &lt;a &amp; b&gt;</text><text>it&apos;s &quot;fine&quot;</text></binding></visual></toast>");
+    CHECK(toast::escape(std::wstring(L"a") + wchar_t(1) + L"b\nc") == L"a b\nc");
+  });
+
+  test("a toast's group is the project, cut to 64 characters", [] {
+    CHECK(toast::group(L"") == L"studio");
+    CHECK(toast::group(L"Vale") == L"Vale");
+    CHECK(toast::group(std::wstring(80, L'x')).size() == 64);
+  });
+
+  test("the notify answer: ok, how, Windows' setting and the HRESULT", [] {
+    CHECK(toast::answer(true, "toast", "enabled") == "{\"ok\":true,\"via\":\"toast\",\"setting\":\"enabled\"}");
+    CHECK(toast::answer(false, "toast", toast::settingName(1)) == "{\"ok\":false,\"via\":\"toast\",\"setting\":\"disabled for Studio\"}");
+    CHECK(toast::answer(false, "toast", {}, static_cast<int32_t>(0x80070490), "Element not found.") ==
+          "{\"ok\":false,\"via\":\"toast\",\"hr\":\"0x80070490\",\"error\":\"Element not found.\"}");
+    CHECK(std::string(toast::settingName(9)) == "unknown");
   });
 
   std::printf(failures ? "%d failed\n" : "all passed\n", failures);
