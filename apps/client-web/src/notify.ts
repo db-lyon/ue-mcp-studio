@@ -15,9 +15,12 @@ import {
   deviceNotifyOf,
   noticeContent,
   noticeOf,
+  testIsFor,
   type DeviceNotifyPrefs,
   type Notice,
   type NotificationsState,
+  type NotifyDelivery,
+  type NotifyVia,
   type NotifyDevice,
   type NotifyTarget,
   type ProjectNotifyUpdate,
@@ -116,6 +119,8 @@ export function resetNotifyState(): void {
 // ── Where this page runs ──────────────────────────────────────────
 
 export const deviceKind = (): NotifyDevice => (onRemotePage() ? "browser" : "desktop");
+/** This page's id for presence and for its own test notifications, kept for the page's life. */
+export const presenceId = `${deviceKind()}-${Math.random().toString(36).slice(2, 10)}`;
 export const pageActive = (): boolean => typeof document !== "undefined" && document.visibilityState === "visible" && document.hasFocus();
 
 /** What the browser allows: "unsupported" where there is no Notification API. */
@@ -126,29 +131,119 @@ export function browserPermission(): NotificationPermission | "unsupported" {
 
 // ── Showing one ───────────────────────────────────────────────────
 
-export type Delivery = "window" | "flash" | "browser" | "none";
+export type Delivery = NotifyVia;
+
+/** How a notice went out on this device, and what the system answered. */
+export interface DeliveryResult {
+  via: NotifyVia;
+  ok: boolean;
+  detail?: string;
+}
+
+/**
+ * What the host's notify call answered. Studio's window answers
+ * { ok, via, hr?, setting?, error? }; an older window or the editor answers true or false.
+ */
+export function hostAnswer(v: unknown): { ok: boolean; detail?: string } {
+  if (typeof v === "boolean") return { ok: v };
+  if (typeof v === "string") {
+    try {
+      return hostAnswer(JSON.parse(v));
+    } catch {
+      return { ok: false, detail: v.slice(0, 200) };
+    }
+  }
+  const r = v as { ok?: unknown; via?: unknown; hr?: unknown; setting?: unknown; error?: unknown } | null;
+  if (!r || typeof r !== "object") return { ok: false };
+  const parts = [r.via, r.setting && `setting ${String(r.setting)}`, r.hr && `HRESULT ${String(r.hr)}`, r.error].filter((p): p is string => typeof p === "string" && p.length > 0);
+  return { ok: r.ok === true, ...(parts.length ? { detail: parts.join(", ") } : {}) };
+}
 
 /** Show a notice on this device by the best means it has. */
-export async function deliver(n: Notice, prefs: DeviceNotifyPrefs, onOpen: (t: NotifyTarget) => void): Promise<Delivery> {
+export async function deliver(n: Notice, prefs: DeviceNotifyPrefs, onOpen: (t: NotifyTarget) => void): Promise<DeliveryResult> {
   const { title, body } = noticeContent(n, prefs.privacy);
   const nat = native();
-  if (nat.notify && (await nat.notify(JSON.stringify({ title, text: body, target: n.target })).catch(() => false))) return "window";
-  if (window.ue?.studio && nat.drawattention && (await nat.drawattention(body).catch(() => false))) return "flash";
-  if (browserPermission() !== "granted") return "none";
-  const options: NotificationOptions = { body, tag: noticeTag(n), data: { target: n.target, at: Date.now() }, silent: prefs.sound === "none" };
-  // A paired browser's page sits under the relay's service worker, which also shows pushes and handles their clicks.
-  const reg = await navigator.serviceWorker?.getRegistration?.().catch(() => undefined);
-  if (reg?.showNotification) {
-    await reg.showNotification(title, options);
-    return "browser";
+  if (nat.notify) {
+    const answer = hostAnswer(await nat.notify(JSON.stringify({ title, text: body, target: n.target, group: n.project })).catch((e: unknown) => String(e)));
+    if (answer.ok || window.ue?.studioWindow) return { via: "window", ...answer };
   }
-  const shown = new Notification(title, options);
-  shown.onclick = () => {
-    window.focus();
-    onOpen(n.target);
-    shown.close();
-  };
-  return "browser";
+  if (window.ue?.studio && nat.drawattention) {
+    const flashed = await nat.drawattention(body).catch(() => false);
+    return { via: "flash", ok: !!flashed };
+  }
+  const permission = browserPermission();
+  if (permission !== "granted") return { via: "none", ok: false, detail: `browser permission ${permission}` };
+  const options: NotificationOptions = { body, tag: noticeTag(n), data: { target: n.target, at: Date.now() }, silent: prefs.sound === "none" };
+  try {
+    // A paired browser's page sits under the relay's service worker, which also shows pushes and handles their clicks.
+    const reg = await navigator.serviceWorker?.getRegistration?.().catch(() => undefined);
+    if (reg?.showNotification) {
+      await reg.showNotification(title, options);
+      return { via: "browser", ok: true, detail: "service worker" };
+    }
+    const shown = new Notification(title, options);
+    shown.onclick = () => {
+      window.focus();
+      onOpen(n.target);
+      shown.close();
+    };
+    return { via: "browser", ok: true };
+  } catch (e) {
+    return { via: "browser", ok: false, detail: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ── Reporting what happened, and the test from Settings ───────────
+
+const reports = new Map<string, NotifyDelivery>();
+const waiters = new Map<string, (d: NotifyDelivery) => void>();
+
+function reported(d: NotifyDelivery): void {
+  reports.set(d.noticeId, d);
+  if (reports.size > 50) reports.delete(reports.keys().next().value as string);
+  waiters.get(d.noticeId)?.(d);
+  waiters.delete(d.noticeId);
+  api.notifyDelivery(d).catch(() => undefined);
+}
+
+/** Decide one notice on this page, show it, and report both to the agent. */
+export async function handleNotice(n: Notice, onOpen: (t: NotifyTarget) => void): Promise<NotifyDelivery | null> {
+  // Another device's test.
+  if (n.test && !testIsFor(n.test, presenceId, deviceKind())) return null;
+  const prefs = devicePrefs ?? (devicePrefs = readDevicePrefs());
+  const device = deviceKind();
+  const base = { noticeId: n.id, kind: n.kind, ...(n.test ? { test: true } : {}), device };
+  const d = decideNotice(n, projectState?.prefs ?? DEFAULT_PROJECT_NOTIFY, prefs, { now: new Date(), projectKey: projectKeyOf(n), device, deviceActive: pageActive() });
+  if (!d.show) {
+    const r: NotifyDelivery = { ...base, shown: false, why: d.why };
+    reported(r);
+    return r;
+  }
+  const result = await deliver(n, prefs, onOpen).catch((e: unknown): DeliveryResult => ({ via: "none", ok: false, detail: e instanceof Error ? e.message : String(e) }));
+  const r: NotifyDelivery = { ...base, shown: true, via: result.via, ok: result.ok, ...(result.detail ? { detail: result.detail } : {}) };
+  reported(r);
+  return r;
+}
+
+/**
+ * Settings > Notifications > Send test notification: the agent publishes a
+ * test notice, this page decides and shows it like any other, and this
+ * resolves with what happened, or null when nothing came back in time.
+ */
+export async function sendTestNotification(timeoutMs = 10_000): Promise<NotifyDelivery | null> {
+  const { notice } = await api.testNotification({ id: presenceId });
+  const done = reports.get(notice.id);
+  if (done) return done;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      waiters.delete(notice.id);
+      resolve(null);
+    }, timeoutMs);
+    waiters.set(notice.id, (d) => {
+      clearTimeout(timer);
+      resolve(d);
+    });
+  });
 }
 
 const targetOf = (v: unknown): NotifyTarget | null => {
@@ -181,10 +276,7 @@ export function useNotifications(events: DaemonEvent[], onOpen: (t: NotifyTarget
       if (e.type === SETTINGS_EVENT) void loadProjectNotify(true);
       if (e.type !== NOTIFY_EVENT) continue;
       const n = noticeOf(e.data);
-      if (!n) continue;
-      const prefs = devicePrefs ?? (devicePrefs = readDevicePrefs());
-      const d = decideNotice(n, projectState?.prefs ?? DEFAULT_PROJECT_NOTIFY, prefs, { now: new Date(), projectKey: projectKeyOf(n), device: deviceKind(), deviceActive: pageActive() });
-      if (d.show) void deliver(n, prefs, (t) => open.current(t));
+      if (n) void handleNotice(n, (t) => open.current(t));
     }
   }, [events]);
   useEffect(() => {
@@ -224,8 +316,7 @@ export async function openLatest(onOpen: (t: NotifyTarget) => void): Promise<voi
 
 export const PRESENCE_EVERY_MS = 20_000;
 
-/** This device's id for presence, kept for the page's life. */
-const presenceId = `${deviceKind()}-${Math.random().toString(36).slice(2, 10)}`;
+
 
 /**
  * Tell the agent when this page is in use, so a phone set to "only when I'm

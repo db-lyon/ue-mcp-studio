@@ -6,6 +6,7 @@
 import {
   NOTIFY_KINDS,
   REMOTE_PLANS,
+  SKIP_NAMES,
   noticeOf,
   projectNotifyOf,
   type DeviceNotifyPrefs,
@@ -14,8 +15,10 @@ import {
   type NotifyVibrate,
   type Notice,
   type NotificationsState,
+  type NotifyDelivery,
   type NotifyKind,
   type NotifyTarget,
+  type NotifyVia,
   type ProjectNotifyPrefs,
 } from "@ue-mcp-studio/shared";
 
@@ -123,4 +126,34 @@ export const NOTIFY_COPY = {
     unsupported: "This browser cannot show notifications.",
     button: "Allow notifications",
   },
+  test: {
+    title: "Test notification",
+    help: "Sends one to this device the way a real event does, and says what happened to it.",
+    button: "Send test notification",
+    sending: "Sending...",
+  },
 } as const;
+
+/** What became of a test notification, said in Settings. */
+export function testResultText(d: NotifyDelivery | null): { ok: boolean; text: string } {
+  if (!d) return { ok: false, text: "No answer: the test did not reach this device. Settings > Diagnostics > Events shows how far it got." };
+  if (!d.shown) return { ok: false, text: `Not shown: ${d.why ? SKIP_NAMES[d.why] : "a setting kept it off"}.` };
+  const detail = d.detail ? ` (${d.detail})` : "";
+  if (d.via === "none" || !d.via) return { ok: false, text: `Not shown: nothing on this device can show a notification${detail}.` };
+  if (d.ok === false) return { ok: false, text: `Not shown: ${FAILED[d.via]}${detail}.` };
+  return { ok: true, text: `${SHOWN[d.via]}${detail}.` };
+}
+
+const SHOWN: Record<Exclude<NotifyVia, "none">, string> = {
+  window: "Sent to Windows. If no notification appeared, Windows' Do not disturb may be on, and it waits in the notification center",
+  flash: "The editor's taskbar button flashed. Studio's own window shows Windows notifications",
+  browser: "Sent to the browser",
+  phone: "Shown on this phone",
+};
+
+const FAILED: Record<Exclude<NotifyVia, "none">, string> = {
+  window: "Windows refused the notification",
+  flash: "the editor could not flash its taskbar button",
+  browser: "the browser refused the notification",
+  phone: "the phone refused the notification",
+};

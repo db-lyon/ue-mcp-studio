@@ -42,7 +42,7 @@ describe("a notice on this device", () => {
     const notify = vi.fn(async () => true);
     window.ue = { studio: { notify } as never };
     await arrive([ev(1, notice())]);
-    expect(notify).toHaveBeenCalledWith(JSON.stringify({ title: "Done: Fix the door", text: "Vale: The door opens now.", target: { sessionId: "s1" } }));
+    expect(notify).toHaveBeenCalledWith(JSON.stringify({ title: "Done: Fix the door", text: "Vale: The door opens now.", target: { sessionId: "s1" }, group: "Vale" }));
   });
 
   it("shows only the event and the project when details are hidden", async () => {
@@ -50,7 +50,7 @@ describe("a notice on this device", () => {
     window.ue = { studio: { notify } as never };
     localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify({ ...DEFAULT_DEVICE_NOTIFY, privacy: "minimal" }));
     await arrive([ev(1, notice())]);
-    expect(notify).toHaveBeenCalledWith(JSON.stringify({ title: "Turn finished", text: "Vale", target: { sessionId: "s1" } }));
+    expect(notify).toHaveBeenCalledWith(JSON.stringify({ title: "Turn finished", text: "Vale", target: { sessionId: "s1" }, group: "Vale" }));
   });
 
   it("flashes the editor where there is no notify", async () => {

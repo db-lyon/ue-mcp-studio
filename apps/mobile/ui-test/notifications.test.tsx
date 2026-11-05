@@ -79,7 +79,8 @@ describe("the session menu on the phone", () => {
 
 describe("one notice on the phone", () => {
   const notice: Notice = { id: "n1", kind: "turn.finished", project: "StudioE2E", at: "x", sessionId: "s1", title: "Done: Fix the door", text: "The door opens now.", target: { sessionId: "s1" }, active: [] };
-  const fakeApi = (prefs = DEFAULT_PROJECT_NOTIFY) => ({ notifications: async (): Promise<NotificationsState> => ({ project: "StudioE2E", prefs, recent: [], titles: {} }) }) as unknown as SettingsApi;
+  const fakeApi = (prefs = DEFAULT_PROJECT_NOTIFY) =>
+    ({ notifications: async (): Promise<NotificationsState> => ({ project: "StudioE2E", prefs, recent: [], titles: {} }), notifyDelivery: vi.fn(async () => undefined) }) as unknown as SettingsApi;
   const device = { id: "dev1" };
   const prefs = (over: object) => store.set(DEVICE_PREFS_KEY, JSON.stringify({ ...DEFAULT_DEVICE_NOTIFY, onlyWhenAway: false, ...over }));
 
@@ -87,7 +88,9 @@ describe("one notice on the phone", () => {
     prefs({ sound: "soft", vibrate: "short" });
     const api = fakeApi();
     await loadProjectNotify(api);
-    expect(await act(() => showNotice(notice, device, api))).toBe(true);
+    expect((await act(() => showNotice(notice, device, api)))?.shown).toBe(true);
+    // What the phone did goes back to the computer's log.
+    expect(api.notifyDelivery).toHaveBeenCalledWith(expect.objectContaining({ noticeId: "n1", kind: "turn.finished", device: "phone", shown: true, via: "phone" }));
     expect(g.__studioNotifications).toEqual([
       { title: "Done: Fix the door", body: "StudioE2E: The door opens now.", sound: "soft", vibrate: "short", tag: "uemcp:turn.finished:StudioE2E", data: { deviceId: "dev1", kind: "turn.finished", sessionId: "s1" } },
     ]);
@@ -103,21 +106,22 @@ describe("one notice on the phone", () => {
     const api = fakeApi(applyProjectNotify(DEFAULT_PROJECT_NOTIFY, { mute: ["s1"] }));
     await loadProjectNotify(api);
     prefs({});
-    expect(await showNotice(notice, device, api)).toBe(false);
+    expect(await showNotice(notice, device, api)).toMatchObject({ shown: false, why: "session-muted" });
+    expect(api.notifyDelivery).toHaveBeenCalledWith(expect.objectContaining({ shown: false, why: "session-muted" }));
     resetNotifyState();
     prefs({ mutedProjects: ["dev1"] });
-    expect(await showNotice({ ...notice, sessionId: "s2" }, device, fakeApi())).toBe(false);
+    expect((await showNotice({ ...notice, sessionId: "s2" }, device, fakeApi()))?.shown).toBe(false);
     resetNotifyState();
     prefs({ quiet: { on: true, from: "00:00", to: "00:00" } });
-    expect(await showNotice(notice, device, fakeApi())).toBe(false);
+    expect((await showNotice(notice, device, fakeApi()))?.shown).toBe(false);
     resetNotifyState();
     prefs({ onlyWhenAway: true });
-    expect(await showNotice(notice, device, fakeApi())).toBe(false);
+    expect((await showNotice(notice, device, fakeApi()))?.shown).toBe(false);
     resetNotifyState();
     prefs({ onlyWhenAway: true });
     vi.spyOn(await import("react-native").then((m) => m.AppState), "currentState", "get").mockReturnValue("background");
-    expect(await showNotice({ ...notice, active: ["desktop"] }, device, fakeApi())).toBe(false);
-    expect(await showNotice(notice, device, fakeApi())).toBe(true);
+    expect((await showNotice({ ...notice, active: ["desktop"] }, device, fakeApi()))?.shown).toBe(false);
+    expect((await showNotice(notice, device, fakeApi()))?.shown).toBe(true);
     expect(g.__studioNotifications).toHaveLength(1);
   });
 });

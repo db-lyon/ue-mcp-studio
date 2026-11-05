@@ -63,6 +63,12 @@ export interface Notice {
   target: NotifyTarget;
   /** Device classes the owner was using when it was sent, for "only when I'm away". */
   active?: NotifyDevice[];
+  /**
+   * A test from Settings > Notifications, whatever the events say: only the
+   * device whose presence id this is shows it, or every device of this class
+   * ("desktop", "browser", "phone") when the test names one.
+   */
+  test?: { device: string };
 }
 
 /** Per project, shared by every device: which events notify, and the sessions muted. */
@@ -180,8 +186,14 @@ export type NotifySkip = "off" | "event" | "project-muted" | "session-muted" | "
 export type NotifyDecision = { show: true } | { show: false; why: NotifySkip };
 
 /** Whether this device shows a notice, and why not. */
-export function decideNotice(n: Pick<Notice, "kind" | "sessionId" | "active">, project: ProjectNotifyPrefs, device: DeviceNotifyPrefs, ctx: NotifyContext): NotifyDecision {
+export function decideNotice(n: Pick<Notice, "kind" | "sessionId" | "active" | "test">, project: ProjectNotifyPrefs, device: DeviceNotifyPrefs, ctx: NotifyContext): NotifyDecision {
   if (!device.enabled) return { show: false, why: "off" };
+  // A test is sent from this device while it is in use: its own event and "only when I'm away" do not apply.
+  if (n.test) {
+    if (device.mutedProjects.includes(ctx.projectKey)) return { show: false, why: "project-muted" };
+    if (inQuietHours(device.quiet, ctx.now)) return { show: false, why: "quiet" };
+    return { show: true };
+  }
   if (!project.events[n.kind]) return { show: false, why: "event" };
   if (device.mutedProjects.includes(ctx.projectKey)) return { show: false, why: "project-muted" };
   if (n.sessionId && project.mutedSessions.includes(n.sessionId)) return { show: false, why: "session-muted" };
@@ -197,8 +209,8 @@ export function decideNotice(n: Pick<Notice, "kind" | "sessionId" | "active">, p
 export const notifyKindName = (kind: NotifyKind): string => NOTIFY_KINDS.find((k) => k.kind === kind)?.name ?? "Studio";
 
 /** What the notification says on this device. */
-export function noticeContent(n: Pick<Notice, "kind" | "project" | "title" | "text">, privacy: NotifyPrivacy): { title: string; body: string } {
-  if (privacy === "minimal") return { title: notifyKindName(n.kind), body: n.project };
+export function noticeContent(n: Pick<Notice, "kind" | "project" | "title" | "text" | "test">, privacy: NotifyPrivacy): { title: string; body: string } {
+  if (privacy === "minimal") return { title: n.test ? TEST_TITLE : notifyKindName(n.kind), body: n.project };
   return { title: n.title, body: n.project ? `${n.project}: ${n.text}` : n.text };
 }
 
@@ -220,7 +232,80 @@ export function noticeOf(data: unknown): Notice | null {
     text: d.text,
     target,
     ...(Array.isArray(d.active) ? { active: d.active.filter((a): a is NotifyDevice => a === "desktop" || a === "browser" || a === "phone") } : {}),
+    ...(d.test && typeof d.test === "object" && typeof d.test.device === "string" ? { test: { device: d.test.device } } : {}),
   };
+}
+
+/** Whether a test notice is for this device: its presence id, or its class. */
+export const testIsFor = (test: { device: string }, presenceId: string, device: NotifyDevice): boolean => test.device === presenceId || test.device === device;
+
+/** A test notice's title. */
+export const TEST_TITLE = "Test notification";
+
+/** The daemon event each step of a notice's way is traced as: the agent's decision, then each device's. */
+export const NOTIFY_TRACE_EVENT = "studio.notify.trace";
+
+/** How a device showed a notice: Studio's window (a Windows toast), a flash of the editor, the browser, or the phone. */
+export type NotifyVia = "window" | "flash" | "browser" | "phone" | "none";
+
+/**
+ * What one device did with one notice, as it reports it to the agent
+ * (POST /notifications/delivery), which logs it and traces it.
+ */
+export interface NotifyDelivery {
+  noticeId: string;
+  kind: NotifyKind;
+  test?: boolean;
+  device: NotifyDevice;
+  /** Whether the rules let it show (decideNotice). */
+  shown: boolean;
+  /** The rule that kept it off this device. */
+  why?: NotifySkip;
+  /** How it was shown, and whether the system took it. */
+  via?: NotifyVia;
+  ok?: boolean;
+  /** What the system answered: a toast's result or HRESULT, the browser's permission. */
+  detail?: string;
+}
+
+const VIAS: readonly NotifyVia[] = ["window", "flash", "browser", "phone", "none"];
+const SKIPS: readonly NotifySkip[] = ["off", "event", "project-muted", "session-muted", "quiet", "active", "desktop-active"];
+const DEVICES: readonly NotifyDevice[] = ["desktop", "browser", "phone"];
+
+/** A delivery report read from a request body, or null when it is not one. */
+export function notifyDeliveryOf(raw: unknown): NotifyDelivery | null {
+  const r = raw as Partial<Record<keyof NotifyDelivery, unknown>> | null;
+  if (!r || typeof r !== "object" || typeof r.noticeId !== "string" || !r.noticeId || r.noticeId.length > 100) return null;
+  if (!isNotifyKind(r.kind) || !DEVICES.includes(r.device as NotifyDevice) || typeof r.shown !== "boolean") return null;
+  return {
+    noticeId: r.noticeId,
+    kind: r.kind,
+    ...(r.test === true ? { test: true } : {}),
+    device: r.device as NotifyDevice,
+    shown: r.shown,
+    ...(SKIPS.includes(r.why as NotifySkip) ? { why: r.why as NotifySkip } : {}),
+    ...(VIAS.includes(r.via as NotifyVia) ? { via: r.via as NotifyVia } : {}),
+    ...(typeof r.ok === "boolean" ? { ok: r.ok } : {}),
+    ...(typeof r.detail === "string" && r.detail ? { detail: r.detail.slice(0, 300) } : {}),
+  };
+}
+
+/** The rule's name in a log line and in Settings. */
+export const SKIP_NAMES: Record<NotifySkip, string> = {
+  off: "notifications are off on this device",
+  event: "the event is off for this project",
+  "project-muted": "the project is muted on this device",
+  "session-muted": "the session is muted",
+  quiet: "quiet hours",
+  active: "only when away, and this device is in use",
+  "desktop-active": "only when away, and Studio is in use on the computer",
+};
+
+/** One line for the daemon's log: the device's decision and what the system answered. */
+export function deliveryLine(d: NotifyDelivery): string {
+  const head = `notify ${d.test ? "test" : d.kind} id=${d.noticeId} device=${d.device}`;
+  if (!d.shown) return `${head} suppressed rule=${d.why ?? "unknown"}`;
+  return `${head} shown via=${d.via ?? "none"} ok=${d.ok === undefined ? "unknown" : d.ok}${d.detail ? ` detail=${d.detail}` : ""}`;
 }
 
 /** GET /v1/ext/studio/notifications */

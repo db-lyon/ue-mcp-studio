@@ -6,13 +6,14 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { NOTIFY_KINDS, type DeviceNotifyPrefs, type NotifyKind } from "@ue-mcp-studio/shared";
-import { NOTIFY_COPY as C, PRIVACY_CHOICES, SOUND_CHOICES, VIBRATE_CHOICES } from "@ue-mcp-studio/client-core";
+import { NOTIFY_COPY as C, PRIVACY_CHOICES, SOUND_CHOICES, VIBRATE_CHOICES, testResultText } from "@ue-mcp-studio/client-core";
 import { Button, Card, Input, useTheme } from "../../ui";
 import { CardLabel, Head, Seg, SettingRow, Switch, Txt, useMessage } from "./controls";
 import { Message } from "./GeneralSection";
 import { useSettingsApi } from "./hooks";
 import { saveProjectNotify, useDevicePrefs, useProjectNotify } from "../../notifications/state";
 import { askPermission, permission as readPermission, type NotifyPermission } from "../../native/notify";
+import { sendTestNotification } from "../../notifications/useNotifications";
 import { useProjectNav } from "../../nav";
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -59,6 +60,15 @@ export function NotificationsSection() {
   const muted = !!key && device.mutedProjects.includes(key);
   const off = !device.enabled;
   const toggleEvent = (kind: NotifyKind, on: boolean) => void saveProjectNotify(api, { events: { [kind]: on } }).catch(msg.fail);
+  const [testing, setTesting] = useState(false);
+  const [tested, setTested] = useState<{ ok: boolean; text: string } | null>(null);
+  const test = () => {
+    setTesting(true);
+    setTested(null);
+    void sendTestNotification(api, open.device)
+      .then((d) => setTested(testResultText(d)), (e: unknown) => setTested({ ok: false, text: `Could not send: ${e instanceof Error ? e.message : String(e)}` }))
+      .finally(() => setTesting(false));
+  };
 
   return (
     <>
@@ -102,6 +112,12 @@ export function NotificationsSection() {
             </SettingRow>
           ) : null}
         </View>
+        <SettingRow title={C.test.title} help={C.test.help}>
+          <Button title={testing ? C.test.sending : C.test.button} onPress={test} disabled={testing} style={{ alignSelf: "flex-start" }} />
+        </SettingRow>
+        {tested ? (
+          <Txt size={12} tone={tested.ok ? "dim" : "badText"} style={{ paddingBottom: 11 }} testID="notify-test-result">{tested.text}</Txt>
+        ) : null}
       </Card>
       <Card>
         <CardLabel>Events</CardLabel>
