@@ -285,14 +285,14 @@ export class RemoteService {
       const answer = await this.lockRoute(sealed.phone, req.method, pathname, req.body);
       return reply(answer.status, { "content-type": "application/json", "cache-control": "no-store" }, new TextEncoder().encode(JSON.stringify(answer.body)));
     }
+    const reqBody = req.body !== undefined ? Buffer.from(req.body, "base64") : undefined;
+    if (reqBody && reqBody.byteLength > MAX_REQUEST_BYTES) return error(413, "Request too large.");
     if (this.o.lock) {
-      const verdict = this.o.lock.check(sealed.phone, req.method, pathname, this.o.risky?.() ?? true);
+      const verdict = this.o.lock.check(sealed.phone, req.method, pathname, this.o.risky?.() ?? true, reqBody);
       if (verdict === "locked") return reply(423, { "content-type": "application/json" }, new TextEncoder().encode(JSON.stringify({ error: "Locked. Enter your PIN.", code: "locked" })));
       if (verdict === "pin-required") return reply(423, { "content-type": "application/json" }, new TextEncoder().encode(JSON.stringify({ error: "Enter your PIN to do this.", code: "pin-required" })));
       if (req.method !== "GET" && req.method !== "HEAD") this.o.lock.touch(sealed.phone);
     }
-    const reqBody = req.body !== undefined ? Buffer.from(req.body, "base64") : undefined;
-    if (reqBody && reqBody.byteLength > MAX_REQUEST_BYTES) return error(413, "Request too large.");
     if (!remoteBodyAllowed(req.method, pathname, reqBody)) return error(403, "Not available remotely.");
     const daemon = this.o.daemon();
     if (!daemon) return error(503, "The daemon is not running for that project.");

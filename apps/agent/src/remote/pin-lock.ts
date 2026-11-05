@@ -19,6 +19,7 @@ import {
   REMOTE_LOCK_IDLE_CHOICES,
   REMOTE_LOCK_IDLE_DEFAULT,
   REMOTE_PIN_ATTEMPTS,
+  parseSlashCommand,
   type RemoteLockSettings,
   type RemoteLockState,
 } from "@ue-mcp-studio/shared";
@@ -74,9 +75,33 @@ const TURN_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/queue(\/next|\/[^/]+)?$/,
   /^\/sessions\/[^/]+\/transcript\/[^/]+\/edit$/,
   /^\/sessions\/[^/]+\/action$/,
-  /^\/sessions\/[^/]+\/flow$/,
   /^\/quick(\/[^/]+\/continue)?$/,
 ];
+
+/** Turn routes whose body text is a message: a /flow or /playtest there runs a flow, which is always sensitive. */
+const TEXT_ROUTES: RegExp[] = [
+  /^\/sessions\/[^/]+\/messages$/,
+  /^\/sessions\/[^/]+\/queue(\/[^/]+)?$/,
+  /^\/sessions\/[^/]+\/transcript\/[^/]+\/edit$/,
+  /^\/quick$/,
+];
+
+/** Slash commands that run a flow rather than a turn. */
+const FLOW_COMMANDS = new Set(["flow", "playtest"]);
+
+/** Whether a request body's `text` is a /flow or /playtest command. Unreadable bodies are not. */
+function runsFlowCommand(body: Uint8Array | string | undefined): boolean {
+  if (body === undefined) return false;
+  let text: unknown;
+  try {
+    text = (JSON.parse(typeof body === "string" ? body : new TextDecoder().decode(body)) as { text?: unknown } | null)?.text;
+  } catch {
+    return false;
+  }
+  if (typeof text !== "string") return false;
+  const c = parseSlashCommand(text);
+  return !!c && FLOW_COMMANDS.has(c.name);
+}
 
 /** Studio routes that are always sensitive: answering approvals and editor dialogs, undoing or reverting changes, running playtests, settings, sign-ins, updates and billing. */
 const ALWAYS_ROUTES: RegExp[] = [
@@ -86,6 +111,8 @@ const ALWAYS_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/reviews\/[^/]+\/(keep|revert|undo)$/,
   /^\/sessions\/[^/]+\/timeline\/(restore|undo)$/,
   /^\/sessions\/[^/]+\/playtest$/,
+  // A flow's steps can run Python, console commands or write files.
+  /^\/sessions\/[^/]+\/flow$/,
   /^\/qa\/runs\/[^/]+\/(run|loop\/revert)$/,
   /^\/qa\/playtests\/script$/,
   /^\/qa\/runs\/[^/]+\/script$/,
@@ -106,9 +133,10 @@ const ALWAYS_ROUTES: RegExp[] = [
  * Whether `method pathname` (a daemon path a paired browser may reach, see
  * remotePath) needs the PIN under the sensitive-actions switch. Reads never do.
  * `risky`: shell commands or file changes run without asking, so any turn the
- * request starts could run them.
+ * request starts could run them. `body`: the request's JSON, so a message that
+ * is a /flow or /playtest command counts as running that flow.
  */
-export function sensitiveRequest(method: string, pathname: string, risky: boolean): boolean {
+export function sensitiveRequest(method: string, pathname: string, risky: boolean, body?: Uint8Array | string): boolean {
   const m = method.toUpperCase();
   if (m === "GET" || m === "HEAD") return false;
   if (/^\/v1\/editor\/(start|stop|restart|rebuild)$/.test(pathname)) return true;
@@ -119,6 +147,7 @@ export function sensitiveRequest(method: string, pathname: string, risky: boolea
   // Deleting a session; renaming one is not.
   if (m === "DELETE" && /^\/sessions\/[^/]+$/.test(rest)) return true;
   if (ALWAYS_ROUTES.some((r) => r.test(rest))) return true;
+  if (TEXT_ROUTES.some((r) => r.test(rest)) && runsFlowCommand(body)) return true;
   return risky && TURN_ROUTES.some((r) => r.test(rest));
 }
 
@@ -339,12 +368,12 @@ export class PinLock {
   }
 
   /** Whether this request from this browser may go on. `risky`: see sensitiveRequest. */
-  check(phone: string, method: string, pathname: string, risky: boolean): LockVerdict {
+  check(phone: string, method: string, pathname: string, risky: boolean, body?: Uint8Array | string): LockVerdict {
     const s = this.stored();
     if (!s.whole && !s.sensitive) return "ok";
     const open = this.open(phone, s);
     if (!open.whole && !openWhileLocked(method, pathname)) return "locked";
-    if (!open.sensitive && sensitiveRequest(method, pathname, risky)) return "pin-required";
+    if (!open.sensitive && sensitiveRequest(method, pathname, risky, body)) return "pin-required";
     return "ok";
   }
 

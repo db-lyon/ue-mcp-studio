@@ -45,6 +45,23 @@ export function approvalKind(name: string, input: Record<string, unknown>, effec
   return null;
 }
 
+/**
+ * The approval row a flow step's task falls under, by the same rules as the
+ * agent's own ue_mcp calls. A task that is not category.method (a project
+ * task, a nested flow) could run anything, so it asks as a shell command.
+ */
+export function flowStepKind(task: string, effects: ActionEffects): ApprovalKind | null {
+  const m = /^([A-Za-z_][\w-]*)\.([A-Za-z_][\w-]*)$/.exec(task);
+  if (!m) return "shell";
+  return approvalKind("ue_mcp", flowStepCall(task), effects);
+}
+
+/** A flow step's task as the ue_mcp call the approval shows. */
+export function flowStepCall(task: string): Record<string, unknown> {
+  const dot = task.indexOf(".");
+  return dot > 0 ? { action: "call", category: task.slice(0, dot), method: task.slice(dot + 1), args: {} } : { action: "call", category: "flow", method: task, args: {} };
+}
+
 /** What the user is shown for an editor restart or a destructive ue-mcp action. Shell and file previews are local-tools' approvalFor. */
 export function editorPreview(name: string, input: Record<string, unknown>): ApprovalPreview | null {
   if (name === "editor_restart") {
