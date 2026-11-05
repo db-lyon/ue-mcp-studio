@@ -5,8 +5,8 @@
  * line while the reader is at the bottom, with a New messages pill under it
  * when they have scrolled up; a subagent's own thread is drawn the same way.
  */
-import { createContext, memo, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type TextStyle } from "react-native";
+import { Component, createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Image, Pressable, RefreshControl, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
@@ -343,13 +343,63 @@ function JumpLatest({ onPress }: { onPress: () => void }) {
   );
 }
 
+/** A long thread draws its newest TRANSCRIPT_PAGE lines first, and a page more each time the reader reaches the top. */
+export const TRANSCRIPT_PAGE = 40;
+/** Within this many pixels of the top counts as reaching it. */
+const TOP_SLACK = 600;
+
+interface Tail {
+  /** The first line drawn; the ones before it wait above. */
+  from: number;
+  /** Draw a page more above, or null when every line is drawn. */
+  more: (() => void) | null;
+}
+
+/** The newest lines of `count`, a page more on each `more`; back to one page when `reset` changes. */
+export function useTail(count: number, reset: unknown): Tail {
+  const [shown, setShown] = useState(TRANSCRIPT_PAGE);
+  useEffect(() => setShown(TRANSCRIPT_PAGE), [reset]);
+  const from = Math.max(0, count - shown);
+  // One page per arrival at the top, however many scroll events say so before it is drawn.
+  const asked = useRef(-1);
+  const more = useCallback(() => {
+    if (asked.current === from) return;
+    asked.current = from;
+    setShown((n) => n + TRANSCRIPT_PAGE);
+  }, [from]);
+  return { from, more: from > 0 ? more : null };
+}
+
+/** The way to the lines not drawn yet, above the oldest one that is. */
+function Earlier({ count, onPress }: { count: number; onPress: () => void }) {
+  const t = useTheme();
+  const label = `Show earlier messages (${count} more)`;
+  return (
+    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => ({ alignSelf: "center", minHeight: 44, justifyContent: "center", paddingHorizontal: 12, borderRadius: t.radius, backgroundColor: pressed ? t.c.panel2 : "transparent" })}>
+      <Text style={[foldText(t), { color: t.c.dim }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
+/** One line that fails to draw says so in its place, and the rest of the thread still shows. */
+class EntryBoundary extends Component<{ children: ReactNode }, { failed: string | null }> {
+  state = { failed: null as string | null };
+  static getDerivedStateFromError(e: unknown) {
+    return { failed: e instanceof Error ? e.message : String(e) };
+  }
+  render() {
+    if (this.state.failed === null) return this.props.children;
+    return <Banner kind="bad">{`This line of the conversation could not be shown: ${this.state.failed}`}</Banner>;
+  }
+}
+
 /**
  * .transcript: the scrolling column, 12px between lines, 14px 12px 10px inside.
  * It paints the panel it sits on: a scroller Chrome scrolls on the GPU keeps
  * subpixel text only over an opaque background, and react-native-web's
  * ScrollViews scroll there.
  */
-function Column({ follow, hidden, refreshing, onRefresh, children }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; refreshing?: boolean; onRefresh?: () => void; children: ReactNode }) {
+function Column({ follow, hidden, refreshing, onRefresh, tail, children }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; refreshing?: boolean; onRefresh?: () => void; tail?: Tail; children: ReactNode }) {
   const t = useTheme();
   const [width, setWidth] = useState<number | null>(null);
   const window = useWindowDimensions().width;
@@ -357,18 +407,28 @@ function Column({ follow, hidden, refreshing, onRefresh, children }: { follow: R
     setWidth(e.nativeEvent.layout.width - 24);
     follow.props.onLayout(e);
   };
+  const followScroll = follow.props.onScroll;
+  // Scrolled up to the oldest line drawn: the page before it is drawn above, where the reader is.
+  const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    followScroll(e);
+    if (tail?.more && e.nativeEvent.contentOffset.y < TOP_SLACK) tail.more();
+  };
   return (
     <WidthContext.Provider value={width ?? window - 24}>
       <ScrollView
         nativeID="transcript"
         {...follow.props}
+        onScroll={onScroll}
         onLayout={onLayout}
+        // Lines drawn above keep the one being read where it is.
+        maintainVisibleContentPosition={tail?.more ? { minIndexForVisible: 1 } : undefined}
         refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={t.c.accent} colors={[t.c.accent]} progressBackgroundColor={t.c.panel2} /> : undefined}
         accessibilityElementsHidden={hidden}
         importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
         style={{ flex: 1, backgroundColor: t.c.panel }}
         contentContainerStyle={{ gap: 12, paddingTop: 14, paddingHorizontal: 12, paddingBottom: 10 }}
       >
+        {tail?.more ? <Earlier count={tail.from} onPress={tail.more} /> : null}
         {children}
       </ScrollView>
     </WidthContext.Provider>
@@ -400,13 +460,15 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   const follow = useFollow(`${transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = useAsked().size;
+  const tail = useTail(items.length, null);
   return (
     <>
-      <Column follow={follow} hidden={hidden} refreshing={refreshing} onRefresh={onRefresh}>
-        {items.map((item, i) => {
-          if (item.kind === "entry") return <Entry key={i} entry={item.entry} />;
-          if (item.kind === "progress") return <ProgressFold key={i} entries={item.entries} />;
-          return <AgentGroup key={item.calls[0].id} calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} />;
+      <Column follow={follow} hidden={hidden} refreshing={refreshing} onRefresh={onRefresh} tail={tail}>
+        {items.slice(tail.from).map((item, n) => {
+          const i = tail.from + n;
+          if (item.kind === "entry") return <EntryBoundary key={i}><Entry entry={item.entry} /></EntryBoundary>;
+          if (item.kind === "progress") return <EntryBoundary key={i}><ProgressFold entries={item.entries} /></EntryBoundary>;
+          return <EntryBoundary key={item.calls[0].id}><AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} /></EntryBoundary>;
         })}
         {streaming ? (
           <View style={{ alignSelf: "flex-start", maxWidth: "100%", paddingVertical: 10, paddingRight: 13, paddingLeft: 2 }}>
@@ -566,11 +628,12 @@ export function SubagentThread({ call, transcript, sessionWaiting: _sessionWaiti
   const prompt = (call.input as { prompt?: string }).prompt;
   const steps = transcript.filter((e) => e.parent === call.id);
   const follow = useFollow(`${steps.length}:${call.outcome}`);
+  const tail = useTail(steps.length, call.id);
   return (
     <>
-      <Column follow={follow}>
-        {prompt ? <TaskMessage prompt={prompt} /> : null}
-        {steps.map((e, i) => <Entry key={i} entry={e} />)}
+      <Column follow={follow} tail={tail}>
+        {prompt && tail.from === 0 ? <TaskMessage prompt={prompt} /> : null}
+        {steps.slice(tail.from).map((e, n) => <EntryBoundary key={tail.from + n}><Entry entry={e} /></EntryBoundary>)}
         {call.outcome === "done" ? <Text style={small(t, t.c.dim)}>Reported back to the main agent.</Text> : null}
         {call.outcome === "stopped" ? <Text style={small(t, t.c.dim)}>Stopped. The main agent was told.</Text> : null}
         {(call.outcome === "error" || call.outcome === "unknown") && call.result ? <Banner kind="bad">{call.result}</Banner> : null}
