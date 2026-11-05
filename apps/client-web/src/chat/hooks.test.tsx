@@ -44,6 +44,87 @@ describe("following the newest line", () => {
     }
   });
 
+  /** A ResizeObserver that, like the browser's, reports only the elements it observes. */
+  function observeSizes() {
+    const observed = new Set<Element>();
+    let report = () => {};
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(cb: () => void) { report = cb; }
+      observe(el: Element) { observed.add(el); }
+      unobserve(el: Element) { observed.delete(el); }
+      disconnect() { observed.clear(); }
+    });
+    return { resized: (el: Element) => { if (observed.has(el)) report(); } };
+  }
+
+  function Lines() {
+    const f = useFollow<HTMLDivElement>(1);
+    return (
+      <div data-testid="list" ref={f.ref} onScroll={f.onScroll}>
+        <p data-testid="line">A line set in a web font that loads later</p>
+        <details data-testid="tool"><summary>tool</summary>output</details>
+      </div>
+    );
+  }
+
+  it("stays at the bottom when a line grows after layout, such as when web fonts load", () => {
+    const sizes = observeSizes();
+    try {
+      render(<Lines />);
+      const el = screen.getByTestId("list");
+      metrics(el, { scrollHeight: 1000, clientHeight: 200 });
+      sizes.resized(el);
+      expect(el.scrollTop).toBe(1000);
+      // The fonts load: the line wraps taller, the list itself keeps its size.
+      metrics(el, { scrollHeight: 1038, clientHeight: 200 });
+      sizes.resized(screen.getByTestId("line"));
+      expect(el.scrollTop).toBe(1038);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("leaves a reader who scrolled up where they are when a line grows", () => {
+    const sizes = observeSizes();
+    try {
+      render(<Lines />);
+      const el = screen.getByTestId("list");
+      metrics(el, { scrollHeight: 1000, clientHeight: 200 });
+      el.scrollTop = 100;
+      fireEvent.scroll(el);
+      metrics(el, { scrollHeight: 1038, clientHeight: 200 });
+      sizes.resized(screen.getByTestId("line"));
+      expect(el.scrollTop).toBe(100);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does not scroll away from a row the reader opened at the bottom", () => {
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "setTimeout"] });
+    const sizes = observeSizes();
+    try {
+      render(<Lines />);
+      const el = screen.getByTestId("list");
+      metrics(el, { scrollHeight: 1000, clientHeight: 200 });
+      sizes.resized(el);
+      expect(el.scrollTop).toBe(1000);
+      const tool = screen.getByTestId("tool");
+      fireEvent.click(tool.querySelector("summary")!);
+      metrics(el, { scrollHeight: 1400, clientHeight: 200 });
+      sizes.resized(tool);
+      expect(el.scrollTop).toBe(1000);
+      // Once the opening has laid out, later growth is followed again.
+      vi.advanceTimersByTime(100);
+      metrics(el, { scrollHeight: 1438, clientHeight: 200 });
+      sizes.resized(screen.getByTestId("line"));
+      expect(el.scrollTop).toBe(1438);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("scrolls to the bottom while the reader is there", () => {
     const { rerender } = render(<List n={1} />);
     const el = screen.getByTestId("list");

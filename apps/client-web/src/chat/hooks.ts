@@ -50,15 +50,38 @@ export function useFollow<T extends HTMLElement>(content: unknown, snap?: unknow
     if (el) el.scrollTop = el.scrollHeight;
   }, [snap]);
 
-  // The list getting shorter (the composer growing under it) keeps a reader at the bottom there.
+  // The list getting shorter (the composer growing under it) or its lines growing
+  // after layout (web fonts, images, a card expanding) keeps a reader at the bottom
+  // there. Growth the reader caused by clicking, such as opening a tool row, is left
+  // where it opened.
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === "undefined") return;
+    let clicked = 0;
+    const onClick = () => {
+      const mark = ++clicked;
+      // The opened content lays out and is observed within the next frame; two frames covers it.
+      const frame = typeof requestAnimationFrame === "function" ? requestAnimationFrame : (f: () => void) => setTimeout(f, 16);
+      frame(() => frame(() => { if (clicked === mark) clicked = 0; }));
+    };
+    el.addEventListener("click", onClick, true);
     const ro = new ResizeObserver(() => {
-      if (atBottom.current) el.scrollTop = el.scrollHeight;
+      if (atBottom.current && !clicked) el.scrollTop = el.scrollHeight;
     });
     ro.observe(el);
-    return () => ro.disconnect();
+    for (const child of Array.from(el.children)) ro.observe(child);
+    const mo = typeof MutationObserver === "undefined" ? null : new MutationObserver((records) => {
+      for (const r of records) {
+        r.addedNodes.forEach((n) => { if (n instanceof Element) ro.observe(n); });
+        r.removedNodes.forEach((n) => { if (n instanceof Element) ro.unobserve(n); });
+      }
+    });
+    mo?.observe(el, { childList: true });
+    return () => {
+      el.removeEventListener("click", onClick, true);
+      mo?.disconnect();
+      ro.disconnect();
+    };
   }, []);
 
   const jump = useCallback(() => {
