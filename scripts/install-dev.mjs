@@ -1,5 +1,5 @@
 // Sign the built UI with the dev key and install the agent plus that bundle
-// into ~/.ue-mcp/extensions/studio, where the daemon loads it on start.
+// into ~/.ue-mcp/extensions/studio@<version>, the copy the daemon loads on start.
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -10,9 +10,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const webDist = path.join(root, "apps", "client-web", "dist");
 const agentDir = path.join(root, "apps", "agent");
 const keyFile = path.join(os.homedir(), ".ue-mcp-studio", "keys", "dev-ui-signing.key.pem");
-const target = process.env.UE_MCP_EXTENSIONS_DIR
-  ? path.join(process.env.UE_MCP_EXTENSIONS_DIR, "studio")
-  : path.join(os.homedir(), ".ue-mcp", "extensions", "studio");
+const extensions = process.env.UE_MCP_EXTENSIONS_DIR ?? path.join(os.homedir(), ".ue-mcp", "extensions");
 
 for (const [what, p] of [["UI build", webDist], ["agent build", path.join(agentDir, "dist", "index.js")], ["dev key (npm run keys:dev)", keyFile]]) {
   if (!fs.existsSync(p)) throw new Error(`missing ${what}: ${p}`);
@@ -27,11 +25,17 @@ if (!trusted.includes(devPub)) {
 }
 
 const webPkg = JSON.parse(fs.readFileSync(path.join(root, "apps", "client-web", "package.json"), "utf-8"));
+// A dev build sorts after the release it builds on and after every earlier dev build. The agent
+// carries the same version: the daemon serves a UI bundle only up to its extension's version, and
+// loads studio@<version> over the unversioned folder.
+const version = `${webPkg.version}-dev.${Date.now()}`;
+const target = path.join(extensions, `studio@${version}`);
 const staging = `${target}.staging`;
 fs.rmSync(staging, { recursive: true, force: true });
 fs.mkdirSync(staging, { recursive: true });
 fs.cpSync(path.join(agentDir, "dist"), path.join(staging, "dist"), { recursive: true });
-fs.copyFileSync(path.join(agentDir, "package.json"), path.join(staging, "package.json"));
+const agentPkg = JSON.parse(fs.readFileSync(path.join(agentDir, "package.json"), "utf-8"));
+fs.writeFileSync(path.join(staging, "package.json"), JSON.stringify({ ...agentPkg, version }, null, 2) + "\n");
 // Runtime dependencies resolve from the workspace's node_modules.
 fs.symlinkSync(path.join(root, "node_modules"), path.join(staging, "node_modules"), "junction");
 fs.cpSync(webDist, path.join(staging, "ui"), { recursive: true });
@@ -40,10 +44,15 @@ if (fs.existsSync(windowExe)) {
   fs.mkdirSync(path.join(staging, "bin"), { recursive: true });
   fs.copyFileSync(windowExe, path.join(staging, "bin", "studio-window.exe"));
 }
-// A dev build sorts after the release it builds on and after every earlier dev build.
-const version = `${webPkg.version}-dev.${Date.now()}`;
 const manifest = signBundle(path.join(staging, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(keyFile, "utf-8"));
-fs.rmSync(target, { recursive: true, force: true });
 fs.renameSync(staging, target);
+// Earlier dev installs only; releases stay.
+for (const e of fs.readdirSync(extensions, { withFileTypes: true })) {
+  if (e.isDirectory() && /^studio@.+-dev\.\d+$/.test(e.name) && e.name !== path.basename(target)) {
+    fs.rmSync(path.join(extensions, e.name), { recursive: true, force: true });
+  }
+}
 console.log(`installed agent and UI ${manifest.version} (${Object.keys(manifest.files).length} files) to ${target}`);
-console.log("restart the project's daemon to load it: npx ue-mcp daemon stop, then any client or daemon start");
+// A project that recorded a release keeps loading it until told otherwise.
+console.log(`point a project at it: npx ue-mcp extension use studio ${version} <project>`);
+console.log("then restart that project's daemon: npx ue-mcp daemon stop, then any client or daemon start");

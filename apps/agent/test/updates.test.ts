@@ -66,6 +66,10 @@ describe("Studio updates", () => {
     expect(isNewer("0.1.0", "0.1.0-beta.12")).toBe(true);
     expect(isNewer("0.1.0-beta.9", "0.1.0-beta.9")).toBe(false);
     expect(isNewer("0.1.0-beta.2", "0.1.1-beta.1")).toBe(false);
+    // A dev build (scripts/install-dev.mjs) sorts after its release and after earlier dev builds.
+    expect(isNewer("0.1.25-beta.51-dev.2", "0.1.25-beta.51")).toBe(true);
+    expect(isNewer("0.1.25-beta.51-dev.2", "0.1.25-beta.51-dev.1")).toBe(true);
+    expect(isNewer("0.1.25-beta.51", "0.1.25-beta.51-dev.1")).toBe(false);
   });
 
   it("says what is newer for Studio and for the plugin on this project's engine", async () => {
