@@ -11,7 +11,7 @@ import { Image, Linking, Pressable, View, type StyleProp, type ViewStyle, Text }
 import { assetLinkTarget, classifyAssetToken } from "@ue-mcp-studio/shared";
 import { qaCapturePath, readAll, setupAsset, stepSetup, type SetupEntry, type Transport } from "@ue-mcp-studio/client-core";
 import type { QaStep } from "@ue-mcp-studio/shared";
-import { Button, Input, T, font, useStyles, useTheme, type Theme } from "../../ui";
+import { Button, Input, T, font, lineBox, useStyles, useTheme, type Theme } from "../../ui";
 import { Glyph, OptionsGlyph, type GlyphName } from "../../ui/glyphs";
 import { AssetToken, ExactAssetLink } from "./StepText";
 
@@ -62,13 +62,16 @@ export function Disclosure({ summary, children, initiallyOpen = false, label }: 
   );
 }
 
+/** The summary's line: the 1.15em marker's line box, which in ue-mcp's 1.55 the words' differing baseline stretches to 21.6px. */
+const summaryLine = (t: Theme) => (t.editor ? lineBox(12 * 1.15, 1.5) : 21.6);
+
 const disclosureStyles = (t: Theme) => ({
   summary: { alignSelf: "flex-start" as const, minHeight: 44, paddingVertical: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius },
   // The marker is 1.15em on the web, so the line's baseline sits a pixel lower than centring the words would put it.
-  summaryText: { ...font(t, "sans", 400, 12), lineHeight: 21.6, color: t.c.muted, position: "relative" as const, top: 1 },
+  summaryText: { ...font(t, "sans", 400, 12), lineHeight: summaryLine(t), color: t.c.muted, position: "relative" as const, top: 1 },
   // The browser's disclosure marker and its trailing space are 14.6px wide at 1.15em, open or closed.
   summaryRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6.75 },
-  marker: { fontSize: 8.5, lineHeight: 21.6, color: t.c.text, width: 7.86 },
+  marker: { fontSize: 8.5, lineHeight: summaryLine(t), color: t.c.text, width: 7.86 },
 });
 
 /** Fail's note: required, Submit sends the fail with it, Cancel records nothing. */

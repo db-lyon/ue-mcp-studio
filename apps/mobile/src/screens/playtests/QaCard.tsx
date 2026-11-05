@@ -35,7 +35,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { assetLinkTarget, qaAgentMayJudge, qaAgentVerdict, qaIsDraft, qaSummaryOf, qaVerdictForm, type PendingForm, type QaRun, type QaScriptStep, type QaStep, type QaVerdict } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
-import { Banner, T, bannerText, font, labelFont, monoNormal, useStyles, useTheme, type Theme } from "../../ui";
+import { Banner, T, bannerText, font, labelFont, lineBox, monoNormal, useStyles, useTheme, type Theme } from "../../ui";
 import { Chevron } from "../../ui/glyphs";
 import { RevealContext, useLiveRun, useQaLive, type Measurable } from "./live";
 import { Capture, Disclosure, FailNote, IconButton, StepSetup, SmallButton } from "./parts";
@@ -310,7 +310,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const summaryText = run.steps.length ? pathSummary(run, sum) : "No steps read yet";
   const editRun = panel === "edit" ? (scriptActions ? editing : draft ? run : null) : null;
   const tinted = !offline && (run.state === "awaiting_verdict" || needsYouLoop);
-  const border: ViewStyle = offline ? { borderColor: t.c.lineStrong } : tinted ? { borderColor: t.c.warn } : {};
+  // The editor themes outline every card that does not need you in --line-strong.
+  const border: ViewStyle = offline ? { borderColor: t.c.lineStrong } : tinted ? { borderColor: t.c.warn } : t.editor ? { borderColor: t.c.lineStrong } : {};
 
   const verdictButton = (step: QaStep, v: { verdict: QaVerdict; label: string }, onPress: () => void, o: { picked?: boolean; disabled?: boolean; label?: string } = {}) => (
     <SmallButton
@@ -347,7 +348,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
         {run.steps.length > 0 ? <StepPath steps={run.steps} onStep={(i) => openAt(i)} ended={ended} /> : null}
         <View style={s.line}>
           <Pressable accessibilityRole="button" accessibilityLabel={`Open playtest ${run.scriptName}`} onPress={() => (open ? undefined : openAt(null))} style={s.lineOpen}>
-            <T style={[s.small, { color: t.c.dim }]}>
+            <T style={[s.small, s.inButton, { color: t.c.dim }]}>
               {offline && (pill || assignment?.loop) ? <Text style={{ color: t.c.text, fontFamily: font(t, "sans", 600, 12).fontFamily }}>Last known: </Text> : null}
               {summaryText}
             </T>
@@ -546,7 +547,8 @@ function ScriptPath({ script }: { script: string }) {
   const { api } = useProjectNav();
   const path = assetLinkTarget(script);
   // .asset-link.code: 12px mono by the shorthand, so line-height normal.
-  const text = { ...font(t, "mono", 400, 12), lineHeight: monoNormal(t, 12), letterSpacing: t.editor ? 0 : 0.24, color: t.c.dim };
+  // The editor themes' button rule outranks .asset-link.code's font, as in StepText's links.
+  const text = { ...(t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 400, 12), lineHeight: monoNormal(t, 12) }), letterSpacing: t.editor ? 0 : 0.24, color: t.c.dim };
   if (!path) return <T style={[font(t, "mono", 400, t.base.size * 0.92, lhOf(t)), { color: t.c.dim }]}>{script}</T>;
   return (
     <Pressable accessibilityRole="link" accessibilityLabel={script} onPress={() => void api.openAsset(path).catch(() => undefined)} style={{ alignSelf: "flex-start", maxWidth: "100%", backgroundColor: t.c.panel2, borderRadius: 4, paddingVertical: 1, paddingHorizontal: 4, boxShadow: `inset 0 -1px 0 ${t.c.accentLine}` } as ViewStyle}>
@@ -607,7 +609,8 @@ const styles = (t: Theme) => {
     draft: { borderStyle: "dashed" as const },
     head: { flexDirection: "row" as const, alignItems: "center" as const, flexWrap: "wrap" as const, rowGap: 6, columnGap: 8, minWidth: 0 },
     toggle: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, minHeight: 44, width: "100%" as const, minWidth: 0, borderRadius: t.radius },
-    title: { ...font(t, "sans", 700, 14, lhOf(t)), color: t.c.text, letterSpacing: t.editor ? 0 : 0.27, flexShrink: 1, minWidth: 0 },
+    // The toggle and the summary are buttons: the editor themes' button rule sets their line height to 1.2.
+    title: { ...font(t, "sans", 700, 14, t.editor ? 1.2 : lhOf(t)), color: t.c.text, letterSpacing: t.editor ? 0 : 0.27, flexShrink: 1, minWidth: 0 },
     actions: { flexDirection: "row" as const, alignItems: "center" as const, gap: 4, flexShrink: 0 },
     start: { flexDirection: "row" as const, alignItems: "stretch" as const, gap: 4 },
     play: { borderTopRightRadius: 0, borderBottomRightRadius: 0 },
@@ -623,9 +626,10 @@ const styles = (t: Theme) => {
     answerText: { ...font(t, "sans", 400, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text, flex: 1, minWidth: 0 },
     verdict: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, gap: 6 },
     body: { gap: 8, minWidth: 0 },
-    // The line around the path link stands 0.25px taller than the link: the div's own strut sits below its baseline.
-    scriptPath: { marginTop: -4, marginBottom: 10.25 },
+    // The line around the path link stands a little taller than the link (0.25px, 0.86px in the editor themes): the div's own strut sits below its baseline.
+    scriptPath: { marginTop: -4, marginBottom: t.editor ? 10.86 : 10.25 },
     small,
+    inButton: t.editor ? { lineHeight: lineBox(12, 1.2) } : {},
     mono: font(t, "mono", 400, 12 * 0.92, lhOf(t)),
     monoBase: font(t, "mono", 400, t.base.size * 0.92, lhOf(t)),
     ghost: { borderColor: t.c.lineStrong, backgroundColor: t.c.panel2 },

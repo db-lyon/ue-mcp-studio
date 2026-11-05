@@ -42,11 +42,14 @@ function Link({ token, code, paths, size }: { token: string; code: boolean; path
   // A long one breaks anywhere inside its box (overflow-wrap: anywhere), never past the line.
   const box = Platform.OS === "web" ? ({ display: "inline-block", maxWidth: "100%", wordBreak: "break-word" } as unknown as TextStyle) : {};
   const focus = ring ? ({ outlineWidth: 1, outlineStyle: "solid", outlineColor: t.c.accentLine, outlineOffset: 1, ...(code ? {} : { textDecorationColor: t.c.accent }) } as unknown as TextStyle) : null;
-  // .asset-link.code sets its font with the shorthand, so its line height is the font's own.
+  // .asset-link.code sets its font with the shorthand, so its line height is the font's own. A link is a button,
+  // and the editor themes' button rule (400 12px/1.2 sans) outranks both link rules.
+  const editorFont: TextStyle = t.editor ? font(t, "sans", 400, 12, 1.2) : {};
   const style: TextStyle = code
-    ? { ...box, ...font(t, "mono", 400, 12), lineHeight: monoNormal(t, 12), letterSpacing: t.editor ? 0 : 0.24, backgroundColor: t.c.panel2, borderRadius: 4, ...(Platform.OS === "web" ? ({ paddingHorizontal: 4, paddingVertical: 1, boxShadow: `inset 0 -1px 0 ${t.c.accentLine}` } as TextStyle) : {}) }
+    ? { ...box, ...font(t, "mono", 400, 12), lineHeight: monoNormal(t, 12), ...editorFont, letterSpacing: t.editor ? 0 : 0.24, backgroundColor: t.c.panel2, borderRadius: 4, ...(Platform.OS === "web" ? ({ paddingHorizontal: 4, paddingVertical: 1, boxShadow: `inset 0 -1px 0 ${t.c.accentLine}` } as TextStyle) : {}) }
     : {
         ...box,
+        ...editorFont,
         color: t.c.accentHi,
         textDecorationLine: "underline",
         textDecorationColor: t.c.accentLine,
