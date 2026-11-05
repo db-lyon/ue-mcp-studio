@@ -5,7 +5,10 @@ import type { PendingForm, PlaytestEntry, QaRun } from "@ue-mcp-studio/shared";
 import { RUNS, run } from "../../client-web/src/visual-qa/fixtures";
 import { QaCard } from "../src/screens/playtests/QaCard";
 import { FILTER_KEY, PlaytestsScreen } from "../src/screens/playtests/Playtests";
-import { QaContext } from "../src/screens/playtests/live";
+import { QaContext, lhOf } from "../src/screens/playtests/live";
+import { AssetLinks } from "@ue-mcp-studio/client-core";
+import { AssetLinksContext } from "../src/chat/asset-links";
+import { THEMES, tickColor } from "../src/ui";
 import { store } from "./mocks/secure-store";
 import { ProjectContext } from "../src/nav";
 import { fakeApi, fakeProject, renderInProject, settle } from "./helpers";
@@ -296,5 +299,44 @@ describe("PlaytestsScreen", () => {
     emit("studio.qa.changed", { run: RUNS.waiting });
     await act(async () => void (await new Promise((r) => setTimeout(r, 900))));
     expect(api.qaPlaytests).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("QaCard as the web lays it out", () => {
+  it("links a card's asset names through the store the chat provides", async () => {
+    const api = fakeApi();
+    api.resolveAssets.mockImplementation(async (refs: Array<{ token: string }>) => ({ results: refs.map((r) => (r.token === "BP_Obstacle_BrokenBridge" ? { status: "resolved", paths: ["/Game/Obstacles/BP_Obstacle_BrokenBridge.BP_Obstacle_BrokenBridge"] } : { status: "unresolved" })) }));
+    const links = new AssetLinks(async (refs, id) => (await api.resolveAssets(refs, id)).results, "qa-session", 0);
+    renderInProject(
+      <AssetLinksContext.Provider value={links}>
+        <QaCard run={RUNS.linked} />
+      </AssetLinksContext.Provider>,
+      api,
+    );
+    press(`Open ${RUNS.linked.scriptName}`);
+    await settle();
+    await act(async () => void (await new Promise((r) => setTimeout(r, 50))));
+    const link = screen.getAllByLabelText("BP_Obstacle_BrokenBridge").find((el) => el.getAttribute("role") === "link");
+    expect(link).toBeTruthy();
+    fireEvent.click(link!);
+    expect(api.openAsset).toHaveBeenCalledWith("/Game/Obstacles/BP_Obstacle_BrokenBridge.BP_Obstacle_BrokenBridge");
+  });
+
+  it("keeps .qa-card's 8px margin in the conversation, and none as a page row", () => {
+    const { unmount } = renderInProject(<QaCard run={RUNS.armed} />);
+    expect(getComputedStyle(screen.getByLabelText(`Playtest ${RUNS.armed.scriptName}`)).marginTop).toBe("8px");
+    unmount();
+    renderInProject(<QaCard run={RUNS.armed} slotted />);
+    expect(getComputedStyle(screen.getByLabelText(`Playtest ${RUNS.armed.scriptName}`)).marginTop).toBe("0px");
+  });
+
+  it("carries the body's line-height multiple to smaller text, not the quotient of its cut line box", () => {
+    expect(lhOf(THEMES["ue-mcp"])).toBe(1.55);
+    expect(lhOf(THEMES.editor)).toBe(1.5);
+  });
+
+  it("ticks a box in the colour the browser picks against the accent", () => {
+    expect(tickColor(THEMES["ue-mcp"].c.accent)).toBe("rgb(59, 59, 59)");
+    expect(tickColor(THEMES.editor.c.accent)).toBe("#ffffff");
   });
 });

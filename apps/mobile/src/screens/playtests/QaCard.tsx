@@ -35,7 +35,7 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { assetLinkTarget, qaAgentMayJudge, qaAgentVerdict, qaIsDraft, qaSummaryOf, qaVerdictForm, type PendingForm, type QaRun, type QaScriptStep, type QaStep, type QaVerdict } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../nav";
-import { Banner, T, bannerText, font, labelFont, useStyles, useTheme, type Theme } from "../../ui";
+import { Banner, T, bannerText, font, labelFont, monoNormal, useStyles, useTheme, type Theme } from "../../ui";
 import { Chevron } from "../../ui/glyphs";
 import { RevealContext, useLiveRun, useQaLive, type Measurable } from "./live";
 import { Capture, Disclosure, FailNote, IconButton, StepSetup, SmallButton } from "./parts";
@@ -329,7 +329,10 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
     <View ref={cardRef as never} style={[s.card, !slotted && s.spaced, draft && s.draft, border]} accessibilityLabel={`Playtest ${run.scriptName}`} testID={testID ?? `qa-card-${run.runId}`}>
       <View style={s.head}>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} aria-expanded={open} accessibilityLabel={`${open ? "Close" : "Open"} ${run.scriptName}`} onPress={() => (open ? setOpen(false) : openAt(null))} style={s.toggle}>
-          <Chevron open={open} color={t.c.text} />
+          {/* svg.qa-chevron: flex-shrink 0, so a long title never narrows it. */}
+          <View style={{ flexShrink: 0 }}>
+            <Chevron open={open} color={t.c.text} />
+          </View>
           {draft || run.replayOf ? <T style={[labelFont(t), { flexShrink: 0 }]}>{draft ? "Playtest draft" : "Playtest replay"}</T> : null}
           <T style={s.title} numberOfLines={1}>{run.scriptName}</T>
         </Pressable>
@@ -439,7 +442,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                         {step.judge === "manual" && !qaAgentMayJudge(step) ? <T style={s.judge}>Person only</T> : null}
                         {byAgent ? <T style={s.badge} accessibilityLabel={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</T> : null}
                         {unchecked ? (
-                          <T style={[s.small, { color: t.c.dim }]}>Checked when the playtest runs</T>
+                          // .qa-status comes after .dim in styles.css, so its muted wins.
+                          <T style={[s.small, { color: t.c.muted }]}>Checked when the playtest runs</T>
                         ) : !draft ? (
                           <T style={[s.small, { color: toneColor === t.c.accent ? t.c.accent : toneColor ?? t.c.muted }, tone === "warn" && { fontFamily: font(t, "sans", 600, 12).fontFamily }]} accessibilityLabel={evidence ? `${statusLabel(step, ended)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
                             {statusLabel(step, ended)}
@@ -541,7 +545,8 @@ function ScriptPath({ script }: { script: string }) {
   const t = useTheme();
   const { api } = useProjectNav();
   const path = assetLinkTarget(script);
-  const text = { ...font(t, "mono", 400, 12), lineHeight: 15.84, letterSpacing: t.editor ? 0 : 0.24, color: t.c.dim };
+  // .asset-link.code: 12px mono by the shorthand, so line-height normal.
+  const text = { ...font(t, "mono", 400, 12), lineHeight: monoNormal(t, 12), letterSpacing: t.editor ? 0 : 0.24, color: t.c.dim };
   if (!path) return <T style={[font(t, "mono", 400, t.base.size * 0.92, lhOf(t)), { color: t.c.dim }]}>{script}</T>;
   return (
     <Pressable accessibilityRole="link" accessibilityLabel={script} onPress={() => void api.openAsset(path).catch(() => undefined)} style={{ alignSelf: "flex-start", maxWidth: "100%", backgroundColor: t.c.panel2, borderRadius: 4, paddingVertical: 1, paddingHorizontal: 4, boxShadow: `inset 0 -1px 0 ${t.c.accentLine}` } as ViewStyle}>
@@ -618,7 +623,8 @@ const styles = (t: Theme) => {
     answerText: { ...font(t, "sans", 400, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text, flex: 1, minWidth: 0 },
     verdict: { flexDirection: "row" as const, flexWrap: "wrap" as const, alignItems: "center" as const, gap: 6 },
     body: { gap: 8, minWidth: 0 },
-    scriptPath: { marginTop: -4, marginBottom: 10 },
+    // The line around the path link stands 0.25px taller than the link: the div's own strut sits below its baseline.
+    scriptPath: { marginTop: -4, marginBottom: 10.25 },
     small,
     mono: font(t, "mono", 400, 12 * 0.92, lhOf(t)),
     monoBase: font(t, "mono", 400, t.base.size * 0.92, lhOf(t)),

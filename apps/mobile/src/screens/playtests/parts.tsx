@@ -64,9 +64,11 @@ export function Disclosure({ summary, children, initiallyOpen = false, label }: 
 
 const disclosureStyles = (t: Theme) => ({
   summary: { alignSelf: "flex-start" as const, minHeight: 44, paddingVertical: 12, paddingHorizontal: 12, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius },
-  summaryText: { ...font(t, "sans", 400, 12), lineHeight: 21.6, color: t.c.muted },
-  summaryRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6 },
-  marker: { fontSize: 8.5, lineHeight: 21.6, color: t.c.text },
+  // The marker is 1.15em on the web, so the line's baseline sits a pixel lower than centring the words would put it.
+  summaryText: { ...font(t, "sans", 400, 12), lineHeight: 21.6, color: t.c.muted, position: "relative" as const, top: 1 },
+  // The browser's disclosure marker and its trailing space are 14.6px wide at 1.15em, open or closed.
+  summaryRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 6.75 },
+  marker: { fontSize: 8.5, lineHeight: 21.6, color: t.c.text, width: 7.86 },
 });
 
 /** Fail's note: required, Submit sends the fail with it, Cancel records nothing. */
@@ -115,7 +117,8 @@ function Entries({ entries }: { entries: SetupEntry[] }) {
           {i > 0 ? ", " : ""}
           {e.verb}
           {e.target ? <>{" "}<SetupTarget target={e.target} /></> : null}
-          {e.detail ? <>{" "}<Text style={font(t, "mono", 400, 12 * 0.92)}>{e.detail}</Text></> : null}
+          {/* .mono keeps the line-height multiple at its own size, so the span sits as the web's does. */}
+          {e.detail ? <>{" "}<Text style={font(t, "mono", 400, 12 * 0.92, lhOf(t))}>{e.detail}</Text></> : null}
         </Text>
       ))}
     </>
