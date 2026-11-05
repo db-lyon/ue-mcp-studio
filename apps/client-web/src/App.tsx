@@ -31,6 +31,7 @@ import { RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { onRemotePage } from "./connection";
 import { projectListUrl } from "@ue-mcp-studio/client-core";
+import { BarProjectSwitch } from "./views/ProjectSwitch";
 import { Slot } from "./extensions/Slot";
 
 const NO_CTX = {};
@@ -78,6 +79,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   useEffect(() => {
     if (remote) api.about().then((a) => setProjectName(a.name ?? null), () => undefined);
   }, [remote]);
+  const switchProject = () => window.location.assign(projectListUrl(window.location.origin));
   useEffect(() => {
     if (!narrow) setDrawer(false);
   }, [narrow]);
@@ -159,6 +161,8 @@ function Studio({ daemon }: { daemon: DaemonState }) {
               ))}
             </nav>
             <span className="spacer" />
+            {/* A paired browser at full width: the open project and the way to every other one, where the drawer has them when narrow. */}
+            {remote && <BarProjectSwitch name={projectName} onSwitch={switchProject} />}
             {tools}
           </>
         )}
@@ -174,7 +178,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           onTab={setTab}
           onSession={openChat}
           onNewSession={newSession}
-          project={remote ? { name: projectName, onSwitch: () => window.location.assign(projectListUrl(window.location.origin)) } : undefined}
+          project={remote ? { name: projectName, onSwitch: switchProject } : undefined}
         >
           {tools}
         </NavDrawer>

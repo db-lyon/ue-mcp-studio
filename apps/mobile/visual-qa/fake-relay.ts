@@ -14,6 +14,7 @@
  */
 import { exportPublic, generateKeyPair, openRequest, ResponseSealer, sharedSecret, unb64u } from "@ue-mcp-studio/remote";
 import { store } from "../ui-test/mocks/secure-store";
+import { phoneKey } from "../src/relay";
 import type { Reply, Transport } from "@ue-mcp-studio/client-core";
 import { scenarioTransport, SCENARIOS } from "./harness";
 import { HUGE_ID, hugeSession } from "./huge-session";
@@ -57,6 +58,10 @@ export async function installFakeRelay(name: string, offlineMs = 0, huge = false
   const computer = await generateKeyPair();
   const computerKey = await exportPublic(computer.publicKey);
   const device = { id: "e2e-fake", name: "StudioE2E", online: true, computerKey, lastSeen: new Date().toISOString() };
+  // A second project on the same computer, answering from the same scenario: what a notification from another project opens.
+  const other = { id: "e2e-fake-2", name: "Lyra on DEV-PC", online: true, computerKey, lastSeen: new Date().toISOString() };
+  // Paired as the app pairs: the phone's key first, then the computer it trusts.
+  await phoneKey();
   store.set("trusted", JSON.stringify({ [computerKey]: { pairedAt: new Date().toISOString() } }));
   store.set("selected", JSON.stringify(device));
   const transport = huge ? withHugeSession(scenarioTransport(scenario, "ue-mcp")) : scenarioTransport(scenario, "ue-mcp");
@@ -79,8 +84,8 @@ export async function installFakeRelay(name: string, offlineMs = 0, huge = false
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     if (!url.startsWith(base)) return real(input, init);
     const path = url.slice(base.length);
-    if (path === "/api/devices") return json(200, { devices: [device], viewers: [] });
-    if (path !== `/e2e/${device.id}`) return json(404, { error: `fake relay: ${path} is not answered` });
+    if (path === "/api/devices") return json(200, { devices: [device, other], viewers: [] });
+    if (path !== `/e2e/${device.id}` && path !== `/e2e/${other.id}`) return json(404, { error: `fake relay: ${path} is not answered` });
     // The computer's daemon is away: the relay answers for it, before anything is sealed.
     if (control.away()) return new Response(JSON.stringify({ error: "That project is offline." }), { status: 503, headers: { "content-type": "application/json", "x-uemcp-offline": "1" } });
     const phone = JSON.parse(store.get("phone") ?? "null") as { publicKey: string } | null;
