@@ -104,7 +104,7 @@ export function SettingsHub({ daemon, section, onSection, onTheme, updates = 0, 
   else if (open === "approvals") body = <ApprovalsSection />;
   else if (open === "project") body = <ProjectSection onSection={onSection} />;
   else if (open === "general") body = <GeneralSection onTheme={onTheme} />;
-  else if (open === "notifications") body = <NotificationsSection />;
+  else if (open === "notifications") body = <NotificationsSection remote={remote.surface} />;
   else if (open === "remote" && remote.surface === "working") body = <RemoteSection onUnavailable={remote.recheck} />;
   else if (open === "remote" && remote.surface === "upsell") body = <RemoteUpsell />;
   else if (open === "remote" && remote.surface === "signin") body = <RemoteSignIn onDone={remote.recheck} />;

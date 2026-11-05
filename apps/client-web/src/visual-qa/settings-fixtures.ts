@@ -55,6 +55,11 @@ const NATIVE_LONG: NativeOverview = {
 const NOTHING_CONNECTED: Partial<StudioSettings> ={ route: null, connected: {} as StudioSettings["connected"] };
 
 
+/** Settings > Notifications' reads: the project's state, and remote control's answer (a paid plan unless given). */
+function notifyGet(state: unknown, remote: { available: boolean; signedIn: boolean } = { available: true, signedIn: true }): Scenario["get"] {
+  return (p) => (p === "/v1/ext/studio/notifications" ? state : p === "/v1/ext/studio/remote/available" ? remote : undefined);
+}
+
 /** Settings > Remote control on a paid, online computer with one paired phone, and the PIN lock as given, scrolled to it. */
 function remoteLockGet(lock: { pin: boolean; whole: boolean; sensitive: boolean; idleMinutes: number }): Partial<Scenario> {
   return {
@@ -148,19 +153,27 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     focus: ".yaml-editor textarea",
   }),
   "settings-general": page("General: themes and updates", "general"),
-  "settings-notifications": page("Notifications in Studio's window: this device's choices, every event at its default, one muted session", "notifications", {
+  "settings-notifications": page("Notifications in Studio's window on a paid plan: this device's choices, every event at its default, one muted session", "notifications", {
     studioWindow: true,
-    get: (p) => (p === "/v1/ext/studio/notifications" ? NOTIFY_STATE : undefined),
+    get: notifyGet(NOTIFY_STATE),
   }),
   "settings-notifications-quiet": page("Notifications with quiet hours on, details hidden, the project muted here, and two events changed for the project", "notifications", {
     studioWindow: true,
     storage: { "studio.notify.device": JSON.stringify({ enabled: true, mutedProjects: ["StudioE2E"], quiet: { on: true, from: "22:30", to: "07:00" }, privacy: "minimal", sound: "default", vibrate: "default", onlyWhenAway: true }) },
-    get: (p) => (p === "/v1/ext/studio/notifications" ? { ...NOTIFY_STATE, prefs: { ...NOTIFY_STATE.prefs, events: { ...NOTIFY_STATE.prefs.events, "turn.finished": false, "subagent.finished": true } } } : undefined),
+    get: notifyGet({ ...NOTIFY_STATE, prefs: { ...NOTIFY_STATE.prefs, events: { ...NOTIFY_STATE.prefs.events, "turn.finished": false, "subagent.finished": true } } }),
   }),
   "settings-notifications-off": page("Notifications turned off on this device: its other choices disabled, the project's events still shown", "notifications", {
     studioWindow: true,
     storage: { "studio.notify.device": JSON.stringify({ enabled: false }) },
-    get: (p) => (p === "/v1/ext/studio/notifications" ? { ...NOTIFY_STATE, prefs: { ...NOTIFY_STATE.prefs, mutedSessions: [] }, titles: {} } : undefined),
+    get: notifyGet({ ...NOTIFY_STATE, prefs: { ...NOTIFY_STATE.prefs, mutedSessions: [] }, titles: {} }),
+  }),
+  "settings-notifications-free": page("Notifications in Studio's window for an account without a paid plan: this computer's notifications only, nothing about paired devices or the remote-only events. With STUDIO_PLAN_AVAILABLE on, one line says phone and browser notifications come with remote control", "notifications", {
+    studioWindow: true,
+    get: notifyGet(NOTIFY_STATE, { available: false, signedIn: true }),
+  }),
+  "settings-notifications-signed-out": page("Notifications in Studio's window with no ue-mcp account signed in: this computer's notifications only, no plan line", "notifications", {
+    studioWindow: true,
+    get: notifyGet(NOTIFY_STATE, { available: false, signedIn: false }),
   }),
   "settings-notifications-remote": page("Notifications in a paired browser that has not allowed notifications yet: the Allow button", "notifications", {
     remotePage: true,

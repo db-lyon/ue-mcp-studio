@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { NOTIFY_KINDS, type DeviceNotifyPrefs, type NotifyKind } from "@ue-mcp-studio/shared";
-import { NOTIFY_COPY as C, PRIVACY_CHOICES } from "@ue-mcp-studio/client-core";
+import type { DeviceNotifyPrefs, NotifyKind, RemoteSurface } from "@ue-mcp-studio/shared";
+import { NOTIFY_COPY as C, PRIVACY_CHOICES, notifyKindsFor } from "@ue-mcp-studio/client-core";
 import { Head } from "../SettingsHub";
 import { Card, Row, Seg, Switch, useMessage } from "./controls";
 import { browserPermission, saveProjectNotify, useDevicePrefs, useProjectNotify } from "../../notify";
@@ -16,8 +16,15 @@ function deliveryNote(): string {
   return "This browser shows notifications while a Studio tab is open.";
 }
 
-/** Settings > Notifications: this device's own choices, then the project's events, shared by every device. */
-export function NotificationsSection() {
+/**
+ * Settings > Notifications: this device's own choices, then the project's
+ * events. Studio's own notifications on the computer are everyone's; what
+ * reaches paired devices through the relay shows only where remote control
+ * works (`remote`, as Settings > Remote control reads it). A paired browser
+ * exists only on a paid plan, so it always sees everything.
+ */
+export function NotificationsSection({ remote }: { remote: RemoteSurface }) {
+  const relay = onRemotePage() || remote === "working";
   const [device, setDevice] = useDevicePrefs();
   const project = useProjectNotify();
   const msg = useMessage();
@@ -39,6 +46,7 @@ export function NotificationsSection() {
       {msg.node}
       <Card label="This device">
         <p className="cfg-note">{deliveryNote()}</p>
+        {!relay && remote === "upsell" && <p className="cfg-note">{C.remotePlan}</p>}
         {needsPermission && (
           <Row
             title={C.permission.title}
@@ -51,7 +59,7 @@ export function NotificationsSection() {
           <Switch on={device.enabled} onChange={(v) => set({ enabled: v })} label={C.enabled.title} />
         </Row>
         <div className={device.enabled ? "" : "notify-dim"} aria-disabled={!device.enabled || undefined}>
-        <Row title={C.away.title} help={C.away.help} inline>
+        <Row title={C.away.title} help={relay ? C.away.help : C.away.helpLocal} inline>
           <Switch on={device.onlyWhenAway} onChange={(v) => set({ onlyWhenAway: v })} label={C.away.title} disabled={!device.enabled} />
         </Row>
         <Row title={C.privacy.title} help={C.privacy.help}>
@@ -73,7 +81,7 @@ export function NotificationsSection() {
           </div>
         )}
         {projectName && (
-          <Row title={C.mute(projectName).title} help={C.mute(projectName).help} inline>
+          <Row title={C.mute(projectName).title} help={relay ? C.mute(projectName).help : C.mute(projectName).helpLocal} inline>
             <Switch
               on={muted}
               onChange={(v) => set({ mutedProjects: v ? [...device.mutedProjects, projectName] : device.mutedProjects.filter((p) => p !== projectName) })}
@@ -85,8 +93,8 @@ export function NotificationsSection() {
         </div>
       </Card>
       <Card label="Events">
-        <p className="cfg-note">{C.events(projectName)}</p>
-        {NOTIFY_KINDS.map((k) => (
+        <p className="cfg-note">{relay ? C.events(projectName) : C.eventsLocal(projectName)}</p>
+        {notifyKindsFor(relay).map((k) => (
           <Row key={k.kind} title={k.name} help={k.help} inline>
             <Switch on={project?.prefs.events[k.kind] ?? k.on} onChange={(v) => void toggleEvent(k.kind, v)} label={k.name} disabled={!project} />
           </Row>

@@ -35,7 +35,7 @@ const sw = (name: string) => screen.getByRole("switch", { name });
 
 describe("Settings > Notifications", () => {
   it("lists every event with its default, and a change goes to the project", async () => {
-    render(<NotificationsSection />);
+    render(<NotificationsSection remote="working" />);
     await screen.findByText("Shared by every device paired with Vale.");
     expect(sw("Turn finished").getAttribute("aria-checked")).toBe("true");
     expect(sw("Subagent finished").getAttribute("aria-checked")).toBe("false");
@@ -46,7 +46,7 @@ describe("Settings > Notifications", () => {
   });
 
   it("keeps this device's choices in this device's storage", async () => {
-    render(<NotificationsSection />);
+    render(<NotificationsSection remote="working" />);
     await screen.findByText("Shared by every device paired with Vale.");
     fireEvent.click(sw("Only when I'm away"));
     fireEvent.click(screen.getByRole("radio", { name: "Event and project" }));
@@ -60,14 +60,14 @@ describe("Settings > Notifications", () => {
   });
 
   it("turning the device off disables its other choices", async () => {
-    render(<NotificationsSection />);
+    render(<NotificationsSection remote="working" />);
     await screen.findByText("Shared by every device paired with Vale.");
     fireEvent.click(sw("Notifications on this device"));
     expect((sw("Only when I'm away") as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("lists muted sessions by title and unmutes one", async () => {
-    render(<NotificationsSection />);
+    render(<NotificationsSection remote="working" />);
     await screen.findByText("Old experiment");
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Unmute" })));
     expect(puts).toEqual([{ unmute: ["s9"] }]);
@@ -77,7 +77,7 @@ describe("Settings > Notifications", () => {
   it("asks the browser for permission on a plain page", async () => {
     const requestPermission = vi.fn(async () => "granted");
     vi.stubGlobal("Notification", { permission: "default", requestPermission });
-    render(<NotificationsSection />);
+    render(<NotificationsSection remote="working" />);
     await act(async () => void fireEvent.click(await screen.findByRole("button", { name: "Allow notifications" })));
     expect(requestPermission).toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Allow notifications" })).toBeNull();
@@ -86,9 +86,59 @@ describe("Settings > Notifications", () => {
   it("needs no browser permission in Studio's window", async () => {
     vi.stubGlobal("Notification", { permission: "default", requestPermission: vi.fn() });
     window.ue = { studio: { notify: vi.fn() } as never, studioWindow: true };
-    render(<NotificationsSection />);
+    render(<NotificationsSection remote="working" />);
     await screen.findByText(/Studio's window shows Windows notifications/);
     expect(screen.queryByRole("button", { name: "Allow notifications" })).toBeNull();
+  });
+});
+
+describe("Settings > Notifications by remote control's state", () => {
+  const RELAY = [/Shared by every device paired/, /Phones and other browsers/, /Other devices keep theirs/];
+  const PLAN = "Phone and browser notifications come with remote control, on a Pro or Studio plan.";
+  const relayEvents = ["Project went offline", "Project came back"];
+  const desktop = ["Notifications on this device", "Only when I'm away", "Quiet hours", "Mute Vale on this device", "Turn finished", "Approval waiting", "Playtest finished"];
+  afterEach(() => {
+    delete (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage;
+  });
+
+  it("working: every control, paired devices included, and no plan line", async () => {
+    render(<NotificationsSection remote="working" />);
+    await screen.findByText("Shared by every device paired with Vale.");
+    for (const n of [...desktop, ...relayEvents]) expect(sw(n)).toBeTruthy();
+    expect(screen.getByText(/Phones and other browsers also stay quiet/)).toBeTruthy();
+    expect(screen.getByText(/Other devices keep theirs/)).toBeTruthy();
+    expect(screen.queryByText(PLAN)).toBeNull();
+  });
+
+  it.each(["upsell", "signin", "hidden", "pending"] as const)("%s: this computer's notifications only, nothing about paired devices", async (remote) => {
+    render(<NotificationsSection remote={remote} />);
+    await screen.findByText("Which events in Vale notify you.");
+    for (const n of desktop) expect(sw(n)).toBeTruthy();
+    for (const n of relayEvents) expect(screen.queryByRole("switch", { name: n })).toBeNull();
+    const text = document.body.textContent ?? "";
+    for (const r of RELAY) expect(text).not.toMatch(r);
+    expect(screen.getByText("Not while you are using Studio on this computer.")).toBeTruthy();
+    expect(screen.getByText("Old experiment")).toBeTruthy();
+    // Only a free account, while the plan is offered, gets the one line about it.
+    if (remote === "upsell") expect(screen.getByText(PLAN)).toBeTruthy();
+    else expect(text).not.toMatch(/remote control|plan/i);
+  });
+
+  it("free: the desktop choices still save to this device", async () => {
+    render(<NotificationsSection remote="hidden" />);
+    await screen.findByText("Which events in Vale notify you.");
+    fireEvent.click(sw("Only when I'm away"));
+    expect(readDevicePrefs().onlyWhenAway).toBe(false);
+    await act(async () => void fireEvent.click(sw("Subagent finished")));
+    expect(puts).toEqual([{ events: { "subagent.finished": true } }]);
+  });
+
+  it("a paired browser sees everything whatever the surface says", async () => {
+    (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = true;
+    render(<NotificationsSection remote="pending" />);
+    await screen.findByText("Shared by every device paired with Vale.");
+    for (const n of relayEvents) expect(sw(n)).toBeTruthy();
+    expect(screen.queryByText(PLAN)).toBeNull();
   });
 });
 

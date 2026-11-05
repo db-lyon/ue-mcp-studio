@@ -68,6 +68,12 @@ export function latestTarget(recent: readonly Notice[], kind?: string): NotifyTa
 /** The Android notification channel for a device's sound and vibration. */
 export const notifyChannel = (p: Pick<DeviceNotifyPrefs, "sound" | "vibrate">): string => `studio-${p.sound}-${p.vibrate}`;
 
+/** Events only the app raises, from watching the project through the relay. */
+export const RELAY_ONLY_KINDS: ReadonlySet<NotifyKind> = new Set<NotifyKind>(["project.offline", "project.online"]);
+
+/** The events Settings lists: every one where remote control works, else the ones this computer raises. */
+export const notifyKindsFor = (relay: boolean): typeof NOTIFY_KINDS => (relay ? NOTIFY_KINDS : NOTIFY_KINDS.filter((k) => !RELAY_ONLY_KINDS.has(k.kind)));
+
 /** What a notification shows, as Settings offers it. */
 export const PRIVACY_CHOICES: ReadonlyArray<{ id: NotifyPrivacy; name: string }> = [
   { id: "full", name: "Full text" },
@@ -88,13 +94,25 @@ export const VIBRATE_CHOICES: ReadonlyArray<{ id: NotifyVibrate; name: string }>
 export const NOTIFY_COPY = {
   lead: "When Studio tells you something happened, and what it shows.",
   enabled: { title: "Notifications on this device", help: "Off: this device shows none, whatever the events below say." },
-  away: { title: "Only when I'm away", help: "Not while you are using this device. Phones and other browsers also stay quiet while you use Studio on the computer." },
+  away: {
+    title: "Only when I'm away",
+    help: "Not while you are using this device. Phones and other browsers also stay quiet while you use Studio on the computer.",
+    /** Where remote control does not work: nothing is paired. */
+    helpLocal: "Not while you are using Studio on this computer.",
+  },
   privacy: { title: "What a notification shows", help: "Event and project keeps your messages and file names off the lock screen." },
   quiet: { title: "Quiet hours", help: "No notifications between these times, on this device's clock." },
   sound: { title: "Sound", help: "How a notification sounds on this phone." },
   vibrate: { title: "Vibration", help: "How this phone vibrates for one." },
-  mute: (project: string) => ({ title: `Mute ${project} on this device`, help: "This project's notifications stay off on this device. Other devices keep theirs." }),
+  mute: (project: string) => ({
+    title: `Mute ${project} on this device`,
+    help: "This project's notifications stay off on this device. Other devices keep theirs.",
+    helpLocal: "This project's notifications stay off on this device.",
+  }),
   events: (project: string) => `Shared by every device paired with ${project || "this project"}.`,
+  eventsLocal: (project: string) => `Which events in ${project || "this project"} notify you.`,
+  /** The one line a computer without a paid plan sees, while the plan is offered. */
+  remotePlan: "Phone and browser notifications come with remote control, on a Pro or Studio plan.",
   noMuted: "None. Mute a session from its menu in the session list.",
   deletedSession: "A session that was deleted",
   permission: {

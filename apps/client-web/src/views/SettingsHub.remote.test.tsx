@@ -39,10 +39,10 @@ afterEach(() => {
 
 type Account = "signed-out" | "free" | "paid";
 
-async function open(on: boolean, account: Account) {
+async function open(on: boolean, account: Account, section: "remote" | "notifications" = "remote") {
   flag.on = on;
   m.remoteAvailable.mockResolvedValue({ available: account === "paid", signedIn: account !== "signed-out" });
-  await act(async () => void render(<SettingsHub daemon={{} as never} section="remote" onSection={vi.fn()} onTheme={vi.fn()} />));
+  await act(async () => void render(<SettingsHub daemon={{} as never} section={section} onSection={vi.fn()} onTheme={vi.fn()} />));
   const nav = screen.getByRole("navigation", { name: "Settings sections" });
   return {
     rail: [...nav.querySelectorAll(".cfg-rail-text > span:first-child")].map((e) => e.textContent),
@@ -107,5 +107,30 @@ describe("Settings > Remote control", () => {
     m.remoteAvailable.mockResolvedValue({ available: true, signedIn: true });
     await act(async () => void publishEvent({ id: 1, type: "studio.settings.changed", at: "", data: {} }));
     expect(screen.getByText("RemoteSection body")).toBeTruthy();
+  });
+});
+
+describe("Settings > Notifications follows remote control", () => {
+  const PLAN = "Phone and browser notifications come with remote control, on a Pro or Studio plan.";
+  const has = (name: string) => screen.queryByRole("switch", { name }) !== null;
+
+  it.each([false, true])("paid account (flag %s): paired devices' notifications too", async (on) => {
+    await open(on, "paid", "notifications");
+    expect(has("Turn finished") && has("Project went offline")).toBe(true);
+    expect(screen.queryByText(PLAN)).toBeNull();
+  });
+
+  it("flag on, free account: this computer's notifications and the one plan line", async () => {
+    await open(true, "free", "notifications");
+    expect(has("Turn finished")).toBe(true);
+    expect(has("Project went offline")).toBe(false);
+    expect(screen.getByText(PLAN)).toBeTruthy();
+  });
+
+  it.each([[true, "signed-out"], [false, "free"], [false, "signed-out"]] as const)("flag %s, %s: this computer's notifications, no plan line", async (on, account) => {
+    const { content } = await open(on, account, "notifications");
+    expect(has("Turn finished")).toBe(true);
+    expect(has("Project went offline")).toBe(false);
+    expect(content.textContent).not.toMatch(/remote control|plan|paired/i);
   });
 });
