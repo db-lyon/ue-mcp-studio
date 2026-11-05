@@ -42,3 +42,6 @@ yarn-error.*
 
 # generated native folders
 /android
+
+# Firebase config for FCM pushes (see plugins/with-google-services.js)
+google-services.json
