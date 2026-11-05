@@ -183,11 +183,12 @@ describe("pages scroll their end clear of the bar", () => {
 
   it("the pairing, projects and about pages, and the scanner's foot", async () => {
     setSafeAreaInsets({ top: 24, bottom: BAR });
+    // A page without a footer ends the relay stage's 24 above the bar.
     const w = render(<Welcome onScan={none} onLink={none} />);
-    expect(px(content("page"), "paddingBottom")).toBe(16 + BAR);
+    expect(px(content("page"), "paddingBottom")).toBe(24 + BAR);
     w.unmount();
     const c = render(<Pairing step={{ kind: "code", code: "123456" }} />);
-    expect(px(content("page"), "paddingBottom")).toBe(16 + BAR);
+    expect(px(content("page"), "paddingBottom")).toBe(24 + BAR);
     c.unmount();
     const pr = render(<Projects onOpen={none} onPair={none} onSettings={none} onUnpaired={none} />);
     const foot = screen.getByTestId("page-footer");
@@ -199,10 +200,10 @@ describe("pages scroll their end clear of the bar", () => {
     await settle();
     const scanFoot = screen.getByTestId("scanner-foot");
     expect(scanFoot.contains(screen.getByText("Scan from a picture"))).toBe(true);
-    expect(px(scanFoot, "paddingBottom")).toBe(18 + BAR);
+    expect(px(scanFoot, "paddingBottom")).toBe(16 + BAR);
     sc.unmount();
     render(<About onBack={none} />);
-    expect(screen.getByText("‹ Devices")).toBeTruthy();
+    expect(px(content("page"), "paddingBottom")).toBe(24 + BAR);
   });
 });
 

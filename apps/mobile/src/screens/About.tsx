@@ -3,40 +3,45 @@
  * project's computer runs, whether they fit together, and where the app talks.
  */
 import { useEffect, useState } from "react";
-import { Platform, ScrollView, View } from "react-native";
+import { Platform, View } from "react-native";
 import * as Application from "expo-application";
-import { studioApi } from "@ue-mcp-studio/client-core";
+import { studioApi, type Transport } from "@ue-mcp-studio/client-core";
 import { APP_VERSION, MIN_STUDIO, studioTooOld, versionsOf, type Versions } from "../native/compat";
 import { RELAY, selected, transportFor, type Device } from "../relay";
-import { Banner, Button, Card, Label, T, font, useInsets, useTheme } from "../ui";
+import { Banner, bannerText, Button, Card, font, labelFont, Loading, Panel, T, useTheme } from "../ui";
+import { Page, SectionLabel } from "./StudioPage";
 
-function Line({ name, value }: { name: string; value: string }) {
+/** One fact: its name in the label face, its value in mono beside it (versions read alike); a hairline under every one but the last. */
+function Line({ name, value, last, warn }: { name: string; value: string; last?: boolean; warn?: boolean }) {
   const t = useTheme();
   return (
-    <View style={{ flexDirection: "row", gap: 16, paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: t.c.line }}>
-      <T style={{ ...font(t, "mono", 500, 11, 1.6), color: t.c.dim, textTransform: "uppercase", letterSpacing: 0.88, width: 120 }}>{name}</T>
-      <T style={{ flex: 1 }} selectable>
+    <View accessibilityRole="text" accessibilityLabel={`${name}: ${value}`} style={{ flexDirection: "row", alignItems: "baseline", gap: 16, paddingVertical: 9, borderBottomWidth: last ? 0 : 1, borderBottomColor: t.c.line }}>
+      <T style={{ ...labelFont(t, t.c.dim), width: 104 }}>{name}</T>
+      <T style={{ ...font(t, "mono", 500, 12.5, 1.55), flex: 1, color: warn ? t.c.warn : t.c.text }} selectable>
         {value}
       </T>
     </View>
   );
 }
 
-export function About({ onBack }: { onBack: () => void }) {
-  const insets = useInsets();
+export function About({ onBack, transport }: { onBack: () => void; transport?: (d: Device) => Transport }) {
+  const t = useTheme();
   const [device, setDevice] = useState<Device | null>(null);
   const [versions, setVersions] = useState<Versions | null>(null);
   const [reach, setReach] = useState<"checking" | "ok" | "unreachable" | "none">("checking");
+  const [attempt, setTry] = useState(0);
+  const small = font(t, "sans", 400, 12, t.base.lineHeight / t.base.size);
 
   useEffect(() => {
     let live = true;
+    setReach("checking");
     void (async () => {
       const d = await selected().catch(() => null);
       if (!live) return;
       setDevice(d);
       if (!d) return setReach("none");
       try {
-        const h = await studioApi(transportFor(d)).health();
+        const h = await studioApi((transport ?? transportFor)(d)).health();
         if (!live) return;
         setVersions(versionsOf(h));
         setReach("ok");
@@ -45,51 +50,45 @@ export function About({ onBack }: { onBack: () => void }) {
       }
     })();
     return () => void (live = false);
-  }, []);
+  }, [transport, attempt]);
 
   const tooOld = studioTooOld(versions?.studio ?? null);
   return (
-    <ScrollView contentContainerStyle={{ paddingTop: insets.top + 12, paddingBottom: insets.bottom + 18, paddingLeft: 12 + insets.left, paddingRight: 12 + insets.right, gap: 14 }}>
-      <View style={{ flexDirection: "row", alignItems: "center" }}>
-        <Button title={"‹ Devices"} variant="ghost" onPress={onBack} />
-      </View>
-      <Card>
-        <Label>About</Label>
-        <View style={{ marginTop: 10 }}>
-          <Line name="App" value={`UE-MCP Studio ${APP_VERSION}`} />
-          <Line name="Build" value={`${Application.nativeApplicationVersion ?? APP_VERSION} (${Application.nativeBuildVersion ?? "?"})`} />
-          <Line name="Package" value={Application.applicationId ?? "com.uemcp.studio.remote"} />
-          <Line name="System" value={`${Platform.OS === "ios" ? "iOS" : "Android"} ${String(Platform.Version)}`} />
-          <Line name="Needs Studio" value={`${MIN_STUDIO} or newer`} />
-          <Line name="Relay" value={RELAY} />
-        </View>
+    <Page title="About" back="Paired devices" onBack={onBack}>
+      <SectionLabel>This app</SectionLabel>
+      <Card style={{ paddingVertical: 4, paddingHorizontal: 14 }}>
+        <Line name="App" value="UE-MCP Studio" />
+        <Line name="Version" value={`${Application.nativeApplicationVersion ?? APP_VERSION} (build ${Application.nativeBuildVersion ?? "?"})`} />
+        <Line name="Package" value={Application.applicationId ?? "com.uemcp.studio.remote"} />
+        <Line name="System" value={`${Platform.OS === "ios" ? "iOS" : "Android"} ${String(Platform.Version)}`} />
+        <Line name="Needs Studio" value={`${MIN_STUDIO} or newer`} />
+        <Line name="Relay" value={RELAY.replace(/^https:\/\//, "")} last />
       </Card>
-      <Card>
-        <Label>{device ? device.name : "Project"}</Label>
-        <View style={{ marginTop: 10 }}>
-          {reach === "none" ? <T tone="muted">Open a project to see what its computer runs.</T> : null}
-          {reach === "checking" ? <T tone="muted">Asking the computer</T> : null}
-          {reach === "unreachable" ? <T tone="muted">The computer did not answer. It may be offline or locked.</T> : null}
-          {versions ? (
-            <>
-              <Line name="Studio" value={versions.studio ?? "unknown"} />
-              <Line name="ue-mcp" value={versions.ueMcp ?? "unknown"} />
-            </>
-          ) : null}
-        </View>
-        {tooOld ? (
-          <Banner kind="warn" style={{ marginTop: 12, marginBottom: 0 }}>
-            {tooOld}
-          </Banner>
-        ) : versions ? (
-          <Banner kind="ok" style={{ marginTop: 12, marginBottom: 0 }}>
-            This app and the Studio on that computer work together.
-          </Banner>
-        ) : null}
-      </Card>
-      <T tone="dim" size={12}>
-        UE-MCP Studio is open source under the MIT licence. Requests to your computer are sealed end to end; the relay carries only what it cannot read.
+      <SectionLabel>{device ? `Computer running ${device.name}` : "Your computer"}</SectionLabel>
+      {versions ? (
+        <Card style={{ paddingVertical: 4, paddingHorizontal: 14 }}>
+          <Line name="Studio" value={versions.studio ?? "unknown"} warn={!!tooOld} />
+          <Line name="ue-mcp" value={versions.ueMcp ?? "unknown"} last />
+        </Card>
+      ) : null}
+      {reach === "none" || reach === "checking" ? (
+        <Card style={{ padding: 14 }}>{reach === "none" ? <T style={{ ...small, color: t.c.dim }}>Open a project to see what its computer runs.</T> : <Loading>Asking the computer</Loading>}</Card>
+      ) : null}
+      {reach === "unreachable" ? (
+        <Panel bad head="The computer did not answer" text="It may be offline, asleep or locked." actions={<View style={{ flex: 1 }}><Button title="Try again" variant="primary" size="large" onPress={() => setTry((n) => n + 1)} /></View>} />
+      ) : null}
+      {tooOld ? (
+        <Banner kind="warn" style={{ marginBottom: 0 }}>
+          <T style={{ ...small, color: bannerText(t, "warn") }}>{tooOld}</T>
+        </Banner>
+      ) : versions ? (
+        <Banner kind="ok" style={{ marginBottom: 0 }}>
+          <T style={{ ...small, color: bannerText(t, "ok") }}>This app and the Studio on that computer work together.</T>
+        </Banner>
+      ) : null}
+      <T style={{ ...font(t, "sans", 400, 12, t.base.lineHeight / t.base.size), color: t.c.dim }}>
+        UE-MCP Studio is open source under the MIT license. Requests to your computer are sealed end to end; the relay carries only what it cannot read.
       </T>
-    </ScrollView>
+    </Page>
   );
 }

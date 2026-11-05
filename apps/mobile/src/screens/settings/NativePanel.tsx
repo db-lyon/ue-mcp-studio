@@ -4,11 +4,11 @@
  * reads it, and its instruction files, subagents and skills, read only. Open
  * file opens the file on the computer, as the web page does.
  */
-import { useEffect, useState } from "react";
-import { Linking, Pressable, View } from "react-native";
+import { useEffect, useState, type ReactNode } from "react";
+import { Linking, Pressable, Text, View } from "react-native";
 import { INSTRUCTION_FILE, SKILL_DIR, SOURCE_NAME, SUBAGENT_DIR, conventionOrder, fileCount, firstTab, scopeLine, sharedWith, tokens } from "@ue-mcp-studio/client-core";
 import { CONVENTION_INFO, EFFORT_NAMES, type Convention, type Effort, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
-import { Banner, Card, Dot, Sheet, bannerText, font, T, useTheme } from "../../ui";
+import { Banner, Card, Dot, Sheet, bannerText, font, fontName, T, useTheme } from "../../ui";
 import { CardLabel, Span, Tag, Txt, useMessage } from "./controls";
 import { Details } from "./Details";
 import { Chevron } from "./Pickers";
@@ -54,9 +54,10 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
             Convention
           </Txt>
           <Pressable accessibilityRole="button" accessibilityLabel="Whose files" onPress={() => setChoosing(true)} style={{ minHeight: 44, flexDirection: "row", alignItems: "center", backgroundColor: t.c.panel2, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, paddingVertical: 6, paddingLeft: 14, paddingRight: 44.3 }}>
-            <T numberOfLines={1} style={[font(t, "sans", 400, 16, 1.2), { color: t.c.text, flex: 1 }]}>
+            {/* A select's line is line-height: normal, the font's own (21px for Jakarta at 16). */}
+            <Text numberOfLines={1} style={[font(t, "sans", 400, 16), { color: t.c.text, flex: 1 }]}>
               {optionText(view)}
-            </T>
+            </Text>
             <View style={{ position: "absolute", right: 4, top: 0, bottom: 0, justifyContent: "center" }}>
               <Chevron color={t.c.text} />
             </View>
@@ -77,19 +78,31 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
 }
 
 /** dl.fields: names in a column as wide as the widest, values beside them, 2px between rows. */
-function Fields({ rows }: { rows: Array<[string, string]> }) {
-  const [widths, setWidths] = useState<Record<string, number>>({});
-  const w = Object.keys(widths).length === rows.length ? Math.max(...Object.values(widths)) : undefined;
-  // Each name's own width, once: with the column's width applied every name measures as wide as the widest.
-  const record = (k: string, width: number) => setWidths((x) => (k in x ? x : { ...x, [k]: width }));
+/** A bare <code>: the browser's own monospace at the line's size, no box. */
+function Code({ children }: { children: ReactNode }) {
+  return <Text style={{ fontFamily: fontName("system-mono"), fontWeight: "400" }}>{children}</Text>;
+}
+
+/**
+ * dl.fields: names in a max-content column, values beside them. Each name's cell also holds every
+ * name at no height, so it is exactly as wide as the widest, unrounded, as the grid column is.
+ */
+function Fields({ rows }: { rows: Array<[string, ReactNode]> }) {
   return (
     <View style={{ marginVertical: 2, gap: 2 }}>
       {rows.map(([k, v]) => (
         <View key={k} style={{ flexDirection: "row", columnGap: 10 }}>
-          <View style={{ minWidth: w, flexShrink: 0 }} onLayout={(e) => record(k, e.nativeEvent.layout.width)}>
+          <View style={{ flexShrink: 0 }}>
             <Txt size={12} tone="dim">
               {k}
             </Txt>
+            <View aria-hidden importantForAccessibility="no-hide-descendants" accessibilityElementsHidden style={{ height: 0, overflow: "hidden" }}>
+              {rows.map(([n]) => (
+                <Txt key={n} size={12}>
+                  {n}
+                </Txt>
+              ))}
+            </View>
           </View>
           <Txt size={12} tone="muted" style={{ flex: 1 }}>
             {v}
@@ -220,7 +233,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
               </Txt>
               <Fields
                 rows={[
-                  ["Model", `${a.runs.model}${a.model ? ` (file says ${a.model})` : ""}`],
+                  ["Model", a.model ? <>{a.runs.model} (file says <Code>{a.model}</Code>)</> : a.runs.model],
                   ["Tools", a.tools],
                   ["Turns", a.maxTurns ? `${a.maxTurns} max` : "no limit"],
                   ["Effort", a.effort ? EFFORT_NAMES[a.effort as Effort] ?? a.effort : "not set in the file"],

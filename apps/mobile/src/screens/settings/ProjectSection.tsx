@@ -172,7 +172,7 @@ export function ProjectSection({ onSection }: { onSection: (s: SettingsSection) 
           <View key={c.id} style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", paddingVertical: 11, borderTopWidth: 1, borderTopColor: t.c.line }}>
             <Dot kind="ok" style={{ marginTop: 6 }} />
             <Txt weight={500} style={{ flex: 1 }}>
-              <Span weight={700}>{c.name}</Span> <Span size={12} tone="muted">{c.pinned ? `ue-mcp@${c.pinned}` : "ue-mcp@latest"}</Span>
+              <Span weight={700}>{c.name}</Span> <Span size={12} weight={500} tone="muted">{c.pinned ? `ue-mcp@${c.pinned}` : "ue-mcp@latest"}</Span>
             </Txt>
           </View>
         ))}

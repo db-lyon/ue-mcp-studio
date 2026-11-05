@@ -51,5 +51,5 @@ export function versionsOf(health: { version?: unknown; extensions?: unknown } |
 export function studioTooOld(studio: string | null): string | null {
   if (!studio || !/^\d+\.\d+\.\d+/.test(studio)) return null;
   if (compareVersions(studio, MIN_STUDIO) >= 0) return null;
-  return `Studio on this computer is ${studio}; this app needs ${MIN_STUDIO} or newer. Update Studio on the computer, then come back.`;
+  return `Studio on that computer is ${studio}; this app needs ${MIN_STUDIO} or newer. Update Studio on the computer, then come back.`;
 }

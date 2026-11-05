@@ -34,6 +34,8 @@ import { RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { RemoteLock } from "./views/remote/RemoteLock";
 import { CompatBanner } from "./native/CompatBanner";
+import { useDeviceOnline } from "./native/online";
+import { OFFLINE_STRIP } from "./views/OfflineBanner";
 
 const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
@@ -99,6 +101,7 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
   const t = useTheme();
   const s = useStyles(styles);
   const insets = useInsets();
+  const offline = !useDeviceOnline();
   const { api } = useProjectNav();
   const setTheme = useSetTheme();
   const [tab, setTab] = useState<Tab>(() => {
@@ -145,6 +148,8 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
         <View style={{ flex: 1 }} />
         <EditorBanner daemon={daemon} compact />
       </View>
+      {/* Room for the offline strip that lies under the bar, so it covers nothing. */}
+      {offline ? <View style={{ height: OFFLINE_STRIP }} /> : null}
       <CompatBanner />
       {daemon.error && daemon.streaming ? (
         <Banner kind="bad" style={SHELL_BANNER}>

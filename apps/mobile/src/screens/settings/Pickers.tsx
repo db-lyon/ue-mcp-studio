@@ -104,7 +104,7 @@ export function EffortPicker({ settings, onSettings, follow, disabled }: { setti
   };
   return (
     <>
-      <Pressable accessibilityRole="button" accessibilityLabel={follow?.label ?? "Effort"} accessibilityState={{ disabled: off }} disabled={off} onPress={() => setOpen(true)} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 10, paddingRight: 4, borderWidth: 1, borderColor: t.c.line, borderRadius: 6, backgroundColor: t.c.panel, alignSelf: "flex-start", marginRight: 14 }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={follow?.label ?? "Effort"} accessibilityState={{ disabled: off }} disabled={off} onPress={() => setOpen(true)} style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 10, paddingRight: 4, borderWidth: 1, borderColor: t.c.line, borderRadius: 6, backgroundColor: t.c.panel, alignSelf: "center", marginRight: 14 }}>
         {/* A label keeps the page's 14px after it, so the box wraps under the model where the web page's does. */}
         <T style={[font(t, "sans", 500, 12, 1), { color: t.c.dim }]}>Effort</T>
         {/* The select: as wide as its longest choice, plus the 28px the page keeps for its arrow and the 20px the browser adds. */}
@@ -146,9 +146,12 @@ export function Chevron({ color }: { color: string }) {
 
 function Box({ text, via, label, disabled, onPress }: { text: string; via: string | null; label: string; disabled?: boolean; onPress: () => void }) {
   const t = useTheme();
+  // The editor themes' button rule (400 12px/1.2) outranks button.picker-button's 500 12px/1; the caret keeps 1.2 at 10px.
+  const lh = t.editor ? 1.2 : 1;
+  const weight = t.editor ? 400 : 500;
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 10, borderWidth: 1, borderRadius: t.radius, borderColor: disabled ? t.c.disabledLine : t.c.lineStrong, backgroundColor: t.c.panel2, alignSelf: "flex-start" }}>
-      <T numberOfLines={1} style={[font(t, "sans", 500, 12, 1), { color: disabled ? t.c.dim : t.c.text }]}>
+    <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: !!disabled }} disabled={disabled} onPress={onPress} style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, paddingHorizontal: 10, borderWidth: 1, borderRadius: t.radius, borderColor: disabled ? t.c.disabledLine : t.c.lineStrong, backgroundColor: t.c.panel2, alignSelf: "center" }}>
+      <T numberOfLines={1} style={[font(t, "sans", weight, 12, lh), { color: disabled ? t.c.dim : t.c.text }]}>
         {text}
       </T>
       {via ? (
@@ -156,7 +159,7 @@ function Box({ text, via, label, disabled, onPress }: { text: string; via: strin
           <T style={[font(t, "sans", 500, 11, 1), { color: t.c.dim }]}>{via}</T>
         </View>
       ) : null}
-      <T style={[font(t, "sans", 400, 10, 1), { color: t.c.dim }]}>{"▾"}</T>
+      <T style={[font(t, "sans", 400, 10, lh), { color: t.c.dim }]}>{"▾"}</T>
     </Pressable>
   );
 }

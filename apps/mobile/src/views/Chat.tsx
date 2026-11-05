@@ -455,7 +455,16 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
             <Button title="New" variant="primary" onPress={() => void create()} />
           </View>
           {pendingShare ? (
-            <Banner kind="warn" role="status">{`Pick a session for the ${sharedNoun(shared.files)}`}</Banner>
+            // A request, not a warning: the accent wash, what to do, and a way to drop what was shared.
+            <View accessibilityRole="text" accessibilityLiveRegion="polite" style={{ flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 4, paddingLeft: 12, paddingRight: 4, marginBottom: 10, borderRadius: 8, borderWidth: 1, borderColor: t.c.accentLine, backgroundColor: t.c.accentWash }}>
+              <View style={{ flex: 1, minWidth: 0, paddingVertical: 5 }}>
+                <T style={{ ...font(t, "sans", 600, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text }}>{`Pick a session for the ${sharedNoun(shared.files)}`}</T>
+                <T style={{ ...font(t, "sans", 400, 12), lineHeight: 12 * (t.base.lineHeight / t.base.size), color: t.c.muted }}>
+                  It goes into that session's message box. <T style={{ ...font(t, "sans", 600, 12), color: t.c.text }}>New</T> starts a session for it.
+                </T>
+              </View>
+              <Button title="Discard" variant="ghost" label={`Discard the ${sharedNoun(shared.files)}`} onPress={() => shared.consume()} />
+            </View>
           ) : null}
           {error ? (
             <Pressable accessibilityRole="button" accessibilityLabel={error} onPress={() => setError(null)}>

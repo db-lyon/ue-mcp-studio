@@ -7,6 +7,14 @@
 import type { NativeOverview, StudioSettings } from "@ue-mcp-studio/shared";
 import type { Scenario } from "./fixtures";
 
+/**
+ * The instant the harness daemon started, fixed so shots taken minutes apart (the web reference and the
+ * mobile app's) print the same clock times in Diagnostics.
+ */
+export const QA_DAEMON_START = Date.parse("2026-11-04T23:20:00Z");
+/** The events' clock: the daemon has been up five minutes. */
+const before = (ms: number) => new Date(QA_DAEMON_START + 300_000 - ms).toISOString();
+
 /** Settings > Agents with nothing connected: every convention's files found, none read by a route. */
 const NATIVE_NONE = (): NativeOverview => ({ ...NATIVE_FULL, main: null, conventions: NATIVE_FULL.conventions.map((c) => ({ ...c, routes: [] })) });
 
@@ -158,11 +166,11 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-diagnostics-events": {
     ...page("Diagnostics: the event log with events, short and long payloads, one opened", "diagnostics"),
     events: [
-      { type: "editor.connected", at: new Date(Date.now() - 240_000).toISOString(), data: { project: "StudioE2E", port: 64666 } },
-      { type: "studio.session.changed", at: new Date(Date.now() - 180_000).toISOString(), data: { sessionId: "qa-session", status: "running", waitingCause: null } },
-      { type: "studio.transcript.added", at: new Date(Date.now() - 120_000).toISOString(), data: { sessionId: "qa-session", entry: { kind: "tool", call: { id: "t-build", name: "shell", input: { command: "npx ue-mcp project build_project --target StudioE2EEditor --configuration Development" }, outcome: "error", result: "Build failed: DoorComponent.cpp(43): error C2065: 'Alpha': undeclared identifier" } } } },
-      { type: "studio.remote.available", at: new Date(Date.now() - 60_000).toISOString(), data: {} },
-      { type: "client.attached", at: new Date(Date.now() - 30_000).toISOString(), data: { client: "studio-window", version: "0.1.25-beta.15" } },
+      { type: "editor.connected", at: before(240_000), data: { project: "StudioE2E", port: 64666 } },
+      { type: "studio.session.changed", at: before(180_000), data: { sessionId: "qa-session", status: "running", waitingCause: null } },
+      { type: "studio.transcript.added", at: before(120_000), data: { sessionId: "qa-session", entry: { kind: "tool", call: { id: "t-build", name: "shell", input: { command: "npx ue-mcp project build_project --target StudioE2EEditor --configuration Development" }, outcome: "error", result: "Build failed: DoorComponent.cpp(43): error C2065: 'Alpha': undeclared identifier" } } } },
+      { type: "studio.remote.available", at: before(60_000), data: {} },
+      { type: "client.attached", at: before(30_000), data: { client: "studio-window", version: "0.1.25-beta.15" } },
     ],
     // Newest first: the transcript event, with the long payload, is third.
     clicks: [".log-event:nth-child(3) .log-data > summary"],

@@ -61,7 +61,8 @@ export function EditorStatus() {
             ) : null}
           </View>
         ))}
-        <View style={s.actions}>
+        {/* With no editor row, the heading's 12px margin collapses into the buttons' 14. */}
+        <View style={[s.actions, h.editors.length === 0 && { marginTop: 2 }]}>
           {EDITOR_OPS.map((op) => (
             <Button key={op} title={busy === op ? `${op}...` : title(op)} disabled={busy !== null || (op === "start" ? anyUp : !anyUp)} onPress={() => run(op)} />
           ))}
