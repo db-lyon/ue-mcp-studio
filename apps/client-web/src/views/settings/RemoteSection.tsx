@@ -175,7 +175,7 @@ export function RemoteSection({ onUnavailable }: { onUnavailable?: () => void } 
           </div>
         ))}
       </Card>
-      <PinLockCard />
+      <PinLockCard onUnpaired={() => void load()} />
     </>
   );
 }

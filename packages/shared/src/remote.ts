@@ -95,8 +95,10 @@ export const REMOTE_PIN_ATTEMPTS = 10;
 
 /**
  * The remote PIN lock as Settings on the computer shows it: GET /remote/lock,
- * PUT /remote/lock { whole?, sensitive?, idleMinutes? }, PUT /remote/lock/pin
- * { pin }, DELETE /remote/lock/pin. Off until a PIN is set and a switch is on.
+ * PUT /remote/lock { whole?, sensitive?, idleMinutes?, current? }, PUT
+ * /remote/lock/pin { pin, confirm?, current? }, DELETE /remote/lock/pin
+ * { current }, POST /remote/lock/forget (unpairs every device). Weakening the
+ * lock needs `current`, the PIN. Off until a PIN is set and a switch is on.
  */
 export interface RemoteLockSettings {
   /** A PIN is set. */

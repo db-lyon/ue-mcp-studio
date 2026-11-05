@@ -128,6 +128,21 @@ export type UnlockResult =
   | { ok: true; state: RemoteLockState }
   | { ok: false; status: number; error: string; retryAfterMs?: number; remaining?: number; unpaired?: boolean };
 
+/** Why a change on the computer was refused, with the HTTP status for the route. */
+export class LockRefusal extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: "pin-required" | "wrong-pin" | "wait" | "bad-pin" | "bad-idle" | "no-pin",
+    message: string,
+    readonly retryAfterMs?: number,
+  ) {
+    super(message);
+  }
+}
+
+/** The wrong-PIN count of the computer's own Studio, beside each paired browser's. "@" is not in a browser id (base64url). */
+export const COMPUTER = "@computer";
+
 interface Grant {
   /** The whole client stays open while the browser was active within the idle time. */
   lastActive: number;
@@ -206,9 +221,46 @@ export class PinLock {
     return { pin: !!s.hash, whole: s.whole, sensitive: s.sensitive, idleMinutes: s.idleMinutes };
   }
 
-  /** Set or change the PIN. Every browser is locked again. */
-  async setPin(pin: string): Promise<void> {
-    if (!PIN_PATTERN.test(pin)) throw new Error("A PIN is 4 to 8 digits.");
+  /**
+   * Whether `current` is the PIN, for a change made on the computer. Wrong
+   * tries count under COMPUTER and wait like a paired browser's
+   * (attemptDelayMs), but never remove anything. Throws LockRefusal unless
+   * it is right or no PIN is set.
+   */
+  private async requireCurrent(current: unknown): Promise<void> {
+    const s = this.stored();
+    if (!s.hash || !s.salt) return;
+    const wait = (this.nextTry.get(COMPUTER) ?? 0) - this.now();
+    if (wait > 0) throw new LockRefusal(429, "wait", `Too many wrong PINs. Try again in ${Math.ceil(wait / 1000)} seconds.`, wait);
+    if (current === undefined || current === null || current === "") throw new LockRefusal(401, "pin-required", "Enter the current PIN.");
+    if (await this.matches(current, s)) {
+      const fresh = this.stored();
+      if (fresh.failures[COMPUTER] !== undefined) {
+        delete fresh.failures[COMPUTER];
+        this.save(fresh);
+      }
+      this.nextTry.delete(COMPUTER);
+      return;
+    }
+    const fresh = this.stored();
+    const failures = (fresh.failures[COMPUTER] ?? 0) + 1;
+    fresh.failures[COMPUTER] = failures;
+    this.save(fresh);
+    const delay = attemptDelayMs(failures);
+    if (delay > 0) this.nextTry.set(COMPUTER, this.now() + delay);
+    throw new LockRefusal(401, "wrong-pin", delay > 0 ? `The current PIN is wrong. Try again in ${Math.ceil(delay / 1000)} seconds.` : "The current PIN is wrong.", delay > 0 ? delay : undefined);
+  }
+
+  private async matches(pin: unknown, s: Stored): Promise<boolean> {
+    if (!s.hash || !s.salt || typeof pin !== "string" || !PIN_PATTERN.test(pin)) return false;
+    const given = await hash(pin, Buffer.from(s.salt, "base64"));
+    return crypto.timingSafeEqual(given, Buffer.from(s.hash, "base64"));
+  }
+
+  /** Set the first PIN, or change it with the current one. Every browser is locked again. */
+  async setPin(pin: string, current?: unknown): Promise<void> {
+    if (!PIN_PATTERN.test(pin)) throw new LockRefusal(400, "bad-pin", "A PIN is 4 to 8 digits.");
+    await this.requireCurrent(current);
     const salt = crypto.randomBytes(16);
     const key = await hash(pin, salt);
     const s = this.stored();
@@ -217,21 +269,40 @@ export class PinLock {
     this.nextTry.clear();
   }
 
-  /** Remove the PIN, which turns both switches off. */
-  removePin(): void {
+  /** Remove the PIN with the current one, which turns both switches off. */
+  async removePin(current: unknown): Promise<void> {
+    await this.requireCurrent(current);
     const s = this.stored();
     this.save({ v: 1, whole: false, sensitive: false, idleMinutes: s.idleMinutes, failures: {} });
     this.grants.clear();
     this.nextTry.clear();
   }
 
-  /** Turn the switches on or off, or change the idle time. Either switch needs a PIN first. */
-  configure(c: Partial<Pick<RemoteLockSettings, "whole" | "sensitive" | "idleMinutes">>): RemoteLockSettings {
+  /**
+   * Forgot PIN: the PIN and every lock setting go, without the PIN. The
+   * caller unpairs every browser first (routes.ts), so nobody keeps access the
+   * PIN guarded.
+   */
+  reset(): void {
+    this.save({ ...EMPTY, failures: {} });
+    this.grants.clear();
+    this.nextTry.clear();
+  }
+
+  /**
+   * Turn the switches on or off, or change the idle time. Either switch needs
+   * a PIN first. Anything that weakens the lock needs the current PIN: a
+   * switch turned off, or a longer idle time.
+   */
+  async configure(c: Partial<Pick<RemoteLockSettings, "whole" | "sensitive" | "idleMinutes">>, current?: unknown): Promise<RemoteLockSettings> {
     const s = this.stored();
-    if ((c.whole || c.sensitive) && !s.hash) throw new Error("Set a PIN first.");
-    if (c.idleMinutes !== undefined && !REMOTE_LOCK_IDLE_CHOICES.includes(c.idleMinutes)) throw new Error(`The idle time is one of ${REMOTE_LOCK_IDLE_CHOICES.join(", ")} minutes.`);
+    if ((c.whole || c.sensitive) && !s.hash) throw new LockRefusal(409, "no-pin", "Set a PIN first.");
+    if (c.idleMinutes !== undefined && !REMOTE_LOCK_IDLE_CHOICES.includes(c.idleMinutes)) throw new LockRefusal(400, "bad-idle", `The idle time is one of ${REMOTE_LOCK_IDLE_CHOICES.join(", ")} minutes.`);
+    const weakens = (c.whole === false && s.whole) || (c.sensitive === false && s.sensitive) || (c.idleMinutes !== undefined && c.idleMinutes > s.idleMinutes);
+    if (weakens) await this.requireCurrent(current);
+    const fresh = this.stored();
     this.save({
-      ...s,
+      ...fresh,
       ...(c.whole !== undefined ? { whole: c.whole } : {}),
       ...(c.sensitive !== undefined ? { sensitive: c.sensitive } : {}),
       ...(c.idleMinutes !== undefined ? { idleMinutes: c.idleMinutes } : {}),
@@ -301,8 +372,7 @@ export class PinLock {
     if (!s.hash || !s.salt) return { ok: false, status: 409, error: "No PIN is set on the computer." };
     const wait = (this.nextTry.get(phone) ?? 0) - this.now();
     if (wait > 0) return { ok: false, status: 429, error: "Too many wrong PINs. Wait before trying again.", retryAfterMs: wait, remaining: REMOTE_PIN_ATTEMPTS - (s.failures[phone] ?? 0) };
-    const given = typeof pin === "string" && PIN_PATTERN.test(pin) ? await hash(pin, Buffer.from(s.salt, "base64")) : null;
-    const right = !!given && crypto.timingSafeEqual(given, Buffer.from(s.hash, "base64"));
+    const right = await this.matches(pin, s);
     // Read again after the slow hash: another try may have counted meanwhile.
     const fresh = this.stored();
     if (right) {

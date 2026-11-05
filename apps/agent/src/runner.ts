@@ -1465,7 +1465,8 @@ ${result}`);
       : (kind === "shell" || kind === "files") && (this.o.askBeforeChanges?.() ?? true);
     if (!asks) return null;
     if (s.allowed?.includes(SESSION_KEY[kind])) return null;
-    const preview = kind === "shell" || kind === "files" ? approvalFor(this.o.host.projectDir, name, input) : editorPreview(name, input);
+    // Code a ue-mcp action runs asks as a shell command, shown as the call it is.
+    const preview = (kind === "shell" || kind === "files" ? approvalFor(this.o.host.projectDir, name, input) : null) ?? editorPreview(name, input);
     if (!preview) return null;
     if (signal.aborted) return { stopped: true };
 
