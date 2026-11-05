@@ -23,6 +23,7 @@ import {
   type ProjectNotifyUpdate,
 } from "@ue-mcp-studio/shared";
 import { api } from "./api";
+import { latestTarget, noticeTag } from "@ue-mcp-studio/client-core";
 import { native } from "./native";
 import { onRemotePage } from "./connection";
 import { syncWebPush } from "./web-push";
@@ -122,8 +123,6 @@ export function browserPermission(): NotificationPermission | "unsupported" {
   return typeof Notification === "undefined" ? "unsupported" : Notification.permission;
 }
 
-/** A tag per event and project: a push and the page's own notification for the same thing replace each other. */
-export const noticeTag = (n: Pick<Notice, "kind" | "project">): string => `uemcp:${n.kind}:${n.project}`;
 
 // ── Showing one ───────────────────────────────────────────────────
 
@@ -219,8 +218,8 @@ export function useNotifications(events: DaemonEvent[], onOpen: (t: NotifyTarget
 /** Open the session of the newest notice the agent kept. */
 export async function openLatest(onOpen: (t: NotifyTarget) => void): Promise<void> {
   const state = await api.notifications().catch(() => null);
-  const last = [...(state?.recent ?? [])].reverse().find((n) => n.target.sessionId);
-  if (last) onOpen(last.target);
+  const t = latestTarget(state?.recent ?? []);
+  if (t) onOpen(t);
 }
 
 export const PRESENCE_EVERY_MS = 20_000;

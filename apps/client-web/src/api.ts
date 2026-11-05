@@ -63,19 +63,8 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { noticeOf, projectNotifyOf, type NotificationsState, type NotifyDevice, type ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
-
-/** GET /notifications, made whole: an older agent's missing fields at their defaults. */
-export function notificationsOf(raw: unknown): NotificationsState {
-  const r = (raw ?? {}) as { project?: unknown; prefs?: unknown; recent?: unknown; titles?: unknown };
-  const titles = r.titles && typeof r.titles === "object" ? Object.fromEntries(Object.entries(r.titles).filter(([, v]) => typeof v === "string")) as Record<string, string> : {};
-  return {
-    project: typeof r.project === "string" ? r.project : "",
-    prefs: projectNotifyOf(r.prefs),
-    recent: Array.isArray(r.recent) ? r.recent.map(noticeOf).filter((n) => n !== null) : [],
-    titles,
-  };
-}
+import { notificationsOf } from "@ue-mcp-studio/client-core";
+import type { NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
 import type { CatalogPlugin, InstalledPlugin, PluginCommandResult } from "@ue-mcp-studio/client-core";

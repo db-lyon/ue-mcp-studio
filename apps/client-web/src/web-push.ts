@@ -6,30 +6,8 @@
  * projects, quiet hours) are this browser's settings, sent with the
  * subscription. Only on a paired browser, where the page is at the relay's origin.
  */
-import { NOTIFY_KINDS, type DeviceNotifyPrefs, type NotifyKind, type ProjectNotifyPrefs } from "@ue-mcp-studio/shared";
-
-/** What the relay filters a push by. Nothing in it is content. */
-export interface PushPrefs {
-  enabled: boolean;
-  kinds: NotifyKind[];
-  /** Project names (or relay project ids) muted on this device. */
-  muted: string[];
-  quiet: DeviceNotifyPrefs["quiet"];
-  /** IANA time zone, for quiet hours. */
-  tz: string;
-  onlyWhenAway: boolean;
-}
-
-export function pushPrefs(device: DeviceNotifyPrefs, project: ProjectNotifyPrefs, tz = Intl.DateTimeFormat().resolvedOptions().timeZone): PushPrefs {
-  return {
-    enabled: device.enabled,
-    kinds: NOTIFY_KINDS.filter((k) => project.events[k.kind]).map((k) => k.kind),
-    muted: device.mutedProjects,
-    quiet: device.quiet,
-    tz: tz || "UTC",
-    onlyWhenAway: device.onlyWhenAway,
-  };
-}
+import type { DeviceNotifyPrefs, ProjectNotifyPrefs } from "@ue-mcp-studio/shared";
+import { pushPrefsFor } from "@ue-mcp-studio/client-core";
 
 export function base64UrlBytes(s: string): Uint8Array {
   const b64 = s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4);
@@ -53,7 +31,7 @@ export async function syncWebPush(device: DeviceNotifyPrefs, project: ProjectNot
     method: "POST",
     credentials: "same-origin",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ platform: "web", subscription: sub.toJSON(), prefs: pushPrefs(device, project) }),
+    body: JSON.stringify({ platform: "web", subscription: sub.toJSON(), prefs: pushPrefsFor(device, project) }),
   });
   return res.ok ? "registered" : "failed";
 }

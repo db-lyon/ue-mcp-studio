@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_DEVICE_NOTIFY, DEFAULT_PROJECT_NOTIFY, applyProjectNotify } from "@ue-mcp-studio/shared";
-import { base64UrlBytes, pushPrefs, syncWebPush } from "./web-push";
+import { pushPrefsFor as pushPrefs } from "@ue-mcp-studio/client-core";
+import { base64UrlBytes, syncWebPush } from "./web-push";
 
 afterEach(() => vi.unstubAllGlobals());
 

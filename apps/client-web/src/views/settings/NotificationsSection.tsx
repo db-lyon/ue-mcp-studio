@@ -1,15 +1,12 @@
 import { useState } from "react";
-import { NOTIFY_KINDS, type DeviceNotifyPrefs, type NotifyKind, type NotifyPrivacy } from "@ue-mcp-studio/shared";
+import { NOTIFY_KINDS, type DeviceNotifyPrefs, type NotifyKind } from "@ue-mcp-studio/shared";
+import { NOTIFY_COPY as C, PRIVACY_CHOICES } from "@ue-mcp-studio/client-core";
 import { Head } from "../SettingsHub";
 import { Card, Row, Seg, Switch, useMessage } from "./controls";
 import { browserPermission, saveProjectNotify, useDevicePrefs, useProjectNotify } from "../../notify";
 import { native } from "../../native";
 import { onRemotePage } from "../../connection";
 
-const PRIVACY: ReadonlyArray<{ id: NotifyPrivacy; name: string }> = [
-  { id: "full", name: "Full text" },
-  { id: "minimal", name: "Event and project" },
-];
 
 /** How this device shows notifications, said plainly. */
 function deliveryNote(): string {
@@ -38,30 +35,30 @@ export function NotificationsSection() {
 
   return (
     <>
-      <Head title="Notifications" lead="When Studio tells you something happened, and what it shows." />
+      <Head title="Notifications" lead={C.lead} />
       {msg.node}
       <Card label="This device">
         <p className="cfg-note">{deliveryNote()}</p>
         {needsPermission && (
           <Row
-            title="Browser permission"
-            help={permission === "denied" ? "Notifications are blocked for this site. Allow them in the browser's site settings." : permission === "unsupported" ? "This browser cannot show notifications." : "The browser asks once before it shows any."}
+            title={C.permission.title}
+            help={permission === "denied" ? C.permission.denied : permission === "unsupported" ? C.permission.unsupported : C.permission.ask}
           >
-            {permission === "default" && <button className="primary" onClick={ask}>Allow notifications</button>}
+            {permission === "default" && <button className="primary" onClick={ask}>{C.permission.button}</button>}
           </Row>
         )}
-        <Row title="Notifications on this device" help="Off: this device shows none, whatever the events below say." inline>
-          <Switch on={device.enabled} onChange={(v) => set({ enabled: v })} label="Notifications on this device" />
+        <Row title={C.enabled.title} help={C.enabled.help} inline>
+          <Switch on={device.enabled} onChange={(v) => set({ enabled: v })} label={C.enabled.title} />
         </Row>
         <div className={device.enabled ? "" : "notify-dim"} aria-disabled={!device.enabled || undefined}>
-        <Row title="Only when I'm away" help="Not while you are using this device. Phones and other browsers also stay quiet while you use Studio on the computer." inline>
-          <Switch on={device.onlyWhenAway} onChange={(v) => set({ onlyWhenAway: v })} label="Only when I'm away" disabled={!device.enabled} />
+        <Row title={C.away.title} help={C.away.help} inline>
+          <Switch on={device.onlyWhenAway} onChange={(v) => set({ onlyWhenAway: v })} label={C.away.title} disabled={!device.enabled} />
         </Row>
-        <Row title="What a notification shows" help="Event and project keeps your messages and file names off the lock screen.">
-          <Seg value={device.privacy} options={PRIVACY} onChange={(v) => set({ privacy: v })} label="What a notification shows" disabled={!device.enabled} compact />
+        <Row title={C.privacy.title} help={C.privacy.help}>
+          <Seg value={device.privacy} options={PRIVACY_CHOICES} onChange={(v) => set({ privacy: v })} label={C.privacy.title} disabled={!device.enabled} compact />
         </Row>
-        <Row title="Quiet hours" help="No notifications between these times, on this device's clock." inline>
-          <Switch on={device.quiet.on} onChange={(v) => set({ quiet: { ...device.quiet, on: v } })} label="Quiet hours" disabled={!device.enabled} />
+        <Row title={C.quiet.title} help={C.quiet.help} inline>
+          <Switch on={device.quiet.on} onChange={(v) => set({ quiet: { ...device.quiet, on: v } })} label={C.quiet.title} disabled={!device.enabled} />
         </Row>
         {device.quiet.on && (
           <div className="notify-quiet">
@@ -76,7 +73,7 @@ export function NotificationsSection() {
           </div>
         )}
         {projectName && (
-          <Row title={`Mute ${projectName} here`} help="This project's notifications stay off on this device. Other devices keep theirs." inline>
+          <Row title={C.mute(projectName).title} help={C.mute(projectName).help} inline>
             <Switch
               on={muted}
               onChange={(v) => set({ mutedProjects: v ? [...device.mutedProjects, projectName] : device.mutedProjects.filter((p) => p !== projectName) })}
@@ -88,7 +85,7 @@ export function NotificationsSection() {
         </div>
       </Card>
       <Card label="Events">
-        <p className="cfg-note">Shared by every device paired with {projectName || "this project"}.</p>
+        <p className="cfg-note">{C.events(projectName)}</p>
         {NOTIFY_KINDS.map((k) => (
           <Row key={k.kind} title={k.name} help={k.help} inline>
             <Switch on={project?.prefs.events[k.kind] ?? k.on} onChange={(v) => void toggleEvent(k.kind, v)} label={k.name} disabled={!project} />
@@ -98,12 +95,12 @@ export function NotificationsSection() {
       <Card label="Muted sessions" className="notify-muted">
         {project && project.prefs.mutedSessions.length > 0 ? (
           project.prefs.mutedSessions.map((id) => (
-            <Row key={id} title={project.titles[id] ?? "A session that was deleted"} inline>
+            <Row key={id} title={project.titles[id] ?? C.deletedSession} inline>
               <button onClick={() => void unmute(id)}>Unmute</button>
             </Row>
           ))
         ) : (
-          <p className="cfg-note">None. Mute a session from its menu in the session list.</p>
+          <p className="cfg-note">{C.noMuted}</p>
         )}
       </Card>
     </>
