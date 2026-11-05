@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobile app e2e</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; background: #0c0c0b; }
+      #root { display: flex; }
+      body { font-family: Roboto, "Segoe UI", system-ui, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- React Native's Animated reaches for `global` when an animation stops, as Metro provides it. -->
+    <!-- Relay calls go to this page's server, before the app's modules load: /relay proxies the live relay, /fake-relay is answered in the page. -->
+    <script>
+      window.global = window;
+      window.__studioRelayBase = location.origin + (new URLSearchParams(location.search).get("fake") ? "/fake-relay" : "/relay");
+      window.__studioDeviceLabel = "E2E test (Studio app)";
+    </script>
+    <script type="module" src="./app-main.tsx"></script>
+  </body>
+</html>

@@ -2,7 +2,7 @@ import { createContext, useContext, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
-import { formatDuration, tokenCount } from "./model";
+import { formatDuration, tokenCount } from "@ue-mcp-studio/client-core";
 
 type CompactionEntry = Extract<TranscriptEntry, { kind: "compaction" }>;
 

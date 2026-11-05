@@ -33,10 +33,7 @@ export function onAlive(l: Listener<number>): () => void {
   };
 }
 
-/** Whether an HTTP status came from ue-mcp rather than from the relay saying the computer is away. */
-export function fromUeMcp(status: number): boolean {
-  return status > 0 && status !== 502 && status !== 503 && status !== 504;
-}
+export { fromUeMcp } from "@ue-mcp-studio/client-core";
 
 /** Record one page diagnostic, as a `studio.connection.<kind>` event. */
 export function recordDiag(kind: string, data: Record<string, unknown>): void {

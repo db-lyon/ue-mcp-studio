@@ -1,64 +1,14 @@
 import { useEffect, useState } from "react";
-import { FAB_LIBRARY_URL, isNewer, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
+import { PLUGIN_OUTSIDE, checkFailure, daemonMoves, daemonTarget, fabUpdate, pluginOutside, updateStatus, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
-import { obj } from "../normalize";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
 
-/** GET /v1/ext/studio/updates. */
-export interface StudioUpdates {
-  /** stable follows each latest release; beta also takes prereleases. */
-  channel?: "stable" | "beta";
-  studio: { installed: string; latest: string | null; available: boolean };
-  plugin: StudioPluginUpdate;
-  /** The oldest ue-mcp the latest Studio runs on. */
-  ueMcpMin?: string;
-  /** The step the agent is running now (the plugin swap). */
-  running?: string;
-  /** The last background step (the Studio update, the restart) that failed, kept across the daemon it stopped. */
-  failure?: { step: "studio" | "restart"; error: string; at: string } | null;
-  error?: string;
-}
-
-/** What the card says about a background step that failed, or null when the last one did not. */
-export function failureLine(s: StudioUpdates | null | undefined): string | null {
-  const f = s?.failure;
-  if (!f?.error) return null;
-  return `${f.step === "studio" ? "The last Studio update failed" : "The last ue-mcp restart failed"}: ${f.error}`;
-}
-
-/** Why the check could not say what is newer, or null when both checks answered. */
-export function checkFailure(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null } | null): string | null {
-  if (!u) return null;
-  if (!u.studio || !u.ueMcp) return "no answer";
-  return u.studio.error ?? u.ueMcp.error ?? null;
-}
-
-/** Update installs the plugin itself: never for a Fab install, which the Fab Library updates. */
-export const pluginStep = (s: StudioUpdates | null | undefined): boolean => !!s?.plugin.available && s.plugin.source !== "fab";
-
-/** A Fab install with a newer plugin out: where to send the user. */
-export function fabUpdate(s: StudioUpdates | null | undefined): { version: string | null; url: string } | null {
-  if (s?.plugin.source !== "fab" || !(s.plugin.newer || s.plugin.required)) return null;
-  return { version: s.plugin.newer ? s.plugin.latest : null, url: s.plugin.fabUrl || FAB_LIBRARY_URL };
-}
+/** The update check's model lives in client-core, shared with the mobile app. */
+export { checkFailure, daemonMoves, daemonTarget, fabUpdate, failureLine, pluginStep, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate };
 
 /** Opens in the system browser from the editor panel; a plain browser opens a tab. */
 const openLink = (url: string) => void window.open(url, "_blank", "noopener");
-
-/**
- * GET /v1/update on the daemon. target is the release the project's bridge
- * plugin moves to, compared against installed.version, not against server.
- */
-export interface UeMcpUpdate {
-  installed: { version: string | null };
-  /** The ue-mcp package the daemon runs. */
-  server: string;
-  latest: string | null;
-  target: string | null;
-  binaries: { available: boolean; file: string } | null;
-  error?: string;
-}
 
 /** Keep the channel for every project; Update follows it for Studio and the editor plugin. */
 export async function setChannel(channel: "stable" | "beta"): Promise<void> {
@@ -79,67 +29,11 @@ async function get<T>(url: string): Promise<T | null> {
 /** Every read's count goes to the dot on Settings, so it never disagrees with the card. */
 const countListeners = new Set<(n: number) => void>();
 
-/**
- * The ue-mcp check with its target raised to the latest Studio's floor while
- * the daemon runs below it, whatever the channel: Studio never installs ahead
- * of the ue-mcp it needs.
- */
-export function withFloor(u: UeMcpUpdate | null, min: string | undefined): UeMcpUpdate | null {
-  if (!u || !min || !isNewer(min, u.server)) return u;
-  return { ...u, target: u.target && !isNewer(min, u.target) ? u.target : min };
-}
-
-const text = (v: unknown): string | null => (typeof v === "string" ? v : null);
-
-/** Studio's update check from any agent, each part it does not report as nothing installed and nothing newer (#151). */
-export function studioUpdatesOf(raw: unknown): StudioUpdates | null {
-  if (!raw || typeof raw !== "object") return null;
-  const u = obj(raw);
-  const studio = obj(u.studio);
-  const plugin = obj(u.plugin);
-  return {
-    ...u,
-    channel: u.channel === "beta" ? "beta" : "stable",
-    studio: { installed: text(studio.installed) ?? "?", latest: text(studio.latest), available: studio.available === true },
-    plugin: {
-      ...plugin,
-      installed: text(plugin.installed),
-      latest: text(plugin.latest),
-      available: plugin.available === true,
-      location: plugin.location === "project" || plugin.location === "engine" ? plugin.location : "none",
-      engine: text(plugin.engine),
-    } as StudioPluginUpdate,
-    ueMcpMin: text(u.ueMcpMin) ?? undefined,
-  } as StudioUpdates;
-}
-
-/** The daemon's update check from any ue-mcp. */
-export function ueMcpUpdateOf(raw: unknown): UeMcpUpdate | null {
-  if (!raw || typeof raw !== "object") return null;
-  const u = obj(raw);
-  const binaries = obj(u.binaries);
-  return {
-    ...u,
-    installed: { version: text(obj(u.installed).version) },
-    server: text(u.server) ?? "?",
-    latest: text(u.latest),
-    target: text(u.target),
-    binaries: typeof binaries.file === "string" ? { available: binaries.available === true, file: binaries.file } : null,
-  } as UeMcpUpdate;
-}
-
 /** The bridge check follows Studio's channel: beta takes ue-mcp prereleases, stable takes latest. */
 export async function readUpdates(): Promise<{ studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }> {
-  const studio = studioUpdatesOf(await get<unknown>("/v1/ext/studio/updates"));
-  const ueMcp = withFloor(ueMcpUpdateOf(await get<unknown>(`/v1/update?channel=${studio?.channel === "beta" ? "beta" : "latest"}`)), studio?.ueMcpMin);
-  const u = { studio, ueMcp };
+  const u = await readUpdatesWith((path) => get<unknown>(path));
   for (const l of countListeners) l(waiting(u));
   return u;
-}
-
-/** How many parts have an update waiting. */
-export function waiting(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): number {
-  return (u.studio?.studio.available ? 1 : 0) + (pluginStep(u.studio) ? 1 : 0) + (u.ueMcp?.target || daemonMoves(u.ueMcp) ? 1 : 0);
 }
 
 /** Updates waiting for the dot on Settings: read when the panel opens, every six hours, and whenever anything else reads them. */
@@ -156,37 +50,6 @@ export function useUpdateCount(): number {
     };
   }, []);
   return count;
-}
-
-/** The ue-mcp the daemon should run: the bridge's target, else the bridge installed now. */
-export const daemonTarget = (u: UeMcpUpdate | null | undefined): string | null => u?.target ?? u?.installed.version ?? null;
-
-/** The daemon restarts onto the bridge's version when it runs an older one, as after a bridge update it did not follow. */
-export const daemonMoves = (u: UeMcpUpdate | null | undefined): boolean => {
-  const t = daemonTarget(u);
-  return !!u && !!t && isNewer(t, u.server);
-};
-
-/** The steps one Update runs, in order: the bridge plugin, then the editor plugin (the editor closes and reopens), then Studio, which restarts ue-mcp; else a restart when only the daemon is behind. */
-export function updateSteps(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): Array<"ueMcp" | "plugin" | "studio" | "restart"> {
-  const steps: Array<"ueMcp" | "plugin" | "studio" | "restart"> = [];
-  if (u.ueMcp?.target) steps.push("ueMcp");
-  if (pluginStep(u.studio)) steps.push("plugin");
-  if (u.studio?.studio.available) steps.push("studio");
-  else if (!u.ueMcp?.target && daemonMoves(u.ueMcp)) steps.push("restart");
-  return steps;
-}
-
-/** "Ready to install: the bridge plugin 1.4.3 and the editor plugin 0.1.0-beta.9." Names each part that has something newer. */
-export function readyLine(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): string {
-  const parts: string[] = [];
-  if (u.ueMcp?.target) parts.push(`the bridge plugin ${u.ueMcp.target}`);
-  if (pluginStep(u.studio)) parts.push(`the editor plugin ${u.studio?.plugin.latest}`);
-  if (u.studio?.studio.available) parts.push(`Studio ${u.studio.studio.latest}`);
-  if (!u.ueMcp?.target && daemonMoves(u.ueMcp)) parts.push(`ue-mcp ${daemonTarget(u.ueMcp)}`);
-  if (!parts.length) return "";
-  const list = parts.length === 1 ? parts[0] : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
-  return `Ready to install: ${list}.`;
 }
 
 /**
@@ -215,18 +78,11 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
   const steps = u ? updateSteps(u) : [];
   const ready = u ? readyLine(u) : "";
   const fab = fabUpdate(u?.studio);
-  // location defaults to engine when no plugin was found: only an installed one is outside the project.
-  const engineOnly = u?.studio?.plugin.location === "engine" && u.studio?.plugin.source !== "fab" && !!u.studio?.plugin.installed && !!u.studio?.plugin.latest;
+  const engineOnly = pluginOutside(u?.studio);
   const unchecked = checkFailure(u);
+  const status = updateStatus({ steps: steps.length, unchecked, waiting, working, ready });
 
-  const rows: Array<[string, string | null, string | null, boolean]> = u
-    ? [
-        ["Studio", u.studio?.studio.installed ?? null, u.studio?.studio.latest ?? null, !!u.studio?.studio.available],
-        ["Editor plugin", u.studio?.plugin.installed ?? null, u.studio?.plugin.latest ?? null, !!(u.studio?.plugin.available || u.studio?.plugin.newer)],
-        ["Bridge plugin", u.ueMcp?.installed.version ?? null, u.ueMcp?.target ?? null, !!u.ueMcp?.target],
-        ["ue-mcp", u.ueMcp?.server ?? null, daemonTarget(u.ueMcp), daemonMoves(u.ueMcp)],
-      ]
-    : [];
+  const rows = u ? updateRows(u) : [];
 
   return (
     <section className="card">
@@ -238,8 +94,8 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
       {!u && <p className="muted">Checking</p>}
       {u && (
         <div className="row update-status">
-          <span className={`pill ${steps.length || unchecked ? "warn" : "ok"}`}>{steps.length ? "Update available" : unchecked ? "Not checked" : "Up to date"}</span>
-          <span className="muted" title={unchecked && !steps.length ? unchecked : undefined}>{waiting ? "Update ready. It runs once no turn is in progress." : working ? "Updating" : steps.length ? ready : unchecked ? "Could not check for updates." : "Up to date."}</span>
+          <span className={`pill ${status.tone}`}>{status.pill}</span>
+          <span className="muted" title={unchecked && !steps.length ? unchecked : undefined}>{status.line}</span>
           <span className="spacer" />
           {steps.length > 0 && !remote && <button className="primary" disabled={working} onClick={() => u && startUpdate(u)}>Update</button>}
         </div>
@@ -282,7 +138,7 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
           <button onClick={() => openLink(fab.url)}>Open Fab Library</button>
         </div>
       )}
-      {engineOnly && <p className="dim small">Installed outside this project's Plugins folder, so Update does not replace it.</p>}
+      {engineOnly && <p className="dim small">{PLUGIN_OUTSIDE}</p>}
       {u && (
         <details className="update-details">
           <summary className="dim small">Details</summary>

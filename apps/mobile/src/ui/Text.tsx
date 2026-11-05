@@ -1,0 +1,86 @@
+/**
+ * Text in the web client's type styles. `font` picks the family the theme
+ * gives that role (sans, mono, serif) and `weight` the face, since React
+ * Native chooses a custom font's weight by its name.
+ */
+import { Platform, Text, type TextProps, type TextStyle } from "react-native";
+import { fontName, lineBox, type Theme, type Weight } from "./theme";
+import { useTheme } from "./ThemeProvider";
+
+export type Role = "sans" | "mono" | "serif";
+
+/** A text style in a theme's family for `role` at `weight`, `size` px, `lh` line-height multiple (as CSS writes it, laid out as `lineBox` says). */
+export function font(t: Theme, role: Role, weight: Weight, size: number, lh?: number, italic = false): TextStyle {
+  const family = role === "sans" ? t.sans : role === "mono" ? t.mono : t.serif;
+  return {
+    fontFamily: fontName(family, weight, italic),
+    fontSize: size,
+    ...(lh ? { lineHeight: lineBox(size, lh) } : {}),
+    ...(family === "system-mono" && weight >= 600 ? { fontWeight: "700" } : {}),
+  };
+}
+
+/**
+ * `font-style: italic` in the theme's family for `role`. Android picks a
+ * bundled font by its file name, and a style that adds fontStyle (or
+ * fontWeight) looks for another face, finds none and draws the system font
+ * instead. The bundled sans and mono have no italic file, so on Android they
+ * stay upright in their own face; the system mono slants as the browser's does.
+ */
+export function italic(t: Theme, role: Role): TextStyle {
+  const family = role === "sans" ? t.sans : role === "mono" ? t.mono : t.serif;
+  return family === "system-mono" || Platform.OS !== "android" ? { fontStyle: "italic" } : {};
+}
+
+/**
+ * `line-height: normal` for the theme's mono font at `size`, as Chrome lays it
+ * out: ascent and descent each rounded to whole px. A CSS `font` shorthand
+ * without a line height (`.md code { font: 12px var(--mono) }`) sets this,
+ * not the paragraph's height, so inline code must not inherit the parent's.
+ * JetBrains Mono's hhea metrics; the editor themes' Consolas by its Windows ones.
+ */
+export function monoNormal(t: Theme, size: number): number {
+  const [ascent, descent] = t.mono === "jetbrains" ? [1.02, 0.3] : [0.92, 0.251];
+  return Math.round(size * ascent) + Math.round(size * descent);
+}
+
+/** --base-font in the text colour. */
+export function baseFont(t: Theme): TextStyle {
+  return { ...font(t, "sans", 400, t.base.size), lineHeight: t.base.lineHeight, color: t.c.text };
+}
+
+/** The eyebrow / h2 label: --label-font, its case and spacing, in --label-color unless given another. */
+export function labelFont(t: Theme, color?: string): TextStyle {
+  const l = t.label;
+  return {
+    fontFamily: fontName(l.family, l.weight),
+    fontSize: l.size,
+    lineHeight: l.lineHeight,
+    letterSpacing: l.spacing,
+    textTransform: l.upper ? "uppercase" : "none",
+    color: color ?? l.color,
+  };
+}
+
+type Tone = "text" | "muted" | "dim" | "accent" | "ok" | "warn" | "bad" | "badText" | "warnText" | "onAccent";
+
+export interface TProps extends Omit<TextProps, "role"> {
+  /** The font role: sans, mono or serif (not the accessibility role). */
+  role?: Role;
+  weight?: Weight;
+  size?: number;
+  /** Line height as a multiple of the size, as CSS writes it. */
+  lh?: number;
+  tone?: Tone;
+  italic?: boolean;
+  /** The eyebrow label style. */
+  label?: boolean;
+}
+
+/** Body text by default (--base-font, --text). */
+export function T({ role = "sans", weight = 400, size, lh, tone, italic, label, style, ...rest }: TProps) {
+  const t = useTheme();
+  const base: TextStyle = label ? labelFont(t) : size === undefined && role === "sans" && weight === 400 && !lh ? baseFont(t) : { ...font(t, role, weight, size ?? t.base.size, lh ?? 1.55, italic), color: t.c.text };
+  const color = tone ? { color: t.c[tone] } : null;
+  return <Text {...rest} style={[base, color, style]} />;
+}

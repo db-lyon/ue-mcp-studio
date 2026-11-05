@@ -29,7 +29,7 @@ import {
   summarize,
   toolLabel,
   type Call,
-} from "./model";
+} from "@ue-mcp-studio/client-core";
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext, remarkAssets } from "./asset-links";
 import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";

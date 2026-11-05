@@ -571,6 +571,7 @@ button.picker-item:hover:not(:disabled) { background: var(--panel-2); border-col
 button.picker-item.current { background: var(--accent-wash); color: var(--text); }
 button.picker-item.current > span:first-child::before { content: "\2713"; color: var(--accent); margin-right: 6px; }
 button.picker-item.locked > span:first-child { color: var(--muted); }
+button.picker-item.locked.remote > span:first-child, button.picker-item.locked.remote > .picker-via.off { color: var(--dim); }
 .picker-connect { padding: 6px 8px; }
 .picker-connect p { margin: 6px 0; }
 .connect { display: flex; flex-direction: column; gap: 6px; width: 100%; }

@@ -1,0 +1,13 @@
+// Caps native compile and link parallelism in every module's CMake build at NATIVE_JOBS (default 2)
+// through a Ninja job pool, so a release build fits in limited memory. The arguments are the same on
+// every build, so CMake is not reconfigured and the native output in .cxx is reused.
+def jobs = System.getenv("NATIVE_JOBS") ?: "2"
+allprojects {
+  afterEvaluate { p ->
+    def android = p.extensions.findByName("android")
+    def cmake = android?.defaultConfig?.externalNativeBuild?.cmake
+    if (cmake != null) {
+      cmake.arguments("-DCMAKE_JOB_POOLS=capped=${jobs}", "-DCMAKE_JOB_POOL_COMPILE=capped", "-DCMAKE_JOB_POOL_LINK=capped")
+    }
+  }
+}

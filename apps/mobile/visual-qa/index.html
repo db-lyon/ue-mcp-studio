@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobile visual QA</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; background: #0c0c0b; }
+      #root { display: flex; }
+      body { font-family: Roboto, "Segoe UI", system-ui, sans-serif; }
+      /* Every theme is dark, as styles.css declares on :root: the browser then draws what it draws itself (focus rings, a checkbox's box) as the web page's. */
+      :root { color-scheme: dark; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- React Native's Animated reaches for `global` when an animation stops, as Metro provides it. -->
+    <script>window.global = window;</script>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

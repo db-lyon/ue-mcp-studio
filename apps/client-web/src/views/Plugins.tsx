@@ -1,25 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ApiError, api, type CatalogPlugin, type InstalledPlugin, type PluginCommandResult } from "../api";
+import { catalogDetails, isInstalled, searchCatalog, REMOTE_PLUGINS_NOTE, type CatalogPlugin, type InstalledPlugin, type PluginCommandResult } from "@ue-mcp-studio/client-core";
+import { ApiError, api } from "../api";
 import { onRemotePage } from "../connection";
 import { inEditor, native } from "../native";
 import type { DaemonState } from "../state";
 
-/** A catalog entry and an installed plugin are the same plugin when either name matches. */
-export function isInstalled(c: CatalogPlugin, installed: InstalledPlugin[]): InstalledPlugin | undefined {
-  return installed.find((p) => p.name === c.slug || p.name === c.packageName);
-}
-
-/** Catalog entries matching a search over name, slug, tagline, category and tags. */
-export function searchCatalog(catalog: CatalogPlugin[], query: string): CatalogPlugin[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return catalog;
-  return catalog.filter((c) => [c.name, c.slug, c.tagline, c.category, ...(c.tags ?? [])].some((s) => s?.toLowerCase().includes(q)));
-}
-
-/** What a paired browser says in place of install, update and remove, which only run on the computer. */
-export const REMOTE_PLUGINS_NOTE = "Installing, updating and removing plugins run from Studio on the computer.";
+export { isInstalled, searchCatalog, REMOTE_PLUGINS_NOTE };
 
 /**
  * The project's ue-mcp plugins: the installed ones, with update and remove,
@@ -157,7 +145,7 @@ export function PluginsView({ daemon, remote = onRemotePage() }: { daemon: Daemo
                 {isOpen && (
                   <div className="plugin-readme md">
                     <Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> }}>
-                      {c.readme ?? c.description ?? "No description."}
+                      {catalogDetails(c)}
                     </Markdown>
                   </div>
                 )}

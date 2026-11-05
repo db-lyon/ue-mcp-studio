@@ -7,6 +7,14 @@
 import type { NativeOverview, StudioSettings } from "@ue-mcp-studio/shared";
 import type { Scenario } from "./fixtures";
 
+/**
+ * The instant the harness daemon started, fixed so shots taken minutes apart (the web reference and the
+ * mobile app's) print the same clock times in Diagnostics.
+ */
+export const QA_DAEMON_START = Date.parse("2026-11-04T23:20:00Z");
+/** The events' clock: the daemon has been up five minutes. */
+const before = (ms: number) => new Date(QA_DAEMON_START + 300_000 - ms).toISOString();
+
 /** Settings > Agents with nothing connected: every convention's files found, none read by a route. */
 const NATIVE_NONE = (): NativeOverview => ({ ...NATIVE_FULL, main: null, conventions: NATIVE_FULL.conventions.map((c) => ({ ...c, routes: [] })) });
 
@@ -30,7 +38,21 @@ const NATIVE_FULL: NativeOverview = {
   ],
 } as NativeOverview;
 
-const NOTHING_CONNECTED: Partial<StudioSettings> = { route: null, connected: {} as StudioSettings["connected"] };
+/** Settings > Agents with long skill and subagent descriptions, and one name too long to share its line with Open file. */
+const LONG_SKILL = "Drive every open PR and issue in a GitHub repo to a terminal state (merge, close-with-fix, reject, approve, request changes, label planned/limitation) by orchestrating one subagent per item, then gate completion on a zero-context adversarial auditor.";
+const NATIVE_LONG: NativeOverview = {
+  ...NATIVE_FULL,
+  conventions: NATIVE_FULL.conventions.map((c) => c.convention !== "claude" ? c : {
+    ...c,
+    subagents: [{ ...c.subagents[0], description: "Places props and foliage in a level from a short brief, checking each placement against the navmesh and the art direction notes before it commits anything to the level." }],
+    skills: [
+      { name: "triage-all", description: LONG_SKILL, path: "~/.claude/skills/triage-all", source: "user", tokens: 1500, implicit: true, problems: [] },
+      { name: "pcg-level-assemblies-and-their-graphs", description: "Builds PCG level assemblies from a layout sketch.", path: ".claude/skills/pcg-level-assemblies-and-their-graphs", source: "project", tokens: 900, implicit: true, problems: [] },
+    ],
+  }),
+} as NativeOverview;
+
+const NOTHING_CONNECTED: Partial<StudioSettings> ={ route: null, connected: {} as StudioSettings["connected"] };
 
 
 /** Settings > Remote control on a paid, online computer with one paired phone, and the PIN lock as given, scrolled to it. */
@@ -86,6 +108,7 @@ export const OLD_DATA_SCENARIOS: Record<string, Scenario> = Object.fromEntries(S
 export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-list": page("Settings at narrow width: the list of sections, each with its state; wide opens Agents", "", { hash: "#/settings" }),
   "settings-agents": page("Agents: main agent, worker, and the project's Claude files with a subagent and a skill", "agents", { get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_FULL : undefined) }),
+  "settings-agents-long": page("Agents with long skill and subagent descriptions, and a skill name too long to share its line", "agents", { get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_LONG : undefined) }),
   "settings-agents-not-connected": page("Agents with nothing connected: the main agent cannot run yet, and no route reads the project's files", "agents", { settings: NOTHING_CONNECTED, get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_NONE() : undefined) }),
   "settings-agents-files-off": page("Agents with the project's own files switched off", "agents", { settings: { usage: { projectInstructions: false } } as Partial<StudioSettings> }),
   "settings-models": page("Models & accounts: Claude signed in, no keys", "models"),
@@ -122,6 +145,10 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     settings: { account: { login: "dev", via: "studio" } },
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: true, signedIn: true } : undefined),
   }),
+  "settings-general-login-paid": page("General with a paid ue-mcp account from ue-mcp login: Manage plan and the login note under the account", "general", {
+    settings: { account: { login: "db-lyon", via: "ue-mcp-login" } },
+    get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: true, signedIn: true } : undefined),
+  }),
   "settings-general-signing-in": page("General with the ue-mcp account sign-in started: the GitHub code and link", "general", {
     get: (p) => (p === "/v1/ext/studio/signin/studio" ? { state: "pending", url: "https://github.com/login/device", userCode: "ABCD-1234", expiresAt: "2030-01-01T00:00:00Z" } : undefined),
   }),
@@ -154,11 +181,11 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-diagnostics-events": {
     ...page("Diagnostics: the event log with events, short and long payloads, one opened", "diagnostics"),
     events: [
-      { type: "editor.connected", at: new Date(Date.now() - 240_000).toISOString(), data: { project: "StudioE2E", port: 64666 } },
-      { type: "studio.session.changed", at: new Date(Date.now() - 180_000).toISOString(), data: { sessionId: "qa-session", status: "running", waitingCause: null } },
-      { type: "studio.transcript.added", at: new Date(Date.now() - 120_000).toISOString(), data: { sessionId: "qa-session", entry: { kind: "tool", call: { id: "t-build", name: "shell", input: { command: "npx ue-mcp project build_project --target StudioE2EEditor --configuration Development" }, outcome: "error", result: "Build failed: DoorComponent.cpp(43): error C2065: 'Alpha': undeclared identifier" } } } },
-      { type: "studio.remote.available", at: new Date(Date.now() - 60_000).toISOString(), data: {} },
-      { type: "client.attached", at: new Date(Date.now() - 30_000).toISOString(), data: { client: "studio-window", version: "0.1.25-beta.15" } },
+      { type: "editor.connected", at: before(240_000), data: { project: "StudioE2E", port: 64666 } },
+      { type: "studio.session.changed", at: before(180_000), data: { sessionId: "qa-session", status: "running", waitingCause: null } },
+      { type: "studio.transcript.added", at: before(120_000), data: { sessionId: "qa-session", entry: { kind: "tool", call: { id: "t-build", name: "shell", input: { command: "npx ue-mcp project build_project --target StudioE2EEditor --configuration Development" }, outcome: "error", result: "Build failed: DoorComponent.cpp(43): error C2065: 'Alpha': undeclared identifier" } } } },
+      { type: "studio.remote.available", at: before(60_000), data: {} },
+      { type: "client.attached", at: before(30_000), data: { client: "studio-window", version: "0.1.25-beta.15" } },
     ],
     // Newest first: the transcript event, with the long payload, is third.
     clicks: [".log-event:nth-child(3) .log-data > summary"],

@@ -16,7 +16,7 @@ import { SessionRow, sessionLine } from "./SessionRow";
 import { MainTranscript, SubagentThread } from "./Transcript";
 import { Threads } from "./Threads";
 import { AskedContext } from "./asked";
-import { agentStatus, summarize } from "./model";
+import { agentStatus, summarize } from "@ue-mcp-studio/client-core";
 
 afterEach(() => {
   cleanup();

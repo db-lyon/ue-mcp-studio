@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { engineParts } from "@ue-mcp-studio/client-core";
+export { engineParts };
 
 /** Inline code with a break allowed after each dot and underscore, so a long path wraps at its parts and nowhere else. */
 export function breakable(children: ReactNode): ReactNode {
@@ -20,7 +22,3 @@ export function EngineText({ text }: { text: string }) {
   return <>{parts.map((p, i) => (i < parts.length - 1 ? [p, <wbr key={i} />] : p))}</>;
 }
 
-/** The parts EngineText lets a line break between. */
-export function engineParts(text: string): string[] {
-  return text.split(/(?<=\.)(?!\d)|(?<=[/\\_:,\s])|(?<==)(?!\u00a0)/).flatMap((p) => (p.trim().length > 32 ? p.split(/(?<=[a-z0-9])(?=[A-Z])/) : [p]));
-}

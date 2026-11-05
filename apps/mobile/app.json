@@ -1,0 +1,112 @@
+{
+  "expo": {
+    "name": "UE-MCP Studio",
+    "slug": "ue-mcp-studio",
+    "scheme": "uemcpstudio",
+    "version": "0.2.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0c0c0b",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.uemcp.studio.remote",
+      "infoPlist": {
+        "NSCameraUsageDescription": "UE-MCP Studio scans the pairing code your computer shows.",
+        "NSFaceIDUsageDescription": "UE-MCP Studio uses Face ID to unlock with the PIN you set on your computer.",
+        "NSPhotoLibraryUsageDescription": "UE-MCP Studio attaches the images you pick to a message, and reads a pairing code from a saved picture."
+      }
+    },
+    "android": {
+      "package": "com.uemcp.studio.remote",
+      "versionCode": 11,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png",
+        "backgroundColor": "#0c0c0b"
+      },
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.VIBRATE"
+      ],
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW"
+      ],
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "UE-MCP Studio scans the pairing code your computer shows.",
+          "recordAudioAndroid": false,
+          "barcodeScannerEnabled": true
+        }
+      ],
+      "expo-secure-store",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "../../node_modules/@expo-google-fonts/plus-jakarta-sans/400Regular/PlusJakartaSans_400Regular.ttf",
+            "../../node_modules/@expo-google-fonts/plus-jakarta-sans/500Medium/PlusJakartaSans_500Medium.ttf",
+            "../../node_modules/@expo-google-fonts/plus-jakarta-sans/600SemiBold/PlusJakartaSans_600SemiBold.ttf",
+            "../../node_modules/@expo-google-fonts/plus-jakarta-sans/700Bold/PlusJakartaSans_700Bold.ttf",
+            "../../node_modules/@expo-google-fonts/jetbrains-mono/400Regular/JetBrainsMono_400Regular.ttf",
+            "../../node_modules/@expo-google-fonts/jetbrains-mono/500Medium/JetBrainsMono_500Medium.ttf",
+            "../../node_modules/@expo-google-fonts/jetbrains-mono/600SemiBold/JetBrainsMono_600SemiBold.ttf",
+            "../../node_modules/@expo-google-fonts/jetbrains-mono/700Bold/JetBrainsMono_700Bold.ttf",
+            "../../node_modules/@expo-google-fonts/instrument-serif/400Regular/InstrumentSerif_400Regular.ttf",
+            "../../node_modules/@expo-google-fonts/instrument-serif/400Regular_Italic/InstrumentSerif_400Regular_Italic.ttf",
+            "../../node_modules/@expo-google-fonts/roboto/400Regular/Roboto_400Regular.ttf",
+            "../../node_modules/@expo-google-fonts/roboto/700Bold/Roboto_700Bold.ttf"
+          ]
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0c0c0b",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "dark": {
+            "backgroundColor": "#0c0c0b",
+            "image": "./assets/splash-icon.png"
+          }
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "UE-MCP Studio uses Face ID to unlock with the PIN you set on your computer."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "UE-MCP Studio attaches the images you pick to a message, and reads a pairing code from a saved picture.",
+          "cameraPermission": false,
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-share-intent",
+        {
+          "androidIntentFilters": [
+            "text/*",
+            "image/*"
+          ],
+          "androidMultiIntentFilters": [
+            "image/*"
+          ],
+          "disableIOS": true
+        }
+      ],
+      "expo-quick-actions",
+      "./plugins/with-release-signing"
+    ]
+  }
+}

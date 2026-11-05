@@ -7,21 +7,10 @@
  * with a ResizeObserver and the tier set as an attribute the stylesheet reads.
  */
 import { useLayoutEffect, useState, type RefObject } from "react";
+import { COMPARE_TIERS, compareTier, type CompareTier } from "@ue-mcp-studio/client-core";
 import { colorOf } from "@ue-mcp-studio/shared";
 
-export { colorOf };
-
-export type CompareTier = "wide" | "medium" | "narrow" | "tiny";
-
-/** Each tier's least card width in ems of the card's font, so a larger UI font steps down sooner. */
-export const COMPARE_TIERS: readonly [CompareTier, number][] = [["wide", 47], ["medium", 31], ["narrow", 20]];
-
-/** The tier for a card this wide. An unmeasured card (no layout yet) is wide. */
-export function compareTier(width: number, em: number): CompareTier {
-  if (!(width > 0)) return "wide";
-  const ems = width / (em > 0 ? em : 13.5);
-  return COMPARE_TIERS.find(([, min]) => ems >= min)?.[0] ?? "tiny";
-}
+export { COMPARE_TIERS, colorOf, compareTier, type CompareTier };
 
 /** The tier and width of the element the ref holds, kept as it resizes. */
 export function useCardSize(ref: RefObject<HTMLElement>): { tier: CompareTier; width: number; em: number } {

@@ -4,12 +4,12 @@ import {
   mentionQuery,
   parseMentions,
   rankMentions,
-  type MentionKind,
   type MentionMatch,
   type MentionSearchRequest,
   type MentionSearchResponse,
   type MentionSpan,
 } from "@ue-mcp-studio/shared";
+import { MENTION_KIND_LABEL as KIND_LABEL, mentionKey as keyOf, mentionNotes, mentionStatus } from "@ue-mcp-studio/client-core";
 import { ExactAssetLink } from "./AssetLink";
 
 export const MENTION_MENU_ID = "mention-menu";
@@ -19,12 +19,6 @@ export const MENTION_DEBOUNCE_MS = 120;
 /** Looks names up for a mention; aborted through `signal` when the mention changes first. */
 export type MentionSearchFn = (request: MentionSearchRequest, signal: AbortSignal) => Promise<MentionSearchResponse>;
 
-const KIND_LABEL: Record<MentionKind, string> = { asset: "Asset", actor: "Actor", file: "File" };
-const kindWords = (kinds?: MentionKind[]): string => {
-  if (!kinds || kinds.length !== 1) return "assets, actors or files";
-  return `${kinds[0]}s`;
-};
-const keyOf = (query: string, kinds?: MentionKind[]): string => `${kinds?.join(",") ?? "*"}|${query.toLowerCase()}`;
 
 /**
  * The @-mention menu: open while the caret is in an @name. Each pause in
@@ -130,17 +124,8 @@ export function useMentionMenu(draft: string, onDraft: (text: string) => void, b
   const track = (el: HTMLTextAreaElement) => setCaret(el.selectionStart === el.selectionEnd ? el.selectionStart : null);
   const optionId = (i: number) => `${MENTION_MENU_ID}-${i}`;
   const sources = fresh ? answer!.response.sources : {};
-  const notes = [
-    sources.actor === "unavailable" ? "Actors need the editor connected and not busy." : null,
-    sources.asset === "disk" ? "Assets are read from disk while the editor is not answering." : null,
-  ].filter((n): n is string => !!n);
-
-  let status: string | null = null;
-  if (q && !q.query.trim()) status = `Type a name to find ${kindWords(q.kinds)}.`;
-  else if (items.length === 0 && searching) status = "Searching";
-  else if (items.length === 0 && failed === key) status = "Search failed. Keep typing to try again.";
-  // Nothing asked could be looked up: the note says why, not that nothing matched.
-  else if (items.length === 0 && q && !(fresh && Object.values(sources).length > 0 && Object.values(sources).every((v) => v === "unavailable"))) status = `No ${kindWords(q.kinds)} match ${q.query}.`;
+  const notes = mentionNotes(sources);
+  const status = mentionStatus({ q, items: items.length, searching, failed: failed === key, fresh, sources });
 
   return {
     open,

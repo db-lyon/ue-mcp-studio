@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent } from "react";
-import { tokenizeYaml } from "./yaml-tokens";
+import { tokenizeYaml } from "@ue-mcp-studio/client-core";
 
 const INDENT = "  ";
 

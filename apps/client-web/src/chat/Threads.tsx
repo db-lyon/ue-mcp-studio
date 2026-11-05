@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ContextUsage, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { STATE_LABEL, agentCalls, agentStatus, callsIn, describe, formatDuration, isActive, summarize, tokenCount } from "./model";
+import { STATE_LABEL, agentCalls, agentStatus, callsIn, describe, formatDuration, isActive, summarize, tokenCount } from "@ue-mcp-studio/client-core";
 import { useNow } from "./hooks";
 import { useAsked } from "./asked";
 
