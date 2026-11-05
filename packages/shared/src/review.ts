@@ -391,7 +391,7 @@ function exportFields(text: string): Map<string, string> | null {
 }
 
 /** The top-level items of a parenthesised ExportText list, quotes and nesting respected; null when it is not one. */
-function exportItems(text: string): string[] | null {
+export function exportItems(text: string): string[] | null {
   const t = text.trim();
   if (!t.startsWith("(") || !t.endsWith(")")) return null;
   const items: string[] = [];
