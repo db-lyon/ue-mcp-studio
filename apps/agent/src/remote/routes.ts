@@ -21,7 +21,7 @@ import * as path from "node:path";
 import qrcode from "qrcode-generator";
 import { readLiveDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { pairingFragment } from "@ue-mcp-studio/remote";
-import { type RemoteApproval, type RemoteAvailability, type RemoteBrowser, type RemoteLockSettings, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { NOTIFY_EVENT, noticeOf, type RemoteApproval, type RemoteAvailability, type RemoteBrowser, type RemoteLockSettings, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import type { ExtensionHandler } from "ue-mcp/daemon";
 import { SettingsStore } from "../settings.js";
 import { AccountSource } from "../account-source.js";
@@ -303,10 +303,17 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     api.log.info(`remote control: this process was busy for ${(ms / 1000).toFixed(1)}s; remote calls waited`);
     api.events.publish("remote.diagnostic", { kind: "lag", ms });
   });
+  // A notice goes on to the relay as its kind only, for the account's devices that are away.
+  const unwatchNotices = api.events.subscribe((e) => {
+    if (e.type !== NOTIFY_EVENT) return;
+    const n = noticeOf(e.data);
+    if (n) connector?.notify(n.kind, !!n.active?.includes("desktop"));
+  });
   return {
     dispose: () => {
       disposed = true;
       unwatch();
+      unwatchNotices();
       generation++;
       clearInterval(timer);
       stopLag();

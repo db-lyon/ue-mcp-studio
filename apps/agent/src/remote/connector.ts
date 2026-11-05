@@ -12,6 +12,7 @@ import {
   encodeChunk,
   parseFrame,
   type ConnectorFrame,
+  type NotifyFrame,
   type RelayFrame,
 } from "@ue-mcp-studio/remote";
 import { REMOTE_NO_PLAN, ACCOUNT_SIGNED_OUT, REMOTE_SIGN_IN_AGAIN, type RemoteConnection, type RemoteRefusal } from "@ue-mcp-studio/shared";
@@ -77,6 +78,8 @@ export class Connector {
   private current: ConnectorState = { state: "off" };
   /** The relay said hello with `binary`: chunks go as binary frames instead of base64 JSON. */
   private binary = false;
+  /** The relay said hello with `push`: it takes notify frames. */
+  private push = false;
   /** Frames to the relay, in fair turns across calls. One per socket. */
   private queue: SendQueue | null = null;
   private onlineAt = 0;
@@ -93,6 +96,17 @@ export class Connector {
     this.attempt = 0;
     this.set({ state: "connecting", attempt: 0 });
     void this.connect();
+  }
+
+  /** Ask the relay to push a notice's kind to the account's devices. False when it is offline or does not push. */
+  notify(kind: string, desktop: boolean): boolean {
+    const queue = this.queue;
+    if (!queue || !this.push || this.current.state !== "online") return false;
+    const frame: NotifyFrame = { t: "notify", kind, ...(desktop ? { desktop: true } : {}) };
+    // Through the queue, so the relay's byte acks still count every frame.
+    const lane = `notify-${crypto.randomUUID()}`;
+    void queue.push(lane, JSON.stringify(frame), false).finally(() => queue.close(lane));
+    return true;
   }
 
   stop(): void {
@@ -140,6 +154,7 @@ export class Connector {
     });
     this.socket = ws;
     this.binary = false;
+    this.push = false;
     this.queue?.clear();
     const queue = new SendQueue({
       get bufferedAmount() {
@@ -165,6 +180,7 @@ export class Connector {
       if (frame.t === "hello") {
         this.attempt = 0;
         this.binary = frame.binary === true;
+        this.push = frame.push === true;
         if (frame.acks === true) queue.useAcks();
         this.onlineAt = Date.now();
         this.set({ state: "online", login: frame.login, since: new Date().toISOString() });
