@@ -9,7 +9,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { Approvals, TranscriptEntry } from "@ue-mcp-studio/shared";
 import type { ActionEffects } from "../src/approval-kind.js";
-import { FlowCaller, applyStepEvent, flowOutcome } from "../src/flow-run.js";
+import { FlowCaller, applyStepEvent, flowOutcome, offersStepApproval } from "../src/flow-run.js";
 import type { FlowEventLike } from "../src/playtest-flow.js";
 import { AgentRunner } from "../src/runner.js";
 import { SessionStore } from "../src/sessions.js";
@@ -17,7 +17,7 @@ import type { AgentHost } from "../src/tools.js";
 import type { ModelProvider } from "../src/providers.js";
 
 /** A daemon: the run route answers from `answer`, and emits `script` while the run is in progress. */
-function fakeDaemon(answer: () => { status: number; body: unknown }, script: FlowEventLike[] = [], plan: () => { status: number; body: unknown } = () => ({ status: 200, body: { success: true, steps: [{ stepNumber: 1, type: "task", name: "editor.stop" }, { stepNumber: 2, type: "task", name: "project.build" }] } })) {
+function fakeDaemon(answer: () => { status: number; body: unknown } | Promise<{ status: number; body: unknown }>, script: FlowEventLike[] = [], plan: () => { status: number; body: unknown } = () => ({ status: 200, body: { success: true, steps: [{ stepNumber: 1, type: "task", name: "editor.stop" }, { stepNumber: 2, type: "task", name: "project.build" }] } })) {
   const listeners = new Set<(e: FlowEventLike) => void>();
   const requests: Array<{ url: string; init: RequestInit }> = [];
   const plans: string[] = [];
@@ -29,7 +29,7 @@ function fakeDaemon(answer: () => { status: number; body: unknown }, script: Flo
     }
     requests.push({ url, init });
     for (const e of script) for (const l of [...listeners]) l(e);
-    const a = answer();
+    const a = await answer();
     return new Response(JSON.stringify(a.body), { status: a.status, headers: { "content-type": "application/json" } });
   }) as unknown as typeof fetch;
   const caller = new FlowCaller({
@@ -80,6 +80,20 @@ describe("the flow call", () => {
     expect(seen).toEqual(["flow.run_started:r1:rebuild", "flow.step_started:r1:rebuild", "flow.step_started:r1:child"]);
   });
 
+  it("sends stepApproval with the run when given, and nothing extra otherwise", async () => {
+    const d = fakeDaemon(() => ok);
+    await d.caller.run("rebuild", {}, () => {}, new AbortController().signal, { approver: "studio", token: "t1" });
+    expect(JSON.parse(String(d.requests[0].init.body))).toEqual({ params: {}, stepApproval: { approver: "studio", token: "t1" } });
+  });
+
+  it("uses step approval only from a daemon that offers it", () => {
+    const flows = { approveSteps: () => () => {} };
+    expect(offersStepApproval({ features: ["flows.stepApproval"], flows })).toBe(true);
+    expect(offersStepApproval({ features: ["models.provider"], flows })).toBe(false);
+    expect(offersStepApproval({ features: ["flows.stepApproval"] })).toBe(false);
+    expect(offersStepApproval({})).toBe(false);
+  });
+
   it("reads why a run failed from its failed steps, else its error", () => {
     expect(flowOutcome(200, failed.body).errors).toEqual(["project.build: UBT exited 6"]);
     expect(flowOutcome(500, { error: "Flow 'nope' not found" }).errors).toEqual(["Flow 'nope' not found"]);
@@ -115,7 +129,7 @@ describe("a /flow in a session", () => {
   });
   afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
 
-  function setup(answer: () => { status: number; body: unknown }, events: FlowEventLike[] = [], o: { plan?: () => { status: number; body: unknown }; approvals?: Partial<Approvals>; effects?: ActionEffects } = {}) {
+  function setup(answer: () => { status: number; body: unknown } | Promise<{ status: number; body: unknown }>, events: FlowEventLike[] = [], o: { plan?: () => { status: number; body: unknown }; approvals?: Partial<Approvals>; effects?: ActionEffects; live?: boolean } = {}) {
     const host = {
       projectDir: path.join(root, "project"),
       dataDir: path.join(root, "data"),
@@ -129,7 +143,7 @@ describe("a /flow in a session", () => {
     const model: ModelProvider = { run: async () => { throw new Error("a /flow runs no chat turn"); } };
     const d = fakeDaemon(answer, events, o.plan);
     const approvals = o.approvals ? () => ({ shell: "ask", files: "ask", editorRestart: "ask", destructive: "ask", ...o.approvals }) as Approvals : undefined;
-    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", flows: d.caller, ...(approvals ? { approvals } : {}), ...(o.effects ? { effects: o.effects } : {}) });
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", flows: d.caller, ...(approvals ? { approvals } : {}), ...(o.effects ? { effects: o.effects } : {}), ...(o.live ? { flowStepApproval: () => true } : {}) });
     const s = store.create("New session");
     return { runner, s, d };
   }
@@ -259,6 +273,60 @@ describe("a /flow in a session", () => {
     runner.answerApproval(s.id, store.get(s.id)!.approvals![0].id, "deny");
     await run;
     expect(d.requests).toHaveLength(0);
+  });
+
+  it("with the daemon's step approval: no plan check; the run carries a token and each step asks as it runs, with its options", async () => {
+    let runner!: AgentRunner;
+    let sid = "";
+    const decisions: unknown[] = [];
+    // The daemon asks for each step while the run request is open, as ue-mcp does.
+    let release!: () => void;
+    const held = new Promise<typeof ok>((res) => (release = () => res(ok)));
+    const { runner: r, s, d } = setup(() => held, [], { live: true, approvals: {}, effects, plan: () => { throw new Error("no plan check with step approval"); } });
+    runner = r;
+    sid = s.id;
+    const run = runner.flow(s.id, { name: "f", params: {} });
+    await until(() => d.requests.length === 1);
+    const body = JSON.parse(String(d.requests[0].init.body)) as { stepApproval?: { approver: string; token: string } };
+    expect(body.stepApproval?.approver).toBe("studio");
+    const token = body.stepApproval!.token;
+    expect(d.plans).toEqual([]);
+    // A plain action passes without asking.
+    decisions.push(await runner.approveFlowStep({ token, task: "level.place_actor", options: {} }));
+    // Python asks, with the step's code shown; a denial says which step.
+    const asked = runner.approveFlowStep({ token, task: "editor.execute_python", options: { code: "import os" } });
+    await until(() => (store.get(sid)!.approvals ?? []).length > 0);
+    expect(store.get(sid)!.approvals![0]).toMatchObject({ tool: "ue_mcp", call: { category: "editor", method: "execute_python", args: { code: "import os" } } });
+    runner.answerApproval(sid, store.get(sid)!.approvals![0].id, "deny");
+    decisions.push(await asked);
+    // A token this Studio never handed out is denied without asking.
+    decisions.push(await runner.approveFlowStep({ token: "forged", task: "level.place_actor", options: {} }));
+    expect(decisions).toEqual([
+      { allow: true },
+      { allow: false, reason: "Declined at the approval for the step editor.execute_python, so it did not run." },
+      { allow: false, reason: "Step level.place_actor is not part of a flow this Studio started, so it did not run." },
+    ]);
+    release();
+    await run;
+    // Once the run ends its token is no longer honoured.
+    expect(await runner.approveFlowStep({ token, task: "level.place_actor", options: {} })).toMatchObject({ allow: false });
+  });
+
+  it("with the daemon's step approval, Allow for this session covers later steps of that kind", async () => {
+    let release!: () => void;
+    const held = new Promise<typeof ok>((res) => (release = () => res(ok)));
+    const { runner, s, d } = setup(() => held, [], { live: true, approvals: {}, effects });
+    const run = runner.flow(s.id, { name: "f", params: {} });
+    await until(() => d.requests.length === 1);
+    const token = (JSON.parse(String(d.requests[0].init.body)) as { stepApproval: { token: string } }).stepApproval.token;
+    const first = runner.approveFlowStep({ token, task: "editor.execute_command", options: { command: "stat fps" } });
+    await until(() => (store.get(s.id)!.approvals ?? []).length > 0);
+    runner.answerApproval(s.id, store.get(s.id)!.approvals![0].id, "session");
+    expect(await first).toEqual({ allow: true });
+    expect(await runner.approveFlowStep({ token, task: "editor.execute_python", options: { code: "1" } })).toEqual({ allow: true });
+    expect(published.filter((p) => p.type === "approval.requested")).toHaveLength(1);
+    release();
+    await run;
   });
 
   it("ends a card a daemon restart cut off as failed", () => {

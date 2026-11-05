@@ -54,6 +54,8 @@ export const ACTION_NOTE_CHARS = 4000;
 export const ACTION_CALL_PREFIX = "action-";
 /** The id of an approval a flow step asks before the flow runs. */
 export const FLOW_STEP_PREFIX = "flow-step-";
+/** Studio's name as a ue-mcp daemon extension: its routes are /v1/ext/studio. */
+export const STUDIO_EXTENSION = "studio";
 
 /**
  * Testing gameplay with the user: a playtest, which is a test script the agent
@@ -206,6 +208,12 @@ export interface RunnerOptions {
   review?: { turnStarted(s: StoredSession): Promise<void>; turnEnded(s: StoredSession): Promise<void> };
   /** Runs any of the project's flows for /flow. */
   flows?: FlowCaller;
+  /**
+   * Whether the daemon asks Studio before each flow step as it runs (ue-mcp
+   * feature "flows.stepApproval", answered by approveFlowStep). Without it a
+   * flow's steps ask from its plan before it starts.
+   */
+  flowStepApproval?: () => boolean;
   /** A model's context window as the vendor's model list gave it, when it did. */
   contextWindow?: (model: string) => number | undefined;
 }
@@ -962,8 +970,11 @@ export class AgentRunner {
       this.o.store.save(s);
       this.o.host.events.publish("flowrun.changed", { sessionId: s.id, name, state: card.state });
     };
+    const live = !!this.o.flows && (this.o.flowStepApproval?.() ?? false);
+    const token = live ? crypto.randomUUID() : null;
+    if (token) this.flowRuns.set(token, { sessionId: s.id, signal: controller.signal });
     try {
-      if (this.o.flows) {
+      if (this.o.flows && !live) {
         const held = await this.gateFlowSteps(s, name, controller.signal);
         if (held) {
           card.state = held === "stopped" ? "stopped" : "failed";
@@ -979,7 +990,7 @@ export class AgentRunner {
       const outcome = this.o.flows
         ? await this.o.flows.run(name, request.params, (e) => {
           if (!controller.signal.aborted && applyStepEvent(card.steps, e)) changed();
-        }, controller.signal)
+        }, controller.signal, token ? { approver: STUDIO_EXTENSION, token } : undefined)
         : { success: false, errors: ["This Studio has no way to run flows."], steps: [] };
       if (controller.signal.aborted) {
         card.state = "stopped";
@@ -999,6 +1010,7 @@ export class AgentRunner {
         : `The user ran ${shown}: the flow failed. ${[...outcome.errors, outcome.summary ?? ""].filter(Boolean).join(" ")}`);
       this.setStatus(s, "idle", null);
     } finally {
+      if (token) this.flowRuns.delete(token);
       if (this.active.get(s.id) === controller) this.active.delete(s.id);
     }
   }
@@ -1010,6 +1022,28 @@ export class AgentRunner {
    * destructive actions, and any task that is not a ue-mcp action. One answer
    * per distinct task. Returns why the flow must not run, "stopped", or null.
    */
+  /** The flows running with step approval, by the token the daemon hands back with each step. */
+  private readonly flowRuns = new Map<string, { sessionId: string; signal: AbortSignal }>();
+
+  /**
+   * One step of a flow this Studio started, asked by the daemon as it runs
+   * (ue-mcp feature "flows.stepApproval"): the same approval rows as the
+   * agent's own ue_mcp call, shown with the step's resolved options. A token
+   * this Studio did not hand out is denied.
+   */
+  async approveFlowStep(req: { token: string; task: string; options: Record<string, unknown> }): Promise<{ allow: true } | { allow: false; reason: string }> {
+    const run = this.flowRuns.get(req.token);
+    const s = run ? this.o.store.get(run.sessionId) : undefined;
+    if (!run || !s) return { allow: false, reason: `Step ${req.task} is not part of a flow this Studio started, so it did not run.` };
+    const kind = flowStepKind(req.task, this.o.effects ?? NO_EFFECTS);
+    if (!kind) return { allow: true };
+    const input = { ...flowStepCall(req.task), args: { ...req.options } };
+    const gate = await this.gate(s, `${FLOW_STEP_PREFIX}${crypto.randomUUID()}`, "ue_mcp", input, run.signal, kind);
+    if (!gate) return { allow: true };
+    if ("stopped" in gate) return { allow: false, reason: `Stopped before the step ${req.task} ran.` };
+    return { allow: false, reason: `Declined at the approval for the step ${req.task}, so it did not run.` };
+  }
+
   private async gateFlowSteps(s: StoredSession, name: string, signal: AbortSignal): Promise<string | "stopped" | null> {
     const tasks = await this.o.flows!.plan(name, signal);
     if (signal.aborted) return "stopped";
