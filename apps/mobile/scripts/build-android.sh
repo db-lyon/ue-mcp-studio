@@ -16,11 +16,16 @@ cd "$here"
 # Prebuild only when the native config changed (app.json, the config plugins, the native
 # dependencies), and never --clean: android/ keeps .cxx, build/ and the CMake output, so a JS or UI
 # change rebuilds only the bundle and the APK.
-native="$(cat app.json package.json plugins/*.js | sha256sum | cut -c1-16)"
+# The version is left out of that check and written into build.gradle directly, so a version bump
+# alone does not prebuild (which would rebuild everything native).
+native="$( (grep -v -E '"(versionCode|version)":' app.json; cat package.json plugins/*.js) | sha256sum | cut -c1-16)"
 if [ ! -d android ] || [ "$(cat android/.native-config 2>/dev/null)" != "$native" ]; then
   npx expo prebuild -p android --no-install
   printf '%s\n' "$native" > android/.native-config
 fi
+code="$(node -p "require('./app.json').expo.android.versionCode")"
+name="$(node -p "require('./app.json').expo.version")"
+sed -i -E "s/^( *)versionCode [0-9]+/\1versionCode $code/; s/^( *)versionName \"[^\"]*\"/\1versionName \"$name\"/" android/app/build.gradle
 cd android
 # CMake 3.22 ships a ninja that fails on paths past MAX_PATH, which the monorepo's
 # nested expo-modules-core reaches: build with the newest CMake 3 installed.
