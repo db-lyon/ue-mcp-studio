@@ -12,12 +12,12 @@ import Svg, { Path } from "react-native-svg";
 import type { SessionSummary } from "@ue-mcp-studio/shared";
 import { font, T, useInsets, useStyles, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
+import { listState } from "@ue-mcp-studio/client-core";
+export { listState };
 
 export type NavTab = "Chat" | "Playtests" | "Plugins" | "Settings";
 const TABS: NavTab[] = ["Chat", "Plugins", "Settings"];
 
-/** A session's state in a list: needs-you while an approval waits, else its status. */
-export const listState = (s: Pick<SessionSummary, "status" | "awaiting">): string => (s.awaiting ? "needs-you" : s.status);
 
 const DRAWER_W = 304;
 

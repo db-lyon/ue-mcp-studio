@@ -18,7 +18,7 @@ import {
   type TimelineMark,
   type TurnReview,
 } from "@ue-mcp-studio/shared";
-import { outcomeNote } from "@ue-mcp-studio/client-core";
+import { fileName, outcomeNote } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { AssetDiffView } from "./AssetDiff";
 import { AssetTile } from "./AssetTile";
@@ -27,7 +27,6 @@ import { SessionIdContext } from "./attachments";
 import { EngineText, engineParts } from "./breakable";
 
 const STATUS: Record<ReviewItem["status"], string> = { added: "Added", modified: "Modified", deleted: "Deleted" };
-const fileName = (p: string): string => p.split("/").pop() || p;
 
 export { outcomeNote };
 

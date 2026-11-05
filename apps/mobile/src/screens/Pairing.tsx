@@ -9,7 +9,7 @@ import { useState } from "react";
 import { View } from "react-native";
 import { formatPairingCode } from "@ue-mcp-studio/remote";
 import { isPairLink, type PairFailureKind, type PairStep } from "../relay";
-import { readText } from "../native/clipboard";
+import { readClipboard } from "../native/clipboard";
 import { Banner, bannerText, Button, font, Input, Panel, T, useTheme, Waiting } from "../ui";
 import { Page, StateView } from "./StudioPage";
 
@@ -46,7 +46,7 @@ export function Welcome({ error, onScan, onLink, link: initial }: { error?: stri
     setPasting(true);
     setWrong(false);
     // A pairing link already on the clipboard goes straight into the field; without one, the panel says so.
-    void readText().then((text) => {
+    void readClipboard().then((text) => {
       if (isPairLink(text.trim())) setLink((v) => v || text.trim());
       else setNothing(true);
     });

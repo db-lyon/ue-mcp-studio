@@ -2,7 +2,7 @@
 import * as Clipboard from "expo-clipboard";
 
 /** What text the clipboard holds, or "" when it holds none or cannot be read. */
-export async function readText(): Promise<string> {
+export async function readClipboard(): Promise<string> {
   try {
     return (await Clipboard.getStringAsync()) ?? "";
   } catch {

@@ -1,15 +1,9 @@
 /** The controls every Settings section is built from, so each reads the same way. */
 import { useEffect, useState, type ReactNode } from "react";
+import { segStacks, tokens } from "@ue-mcp-studio/client-core";
+export { segStacks, tokens };
 
 /** One choice of a few, shown side by side. */
-/**
- * Whether a choice is one option per line on a narrow panel: only when its names are too long to
- * share a row, wrapped, in equal segments. Short ones stay a horizontal control the panel's width.
- */
-export function segStacks(names: string[]): boolean {
-  return names.some((n) => n.length > 22) || names.reduce((n, s) => n + s.length, 0) > 48;
-}
-
 export function Seg<T extends string>({ value, options, onChange, label, disabled, compact }: {
   value: T | null;
   options: ReadonlyArray<{ id: T; name: string; title?: string; disabled?: boolean }>;
@@ -137,14 +131,6 @@ export const initials = (name: string): string => name.split(/\s+/).filter(Boole
 
 export function Avatar({ id, name, small }: { id: string; name: string; small?: boolean }) {
   return <span className={`avatar ${small ? "sm" : ""}`} style={{ background: avatarColor(id) }} title={name} aria-hidden>{initials(name)}</span>;
-}
-
-/** Tokens as people read them: 950, 12k, 1.4M. */
-export function tokens(n: number | null | undefined): string {
-  if (n === null || n === undefined) return "none";
-  if (n < 1000) return String(n);
-  if (n < 1_000_000) return `${(n / 1000).toFixed(n < 10_000 ? 1 : 0).replace(/\.0$/, "")}k`;
-  return `${(n / 1_000_000).toFixed(n < 10_000_000 ? 1 : 0).replace(/\.0$/, "")}M`;
 }
 
 export function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {

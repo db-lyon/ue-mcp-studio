@@ -3,6 +3,8 @@
  * allowed break; native text takes a zero-width space there instead.
  */
 import type { ReactNode } from "react";
+import { engineParts } from "@ue-mcp-studio/client-core";
+export { engineParts };
 
 const ZWSP = "\u200b";
 
@@ -10,11 +12,6 @@ const ZWSP = "\u200b";
 export function breakable(children: ReactNode): ReactNode {
   if (typeof children !== "string" || !/[._]/.test(children)) return children;
   return children.split(/(?<=[._])/).join(ZWSP);
-}
-
-/** The parts of an engine name, path or value between which it may break (EngineText's rule). */
-export function engineParts(text: string): string[] {
-  return text.split(/(?<=\.)(?!\d)|(?<=[/\_:,\s])|(?<==)(?!\u00a0)/).flatMap((p) => (p.trim().length > 32 ? p.split(/(?<=[a-z0-9])(?=[A-Z])/) : [p]));
 }
 
 /**
