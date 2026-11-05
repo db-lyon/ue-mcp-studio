@@ -28,6 +28,8 @@ import { focusRun, useAttention } from "./attention";
 import { replaceStaleWindow } from "./window-version";
 import { RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
+import { onRemotePage } from "./connection";
+import { projectListUrl } from "@ue-mcp-studio/client-core";
 import { Slot } from "./extensions/Slot";
 
 const NO_CTX = {};
@@ -69,6 +71,12 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   const [feedback, setFeedback] = useState(false);
   const narrow = useMedia(NARROW);
   const [drawer, setDrawer] = useState(false);
+  // A paired browser names the open project in the drawer and switches to the relay's list of every project.
+  const remote = onRemotePage();
+  const [projectName, setProjectName] = useState<string | null>(null);
+  useEffect(() => {
+    if (remote) api.about().then((a) => setProjectName(a.name ?? null), () => undefined);
+  }, [remote]);
   useEffect(() => {
     if (!narrow) setDrawer(false);
   }, [narrow]);
@@ -162,6 +170,7 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           onTab={setTab}
           onSession={openChat}
           onNewSession={newSession}
+          project={remote ? { name: projectName, onSwitch: () => window.location.assign(projectListUrl(window.location.origin)) } : undefined}
         >
           {tools}
         </NavDrawer>

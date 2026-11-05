@@ -56,7 +56,7 @@ export interface AppShellProps {
 }
 
 /** Ways out of the project the drawer offers at all times: the projects list and pairing. */
-const Exits = createContext<{ onBack: () => void; onPair?: () => void }>({ onBack: () => undefined });
+const Exits = createContext<{ name: string; onBack: () => void; onPair?: () => void }>({ name: "", onBack: () => undefined });
 
 export function AppShell({ device, onBack, onUnpaired, onPair, transport, initial }: AppShellProps) {
   // The computer saying it does not know this phone ends the project: its pairing is dropped and pairing opens.
@@ -64,7 +64,7 @@ export function AppShell({ device, onBack, onUnpaired, onPair, transport, initia
   unpairedRef.current = onUnpaired;
   const watched = useMemo(() => watchUnpaired(transport ?? transportFor(device), (m) => unpairedRef.current(m)), [device, transport]);
   const project = useProject(device, watched);
-  const exits = useMemo(() => ({ onBack, onPair }), [onBack, onPair]);
+  const exits = useMemo(() => ({ name: device.name, onBack, onPair }), [device.name, onBack, onPair]);
   const api = useMemo(() => studioApi(project.transport), [project.transport]);
   const [stack, setStack] = useState<Route[]>([]);
   const nav = useMemo<ProjectNav>(() => ({ project, api, push: (r) => setStack((s) => [...s, r]), pop: () => setStack((s) => s.slice(0, -1)) }), [project, api]);
@@ -107,6 +107,7 @@ function Root({ initial, onBack }: { initial?: PanelLocation; onBack: () => void
 }
 
 function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaemon>; initial?: PanelLocation; onBack: () => void }) {
+  const exits = useContext(Exits);
   const t = useTheme();
   const s = useStyles(styles);
   const insets = useInsets();
@@ -210,6 +211,7 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
         onTab={setTab}
         onSession={openChat}
         onNewSession={newSession}
+        project={{ name: exits.name, onSwitch: exits.onBack }}
       >
         <DrawerVcsChip />
         <DrawerTool title="Feedback" label="Report a problem or suggest an idea" onPress={() => setFeedback(true)} />
@@ -221,15 +223,10 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
   );
 }
 
-/** The projects list and pairing, in the drawer's foot at all times. */
+/** Pairing, in the drawer's foot at all times (Switch project in its head goes to the projects). */
 function DrawerExits() {
-  const { onBack, onPair } = useContext(Exits);
-  return (
-    <>
-      <DrawerTool title="Projects" label="All projects on your paired computers" onPress={onBack} />
-      {onPair ? <DrawerTool title="Pair again" label="Pair this phone with a computer again" onPress={onPair} /> : null}
-    </>
-  );
+  const { onPair } = useContext(Exits);
+  return onPair ? <DrawerTool title="Pair again" label="Pair this phone with a computer again" onPress={onPair} /> : null;
 }
 
 /** The source control chip at the drawer's foot: opening its changes closes the drawer. */

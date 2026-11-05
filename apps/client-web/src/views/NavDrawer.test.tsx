@@ -27,6 +27,22 @@ function setup(open = true, tab: NavTab = "Chat", updates = 0, playtestsWaiting 
 }
 
 describe("the navigation drawer", () => {
+  it("on a paired device, names the open project and switches to every other one", () => {
+    m.sessions.mockResolvedValue({ sessions: [] });
+    const onSwitch = vi.fn();
+    const onClose = vi.fn();
+    render(<NavDrawer open tab="Chat" session={null} updates={0} onClose={onClose} onTab={vi.fn()} onSession={vi.fn()} onNewSession={vi.fn()} project={{ name: "Vale on NIMBA1", onSwitch }} />);
+    expect(screen.getByText("Vale on NIMBA1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Switch project: every project on your paired computers" }));
+    expect(onSwitch).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("draws no project row in Studio on the computer, which is one project", () => {
+    setup();
+    expect(screen.queryByText("Switch project")).toBeNull();
+  });
+
   it("lists the tabs, marks the current one, and carries the bar's tools", () => {
     setup(true, "Plugins", 2);
     expect(screen.getByText("Plugins").closest("button")?.getAttribute("aria-current")).toBe("page");

@@ -71,6 +71,8 @@ export function daemonFor(scenario: Scenario, theme: StudioTheme, arrived: () =>
     const routes: Array<[RegExp, () => unknown]> = [
       [/^\/v1\/health$/, () => HEALTH],
       [/^\/v1\/ext\/studio\/settings$/, () => SETTINGS],
+      // The name a paired device's drawer shows: the relay's "<project> on <computer>".
+      [/^\/v1\/ext\/studio\/about$/, () => ({ agentVersion: "0.1.25-beta.43", daemonVersion: "1.4.12", uiVersion: "0.1.25-beta.43", projectDir: "C:/Users/dev/Projects/StudioE2E", name: "StudioE2E on DEV-PC" })],
       [/^\/v1\/ext\/studio\/sessions$/, () => ({ sessions: s ? [s] : [] })],
       [/^\/v1\/ext\/studio\/sessions\/[^/]+$/, () => s],
       [/^\/v1\/ext\/studio\/qa\/playtests$/, () => scenario.index],

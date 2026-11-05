@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { SessionSummary } from "@ue-mcp-studio/shared";
+import { SWITCH_PROJECT, SWITCH_PROJECT_LABEL } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { listState } from "../chat/SessionRow";
 
@@ -12,7 +13,7 @@ const TABS: NavTab[] = ["Chat", "Plugins", "Settings"];
  * tabs, the recent sessions and, at the foot, the bar's tools. A pick, the
  * scrim, or Escape closes it. The recent sessions are read each time it opens.
  */
-export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, onTab, onSession, onNewSession, children }: {
+export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, onTab, onSession, onNewSession, project, children }: {
   open: boolean;
   onClose: () => void;
   tab: NavTab;
@@ -24,6 +25,8 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
   onTab: (t: NavTab) => void;
   onSession: (id: string) => void;
   onNewSession: () => void;
+  /** On a paired device: the open project as the relay lists it, and the way to every other one. */
+  project?: { name: string | null; onSwitch: () => void };
   children?: ReactNode;
 }) {
   const [recent, setRecent] = useState<SessionSummary[] | null>(null);
@@ -56,6 +59,14 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
             <span className="product">Studio</span>
           </span>
         </div>
+        {project && (
+          <div className="drawer-project">
+            <span className="drawer-project-name">{project.name ?? ""}</span>
+            <button className="drawer-switch" aria-label={SWITCH_PROJECT_LABEL} onClick={pick(project.onSwitch)}>
+              {SWITCH_PROJECT}
+            </button>
+          </div>
+        )}
         <button className="drawer-new" onClick={pick(onNewSession)}>
           <PlusGlyph />
           New session

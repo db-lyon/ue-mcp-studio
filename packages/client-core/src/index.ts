@@ -34,3 +34,4 @@ export * from "./review-view.js";
 export * from "./asset-links.js";
 export * from "./forms.js";
 export * from "./asset-tile.js";
+export * from "./project-switch.js";

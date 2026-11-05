@@ -99,7 +99,7 @@ describe("the drawer's ways out", () => {
     await settle();
     fireEvent.click(screen.getByLabelText("Pair this phone with a computer again"));
     expect(onPair).toHaveBeenCalledTimes(1);
-    fireEvent.click(screen.getByLabelText("All projects on your paired computers"));
+    fireEvent.click(screen.getByLabelText("Switch project: every project on your paired computers"));
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 });
