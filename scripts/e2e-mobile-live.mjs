@@ -12,6 +12,8 @@
 //
 // Fake: the same entry against a relay and computer inside the page (apps/mobile/visual-qa/fake-relay.ts)
 // answering from a web visual-qa scenario with no lock, already paired: the Chat tab, then a session.
+// Then a restart: the computer away when the app opens (Reconnecting, then the sessions with no
+// banner once it answers), and away again under an open session, whose transcript is read again.
 import * as fs from "node:fs";
 import * as https from "node:https";
 import * as os from "node:os";
@@ -293,9 +295,63 @@ async function fake() {
   }
 }
 
+/** The relay's own words for an away computer, which the app must never show as an error. */
+const OFFLINE_TEXT = "That project is offline.";
+const RESTART_MS = 6000;
+
+async function fakeRestart() {
+  const { context, page, errors } = await openPage(`?fake=${encodeURIComponent(scenario)}&offlineMs=${RESTART_MS}`);
+  const lineShown = () => page.locator('[data-testid="connection-line"]').isVisible().catch(() => false);
+  const offlineShown = async () => (await page.locator("body").innerText()).includes(OFFLINE_TEXT);
+  try {
+    const line = page.locator('[data-testid="connection-line"]');
+    await line.waitFor({ state: "visible", timeout: 15_000 });
+    const said = await line.innerText();
+    if (!said.includes("Reconnecting to ue-mcp")) throw new Error(`the line says ${JSON.stringify(said)}`);
+    if (await offlineShown()) throw new Error(`"${OFFLINE_TEXT}" is on screen`);
+    await shot(page, "07-fake-offline-reconnecting");
+    step("fake restart: Reconnecting while the project is away", true);
+
+    const row = await visible(page, sessionTitle, 60_000);
+    await line.waitFor({ state: "hidden", timeout: 3000 }).catch(() => {
+      throw new Error("the Reconnecting line stayed after the project answered");
+    });
+    if (await offlineShown()) throw new Error(`"${OFFLINE_TEXT}" is on screen after the project answered`);
+    await shot(page, "08-fake-online-sessions");
+    step("fake restart: sessions with no banner once the project answers", true);
+
+    await row.click();
+    await page.waitForSelector("#transcript", { state: "visible", timeout: 30_000 });
+    await page.waitForTimeout(1000);
+    const before = await page.evaluate(() => window.__fakeRelay.answered.length);
+    await page.evaluate((ms) => window.__fakeRelay.offline(ms), RESTART_MS);
+    await line.waitFor({ state: "visible", timeout: 15_000 });
+    if (!(await page.locator("#transcript").isVisible())) throw new Error("the transcript went while the project was away");
+    if (await offlineShown()) throw new Error(`"${OFFLINE_TEXT}" is on screen under the open session`);
+    await shot(page, "09-fake-restart-session-reconnecting");
+    await line.waitFor({ state: "hidden", timeout: 60_000 });
+    // Read again from the computer once it answered: the session's own route, after the restart.
+    const reread = await page.waitForFunction((n) => window.__fakeRelay.answered.slice(n).some((p) => /\/sessions\/[^/?]+\?sync=1/.test(p) && !window.__fakeRelay.away()), before, { timeout: 30_000 }).then(() => true, () => false);
+    if (!reread) throw new Error("the open session was not read again after the project came back");
+    await page.waitForTimeout(800);
+    if (!(await page.locator("#transcript").isVisible())) throw new Error("no transcript after the restart");
+    if (await offlineShown()) throw new Error(`"${OFFLINE_TEXT}" is on screen after the restart`);
+    await shot(page, "10-fake-restart-session-back");
+    step("fake restart: the open session read again with no banner", true);
+  } catch (e) {
+    await shot(page, "fake-restart-failure").catch(() => undefined);
+    step("fake restart", false, `${e.message}${errors.length ? ` | page errors: ${errors.slice(0, 5).join(" | ")}` : ""}`);
+  } finally {
+    await context.close();
+  }
+}
+
 try {
   if (!flag("skip-live")) await live();
-  if (!flag("skip-fake")) await fake();
+  if (!flag("skip-fake")) {
+    await fake();
+    await fakeRestart();
+  }
 } finally {
   await browser.close();
   await server.close();
