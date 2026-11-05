@@ -305,7 +305,8 @@ export function DiffTreeGrid({ roots, name, width }: { roots: DiffTreeRow[]; nam
   // The rows' own width: the tree's, inside its hairline.
   const inner = width > 0 ? width - 2 : 0;
   return (
-    <View accessibilityRole={"treegrid" as never} accessibilityLabel={`Differences in ${name}`} style={{ borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 4, overflow: "hidden", minWidth: 0 }}>
+    // role, never accessibilityRole: Android's accessibilityRole parser throws on "treegrid" and "row" and takes the app down.
+    <View role="treegrid" accessibilityLabel={`Differences in ${name}`} style={{ borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 4, overflow: "hidden", minWidth: 0 }}>
       {treeLines(roots, toggled).map(({ row, depth, open }, i) => {
         const parent = row.children.length > 0;
         const hasBefore = !!(row.before || row.beforeNone);
@@ -330,7 +331,7 @@ export function DiffTreeGrid({ roots, name, width }: { roots: DiffTreeRow[]; nam
           <View
             key={row.id}
             testID={`row-${row.id}`}
-            accessibilityRole={"row" as never}
+            role="row"
             aria-level={depth + 1}
             style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", paddingBottom: 1, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: row.section ? t.c.lineStrong : t.c.line, minWidth: 0 }}
           >

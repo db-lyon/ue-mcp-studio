@@ -11,7 +11,7 @@ export function PillRow({ pills, actions, onClear }: { pills: Pill[]; actions: P
   const t = useTheme();
   if (pills.length === 0) return null;
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} accessibilityRole="toolbar" accessibilityLabel="Suggestions" style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 6, paddingTop: 4, paddingBottom: 6 }}>
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} role="toolbar" accessibilityLabel="Suggestions" style={{ flexGrow: 0 }} contentContainerStyle={{ gap: 6, paddingTop: 4, paddingBottom: 6 }}>
       {pills.map((p) => (
         <Pressable
           key={p.id}
