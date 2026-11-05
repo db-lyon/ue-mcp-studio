@@ -20,7 +20,7 @@ export interface ParityEntry {
   type?: { into: string; text: string };
   /** Pressed one after another once the typing settles, then left for wait milliseconds: the web scenario's afterType. */
   afterType?: { clicks: string[]; wait: number };
-  /** Scrolled to the top of the conversation before the shot, by accessibility label (or text): the web scenario's `scroll`. */
+  /** Scrolled to the top of the conversation before the shot, by accessibility label (or text), or a CSS selector starting with "[": the web scenario's `scroll`. */
   scroll?: string;
   /** Typed into several fields one after another, each by its accessibility label: the web scenario's types. */
   types?: Array<{ into: string; text: string }>;
@@ -150,7 +150,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-diagnostics-events": {owner: "agent-b", clicks: ["Payload of studio.transcript.added"], scroll: "Events, newest first"},
   "review-card": {owner: "chat"},
   "review-blueprint": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "Content/Characters/Player/BP_PlayerCharacterMovementComponent.uasset"},
-  "review-blueprint-variables": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "My Blueprint"},
+  "review-blueprint-variables": {owner: "chat", clicks: ["BP_PlayerCharacterMovementComponent.uasset"], scroll: "[data-testid='row-s:My Blueprint']"},
   "review-material-instance": {owner: "chat", clicks: ["MI_RockMossyCliffFace_Variant02.uasset"], scroll: "Content/Environment/Materials/MI_RockMossyCliffFace_Variant02.uasset"},
   "review-material": {owner: "chat", clicks: ["M_RockMaster.uasset"], scroll: "Content/Environment/Materials/M_RockMaster.uasset"},
   "review-level": {owner: "chat", clicks: ["L_Playtest.umap"], scroll: "Content/Maps/L_Playtest.umap"},
@@ -161,6 +161,10 @@ export const PARITY: Record<string, ParityEntry> = {
   "review-binary": {owner: "chat", clicks: ["SW_WardChime.uasset"], scroll: "Content/Audio/SW_WardChime.uasset"},
   "review-one-widget": {owner: "chat", scroll: "Changes in this turn"},
   "review-one-blueprint": {owner: "chat", scroll: "Changes in this turn"},
+  "review-one-many": {owner: "chat", scroll: "Changes in this turn"},
+  "review-one-deep": {owner: "chat", scroll: "Changes in this turn"},
+  "review-one-long-open": {owner: "chat", clicks: ["Description, After*", "Allowed Biomes, After*"], scroll: "Changes in this turn"},
+  "review-one-collapsed": {owner: "chat", clicks: ["Waves[0]"], scroll: "Changes in this turn"},
   "review-one-binary": {owner: "chat", scroll: "Changes in this turn"},
   "review-one-old-bridge": {owner: "chat", scroll: "Changes in this turn"},
   "review-one-old-bridge-remote": {owner: "chat", scroll: "Changes in this turn"},

@@ -233,6 +233,12 @@ for (const name of picked) {
       // The web scenario's scroll: the element brought to the top of its scrolling list, by its row (the pressable around a text).
       const what = parity[name].scroll;
       const found = await page.evaluate((w) => {
+        // A CSS selector (one starting with "[") names the element itself, as the web scenario's does.
+        if (w.startsWith("[")) {
+          const one = document.querySelector(w);
+          one?.scrollIntoView({ block: "start" });
+          return !!one;
+        }
         const all = [...document.querySelectorAll(`[aria-label="${w.replace(/"/g, '\\"')}"]`), ...[...document.querySelectorAll("div, span")].filter((e) => e.childElementCount === 0 && e.textContent === w)];
         const el = all.find((e) => e.getBoundingClientRect().height > 0);
         (el?.closest('[role="button"]') ?? el)?.scrollIntoView({ block: "start" });

@@ -1,85 +1,38 @@
 /**
  * A package's diff in the review: Unreal's own diff records, as ue-mcp
- * serializes them, grouped under the engine's categories with both values side
- * by side, a picture of each version, and the facts that differ between them.
- * The web client's chat/AssetDiff.tsx; what it decides is client-core's.
+ * serializes them, in one tree with a picture of each version above it. The
+ * web client's chat/AssetDiff.tsx at a phone's width: the tree's rows come
+ * from diffTree in the shared package, each value under its name.
  */
 import { Fragment, useEffect, useState, type ReactNode } from "react";
-import { Image, View } from "react-native";
+import { Image, Pressable, Text, View, type TextStyle } from "react-native";
+import { diffErrorConsequence, isFlatPicture, pictureOf, pictureWhy, thumbnailErrors, wantsTile, type PictureFailure } from "@ue-mcp-studio/client-core";
 import {
-  exportNumber,
-  factRows,
-  nodeValues,
-  readableParts,
-  readableValue,
-  recordsByGroup,
+  diffTree,
+  inlineFits,
+  LABEL_JOIN,
+  splitNeeded,
+  TONE_GLYPH,
+  TONE_WORD,
+  treeLines,
   unifiedLines,
+  WEB_ROW_METRICS,
   type AssetDiff,
-  type AssetDiffRecord,
-  type AssetDiffSection,
-  type AssetVersion,
+  type DiffTreeRow,
+  type DiffValue,
+  type RowMetrics,
 } from "@ue-mcp-studio/shared";
-import {
-  coveredFacts,
-  diffErrorConsequence,
-  isCoveredFact,
-  isFlatPicture,
-  kindClass,
-  kindOf,
-  nodeOf,
-  nodeSubtitle,
-  numberStruct,
-  pictureOf,
-  pictureWhy,
-  thumbnailErrors,
-  wantsTile,
-  withoutVerb,
-  type PictureFailure,
-} from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
-import { Banner, font, T, useTheme, type Theme } from "../../../ui";
+import { Banner, font, lineBox, T, useTheme, type Theme } from "../../../ui";
 import { DiffView } from "../../../chat/Diff";
 import { engineText } from "../../../chat/breakable";
-import { AssetTile, TILE_FACTS, tileOf } from "../../../chat/AssetTile";
+import { AssetTile, tileOf } from "../../../chat/AssetTile";
 import { useDaemonImage } from "../../../chat/daemon-image";
 import { small } from "../../../chat/styles";
-import { CompareGroup, CompareRow, CompareTable, KeyValues, PlainRow, Swatch, useCompareTier, type CompareSide, type CompareTier } from "./compare";
-import { OutlineButton } from "./TurnReview";
+import { Swatch, useCardSize, type CompareTier } from "./compare";
 import { picturePixels } from "./picture-pixels";
 
 const lh = (t: Theme): number => (t.editor ? 1.5 : 1.55);
-
-/** .diff-table's 12px, and .mono inside it. */
-const cellText = (t: Theme) => ({ fontSize: 12, lineHeight: 12 * lh(t) });
-// Consolas on Roboto's 18px strut: the two baselines meet in an 18.6 pixel line, as JetBrains Mono's does at 1.55.
-// Consolas sits 3 pixels down that line, not centred in it: a 19 pixel line that gives back its extra 0.4.
-const monoCell = (t: Theme) => [font(t, "mono", 400, 12 * 0.92), t.editor ? { lineHeight: 19, marginBottom: -0.4 } : { lineHeight: 18.6 }, { color: t.c.text }];
-
-/** A value as ExportText wrote it, a parameter struct in words, or what its absence means. */
-function Value({ v, side }: { v: string | null | undefined; side: "before" | "after" }) {
-  const t = useTheme();
-  if (v === null || v === undefined) return <T style={[cellText(t), { color: t.c.dim }]}>{side === "before" ? "not there" : "gone"}</T>;
-  if (v === "") return <T style={[cellText(t), { color: t.c.dim }]}>empty</T>;
-  const parts = readableParts(v);
-  if (parts && parts.length > 1) {
-    return (
-      <View style={{ gap: 2 }}>
-        {parts.map((x, i) => (
-          // .diff-parts: each part a block line of its own, at the mono size's own line height.
-          <T key={i} style={[monoCell(t), { lineHeight: Math.round(12 * 0.92 * lh(t) * 100) / 100, marginBottom: 0 }]}>{engineText(x)}</T>
-        ))}
-      </View>
-    );
-  }
-  const words = parts?.[0] ?? numberStruct(v) ?? (exportNumber(v) !== v ? exportNumber(v) : null);
-  return (
-    // The swatch sits inline in the text, so a long value wraps flush with it.
-    <T style={monoCell(t)}>
-      <Swatch text={v} />
-      {engineText(words ?? v)}
-    </T>
-  );
-}
 
 /** Each side whose picture is no picture of it, and why. */
 type PictureFailures = Record<string, PictureFailure>;
@@ -118,10 +71,10 @@ function Picture({ id, label, name, onFail }: { id: string; label: string; name:
 }
 
 /**
- * A picture of each version that has one. Where neither has one, a new,
- * deleted or record-less asset gets its tile in the space; a changed one with
- * records gets nothing, the records being the change. A version with no
- * picture beside one that has says why in words, never in an empty frame.
+ * A picture of each version that has one. Where neither has one, a new or
+ * deleted asset with no facts gets its tile in the space; otherwise nothing,
+ * its facts being rows of the tree. A version with no picture beside one that
+ * has says why in words, its label under them, never in an empty frame.
  */
 function Pictures({ diff, name, asset, status, failed, setFailed }: {
   diff: AssetDiff;
@@ -141,8 +94,8 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
     if (!wantsTile(diff, status)) return null;
     const errors = thumbnailErrors(diff);
     const tile = tileOf(diff, name, asset, status);
-    // Beside the other version, the tile names only the facts that changed.
-    if (diff.before && diff.after) tile.facts = tile.facts.filter((f) => f.was !== undefined);
+    // The facts are rows of the tree below it.
+    tile.facts = [];
     return <AssetTile {...tile} note={errors.length && status !== "modified" ? `No picture: ${engineText(errors.join("; "))}` : undefined} />;
   }
   return (
@@ -151,206 +104,12 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
         const p = pictureOf(s.v);
         if (p && !failed[s.label]) return <Picture key={s.label} id={p.id} label={s.label} name={name} onFail={(why) => setFailed((f) => (f[s.label] ? f : { ...f, [s.label]: why }))} />;
         return (
-          <View key={s.label} style={{ flex: 1, minWidth: 0, maxWidth: 220, paddingTop: 2, gap: 2 }}>
-            <T style={[small(t), { color: t.c.dim }]}>{s.label}</T>
+          <View key={s.label} style={{ flex: 1, minWidth: 0, maxWidth: 220, paddingTop: 2, gap: 2, justifyContent: "space-between" }}>
             <T style={[small(t), { color: t.c.dim }]}>{engineText(pictureWhy(s.v, s.missing, failed[s.label]))}</T>
+            <T style={[small(t), { color: t.c.dim }]}>{s.label}</T>
           </View>
         );
       })}
-    </View>
-  );
-}
-
-/** What an added or removed node or actor holds, so an added Constant shows its number; null when it holds nothing. */
-function heldBy(r: AssetDiffRecord): ReactNode {
-  const node = r.diffType === "NODE_ADDED" || r.diffType === "NODE_REMOVED" ? (r.node1 ?? r.node2) : undefined;
-  const values = [...nodeValues(node).map((v) => ({ name: v.name, value: readableValue(v.value) ?? exportNumber(v.value) })), ...(r.facts ?? [])];
-  const dropped = node?.propertiesDropped ?? 0;
-  if (!values.length && !dropped) return null;
-  return <HeldValues values={values} dropped={dropped} />;
-}
-
-function HeldValues({ values, dropped }: { values: Array<{ name: string; value: string }>; dropped: number }) {
-  const t = useTheme();
-  return (
-    <View style={{ marginTop: 2 }}>
-      {values.length > 0 ? <KeyValues values={values} /> : null}
-      {dropped > 0 ? <T style={[small(t), { color: t.c.dim }]}>{`${dropped} more properties not listed.`}</T> : null}
-    </View>
-  );
-}
-
-const sideOf = (v: string | null | undefined, side: "before" | "after"): CompareSide => (v === null ? "absent" : v === undefined ? null : { content: <Value v={v} side={side} /> });
-
-/**
- * .diff-kind: the change's badge, an inline block before its text: a box of its
- * own line height and border, sitting on the text's baseline, 6 pixels before it.
- */
-function Kind({ k, tone }: { k: string; tone: string }) {
-  const t = useTheme();
-  const color = tone === "add" ? t.c.ok : tone === "del" ? t.c.bad : tone === "mod" ? t.c.warn : t.c.muted;
-  const line = tone === "add" ? t.c.ok : tone === "del" ? t.c.bad : tone === "mod" ? t.c.warn : t.c.lineStrong;
-  return (
-    <View style={{ borderWidth: 1, borderColor: line, borderRadius: 3, paddingHorizontal: 5, marginRight: 6, opacity: tone === "minor" ? 0.7 : 1 }}>
-      <T style={{ fontSize: 10, lineHeight: 10 * lh(t), letterSpacing: 0.5, textTransform: "uppercase", color }}>{k}</T>
-    </View>
-  );
-}
-
-/**
- * The records as comparison rows. A property's two values go under Before and
- * After; an added node's or actor's values under After and a removed one's
- * under Before; the engine's message, the badge and its subtitle under Change.
- * A graph record that only says its node's properties changed is those
- * properties, each named by the node; a pin default change shows the pin's
- * defaults.
- */
-function RecordRows({ entries, sub, owner }: { entries: AssetDiffRecord[]; sub?: boolean; owner?: string }) {
-  const t = useTheme();
-  return (
-    <>
-      {entries.map((r, i) => {
-        if (r.properties?.length && r.before === undefined && r.after === undefined && (r.diffType === "NODE_PROPERTY" || r.diffType === "OBJECT_PROPERTY")) {
-          return <RecordRows key={i} entries={r.properties} owner={nodeOf(r)} />;
-        }
-        const k = kindOf(r);
-        const tone = kindClass(k);
-        const pinDefaults = r.diffType === "PIN_DEFAULT_VALUE" && r.pin1 && r.pin2 ? { before: r.pin1.defaultValue, after: r.pin2.defaultValue } : null;
-        const values = r.before !== undefined || r.after !== undefined || !!pinDefaults;
-        const node = nodeOf(r);
-        const subtitle = nodeSubtitle(r) ?? (r.toolTip && r.toolTip !== r.displayString ? r.toolTip : null);
-        const size = tone === "minor" ? 11 : 12;
-        const text = values && r.path !== undefined ? (owner ? `${owner} > ${r.label ?? r.path}` : r.label ?? r.path) : withoutVerb(r.displayString, tone);
-        const change = (
-          <View>
-            {/* A minor row's 11px line is shorter than its badge, which sits inline-block on the web and stretches the line to 18 pixels. */}
-            <T style={{ fontSize: size, lineHeight: tone === "minor" ? (t.editor ? 17 : 18) : size * lh(t), color: tone === "minor" ? t.c.muted : t.c.text }}>
-              <Kind k={k} tone={tone} />
-              {engineText(text)}
-              {node && !r.displayString.includes(node) ? <T style={{ fontSize: size, lineHeight: size * lh(t), color: t.c.dim }}>{` on ${engineText(node)}`}</T> : null}
-            </T>
-            {subtitle ? <T style={[small(t), { marginTop: 2, color: t.c.dim }]}>{engineText(subtitle)}</T> : null}
-          </View>
-        );
-        let before: CompareSide = null;
-        let after: CompareSide = null;
-        if (pinDefaults) {
-          before = sideOf(pinDefaults.before, "before");
-          after = sideOf(pinDefaults.after, "after");
-        } else if (values) {
-          before = sideOf(r.before, "before");
-          after = sideOf(r.after, "after");
-        } else {
-          const held = heldBy(r);
-          const content = held ? { content: held } : null;
-          if (content && tone === "del") [before, after] = [content, "absent"];
-          else if (content && tone === "add") [before, after] = ["absent", content];
-          else if (content) after = content;
-        }
-        return (
-          <Fragment key={i}>
-            <CompareRow tone={tone} change={change} before={before} after={after} sub={sub} index={i} />
-            {r.properties && r.properties.length > 0 ? <RecordRows entries={r.properties} sub /> : null}
-          </Fragment>
-        );
-      })}
-    </>
-  );
-}
-
-function RecordTable({ entries, graph, tier }: { entries: AssetDiffRecord[]; graph: boolean; tier: CompareTier }) {
-  return (
-    <CompareTable tier={tier} head={[graph ? "Change" : "Property", "Before", "After"]}>
-      {recordsByGroup(entries).map((g) => (
-        <Fragment key={g.group ?? ""}>
-          {g.group !== null ? <CompareGroup>{g.group}</CompareGroup> : null}
-          <RecordRows entries={g.entries} />
-        </Fragment>
-      ))}
-    </CompareTable>
-  );
-}
-
-/** .diff-section-head: the title, and a count in small dim. */
-function SectionHead({ title, note }: { title: string; note: string }) {
-  const t = useTheme();
-  return (
-    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: 8 }}>
-      <T weight={600} lh={lh(t)}>{engineText(title)}</T>
-      <T style={[small(t), { color: t.c.dim }]}>{note}</T>
-    </View>
-  );
-}
-
-function Section({ s, tier }: { s: AssetDiffSection; tier: CompareTier }) {
-  const shown = s.entries.filter((e) => !e.hidden);
-  const hidden = s.entries.filter((e) => e.hidden);
-  const [openHidden, setOpenHidden] = useState(shown.length === 0);
-  return (
-    <View accessibilityLabel={s.category} style={{ gap: 4, minWidth: 0 }}>
-      <SectionHead title={s.category} note={shown.length === 1 ? "1 difference" : `${shown.length} differences`} />
-      {shown.length > 0 ? <RecordTable entries={shown} graph={s.kind === "graph"} tier={tier} /> : null}
-      {hidden.length > 0 ? (
-        <View style={{ gap: 4, alignItems: "flex-start" }}>
-          <OutlineButton
-            title={`${openHidden ? "Hide" : "Show"} ${hidden.length === 1 ? "1 more difference" : `${hidden.length} more differences`} in properties the details panel does not show`}
-            expanded={openHidden}
-            onPress={() => setOpenHidden(!openHidden)}
-            left
-          />
-          {openHidden ? <View style={{ alignSelf: "stretch" }}><RecordTable entries={hidden} graph={false} tier={tier} /></View> : null}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-/** A fact's name in its cell. */
-function FactName({ name }: { name: string }) {
-  const t = useTheme();
-  return <T style={cellText(t)}>{engineText(name)}</T>;
-}
-
-/**
- * Facts about each version: LOD counts, sizes, parameters. With both versions,
- * only the facts that differ and that no record already shows are compared,
- * Before beside After; the ones that are the same are not shown. With one
- * version, its facts.
- * The tile lists up to TILE_FACTS of them, so they are not repeated when they
- * fit there.
- */
-function Facts({ before, after, tiled, covered, tier }: { before: AssetVersion | null | undefined; after: AssetVersion | null | undefined; tiled: boolean; covered: Set<string>; tier: CompareTier }) {
-  const rows = factRows(before, after);
-  const both = !!before && !!after;
-  const [openOne, setOpenOne] = useState(!tiled);
-  if (rows.length === 0 || (!both && tiled && rows.length <= TILE_FACTS)) return null;
-  if (!both) {
-    const side = before ? "before" : "after";
-    return (
-      <View style={{ gap: 4, alignItems: "flex-start", minWidth: 0 }}>
-        <OutlineButton title={`${openOne ? "Hide" : "Show"} details of this version (${rows.length})`} expanded={openOne} onPress={() => setOpenOne(!openOne)} left />
-        {openOne ? (
-          <View style={{ alignSelf: "stretch" }}>
-            <CompareTable tier={tier} head={["Fact", "Value"]}>
-              {rows.map((r, i) => (
-                <PlainRow key={r.name} index={i} name={<FactName name={r.name} />} value={<Value v={(side === "before" ? r.before : r.after) ?? null} side={side} />} />
-              ))}
-            </CompareTable>
-          </View>
-        ) : null}
-      </View>
-    );
-  }
-  const changed = rows.filter((r) => r.changed && !isCoveredFact(covered, r.name));
-  if (changed.length === 0 || (tiled && changed.length <= TILE_FACTS)) return null;
-  return (
-    <View accessibilityLabel="Facts" style={{ gap: 4, minWidth: 0 }}>
-      <SectionHead title="Facts" note={changed.length === 1 ? "1 changed" : `${changed.length} changed`} />
-      <CompareTable tier={tier} head={["Fact", "Before", "After"]}>
-        {changed.map((r, i) => (
-          <CompareRow key={r.name} index={i} tone="mod" change={<FactName name={r.name} />} before={{ content: <Value v={r.before ?? null} side="before" /> }} after={{ content: <Value v={r.after ?? null} side="after" /> }} />
-        ))}
-      </CompareTable>
     </View>
   );
 }
@@ -372,15 +131,246 @@ export function AssetDiffView({ diff, name, asset, status, nativeNote }: { diff:
 }
 
 /**
+ * The app's row metrics for inlineFits and splitNeeded: the same fonts at the
+ * same sizes as the web client's 12px grid (Plus Jakarta Sans or Roboto, and
+ * the theme's mono at 0.92 of it), so the same guesses, which keeps a row on
+ * the same number of lines as the web draws it. A device's own system mono in
+ * the editor themes is narrower, so they stay on the safe side there.
+ */
+export const APP_ROW_METRICS: RowMetrics = { ...WEB_ROW_METRICS };
+
+/** .dtree's indent per level and the triangle and glyph before a name. */
+const INDENT = 14;
+const LEAD = 28;
+
+/** The rows with no children under a row: what a group's count says when its changes are one, such as an added node's values. */
+const leaves = (row: DiffTreeRow): number => row.children.reduce((n, c) => n + (c.children.length ? leaves(c) : 1), 0);
+
+/** How a row lays out on a phone: its values on the name's line, a line each, or together on one line under the name. */
+export type RowLayout = "inline" | "split" | "under";
+
+export function rowLayout(row: DiffTreeRow, depth: number, width: number, m: RowMetrics = APP_ROW_METRICS): RowLayout {
+  // Not laid out yet: under the name, until the width says more.
+  if (!(width > 0)) return "under";
+  return inlineFits(row, depth, width, m) ? "inline" : splitNeeded(row, depth, width, m) ? "split" : "under";
+}
+
+/** .dtree's 12px on an 18px line, in the body font. */
+const cell = (t: Theme, weight: 400 | 500 | 600 = 400): TextStyle => ({ ...font(t, "sans", weight, 12), lineHeight: 18 });
+/** .mono in a cell: the theme's mono at 0.92 of 12px, on the row's 18px line. */
+const monoCell = (t: Theme): TextStyle => ({ ...font(t, "mono", 400, 12 * 0.92), lineHeight: 18 });
+/** The uppercase word that names a value on a line of its own. */
+const sideWord = { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 } as const;
+
+/**
+ * A value under its row's name: one line cut to the width, in the theme's
+ * mono; a long or many-line value opens in place on a tap, with the lines a
+ * list gained or lost marked. A removed value (Before with no After) is
+ * struck through. On a line of its own it says which side it is.
+ */
+function ValueCell({ v, none, side, both, layout, open, toggle, other, first, depth, width, detail, rowName }: {
+  rowName: string;
+  v?: DiffValue;
+  none?: boolean;
+  side: "before" | "after";
+  both: boolean;
+  layout: RowLayout;
+  open: boolean;
+  toggle: () => void;
+  other?: DiffValue;
+  first: boolean;
+  depth: number;
+  width: number;
+  detail?: boolean;
+}) {
+  const t = useTheme();
+  const label = side === "before" ? "Before" : "After";
+  const lead = 6 + depth * INDENT + LEAD;
+  const opened = open && !!v?.long;
+  const struck = side === "before" && !both;
+  const full = layout === "split" || opened;
+  const box = full
+    ? { width: width > 0 ? width - lead : undefined, marginLeft: lead, flexShrink: 0 }
+    : layout === "inline"
+      ? { marginLeft: first ? 8 : 0, paddingTop: 2, flexShrink: 1 }
+      : { marginLeft: first ? lead : 0, flexShrink: 1, maxWidth: width > 0 ? (both ? width / 2 - 6 - (depth * INDENT + LEAD) / 2 : width - 12 - depth * INDENT - LEAD) : undefined };
+  const color = struck || (both && side === "before") || detail ? t.c.muted : t.c.text;
+  const text: TextStyle = { ...(v ? monoCell(t) : cell(t)), color, ...(struck ? { textDecorationLine: "line-through", textDecorationColor: t.c.dim } : {}) };
+  const dim = { color: t.c.dim };
+  // The side's word: above an opened value of a pair, before a value on a line of its own; an arrow before After on a shared line.
+  const blockWord = opened && both;
+  const prefix = blockWord ? null
+    : layout === "split" ? <Text style={[sideWord, dim]}>{`${label} `}</Text>
+    : both && side === "after" ? <Text style={dim}>{"→ "}</Text>
+    : null;
+  let body: ReactNode;
+  if (!v) body = <Text style={[text, { color: t.c.dim }]}>{prefix}none</Text>;
+  else if (v.text === "") body = <Text style={text}>{prefix}<Text style={dim}>empty</Text></Text>;
+  else if (opened && v.lines) {
+    const theirs = new Set(other?.lines ?? []);
+    body = (
+      <>
+        {prefix ? <Text style={text}>{prefix}</Text> : null}
+        {v.lines.map((l, i) => {
+          const marked = !!other?.lines && !theirs.has(l);
+          return (
+            <Text key={i} testID={marked ? `line-${side === "after" ? "add" : "del"}` : undefined} style={[text, marked ? { color: side === "after" ? t.c.ok : t.c.badText } : null]}>
+              <Swatch text={l} />
+              {engineText(l)}
+            </Text>
+          );
+        })}
+      </>
+    );
+  } else if (opened) {
+    body = <Text style={text}>{prefix}<Swatch color={v.color} />{engineText(v.text)}</Text>;
+  } else {
+    body = <Text style={text} numberOfLines={1} ellipsizeMode="tail">{prefix}<Swatch color={v.color} />{v.text}</Text>;
+  }
+  const inner = (
+    <>
+      {/* The web's font-family: var(--font, inherit) names no variable it defines, so the cell's mono it is. */}
+      {blockWord ? <Text style={[font(t, "mono", 400, 10), sideWord, { lineHeight: 18, color: t.c.dim }]}>{label}</Text> : null}
+      {body}
+    </>
+  );
+  const style = [{ paddingRight: 6, paddingBottom: 2, minWidth: 0 }, box];
+  if (v?.long) {
+    return (
+      <Pressable accessibilityRole="button" accessibilityLabel={`${rowName}, ${label}: ${v.text}`} accessibilityState={{ expanded: opened }} aria-expanded={opened} accessibilityHint={opened ? "Folds it back" : "Shows all of it"} onPress={toggle} style={style} testID={`value-${side}`}>
+        {inner}
+      </Pressable>
+    );
+  }
+  return <View style={style} testID={`value-${side}`}>{inner}</View>;
+}
+
+/**
+ * The line a name's text sits on: the row's 18px, except inside a group's
+ * toggle in the editor themes, whose `button` rule (400 12px/1.2) outranks the
+ * toggle's `all: unset` and gives its name and glyph a 14.4px line.
+ */
+const nameLine = (t: Theme, inToggle: boolean): number => (inToggle && t.editor ? lineBox(12, 1.2) : 18);
+
+/** A row's name: its levels joined, an engine name breaking only between its parts. */
+function Label({ row, parent }: { row: DiffTreeRow; parent: boolean }) {
+  const t = useTheme();
+  const weight = row.section ? 600 : parent ? 500 : 400;
+  const color = row.detail || row.tone === "minor" ? t.c.muted : t.c.text;
+  const lineHeight = nameLine(t, parent);
+  return (
+    <Text style={[cell(t, weight), { lineHeight, color, flexShrink: 1, minWidth: 0 }]}>
+      {row.label.map((p, i) => (
+        <Fragment key={i}>
+          {i > 0 ? <Text style={[cell(t, 400), { lineHeight, color: t.c.dim }]}>{LABEL_JOIN}</Text> : null}
+          {engineText(p)}
+        </Fragment>
+      ))}
+    </Text>
+  );
+}
+
+/** The change a row is, as a glyph in its colour, and in words for a screen reader. */
+function Glyph({ row }: { row: DiffTreeRow }) {
+  const t = useTheme();
+  const box = { width: 14, flexShrink: 0, textAlign: "center" as const, lineHeight: nameLine(t, row.children.length > 0) };
+  if (!row.tone) return <View style={{ width: 14, flexShrink: 0 }} />;
+  const color = row.tone === "add" ? t.c.ok : row.tone === "del" ? t.c.bad : row.tone === "mod" ? t.c.warn : t.c.dim;
+  return (
+    <Text accessibilityLabel={TONE_WORD[row.tone]} style={[font({ ...t, mono: "system-mono" }, "mono", 700, 12), box, { color }]}>
+      {TONE_GLYPH[row.tone]}
+    </Text>
+  );
+}
+
+/**
+ * The diff as one tree: sections, then the object, node or actor, then the
+ * property path, each level open to start (differences the details panel does
+ * not show start closed) and closed with its triangle. A phone has no room for
+ * columns, so the values go under the name, "False → True" (the web's narrow
+ * tier, whatever `tier` says): a short row on the name's line, two long values
+ * a line each.
+ */
+export function DiffTreeGrid({ roots, name, width }: { roots: DiffTreeRow[]; name: string; tier?: CompareTier; width: number }) {
+  const t = useTheme();
+  const [toggled, setToggled] = useState<ReadonlySet<string>>(new Set());
+  const flip = (set: (f: (s: ReadonlySet<string>) => ReadonlySet<string>) => void) => (id: string) => set((s) => {
+    const n = new Set(s);
+    if (!n.delete(id)) n.add(id);
+    return n;
+  });
+  const toggle = flip(setToggled);
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
+  const openRow = flip(setOpened);
+  // The rows' own width: the tree's, inside its hairline.
+  const inner = width > 0 ? width - 2 : 0;
+  return (
+    <View accessibilityRole={"treegrid" as never} accessibilityLabel={`Differences in ${name}`} style={{ borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 4, overflow: "hidden", minWidth: 0 }}>
+      {treeLines(roots, toggled).map(({ row, depth, open }, i) => {
+        const parent = row.children.length > 0;
+        const hasBefore = !!(row.before || row.beforeNone);
+        const hasAfter = !!(row.after || row.afterNone);
+        const both = hasBefore && hasAfter;
+        const layout = rowLayout(row, depth, width);
+        const n = parent ? (row.count > (row.tone ? 1 : 0) && !row.tone ? row.count : leaves(row)) : 0;
+        const count = n > 0 ? (
+          <Text style={[font(t, "sans", 400, 10), { lineHeight: 16, marginTop: 1, marginLeft: 6, paddingHorizontal: 5, borderRadius: 8, color: t.c.muted, backgroundColor: t.c.panel2, flexShrink: 0 }]}>{String(n)}</Text>
+        ) : null;
+        const twisty = <Text style={[font(t, "sans", 400, 14), { width: 14, flexShrink: 0, lineHeight: 18, textAlign: "center", color: t.c.muted }]}>{parent ? (open ? "▾" : "▸") : ""}</Text>;
+        const head = (
+          <>
+            {twisty}
+            <Glyph row={row} />
+            <Label row={row} parent={parent} />
+            {count}
+          </>
+        );
+        const values = { both, layout, depth, width: inner, open: opened.has(row.id), toggle: () => openRow(row.id), detail: row.detail, rowName: row.label.join(LABEL_JOIN) };
+        return (
+          <View
+            key={row.id}
+            testID={`row-${row.id}`}
+            accessibilityRole={"row" as never}
+            aria-level={depth + 1}
+            style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", paddingBottom: 1, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: row.section ? t.c.lineStrong : t.c.line, minWidth: 0 }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "flex-start", minWidth: 0, paddingLeft: 6 + depth * INDENT, paddingRight: 6, paddingVertical: parent ? 5 : 2, ...(layout === "inline" ? { flexShrink: 1 } : { width: "100%" }) }}>
+              {parent ? (
+                <Pressable accessibilityRole="button" accessibilityLabel={row.label.join(LABEL_JOIN)} accessibilityState={{ expanded: open }} aria-expanded={open} onPress={() => toggle(row.id)} style={{ flexGrow: 1, flexShrink: 1, flexDirection: "row", alignItems: "flex-start", minWidth: 0, borderRadius: 3 }}>
+                  {head}
+                </Pressable>
+              ) : head}
+              {row.note ? <Text numberOfLines={1} style={[cell(t), { marginLeft: 8, minWidth: 0, flexShrink: 1, color: t.c.dim }]}>{engineText(row.note)}</Text> : null}
+            </View>
+            {hasBefore ? <ValueCell {...values} v={row.before} other={row.after} none={row.beforeNone} side="before" first /> : null}
+            {hasAfter ? <ValueCell {...values} v={row.after} other={row.before} none={row.afterNone} side="after" first={!hasBefore} /> : null}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** .diff-section-head: the title, and a note in small dim. */
+function SectionHead({ title, note }: { title: string; note: string }) {
+  const t = useTheme();
+  return (
+    <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "baseline", columnGap: 8 }}>
+      <T weight={600} lh={lh(t)}>{engineText(title)}</T>
+      <T style={[small(t), { color: t.c.dim }]}>{note}</T>
+    </View>
+  );
+}
+
+/**
  * A diff Unreal produced, laid out for the card's own width. The item's
  * one-line summary is above it on the card, so it is not repeated here.
  */
 function ReadyDiff({ diff, name, asset, status, nativeNote }: { diff: AssetDiff; name: string; asset?: string; status: "added" | "modified" | "deleted"; nativeNote?: ReactNode }) {
   const t = useTheme();
-  const { tier, onLayout } = useCompareTier(t.base.size);
-  const sections = diff.sections ?? [];
+  const { tier, width, onLayout } = useCardSize(t.base.size);
   const [failed, setFailed] = useState<PictureFailures>({});
-  const pictured = [diff.before, diff.after].filter((v, i) => pictureOf(v) && !failed[i === 0 ? "Before" : "After"]).length;
+  const roots = diffTree(diff);
   return (
     <View onLayout={onLayout} style={{ gap: 8, minWidth: 0 }}>
       {nativeNote}
@@ -390,9 +380,7 @@ function ReadyDiff({ diff, name, asset, status, nativeNote }: { diff: AssetDiff;
           <T style={[small(t), { color: t.c.warnText }]}>{`The asset's class changed: ${diff.classChanged}.`}</T>
         </Banner>
       ) : null}
-      {sections.map((s) => (
-        <Section key={s.category} s={s} tier={tier} />
-      ))}
+      {roots.length > 0 ? <DiffTreeGrid roots={roots} name={name} tier={tier} width={width} /> : null}
       {(diff.recordsDropped ?? 0) > 0 ? <T style={[small(t), { color: t.c.dim }]}>{`${diff.recordsDropped} more differences past the limit are not listed.`}</T> : null}
       {diff.textDiff?.diff ? (
         <View style={{ gap: 4 }}>
@@ -400,7 +388,6 @@ function ReadyDiff({ diff, name, asset, status, nativeNote }: { diff: AssetDiff;
           <DiffView lines={unifiedLines(diff.textDiff.diff)} label={`${diff.textDiff.format} diff of ${name}`} />
         </View>
       ) : null}
-      <Facts before={diff.before} after={diff.after} tiled={pictured === 0 && wantsTile(diff, status)} covered={coveredFacts(sections)} tier={tier} />
     </View>
   );
 }

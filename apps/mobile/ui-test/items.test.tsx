@@ -1,15 +1,16 @@
 /**
  * The item cards in screens/chat/items, state by state: every approval kind
  * and what a PIN-locked answer does, an editor dialog in each of its phases,
- * forms, the compaction marker's kinds, the asset diff as beta.31 draws it
- * (the web client's own review fixtures), and the review card's conflict and
- * undo paths.
+ * forms, the compaction marker's kinds, the asset diff's tree as beta.42 draws
+ * it (the web client's own review fixtures) and its row layout on a phone, and
+ * the review card's conflict and undo paths.
  */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { PNG } from "pngjs";
 import { isFlatPicture } from "@ue-mcp-studio/client-core";
-import type { ApprovalRequest, CheckpointChange, EditorDialog, PendingForm, TranscriptEntry, TurnReview } from "@ue-mcp-studio/shared";
+import { diffValue, type ApprovalRequest, type CheckpointChange, type DiffTreeRow, type EditorDialog, type PendingForm, type TranscriptEntry, type TurnReview } from "@ue-mcp-studio/shared";
+import { DiffTreeGrid, rowLayout } from "../src/screens/chat/items/AssetDiff";
 import { REVIEW_SCENARIOS } from "../../client-web/src/visual-qa/review-fixtures";
 import { Approvals, AssetDiffView, CompactContext, CompactionMarker, DialogCard, FieldsForm, FormCards, TurnReviewCard } from "../src/screens/chat/items";
 import { decodePng } from "../src/screens/chat/items/png";
@@ -179,47 +180,117 @@ describe("AssetDiffView: only what changed", () => {
   const view = (path: string, status: "added" | "modified" | "deleted" = "modified") =>
     renderInProject(<AssetDiffView diff={change(path).assetDiff!} name={path.split("/").pop()!} status={status} />);
 
-  it("a widget property by its details-panel label; the facts that are the same are not shown at all", () => {
+  it("a widget property: one tree row named by its widget and details-panel label, the values under it; no badge, no Before and After blocks", () => {
     view("Content/UI/HUD/WBP_GameHUD.uasset");
-    expect(screen.getByText(reads(/^Changed\s*Hide when Full$/))).toBeTruthy();
-    expect(screen.getByText("False")).toBeTruthy();
-    expect(screen.getByText("True")).toBeTruthy();
-    expect(screen.queryByText(/unchanged fact/)).toBeNull();
+    expect(screen.getByLabelText("Differences in WBP_GameHUD.uasset")).toBeTruthy();
+    expect(screen.getByText(reads("Widget WardMeter › Hide when Full"))).toBeTruthy();
+    expect(screen.getByLabelText("Changed").textContent).toBe("~");
+    expect(screen.getByText(reads("False"))).toBeTruthy();
+    expect(screen.getByText(reads(/^→\sTrue$/))).toBeTruthy();
+    expect(screen.queryByText(/^CHANGED$/i)).toBeNull();
     expect(screen.queryByText(reads("Parent class"))).toBeNull();
-    expect(screen.queryByLabelText("Facts")).toBeNull();
   });
 
-  it("a graph: the verb its badge says is dropped, a pin's defaults are its before and after", () => {
+  it("a graph: an added node is a + row, the verb its glyph says dropped from its name", () => {
     view("Content/Characters/Player/BP_PlayerCharacterMovementComponent.uasset");
-    expect(screen.getByText(reads(/^Added\s*Node Branch$/))).toBeTruthy();
-    expect(screen.getAllByText("1.5").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("1.8").length).toBeGreaterThan(0);
+    const branch = screen.getByLabelText("Branch");
+    expect(branch.textContent?.replace(ZW, "")).toMatch(/^▾\+Branch1$/);
+    expect(screen.queryByText(reads(/^Added Node Branch/))).toBeNull();
     expect(screen.queryByText(/Structure \(blueprint diff\)/)).toBeNull();
-    expect(screen.queryByText(/How Unreal compared this/)).toBeNull();
   });
 
-  it("a material: a node's property is named by its node", () => {
-    view("Content/Environment/Materials/M_RockMaster.uasset");
-    expect(screen.getAllByText(reads(/Roughness > /))[0]).toBeTruthy();
-  });
-
-  it("a sound with no records and no picture: its tile names the one fact that changed, and nothing counts the rest", () => {
+  it("a sound with no records and no picture: its changed facts are rows of the tree, not a tile", () => {
     view("Content/Audio/SW_WardChime.uasset");
-    expect(screen.getByLabelText(/SoundWave SW_WardChime/)).toBeTruthy();
+    expect(screen.queryByLabelText(/SoundWave SW_WardChime/)).toBeNull();
+    expect(screen.getByText(reads("Facts"))).toBeTruthy();
     expect(screen.getByText(reads("Duration"))).toBeTruthy();
-    expect(screen.queryByText("Facts")).toBeNull();
-    expect(screen.queryByText(/unchanged fact/)).toBeNull();
   });
 
-  it("an added asset with no picture: its tile, and the details of this version", () => {
+  it("an added asset with no picture: its facts are rows of the tree, with After only", () => {
     view("Content/Input/Actions/IA_WallRunWhileCrouched.uasset", "added");
-    expect(screen.getByLabelText(/InputAction IA_WallRunWhileCrouched\.uasset/)).toBeTruthy();
+    expect(screen.getByText(reads("Details of this version"))).toBeTruthy();
+    expect(screen.queryByTestId("value-before")).toBeNull();
+    expect(screen.getAllByTestId("value-after").length).toBeGreaterThan(0);
   });
 
   it("an asset Unreal could not load: why, and what Keep and Revert do without it", () => {
     view("Content/Props/SM_CrateWoodenLarge.uasset");
     expect(screen.getByText(/Unreal could not load this asset to diff it/)).toBeTruthy();
     expect(screen.getByText(/byte for byte/)).toBeTruthy();
+  });
+});
+
+describe("DiffTreeGrid: a row on a phone", () => {
+  const leaf = (id: string, label: string, sides: Partial<DiffTreeRow>, tone: DiffTreeRow["tone"] = "mod"): DiffTreeRow => ({ id, label: [label], tone, children: [], count: 1, ...sides });
+  const group = (children: DiffTreeRow[]): DiffTreeRow => ({ id: "s:Details", label: ["Details"], tone: null, section: true, children, count: children.length });
+  const grid = (rows: DiffTreeRow[], width = 340) => renderInProject(<DiffTreeGrid roots={[group(rows)]} name="DA_Waves" width={width} />);
+  const style = (el: Element) => getComputedStyle(el);
+
+  it("a short change sits on its name's line; a longer one goes under the name; two long values take a line each", () => {
+    const short = leaf("a", "Mobility", { before: diffValue("Static"), after: diffValue("Movable") });
+    const under = leaf("b", "Wave Spawn Interval Seconds Multiplier", { before: diffValue("1.5"), after: diffValue("2.25") });
+    const long = leaf("c", "Tag", { before: diffValue("Spawn.Gate.North.Inner.Primary"), after: diffValue("Spawn.Gate.South.Outer.Secondary") });
+    expect(rowLayout(short, 1, 340)).toBe("inline");
+    expect(rowLayout(under, 1, 340)).toBe("under");
+    expect(rowLayout(long, 1, 340)).toBe("split");
+    grid([short, under, long]);
+    // Inline and under: Before, then After behind an arrow. Split: each value says which side it is.
+    expect(screen.getByText(reads("Static"))).toBeTruthy();
+    expect(screen.getByText(reads(/^→\sMovable$/))).toBeTruthy();
+    expect(screen.getByText(reads(/^→\s2\.25$/))).toBeTruthy();
+    expect(screen.getByText(reads(/^Before\sSpawn\.Gate\.North/))).toBeTruthy();
+    expect(screen.getByText(reads(/^After\sSpawn\.Gate\.South/))).toBeTruthy();
+    // The name of an inline row does not take the whole line; the others' do.
+    const nameBox = (id: string) => screen.getByTestId(`row-${id}`).firstElementChild!;
+    expect(style(nameBox("a")).width).not.toBe("100%");
+    expect(style(nameBox("b")).width).toBe("100%");
+  });
+
+  it("a removed value is struck through; a changed row's Before is not", () => {
+    grid([
+      leaf("gone", "Allowed Tag", { before: diffValue("Spawn.Gate") }, "del"),
+      leaf("both", "Count", { before: diffValue("3"), after: diffValue("4") }),
+    ]);
+    const decoration = (el: Element) => `${style(el).textDecorationLine || ""} ${style(el).textDecoration || ""}`;
+    expect(decoration(screen.getByText(reads("Spawn.Gate")))).toContain("line-through");
+    expect(decoration(screen.getByText(reads("3")))).not.toContain("line-through");
+  });
+
+  it("a colour value gets a swatch in its colour", () => {
+    grid([leaf("col", "Tint", { before: diffValue("(R=1.000000,G=0.000000,B=0.000000,A=1.000000)"), after: diffValue("(R=0.000000,G=0.000000,B=1.000000,A=1.000000)") })]);
+    const swatches = screen.getAllByTestId("swatch");
+    expect(swatches).toHaveLength(2);
+    expect(style(swatches[0]).backgroundColor).toBe("rgb(255, 0, 0)");
+    expect(style(swatches[1]).backgroundColor).toBe("rgb(0, 0, 255)");
+  });
+
+  it("a many-line value opens in place on a tap, the lines it gained marked, and folds back", () => {
+    grid([leaf("list", "Allowed Biomes", { before: diffValue('("Forest","Swamp")'), after: diffValue('("Forest","Swamp","Tundra")') })]);
+    const after = screen.getByLabelText(/^Allowed Biomes, After:/);
+    expect(after.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText(reads("Tundra"))).toBeNull();
+    fireEvent.click(after);
+    expect(screen.getByLabelText(/^Allowed Biomes, After:/).getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByTestId("line-add").textContent).toBe("Tundra");
+    expect(screen.getAllByText(/^After$/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByLabelText(/^Allowed Biomes, After:/));
+    expect(screen.queryByTestId("line-add")).toBeNull();
+  });
+
+  it("a group closes to its count with its triangle, and opens again", () => {
+    const kids = [leaf("w/a", "Count", { before: diffValue("3"), after: diffValue("4") }), leaf("w/b", "Delay", { before: diffValue("1"), after: diffValue("2") })];
+    const waves: DiffTreeRow = { id: "s:Details/p:Waves[0]", label: ["Waves[0]"], tone: null, children: kids, count: 2 };
+    grid([waves]);
+    const toggle = screen.getByLabelText("Waves[0]");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toContain("▾");
+    expect(toggle.textContent).toContain("2");
+    expect(screen.getByText(reads("Delay"))).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(screen.getByLabelText("Waves[0]").textContent).toContain("▸");
+    expect(screen.queryByText(reads("Delay"))).toBeNull();
+    fireEvent.click(screen.getByLabelText("Waves[0]"));
+    expect(screen.getByText(reads("Delay"))).toBeTruthy();
   });
 });
 
