@@ -7,6 +7,27 @@
 import type { FlowStepProgress } from "@ue-mcp-studio/shared";
 import type { DaemonEndpoint, FlowEventLike } from "./playtest-flow.js";
 
+/** Which daemon extension a run asks before each step, and the token that names the run to it. */
+export interface FlowStepApprovalSpec {
+  approver: string;
+  token: string;
+}
+
+/**
+ * ue-mcp's step approval as the daemon offers it to an extension (feature
+ * "flows.stepApproval"), typed here until the ue-mcp this package builds
+ * against declares it.
+ */
+export interface FlowStepHost {
+  features?: readonly string[];
+  flows?: {
+    approveSteps(approver: (r: { token: string; task: string; options: Record<string, unknown> }) => Promise<{ allow: true } | { allow: false; reason?: string }>): () => void;
+  };
+}
+
+/** Whether the daemon asks before each flow step as it runs. */
+export const offersStepApproval = (host: FlowStepHost): boolean => !!host.flows && (host.features ?? []).includes("flows.stepApproval");
+
 export interface FlowCallOptions {
   endpoint: () => DaemonEndpoint | null;
   subscribe: (listener: (e: FlowEventLike) => void) => () => void;
@@ -90,8 +111,9 @@ export class FlowCaller {
 
   constructor(private readonly o: FlowCallOptions) {}
 
-  run(name: string, params: Record<string, unknown>, onEvent: (e: FlowEventLike) => void, signal: AbortSignal): Promise<FlowCallOutcome> {
-    const next = this.queue.then(() => this.runOne(name, params, onEvent, signal));
+  /** `stepApproval`: ask that daemon extension before each step (ue-mcp feature "flows.stepApproval"). */
+  run(name: string, params: Record<string, unknown>, onEvent: (e: FlowEventLike) => void, signal: AbortSignal, stepApproval?: FlowStepApprovalSpec): Promise<FlowCallOutcome> {
+    const next = this.queue.then(() => this.runOne(name, params, onEvent, signal, stepApproval));
     this.queue = next.catch(() => undefined);
     return next;
   }
@@ -118,7 +140,7 @@ export class FlowCaller {
     }
   }
 
-  private async runOne(name: string, params: Record<string, unknown>, onEvent: (e: FlowEventLike) => void, signal: AbortSignal): Promise<FlowCallOutcome> {
+  private async runOne(name: string, params: Record<string, unknown>, onEvent: (e: FlowEventLike) => void, signal: AbortSignal, stepApproval?: FlowStepApprovalSpec): Promise<FlowCallOutcome> {
     const fail = (error: string): FlowCallOutcome => ({ success: false, errors: [error], steps: [] });
     if (signal.aborted) return fail("Stopped.");
     const end = this.o.endpoint();
@@ -137,7 +159,7 @@ export class FlowCaller {
         method: "POST",
         signal,
         headers: { "content-type": "application/json", authorization: `Bearer ${end.token}` },
-        body: JSON.stringify({ params }),
+        body: JSON.stringify({ params, ...(stepApproval ? { stepApproval } : {}) }),
       });
       const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       return flowOutcome(res.status, body);
