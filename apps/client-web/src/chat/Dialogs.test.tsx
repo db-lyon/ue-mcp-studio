@@ -6,7 +6,7 @@ import type { EditorDialog } from "@ue-mcp-studio/shared";
 vi.mock("../api", () => ({ api: { answerDialog: vi.fn(async () => undefined) } }));
 import { api } from "../api";
 import { DialogBannerLine, DialogCards, DialogLine } from "./Dialogs";
-import { clock, decider, outcomeLine, readyIn, statusLine } from "./dialog-model";
+import { clock, decider, outcomeLine, readyIn, statusLine } from "@ue-mcp-studio/client-core";
 import { Entry } from "./Transcript";
 import { DialogPolicyField } from "../views/settings/ApprovalsSection";
 

@@ -1,0 +1,314 @@
+// Compare the mobile app with the web client, scenario by scenario, pixel by pixel.
+//
+//   node scripts/visual-qa.mjs --remote --widths 390 --out <web>     (the reference, once per change to client-web)
+//   node scripts/parity-mobile.mjs --web <web> [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell] [--lcd-text]
+//   node scripts/parity-mobile.mjs --list                                (the scenarios and who owns each)
+//   node scripts/parity-mobile.mjs [--web <web>] --inset-bottom 48 [--screens welcome,projects,...|all]
+//   node scripts/parity-mobile.mjs --scenes [name,prefix*,...|all] [--reference <dir>] [--inset-bottom 48] [--out <dir>] [--themes ...]
+//
+// --inset-bottom N gives the app a navigation bar N pixels tall (default 0, as the web reference has
+// none), drawn over the page as a phone's 3-button bar, to show nothing sits under it. --screens also
+// shoots the app's own screens outside a project (apps/mobile/visual-qa/screens.tsx), which have no
+// web counterpart: <out>/screen-<name>-<theme>-app.png. Without --web only those are shot.
+//
+// --scenes shoots the app's own screens in each of their states (apps/mobile/visual-qa/scenes.tsx: every
+// pairing state, the scanner and its permission, projects, paired devices, About, the phone-only banners
+// and prompts) at 390 by 844 in each theme, as <out>/<scene>-<theme>.png, with index-scenes.md. A scene
+// with a `reference` (a relay page's shot) is also put beside that shot from --reference, as
+// <out>/<scene>-<theme>-beside.png (relay | app). --screens is the safe-area pass over one state per
+// screen; --scenes is the design pass over every state.
+//
+// Serves apps/mobile/visual-qa with Vite: the app's own screens, drawn by
+// react-native-web against the same fixture daemon the web harness answers from
+// (apps/client-web/src/visual-qa/daemon.ts), at 390 pixels wide and the
+// scenario's height. Each shot is diffed against <web>/<scenario>-<theme>-390.png
+// with pixelmatch. <out>/index.md lists every scenario with its mismatch, and
+// <out>/<scenario>-<theme>.png puts web, app and the difference side by side.
+// A scenario missing from apps/mobile/visual-qa/parity.ts fails the run.
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const app = path.join(root, "apps", "mobile");
+const arg = (name) => {
+  const i = process.argv.indexOf(`--${name}`);
+  return i > 0 ? process.argv[i + 1] : undefined;
+};
+const list = process.argv.includes("--list");
+const webDir = arg("web") ? path.resolve(arg("web")) : null;
+const out = path.resolve(arg("out") ?? path.join(os.tmpdir(), "studio-mobile-parity"));
+const only = arg("only")?.split(",");
+const THEMES = (arg("themes") ?? "ue-mcp,editor-orange,editor").split(",");
+const owners = arg("owner")?.split(",");
+const insetBottom = Math.max(0, Number(arg("inset-bottom") ?? 0) || 0);
+const inset = insetBottom ? `&insetBottom=${insetBottom}` : "";
+const screensArg = arg("screens")?.split(",");
+const WIDTH = 390;
+const BROWSERS = [
+  arg("browser"),
+  process.env.STUDIO_QA_BROWSER,
+  path.join(os.homedir(), "AppData/Local/ms-playwright/chromium-1217/chrome-win64/chrome.exe"),
+  "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+].filter(Boolean);
+const browserPath = BROWSERS.find((p) => fs.existsSync(p));
+if (!browserPath) throw new Error("no Chrome or Edge found: pass --browser <path> or set STUDIO_QA_BROWSER");
+const scenesArg = process.argv.includes("--scenes") ? (arg("scenes") && !arg("scenes").startsWith("--") ? arg("scenes") : "all") : null;
+const referenceDir = arg("reference") ? path.resolve(arg("reference")) : null;
+if (!list && !webDir && !scenesArg && !screensArg) throw new Error("pass --web <dir> with the web client's shots (node scripts/visual-qa.mjs --remote --widths 390 --out <dir>)");
+
+const { chromium } = await import("playwright-core");
+const { PNG } = await import("pngjs");
+const pixelmatch = (await import("pixelmatch")).default;
+const { mobileQaServer } = await import("./mobile-qa-server.mjs");
+
+const server = await mobileQaServer(root);
+await server.listen();
+const base = server.resolvedUrls.local[0].replace(/\/$/, "");
+// Grayscale text antialiasing: react-native-web's text is drawn without subpixel antialiasing beside the
+// web client's, so the web shots are taken with visual-qa.mjs --grayscale-text and these the same way.
+// --lcd-text keeps subpixel text, for web shots taken without --grayscale-text: Chrome then puts a scroller on
+// a layer only where the web page has one, so the two land text on the same pixels and differ only where they differ.
+const lcd = process.argv.includes("--lcd-text");
+const browser = await chromium.launch({ executablePath: browserPath, headless: true, args: lcd ? [] : ["--disable-lcd-text"] });
+const PAGE = "index.html";
+
+const first = await browser.newPage();
+await first.goto(`${base}/index.html?scenario=session-empty`);
+await first.waitForFunction(() => window.__mobileQa, null, { timeout: 60_000 });
+const { scenarios, parity, scenes, screens } = await first.evaluate(() => window.__mobileQa);
+await first.close();
+
+if (scenesArg) {
+  fs.mkdirSync(out, { recursive: true });
+  const wanted = scenesArg === "all" ? null : scenesArg.split(",");
+  const names = Object.keys(scenes).filter((n) => !wanted || wanted.some((o) => (o.endsWith("*") ? n.startsWith(o.slice(0, -1)) : n === o)));
+  const lines = ["# App-only scenes", "", "The app's own screens at 390 by 844, drawn by react-native-web.", ""];
+  for (const name of names) {
+    lines.push(`## ${name}`, "", scenes[name].title, "");
+    for (const theme of THEMES) {
+      const page = await browser.newPage({ viewport: { width: WIDTH, height: 844 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      await page.goto(`${base}/${PAGE}?scene=${encodeURIComponent(name)}&theme=${theme}${inset}`);
+      await page.waitForTimeout(1500);
+      for (const c of scenes[name].clicks) {
+        try {
+          await press(page, c);
+          await page.waitForTimeout(600);
+        } catch (e) {
+          errors.push(String(e.message ?? e));
+        }
+      }
+      const typed = scenes[name].type;
+      if (typed) {
+        const el = page.locator(`[aria-label="${typed.into.replace(/"/g, '\\"')}"]`).first();
+        if (!(await el.count())) errors.push(`nothing to type into: ${typed.into}`);
+        else {
+          await el.focus();
+          await page.keyboard.type(typed.text, { delay: 5 });
+          await page.keyboard.press("Enter");
+          await page.waitForTimeout(400);
+        }
+      }
+      await page.mouse.move(1, 1);
+      const shot = path.join(out, `${name}-${theme}.png`);
+      await page.screenshot({ path: shot });
+      await page.close();
+      const ref = scenes[name].reference && referenceDir ? path.join(referenceDir, `${scenes[name].reference}-390.png`) : null;
+      if (ref && fs.existsSync(ref)) {
+        const a = PNG.sync.read(fs.readFileSync(ref));
+        const b = PNG.sync.read(fs.readFileSync(shot));
+        const h = Math.max(a.height, b.height);
+        const side = new PNG({ width: a.width + b.width + 16, height: h });
+        side.data.fill(255);
+        PNG.bitblt(a, side, 0, 0, a.width, a.height, 0, 0);
+        PNG.bitblt(b, side, 0, 0, b.width, b.height, a.width + 16, 0);
+        fs.writeFileSync(path.join(out, `${name}-${theme}-beside.png`), PNG.sync.write(side));
+      }
+      lines.push(`![${name} ${theme}](${name}-${theme}.png)${errors.length ? ` errors: ${errors.join("; ")}` : ""}`, "");
+      console.log(`${name} ${theme}${errors.length ? `  errors: ${errors.join("; ")}` : ""}`);
+    }
+  }
+  fs.writeFileSync(path.join(out, "index-scenes.md"), lines.join("\n"));
+  console.log(`${names.length} scenes: ${path.join(out, "index-scenes.md")}`);
+  if (!webDir && !screensArg) {
+    await browser.close();
+    await server.close();
+    process.exit(0);
+  }
+}
+
+const missing = Object.keys(scenarios).filter((n) => !parity[n]);
+if (list) {
+  for (const [n, s] of Object.entries(scenarios)) console.log(`${n}\t${parity[n]?.owner ?? (parity[n]?.notOnPhone ? "not on phone" : "MISSING")}\t${s.title}`);
+  await browser.close();
+  await server.close();
+  process.exit(missing.length ? 1 : 0);
+}
+
+fs.mkdirSync(out, { recursive: true });
+// Without the web client's shots there is nothing to compare a scenario with: only --screens or --scenes run.
+const picked = Object.keys(scenarios).filter((n) => webDir && parity[n]?.owner && (!owners || owners.includes(parity[n].owner)) && (!only || only.some((o) => (o.endsWith("*") ? n.startsWith(o.slice(0, -1)) : n === o))));
+
+/** The app's form of a click: an element whose accessibility label or text is `what`, the first visible. A `what` ending in * matches a label by its start. */
+async function press(page, what) {
+  const prefix = what.endsWith("*");
+  const label = (prefix ? what.slice(0, -1) : what).replace(/"/g, '\\"');
+  const byLabel = page.locator(prefix ? `[aria-label^="${label}"]` : `[aria-label="${label}"]`);
+  for (const h of await byLabel.all()) if (await h.isVisible()) return h.click();
+  const byText = page.getByText(what, { exact: true });
+  for (const h of await byText.all()) if (await h.isVisible()) return h.click();
+  throw new Error(`nothing visible to press: ${what}`);
+}
+
+const rows = [];
+for (const name of picked) {
+  for (const theme of THEMES) {
+    // The web shot's own height: a full-page scenario is shot in a taller window than its height says.
+    const webShot = path.join(webDir ?? "", `${name}-${theme}-390.png`);
+    const height = fs.existsSync(webShot) ? PNG.sync.read(fs.readFileSync(webShot)).height : scenarios[name].height ?? 860;
+    const page = await browser.newPage({ viewport: { width: WIDTH, height }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    // A link the app opens in the browser (Upgrade's checkout) is closed at once, as the web harness never opens one.
+    page.on("popup", (p) => void p.close().catch(() => undefined));
+    await page.goto(`${base}/${PAGE}?scenario=${encodeURIComponent(name)}&theme=${theme}${inset}`);
+    await page.waitForTimeout(1500);
+    for (const c of parity[name].clicks ?? []) {
+      try {
+        await press(page, c);
+        await page.waitForTimeout(700);
+      } catch (e) {
+        errors.push(String(e.message ?? e));
+      }
+    }
+    const { focus, type: typed, afterType } = parity[name];
+    if (focus) {
+      // A key press first, so the page treats the focus as the keyboard's.
+      await page.keyboard.press("Shift");
+      const el = page.locator(`[aria-label="${focus.replace(/"/g, '\\"')}"]`).first();
+      if (!(await el.count())) errors.push(`nothing to focus: ${focus}`);
+      else await el.focus();
+      await page.waitForTimeout(200);
+    }
+    if (typed) {
+      // Typed key by key at the end of what the element holds, as the web harness types, then left to settle.
+      const el = page.locator(typed.into).first();
+      if (!(await el.count())) errors.push(`nothing matched ${typed.into}`);
+      else {
+        await el.focus();
+        await page.keyboard.press("End");
+        await page.keyboard.type(typed.text, { delay: 20 });
+        await page.mouse.move(1, 1);
+        await page.waitForTimeout(700);
+      }
+    }
+    // Several fields typed one after another (the web scenario's types), each found by its label.
+    for (const each of parity[name].types ?? []) {
+      const el = page.locator(`[aria-label="${each.into.replace(/"/g, '\\"')}"]`).first();
+      if (!(await el.count())) errors.push(`nothing to type into: ${each.into}`);
+      else {
+        await el.focus();
+        await page.keyboard.type(each.text, { delay: 10 });
+      }
+    }
+    if (parity[name].types?.length) await page.waitForTimeout(500);
+    for (const c of afterType?.clicks ?? []) {
+      try {
+        await press(page, c);
+      } catch (e) {
+        errors.push(String(e.message ?? e));
+      }
+    }
+    if (afterType) {
+      await page.mouse.move(1, 1);
+      await page.waitForTimeout(afterType.wait);
+    }
+    if (parity[name].scroll) {
+      // The web scenario's scroll: the element brought to the top of its scrolling list, by its row (the pressable around a text).
+      const what = parity[name].scroll;
+      const found = await page.evaluate((w) => {
+        // A CSS selector (one starting with "[") names the element itself, as the web scenario's does.
+        if (w.startsWith("[")) {
+          const one = document.querySelector(w);
+          one?.scrollIntoView({ block: "start" });
+          return !!one;
+        }
+        const all = [...document.querySelectorAll(`[aria-label="${w.replace(/"/g, '\\"')}"]`), ...[...document.querySelectorAll("div, span")].filter((e) => e.childElementCount === 0 && e.textContent === w)];
+        const el = all.find((e) => e.getBoundingClientRect().height > 0);
+        (el?.closest('[role="button"]') ?? el)?.scrollIntoView({ block: "start" });
+        return !!el;
+      }, what);
+      if (!found) errors.push(`nothing to scroll to: ${what}`);
+      await page.waitForTimeout(200);
+    }
+    const appPng = path.join(out, `${name}-${theme}-app.png`);
+    await page.screenshot({ path: appPng });
+    await page.close();
+
+    const webPng = path.join(webDir,`${name}-${theme}-390.png`);
+    let mismatch = null;
+    if (fs.existsSync(webPng)) {
+      const a = PNG.sync.read(fs.readFileSync(webPng));
+      const b = PNG.sync.read(fs.readFileSync(appPng));
+      const w = Math.min(a.width, b.width);
+      const h = Math.min(a.height, b.height);
+      const crop = (img) => {
+        const o = new PNG({ width: w, height: h });
+        PNG.bitblt(img, o, 0, 0, w, h, 0, 0);
+        return o;
+      };
+      const ca = crop(a);
+      const cb = crop(b);
+      const diff = new PNG({ width: w, height: h });
+      const n = pixelmatch(ca.data, cb.data, diff.data, w, h, { threshold: 0.1 });
+      mismatch = n / (w * h);
+      const side = new PNG({ width: w * 3 + 16, height: h });
+      side.data.fill(255);
+      PNG.bitblt(ca, side, 0, 0, w, h, 0, 0);
+      PNG.bitblt(cb, side, 0, 0, w, h, w + 8, 0);
+      PNG.bitblt(diff, side, 0, 0, w, h, w * 2 + 16, 0);
+      fs.writeFileSync(path.join(out, `${name}-${theme}.png`), PNG.sync.write(side));
+    }
+    rows.push({ name, theme, mismatch, errors });
+    console.log(`${name} ${theme}: ${mismatch === null ? "no web shot" : `${(mismatch * 100).toFixed(2)}%`}${errors.length ? `  errors: ${errors.join("; ")}` : ""}`);
+  }
+}
+
+// The app's own screens outside a project: no web reference, shot for the eye.
+const shotScreens = screensArg ? (screensArg[0] === "all" ? screens : screensArg.filter((n) => screens.includes(n))) : [];
+for (const n of screensArg ?? []) if (n !== "all" && !screens.includes(n)) console.error(`no such screen: ${n} (${screens.join(", ")})`);
+for (const name of shotScreens) {
+  for (const theme of THEMES) {
+    const page = await browser.newPage({ viewport: { width: WIDTH, height: 860 }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
+    const errors = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+    await page.goto(`${base}/${PAGE}?screen=${encodeURIComponent(name)}&theme=${theme}${inset}`);
+    await page.waitForTimeout(1500);
+    await page.screenshot({ path: path.join(out, `screen-${name}-${theme}-app.png`) });
+    await page.close();
+    console.log(`screen ${name} ${theme}${errors.length ? `  errors: ${errors.join("; ")}` : ""}`);
+  }
+}
+
+const lines = ["# Mobile parity", "", `App (react-native-web, ${WIDTH}px) against the web client as a paired browser draws it. Mismatch is the share of pixels pixelmatch finds different at threshold 0.1.`, ""];
+if (insetBottom) lines.push(`Shot with a ${insetBottom} px navigation bar (--inset-bottom), so the app differs from the web reference by its padding above the bar.`, "");
+for (const name of shotScreens) for (const theme of THEMES) lines.push(`![${name} (${theme})](screen-${name}-${theme}-app.png)`, "");
+if (missing.length) lines.push(`**Scenarios missing from apps/mobile/visual-qa/parity.ts:** ${missing.join(", ")}`, "");
+lines.push("| Scenario | Theme | Mismatch | Errors |", "|---|---|---|---|");
+for (const r of rows) lines.push(`| ${r.name} | ${r.theme} | ${r.mismatch === null ? "no web shot" : `${(r.mismatch * 100).toFixed(2)}%`} | ${r.errors.join("; ")} |`);
+lines.push("");
+for (const r of rows) if (r.mismatch !== null) lines.push(`## ${r.name} (${r.theme})`, "", `![web, app, difference](${r.name}-${r.theme}.png)`, "");
+fs.writeFileSync(path.join(out, "index.md"), lines.join("\n"));
+await browser.close();
+await server.close();
+console.log(`${rows.length} shots: ${path.join(out, "index.md")}`);
+if (missing.length) {
+  console.error(`missing from parity.ts: ${missing.join(", ")}`);
+  process.exit(1);
+}

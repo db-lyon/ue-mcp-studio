@@ -78,37 +78,8 @@ export function notificationsOf(raw: unknown): NotificationsState {
 }
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
-/** A plugin the project's ue-mcp.yml declares, as the daemon reads it. */
-export interface InstalledPlugin {
-  name: string;
-  version: string | null;
-  pinned: string | null;
-  status: "ok" | "missing" | "invalid";
-  categories: string[];
-  problems: string[];
-}
-
-/** A plugin the registry publishes. */
-export interface CatalogPlugin {
-  slug: string;
-  name: string;
-  packageName?: string;
-  tagline?: string;
-  description?: string;
-  readme?: string;
-  category?: string;
-  tags?: string[];
-  repoUrl?: string;
-  homepageUrl?: string;
-}
-
-/** What an install, update or uninstall did. */
-export interface PluginCommandResult {
-  ok: boolean;
-  exitCode: number | null;
-  output: string;
-  restartRequired: boolean;
-}
+import type { CatalogPlugin, InstalledPlugin, PluginCommandResult } from "@ue-mcp-studio/client-core";
+export type { CatalogPlugin, InstalledPlugin, PluginCommandResult } from "@ue-mcp-studio/client-core";
 
 async function pluginCommand(command: "install" | "update" | "uninstall", body: Record<string, string>): Promise<PluginCommandResult> {
   const res = await fetch(`/v1/plugins/${command}`, {

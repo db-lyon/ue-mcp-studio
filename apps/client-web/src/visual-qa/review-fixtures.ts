@@ -231,14 +231,14 @@ const ARENA = ready({
 });
 
 /** Assets only their own scenarios open, not on the every-state card. */
-const EXTRA: CheckpointChange[] = [
+export const EXTRA: CheckpointChange[] = [
   { path: PATHS.waves, status: "modified", kind: "package", assetDiff: WAVES },
   { path: PATHS.arena, status: "modified", kind: "package", assetDiff: ARENA },
 ];
 
 const CONFIG_DIFF = "--- a/Config/DefaultEngine.ini\n+++ b/Config/DefaultEngine.ini\n@@ -12,3 +12,4 @@\n [/Script/Engine.RendererSettings]\n-r.DefaultFeature.AutoExposure=True\n+r.DefaultFeature.AutoExposure=False\n+r.Lumen.HardwareRayTracing.LightingMode=2\n r.ReflectionMethod=1\n";
 
-const CHANGES: CheckpointChange[] = [
+export const CHANGES: CheckpointChange[] = [
   { path: PATHS.bp, status: "modified", kind: "package", assetDiff: BLUEPRINT },
   { path: PATHS.mi, status: "modified", kind: "package", assetDiff: MATERIAL_INSTANCE },
   { path: PATHS.material, status: "modified", kind: "package", assetDiff: MATERIAL },

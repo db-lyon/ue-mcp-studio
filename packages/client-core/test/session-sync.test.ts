@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SessionDetail, SessionSync, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { DetailLoader, mergeSync } from "./session-sync";
+import { DetailLoader, mergeSync } from "../src/session-sync.js";
 
 const at = "2026-11-03T12:00:00.000Z";
 const user = (text: string): TranscriptEntry => ({ kind: "user", text, at });

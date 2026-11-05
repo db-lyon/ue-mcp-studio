@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { tokenizeYaml, type YamlToken } from "./yaml-tokens";
+import { tokenizeYaml, type YamlToken } from "@ue-mcp-studio/client-core";
 
 /** The tokens with a type, as [type, text] pairs. */
 const typed = (src: string) => tokenizeYaml(src).filter((t) => t.type).map((t) => [t.type, t.text]);

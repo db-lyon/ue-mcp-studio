@@ -1,0 +1,12 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@ue-mcp-studio/remote": ["../../packages/remote/src/index.ts"],
+      "@ue-mcp-studio/client-core": ["../../packages/client-core/src/index.ts"],
+      "@ue-mcp-studio/shared": ["../../packages/shared/src/index.ts"],
+      "@ue-mcp-studio/extension-api": ["../../packages/extension-api/src/index.ts"]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "@ue-mcp-studio/client-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Studio client logic with no UI: the transport a client reaches its daemon through, the event stream, and the remote lock. Shared by the web client and the mobile app; no React, no DOM.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ue-mcp-studio/shared": "*"
+  }
+}

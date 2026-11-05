@@ -5,6 +5,7 @@
  * package, which the app renders too.
  */
 import { Fragment, useRef, useState, type KeyboardEvent } from "react";
+import { diffErrorConsequence, isFlatPicture, pictureOf, pictureWhy, thumbnailErrors, wantsTile, type PictureFailure } from "@ue-mcp-studio/client-core";
 import {
   diffTree,
   inlineFits,
@@ -16,8 +17,6 @@ import {
   treeLines,
   unifiedLines,
   type AssetDiff,
-  type AssetThumbnail,
-  type AssetVersion,
   type DiffTreeRow,
   type DiffValue,
 } from "@ue-mcp-studio/shared";
@@ -27,32 +26,7 @@ import { EngineText } from "./breakable";
 import { AssetTile, tileOf } from "./AssetTile";
 import { Swatch, useCardSize, type CompareTier } from "./compare";
 
-export { numberStruct };
-
-const pictureOf = (v: AssetVersion | null | undefined): Extract<AssetThumbnail, { id: string }> | null => (v?.thumbnail && "id" in v.thumbnail ? v.thumbnail : null);
-
-/** Most a colour channel may vary across a picture that still counts as one flat colour. */
-const FLAT_TOLERANCE = 6;
-
-/**
- * Whether RGBA pixels are one flat colour, or fully transparent: what a
- * thumbnail renderer that drew nothing leaves (black, or only its background).
- * A picture of nothing is not a picture of the version.
- */
-export function isFlatPicture(px: ArrayLike<number>): boolean {
-  if (px.length < 4) return true;
-  const min = [255, 255, 255];
-  const max = [0, 0, 0];
-  for (let i = 0; i + 3 < px.length; i += 4) {
-    if (px[i + 3] < 8) continue;
-    for (let c = 0; c < 3; c++) {
-      if (px[i + c] < min[c]) min[c] = px[i + c];
-      if (px[i + c] > max[c]) max[c] = px[i + c];
-    }
-    if (max[0] - min[0] > FLAT_TOLERANCE || max[1] - min[1] > FLAT_TOLERANCE || max[2] - min[2] > FLAT_TOLERANCE) return false;
-  }
-  return true;
-}
+export { isFlatPicture, numberStruct };
 
 /** A loaded picture's pixels, read through a small canvas; null where the browser will not give them. */
 function pixelsOf(img: HTMLImageElement): Uint8ClampedArray | null {
@@ -70,15 +44,8 @@ function pixelsOf(img: HTMLImageElement): Uint8ClampedArray | null {
   }
 }
 
-/**
- * Whether the tile takes an absent picture's place: a new or deleted asset
- * with no facts, which the grid would otherwise leave with nothing to say what
- * it is. A changed asset's line above names it, and its facts are rows of the grid.
- */
-const wantsTile = (diff: AssetDiff, status: "added" | "modified" | "deleted"): boolean => status !== "modified" && !diff.before?.facts.length && !diff.after?.facts.length;
-
-/** A side whose picture file could not be read, or that drew one flat colour: either way, no picture of it. */
-type PictureFailures = Record<string, "unreadable" | "blank">;
+/** Each side whose picture is no picture of it, and why. */
+type PictureFailures = Record<string, PictureFailure>;
 
 function Pictures({ diff, name, asset, status, failed, setFailed }: {
   diff: AssetDiff;
@@ -102,7 +69,7 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
   const shown = sides.filter((s) => pictureOf(s.v) && !failed[s.label]);
   if (shown.length === 0) {
     if (!wantsTile(diff, status)) return null;
-    const errors = [...new Set(sides.flatMap((s) => (s.v?.thumbnail && "error" in s.v.thumbnail ? [s.v.thumbnail.error] : [])))];
+    const errors = thumbnailErrors(diff);
     const tile = tileOf(diff, name, asset, status);
     // The facts are rows of the grid below it.
     tile.facts = [];
@@ -127,11 +94,7 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
             </figure>
           );
         }
-        const why = !s.v ? s.missing
-          : s.v.thumbnail && "error" in s.v.thumbnail ? `No picture: ${s.v.thumbnail.error}`
-          : failed[s.label] === "blank" ? "No picture: Unreal's thumbnail renderer drew nothing for this version."
-          : failed[s.label] ? "No picture: the file could not be read."
-          : "No picture: the editor kept none for this version.";
+        const why = pictureWhy(s.v, s.missing, failed[s.label]);
         return (
           <div key={s.label} className="review-picture-side small">
             <span className="dim"><EngineText text={why} /></span>
@@ -146,11 +109,7 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
 /** A package's diff from Unreal's diff code. */
 export function AssetDiffView({ diff, name, asset, status, nativeNote }: { diff: AssetDiff; name: string; asset?: string; status: "added" | "modified" | "deleted"; nativeNote?: React.ReactNode }) {
   if (diff.state === "error") {
-    const consequence = status === "added"
-      ? "Revert deletes the file the agent added; Keep leaves it."
-      : status === "deleted"
-        ? "Revert puts the file back as it was before this turn; Keep leaves it deleted."
-        : "Revert puts the file back exactly as it was before this turn, byte for byte; Keep leaves it as the agent left it. Neither needs Unreal to load it.";
+    const consequence = diffErrorConsequence(status);
     return (
       <div className="banner bad small" role="alert">
         <div>Unreal could not load this asset to diff it, so there is no before and after to show.</div>

@@ -5,6 +5,7 @@ import type { StudioUpdates, UeMcpUpdate } from "./Updates";
 import { STEP_NAME, STEP_NOTE, afterRunning, execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
 import { onRemotePage } from "../connection";
+import { waitingWho } from "@ue-mcp-studio/client-core";
 
 let current: UpdateRun | null = null;
 const listeners = new Set<() => void>();
@@ -91,10 +92,7 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
 export function UpdateWaiting({ run }: { run: UpdateRun }) {
   const [sure, setSure] = useState(false);
   const steps = waitingSteps(run);
-  const studio = steps.some((k) => k === "studio" || k === "restart");
-  const editor = steps.includes("plugin");
-  // The agent runs the waiting steps once every session is idle (update-queue.ts).
-  const who = studio && editor ? "The editor and Studio restart" : editor ? "The editor restarts" : "Studio restarts";
+  const who = waitingWho(steps);
   return (
     <div className="banner warn update-waiting" role="status">
       <span className="editor-banner-text">

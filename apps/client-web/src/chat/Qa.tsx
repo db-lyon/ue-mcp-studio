@@ -20,7 +20,6 @@ import {
   qaAgentMayJudge,
   qaAgentVerdict,
   qaApplyStreamEvent,
-  qaAssignable,
   qaEnded,
   qaIsDraft,
   qaMergeAnswer,
@@ -34,6 +33,25 @@ import {
   type QaScriptStep,
 } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import {
+  PATH_MARKS,
+  QA_VERDICTS,
+  STARTING,
+  agentEvidenceText,
+  evidenceText,
+  judgeLabel,
+  marksOf,
+  markOf,
+  cardControls,
+  newerRun,
+  offlinePill,
+  runPill,
+  pathSummary,
+  statusLabel,
+  stepBarLabel,
+  stepTone,
+  verdictOf,
+} from "@ue-mcp-studio/client-core";
 import { DEFAULT_RUN, DraftEditor, RunPanel, playersNeeded, type RunOptions } from "./PlaytestDraft";
 import { LoopPanel, loopPill } from "./PlaytestLoop";
 import { native } from "../native";
@@ -48,6 +66,9 @@ function ScriptPath({ script }: { script: string }) {
   return path ? <ExactAssetLink path={path} label={script} /> : <>{script}</>;
 }
 
+// The card's words and marks live in client-core, shared with the mobile app; re-exported for this module's users.
+export { PATH_MARKS, STARTING, agentEvidenceText, evidenceText, judgeLabel, marksOf, markOf, newerRun, offlinePill, pathSummary, qaRunFromForm, runningText, statusLabel, stepBarLabel, stepDoing, type PathMark } from "@ue-mcp-studio/client-core";
+
 /** What a card needs from the page: the daemon's stream, and the session's waiting forms. */
 export interface QaLive {
   events: DaemonEvent[];
@@ -59,14 +80,6 @@ export interface QaLive {
   onThread?: (callId: string) => void;
 }
 export const QaContext = createContext<QaLive | null>(null);
-
-/** The newer of two views of a run: the higher seq, and the server's on a tie. */
-export function newerRun(server: QaRun, local: QaRun): QaRun {
-  if (server.runId !== local.runId) return server;
-  if (server.lastSeq >= local.lastSeq) return server;
-  // The steps from the newer events, the subagent as the agent last saved it.
-  return server.assignment ? { ...local, assignment: server.assignment } : local;
-}
 
 /**
  * The run as it is now: the saved view, with every script.* event and every
@@ -116,88 +129,6 @@ export function useLiveRun(run: QaRun, live: Pick<QaLive, "events" | "streaming"
   return [cur, setCur];
 }
 
-const LABEL: Record<QaStep["status"], string> = {
-  pending: "To come",
-  running: "Running",
-  passed: "Passed",
-  failed: "Failed",
-  awaiting_verdict: "Needs you",
-  skipped: "Skipped",
-};
-
-/** A step's status in words, as the legend names it: a step a run that ended never reached is Not run. */
-export function statusLabel(s: QaStep, ended = false): string {
-  return ended && s.status === "pending" ? "Not run" : LABEL[s.status];
-}
-
-/** Who judges a step, in the words the legend and the draft's summary use. */
-export const judgeLabel = (s: Pick<QaStep, "judge">): string => (s.judge === "auto" ? "Observer" : "Person");
-
-const shown = (v: unknown): string => (v === null || v === undefined ? "never read" : String(v));
-
-/** What the observer saw, for the hover on an auto step. */
-export function evidenceText(s: QaStep): string {
-  const e = s.evidence;
-  const lines: string[] = [];
-  if (s.expect) lines.push(`Expected ${s.expect.value} ${s.expect.op}${s.expect.target !== undefined ? ` ${s.expect.target}` : ""}${s.withinMs ? ` within ${s.withinMs} ms` : ""}`);
-  if (e?.value !== undefined || e?.at_start !== undefined || e?.at_end !== undefined) {
-    lines.push(`${e?.value ?? s.expect?.value ?? "Value"}: ${shown(e?.at_start)} at the start, ${shown(e?.at_end)} at the end${e?.samples !== undefined ? `, ${e.samples} samples` : ""}`);
-  }
-  if (e?.observed === false) lines.push("The observer never read the value.");
-  if (e?.reason) lines.push(e.reason);
-  if (s.regression) lines.push(`Passed in the source run, ${s.status} in this replay.`);
-  return lines.join("\n");
-}
-
-/** What the agent saw for a verdict it gave, for the hover and the expanded view. */
-export function agentEvidenceText(s: QaStep): string {
-  const note = s.evidence?.note ?? s.note;
-  const lines: string[] = [];
-  if (note) lines.push(note);
-  for (const c of s.evidence?.captures ?? []) lines.push(c);
-  return lines.join("\n") || "The agent gave no evidence.";
-}
-
-/** The verdict a settled step holds. */
-const verdictOf = (s: QaStep): QaVerdict | null => (s.status === "passed" ? "pass" : s.status === "failed" ? "fail" : s.status === "skipped" ? "skip" : null);
-
-const tone = (s: QaStep): string =>
-  s.status === "passed" ? "ok" : s.status === "failed" ? "bad" : s.status === "awaiting_verdict" ? "warn" : s.status === "running" ? "run" : "";
-
-/** A running run's pill: the step it is on, or how far it got when none is running. */
-export function runningText(run: QaRun, settled: number, total: number): string {
-  const on = run.steps.find((s) => s.status === "running");
-  return on ? `Step ${on.index + 1} of ${total}: ${stepDoing(on).toLowerCase()}` : `Running, ${settled} of ${total} done`;
-}
-
-/** One line for the collapsed card: how many steps, and where they stand. */
-export function pathSummary(run: QaRun, sum: ReturnType<typeof qaSummaryOf>): string {
-  const steps = `${run.steps.length} step${run.steps.length === 1 ? "" : "s"}`;
-  if (qaIsDraft(run)) {
-    const manual = run.steps.filter((s) => s.judge === "manual").length;
-    return manual ? `${steps}, ${manual} judged by a person` : `${steps}, all checked by the observer`;
-  }
-  const waiting = run.steps.filter((s) => s.status === "awaiting_verdict").length;
-  const parts = [
-    sum.passed && `${sum.passed} passed`,
-    sum.failed && `${sum.failed} failed`,
-    sum.skipped && `${sum.skipped} skipped`,
-    waiting && `${waiting} need${waiting === 1 ? "s" : ""} you`,
-    qaEnded(run.state) && sum.pending - waiting > 0 && `${sum.pending - waiting} not run`,
-  ].filter(Boolean);
-  return parts.length ? `${steps}: ${parts.join(", ")}` : steps;
-}
-
-/** What a step's bar says to a screen reader: its number, who judges it, and its status. */
-export const stepBarLabel = (s: QaStep, ended = false): string => `Step ${s.index + 1}, ${judgeLabel(s).toLowerCase()}, ${statusLabel(s, ended)}`;
-
-/** The legend's mark for a step: the class its bar carries. */
-export function markOf(s: QaStep, ended: boolean): PathMark {
-  if (ended && s.status === "pending") return "unrun";
-  if (s.status === "skipped") return "skipped";
-  return (tone(s) || "pending") as PathMark;
-}
-
 /**
  * The collapsed card's path: a bar per step, coloured as the step's border is
  * in the full card. A step a person judges carries a dot inside its bar, so
@@ -213,7 +144,7 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
       <ol className="qa-path" aria-label="Steps">
         {steps.map((s) => {
           const mark = markOf(s, ended);
-          const cls = `qa-path-step ${tone(s)} ${s.judge} ${mark === "skipped" || mark === "unrun" ? mark : ""}`;
+          const cls = `qa-path-step ${stepTone(s)} ${s.judge} ${mark === "skipped" || mark === "unrun" ? mark : ""}`;
           const title = `${s.index + 1}. ${stepPlain(s.instruction)} (${judgeLabel(s)}): ${statusLabel(s, ended)}`;
           return (
             <li key={s.index} className={cls} data-status={s.status}>
@@ -235,57 +166,19 @@ export function StepPath({ steps, onStep, ended = false }: { steps: QaStep[]; on
   );
 }
 
-/** The words for a run that is starting, wherever it is named: the pill, the strip's line and the pointer to it. */
-export const STARTING = "Starting";
-
-/** What the strip's line says a step in progress is: the observer checks it, or the person plays it. */
-export const stepDoing = (s: QaStep): string => (s.judge === "auto" ? "Observer checking" : "Play this step");
-
-export type PathMark = "ok" | "bad" | "warn" | "run" | "pending" | "skipped" | "unrun";
-/** Every mark a path can carry, in the legend's order, with what it means. */
-const MARKS: Array<[PathMark, string]> = [
-  ["ok", "Passed"],
-  ["bad", "Failed"],
-  ["warn", "Needs you"],
-  ["run", "Running"],
-  ["pending", "To come"],
-  ["skipped", "Skipped: passed over, not judged"],
-  ["unrun", "Not run: the run ended first"],
-];
-
-/** The marks a set of runs' paths carry, and whether any step is a person's to judge. */
-export function marksOf(runs: QaRun[]): { marks: Set<PathMark>; person: boolean } {
-  const marks = new Set<PathMark>();
-  let person = false;
-  for (const r of runs) {
-    const ended = qaEnded(r.state);
-    for (const s of r.steps) {
-      marks.add(markOf(s, ended));
-      if (s.judge === "manual") person = true;
-    }
-  }
-  return { marks, person };
-}
-
 /** What the step path's marks mean: only the ones on screen. */
 export function PathLegend({ runs }: { runs: QaRun[] }) {
   const { marks, person } = marksOf(runs);
   if (marks.size === 0) return null;
   return (
     <div className="qa-legend small" role="group" aria-label="What the step marks mean">
-      {MARKS.filter(([m]) => marks.has(m)).map(([m, label]) => (
+      {PATH_MARKS.filter(([m]) => marks.has(m)).map(([m, label]) => (
         <span key={m} className="qa-legend-item"><span className={`qa-legend-mark ${m}`} aria-hidden="true" />{label}</span>
       ))}
       {person && <span className="qa-legend-item"><span className="qa-legend-mark pending person" aria-hidden="true" />Judged by a person</span>}
     </div>
   );
 }
-
-const VERDICTS: Array<{ verdict: QaVerdict; label: string }> = [
-  { verdict: "pass", label: "Pass" },
-  { verdict: "fail", label: "Fail" },
-  { verdict: "skip", label: "Skip" },
-];
 
 /** What a card drawn outside a session (the Playtests page) does instead of the session's own calls. */
 export interface QaCardActions {
@@ -296,10 +189,6 @@ export interface QaCardActions {
   /** Edit and Delete for any saved script: its steps as saved, then pie(script_update) or pie(script_delete). */
   script?: { read: () => Promise<QaRun>; save: (steps: QaScriptStep[], map?: string) => Promise<void>; remove: () => Promise<void> };
 }
-
-/** A pill's words while the editor is away: what the run last did, not what it is doing. */
-const offlinePill = (text: string): string =>
-  text === "Needs you" ? "Was waiting" : text === STARTING ? "Was starting" : /^Running/.test(text) || /^Step \d/.test(text) || /^Attempt/.test(text) ? "Was running" : text;
 
 /**
  * A run's card, wherever it is drawn: the transcript, the session's strip of
@@ -478,40 +367,23 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
     start({ ...DEFAULT_RUN, players, listen: players > 1 });
   };
 
-  const draft = qaIsDraft(run);
-  const ended = qaEnded(run.state);
+  const scripted = outside ? outside.script : !qaIsDraft(run) && run.script ? savedScriptActions(run.script) : undefined;
+  const { draft, ended, owned, needsYouLoop, runnable, stoppable, canAssign, editable } = cardControls(run, { outside: outside && { start: !!outside.start, assign: !!outside.assign, script: !!outside.script }, assignSession, open });
   /** Edit, Delete and a draft's early verdicts change the script through the session that has its card. */
-  const owned = !!run.sessionId;
   /**
    * Start playtest on the card: a draft's, or the manual run a verdict on the
    * draft started, which a full run replaces; on an ended run, Run again. Not
    * while a loop that waits for the user waits on its Review.
    */
-  const needsYouLoop = assignment?.loop?.state === "needs_you" ? assignment.loop : null;
-  const runnable = (draft || (!!run.manual && !ended) || ended) && !run.deleted && !assigned && !needsYouLoop && (outside ? !!outside.start : owned);
-  const stoppable = !draft && !ended && !assigned && !run.manual && owned;
   const stop = () => act(() => api.qaStop(run.runId));
-  // A loop that waits for the user offers Review collapsed; assigning again is in the open card.
-  const canAssign = (outside ? !!outside.assign : !!assignSession) && qaAssignable(run) && !run.deleted && assignment?.loop?.state !== "passed" && (!needsYouLoop || open);
   const sum = run.summary ?? qaSummaryOf(run.steps);
-  const settled = sum.total - sum.pending;
   const partial = Object.keys(picked).length > 0;
   const byAgentCount = run.steps.filter(qaAgentVerdict).length;
   /** The step the box under the path asks about: the first waiting one not yet picked or sent. */
   const ask = waiting.find((s) => s.judge === "manual" && !picked[s.index] && !sending[s.index]) ?? null;
   const manualSteps = run.steps.filter((s) => s.judge === "manual").length;
   // A draft says so in its eyebrow; a pill names only what is not plain from it.
-  const livePill = draft
-    ? (run.deleted ? { tone: "", text: "Deleted" } : null)
-    : ended
-      ? (run.state === "stopped" ? { tone: "", text: "Stopped" }
-        : sum.failed ? { tone: "bad", text: `${sum.failed} failed` }
-        // An ended run with steps never judged did not pass.
-        : sum.pending ? { tone: "warn", text: "Incomplete" }
-        : { tone: "ok", text: "Passed" })
-      : waiting.length
-        ? { tone: "warn", text: "Needs you" }
-        : { tone: "run", text: run.state === "armed" ? STARTING : runningText(run, settled, sum.total) };
+  const livePill = runPill(run);
   const pill = livePill && offline ? { tone: "", text: offlinePill(livePill.text) } : livePill;
   // On the strip the line under the path says what a live run is doing, so its head carries no running pill.
   const headPill = pill;
@@ -541,8 +413,6 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const endLoop = needsYouLoop && <IconButton label="End loop" disabled={assigning || !!offline} title={offline ?? "End loop: it stops waiting for you, and its attempts stay to review and revert"} onClick={closeLoop} glyph={GLYPH.cancel} />;
   /** Edit and Delete: on a session's own draft, or on any saved script where the card is drawn with `script` actions. */
   // A saved script is editable wherever its card is drawn, in a session's chat as on the Playtests page.
-  const scripted = outside ? outside.script : !draft && run.script ? savedScriptActions(run.script) : undefined;
-  const editable = (scripted ? true : draft && owned) && !run.deleted && !assigned;
   const blocked = scripted ? offline : undefined;
   const toggleEdit = () => {
     if (panel === "edit" || !scripted) return setPanel(panel === "edit" ? null : "edit");
@@ -623,7 +493,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
               />
             ) : (
               <span className="qa-verdict">
-                {VERDICTS.map((v) => (
+                {QA_VERDICTS.map((v) => (
                   <button
                     key={v.verdict}
                     className={`small-button verdict-${v.verdict}`}
@@ -685,7 +555,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
           const byAgent = qaAgentVerdict(s);
           const why = byAgent ? agentEvidenceText(s) : "";
           return (
-            <li key={s.index} className={`qa-step ${tone(s)} ${s.judge} ${marked === s.index ? "target" : ""}`} data-status={s.status} data-index={s.index} tabIndex={-1}>
+            <li key={s.index} className={`qa-step ${stepTone(s)} ${s.judge} ${marked === s.index ? "target" : ""}`} data-status={s.status} data-index={s.index} tabIndex={-1}>
               <div className="qa-step-row">
                 <span className="qa-num mono dim">{s.index + 1}</span>
                 <span className="qa-instruction"><StepText text={s.instruction} /></span>
@@ -695,7 +565,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
                   {s.judge === "manual" && !qaAgentMayJudge(s) && <span className="qa-judge small" title="Only a person gives this step's verdict, never an agent">Person only</span>}
                   {byAgent && <span className="qa-badge agent small" title={why} tabIndex={0} aria-label={`Judged by the agent. ${why.replace(/\n/g, ". ")}`}>Agent</span>}
                   {unchecked ? <span className="qa-status small dim">Checked when the playtest runs</span>
-                    : !draft && <span className={`qa-status small ${tone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s, ended)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
+                    : !draft && <span className={`qa-status small ${stepTone(s)}`} title={evidence || undefined} tabIndex={evidence ? 0 : undefined} aria-label={evidence ? `${statusLabel(s, ended)}. ${evidence.replace(/\n/g, ". ")}` : undefined}>
                     {statusLabel(s, ended)}
                   </span>}
                 </span>
@@ -729,7 +599,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
               {byAgent && (
                 <div className="qa-override small">
                   <span className="dim">Override:</span>
-                  {VERDICTS.filter((v) => v.verdict !== verdictOf(s)).map((v) => (
+                  {QA_VERDICTS.filter((v) => v.verdict !== verdictOf(s)).map((v) => (
                     <button
                       key={v.verdict}
                       className={`small-button verdict-${v.verdict} ${overriding[s.index] === v.verdict ? "picked" : ""}`}
@@ -744,7 +614,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
               )}
               {verdictable && !failBox && askBox?.index !== s.index && (
                 <div className="qa-verdict">
-                  {VERDICTS.map((v) => (
+                  {QA_VERDICTS.map((v) => (
                     <button
                       key={v.verdict}
                       className={`small-button verdict-${v.verdict} ${picked[s.index] === v.verdict || busy === v.verdict ? "picked" : ""}`}
@@ -873,31 +743,6 @@ export function FailNote({ step, initial, onSubmit, onCancel }: { step: number; 
       </div>
     </form>
   );
-}
-
-/** A verdict form whose run has no card on screen: the steps it asks about, as a card of their own. */
-export function qaRunFromForm(form: PendingForm): QaRun | null {
-  const q = qaVerdictForm(form);
-  if (!q) return null;
-  const steps: QaStep[] = q.steps.map((index) => {
-    const f = form.fields[`step_${index}`] as { description?: string; title?: string } | undefined;
-    return { index, instruction: f?.description ?? f?.title ?? `Step ${index + 1}`, judge: "manual", status: "awaiting_verdict" };
-  });
-  const script = /^Test script (\S+)/.exec(form.message)?.[1] ?? "inline";
-  return {
-    runId: q.runId ?? form.id,
-    script,
-    scriptName: script.split("/").pop() || script,
-    state: "awaiting_verdict",
-    steps,
-    awaiting: q.steps,
-    lastSeq: 0,
-    summary: qaSummaryOf(steps),
-    resultsPath: null,
-    sessionId: form.sessionId,
-    toolUseId: null,
-    seenAt: form.at,
-  };
 }
 
 /** The runs started outside Studio's sessions, kept current from studio.qa.changed. */

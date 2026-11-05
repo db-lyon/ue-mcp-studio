@@ -1,14 +1,8 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
-import { tokenCount } from "./model";
+import { compactLine, contextLabel, contextPct, contextRing, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
 
-const pct = (f: number): string => `${Math.round(f * 100)}%`;
-
-/** A dollar amount: cents under ten dollars, whole dollars past it. */
-export function dollars(n: number): string {
-  if (n > 0 && n < 0.01) return "under $0.01";
-  return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n).toLocaleString("en-US")}`;
-}
+export { dollars, tipLines };
 
 /** The context bar: how full, and a tick where it compacts. */
 export function ContextBar({ view, className = "" }: { view: ContextView; className?: string }) {
@@ -26,51 +20,14 @@ export function ContextBar({ view, className = "" }: { view: ContextView; classN
  * where it compacts. Past the window the ring is closed and glows.
  */
 export function ContextRing({ view, className = "" }: { view: ContextView; className?: string }) {
-  const r = 6;
-  const c = 2 * Math.PI * r;
-  const f = Math.min(1, Math.max(0, view.fraction));
-  // A sliver still shows once anything is measured.
-  const dash = view.used > 0 ? Math.max(f * c, 0.6) : 0;
-  const a = view.compactAt * 2 * Math.PI;
-  const tx = (rad: number) => 8 + rad * Math.sin(a);
-  const ty = (rad: number) => 8 - rad * Math.cos(a);
+  const { r, circumference, dash, tick } = contextRing(view);
   return (
     <svg className={`context-ring level-${view.level} ${view.fraction > 1 ? "over" : ""} ${className}`} viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
       <circle className="context-ring-track" cx="8" cy="8" r={r} />
-      <circle className="context-ring-fill" cx="8" cy="8" r={r} strokeDasharray={`${dash} ${c}`} transform="rotate(-90 8 8)" />
-      <line className="context-ring-tick" x1={tx(4)} y1={ty(4)} x2={tx(8)} y2={ty(8)} />
+      <circle className="context-ring-fill" cx="8" cy="8" r={r} strokeDasharray={`${dash} ${circumference}`} transform="rotate(-90 8 8)" />
+      <line className="context-ring-tick" x1={tick.x1} y1={tick.y1} x2={tick.x2} y2={tick.y2} />
     </svg>
   );
-}
-
-/** Where the runtime or Studio compacts, in words. */
-function compactLine(view: ContextView, runtime: boolean): string {
-  const at = tokenCount(Math.round(view.window * view.compactAt));
-  if (view.fraction >= view.compactAt) {
-    return runtime
-      ? `It is past where Claude's runtime compacts (${at}): it compacts at the start of the next turn.`
-      : `It is past where Studio compacts (${at}): Studio compacts it before the next request goes.`;
-  }
-  return runtime
-    ? `Claude's runtime compacts this session on its own at about ${at} tokens (${pct(view.compactAt)}).`
-    : `Studio compacts it on its own at ${at} tokens (${pct(view.compactAt)}).`;
-}
-
-/** The hover card's lines: tokens of the window, the model it was measured on, where it compacts. */
-export function tipLines(view: ContextView, context: ContextUsage | undefined, opts: { nameOf: (id: string) => string; modelName: string; runtime: boolean; compacting: boolean; owner?: string }): string[] {
-  const lines: string[] = [];
-  if (opts.owner) lines.push(`${opts.owner} agent's context`);
-  lines.push(`${view.estimated ? "About " : ""}${tokenCount(view.used)} of ${tokenCount(view.window)} tokens${view.estimated ? ", estimated" : ""}`);
-  const on = view.measuredOn ?? (context?.model || null);
-  if (view.estimated && !on) lines.push("Estimated from the conversation's text");
-  else if (on) lines.push(view.measuredOn ? `Measured on ${opts.nameOf(on)}, next turn on ${opts.modelName}` : `Measured on ${opts.nameOf(on)}`);
-  const at = tokenCount(Math.round(view.window * view.compactAt));
-  const who = opts.runtime ? "Claude's runtime compacts" : "Studio compacts";
-  if (opts.compacting) lines.push("Compacting now");
-  else if (view.fraction >= 1) lines.push(`Over the window: ${opts.runtime ? "the runtime compacts it next turn" : "Studio compacts it before the next request"}`);
-  else if (view.fraction >= view.compactAt) lines.push(`Past where it compacts (${at}): ${opts.runtime ? "compacts next turn" : "compacts before the next request"}`);
-  else lines.push(`${who} at ${opts.runtime ? "about " : ""}${at} (${pct(view.compactAt)})`);
-  return lines;
 }
 
 /**
@@ -119,9 +76,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   if (!view && !totals?.requests) return null;
   const runtimeNow = runtime && !view?.measuredOn && !!context?.window;
   const tip = view ? tipLines(view, context, { nameOf, modelName: modelName ?? model, runtime: runtimeNow, compacting, owner }) : ["Context is measured after the next reply"];
-  const label = view
-    ? `${owner ? `${owner} agent's context` : "Context"} ${pct(view.fraction)} full: ${tokenCount(view.used)} of ${tokenCount(view.window)} tokens${view.estimated ? ", estimated" : ""}${compacting ? ", compacting" : ""}`
-    : "Context not measured yet";
+  const label = contextLabel(view, owner, compacting);
   return (
     <div className="context-meter" ref={box}>
       <button
@@ -133,7 +88,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
         onClick={() => setOpen(!open)}
       >
         {view ? <ContextRing view={view} /> : <span className="context-ring-empty" aria-hidden="true" />}
-        <span className="context-pct">{view ? `${view.estimated ? "~" : ""}${pct(view.fraction)}` : "ctx"}</span>
+        <span className="context-pct">{contextPct(view)}</span>
         {!open && (
           <span className="context-tip" role="tooltip" id={tipId}>
             {tip.map((l, i) => <span key={i} className={i === (owner ? 1 : 0) ? "context-tip-main" : undefined}>{l}</span>)}

@@ -1,39 +1,8 @@
 import { useState } from "react";
 import type { ApprovalDecision, ApprovalRequest } from "@ue-mcp-studio/shared";
 import { api } from "../api";
+import { APPROVAL_KIND, approvalTitle, restartLine } from "@ue-mcp-studio/client-core";
 import { DiffView } from "./Diff";
-
-const TITLE: Record<ApprovalRequest["tool"], string> = {
-  shell: "Run this command?",
-  write_file: "Write this file?",
-  edit_file: "Make this edit?",
-  editor_restart: "Restart the editor?",
-  ue_mcp: "Run this action?",
-};
-
-/** What "Allow for this session" covers, by the kind of request. */
-const KIND: Record<ApprovalRequest["tool"], string> = {
-  shell: "commands",
-  write_file: "file changes",
-  edit_file: "file changes",
-  editor_restart: "editor starts, stops and restarts",
-  ue_mcp: "ue-mcp actions that delete or overwrite",
-};
-
-/** The card's title for each editor operation. */
-const OPERATION_TITLE: Record<NonNullable<ApprovalRequest["operation"]>, string> = {
-  restart: "Restart the editor?",
-  rebuild: "Rebuild and restart the editor?",
-  stop: "Stop the editor?",
-  start: "Start the editor?",
-};
-
-const OPERATION: Record<NonNullable<ApprovalRequest["operation"]>, string> = {
-  restart: "Restart the editor",
-  rebuild: "Stop the editor, rebuild the project's C++ and start it again",
-  stop: "Stop the editor",
-  start: "Start the editor",
-};
 
 /** The calls waiting for the user, oldest first, each with its own buttons. */
 export function Approvals({ sessionId, approvals }: { sessionId: string; approvals: ApprovalRequest[] }) {
@@ -57,8 +26,8 @@ export function ApprovalCard({ sessionId, approval: a }: { sessionId: string; ap
       setError(e.message);
     });
   };
-  const title = a.tool === "write_file" && a.creates ? "Create this file?" : a.tool === "editor_restart" ? OPERATION_TITLE[a.operation ?? "restart"] : TITLE[a.tool];
-  const kind = KIND[a.tool];
+  const title = approvalTitle(a);
+  const kind = APPROVAL_KIND[a.tool];
   return (
     <div className="approval card" role="group" aria-label={title}>
       <div className="approval-head">
@@ -72,7 +41,7 @@ export function ApprovalCard({ sessionId, approval: a }: { sessionId: string; ap
         </>
       ) : a.tool === "editor_restart" ? (
         <>
-          <div>{OPERATION[a.operation ?? "restart"]}.{a.operation === "start" ? "" : " Unsaved work gets the editor's save prompt first."}</div>
+          <div>{restartLine(a.operation)}</div>
           {a.reason && <div className="dim small">Why: {a.reason}</div>}
         </>
       ) : a.tool === "ue_mcp" ? (

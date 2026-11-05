@@ -6,38 +6,15 @@
  * shared): the page that loads next settles the step that was running against
  * what the updates now say, then runs the rest.
  */
+import { STEP_NAME, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
 import { daemonMoves, daemonTarget, pluginStep, readUpdates, withFloor, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 
-export type StepKey = "ueMcp" | "plugin" | "studio" | "restart";
-/** deferred: the agent keeps the step until no turn is in progress, then runs it. */
-export type StepState = "pending" | "active" | "done" | "failed" | "deferred";
-export interface RunStep {
-  key: StepKey;
-  state: StepState;
-}
-export interface UpdateRun {
-  steps: RunStep[];
-  /** The bridge plugin version the run installs, when it installs one. */
-  target: string | null;
-  at: number;
-  /** The latest progress line from the step running. */
-  detail?: string;
-  error?: string;
-  /** Every step done: what is installed now. */
-  summary?: string;
-}
+export { STEP_NAME, STEP_NOTE, waitingSteps, type RunStep, type StepKey, type StepState, type UpdateRun } from "@ue-mcp-studio/client-core";
 
 type Updates = { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null };
 
 /** A run older than this is from an update that never came back; it is dropped rather than resumed. */
 const STALE_MS = 30 * 60_000;
-
-export const STEP_NAME: Record<StepKey, string> = { ueMcp: "Bridge plugin", plugin: "Editor plugin", studio: "Studio", restart: "Restart ue-mcp" };
-export const STEP_NOTE: Partial<Record<StepKey, string>> = {
-  plugin: "The editor closes and reopens. Studio comes back with it.",
-  studio: "ue-mcp restarts. This panel reloads when it is back.",
-  restart: "ue-mcp restarts. This panel reloads when it is back.",
-};
 
 const RUN_URL = "/v1/ext/studio/updates/run";
 let saving: Promise<unknown> = Promise.resolve();
@@ -55,9 +32,6 @@ export async function loadRun(now = Date.now()): Promise<UpdateRun | null> {
   // A run waiting for a turn to finish is not stale however long the turn takes.
   return run && (now - run.at < STALE_MS || waitingSteps(run).length > 0) ? run : null;
 }
-
-/** The steps the agent keeps until no turn is in progress. */
-export const waitingSteps = (run: UpdateRun): StepKey[] => run.steps.filter((s) => s.state === "deferred").map((s) => s.key);
 
 /** The steps that restart the daemon or close the editor: they wait for the turns. */
 const WAITS: StepKey[] = ["plugin", "studio", "restart"];

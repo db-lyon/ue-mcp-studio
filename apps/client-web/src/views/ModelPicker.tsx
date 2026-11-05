@@ -6,48 +6,24 @@ import {
   PROVIDERS,
   anythingConnected,
   endpointIdOf,
-  routesInOrder,
   type Effort,
   type KeyProviderId,
   type VendorId,
   type ModelCatalog,
-  type ModelOption,
   type SignInId,
   type StudioSettings,
   type StudioSignIn,
 } from "@ue-mcp-studio/shared";
+import { findModel as find, lockedVia, runsVia, viaName, VIA_LABEL, type Via } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { atMost, useBarTier } from "../chat/barTier";
 import { onRemotePage } from "../connection";
 import { REMOTE_CHANGE_NOTE } from "./settings/RemoteReadOnly";
 
 type Catalog = ModelCatalog;
-type Vendor = Catalog["providers"][number];
 
-type Via = SignInId | "key" | "endpoint";
-
-/**
- * How a model would run now: a custom endpoint's on that endpoint; a named
- * vendor's on the first connected sign-in or key by the route order; else nothing.
- */
-export function runsVia(catalog: Catalog, vendor: Vendor, m: ModelOption): Via | null {
-  if (vendor.endpoint) return "endpoint";
-  return routesInOrder(m.signIns, catalog.routeOrder).find((r) => (r === "key" ? vendor.connected : catalog.signedIn[r])) ?? null;
-}
-
-/** One name per route, the same in the picker, the Models table and the sign-in rows. */
-export const VIA_LABEL: Record<SignInId | "key", string> = { chatgpt: "ChatGPT sign-in", claude: "Claude sign-in", studio: "Studio plan", key: "key" };
-
-/** A route's name beside a model: a key and an endpoint by their vendor's name. */
-export function viaName(via: Via, vendorName: string): string {
-  return via === "endpoint" ? vendorName : via === "key" ? `${vendorName} key` : VIA_LABEL[via];
-}
-
-function find(catalog: Catalog | null, vendor: VendorId, model: string): { vendor: Vendor; model: ModelOption } | null {
-  const v = catalog?.providers.find((p) => p.id === vendor);
-  const m = v?.models.find((x) => x.id === model);
-  return v && m ? { vendor: v, model: m } : null;
-}
+// How a model runs, in words, is client-core's, shared with the mobile app.
+export { runsVia, viaName, VIA_LABEL };
 
 export function useCatalog(settings: StudioSettings | null): Catalog | null {
   const [catalog, setCatalog] = useState<Catalog | null>(null);
@@ -203,16 +179,18 @@ export function ModelPicker({
                 {p.models.map((m) => {
                   const selected = follow ? follow.value === m.id : settings.provider === p.id && settings.model === m.id;
                   const runs = runsVia(catalog!, p, m);
+                  // A paired browser cannot add a sign-in or a key: a model nothing runs is greyed and says where to connect it.
+                  const remote = !runs && onRemotePage();
                   return (
                     <button
                       key={m.id}
                       role="option"
                       aria-selected={selected}
-                      className={`picker-item ${selected ? "current" : ""} ${runs ? "" : "locked"}`}
+                      className={`picker-item ${selected ? "current" : ""} ${runs ? "" : "locked"} ${remote ? "remote" : ""}`}
                       onClick={() => (runs ? void select(p.id, m.id) : setConnecting({ vendor: p.id, model: m.id }))}
                     >
                       <span>{m.name}</span>
-                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs ? viaName(runs, p.name) : m.signIns.length ? "sign in" : "connect"}</span>
+                      <span className={`picker-via ${runs ? "" : "off"}`}>{runs ? viaName(runs, p.name) : lockedVia(m, remote)}</span>
                     </button>
                   );
                 })}

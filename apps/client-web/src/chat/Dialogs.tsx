@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { DialogAnswer, EditorDialog } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { native } from "../native";
-import { decider, outcomeLine, readyIn, statusLine, whoLine } from "./dialog-model";
+import { decider, outcomeLine, readyIn, statusLine, whoLine } from "@ue-mcp-studio/client-core";
 
 /** The open editor dialogs of one session, each a card with the dialog's own buttons. */
 export function DialogCards({ dialogs, now }: { dialogs: EditorDialog[]; now: number }) {

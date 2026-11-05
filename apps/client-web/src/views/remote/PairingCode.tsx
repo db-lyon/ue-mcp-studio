@@ -1,17 +1,9 @@
 import { useEffect, useState } from "react";
 import type { RemotePairing } from "@ue-mcp-studio/shared";
+import { pairingExpired, timeLeft } from "@ue-mcp-studio/client-core";
 
-/** Whether a pairing code has run out, by its expiry. A code without one never reads as expired. */
-export function pairingExpired(p: RemotePairing, now: number): boolean {
-  return !!p.expiresAt && Date.parse(p.expiresAt) <= now;
-}
-
-/** How long a code has left, as "9:41". */
-export function timeLeft(p: RemotePairing, now: number): string | null {
-  if (!p.expiresAt) return null;
-  const s = Math.max(0, Math.ceil((Date.parse(p.expiresAt) - now) / 1000));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
+// The code's clock is client-core's, shared with the mobile app.
+export { pairingExpired, timeLeft };
 
 /**
  * A pairing code: the QR to scan, the link to open on the device, and how long

@@ -1,34 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { SessionSummary, SessionUpdate } from "@ue-mcp-studio/shared";
+import { listState, sessionLine } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { saveProjectNotify, useProjectNotify } from "../notify";
 
-const STATUS_LABEL: Record<string, string> = {
-  idle: "",
-  running: "Working",
-  waiting: "Waiting for editor",
-  stopped: "Stopped",
-  error: "Stopped on an error",
-};
-
-/**
- * The state the session list shows: a call waiting for approval, from the main
- * agent or any subagent, puts the session on the user whatever its turn is
- * doing, since a subagent the user assigned runs while the session is idle (#149).
- */
-export const listState = (s: Pick<SessionSummary, "status" | "awaiting">): string => (s.awaiting ? "needs-you" : s.status);
-
-/** The line under a session's title: what it is doing, its subagents, or when it last changed. */
-export function sessionLine(s: SessionSummary): string {
-  const status = s.awaiting
-    ? s.awaiting === 1 ? "Waiting on your approval" : `Waiting on your approval of ${s.awaiting} calls`
-    : STATUS_LABEL[s.status] ?? "";
-  const agents = s.agents?.running ? `${s.agents.running} of ${s.agents.total} subagents running` : "";
-  const line = [status, agents].filter(Boolean).join(", ") || new Date(s.updatedAt).toLocaleString();
-  // The model of its last turn, and how it was reached.
-  const where = s.model ? `${s.model}${s.route ? ` via ${s.route}` : ""}` : "";
-  return [where, line].filter(Boolean).join(". ");
-}
+export { listState, sessionLine };
 
 /**
  * One session in the list: open it, or from its menu rename, mute its

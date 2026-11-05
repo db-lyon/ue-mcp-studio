@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { QUIET_MS, agentStatus, finishedTurns, formatDuration, formatResult, mainTimeline, summarize, toolLabel } from "./model";
+import { QUIET_MS, agentStatus, finishedTurns, formatDuration, formatResult, mainTimeline, summarize, toolLabel } from "../src/chat-model.js";
 
 const T0 = Date.parse("2026-10-11T12:00:00Z");
 const at = (secs: number) => new Date(T0 + secs * 1000).toISOString();
