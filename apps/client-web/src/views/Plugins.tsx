@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { isInstalled, searchCatalog, REMOTE_PLUGINS_NOTE, type CatalogPlugin, type InstalledPlugin, type PluginCommandResult } from "@ue-mcp-studio/client-core";
+import { catalogDetails, isInstalled, searchCatalog, REMOTE_PLUGINS_NOTE, type CatalogPlugin, type InstalledPlugin, type PluginCommandResult } from "@ue-mcp-studio/client-core";
 import { ApiError, api } from "../api";
 import { onRemotePage } from "../connection";
 import { inEditor, native } from "../native";
@@ -145,7 +145,7 @@ export function PluginsView({ daemon, remote = onRemotePage() }: { daemon: Daemo
                 {isOpen && (
                   <div className="plugin-readme md">
                     <Markdown remarkPlugins={[remarkGfm]} components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> }}>
-                      {c.readme ?? c.description ?? "No description."}
+                      {catalogDetails(c)}
                     </Markdown>
                   </div>
                 )}

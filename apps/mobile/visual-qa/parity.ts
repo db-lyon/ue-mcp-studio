@@ -202,6 +202,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "update-failed-remote": {owner: "shell"},
   "update-done-remote": {owner: "shell"},
   "plugins-remote-details": {owner: "agent-b", clicks: ["Details"]},
+  "plugins-remote-details-description": {owner: "agent-b", clicks: ["Details"]},
   "plugins-remote-empty": {owner: "agent-b"},
   "plugins-remote-search": {owner: "agent-b", type: { into: '[aria-label="Search plugins"]', text: "voxel" }},
   "plugins-remote-error": {owner: "agent-b"},

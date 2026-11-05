@@ -42,6 +42,11 @@ const CATALOG = [
   { slug: "meshy", name: "Meshy", packageName: "ue-mcp-meshy", tagline: "Generate meshes from text and images", category: "assets", tags: ["ai"], repoUrl: "https://github.com/db-lyon/ue-mcp-meshy", homepageUrl: "https://meshy.ai", readme: "# Meshy\n\nGenerate **static meshes** from a prompt or an image.\n\n- Text to mesh\n- Image to mesh\n\n```\nnpx ue-mcp plugin install meshy\n```" },
   { slug: "level-dresser", name: "Level Dresser", packageName: "ue-mcp-level-dresser", tagline: "Scatter props along splines and surfaces with rules", category: "levels" },
 ];
+/** The registry's answer for plugins without a readme: an empty string beside the description. */
+const CATALOG_NO_README = [
+  { slug: "meshy", name: "Meshy", packageName: "ue-mcp-meshy", tagline: "Turn a prompt or image into a game-ready UE5 asset in one call.", description: "Generate a model with Meshy, then import via Interchange, apply Nanite and PBR setup, and place it in the level. Provisions a meshy tool category.", readme: "", category: "asset", repoUrl: "https://github.com/db-lyon/ue-mcp-meshy" },
+  ...CATALOG.slice(1),
+];
 
 export const PAIRED_SCENARIOS: Record<string, Scenario> = {
   "feedback-remote": feedback("Send feedback from a paired browser: the kind, title and description, and the environment line"),
@@ -56,6 +61,10 @@ export const PAIRED_SCENARIOS: Record<string, Scenario> = {
   "update-done-remote": updateRun("An update finished on the computer: what is installed now", { steps: [{ key: "ueMcp", state: "done" }, { key: "studio", state: "done" }], target: "1.4.11", summary: "Studio 0.1.25-beta.30, editor plugin 0.1.7, bridge plugin 1.4.11, ue-mcp 1.4.11." }),
   "plugins-remote-details": page("Plugins in a paired browser with a catalog entry's details open: its readme, Source and Homepage", "#/plugins", {
     get: (p) => (p === "/v1/plugins" ? { plugins: PLUGINS } : p === "/v1/plugins/catalog" ? { plugins: CATALOG } : undefined),
+    clicks: [".plugin-card button.ghost"],
+  }),
+  "plugins-remote-details-description": page("Plugins in a paired browser with the details open on a catalog entry the registry sends with an empty readme: its description", "#/plugins", {
+    get: (p) => (p === "/v1/plugins" ? { plugins: PLUGINS } : p === "/v1/plugins/catalog" ? { plugins: CATALOG_NO_README } : undefined),
     clicks: [".plugin-card button.ghost"],
   }),
   "plugins-remote-empty": page("Plugins in a paired browser with none installed and an empty catalog", "#/plugins", {

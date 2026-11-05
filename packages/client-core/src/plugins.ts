@@ -36,6 +36,16 @@ export interface PluginCommandResult {
   restartRequired: boolean;
 }
 
+/**
+ * What a catalog card's Details shows: the readme, else the description,
+ * else "No description.". The registry sends an empty readme for a plugin
+ * without one, so a blank field counts as missing.
+ */
+export function catalogDetails(c: Pick<CatalogPlugin, "readme" | "description">): string {
+  for (const text of [c.readme, c.description]) if (text && text.trim()) return text;
+  return "No description.";
+}
+
 /** A catalog entry and an installed plugin are the same plugin when either name matches. */
 export function isInstalled(c: CatalogPlugin, installed: InstalledPlugin[]): InstalledPlugin | undefined {
   return installed.find((p) => p.name === c.slug || p.name === c.packageName);

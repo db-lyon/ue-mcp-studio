@@ -6,7 +6,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { Linking, Pressable, ScrollView, View } from "react-native";
-import { HttpError, REMOTE_PLUGINS_NOTE, isInstalled, searchCatalog, type CatalogPlugin, type InstalledPlugin } from "@ue-mcp-studio/client-core";
+import { HttpError, REMOTE_PLUGINS_NOTE, catalogDetails, isInstalled, searchCatalog, type CatalogPlugin, type InstalledPlugin } from "@ue-mcp-studio/client-core";
 import { Banner, Button, Card, Input, labelFont, Markdown, Pill, Spacer, T, bannerText, useSheetInsets, useTheme } from "../../ui";
 import { CardLabel, Span, Txt, pageScroll } from "../settings/controls";
 import { useSettingsApi } from "../settings/hooks";
@@ -134,7 +134,7 @@ export function PluginsScreen({ daemon }: { daemon: DaemonState }) {
                 </View>
                 {isOpen ? (
                   <ScrollView nestedScrollEnabled style={[pageScroll, { maxHeight: 420, paddingVertical: 8, paddingHorizontal: 12, borderTopWidth: 1, borderTopColor: t.c.line }]}>
-                    <Markdown page breaks={false} paragraphMargin={0} text={c.readme ?? c.description ?? "No description."} />
+                    <Markdown page breaks={false} paragraphMargin={0} text={catalogDetails(c)} />
                   </ScrollView>
                 ) : null}
               </View>

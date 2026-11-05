@@ -32,6 +32,25 @@ describe("Plugins", () => {
     expect(screen.getByText("No plugin matches.")).toBeTruthy();
   });
 
+  it("shows the readme in a catalog card's details", async () => {
+    renderArea("plugins-remote-details", (d) => <PluginsScreen daemon={d} />);
+    await settled();
+    fireEvent.click(screen.getAllByLabelText("Details")[0]);
+    await settled();
+    expect(screen.getByText("Text to mesh")).toBeTruthy();
+  });
+
+  it("shows the description when the registry sends an empty readme, never an empty area", async () => {
+    renderArea("plugins-remote-details-description", (d) => <PluginsScreen daemon={d} />);
+    await settled();
+    fireEvent.click(screen.getAllByLabelText("Details")[0]);
+    await settled();
+    expect(screen.getByText(/^Generate a model with Meshy, then import via Interchange/)).toBeTruthy();
+    // Read only on a paired phone: no Install, the source link stays.
+    expect(screen.queryByLabelText("Install")).toBeNull();
+    expect(screen.getByText("Source")).toBeTruthy();
+  });
+
   it("says what is empty, what failed, and an older ue-mcp", async () => {
     let v = renderArea("plugins-remote-empty", (d) => <PluginsScreen daemon={d} />);
     await settled();
