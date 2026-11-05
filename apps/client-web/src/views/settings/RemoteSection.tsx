@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { REMOTE_NO_PLAN, REMOTE_SUMMARY, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { REMOTE_NO_PLAN, REMOTE_PLAN_NOTE, REMOTE_SUMMARY, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 import { Head } from "../SettingsHub";
 import { Card, Row, Switch } from "./controls";
@@ -34,7 +34,7 @@ export function RemoteUpsell() {
     <>
       <Head title="Remote control" lead={REMOTE_SUMMARY} />
       <Card label="Plan">
-        <p className="remote-plan-note">Needs a Pro or Studio plan.</p>
+        <p className="remote-plan-note">{REMOTE_PLAN_NOTE}</p>
         <UpgradeAction />
       </Card>
     </>

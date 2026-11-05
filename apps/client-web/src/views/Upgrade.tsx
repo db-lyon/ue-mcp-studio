@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { BillingInterval } from "@ue-mcp-studio/shared";
+import { UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../api";
 import { openExternal } from "../native";
 import { Seg } from "./settings/controls";
@@ -23,7 +23,7 @@ export const REMOTE_NOW_ON = "This account's plan includes remote control.";
 export const REMOTE_SIGN_IN = "Sign in to your ue-mcp account to use remote control.";
 
 /**
- * Buy the Pro plan: monthly or yearly, then the provider's checkout in the
+ * Buy the Remote plan: monthly or yearly, then the provider's checkout in the
  * system browser. An account that already has a subscription gets its portal
  * instead. The plan is then asked every few seconds until it shows (watchForCheckout).
  */
@@ -38,7 +38,7 @@ export function UpgradeAction() {
     setNote(null);
     try {
       let portal = false;
-      const link = await api.billingCheckout({ plan: "pro", interval }).catch(async (e: unknown) => {
+      const link = await api.billingCheckout({ plan: "remote", interval }).catch(async (e: unknown) => {
         if (e instanceof ApiError && e.status === 409) {
           portal = true;
           return api.billingPortal();
@@ -58,7 +58,7 @@ export function UpgradeAction() {
     <div className="upgrade">
       <div className="upgrade-row">
         <Seg label="Billing interval" value={interval} options={INTERVALS} onChange={setInterval} compact disabled={busy} />
-        <button className="primary" disabled={busy} onClick={() => void upgrade()}>{busy ? "Opening checkout" : "Upgrade to Pro"}</button>
+        <button className="primary" disabled={busy} onClick={() => void upgrade()}>{busy ? "Opening checkout" : UPGRADE_LABEL}</button>
       </div>
       {note && <p className="dim small" role="status">{note}</p>}
       {error && <div className="banner bad small" role="alert">{error}</div>}

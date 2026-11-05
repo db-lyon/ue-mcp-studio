@@ -86,7 +86,7 @@ describe("Settings > Remote control", () => {
     m.signIn.mockResolvedValue({ state: "done", login: "dev" } as never);
     await act(async () => void (await new Promise((r) => setTimeout(r, 2100))));
     expect(m.remoteAvailable).toHaveBeenLastCalledWith(true);
-    expect(screen.getByRole("button", { name: "Upgrade to Pro" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade to Remote" })).toBeTruthy();
     opened.mockRestore();
   });
 
@@ -94,9 +94,9 @@ describe("Settings > Remote control", () => {
     const { content } = await open(true, "free");
     expect(screen.queryByText("RemoteSection body")).toBeNull();
     expect(screen.getByText("Use this project from your phone or another computer.")).toBeTruthy();
-    expect(screen.getByText(/^Needs a Pro or Studio plan\./)).toBeTruthy();
+    expect(screen.getByText("Needs the Remote plan: $5 a month or $50 a year, before tax.")).toBeTruthy();
     expect(content.querySelector(`a[href="${STUDIO_PLAN_URL}"]`)).toBeNull();
-    expect(screen.getByRole("button", { name: "Upgrade to Pro" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Upgrade to Remote" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Monthly" }).getAttribute("aria-checked")).toBe("true");
     expect(content.querySelector("[role=switch], img, svg.qr, .remote-qr")).toBeNull();
   });
@@ -111,7 +111,7 @@ describe("Settings > Remote control", () => {
 });
 
 describe("Settings > Notifications follows remote control", () => {
-  const PLAN = "Phone and browser notifications come with remote control, on a Pro or Studio plan.";
+  const PLAN = "Phone and browser notifications come with remote control, on the Remote plan.";
   const has = (name: string) => screen.queryByRole("switch", { name }) !== null;
 
   it.each([false, true])("paid account (flag %s): paired devices' notifications too", async (on) => {

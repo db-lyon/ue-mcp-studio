@@ -155,7 +155,7 @@ describe("pairing stopped", () => {
   });
 
   it("offers only Start over when the account has no remote control", () => {
-    const seen = show({ kind: "plan", message: "Remote control needs a Pro or Studio plan on this account." });
+    const seen = show({ kind: "plan", message: "Remote control needs the Remote or Pro plan on this account." });
     expect(screen.getByText("Remote control is not available")).toBeTruthy();
     expect(screen.queryByText("Scan a new code")).toBeNull();
     fireEvent.click(screen.getByText("Start over"));
@@ -183,7 +183,7 @@ describe("why pairing stopped", () => {
     expect(await reason(pair("https://example.com/meeting", () => undefined))).toBe("bad-link");
     answer(400, { error: "That code is used or expired. Make a new one on your computer.", code: "expired" });
     expect(await reason(pair(LINK, () => undefined))).toBe("expired");
-    answer(403, { error: "Remote control needs a Pro or Studio plan on this account." });
+    answer(403, { error: "Remote control needs the Remote or Pro plan on this account." });
     expect(await reason(pair(LINK, () => undefined))).toBe("plan");
     answer(400, { error: "Missing pairing code." });
     expect(await reason(pair(LINK, () => undefined))).toBe("failed");

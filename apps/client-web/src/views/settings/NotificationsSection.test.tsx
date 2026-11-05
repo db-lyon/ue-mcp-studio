@@ -94,7 +94,7 @@ describe("Settings > Notifications", () => {
 
 describe("Settings > Notifications by remote control's state", () => {
   const RELAY = [/Shared by every device paired/, /Phones and other browsers/, /Other devices keep theirs/];
-  const PLAN = "Phone and browser notifications come with remote control, on a Pro or Studio plan.";
+  const PLAN = "Phone and browser notifications come with remote control, on the Remote plan.";
   const relayEvents = ["Project went offline", "Project came back"];
   const desktop = ["Notifications on this device", "Only when I'm away", "Quiet hours", "Mute Vale on this device", "Turn finished", "Approval waiting", "Playtest finished"];
   afterEach(() => {

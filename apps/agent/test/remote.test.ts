@@ -41,7 +41,7 @@ import { ACCOUNT_SIGNED_OUT, REMOTE_SIGN_IN_AGAIN } from "@ue-mcp-studio/shared"
 
 const DAEMON_TOKEN = "d".repeat(32);
 const MARKER = "PLAINTEXT-MARKER-c0ffee";
-const NO_PLAN_BODY = { error: "Remote control needs a Pro or Studio plan on this account." };
+const NO_PLAN_BODY = { error: "Remote control needs the Remote or Pro plan on this account." };
 
 /** The gateway's answer, as the routes see it: paid or not, and how it was asked. */
 class FakePlan implements PlanCheck {

@@ -111,7 +111,7 @@ describe("Settings > Remote control", () => {
   });
 
   it("words no-plan the way the relay does", () => {
-    expect(NO_PLAN_TEXT).toBe("Remote control needs a Pro or Studio plan on this account.");
+    expect(NO_PLAN_TEXT).toBe("Remote control needs the Remote plan on this account.");
   });
 
   it("from a paired browser, which is refused these routes, says they are set up on the computer", async () => {

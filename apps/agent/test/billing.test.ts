@@ -57,8 +57,8 @@ describe("POST /billing/checkout", () => {
 
   it("uses the ue-mcp login token when the panel has none, and monthly by default", async () => {
     const call = routes({ registry: "uemcp_cli" });
-    await call("POST /billing/checkout", { plan: "studio" });
-    expect(hits[0]).toMatchObject({ auth: "Bearer uemcp_cli", body: JSON.stringify({ plan: "studio", interval: "month" }) });
+    await call("POST /billing/checkout", { plan: "remote" });
+    expect(hits[0]).toMatchObject({ auth: "Bearer uemcp_cli", body: JSON.stringify({ plan: "remote", interval: "month" }) });
   });
 
   it("refuses a signed-out computer without asking the gateway, pointing at the in-app sign-in", async () => {

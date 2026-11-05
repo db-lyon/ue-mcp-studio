@@ -684,7 +684,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     };
   })(),
   "remote-upgrade-reply": {
-    ...inSession("/remote typed by a signed-in account without a paid plan: the reply with the Upgrade action (Pro, monthly or yearly), with STUDIO_PLAN_AVAILABLE off", "Door playtest", []),
+    ...inSession("/remote typed by a signed-in account without a paid plan: the reply with the Upgrade action (the Remote plan, monthly or yearly), with STUDIO_PLAN_AVAILABLE off", "Door playtest", []),
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
     type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
   },

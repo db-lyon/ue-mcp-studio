@@ -1,11 +1,11 @@
 /**
  * The web client's views/Upgrade.tsx, the part the /remote reply shows: buy
- * the Pro plan, monthly or yearly, in the system browser, then wait for it.
+ * the Remote plan, monthly or yearly, in the system browser, then wait for it.
  */
 import { useState } from "react";
 import { Linking, View } from "react-native";
 import { HttpError } from "@ue-mcp-studio/client-core";
-import type { BillingInterval } from "@ue-mcp-studio/shared";
+import { UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../../nav";
 import { Banner, Button, Seg, T, useTheme } from "../../../../ui";
 import { small } from "../../../../chat/styles";
@@ -41,7 +41,7 @@ export function UpgradeAction() {
     setNote(null);
     try {
       let portal = false;
-      const link = await api.billingCheckout({ plan: "pro", interval }).catch(async (e: unknown) => {
+      const link = await api.billingCheckout({ plan: "remote", interval }).catch(async (e: unknown) => {
         if (e instanceof HttpError && e.status === 409) {
           portal = true;
           return api.billingPortal();
@@ -62,7 +62,7 @@ export function UpgradeAction() {
     <View style={{ gap: 8 }}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
         <Seg label="Billing interval" value={interval} options={INTERVALS} onChange={(k) => !busy && setInterval(k)} />
-        <Button title={busy ? "Opening checkout" : "Upgrade to Pro"} variant="primary" disabled={busy} onPress={() => void upgrade()} />
+        <Button title={busy ? "Opening checkout" : UPGRADE_LABEL} variant="primary" disabled={busy} onPress={() => void upgrade()} />
       </View>
       {note ? <T accessibilityLiveRegion="polite" style={[small(t), { color: t.c.dim }]}>{note}</T> : null}
       {error ? (
