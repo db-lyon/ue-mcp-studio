@@ -68,6 +68,17 @@ function remoteLockGet(lock: { pin: boolean; whole: boolean; sensitive: boolean;
   };
 }
 
+/** Settings > Notifications as the agent answers it: the defaults, with one session muted. */
+const NOTIFY_STATE = {
+  project: "StudioE2E",
+  prefs: {
+    events: { "turn.finished": true, "turn.failed": true, "approval.waiting": true, "dialog.waiting": true, "playtest.needs-you": true, "playtest.finished": true, "subagent.finished": false, "context.limit": false, "project.offline": false, "project.online": false },
+    mutedSessions: ["qa-muted"],
+  },
+  recent: [],
+  titles: { "qa-muted": "Bake lighting overnight" },
+};
+
 const page = (title: string, section: string, o: Partial<Scenario> = {}): Scenario => ({ title, hash: `#/settings/${section}`, index: { playtests: [], listed: true }, height: 2600, ...o });
 
 /**
@@ -137,6 +148,24 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     focus: ".yaml-editor textarea",
   }),
   "settings-general": page("General: themes and updates", "general"),
+  "settings-notifications": page("Notifications in Studio's window: this device's choices, every event at its default, one muted session", "notifications", {
+    studioWindow: true,
+    get: (p) => (p === "/v1/ext/studio/notifications" ? NOTIFY_STATE : undefined),
+  }),
+  "settings-notifications-quiet": page("Notifications with quiet hours on, details hidden, the project muted here, and two events changed for the project", "notifications", {
+    studioWindow: true,
+    storage: { "studio.notify.device": JSON.stringify({ enabled: true, mutedProjects: ["StudioE2E"], quiet: { on: true, from: "22:30", to: "07:00" }, privacy: "minimal", sound: "default", vibrate: "default", onlyWhenAway: true }) },
+    get: (p) => (p === "/v1/ext/studio/notifications" ? { ...NOTIFY_STATE, prefs: { ...NOTIFY_STATE.prefs, events: { ...NOTIFY_STATE.prefs.events, "turn.finished": false, "subagent.finished": true } } } : undefined),
+  }),
+  "settings-notifications-off": page("Notifications turned off on this device: its other choices disabled, the project's events still shown", "notifications", {
+    studioWindow: true,
+    storage: { "studio.notify.device": JSON.stringify({ enabled: false }) },
+    get: (p) => (p === "/v1/ext/studio/notifications" ? { ...NOTIFY_STATE, prefs: { ...NOTIFY_STATE.prefs, mutedSessions: [] }, titles: {} } : undefined),
+  }),
+  "settings-notifications-remote": page("Notifications in a paired browser that has not allowed notifications yet: the Allow button", "notifications", {
+    remotePage: true,
+    get: (p) => (p === "/v1/ext/studio/notifications" ? NOTIFY_STATE : undefined),
+  }),
   "settings-general-signed-in": page("General with the ue-mcp account signed in from the panel, no paid plan: the login and Sign out", "general", {
     settings: { account: { login: "dev", via: "studio" } },
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
@@ -170,6 +199,10 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-remote-pin-off": page("Remote control with the PIN lock off: what it does and Set a PIN", "remote", remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 })),
   "settings-remote-pin-new": page("Remote control setting a PIN: the PIN twice, digits only", "remote", { ...remoteLockGet({ pin: false, whole: false, sensitive: false, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button.primary"] }),
   "settings-remote-pin-on": page("Remote control with a PIN, both switches on: Studio locks on paired devices after the idle time, and sensitive actions ask", "remote", remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 })),
+  "settings-remote-pin-change": page("Remote control changing the PIN: the current PIN, then the new one twice", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button:nth-child(1)"] }),
+  "settings-remote-pin-remove": page("Remote control removing the PIN: asks for the current PIN first", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button:nth-child(2)"] }),
+  "settings-remote-pin-weaken": page("Remote control turning Ask for sensitive actions off: held until the current PIN", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: ['.pin-lock button[aria-label="Ask for sensitive actions"]'] }),
+  "settings-remote-pin-forgot": page("Remote control Forgot PIN: the confirm that every paired device goes with it", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: [".pin-lock .pin-forgot-link"] }),
   "settings-remote-signin": page("Remote control on a signed-out computer, while STUDIO_PLAN_AVAILABLE is on: the ue-mcp account sign-in inline. With the flag off it is not listed and this opens General", "remote", {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : undefined),
   }),

@@ -24,7 +24,8 @@ import { playtestMatches } from "@ue-mcp-studio/shared";
 import { NARROW, useMedia } from "./layout";
 import { readLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
-import { focusRun, useAttention } from "./attention";
+import { focusRun } from "./attention";
+import { useNotifications, usePresence, useWebPush } from "./notify";
 import { replaceStaleWindow } from "./window-version";
 import { RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
@@ -92,11 +93,14 @@ function Studio({ daemon }: { daemon: DaemonState }) {
     setChatNav((c) => ({ session, n: c.n + 1 }));
   };
   const newSession = () => void api.newSession().then((d) => openChat(d.id), () => openChat(null));
-  // A playtest loop needs the user: a Windows notification, whose click opens the playtest's card.
-  useAttention(daemon.events, (t) => {
+  // Notifications on this device; clicking one opens its session, and a playtest's card in it.
+  useNotifications(daemon.events, (t) => {
+    if (!t.sessionId) return;
     openChat(t.sessionId);
-    focusRun(t.runId);
+    if (t.runId) focusRun(t.runId);
   });
+  usePresence();
+  useWebPush();
   const updates = useUpdateCount();
   // The project's playtests: the page's rows, and the count on its tab of those that wait for the user.
   const playtests = usePlaytestIndex(daemon);

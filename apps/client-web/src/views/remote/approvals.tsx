@@ -190,7 +190,7 @@ export function PairedBrowsers() {
   useEffect(() => {
     load();
     return subscribeEvent((e) => {
-      if (e.type === "studio.remote.paired") load();
+      if (e.type === "studio.remote.paired" || e.type === "studio.remote.unpaired") load();
     });
   }, [load]);
   const remove = (b: RemoteBrowser) => {

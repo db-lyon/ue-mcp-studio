@@ -175,6 +175,32 @@ describe("a /action in a session", () => {
     expect(store.get(s.id)!.notes.join("\n")).toContain("declined it at the approval");
   });
 
+  it("Python, console commands and toolset scripts in the editor ask as shell commands, even under In project", async () => {
+    for (const shell of ["ask", "project"] as const) {
+      for (const [category, method, args] of [
+        ["editor", "execute_python", { code: "import os", taskSummary: "t" }],
+        ["editor", "execute_command", { command: "py os.remove('x')" }],
+        ["editor", "epic_execute_tool_script", { script: "x" }],
+      ] as const) {
+        calls.length = 0;
+        const { runner, s } = setup(rows({ shell }));
+        const run = runner.action(s.id, { category, method, args });
+        await until(() => (store.get(s.id)!.approvals ?? []).length > 0);
+        const a = store.get(s.id)!.approvals![0];
+        expect(a, `${shell} ${method}`).toMatchObject({ tool: "ue_mcp", call: { category, method } });
+        expect(calls).toHaveLength(0);
+        runner.answerApproval(s.id, a.id, "deny");
+        await run;
+        expect(calls).toHaveLength(0);
+      }
+    }
+    // Allowed, they run without asking; a turn is then guarded by the PIN lock's sensitive switch (risky).
+    calls.length = 0;
+    const { runner, s } = setup(rows({ shell: "allow" }));
+    await runner.action(s.id, { category: "editor", method: "execute_python", args: { code: "1", taskSummary: "t" } });
+    expect(calls.map((c) => c.action)).toEqual(["execute_python"]);
+  });
+
   it("asks before an editor restart reached as an action, and honours Allow for this session", async () => {
     const { runner, s } = setup(rows({ editorRestart: "ask" }));
     const first = runner.action(s.id, { category: "editor", method: "restart_editor", args: {} });

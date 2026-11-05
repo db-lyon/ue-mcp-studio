@@ -244,6 +244,23 @@ export async function account(): Promise<{ devices: Device[]; viewers: Viewer[] 
   return { devices: body.devices, viewers: body.viewers ?? [] };
 }
 
+/**
+ * Tell the relay where this phone takes pushes, and the filter it applies
+ * (events, muted projects, quiet hours). Answers whether the relay delivers to
+ * it now: false until the relay has FCM set up.
+ */
+export async function registerPush(token: { platform: "android" | "ios"; token: string }, prefs: unknown): Promise<{ ok: boolean; delivering: boolean }> {
+  const res = await fetch(`${BASE}/api/push/register`, {
+    method: "POST",
+    headers: { ...relayHeaders, "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ ...token, prefs }),
+  });
+  if (!res.ok) return { ok: false, delivering: false };
+  const body = (await res.json().catch(() => ({}))) as { delivering?: unknown };
+  return { ok: true, delivering: body.delivering === true };
+}
+
 /** Remove a paired client from the account; removing this phone also forgets every computer here. */
 export async function removeViewer(v: Viewer): Promise<void> {
   const res = await fetch(`${BASE}/viewers/${encodeURIComponent(v.id)}/revoke`, { method: "POST", headers: { origin: RELAY }, credentials: "include" });

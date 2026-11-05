@@ -28,7 +28,8 @@
       "permissions": [
         "android.permission.CAMERA",
         "android.permission.USE_BIOMETRIC",
-        "android.permission.VIBRATE"
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
       ],
       "predictiveBackGestureEnabled": false,
       "allowBackup": false,
@@ -107,6 +108,14 @@
         }
       ],
       "expo-quick-actions",
+      [
+        "expo-notifications",
+        {
+          "color": "#e8720c",
+          "defaultChannel": "studio-default-default"
+        }
+      ],
+      "./plugins/with-google-services",
       "./plugins/with-release-signing"
     ]
   }

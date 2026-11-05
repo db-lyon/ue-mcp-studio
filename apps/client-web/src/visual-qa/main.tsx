@@ -94,6 +94,7 @@ data: ${data}
 };
 
 try {
+  for (const [k, v] of Object.entries(scenario.storage ?? {})) window.localStorage.setItem(k, v);
   if (scenario.filter) window.localStorage.setItem("studio.playtests.filter", scenario.filter);
   else window.localStorage.removeItem("studio.playtests.filter");
 } catch {
@@ -102,6 +103,7 @@ try {
 history.replaceState(null, "", `${location.pathname}${location.search}${scenario.hash}`);
 // A paired browser's page, though the harness is served from this computer.
 let sentEvents = false;
+if (scenario.studioWindow && params.get("remote") !== "1") window.ue = { studio: { notify: async () => true } as never, studioWindow: true };
 // ?remote=1 draws every scenario as a paired browser sees it, the reference the mobile app is compared with.
 if (scenario.remoteOffline || scenario.remotePage || params.get("remote") === "1") (window as unknown as { __studioRemotePage?: boolean }).__studioRemotePage = true;
 if (scenario.wake) {

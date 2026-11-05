@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   setRemotePin: vi.fn(),
   removeRemotePin: vi.fn(),
   setRemoteLock: vi.fn(),
+  forgetRemotePin: vi.fn(),
 }));
 const e = vi.hoisted(() => ({
   ApiError: class ApiError extends Error {
@@ -47,7 +48,7 @@ describe("Settings > Remote control > PIN lock", () => {
     fireEvent.change(again, { target: { value: "4821" } });
     m.setRemotePin.mockResolvedValue(SET);
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Set PIN" })));
-    expect(m.setRemotePin).toHaveBeenCalledWith("4821");
+    expect(m.setRemotePin).toHaveBeenCalledWith("4821", undefined);
     expect(screen.getByRole("switch", { name: "Lock Studio on paired devices" })).toBeTruthy();
     expect(screen.getByRole("switch", { name: "Ask for sensitive actions" })).toBeTruthy();
   });
@@ -68,13 +69,85 @@ describe("Settings > Remote control > PIN lock", () => {
     expect(screen.getByRole("switch", { name: "Ask for sensitive actions" }).getAttribute("aria-checked")).toBe("true");
   });
 
-  it("Remove PIN turns both switches off", async () => {
+  const typeCurrent = (v: string) => fireEvent.change(screen.getByLabelText("Current PIN"), { target: { value: v } });
+
+  it("Remove PIN asks for the current PIN; a wrong one stays and says so", async () => {
     await show({ ...SET, whole: true, sensitive: true });
-    m.removeRemotePin.mockResolvedValue(OFF);
+    fireEvent.click(screen.getByRole("button", { name: "Remove PIN" }));
+    expect(m.removeRemotePin).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Remove PIN" }).hasAttribute("disabled")).toBe(true);
+    m.removeRemotePin.mockRejectedValueOnce(new e.ApiError(401, "The current PIN is wrong."));
+    typeCurrent("0000");
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Remove PIN" })));
-    expect(m.removeRemotePin).toHaveBeenCalled();
+    expect(m.removeRemotePin).toHaveBeenCalledWith("0000");
+    expect(screen.getByRole("alert").textContent).toBe("The current PIN is wrong.");
+    expect(screen.getAllByRole("switch")).toHaveLength(2);
+    m.removeRemotePin.mockResolvedValue(OFF);
+    typeCurrent("4821");
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Remove PIN" })));
+    expect(m.removeRemotePin).toHaveBeenLastCalledWith("4821");
     expect(screen.queryByRole("switch")).toBeNull();
     expect(screen.getByRole("button", { name: "Set a PIN" })).toBeTruthy();
+  });
+
+  it("Change PIN takes the current PIN and the new one twice", async () => {
+    await show(SET);
+    fireEvent.click(screen.getByRole("button", { name: "Change PIN" }));
+    const [current, pin, again] = ["Current PIN", "New PIN", "New PIN again"].map((l) => screen.getByLabelText(l));
+    fireEvent.change(pin, { target: { value: "1111" } });
+    fireEvent.change(again, { target: { value: "1111" } });
+    expect(screen.getByRole("button", { name: "Change PIN" }).hasAttribute("disabled")).toBe(true);
+    fireEvent.change(current, { target: { value: "4821" } });
+    m.setRemotePin.mockResolvedValue(SET);
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Change PIN" })));
+    expect(m.setRemotePin).toHaveBeenCalledWith("1111", "4821");
+    expect(screen.queryByLabelText("Current PIN")).toBeNull();
+  });
+
+  it("a switch off or a longer idle time waits for the current PIN; on and shorter do not", async () => {
+    await show({ ...SET, whole: true, sensitive: true, idleMinutes: 15 });
+    fireEvent.click(screen.getByRole("switch", { name: "Ask for sensitive actions" }));
+    expect(m.setRemoteLock).not.toHaveBeenCalled();
+    expect(screen.getByText("Enter the current PIN to stop asking for sensitive actions.")).toBeTruthy();
+    m.setRemoteLock.mockResolvedValue({ ...SET, whole: true, sensitive: false });
+    typeCurrent("4821");
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Turn off" })));
+    expect(m.setRemoteLock).toHaveBeenCalledWith({ sensitive: false, current: "4821" });
+    expect(screen.getByRole("switch", { name: "Ask for sensitive actions" }).getAttribute("aria-checked")).toBe("false");
+
+    fireEvent.click(screen.getByRole("radio", { name: "1 hour" }));
+    expect(screen.getByText("Enter the current PIN to lock again after 1 hour instead of 15 min.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(m.setRemoteLock).toHaveBeenCalledTimes(1);
+
+    m.setRemoteLock.mockResolvedValue({ ...SET, whole: true, sensitive: false, idleMinutes: 5 });
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "5 min" })));
+    expect(m.setRemoteLock).toHaveBeenLastCalledWith({ idleMinutes: 5 });
+
+    fireEvent.click(screen.getByRole("switch", { name: "Lock Studio on paired devices" }));
+    expect(screen.getByText("Enter the current PIN to stop locking Studio on paired devices.")).toBeTruthy();
+  });
+
+  it("Forgot PIN confirms that every paired device goes, then resets and reloads the list", async () => {
+    const onUnpaired = vi.fn();
+    m.remoteLock.mockResolvedValue({ ...SET, whole: true });
+    await act(async () => void render(<PinLockCard onUnpaired={onUnpaired} />));
+    fireEvent.click(screen.getByRole("button", { name: "Forgot PIN" }));
+    expect(screen.getByRole("group", { name: "Forgot PIN" }).textContent).toContain("This removes every paired phone and browser; pair them again afterwards.");
+    expect(m.forgetRemotePin).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(m.forgetRemotePin).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Forgot PIN" }));
+    m.forgetRemotePin.mockResolvedValue({ ...OFF, unpaired: 2 });
+    await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Remove PIN and unpair all" })));
+    expect(m.forgetRemotePin).toHaveBeenCalled();
+    expect(onUnpaired).toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Set a PIN" })).toBeTruthy();
+  });
+
+  it("states the rule once a PIN is set", async () => {
+    await show(SET);
+    expect(screen.getByText(/needs the current PIN, here too/)).toBeTruthy();
   });
 
   it("an agent without the lock leaves the card out", async () => {

@@ -19,6 +19,17 @@ export const NO_EFFECTS: ActionEffects = { destructive: () => null, readOnly: ()
 /** The editor actions that stop or restart the editor, reached through ue_mcp rather than editor_restart. */
 const EDITOR_LIFECYCLE = new Set(["stop_editor", "restart_editor", "start_editor", "rebuild_editor", "rebuild"]);
 
+/**
+ * ue-mcp actions that run code on the computer: Python in the editor, console
+ * commands (`py` runs Python too) and Epic's toolset scripts. They ask as
+ * shell commands, never "inside the project", so the PIN lock's
+ * sensitive-actions switch also guards them for a paired device.
+ */
+const RUNS_CODE = new Set(["execute_python", "execute_command", "epic_execute_tool_script"]);
+
+/** Whether a ue_mcp call runs code on the computer. */
+export const runsCode = (input: Record<string, unknown>): boolean => input.action === "call" && typeof input.method === "string" && RUNS_CODE.has(input.method);
+
 /** The key a session's "Allow for this session" keeps for a kind. "edit" is what sessions stored before the rows existed. */
 export const SESSION_KEY: Record<ApprovalKind, string> = { shell: "shell", files: "edit", editorRestart: "restart", destructive: "destructive" };
 
@@ -28,6 +39,7 @@ export function approvalKind(name: string, input: Record<string, unknown>, effec
   if (name === "editor_restart") return "editorRestart";
   if (name === "ue_mcp" && input.action === "call" && typeof input.category === "string" && typeof input.method === "string") {
     if (input.category === "editor" && EDITOR_LIFECYCLE.has(input.method)) return "editorRestart";
+    if (runsCode(input)) return "shell";
     if (effects.destructive(input.category, input.method)) return "destructive";
   }
   return null;

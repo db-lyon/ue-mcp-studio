@@ -1,6 +1,6 @@
 /**
- * One session in the list: open it, or from its menu rename, archive (or
- * restore) and delete it. Delete asks once more before it removes anything.
+ * One session in the list: open it, or from its menu rename, mute its
+ * notifications, archive (or restore) and delete it. Delete asks once more before it removes anything.
  */
 import { useBack } from "../back";
 import { useEffect, useRef, useState } from "react";
@@ -8,13 +8,16 @@ import { Pressable, TextInput, View, useWindowDimensions, type HostInstance } fr
 import type { SessionSummary, SessionUpdate } from "@ue-mcp-studio/shared";
 import { listState, sessionLine } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
+import { useSettingsApi } from "../screens/settings/hooks";
+import { saveProjectNotify, useProjectNotify } from "../notifications/state";
+import Svg, { Path } from "react-native-svg";
 import { font, T, useSheetInsets, useTheme } from "../ui";
 import { buttonText, small } from "./styles";
 
 export { listState, sessionLine };
 
-/** The row menu's height: three 44 px items, its padding and border. */
-const MENU_H = 3 * 44 + 10;
+/** The row menu's height: four 44 px items, its padding and border. */
+const MENU_H = 4 * 44 + 10;
 
 /** .session-dot: shown while the session runs, waits or needs the user, or stopped on an error. */
 function SessionDot({ state }: { state: string }) {
@@ -37,6 +40,10 @@ export function SessionRow({ s, selected, onOpen, onChanged }: { s: SessionSumma
   const [confirm, setConfirm] = useState(false);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(s.title);
+  const settings = useSettingsApi();
+  // Read when the menu first opens; the open project has usually read it already for its notifications.
+  const notify = useProjectNotify(settings, menu);
+  const muted = !!notify?.prefs.mutedSessions.includes(s.id);
 
   useEffect(() => setTitle(s.title), [s.title]);
 
@@ -97,9 +104,16 @@ export function SessionRow({ s, selected, onOpen, onChanged }: { s: SessionSumma
         ) : (
           <View style={{ flexDirection: "row", alignItems: "center" }}>
             <SessionDot state={listState(s)} />
-            <T weight={600} numberOfLines={1} style={{ flex: 1, lineHeight: t.base.lineHeight }}>
+            <T weight={600} numberOfLines={1} style={{ flexShrink: 1, lineHeight: t.base.lineHeight }}>
               {s.title}
             </T>
+            {muted ? (
+              <View accessible accessibilityRole="image" accessibilityLabel="Notifications muted" style={{ marginLeft: 6 }}>
+                <Svg width={11} height={11} viewBox="0 0 16 16" fill="none" stroke={t.c.dim} strokeWidth={1.6} strokeLinecap="round">
+                  <Path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1.5 1.5h-11zM6.5 13.5a1.5 1.5 0 0 0 3 0M2 2l12 12" />
+                </Svg>
+              </View>
+            ) : null}
           </View>
         )}
         <T style={[small(t), { color: t.c.muted }]}>{sessionLine(s)}</T>
@@ -126,6 +140,12 @@ export function SessionRow({ s, selected, onOpen, onChanged }: { s: SessionSumma
             setMenu(false);
             setEditing(true);
           })}
+          {notify
+            ? item(muted ? "Unmute notifications" : "Mute notifications", () => {
+                setMenu(false);
+                void saveProjectNotify(settings, muted ? { unmute: [s.id] } : { mute: [s.id] }).catch(() => undefined);
+              })
+            : null}
           {item(s.archived ? "Restore" : "Archive", () => {
             setMenu(false);
             void update({ archived: !s.archived });

@@ -56,6 +56,7 @@ import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
 import { providerFor } from "./providers.js";
 import { DEFAULT_PLAN_MODELS, ModelCatalogSource, pickRoute, type SignInCoverage } from "./models.js";
 import { knownWindow } from "./context-windows.js";
+import { registerNotifications, type NotifySession } from "./notify.js";
 import { StudioSignInFlow } from "./signin.js";
 import { AccountSource } from "./account-source.js";
 import { AttachmentStore } from "./attachments.js";
@@ -78,6 +79,7 @@ import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
 import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
+import { projectName } from "./window.js";
 import { registerQuickRoute } from "./quick.js";
 import { AssetResolver, editorBusy, missLine, openAsset, traceName } from "./asset-links.js";
 import { MentionSearch, SUPERSEDED } from "./mentions.js";
@@ -887,10 +889,17 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
 
   if (packageDir) registerWindowRoutes(api, { busy, stopSession: (id) => runner.stop(id), window: () => daemonWindowHost(api, packageDir, agentVersion) });
 
+  const notifications = registerNotifications(api, {
+    project: projectName(api.projectDir),
+    session: (id) => store.get(id) as NotifySession | undefined,
+    window: (model) => knownWindow(model),
+  });
+
   runner.recover();
   return {
     runner,
     dispose: () => {
+      notifications.dispose();
       unobserve();
       unwatchAssets();
       unwatchPlugins();
