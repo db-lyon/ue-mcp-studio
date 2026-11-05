@@ -91,10 +91,16 @@ describe("Sheet closing", () => {
 });
 
 describe("Sheet head", () => {
-  it("draws Close 32 px tall so the title sits close under the grip", () => {
+  it("leaves no band above or under the title: 8 px under the grip, a 28 px Close, 4 px to the body", () => {
     render(<Host onClose={() => undefined} />);
     const close = screen.getAllByRole("button", { name: "Close" }).find((b) => b.textContent === "Close")!;
-    expect(getComputedStyle(close).minHeight).toBe("32px");
+    const cs = getComputedStyle(close);
+    expect(cs.minHeight).toBe("28px");
+    expect(cs.paddingTop).toBe("0px");
+    const head = getComputedStyle(screen.getByTestId("sheet-handle"));
+    expect(head.paddingTop).toBe("8px");
+    expect(head.paddingBottom).toBe("4px");
+    expect(getComputedStyle(screen.getByTestId("sheet-grip")).top).toBe("0px");
   });
 });
 

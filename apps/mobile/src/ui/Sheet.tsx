@@ -41,6 +41,9 @@ export function sheetDragHandlers(o: { drag: Animated.Value; height: () => numbe
   };
 }
 
+/** The head's spacing: grip to title row, title row to the body, and Close's drawn height (its taps reach 44). */
+export const SHEET_HEAD = { top: 8, bottom: 4, close: 28 } as const;
+
 export function Sheet({ open, title, onClose, children }: { open: boolean; title: string; onClose: () => void; children: ReactNode }) {
   const t = useTheme();
   // Its actions end above the navigation bar, or above the keyboard while one of its fields has it up.
@@ -109,14 +112,15 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
         }}
       >
         {/* .sheet-head: the grip and the title row take the drag; Close keeps its tap. */}
-        <View testID="sheet-handle" {...pan.panHandlers} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 12, paddingHorizontal: 4, paddingBottom: 8 }}>
-          <View style={{ position: "absolute", top: 0, left: "50%", width: 36, height: 4, marginLeft: -18, borderRadius: 2, backgroundColor: t.c.lineStrong }} />
+        {/* Tighter than the web's .sheet-head (owner, device build 6): no band between the grip and the title, or under it. */}
+        <View testID="sheet-handle" {...pan.panHandlers} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: SHEET_HEAD.top, paddingHorizontal: 4, paddingBottom: SHEET_HEAD.bottom }}>
+          <View testID="sheet-grip" style={{ position: "absolute", top: 0, left: "50%", width: 36, height: 4, marginLeft: -18, borderRadius: 2, backgroundColor: t.c.lineStrong }} />
           <T weight={700} size={t.base.size}>
             {title}
           </T>
           <Spacer />
-          {/* Drawn 32 px tall, taking taps over 44, so the title sits close under the grip. */}
-          <Button title="Close" variant="ghost" onPress={onClose} hitSlop={6} style={{ minHeight: 32 }} />
+          {/* Drawn 28 px tall, taking taps over 44. */}
+          <Button title="Close" variant="ghost" onPress={onClose} hitSlop={8} style={{ minHeight: SHEET_HEAD.close, paddingVertical: 0 }} />
         </View>
         <ScrollView style={{ minHeight: 0 }}>{children}</ScrollView>
       </Animated.View>
