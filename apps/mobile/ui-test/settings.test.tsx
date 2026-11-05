@@ -120,6 +120,26 @@ describe("Settings > Agents", () => {
     expect(screen.getByText("naming-conventions")).toBeTruthy();
   });
 
+  it("stacks the worker's Starts choices with no space between them (.seg.seg-stack)", async () => {
+    open("settings-agents", "agents");
+    await settled(6);
+    const choices = ["Never", "When you ask", "When work splits into independent parts"].map((n) => screen.getByRole("radio", { name: n }));
+    for (const c of choices) expect(getComputedStyle(c).marginTop).toMatch(/^(0px|)$/);
+  });
+
+  it("keeps each subagent and skill row's text and Open file side by side, as the web's narrow rows do", async () => {
+    open("settings-agents", "agents");
+    await settled(6);
+    for (const path of [".claude/agents/level-dresser.md", ".claude/skills/naming-conventions"]) {
+      const button = screen.getByLabelText(`Open ${path}`);
+      const row = button.parentElement!;
+      expect(getComputedStyle(row).flexDirection).toBe("row");
+      // The text column takes what is left (flex 1); the button keeps its own width.
+      expect(getComputedStyle(row.children[0]).flexGrow).toBe("1");
+      expect(row.lastElementChild).toBe(button);
+    }
+  });
+
   it("changes the screenshot size from the phone", async () => {
     const { writes } = open("settings-agents", "agents");
     await settled(6);
