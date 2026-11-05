@@ -228,6 +228,26 @@ async function live() {
     await page.waitForTimeout(1000);
     await shot(page, "04-project-locked");
     step("locked project with keypad", true);
+
+    // With the owner's PIN in E2E_PIN (never in a file or the log), unlock on the keypad and open a real session.
+    const pin = process.env.E2E_PIN;
+    const liveSession = arg("live-session");
+    if (pin && liveSession) {
+      for (const d of pin) await page.locator(`[aria-label="PIN keypad"] [aria-label="${d}"]`).first().click();
+      await page.getByText("Sessions", { exact: true }).first().waitFor({ state: "visible", timeout: 60_000 });
+      await page.waitForTimeout(1000);
+      await shot(page, "05-live-sessions");
+      step("unlocked: sessions list", !(await page.getByText("That project is offline.").count()));
+      const started = Date.now();
+      await page.getByText(liveSession, { exact: true }).first().click();
+      // A long session opens on its newest lines with the rest one press away.
+      await page.getByText(/^Show earlier messages \(\d+ more\)$/).first().waitFor({ state: "attached", timeout: 60_000 });
+      const ms = Date.now() - started;
+      await page.waitForTimeout(1500);
+      await shot(page, "06-live-session-open");
+      const earlier = await page.getByText(/^Show earlier messages \(\d+ more\)$/).first().textContent();
+      step("real session transcript drawn", !(await page.getByText("That project is offline.").count()), `${ms} ms to the transcript; ${earlier}`);
+    }
   } catch (e) {
     await shot(page, "live-failure").catch(() => undefined);
     step("live flow", false, `${e.message}${errors.length ? ` | page errors: ${errors.slice(0, 5).join(" | ")}` : ""}`);
