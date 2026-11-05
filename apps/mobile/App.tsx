@@ -20,6 +20,10 @@ import { Settings } from "./src/screens/Settings";
 import { About } from "./src/screens/About";
 import { ProjectScreen } from "./src/screens/Project";
 import { BackLayer, BackToast, useBack, useBackExit } from "./src/back";
+import { ErrorBoundary } from "./src/views/ErrorBoundary";
+import { keepAliveOnErrors } from "./src/native/keep-alive";
+
+keepAliveOnErrors();
 
 type Screen =
   | { name: "loading" }
@@ -63,7 +67,14 @@ export default function App() {
           {/* The window's insets from the first frame, so nothing is laid out once under the navigation bar and then moves. */}
           <SafeAreaProvider initialMetrics={initialWindowMetrics} style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>
             <StatusBar style="light" />
-            <View style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>{fonts ? <Root /> : null}</View>
+            <View style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>
+              {/* Last line: a render error anywhere shows here with Reload, never closes the app. */}
+              {fonts ? (
+                <ErrorBoundary what="Studio">
+                  <Root />
+                </ErrorBoundary>
+              ) : null}
+            </View>
           </SafeAreaProvider>
         </KeyboardProvider>
       </ThemeProvider>

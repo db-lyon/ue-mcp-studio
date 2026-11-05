@@ -18,7 +18,7 @@ import { publishRecentSessions } from "../native/shortcuts";
 import { Banner, Button, font, labelFont, NavBarBacking, T, useAvoidedInsets, useSheetInsets, useTheme, type Theme } from "../ui";
 import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
 import { useDaemonState, useDismissed, useSeen } from "../chat/hooks";
-import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
+import { EditMessageContext, EntryBoundary, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { pillsFor } from "../chat/pill-providers";
 import { PillRow } from "../chat/Pills";
@@ -672,7 +672,11 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           {threads}
                         </Sheet>
                         <Sheet open={reviewOpen} title="Checkpoints" onClose={() => setReviewOpen(false)}>
-                          {reviewOpen ? <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} /> : null}
+                          {reviewOpen ? (
+                            <EntryBoundary>
+                              <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />
+                            </EntryBoundary>
+                          ) : null}
                         </Sheet>
                       </CompactContext.Provider>
                     </PlaytestCommandContext.Provider>

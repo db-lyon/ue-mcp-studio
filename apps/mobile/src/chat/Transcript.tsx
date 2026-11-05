@@ -382,14 +382,14 @@ function Earlier({ count, onPress }: { count: number; onPress: () => void }) {
 }
 
 /** One line that fails to draw says so in its place, and the rest of the thread still shows. */
-class EntryBoundary extends Component<{ children: ReactNode }, { failed: string | null }> {
+export class EntryBoundary extends Component<{ children: ReactNode }, { failed: string | null }> {
   state = { failed: null as string | null };
   static getDerivedStateFromError(e: unknown) {
     return { failed: e instanceof Error ? e.message : String(e) };
   }
   render() {
     if (this.state.failed === null) return this.props.children;
-    return <Banner kind="bad">{`This line of the conversation could not be shown: ${this.state.failed}`}</Banner>;
+    return <Banner kind="bad">{`This item could not be shown: ${this.state.failed}`}</Banner>;
   }
 }
 

@@ -65,7 +65,7 @@ describe("a long session", () => {
     vi.spyOn(console, "error").mockImplementation(() => undefined);
     const broken: TranscriptEntry = { kind: "assistant", text: "BOOM", at: "2026-11-04T12:00:00Z" };
     renderInProject(<MainTranscript {...props([{ kind: "user", text: "Fix it", at: "2026-11-04T12:00:00Z" }, broken, { kind: "assistant", text: "Fixed.", at: "2026-11-04T12:01:00Z" }])} />);
-    expect(screen.getByText("This line of the conversation could not be shown: cannot draw this")).toBeTruthy();
+    expect(screen.getByText("This item could not be shown: cannot draw this")).toBeTruthy();
     expect(screen.getByText("Fix it")).toBeTruthy();
     expect(screen.getByText("Fixed.")).toBeTruthy();
   });
