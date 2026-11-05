@@ -40,6 +40,8 @@ type Screen =
 
 /** How long Paired stays up before the projects open. */
 const PAIRED_MS = 1200;
+/** How long startup waits for the relay's list to say whether the last project is online before opening Projects. */
+const STARTUP_LIST_MS = 4000;
 
 /**
  * The fonts and the theme around everything; the theme last used is drawn
@@ -121,8 +123,12 @@ function Root() {
       if (await dropPairingsWithoutKey()) return setScreen({ name: "welcome", error: "This phone's pairing was lost when the app was reinstalled. Pair it again." });
       const t = await trusted();
       if (!Object.keys(t).length) return setScreen({ name: "welcome" });
+      // The last project when the relay says it is online; otherwise Projects, the app's home.
       const last = await selected();
-      if (last && last.computerKey in t) openProject(last, undefined, "start");
+      if (!last || !(last.computerKey in t)) return setScreen({ name: "projects" });
+      const listed = await Promise.race([account().then((a) => a.devices, () => null), new Promise<null>((done) => setTimeout(() => done(null), STARTUP_LIST_MS))]);
+      const now = listed?.find((d) => d.id === last.id);
+      if (now?.online) openProject({ ...last, ...now }, undefined, "start");
       else setScreen({ name: "projects" });
     })().catch((e) => setScreen({ name: "welcome", error: String(e?.message ?? e) }));
     const sub = Linking.addEventListener("url", ({ url }) => {
@@ -172,7 +178,8 @@ function Root() {
   }, []);
 
   // System back (and the predictive back gesture): up one level; the screens inside a project go first.
-  const root = screen.name === "welcome" || screen.name === "projects" || (screen.name === "project" && screen.from === "start");
+  // Projects is the home: back from a project's sessions list goes there, and only there (or on Welcome) does back leave the app.
+  const root = screen.name === "welcome" || screen.name === "projects";
   useBack(
     root
       ? null
