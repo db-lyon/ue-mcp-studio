@@ -34,7 +34,8 @@ if [ -n "$cmake_dir" ]; then
   printf 'cmake.dir=%s\n' "$(cygpath -m "$cmake_dir" 2>/dev/null || echo "$cmake_dir")" > local.properties
 fi
 # Within a 6 GB budget: one Gradle worker, native compiles capped at NATIVE_JOBS (2), no daemon left
-# running. If the build fails, it is tried once more with one native job.
+# running. A failed build is tried once more with the same settings: a different job count would
+# reconfigure CMake and rebuild everything native.
 export NATIVE_JOBS="${NATIVE_JOBS:-2}" CMAKE_BUILD_PARALLEL_LEVEL="${NATIVE_JOBS:-2}"
 build() { ./gradlew assembleRelease --console=plain --no-daemon --build-cache -I ../scripts/cmake-jobs.init.gradle -Dorg.gradle.workers.max="${GRADLE_WORKERS:-1}"; }
-build || { echo "build failed; once more with one native job"; NATIVE_JOBS=1 CMAKE_BUILD_PARALLEL_LEVEL=1 build; }
+build || { echo "build failed; once more"; build; }
