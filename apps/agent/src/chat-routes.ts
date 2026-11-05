@@ -41,7 +41,8 @@ import { registerVersionNotice } from "./version-notice.js";
 import { readDiscovery, type DaemonExtensionApi, type ExtensionHandler } from "ue-mcp/daemon";
 import { guardedRoute } from "./guarded-route.js";
 import { PlaytestFlow } from "./playtest-flow.js";
-import { FlowCaller } from "./flow-run.js";
+import { FlowCaller, offersStepApproval, type FlowStepHost } from "./flow-run.js";
+
 import { ActionCatalog } from "./action-catalog.js";
 import { registerFlowModel, type ModelHost } from "./flow-model.js";
 import { CLAUDE_SIGN_IN_AVAILABLE, IMAGE_EDGES, PROVIDERS } from "@ue-mcp-studio/shared";
@@ -261,6 +262,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     nativeCache = { at: Date.now(), key, run };
     return run;
   };
+  // ue-mcp asks before each flow step as it runs when it offers "flows.stepApproval"; older daemons get the plan check.
+  const stepHost = api as unknown as FlowStepHost;
   const runner = new AgentRunner({
     host: api,
     review,
@@ -289,8 +292,10 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     playtestRuns: () => playtests.runs(),
     playtestFlow: new PlaytestFlow({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
+    flowStepApproval: () => offersStepApproval(stepHost),
     contextWindow: knownWindow,
   });
+  const unregisterSteps = offersStepApproval(stepHost) ? stepHost.flows!.approveSteps((r) => runner.approveFlowStep(r)) : () => {};
   // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
   const unregisterModel = registerFlowModel(api as ModelHost, {
     projectDir: api.projectDir,
@@ -905,6 +910,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       unwatchPlugins();
       updates.stop();
       unregisterModel();
+      unregisterSteps();
       dialogs.dispose();
       qa.dispose();
       runner.dispose();
