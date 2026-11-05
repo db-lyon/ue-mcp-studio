@@ -6,10 +6,11 @@
  * it. The project's Studio theme picks the app's theme.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { BackHandler, Linking, Pressable, StyleSheet, View } from "react-native";
+import { Linking, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { studioApi, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
 import { playtestMatches, type StudioTheme } from "@ue-mcp-studio/shared";
+import { BackLayer, useBack } from "./back";
 import { useProject } from "./connection";
 import type { Device } from "./relay";
 import { ProjectContext, useProjectNav, type ProjectNav, type Route } from "./nav";
@@ -65,12 +66,8 @@ export function AppShell({ device, onBack, onUnpaired, transport, initial }: App
     api.settings().then((s) => THEMES.includes(s.theme) && setTheme(s.theme), () => undefined);
   }, [api, setTheme]);
 
-  // Android back pops the project's own stack first; registered after the app's handler, so it runs first.
-  useEffect(() => {
-    if (!top) return;
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => (nav.pop(), true));
-    return () => sub.remove();
-  }, [top, nav]);
+  // Back pops the project's own stack first: it covers every tab.
+  useBack(top ? () => nav.pop() : null, { overlay: true });
 
   return (
     <ProjectContext.Provider value={nav}>
@@ -130,6 +127,8 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
   // The chat stays mounted once shown, parked while another tab is up, so coming back finds the same session and draft.
   const chatShown = useRef(tab === "Chat");
   if (tab === "Chat") chatShown.current = true;
+  // Back: a Settings section to the section list, any other tab to Chat. Chat's own levels sit a layer deeper.
+  useBack(tab === "Chat" ? null : () => (tab === "Settings" && section ? setSection(null) : setTab("Chat")));
 
   return (
     <View style={s.app}>
@@ -163,6 +162,7 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
         {chatShown.current ? (
           <View style={[s.main, tab !== "Chat" && s.parked]} pointerEvents={tab === "Chat" ? "auto" : "none"} accessibilityElementsHidden={tab !== "Chat"}>
             <ErrorBoundary what="Chat">
+              <BackLayer>
               <Chat
                 nav={chatNav}
                 initialSession={initial?.tab === "Chat" ? initial.session : null}
@@ -172,6 +172,7 @@ function Studio({ daemon, initial, onBack }: { daemon: ReturnType<typeof useDaem
                   setTab("Settings");
                 }}
               />
+              </BackLayer>
             </ErrorBoundary>
           </View>
         ) : null}

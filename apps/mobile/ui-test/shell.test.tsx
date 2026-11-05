@@ -144,15 +144,19 @@ function Conn() {
 }
 
 describe("the connection to ue-mcp", () => {
-  it("shows the quiet Reconnecting line when ue-mcp answers while the stream is down", async () => {
+  it("shows the quiet Reconnecting line from the drop, and keeps to it past the wait while ue-mcp answers", async () => {
     vi.useFakeTimers();
     const alive = new Set<(at: number) => void>();
     const { project } = fakeProject();
     project.onAlive = (l) => (alive.add(l), () => void alive.delete(l));
     renderInProject(<Conn />, fakeApi(), project);
-    expect(screen.queryByText("Reconnecting to ue-mcp")).toBeNull();
-    act(() => alive.forEach((l) => l(Date.now())));
     expect(screen.getByText("Reconnecting to ue-mcp")).toBeTruthy();
+    for (let t = 0; t <= REMOTE_RECONNECT_MS + 5000; t += 5000) {
+      act(() => alive.forEach((l) => l(Date.now())));
+      await act(async () => void vi.advanceTimersByTime(5000));
+    }
+    expect(screen.getByText("Reconnecting to ue-mcp")).toBeTruthy();
+    expect(screen.queryByText("ue-mcp on your computer is offline")).toBeNull();
   });
 
   it("says ue-mcp on the computer is offline after the wait, with Retry and nothing to run", async () => {

@@ -4,6 +4,7 @@
  * opens its diff in place of the list until Back. Android back goes from the
  * diff to the list, then closes.
  */
+import { useBack } from "../../back";
 import { useEffect, useMemo, useState } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, type ViewStyle } from "react-native";
 import * as SecureStore from "expo-secure-store";
@@ -32,6 +33,7 @@ export function ChangesSheet({ vcs, onClose }: { vcs: VcsStatus; onClose: () => 
   const [changes, setChanges] = useState<VcsChange[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
+  useBack(() => (picked !== null ? setPicked(null) : onClose()), { overlay: true });
   const [diff, setDiff] = useState<{ diff: string | null; reason?: string } | null>(null);
   const [view, setView] = useState<ChangesView>("list");
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());

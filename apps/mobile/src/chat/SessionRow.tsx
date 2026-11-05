@@ -2,6 +2,7 @@
  * One session in the list: open it, or from its menu rename, archive (or
  * restore) and delete it. Delete asks once more before it removes anything.
  */
+import { useBack } from "../back";
 import { useEffect, useRef, useState } from "react";
 import { Pressable, TextInput, View, useWindowDimensions, type HostInstance } from "react-native";
 import type { SessionSummary, SessionUpdate } from "@ue-mcp-studio/shared";
@@ -27,6 +28,7 @@ export function SessionRow({ s, selected, onOpen, onChanged }: { s: SessionSumma
   const t = useTheme();
   const { api } = useProjectNav();
   const [menu, setMenu] = useState(false);
+  useBack(menu ? () => setMenu(false) : null, { overlay: true });
   // A row near the foot of the screen opens its menu upward, so the menu never sits under the navigation bar.
   const [up, setUp] = useState(false);
   const row = useRef<HostInstance>(null);

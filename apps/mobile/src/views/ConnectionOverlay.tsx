@@ -3,11 +3,13 @@
  * views/ConnectionOverlay.tsx): the shared state machine (client-core) fed by
  * the project's stream, any answer from ue-mcp, and the app coming back to
  * the foreground. A phone is always a paired client: it cannot start ue-mcp,
- * so past the wait it says ue-mcp is offline and keeps reconnecting.
+ * so past the wait it says ue-mcp is offline and keeps reconnecting. Until
+ * then a phone, often on a mobile network, shows only the small line: while
+ * reconnecting, and for a restart's first REMOTE_RECONNECT_MS.
  */
 import { useEffect, useReducer, useRef } from "react";
 import { AppState, StyleSheet, View } from "react-native";
-import { CONN_QUIET_MS, REMOTE_OFFLINE, REMOTE_QUIET_MS, connected, elapsed, headline, step, waking, type Conn, type ConnEvent } from "@ue-mcp-studio/client-core";
+import { CONN_QUIET_MS, REMOTE_OFFLINE, REMOTE_RECONNECT_MS, connected, elapsed, headline, step, waking, type Conn, type ConnEvent } from "@ue-mcp-studio/client-core";
 import { Button, edgePadding, font, Row, Spacer, Spinner, T, useInsets, useStyles, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import type { DaemonEvent } from "../state";
@@ -44,7 +46,11 @@ export function useConnection(streaming: boolean, events: DaemonEvent[], updatin
     const sub = AppState.addEventListener("change", (state) => send({ type: "visibility", visible: state === "active", at: Date.now() }));
     return () => sub.remove();
   }, [remote]);
-  useEffect(() => send({ type: "stream", up: streaming, at: Date.now() }), [streaming]);
+  // A stream still making its first attempt is not down: only one that failed or dropped is.
+  const connecting = !streaming && project.live === "connecting";
+  useEffect(() => {
+    if (!connecting) send({ type: "stream", up: streaming, at: Date.now() });
+  }, [streaming, connecting]);
   // Any answer from ue-mcp while the stream is down: it is up, so no panel saying it is away.
   useEffect(
     () =>
@@ -85,17 +91,19 @@ export function ConnectionOverlay({ c }: { c: Connection }) {
   const { conn, now, remote } = c;
   if (conn.phase === "connected") return null;
   const down = conn.downSince === null ? "" : elapsed(now - conn.downSince);
-  if (waking(conn, now)) {
+  // Reconnecting, or a restart still within the wait: the small line over the page, which stays usable.
+  const quiet = remote ? conn.phase === "reconnecting" || (conn.phase === "restarting" && conn.downSince !== null && now - conn.downSince < REMOTE_RECONNECT_MS) : waking(conn, now);
+  if (quiet) {
     return (
-      <View style={[s.line, { top: 8 + insets.top, right: 10 + insets.right }]} accessibilityRole="text" accessibilityLiveRegion="polite" pointerEvents="none">
+      <View testID="connection-line" style={[s.line, { top: 8 + insets.top, right: 10 + insets.right }]} accessibilityRole="text" accessibilityLiveRegion="polite" pointerEvents="none">
         <Spinner />
         <T style={s.lineText} numberOfLines={1}>
-          Reconnecting to ue-mcp
+          {conn.phase === "restarting" ? conn.why : "Reconnecting to ue-mcp"}
         </T>
       </View>
     );
   }
-  if (conn.phase === "reconnecting" && conn.downSince !== null && now - conn.downSince < (remote ? REMOTE_QUIET_MS : CONN_QUIET_MS)) return null;
+  if (conn.phase === "reconnecting" && conn.downSince !== null && now - conn.downSince < CONN_QUIET_MS) return null;
   const offline = remote && (conn.phase === "lost" || conn.phase === "needsYou");
   const needs = conn.phase === "needsYou";
   let body: string;

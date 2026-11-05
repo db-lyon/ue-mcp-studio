@@ -6,7 +6,8 @@
  * sessions are read each time it opens.
  */
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Animated, BackHandler, Easing, Pressable, StyleSheet, View } from "react-native";
+import { useBack } from "../back";
+import { Animated, Easing, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import type { SessionSummary } from "@ue-mcp-studio/shared";
 import { font, T, useInsets, useStyles, useTheme, type Theme } from "../ui";
@@ -81,12 +82,11 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
     if (!open) return;
     let live = true;
     api.sessions().then((r) => live && setRecent(r.sessions.filter((x) => !x.archived)), () => live && setRecent([]));
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => (onClose(), true));
     return () => {
       live = false;
-      sub.remove();
     };
   }, [open]);
+  useBack(open ? onClose : null, { overlay: true });
 
   const pick = (f: () => void) => () => {
     f();

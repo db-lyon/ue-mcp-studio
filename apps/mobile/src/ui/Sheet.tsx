@@ -4,6 +4,7 @@
  * a tap on the scrim, the system back, or the grip dragged down, and slides
  * out the way it came in (`.sheet`'s 240 ms transform, `.sheet-scrim`'s fade).
  */
+import { useBack } from "../back";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AccessibilityInfo, Animated, Easing, Modal, PanResponder, Pressable, ScrollView, StyleSheet, View, type PanResponderCallbacks } from "react-native";
 import { Button, Spacer } from "./controls";
@@ -58,6 +59,7 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
   closeRef.current = onClose;
   // Mounted while it slides out, as the web keeps .sheet-root visible for the transition.
   const [mounted, setMounted] = useState(open);
+  useBack(open ? onClose : null, { overlay: true });
 
   useEffect(() => {
     let live = true;

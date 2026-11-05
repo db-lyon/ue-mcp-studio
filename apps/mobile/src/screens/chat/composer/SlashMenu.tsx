@@ -3,6 +3,7 @@
  * the message box. Its rows are client-core's (composer-menus.ts).
  * styles.css: .slash-menu, .slash-name, .slash-args, .slash-summary.
  */
+import { useBack } from "../../../back";
 import { useEffect, useMemo, useState } from "react";
 import { Platform, Pressable, Text, View } from "react-native";
 import { SLASH_COMMANDS, type ActionListing, type FlowListing, type SlashCommand } from "@ue-mcp-studio/shared";
@@ -67,6 +68,7 @@ export function useSlashMenu(draft: string, onDraft: (text: string) => void, com
   useEffect(() => setActive(0), [query, flowQuery, actionQuery]);
   const exact = slashPickedAlready(q, items);
   const open = items.length > 0 && closedAt !== draft && !exact;
+  useBack(open ? () => setClosedAt(draft) : null, { overlay: true });
   const index = Math.min(active, Math.max(0, items.length - 1));
   const pick = (item: SlashMenuItem) => onDraft(item.insert);
   const keyDown = (e: MenuKey): boolean => {

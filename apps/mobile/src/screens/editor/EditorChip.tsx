@@ -5,6 +5,7 @@
  * EditorChip is the narrow top bar's form: a dot and a word or two whose
  * press opens the full banner under the bar.
  */
+import { useBack } from "../../back";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Animated, Modal, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { editorBanner, editorSteps, stepFailed, type EditorBannerState } from "@ue-mcp-studio/client-core";
@@ -125,6 +126,7 @@ export function EditorChip({ top, animate = true, daemon }: { top?: number; anim
   const insets = useInsets();
   const win = useWindowDimensions();
   const [open, setOpen] = useState(false);
+  useBack(open ? () => setOpen(false) : null, { overlay: true });
   const [below, setBelow] = useState(top ?? 53);
   const chip = useRef<{ measureInWindow: (cb: (x: number, y: number, w: number, h: number) => void) => void } | null>(null);
   const state = b.state;

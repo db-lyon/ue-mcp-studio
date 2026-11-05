@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLock, requestJson, SseParser, subscribeEvents, type Reply, type StreamEvent, type Transport } from "../src/index.js";
+import { createLock, HttpError, requestJson, SseParser, subscribeEvents, unreachable, type Reply, type StreamEvent, type Transport } from "../src/index.js";
 
 const enc = new TextEncoder();
 
@@ -87,5 +87,46 @@ describe("lock", () => {
   it("returns a 423 that is not a lock code unchanged", async () => {
     const transport: Transport = async () => reply(423, { error: "Busy." });
     await expect(requestJson(createLock(transport).guard(transport), "GET", "/v1/x")).rejects.toThrow("Busy.");
+  });
+});
+
+describe("unreachable", () => {
+  it("is the relay's answer for an away computer, a dropped network or a timeout, never ue-mcp's own refusal", () => {
+    expect(unreachable(new HttpError(503, "That project is offline."))).toBe(true);
+    expect(unreachable(Object.assign(new Error("The relay answered 502."), { status: 502 }))).toBe(true);
+    expect(unreachable(Object.assign(new Error("cut off"), { status: 0 }))).toBe(true);
+    expect(unreachable(new TypeError("Network request failed"))).toBe(true);
+    expect(unreachable(Object.assign(new Error("aborted"), { name: "AbortError" }))).toBe(true);
+    expect(unreachable(new HttpError(409, "A turn is running."))).toBe(false);
+    expect(unreachable(new HttpError(404, "No such session."))).toBe(false);
+    expect(unreachable(new Error("bad"))).toBe(false);
+  });
+});
+
+describe("subscribeEvents retryNow", () => {
+  it("ends a wait between attempts at once, and does nothing while connected", async () => {
+    let calls = 0;
+    let up = false;
+    const t: Transport = async (_m, path) => {
+      if (path === "/v1/events") {
+        calls++;
+        if (!up) throw new TypeError("Network request failed");
+        return { status: 200, headers: {}, body: (async function* () { await new Promise(() => undefined); })() };
+      }
+      return { status: 503, headers: {}, body: null };
+    };
+    const seen: boolean[] = [];
+    const stream = subscribeEvents(t, () => undefined, (c) => seen.push(c));
+    for (let i = 0; i < 4 && calls < 4; i++) await new Promise((r) => setTimeout(r, 400));
+    up = true;
+    const before = calls;
+    stream.retryNow();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls).toBe(before + 1);
+    expect(seen[seen.length - 1]).toBe(true);
+    stream.retryNow();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(calls).toBe(before + 1);
+    stream.stop();
   });
 });

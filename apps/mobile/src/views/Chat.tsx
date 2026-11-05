@@ -5,10 +5,11 @@
  * session follows the daemon's events through client-core's DetailLoader,
  * asking only for what changed.
  */
+import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable, ScrollView, useWindowDimensions, View } from "react-native";
+import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { DetailLoader, agentCalls, chatPane } from "@ue-mcp-studio/client-core";
+import { DetailLoader, agentCalls, chatPane, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { haptic } from "../native/haptics";
 import { KeyboardAvoidingView } from "../native/keyboard";
@@ -57,6 +58,11 @@ export const EXAMPLES = [
 
 /** How long the session list may take before the chat says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
+/** A read that failed while ue-mcp was away is tried again after this, times the failures so far, up to RETRY_MAX_MS. */
+export const RETRY_MS = 2000;
+export const RETRY_MAX_MS = 10_000;
+/** An action that failed because ue-mcp could not be reached. */
+export const NOT_ANSWERING = "ue-mcp on your computer is not answering. Try again once it reconnects.";
 
 /** Events that change a session, keyed by the session they name. */
 function sessionOf(data: Record<string, unknown>): string | null {
@@ -70,7 +76,7 @@ function sharedNoun(files: Array<{ mimeType: string }>): string {
   return files[0].mimeType.startsWith("image/") ? "shared image" : "shared file";
 }
 
-export function Chat({ nav, initialSession = null, onSettings, active: _active = true }: {
+export function Chat({ nav, initialSession = null, onSettings, active = true }: {
   /** The shell asked for a session, or for the list (null); `n` counts the asks. */
   nav?: { session: string | null; n: number };
   /** The Chat tab is the one shown (the web client's prop; the shell parks the chat while another tab is up). */
@@ -98,6 +104,14 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** The open session could not be read, for a reason other than ue-mcp being away: said where its transcript goes. */
+  const [detailError, setDetailError] = useState<string | null>(null);
+  /** Reads that failed because ue-mcp was away, counted: each schedules the next try. Zero once one succeeds. */
+  const [missed, setMissed] = useState(0);
+  /** A pull to refresh running. */
+  const [pulling, setPulling] = useState(false);
+  /** An action that failed: ue-mcp being away is said plainly, never as the relay's own words. */
+  const fail = useCallback((e: Error) => setError(unreachable(e) ? NOT_ANSWERING : e.message), []);
   const streamed = useRef("");
   const [streaming, setStreaming] = useState("");
   const [settings, setSettings] = useState<StudioSettings | null>(null);
@@ -126,8 +140,10 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
           publishRecentSessions(project.device.id, r.sessions);
           // A session the location names but that is gone (deleted elsewhere) is not opened.
           setSelected((cur) => (cur && !r.sessions.some((x) => x.id === cur) ? null : cur));
+          setMissed(0);
         },
-        (e: Error) => setError(e.message),
+        // ue-mcp away: the connection line says so, and the list is read again when it answers.
+        (e: Error) => (unreachable(e) ? setMissed((n) => n + 1) : setError(e.message)),
       ),
     [api, project.device.id],
   );
@@ -138,9 +154,11 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
         (id, have) => api.sessionSync(id, have),
         (d) => {
           setDetail(d);
+          setDetailError(null);
+          setMissed(0);
           setDraft((cur) => (cur ? cur : d.draft));
         },
-        (e) => setError(e.message),
+        (e) => (unreachable(e) ? setMissed((n) => n + 1) : setDetailError(e.message)),
       ),
     [api],
   );
@@ -165,6 +183,28 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
     void loadList();
     void loadSettings();
   }, [loadList, loadSettings]);
+  // Everything on screen read again: after ue-mcp was away, on return to the foreground, on a pull.
+  const selectedNow = useRef(selected);
+  selectedNow.current = selected;
+  const refresh = useCallback(() => {
+    const id = selectedNow.current;
+    return Promise.all([loadList(), loadSettings(), id ? loadDetail(id) : undefined]).then(() => undefined);
+  }, [loadList, loadSettings, loadDetail]);
+  // A read that failed while ue-mcp was away is tried again on its own, sooner at first.
+  useEffect(() => {
+    if (missed === 0) return;
+    const tm = setTimeout(() => void refresh(), Math.min(RETRY_MAX_MS, RETRY_MS * missed));
+    return () => clearTimeout(tm);
+  }, [missed, refresh]);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => state === "active" && void refresh());
+    return () => sub.remove();
+  }, [refresh]);
+  const pull = () => {
+    setPulling(true);
+    project.reconnect?.();
+    void refresh().finally(() => setPulling(false));
+  };
   // The stream came back: what changed while it was down is read again.
   useEffect(() => {
     if (project.live !== "live") return;
@@ -179,6 +219,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
     if (!selected) return;
     // The last session's transcript does not stand in for this one while it loads.
     setDetail((d) => (d && d.id === selected ? d : null));
+    setDetailError(null);
     // Another session opens on its main thread, with no drawer sliding out over it.
     setThread(null);
     setDrawerId(null);
@@ -224,7 +265,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
         void loadList();
         setSelected(d.id);
       })
-      .catch((e: Error) => setError(e.message));
+      .catch(fail);
 
   // Files or text another app shared: into the open session's message, or a banner until one is picked.
   const pendingShare = shared.files.length > 0 || !!shared.text;
@@ -255,7 +296,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
       () => loadDetail(selected),
       (e: Error) => {
         setDraft(text);
-        setError(e.message);
+        fail(e);
       },
     );
   };
@@ -310,7 +351,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
     if (!selected) return;
     const id = selected;
     setSent((n) => n + 1);
-    api.compact(id, instructions).then(() => loadDetail(id), (e: Error) => setError(e.message));
+    api.compact(id, instructions).then(() => loadDetail(id), fail);
   };
   const catalog = useCatalog(settings);
   const nameOf = (id: string): string => {
@@ -340,7 +381,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
             setSelected(r.sessionId);
           } else void loadDetail(selected);
         },
-        (e: Error) => setError(e.message),
+        fail,
       );
     },
     [selected, api, loadList, loadDetail],
@@ -350,7 +391,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
       () => {
         if (selected) void loadDetail(selected);
       },
-      (e: Error) => setError(e.message),
+      fail,
     );
 
   // Stable, so the memoized transcript does not render again on every keystroke.
@@ -362,7 +403,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
     [markSeen],
   );
   const stopSubagent = (id: string) => {
-    if (selected) void api.stopSubagent(selected, id).catch((e: Error) => setError(e.message));
+    if (selected) void api.stopSubagent(selected, id).catch(fail);
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
@@ -377,7 +418,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
             run: (request: PlaytestRequest) => {
               setThread(null);
               setSent((n) => n + 1);
-              api.playtest(detail.id, request).then(() => loadDetail(detail.id), (e: Error) => setError(e.message));
+              api.playtest(detail.id, request).then(() => loadDetail(detail.id), fail);
             },
           }
         : null,
@@ -442,13 +483,27 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
     />
   );
   const pane = chatPane(selected, listed, sessions.length);
+  // Back: a subagent thread to the main thread, a session to the sessions list (the root).
+  useBack(
+    active && (thread || selected)
+      ? () => {
+          if (thread) return setThread(null);
+          setSelected(null);
+          setDetail(null);
+        }
+      : null,
+  );
   const bannerBox = { marginTop: 10, marginHorizontal: 10, marginBottom: 0 };
 
   if (pane === "list") {
     return (
       <AskedContext.Provider value={asked}>
         {/* The list's end scrolls clear of the navigation bar, or of the keyboard while a rename has it up. */}
-        <ScrollView testID="sessions" style={{ flex: 1, backgroundColor: t.c.panel }} contentContainerStyle={{ paddingTop: 10, paddingBottom: 10 + listInsets.bottom, paddingHorizontal: 12 }}>
+        <ScrollView
+          testID="sessions"
+          refreshControl={<RefreshControl refreshing={pulling} onRefresh={pull} tintColor={t.c.accent} colors={[t.c.accent]} progressBackgroundColor={t.c.panel2} />}
+          style={{ flex: 1, backgroundColor: t.c.panel }}
+          contentContainerStyle={{ paddingTop: 10, paddingBottom: 10 + listInsets.bottom, paddingHorizontal: 12 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 6 }}>
             <T accessibilityRole="header" style={labelFont(t)}>Sessions</T>
             <View style={{ flex: 1 }} />
@@ -515,7 +570,16 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
             <Banner kind="bad" role="alert" style={bannerBox}>{error}</Banner>
           </Pressable>
         ) : null}
-        {!detail && selected ? <SessionLoading /> : null}
+        {!detail && selected ? (
+          detailError ? (
+            <View accessibilityRole="alert" style={{ flex: 1, padding: 14, gap: 10 }}>
+              <Banner kind="bad">{`This session could not be loaded: ${detailError}`}</Banner>
+              <Button title="Try again" label="Load the session again" style={{ alignSelf: "flex-start" }} onPress={() => (setDetailError(null), void loadDetail(selected))} />
+            </View>
+          ) : (
+            <SessionLoading />
+          )
+        ) : null}
         {!detail && !selected ? <Empty settings={settings} onSettings={setSettings} onCreate={(x) => void create(x)} /> : null}
         {detail ? (
           <QaContext.Provider value={qaLive}>
@@ -526,7 +590,7 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
                     <PlaytestCommandContext.Provider value={playtest}>
                       <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
                         <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                          <MainTranscript transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
+                          <MainTranscript transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} refreshing={pulling} onRefresh={pull} />
                           {drawerCall ? (
                             <Animated.View
                               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.c.panel, borderLeftWidth: 1, borderLeftColor: t.c.line, shadowColor: "#000", shadowOpacity: 0.28, shadowRadius: 16, shadowOffset: { width: -16, height: 0 }, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [width, 0] }) }] }}
@@ -576,13 +640,13 @@ export function Chat({ nav, initialSession = null, onSettings, active: _active =
                           onSendNow={sendNow}
                           onStop={() => {
                             haptic.warning();
-                            if (selected) void api.stop(selected).catch((e: Error) => setError(e.message));
+                            if (selected) void api.stop(selected).catch(fail);
                           }}
                           files={attach.files}
                           onAddFiles={attach.add}
                           onRemoveFile={attach.remove}
                           height={settings?.composerHeight ?? null}
-                          onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
+                          onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, fail)}
                           picker={
                             <>
                               {settings ? <ModelAndEffort settings={settings} onSettings={setSettings} /> : null}

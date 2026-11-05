@@ -6,7 +6,8 @@
  * is in, then sends it again.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Animated, BackHandler, Pressable, StyleSheet, View } from "react-native";
+import { useBack } from "../../back";
+import { Animated, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path, Rect } from "react-native-svg";
 import type { Lock, LockView } from "@ue-mcp-studio/client-core";
 import { Button, font, T, useInsets, useSheetInsets, useStyles, useTheme, type Theme } from "../../ui";
@@ -223,10 +224,7 @@ export function LockScreen({ lock, bio, onUnlocked, onRemoved }: { lock: Lock; b
 export function PinSheet({ lock, bio, onUnlocked }: { lock: Lock; bio: Biometric; onUnlocked: (pin: string, typed: boolean) => void }) {
   const s = useStyles(styles);
   const edge = useSheetEdge();
-  useEffect(() => {
-    const sub = BackHandler.addEventListener("hardwareBackPress", () => (lock.cancelPrompt(), true));
-    return () => sub.remove();
-  }, [lock]);
+  useBack(() => lock.cancelPrompt(), { overlay: true });
   return (
     <View style={s.backdrop}>
       <Pressable accessibilityLabel="Cancel" style={StyleSheet.absoluteFill} onPress={() => lock.cancelPrompt()} />

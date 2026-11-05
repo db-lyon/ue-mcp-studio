@@ -72,6 +72,8 @@ export interface EventStreamOptions {
 export interface EventStream {
   /** Reconnect now; `force` drops a stream that still looks open (after the app slept). */
   kick(force?: boolean): void;
+  /** End a wait between attempts now; nothing while an attempt runs or the stream is open. */
+  retryNow(): void;
   stop(): void;
 }
 
@@ -180,6 +182,9 @@ export function subscribeEvents(transport: Transport, onEvent: (e: StreamEvent) 
 
   return {
     kick,
+    retryNow() {
+      wake?.();
+    },
     stop() {
       stopped = true;
       controller?.abort();

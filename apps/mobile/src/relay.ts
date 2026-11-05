@@ -238,7 +238,7 @@ class Watchdog {
   }
 }
 
-/** The relay's own refusal (offline, not paired, plan), before any sealed answer. */
+/** The relay's own refusal (offline, not paired, plan) before any sealed answer, or 0: a sealed answer cut off. */
 export class RelayError extends Error {
   constructor(
     readonly status: number,
@@ -296,7 +296,7 @@ export function transportFor(device: Device): Transport {
       reader = res.body.getReader();
       while (!head) {
         const { done, value } = await reader.read();
-        if (done) throw new Error("The response ended before its head.");
+        if (done) throw new RelayError(0, "The response ended before its head.");
         for (const f of await opener.push(value)) {
           if (f.kind === "head") head = f.head;
           else if (f.kind === "data") pending.push(f.data);
@@ -318,7 +318,7 @@ export function transportFor(device: Device): Transport {
         while (!opener.finished) {
           quiet.touch();
           const { done, value } = await reader.read();
-          if (done) throw new Error("The response was cut off before it finished.");
+          if (done) throw new RelayError(0, "The response was cut off before it finished.");
           for (const f of await opener.push(value)) if (f.kind === "data") yield f.data;
         }
       } finally {
