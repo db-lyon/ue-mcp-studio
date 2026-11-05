@@ -67,7 +67,7 @@ describe("the diff tree", () => {
       "2||In String||Hello",
       "2||Duration||2",
       "2|minor|Moved||",
-      "1|mod|Event ActorBeginOverlap > Pin 'then' has more links|0|1",
+      "1|mod|Event ActorBeginOverlap > then > Links|0|1",
       "1|mod|SetSpeed > Speed|600|450",
       "1|mod|Roughness > Default Value|0.2|0.7",
       "1|del|Delay||",
@@ -119,6 +119,34 @@ describe("the diff tree", () => {
     expect(diffValue("/Script/Engine.Texture2D'/Game/T_Rock.T_Rock'").text).toBe("/Game/T_Rock");
     const params = `((ParameterInfo=(Name="Roughness",Association=GlobalParameter,Index=-1),ParameterValue=0.550000,ExpressionGUID=0),(ParameterInfo=(Name="Moss",Association=GlobalParameter,Index=-1),ParameterValue=0.300000,ExpressionGUID=0))`;
     expect(diffValue(params).lines).toEqual(["Roughness = 0.55", "Moss = 0.3"]);
+  });
+
+  it("opens a parameter list, a struct and a list of structs into rows: only what differs when both versions have it, every field on an added or removed one's side", () => {
+    const scalar = (name: string, v: string) => `(ParameterInfo=(Name="${name}",Association=GlobalParameter,Index=-1),ParameterValue=${v},ExpressionGUID=0)`;
+    const s = sectionRow(section({ entries: [
+      { path: "Scalar Parameter Values", diffType: "PropertyValueChanged", displayString: "", before: `(${scalar("Roughness", "0.550000")},${scalar("Moss", "0.300000")},${scalar("Wet", "1.000000")})`, after: `(${scalar("Roughness", "0.800000")},${scalar("Moss", "0.650000")},${scalar("Wet", "1.000000")})` },
+      { path: "Waves[2]", diffType: "PropertyAddedToA", displayString: "", before: "(Spawns=((EnemyClass=None,Count=1)),DelayBeforeStart=4.000000)", after: null },
+      { path: "Spawn Point Tag", diffType: "PropertyAddedToB", displayString: "", before: null, after: '(TagName="Spawn.Gate.North")' },
+      { path: "Tags", diffType: "PropertyValueChanged", displayString: "", before: '("Gate")', after: '("Gate","Destructible")' },
+      { path: "Light Color", diffType: "PropertyValueChanged", displayString: "", before: "(B=40,G=120,R=255,A=255)", after: "(B=20,G=90,R=255,A=255)" },
+    ] }));
+    expect(lines([s])).toEqual([
+      "0||Details||",
+      "1|mod|Scalar Parameter Values||",
+      "2|mod|Roughness|0.55|0.8",
+      "2|mod|Moss|0.3|0.65",
+      "1|del|Waves[2]||",
+      "2||Spawns||",
+      "3||[0]||",
+      "4||EnemyClass|None|",
+      "4||Count|1|",
+      "2||DelayBeforeStart|4|",
+      "1|add|Spawn Point Tag||Spawn.Gate.North",
+      "1|mod|Tags|Gate|Gate, Destructible",
+      "1|mod|Light Color|R\u00a0255, G\u00a0120, B\u00a040, A\u00a0255|R\u00a0255, G\u00a090, B\u00a020, A\u00a0255",
+    ]);
+    // A parameter list is one change, not three.
+    expect(s.count).toBe(5);
   });
 
   it("splits a path at its levels, never inside an index or a number", () => {

@@ -217,19 +217,16 @@ describe("the diff view", () => {
     nativeDiff: { available: true },
   };
 
-  it("shows a material instance's parameters in words, the engine's text on hover, every one on its own line when the cell is opened", async () => {
+  it("opens a material instance's parameter list into a row per parameter that changed, the engine's text on hover", async () => {
     const raw = (v: string) => `((ParameterInfo=(Name="Roughness",Association=GlobalParameter,Index=-1),ParameterValue=${v},ExpressionGUID=00000000000000000000000000000000),(ParameterInfo=(Name="Moss",Association=GlobalParameter,Index=-1),ParameterValue=0.300000,ExpressionGUID=00000000000000000000000000000000))`;
     const mi: AssetDiff = { ...material, assetClass: "MaterialInstanceConstant", sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [{ displayString: "", diffType: "PropertyValueChanged", path: "Scalar Parameter Values", before: raw("0.500000"), after: raw("0.800000") }] }] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: mi } });
     await diffOf(REVIEW.items[1]);
-    const [, , after] = cellsOf("Scalar Parameter Values");
-    expect(after.textContent!.replace(/\u00a0/g, " ")).toBe("Roughness = 0.8, Moss = 0.3");
-    expect(after.getAttribute("title")).toBe(raw("0.800000"));
-    // A list opens in place, one parameter per line.
-    expect(after.getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(after);
-    expect(after.getAttribute("aria-expanded")).toBe("true");
-    expect([...after.querySelectorAll(".dt-line")].map((l) => l.textContent!.replace(/\u00a0/g, " "))).toEqual(["Roughness = 0.8", "Moss = 0.3"]);
+    expect(treeRow("Scalar Parameter Values").className).toContain("mod");
+    expect(cellsOf("Roughness").slice(1).map((c) => c.textContent)).toEqual(["0.5", "0.8"]);
+    expect(cellsOf("Roughness")[2].getAttribute("title")).toBe("0.800000");
+    // Moss is the same in both versions: no row.
+    expect(labels()).not.toContain("Moss");
   });
 
   it("shows what an added node holds as its rows, under After only", async () => {
@@ -274,13 +271,26 @@ describe("the diff view", () => {
     expect(cb.getAttribute("title")).toBe("(R=0.000000,G=0.660000,B=1.000000,A=1.000000)");
     expect(ca.textContent).toBe("");
     // The link count's was and now are its values.
-    expect(cellsOf("Pin 'then' has more links").slice(1).map((c) => c.textContent)).toEqual(["0", "1"]);
+    expect(cellsOf("then \u203a Links").slice(1).map((c) => c.textContent)).toEqual(["0", "1"]);
     expect(treeRow("Moved").className).toContain("minor");
     expect(treeRow("Moved").className).toContain("dt-bare");
     // A graph record that only says its node's properties changed is those properties, under the node: once, with values.
     expect(screen.queryByText(/Property Changed/)).toBeNull();
     expect(cellsOf("Roughness \u203a Default Value").slice(1).map((c) => c.textContent)).toEqual(["0.2", "0.7"]);
     expect(cellsOf("Speed").slice(1).map((c) => c.textContent)).toEqual(["600", "450"]);
+  });
+
+  it("opens a long or many-line value in place, both sides of its row together", async () => {
+    const text: AssetDiff = { ...material, sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [{ displayString: "", diffType: "PropertyValueChanged", path: "Allowed Biomes", before: '("Forest","Swamp")', after: '("Forest","Swamp","Tundra")' }] }] };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: text } });
+    await diffOf(REVIEW.items[1]);
+    const [, before, after] = cellsOf("Allowed Biomes");
+    expect([before.textContent, after.textContent]).toEqual(["Forest, Swamp", "Forest, Swamp, Tundra"]);
+    fireEvent.click(after);
+    expect([before.getAttribute("aria-expanded"), after.getAttribute("aria-expanded")]).toEqual(["true", "true"]);
+    expect([...after.querySelectorAll(".dt-line")].map((l) => l.textContent)).toEqual(["Forest", "Swamp", "Tundra"]);
+    fireEvent.keyDown(before, { key: "Enter" });
+    expect(after.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("lets a long engine name wrap only between its parts", () => {
@@ -404,13 +414,22 @@ describe("the diff view", () => {
     const added: AssetDiff = { ...material, status: "added", before: null, sections: [] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package", assetDiff: added } });
     await diffOf(REVIEW.items[2]);
-    // Neither version has a picture, so the tile says it is new.
-    expect(within(screen.getByRole("group", { name: "Material SM_Box.uasset" })).getByText("New in this turn")).toBeTruthy();
+    // No tile beside a grid that lists its facts: the item line names it and says Added.
+    expect(document.querySelector(".asset-tile")).toBeNull();
+    // Its facts are the grid's rows, After only, open.
+    expect(treeRow("Details of this version").getAttribute("aria-expanded")).toBe("true");
+    expect(cellsOf("Blend mode").slice(1).map((c) => c.textContent)).toEqual(["", "BLEND_Masked"]);
     cleanup();
     const deleted: AssetDiff = { ...material, status: "deleted", after: null, sections: [] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "deleted", kind: "package", assetDiff: deleted } });
     await diffOf({ ...REVIEW.items[2], status: "deleted" });
     expect(screen.getByText("Deleted in this turn")).toBeTruthy();
+    cleanup();
+    // An added asset with no facts at all gets its tile, to say what it is.
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package", assetDiff: { ...added, after: { ...added.after!, facts: [] } } } });
+    await diffOf(REVIEW.items[2]);
+    expect(within(screen.getByRole("group", { name: "Material SM_Box.uasset" })).getByText("New in this turn")).toBeTruthy();
+    expect(document.querySelector("[role='treegrid']")).toBeNull();
   });
 
   it("gives a changed asset with records no tile where neither version has a picture, and compares only the facts that differ", async () => {
@@ -439,7 +458,7 @@ describe("the diff view", () => {
     expect(screen.queryByText(/unchanged fact/)).toBeNull();
   });
 
-  it("puts the asset's type, path and facts where neither version has a picture and no record says what changed", async () => {
+  it("shows a changed asset with no records and no picture as the facts that differ, in the grid, with no tile", async () => {
     const sound: AssetDiff = {
       state: "ready", status: "modified", assetClass: "SoundWave", summary: "SoundWave changed. Duration: 1.250 s to 0.980 s", nativeDiff: { available: true }, sections: [],
       before: { class: "SoundWave", facts: [{ name: "Duration", value: "1.250 s" }, { name: "Channels", value: "2" }], thumbnail: { error: "Unreal has no thumbnail renderer for SoundWave" } },
@@ -447,19 +466,14 @@ describe("the diff view", () => {
     };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/Audio/SW_Chime.uasset", status: "modified", kind: "package", assetDiff: sound } });
     await diffOf({ ...REVIEW.items[1], path: "Content/Audio/SW_Chime.uasset", asset: "/Game/Audio/SW_Chime.SW_Chime", group: "asset" });
-    const tile = screen.getByRole("group", { name: "SoundWave SW_Chime.uasset" });
-    expect(tile.getAttribute("data-family")).toBe("sound");
-    expect(tile.querySelector("svg.asset-icon")).toBeTruthy();
-    expect(tile.textContent).toContain("Changed in this turn");
-    expect(tile.textContent).toContain("/Game/Audio/SW_Chime.SW_Chime");
-    // The tile names the fact that changed, with its old value; the one that did not is not shown.
-    const facts = [...tile.querySelectorAll(".asset-tile-facts > div")].map((d) => d.textContent);
-    expect(facts).toEqual(["Duration1.250 s to 0.980 s"]);
-    expect(document.querySelector("[role='treegrid']")).toBeNull();
+    // No tile: the line above names the asset, and the fact that changed is a row of the grid.
+    expect(document.querySelector(".asset-tile")).toBeNull();
+    expect(cellsOf("Duration").slice(1).map((c) => c.textContent)).toEqual(["1.250 s", "0.980 s"]);
+    expect(treeRow("Duration").className).toContain("mod");
     expect(screen.queryByText(/unchanged fact/)).toBeNull();
     expect(screen.queryByText("Channels")).toBeNull();
-    // Why a changed asset has no picture is not news; the tile says what changed.
-    expect(tile.textContent).not.toContain("No picture");
+    // Why a changed asset has no picture is not news.
+    expect(screen.queryByText(/No picture/)).toBeNull();
   });
 
   it("says why a side's thumbnail failed to load, and drops the pictures when neither loads", async () => {

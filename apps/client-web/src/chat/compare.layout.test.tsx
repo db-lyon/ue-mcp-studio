@@ -144,14 +144,14 @@ describe.skipIf(!browserPath)("the tree grid, laid out in a browser at every car
           const b = cell.getBoundingClientRect();
           if (b.right > card.right + 1 || b.left < card.left - 1) overflow.push(`a cell runs past the card: ${cell.textContent}`);
         }
-        // A name wraps inside its cell; a value is cut to its cell with an ellipsis.
+        // On a narrow card a name wraps inside its cell; with columns it and the values are cut to their cells.
         const nb = name.getBoundingClientRect();
         const walker = document.createTreeWalker(name, NodeFilter.SHOW_TEXT);
         for (let n = walker.nextNode(); n; n = walker.nextNode()) {
           if ((n.parentElement as HTMLElement).closest(".dt-note, .sr-only")) continue;
           const r = document.createRange();
           r.selectNodeContents(n);
-          for (const rect of Array.from(r.getClientRects())) if (rect.width > 0 && rect.right > nb.right + 1) overflow.push(`a name leaves its cell: ${n.textContent}`);
+          if (!headerShown) for (const rect of Array.from(r.getClientRects())) if (rect.width > 0 && rect.right > nb.right + 1) overflow.push(`a name leaves its cell: ${n.textContent}`);
         }
         if (headerShown) {
           [before, after].forEach((c, i) => {

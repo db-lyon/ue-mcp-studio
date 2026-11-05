@@ -318,7 +318,7 @@ const revertButton = (key: keyof typeof PATHS) => `[data-path='${PATHS[key]}'] .
 export const REVIEW_SCENARIOS: Record<string, Scenario> = {
   "review-card": card("Review card: every item state (pending, kept, reverted, edited outside the agent, a failed diff) with long engine names"),
   "review-blueprint": card("Review card, a Blueprint opened: the new variable and its changed default counted once, graph and component records", "bp"),
-  "review-blueprint-variables": card("Review card, the same Blueprint scrolled to My Blueprint and Defaults: each variable once", "bp", "section[aria-label='My Blueprint']"),
+  "review-blueprint-variables": card("Review card, the same Blueprint scrolled to My Blueprint and Defaults: each variable once", "bp", "[data-id='s:My Blueprint']"),
   "review-material-instance": card("Review card, a material instance opened: its parameters in words, not the engine's struct text", "mi"),
   "review-material": card("Review card, a material opened: the added Constant shows its value, the removed Multiply its set constant", "material"),
   "review-level": card("Review card, a level opened: no thumbnail for a World, so its records and the fact that differs, with no tile", "level"),

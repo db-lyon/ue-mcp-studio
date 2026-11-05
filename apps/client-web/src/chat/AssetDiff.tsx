@@ -8,7 +8,8 @@ import { Fragment, useRef, useState, type KeyboardEvent } from "react";
 import {
   diffTree,
   inlineFits,
-  factRows,
+  LABEL_JOIN,
+  splitNeeded,
   numberStruct,
   TONE_GLYPH,
   TONE_WORD,
@@ -23,7 +24,7 @@ import {
 import { api } from "../api";
 import { DiffView } from "./Diff";
 import { EngineText } from "./breakable";
-import { AssetTile, TILE_FACTS, tileOf } from "./AssetTile";
+import { AssetTile, tileOf } from "./AssetTile";
 import { Swatch, useCardSize, type CompareTier } from "./compare";
 
 export { numberStruct };
@@ -70,22 +71,11 @@ function pixelsOf(img: HTMLImageElement): Uint8ClampedArray | null {
 }
 
 /**
- * A picture of each version that has one; a picture that loads as one flat
- * colour (a renderer that drew nothing) is no picture. Where neither has one,
- * a new, deleted or record-less asset gets its tile in the space: its type,
- * path and facts; a changed one with records gets nothing, the records being
- * the change. A version with no picture beside one that has says why in
- * words, never in an empty frame.
+ * Whether the tile takes an absent picture's place: a new or deleted asset
+ * with no facts, which the grid would otherwise leave with nothing to say what
+ * it is. A changed asset's line above names it, and its facts are rows of the grid.
  */
-/**
- * Whether the tile takes an absent picture's place. A new or deleted asset's
- * tile says what it is. A changed one's says only what changed in its facts,
- * so it is shown when a fact changed and no record lists the change: the item's
- * line above already names the asset.
- */
-const wantsTile = (diff: AssetDiff, status: "added" | "modified" | "deleted"): boolean =>
-  status !== "modified"
-  || (!(diff.sections ?? []).some((x) => x.entries.some((e) => !e.hidden)) && !diff.textDiff?.diff && factRows(diff.before, diff.after).some((r) => r.changed));
+const wantsTile = (diff: AssetDiff, status: "added" | "modified" | "deleted"): boolean => status !== "modified" && !diff.before?.facts.length && !diff.after?.facts.length;
 
 /** A side whose picture file could not be read, or that drew one flat colour: either way, no picture of it. */
 type PictureFailures = Record<string, "unreadable" | "blank">;
@@ -114,8 +104,8 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
     if (!wantsTile(diff, status)) return null;
     const errors = [...new Set(sides.flatMap((s) => (s.v?.thumbnail && "error" in s.v.thumbnail ? [s.v.thumbnail.error] : [])))];
     const tile = tileOf(diff, name, asset, status);
-    // Beside the other version, the tile names only the facts that changed; the rest are counted below.
-    if (diff.before && diff.after) tile.facts = tile.facts.filter((f) => f.was !== undefined);
+    // The facts are rows of the grid below it.
+    tile.facts = [];
     return <AssetTile {...tile} note={errors.length && status !== "modified" ? <>No picture: <EngineText text={errors.join("; ")} /></> : undefined} />;
   }
   return (
@@ -144,8 +134,8 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
           : "No picture: the editor kept none for this version.";
         return (
           <div key={s.label} className="review-picture-side small">
-            <span className="picture-label dim">{s.label}</span>
             <span className="dim"><EngineText text={why} /></span>
+            <span className="picture-label dim">{s.label}</span>
           </div>
         );
       })}
@@ -193,7 +183,7 @@ function ValueCell({ v, none, side, open, toggle }: { v?: DiffValue; none?: bool
       role="gridcell"
       data-label={label}
       className={`dt-val dt-${side} mono${v.long ? " long" : ""}${open ? " open" : ""}`}
-      title={v.raw !== v.text ? v.raw : v.text}
+      title={`${v.raw !== v.text ? v.raw : v.text}${v.long && !open ? "\n\nClick to show all of it." : ""}`}
       {...(v.long ? { tabIndex: 0, "aria-expanded": open, onClick: toggle, onKeyDown: key } : {})}
     >
       {body}
@@ -202,9 +192,9 @@ function ValueCell({ v, none, side, open, toggle }: { v?: DiffValue; none?: bool
 }
 
 /** A row's name: its levels joined, an engine name breaking only between its parts. */
-const Label = ({ row }: { row: DiffTreeRow }) => (
-  <span className="dt-label" title={row.title}>
-    {row.label.map((p, i) => <Fragment key={i}>{i > 0 && <span className="dt-sep" aria-hidden="true">{" › "}</span>}<EngineText text={p} /></Fragment>)}
+const Label = ({ row, wrap }: { row: DiffTreeRow; wrap: boolean }) => (
+  <span className="dt-label" title={[row.label.join(LABEL_JOIN), row.title].filter(Boolean).join("\n")}>
+    {row.label.map((p, i) => <Fragment key={i}>{i > 0 && <span className="dt-sep" aria-hidden="true">{" › "}</span>}{wrap ? <EngineText text={p} /> : p}</Fragment>)}
   </span>
 );
 
@@ -244,7 +234,7 @@ export function DiffTreeGrid({ roots, name, tier, width }: { roots: DiffTreeRow[
         const parent = row.children.length > 0;
         const both = !!(row.before || row.beforeNone) && !!(row.after || row.afterNone);
         const valued = !!(row.before || row.after || row.beforeNone || row.afterNone);
-        const cls = ["dt-row", row.tone ?? "", row.section ? "dt-section" : "", parent ? "dt-parent" : "", row.detail ? "dt-detail" : "", both ? "dt-both" : "", valued ? "" : "dt-bare", stacked && inlineFits(row, depth, width) ? "dt-inline" : ""].filter(Boolean).join(" ");
+        const cls = ["dt-row", row.tone ?? "", row.section ? "dt-section" : "", parent ? "dt-parent" : "", row.detail ? "dt-detail" : "", both ? "dt-both" : "", valued ? "" : "dt-bare", stacked && inlineFits(row, depth, width) ? "dt-inline" : stacked && splitNeeded(row, depth, width) ? "dt-split" : ""].filter(Boolean).join(" ");
         const count = parent && !row.tone && !row.detail && row.count > 0 ? <span className="dt-count" title={row.count === 1 ? "1 difference" : `${row.count} differences`}>{row.count}</span> : null;
         return (
           <div key={row.id} role="row" aria-level={depth + 1} aria-expanded={parent ? open : undefined} className={cls} data-id={row.id} style={{ ["--depth" as string]: depth }}>
@@ -253,14 +243,14 @@ export function DiffTreeGrid({ roots, name, tier, width }: { roots: DiffTreeRow[
                 <button type="button" className="dt-toggle" aria-expanded={open} onClick={() => toggle(row.id)}>
                   <span className="dt-twisty" aria-hidden="true">{open ? "▾" : "▸"}</span>
                   <Glyph row={row} />
-                  <Label row={row} />
+                  <Label row={row} wrap={stacked} />
                   {count}
                 </button>
               ) : (
                 <>
                   <span className="dt-twisty" aria-hidden="true" />
                   <Glyph row={row} />
-                  <Label row={row} />
+                  <Label row={row} wrap={stacked} />
                 </>
               )}
               {row.note && <span className="dt-note"><EngineText text={row.note} /></span>}
@@ -282,8 +272,7 @@ function ReadyDiff({ diff, name, asset, status, nativeNote }: { diff: AssetDiff;
   const box = useRef<HTMLDivElement>(null);
   const { tier, width } = useCardSize(box);
   const [failed, setFailed] = useState<PictureFailures>({});
-  const pictured = [diff.before, diff.after].filter((v, i) => pictureOf(v) && !failed[i === 0 ? "Before" : "After"]).length;
-  const roots = diffTree(diff, { shown: pictured === 0 && wantsTile(diff, status), facts: TILE_FACTS });
+  const roots = diffTree(diff);
   return (
     <div className="asset-diff" ref={box} data-tier={tier}>
       {nativeNote}

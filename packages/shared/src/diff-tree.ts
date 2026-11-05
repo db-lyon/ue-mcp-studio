@@ -6,7 +6,7 @@
  * widget property reads "Widget WardMeter > Hide when Full" on one row. No
  * React and no DOM: the web client and the app render the same rows.
  */
-import { exportItems, exportNumber, factRows, nodeValues, readableParts, type AssetDiff, type AssetDiffRecord, type AssetDiffSection, type AssetVersion } from "./review.js";
+import { exportFields, exportItems, exportNumber, factRows, nodeValues, readableParts, type AssetDiff, type AssetDiffRecord, type AssetDiffSection, type AssetVersion } from "./review.js";
 
 /** What a row's change is: added, removed, changed, or minor (a node moved). */
 export type DiffTone = "add" | "del" | "mod" | "minor";
@@ -63,6 +63,8 @@ export function numberStruct(v: string): string | null {
   if (!m) return null;
   const parts = m[1].split(",").map((p) => /^\s*(\w+)=(-?\d+(?:\.\d+)?(?:e[-+]?\d+)?)\s*$/i.exec(p));
   if (!parts.length || parts.some((p) => !p)) return null;
+  const rgba = ["R", "G", "B", "A"];
+  if (parts.every((p) => rgba.includes(p![1])) && parts.length >= 3) parts.sort((a, b) => rgba.indexOf(a![1]) - rgba.indexOf(b![1]));
   return parts.map((p) => `${p![1]} ${Number(p![2])}`).join(", ");
 }
 
@@ -115,12 +117,80 @@ export function diffValue(raw: string): DiffValue {
   const multiline = /\n/.test(raw) ? raw.replace(/\r\n/g, "\n").split("\n") : null;
   const color = colorOf(raw);
   const struct = numberStruct(raw);
-  const items = !parts && !multiline && !color && !struct ? exportItems(raw) : null;
-  const lines = parts && parts.length > 1 ? parts : multiline ?? (items && items.length > 1 ? items.map((i) => exportNumber(i.replace(/^"(.*)"$/, "$1"))) : null);
+  const fields = !parts && !color && !struct ? exportFields(raw) : null;
+  // A struct of one field, (TagName="Spawn.Gate"), is that field's value.
+  if (fields && fields.size === 1) {
+    const one = diffValue([...fields.values()][0].replace(/^"(.*)"$/, "$1"));
+    return { ...one, raw };
+  }
+  const items = !parts && !multiline && !color && !struct && !fields ? exportItems(raw) : null;
+  // A list: several items, or one quoted string, ("Gate").
+  const list = items && (items.length > 1 || /^".*"$/.test(items[0] ?? "")) ? items.map((i) => exportNumber(i.replace(/^"(.*)"$/, "$1"))) : null;
+  const lines = parts && parts.length > 1 ? parts : multiline ?? list;
   // An object reference, /Script/Engine.BlueprintGeneratedClass'/Game/Enemies/BP_Orc.BP_Orc_C', is its asset's path.
   const ref = /^"?[\w/.]+'([^']+)'"?$/.exec(raw.trim());
-  const text = parts ? parts.join(", ") : items && items.length > 1 ? lines!.join(", ") : multiline ? multiline.map((l) => l.trim()).filter(Boolean).join(" ↵ ") : ref ? ref[1].replace(/\/([^/.]+)\.\1(?:_C)?$/, "/$1") : struct ?? exportNumber(raw);
+  const text = parts ? parts.join(", ") : list ? list.join(", ") : multiline ? multiline.map((l) => l.trim()).filter(Boolean).join(" ↵ ") : ref ? ref[1].replace(/\/([^/.]+)\.\1(?:_C)?$/, "/$1") : struct ?? exportNumber(raw);
   return { raw, text, lines, color, long: !!lines || text.length > LONG_VALUE };
+}
+
+/**
+ * The named parts a value opens into as rows of its own: a material
+ * parameter list's parameters by name, a struct's fields, or a list of structs
+ * by index. Null for a value shown in its cell: a number, a colour, a vector,
+ * a name, a list of names.
+ */
+export function valueFields(raw: string | null | undefined): Array<[string, string]> | null {
+  if (!raw) return null;
+  const t = raw.trim();
+  if (colorOf(t) || numberStruct(t)) return null;
+  const param = (item: string): [string, string] | null => {
+    const f = exportFields(item);
+    const info = f?.get("ParameterInfo");
+    const name = info ? exportFields(info)?.get("Name") : undefined;
+    const value = f?.get("ParameterValue") ?? f?.get("Value");
+    return name && value !== undefined ? [name.replace(/^"(.*)"$/, "$1"), value] : null;
+  };
+  if (t.includes("ParameterInfo=")) {
+    const single = param(t);
+    if (single) return [single];
+    const items = exportItems(t)?.map(param);
+    if (items?.length && items.every((x): x is [string, string] => !!x)) return items;
+  }
+  const fields = exportFields(t);
+  if (fields && fields.size > 1) return [...fields.entries()];
+  const items = exportItems(t);
+  if (items?.length && items.every((i) => /^\(.*\)$/.test(i.trim()))) return items.map((i, n) => [`[${n}]`, i]);
+  return null;
+}
+
+/**
+ * A value's fields as child rows: with both versions, only the fields that
+ * differ, each a change; with one, every field on its side. Null when neither
+ * version opens into fields.
+ */
+function fieldRows(id: string, tone: DiffTone, before: string | null | undefined, after: string | null | undefined, depth = 0): DiffTreeRow[] | null {
+  if (depth > 3) return null;
+  const b = tone === "add" ? null : valueFields(before);
+  const a = tone === "del" ? null : valueFields(after);
+  if (tone === "mod" ? !b || !a : !(b ?? a)) return null;
+  const names = [...new Set([...(b ?? []).map(([k]) => k), ...(a ?? []).map(([k]) => k)])];
+  const bm = new Map(b ?? []);
+  const am = new Map(a ?? []);
+  const out: DiffTreeRow[] = [];
+  for (const name of names) {
+    const bv = bm.get(name);
+    const av = am.get(name);
+    if (tone === "mod" && bv === av) continue;
+    const t: DiffTone | null = tone !== "mod" ? null : bv === undefined ? "add" : av === undefined ? "del" : "mod";
+    const rid = `${id}/f:${name}`;
+    const kids = fieldRows(rid, t ?? tone, bv, av, depth + 1);
+    out.push({
+      id: rid, label: [name], tone: t, children: kids ?? [], count: 0,
+      ...(t === null ? { detail: true } : {}),
+      ...(kids ? {} : sides(t ?? tone, bv, av)),
+    });
+  }
+  return out;
 }
 
 /** One row of the tree: a section, a group (an object, widget, node or actor, or a step of a property path), or a change. */
@@ -179,6 +249,8 @@ interface Trie {
   label: string;
   row?: Omit<DiffTreeRow, "id" | "label" | "children" | "count">;
   details?: Array<{ name: string; value: string; side: "before" | "after" }>;
+  /** A record's values, to open into field rows. */
+  fields?: { tone: DiffTone; before: string | null | undefined; after: string | null | undefined };
   children: Map<string, Trie>;
 }
 
@@ -262,9 +334,11 @@ function addGraphRecord(root: Trie, r: AssetDiffRecord) {
   }
   const wasNow = WAS_NOW.exec(r.displayString);
   const text = withoutVerb(wasNow ? wasNow[1] : r.displayString, tone);
-  const t = place(root, [...keys, [`m:${text}`, text]]);
+  const links = /^Pin '(.+)' has (?:more|fewer) links$/.exec(text);
+  const t = place(root, links ? [...keys, [`pin:${links[1]}`, links[1]], ["links", "Links"]] : [...keys, [`m:${text}`, text]]);
   t.row = {
     tone,
+    ...(links ? { title: r.displayString } : {}),
     ...(r.toolTip && r.toolTip !== r.displayString ? { title: r.toolTip } : {}),
     ...(r.before !== undefined || r.after !== undefined ? sides(tone, r.before, r.after) : wasNow ? sides(tone, wasNow[2], wasNow[3]) : {}),
   };
@@ -288,7 +362,8 @@ function addPropertyRecord(root: Trie, r: AssetDiffRecord) {
   // A variable added under My Blueprint names itself as its group: one level, not two.
   if (r.group && !(levels.length === 1 && levels[0] === r.group)) keys.unshift([`g:${r.group}`, r.group]);
   const t = place(root, keys);
-  t.row = { tone, title: titleOf(r, levels[levels.length - 1]), ...sides(tone, r.before, r.after) };
+  t.row = { tone, title: titleOf(r, levels[levels.length - 1]), ...(valueFields(r.before) || valueFields(r.after) ? {} : sides(tone, r.before, r.after)) };
+  t.fields = { tone, before: r.before, after: r.after };
   if (r.properties?.length) for (const p of r.properties) addPropertyRecord(t, p);
 }
 
@@ -312,9 +387,12 @@ function rowOf(t: Trie, parent: string): DiffTreeRow {
     count: 0,
     ...(d.side === "before" ? { before: diffValue(d.value) } : { after: diffValue(d.value) }),
   }));
-  const children = [...details, ...rowsOf(t, id)];
-  const own = t.row?.tone ? 1 : 0;
-  return { tone: null, ...t.row, id, label: [t.label], children, count: own + children.reduce((n, c) => n + c.count, 0) };
+  const fields = t.fields ? fieldRows(id, t.fields.tone, t.fields.before, t.fields.after) : null;
+  // A value that would open into rows but whose versions did not both (a struct beside an empty one) stays in its cells.
+  const row = t.row && t.fields && !fields && !t.row.before && !t.row.after ? { ...t.row, ...sides(t.fields.tone, t.fields.before, t.fields.after) } : t.row;
+  const children = [...details, ...(fields ?? []), ...rowsOf(t, id)];
+  const own = row?.tone ? 1 : 0;
+  return { tone: null, ...row, id, label: [t.label], children, count: own + children.reduce((n, c) => n + c.count, 0) };
 }
 
 /** A section of records as the root rows' children: graph records by node, the rest by group and path. */
@@ -459,7 +537,7 @@ export interface RowMetrics {
 }
 
 /** The web client's 12px grid. */
-export const WEB_ROW_METRICS: RowMetrics = { label: 6.6, value: 6.9, indent: 14, lead: 26 };
+export const WEB_ROW_METRICS: RowMetrics = { label: 6.6, value: 6.9, indent: 14, lead: 28 };
 
 /**
  * Whether a row's name and its values fit on one line of a narrow card this
@@ -474,4 +552,15 @@ export function inlineFits(row: DiffTreeRow, depth: number, width: number, m: Ro
   const name = row.label.join(LABEL_JOIN);
   const used = 6 + depth * m.indent + m.lead + name.length * m.label + 14 + (value.length - (both ? 3 : 0)) * m.value + (both ? 3 * m.value : 0) + 12;
   return value.length > 0 && used <= width;
+}
+
+/**
+ * Whether a row's two values need a line each on a narrow card: together on
+ * one line under the name, each would be cut to half the width, hiding the
+ * part that differs.
+ */
+export function splitNeeded(row: DiffTreeRow, depth: number, width: number, m: RowMetrics = WEB_ROW_METRICS): boolean {
+  if (!(row.before || row.beforeNone) || !(row.after || row.afterNone)) return false;
+  const room = width - 6 - depth * m.indent - m.lead - 12;
+  return inlineChange(row).length * m.value > room;
 }
