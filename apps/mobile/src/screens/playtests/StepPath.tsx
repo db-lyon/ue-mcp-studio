@@ -42,7 +42,7 @@ export function markStyle(t: Theme, mark: PathMark, legend = false): ViewStyle {
 }
 
 /** Only keyboard focus names a step, as the web's :focus-visible: a tap focuses a bar on the web build too, and opens the card instead. */
-const keyboardFocus = (e: { target?: unknown; nativeEvent?: { target?: unknown } }): boolean => {
+export const keyboardFocus = (e: { target?: unknown; nativeEvent?: { target?: unknown } }): boolean => {
   if (Platform.OS !== "web") return true;
   const el = (e.target ?? e.nativeEvent?.target) as { matches?: (q: string) => boolean } | undefined;
   return !!el?.matches?.(":focus-visible");
