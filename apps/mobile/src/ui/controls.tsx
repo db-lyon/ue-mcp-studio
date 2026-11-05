@@ -195,15 +195,27 @@ export function Seg<K extends string>({ value, options, onChange, label }: { val
 }
 
 /** label.toggle with its checkbox: a 20px accent box, 44px row, the label beside it. */
+/** An empty checkbox as the browser draws it under the page's color-scheme: dark, which no theme token holds. */
+const BROWSER_BOX = { fill: "rgb(59, 59, 59)", line: "rgb(133, 133, 133)" };
+
+/** The tick the browser draws on an accent-coloured box: its dark grey or white, whichever stands out more from the accent. */
+export function tickColor(accent: string): string {
+  const n = parseInt(accent.slice(1), 16);
+  const lin = (c: number) => ((c /= 255) <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const lum = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  const dark = 0.2126 * lin(59) + 0.7152 * lin(59) + 0.0722 * lin(59);
+  return (1.05 / (lum + 0.05)) >= ((lum + 0.05) / (dark + 0.05)) ? "#ffffff" : BROWSER_BOX.fill;
+}
+
 export function Check({ checked, onChange, disabled, children, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; children?: ReactNode; label?: string }) {
   const t = useTheme();
   return (
     <Pressable accessibilityRole="checkbox" accessibilityLabel={label} accessibilityState={{ checked, disabled: !!disabled }} disabled={disabled} onPress={() => onChange(!checked)} style={{ flexDirection: "row", alignItems: "flex-start", gap: 10, minHeight: 44, paddingVertical: 10 }}>
-      <View style={{ width: 20, height: 20, marginTop: 1, borderRadius: 2, borderWidth: checked ? 0 : 1.5, borderColor: disabled ? t.c.disabledLine : t.c.muted, backgroundColor: checked ? (disabled ? t.c.disabledLine : t.c.accent) : "transparent", alignItems: "center", justifyContent: "center" }}>
+      <View style={{ width: 20, height: 20, marginTop: 1, borderRadius: 2, borderWidth: checked ? 0 : disabled ? 1.5 : 1, borderColor: disabled ? t.c.disabledLine : BROWSER_BOX.line, backgroundColor: checked ? (disabled ? t.c.disabledLine : t.c.accent) : disabled ? "transparent" : BROWSER_BOX.fill, alignItems: "center", justifyContent: "center" }}>
         {/* The browser's own tick on an accent-coloured checkbox: a stroked check in the accent's contrast colour. */}
         {checked ? (
           <Svg width={20} height={20} viewBox="0 0 20 20" style={{ position: "absolute", left: 0, top: 0 }}>
-            <Polyline points="4.6,10.6 7.6,13.6 15.2,5.2" fill="none" stroke={t.c.onAccent} strokeWidth={2.2} strokeLinecap="round" strokeLinejoin="round" />
+            <Polyline points="4.8,11 8,14.2 15.3,5" fill="none" stroke={tickColor(t.c.accent)} strokeWidth={2.8} strokeLinecap="round" strokeLinejoin="round" />
           </Svg>
         ) : null}
       </View>

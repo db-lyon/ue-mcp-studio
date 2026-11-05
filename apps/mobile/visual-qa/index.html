@@ -8,6 +8,8 @@
       html, body, #root { height: 100%; margin: 0; background: #0c0c0b; }
       #root { display: flex; }
       body { font-family: Roboto, "Segoe UI", system-ui, sans-serif; }
+      /* Every theme is dark, as styles.css declares on :root: the browser then draws what it draws itself (focus rings, a checkbox's box) as the web page's. */
+      :root { color-scheme: dark; }
     </style>
   </head>
   <body>
