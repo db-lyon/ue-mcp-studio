@@ -58,6 +58,8 @@ const theme = (params.get("theme") ?? "ue-mcp") as StudioTheme;
 // The Playtests page's filter, as the viewer last picked it.
 const picked = SCENARIOS[name]?.filter;
 if (picked) store.set(FILTER_KEY, picked);
+// The device's own storage the scenario starts from (its notification settings), in the phone's secure store.
+for (const [k, v] of Object.entries(SCENARIOS[name]?.storage ?? {})) store.set(k, v);
 
 (window as unknown as { __mobileQa: unknown }).__mobileQa = {
   scenarios: Object.fromEntries(Object.entries(SCENARIOS).map(([k, s]) => [k, { title: s.title, height: s.height ?? 860 }])),

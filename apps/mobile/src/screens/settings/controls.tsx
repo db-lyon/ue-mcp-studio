@@ -146,7 +146,7 @@ export function Seg<K extends string>({ value, options, onChange, label, disable
 export function Switch({ on, onChange, label, disabled }: { on: boolean; onChange: (v: boolean) => void; label: string; disabled?: boolean }) {
   const t = useTheme();
   return (
-    <Pressable accessibilityRole="switch" accessibilityLabel={label} accessibilityState={{ checked: on, disabled: !!disabled }} disabled={disabled} hitSlop={{ top: 13, bottom: 13, left: 6, right: 6 }} onPress={() => onChange(!on)} style={{ width: 34, height: 20, borderRadius: 999, borderWidth: 1, borderColor: disabled ? t.c.disabledLine : on ? t.c.accent : t.c.lineStrong, backgroundColor: on ? t.c.accent : t.c.panel3, flexShrink: 0 }}>
+    <Pressable accessibilityRole="switch" accessibilityLabel={label} accessibilityState={{ checked: on, disabled: !!disabled }} aria-checked={on} aria-disabled={!!disabled} disabled={disabled} hitSlop={{ top: 13, bottom: 13, left: 6, right: 6 }} onPress={() => onChange(!on)} style={{ width: 34, height: 20, borderRadius: 999, borderWidth: 1, borderColor: disabled ? t.c.disabledLine : on ? t.c.accent : t.c.lineStrong, backgroundColor: on ? t.c.accent : t.c.panel3, flexShrink: 0 }}>
       <View style={{ position: "absolute", top: 2, left: on ? 16 : 2, width: 14, height: 14, borderRadius: 7, backgroundColor: on ? t.c.onAccent : t.c.muted }} />
     </Pressable>
   );
