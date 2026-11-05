@@ -130,6 +130,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-notifications-quiet": {owner: "agent-b"},
   "settings-notifications-off": {owner: "agent-b"},
   "settings-notifications-remote": {owner: "agent-b"},
+  "settings-notifications-free": {notOnPhone: "The computer's own view for an account without a paid plan. A paired phone exists only on a paid plan, so it always shows every notification setting."},
+  "settings-notifications-signed-out": {notOnPhone: "The computer's own view with no ue-mcp account signed in. A paired phone exists only on a paid plan, so it always shows every notification setting."},
   "settings-models-remote": {owner: "agent-b"},
   "settings-approvals-remote": {owner: "agent-b"},
   "settings-project-remote": {owner: "agent-b", clicks: ["Advanced: ue-mcp.yml"], scroll: "Advanced"},
