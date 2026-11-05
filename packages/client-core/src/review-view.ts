@@ -4,7 +4,7 @@
  * how a diff record reads, the tier a comparison takes at a width, a colour
  * value's CSS colour, and blueprint(diff)'s answer as nested lines.
  */
-import { exportNumber, factRows, nodeValues, type AssetDiff, type AssetDiffRecord, type AssetDiffSection, type AssetThumbnail, type AssetVersion, type ReviewItem } from "@ue-mcp-studio/shared";
+import { exportNumber, nodeValues, type AssetDiff, type AssetDiffRecord, type AssetDiffSection, type AssetThumbnail, type AssetVersion, type ReviewItem } from "@ue-mcp-studio/shared";
 
 export const REVIEW_STATUS: Record<ReviewItem["status"], string> = { added: "Added", modified: "Modified", deleted: "Deleted" };
 
@@ -196,14 +196,11 @@ export function isFlatPicture(px: ArrayLike<number>): boolean {
 }
 
 /**
- * Whether the tile takes an absent picture's place. A new or deleted asset's
- * tile says what it is. A changed one's says only what changed in its facts,
- * so it is shown when a fact changed and no record lists the change: the item's
- * line above already names the asset.
+ * Whether the tile takes an absent picture's place: a new or deleted asset
+ * with no facts, which the grid would otherwise leave with nothing to say what
+ * it is. A changed asset's line above names it, and its facts are rows of the grid.
  */
-export const wantsTile = (diff: AssetDiff, status: "added" | "modified" | "deleted"): boolean =>
-  status !== "modified"
-  || (!(diff.sections ?? []).some((x) => x.entries.some((e) => !e.hidden)) && !diff.textDiff?.diff && factRows(diff.before, diff.after).some((r) => r.changed));
+export const wantsTile = (diff: AssetDiff, status: "added" | "modified" | "deleted"): boolean => status !== "modified" && !diff.before?.facts.length && !diff.after?.facts.length;
 
 /**
  * Facts the engine records already show: a variable's fact when My Blueprint

@@ -24,6 +24,8 @@ const PATHS = {
   widget: "Content/UI/HUD/WBP_GameHUD.uasset",
   widgetOld: "Content/UI/HUD/WBP_PauseMenu.uasset",
   sound: "Content/Audio/SW_WardChime.uasset",
+  waves: "Content/Data/DA_EnemyWaves_ShrineDefenseEncounter.uasset",
+  arena: "Content/Maps/L_ShrineArena.umap",
 };
 
 /** A rendered thumbnail; the harness draws one for any id, 404s an id with "unreadable" in it, and draws flat black for one with "blank" in it. */
@@ -174,6 +176,66 @@ const SOUND = ready({
   sections: [],
 });
 
+const cls = (bp: string) => `/Script/Engine.BlueprintGeneratedClass'/Game/Enemies/${bp}.${bp}_C'`;
+
+/** A data asset with deep property paths, added and removed array entries, long and many-line values. */
+const WAVES = ready({
+  assetClass: "PrimaryDataAsset",
+  packageName: "/Game/Data/DA_EnemyWaves_ShrineDefenseEncounter",
+  engine: { tool: "SDetailsDiff", note: "Its details through DiffUtils::CompareUnrelatedObjects.", native: "details", nativeAvailable: true },
+  before: { class: "EnemyWaveSet", facts: [{ name: "Waves", value: "3" }] },
+  after: { class: "EnemyWaveSet", facts: [{ name: "Waves", value: "2" }] },
+  summary: "10 differences: Waves[0].Spawns[0].Count: 3 to 5; Waves[2] removed; and 8 more; plus 1 difference in properties the details panel does not show",
+  sections: [{ category: "Details", kind: "properties", engineSource: "DiffUtils::CompareUnrelatedObjects", entries: [
+    { path: "Waves[0].Spawns[0].Enemy Class", diffType: "PropertyValueChanged", displayString: "Enemy Class", before: cls("BP_GoblinSkirmisher"), after: cls("BP_OrcBerserkerWithShieldAndTorch") },
+    { path: "Waves[0].Spawns[0].Count", diffType: "PropertyValueChanged", displayString: "Count", before: "3", after: "5" },
+    { path: "Waves[0].Spawns[1].Count", diffType: "PropertyValueChanged", displayString: "Count", before: "2", after: "4" },
+    { path: "Waves[0].Delay Before Start", diffType: "PropertyValueChanged", displayString: "Delay Before Start", before: "1.500000", after: "2.000000" },
+    { path: "Waves[1].Spawns[0].Spawn Point Tag", diffType: "PropertyAddedToB", displayString: "Spawn Point Tag", before: null, after: "(TagName=\"Spawn.Gate.North.UpperBattlements\")" },
+    { path: "Waves[2]", diffType: "PropertyAddedToA", displayString: "Waves[2]", before: `(Spawns=((EnemyClass=${cls("BP_TrollChieftain")},Count=1)),DelayBeforeStart=4.000000)`, after: null },
+    { path: "Description", diffType: "PropertyValueChanged", displayString: "Description", before: "Two waves at the shrine gate.", after: "Two waves at the shrine gate.\nThe second wave comes over the north battlements, so the player has to climb the stairs to meet it.\nNo troll this time." },
+    { path: "Allowed Biomes", diffType: "PropertyValueChanged", displayString: "Allowed Biomes", before: "(\"Forest\",\"Swamp\")", after: "(\"Forest\",\"Swamp\",\"Tundra\",\"Volcanic Ash Plains\")" },
+    { path: "Difficulty.Curve.Keys[3].Value", diffType: "PropertyValueChanged", displayString: "Value", before: "1.250000", after: "1.600000" },
+    { path: "Difficulty.Curve.Keys[3].Interp Mode", diffType: "PropertyValueChanged", displayString: "Interp Mode", before: "RCIM_Linear", after: "RCIM_Cubic" },
+    { path: "Cached Spawn Budget", diffType: "PropertyValueChanged", displayString: "Cached Spawn Budget", before: "18", after: "27", hidden: true },
+  ] }],
+});
+
+const actor = (name: string, of: string, at: string) => ({ group: name, displayString: `Added actor ${name}`, diffType: "OBJECT_ADDED", facts: [{ name: "Class", value: of }, { name: "Location", value: at }] });
+const moved = (name: string, before: string, after: string) => ({ group: name, path: "Relative Location", diffType: "PropertyValueChanged", displayString: "Relative Location", before, after });
+
+/** A level with many changes in one asset: actors added, removed and moved, several properties on one actor. */
+const ARENA = ready({
+  assetClass: "World",
+  packageName: "/Game/Maps/L_ShrineArena",
+  engine: { tool: "SLevelDiff", note: "Actors through DiffUtils::CompareUnrelatedSCS and their properties through DiffUtils::CompareUnrelatedObjects.", native: "window", nativeAvailable: true },
+  before: { class: "World", facts: [{ name: "Actors", value: "88" }] },
+  after: { class: "World", facts: [{ name: "Actors", value: "91" }] },
+  summary: "14 differences: Added actor BP_SpawnPoint_North_UpperBattlements_01; Removed actor BP_SpawnPoint_South_01; and 12 more",
+  sections: [{ category: "Actors", kind: "components", engineSource: "DiffUtils::CompareUnrelatedSCS", entries: [
+    actor("BP_SpawnPoint_North_UpperBattlements_01", "BP_SpawnPoint_C", "(X=2040, Y=-1310, Z=640)"),
+    actor("BP_SpawnPoint_North_UpperBattlements_02", "BP_SpawnPoint_C", "(X=2240, Y=-1310, Z=640)"),
+    actor("PointLight_Brazier_East", "PointLight", "(X=880, Y=410, Z=120)"),
+    actor("SM_Barricade_Stairs", "StaticMeshActor", "(X=1520, Y=-900, Z=0)"),
+    { group: "BP_SpawnPoint_South_01", displayString: "Removed actor BP_SpawnPoint_South_01", diffType: "OBJECT_REMOVED", facts: [{ name: "Class", value: "BP_SpawnPoint_C" }, { name: "Location", value: "(X=-1200, Y=900, Z=0)" }] },
+    moved("ShrineGate", "(X=1200.000000,Y=-280.000000,Z=0.000000)", "(X=1180.000000,Y=-280.000000,Z=0.000000)"),
+    { group: "ShrineGate", path: "Relative Rotation", diffType: "PropertyValueChanged", displayString: "Relative Rotation", before: "(Pitch=0.000000,Yaw=90.000000,Roll=0.000000)", after: "(Pitch=0.000000,Yaw=75.000000,Roll=0.000000)" },
+    { group: "ShrineGate", path: "Mobility", diffType: "PropertyValueChanged", displayString: "Mobility", before: "Static", after: "Movable" },
+    { group: "ShrineGate", path: "Tags", diffType: "PropertyValueChanged", displayString: "Tags", before: "(\"Gate\")", after: "(\"Gate\",\"Destructible\",\"Objective\")" },
+    moved("Torch_West_01", "(X=-300.000000,Y=120.000000,Z=80.000000)", "(X=-320.000000,Y=120.000000,Z=80.000000)"),
+    moved("Torch_West_02", "(X=-300.000000,Y=420.000000,Z=80.000000)", "(X=-320.000000,Y=420.000000,Z=80.000000)"),
+    { group: "PointLight_Brazier_West", path: "Light Color", diffType: "PropertyValueChanged", displayString: "Light Color", before: "(B=40,G=120,R=255,A=255)", after: "(B=20,G=90,R=255,A=255)" },
+    { group: "PointLight_Brazier_West", path: "Intensity", diffType: "PropertyValueChanged", displayString: "Intensity", before: "5000.000000", after: "8000.000000" },
+    { group: "PostProcessVolume_Arena", path: "Settings.Bloom Intensity", diffType: "PropertyValueChanged", displayString: "Bloom Intensity", before: "0.675000", after: "0.900000" },
+  ] }],
+});
+
+/** Assets only their own scenarios open, not on the every-state card. */
+const EXTRA: CheckpointChange[] = [
+  { path: PATHS.waves, status: "modified", kind: "package", assetDiff: WAVES },
+  { path: PATHS.arena, status: "modified", kind: "package", assetDiff: ARENA },
+];
+
 const CONFIG_DIFF = "--- a/Config/DefaultEngine.ini\n+++ b/Config/DefaultEngine.ini\n@@ -12,3 +12,4 @@\n [/Script/Engine.RendererSettings]\n-r.DefaultFeature.AutoExposure=True\n+r.DefaultFeature.AutoExposure=False\n+r.Lumen.HardwareRayTracing.LightingMode=2\n r.ReflectionMethod=1\n";
 
 const CHANGES: CheckpointChange[] = [
@@ -219,13 +281,13 @@ const SESSION = sessionOf(
 
 /** A turn that changed one file, in the state given: its diff opens with the card. */
 const single = (key: keyof typeof PATHS, o: Partial<TurnReview["items"][number]> = {}): SessionDetail => {
-  const change = CHANGES.find((c) => c.path === PATHS[key])!;
+  const change = [...CHANGES, ...EXTRA].find((c) => c.path === PATHS[key])!;
   return sessionOf(reviewOf([{ ...reviewItemOf(change), ...o }]), "Hide the ward meter on the HUD once it is full.", "Done. The card below shows the change.");
 };
 
 const diffAnswer = (url: URL): unknown => {
   const path = url.searchParams.get("path");
-  const change = CHANGES.find((c) => c.path === path);
+  const change = [...CHANGES, ...EXTRA].find((c) => c.path === path);
   return change ? { change } : undefined;
 };
 
@@ -256,7 +318,7 @@ const revertButton = (key: keyof typeof PATHS) => `[data-path='${PATHS[key]}'] .
 export const REVIEW_SCENARIOS: Record<string, Scenario> = {
   "review-card": card("Review card: every item state (pending, kept, reverted, edited outside the agent, a failed diff) with long engine names"),
   "review-blueprint": card("Review card, a Blueprint opened: the new variable and its changed default counted once, graph and component records", "bp"),
-  "review-blueprint-variables": card("Review card, the same Blueprint scrolled to My Blueprint and Defaults: each variable once", "bp", "section[aria-label='My Blueprint']"),
+  "review-blueprint-variables": card("Review card, the same Blueprint scrolled to My Blueprint and Defaults: each variable once", "bp", "[data-id='s:My Blueprint']"),
   "review-material-instance": card("Review card, a material instance opened: its parameters in words, not the engine's struct text", "mi"),
   "review-material": card("Review card, a material opened: the added Constant shows its value, the removed Multiply its set constant", "material"),
   "review-level": card("Review card, a level opened: no thumbnail for a World, so its records and the fact that differs, with no tile", "level"),
@@ -277,5 +339,9 @@ export const REVIEW_SCENARIOS: Record<string, Scenario> = {
     clicks: [revertButton("widget")],
     post: (p) => (p.endsWith("/revert") ? { status: 500, body: { error: "Could not restore Content/UI/HUD/WBP_GameHUD.uasset: the file is locked by another process." } } : undefined),
   }),
+  "review-one-many": one("One file with many changes: a level's actors added, removed and moved, several properties on one actor", single("arena"), { height: 1300 }),
+  "review-one-deep": one("One file with deep property paths: array entries added and removed, nested structs, long and many-line values", single("waves"), { height: 1300 }),
+  "review-one-long-open": one("The same data asset with its many-line Description and its array opened in place", single("waves"), { height: 1300, clicks: ["[data-id='s:Details/p:Description'] .dt-after", "[data-id='s:Details/p:Allowed Biomes'] .dt-after"] }),
+  "review-one-collapsed": one("The same data asset with Waves[0] collapsed to its count", single("waves"), { height: 1300, clicks: ["[data-id='s:Details/p:Waves[0]'] .dt-toggle"] }),
   "review-card-remote": { ...card("A paired browser: every item state"), remotePage: true },
 };
