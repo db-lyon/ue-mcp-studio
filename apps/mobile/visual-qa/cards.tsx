@@ -17,7 +17,7 @@ import { QaCard } from "../src/screens/playtests/QaCard";
 import { AssetLinksContext, useAssetLinks } from "../src/screens/playtests/StepText";
 import { THEMES, ThemeProvider, useStudioFonts } from "../src/ui";
 
-const device = { id: "visual-qa", name: "StudioE2E", online: true, computerKey: "k", lastSeen: new Date().toISOString() };
+const device = { id: "visual-qa", name: "StudioE2E on DEV-PC", online: true, computerKey: "k", lastSeen: new Date().toISOString() };
 
 function Session({ name, theme }: { name: string; theme: StudioTheme }) {
   const scenario = SCENARIOS[name] ?? SCENARIOS["session-empty"];

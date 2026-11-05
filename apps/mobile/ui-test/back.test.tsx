@@ -16,13 +16,13 @@ import { Chat } from "../src/views/Chat";
 import { store } from "./mocks/secure-store";
 import { fakeApi, renderInProject, session, settle } from "./helpers";
 
-const fixture = vi.hoisted(() => ({ transport: null as Transport | null }));
+const fixture = vi.hoisted(() => ({ transport: null as Transport | null, online: true }));
 vi.mock("../src/relay", async (original) => {
   const real = await original<typeof import("../src/relay")>();
   return {
     ...real,
     transportFor: () => fixture.transport!,
-    account: async () => ({ devices: [DEVICE], viewers: [] }),
+    account: async () => ({ devices: [{ ...DEVICE, online: fixture.online }], viewers: [] }),
   };
 });
 
@@ -78,6 +78,8 @@ async function app() {
 }
 
 const paired = (selected = true) => {
+  // The key the pairing was made with: without it the app drops the pairing at startup.
+  store.set("phone", JSON.stringify({ jwk: {}, publicKey: "phone" }));
   store.set("trusted", JSON.stringify({ k1: { pairedAt: "2026-11-04T12:00:00Z" } }));
   if (selected) store.set("selected", JSON.stringify(DEVICE));
 };
@@ -96,13 +98,31 @@ describe("back at a root", () => {
     expect(back()).toBe(false);
   });
 
-  it("opened straight into the last project, its sessions list is the root", async () => {
+  it("opened straight into the last project, back from its sessions list goes to Projects, the app's home", async () => {
     paired();
     await app();
     expect(await screen.findByLabelText("Door that opens")).toBeTruthy();
     expect(back()).toBe(true);
+    await settle();
+    expect(screen.queryByText(EXIT_TOAST)).toBeNull();
+    expect(await screen.findByText("Choose the project to open in Studio.")).toBeTruthy();
+    expect(back()).toBe(true);
     expect(screen.getByText(EXIT_TOAST)).toBeTruthy();
     expect(back()).toBe(false);
+  });
+});
+
+describe("opening the app", () => {
+  it("goes to the last project while it is online, and to Projects while it is not", async () => {
+    fixture.online = false;
+    try {
+      paired();
+      await app();
+      expect(await screen.findByText("Choose the project to open in Studio.")).toBeTruthy();
+      expect(screen.queryByLabelText("Door that opens")).toBeNull();
+    } finally {
+      fixture.online = true;
+    }
   });
 });
 

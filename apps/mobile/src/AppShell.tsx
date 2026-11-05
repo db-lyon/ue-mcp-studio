@@ -5,14 +5,14 @@
  * connection overlays; the navigation drawer; and the PIN lock over all of
  * it. The project's Studio theme picks the app's theme.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { studioApi, type PanelLocation, type Transport } from "@ue-mcp-studio/client-core";
 import { playtestMatches, type StudioTheme } from "@ue-mcp-studio/shared";
 import { BackLayer, useBack } from "./back";
 import { useProject } from "./connection";
-import type { Device } from "./relay";
+import { transportFor, watchUnpaired, type Device } from "./relay";
 import { ProjectContext, useProjectNav, type ProjectNav, type Route } from "./nav";
 import { useDaemon } from "./state";
 import { readLocation, resetLocation, writeLocation } from "./location";
@@ -49,14 +49,24 @@ export interface AppShellProps {
   device: Device;
   onBack: () => void;
   onUnpaired: (message: string) => void;
+  /** Opens the pairing scanner: from the drawer, whatever the project is doing. */
+  onPair?: () => void;
   /** Replaces the sealed transport: the visual QA harness answers from fixtures through it. */
   transport?: Transport;
   /** Where the panel opens: a tab, a section, a session. */
   initial?: PanelLocation;
 }
 
-export function AppShell({ device, onBack, onUnpaired, transport, initial }: AppShellProps) {
-  const project = useProject(device, transport);
+/** Ways out of the project the drawer offers at all times: the projects list and pairing. */
+const Exits = createContext<{ name: string; onBack: () => void; onPair?: () => void }>({ name: "", onBack: () => undefined });
+
+export function AppShell({ device, onBack, onUnpaired, onPair, transport, initial }: AppShellProps) {
+  // The computer saying it does not know this phone ends the project: its pairing is dropped and pairing opens.
+  const unpairedRef = useRef(onUnpaired);
+  unpairedRef.current = onUnpaired;
+  const watched = useMemo(() => watchUnpaired(transport ?? transportFor(device), (m) => unpairedRef.current(m)), [device, transport]);
+  const project = useProject(device, watched);
+  const exits = useMemo(() => ({ name: device.name, onBack, onPair }), [device.name, onBack, onPair]);
   const api = useMemo(() => studioApi(project.transport), [project.transport]);
   const [stack, setStack] = useState<Route[]>([]);
   const nav = useMemo<ProjectNav>(() => ({ project, api, push: (r) => setStack((s) => [...s, r]), pop: () => setStack((s) => s.slice(0, -1)) }), [project, api]);
@@ -72,6 +82,7 @@ export function AppShell({ device, onBack, onUnpaired, transport, initial }: App
   useBack(top ? () => nav.pop() : null, { overlay: true });
 
   return (
+    <Exits.Provider value={exits}>
     <ProjectContext.Provider value={nav}>
       <View style={{ flex: 1 }} onTouchStart={() => project.lock.touched()}>
         <Root initial={initial} onBack={onBack} device={device} />
@@ -82,6 +93,7 @@ export function AppShell({ device, onBack, onUnpaired, transport, initial }: App
         <RemoteLock lock={project.lock} computerKey={device.computerKey} onRemoved={() => onUnpaired("This phone was removed after too many wrong PINs. Pair it again.")} />
       </View>
     </ProjectContext.Provider>
+    </Exits.Provider>
   );
 }
 
@@ -97,6 +109,7 @@ function Root({ initial, onBack, device }: { initial?: PanelLocation; onBack: ()
 }
 
 function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof useDaemon>; initial?: PanelLocation; onBack: () => void; device: Device }) {
+  const exits = useContext(Exits);
   const t = useTheme();
   const s = useStyles(styles);
   const insets = useInsets();
@@ -203,14 +216,22 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
         onTab={setTab}
         onSession={openChat}
         onNewSession={newSession}
+        project={{ name: exits.name, onSwitch: exits.onBack }}
       >
         <DrawerVcsChip />
         <DrawerTool title="Feedback" label="Report a problem or suggest an idea" onPress={() => setFeedback(true)} />
         <DrawerTool title="Docs" label="The ue-mcp documentation" onPress={() => void Linking.openURL("https://ue-mcp.com/docs/")} />
+        <DrawerExits />
       </NavDrawer>
       {feedback ? <FeedbackDialog onClose={() => setFeedback(false)} /> : null}
     </View>
   );
+}
+
+/** Pairing, in the drawer's foot at all times (Switch project in its head goes to the projects). */
+function DrawerExits() {
+  const { onPair } = useContext(Exits);
+  return onPair ? <DrawerTool title="Pair again" label="Pair this phone with a computer again" onPress={onPair} /> : null;
 }
 
 /** The source control chip at the drawer's foot: opening its changes closes the drawer. */

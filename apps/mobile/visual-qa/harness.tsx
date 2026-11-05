@@ -128,7 +128,7 @@ export function Harness({ name, theme }: { name: string; theme: StudioTheme }) {
   return (
     <ThemeProvider name={theme}>
       <SafeAreaProvider style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>
-        <View style={{ flex: 1 }}>{fonts ? <ProjectScreen device={{ id: "visual-qa", name: "StudioE2E", online: true, computerKey: "k", lastSeen: new Date().toISOString() }} transport={transport} initial={location} onBack={() => undefined} onUnpaired={() => undefined} /> : null}</View>
+        <View style={{ flex: 1 }}>{fonts ? <ProjectScreen device={{ id: "visual-qa", name: "StudioE2E on DEV-PC", online: true, computerKey: "k", lastSeen: new Date().toISOString() }} transport={transport} initial={location} onBack={() => undefined} onUnpaired={() => undefined} /> : null}</View>
       </SafeAreaProvider>
     </ThemeProvider>
   );

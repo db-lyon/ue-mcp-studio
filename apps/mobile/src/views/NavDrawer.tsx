@@ -12,7 +12,7 @@ import Svg, { Path } from "react-native-svg";
 import type { SessionSummary } from "@ue-mcp-studio/shared";
 import { font, T, useInsets, useStyles, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
-import { listState } from "@ue-mcp-studio/client-core";
+import { listState, SWITCH_PROJECT, SWITCH_PROJECT_LABEL } from "@ue-mcp-studio/client-core";
 export { listState };
 
 export type NavTab = "Chat" | "Playtests" | "Plugins" | "Settings";
@@ -49,7 +49,7 @@ export function TabDot({ style, label }: { style?: object; label?: string }) {
   return <View accessibilityLabel={label} style={[{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.c.accent }, style]} />;
 }
 
-export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, onTab, onSession, onNewSession, children }: {
+export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiting = 0, onTab, onSession, onNewSession, project, children }: {
   open: boolean;
   onClose: () => void;
   tab: NavTab;
@@ -61,6 +61,8 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
   onTab: (t: NavTab) => void;
   onSession: (id: string) => void;
   onNewSession: () => void;
+  /** The open project as the relay lists it ("Vale on NIMBA1"), and the way to every other one: the web's .drawer-project. */
+  project?: { name: string | null; onSwitch: () => void };
   children?: ReactNode;
 }) {
   const t = useTheme();
@@ -114,6 +116,16 @@ export function NavDrawer({ open, onClose, tab, session, updates, playtestsWaiti
         <View style={s.head}>
           <Brand />
         </View>
+        {project ? (
+          <View style={s.project}>
+            <T numberOfLines={1} style={s.projectName}>
+              {project.name ?? ""}
+            </T>
+            <Pressable accessibilityRole="button" accessibilityLabel={SWITCH_PROJECT_LABEL} hitSlop={6} onPress={pick(project.onSwitch)} style={({ pressed }) => [s.switch, pressed && s.pressed]}>
+              <T style={s.switchText}>{SWITCH_PROJECT}</T>
+            </Pressable>
+          </View>
+        ) : null}
         <Pressable accessibilityRole="button" accessibilityLabel="New session" onPress={pick(onNewSession)} style={({ pressed }) => [s.item, s.newItem, pressed && s.pressed]}>
           <View style={s.plus}>
             <Svg width={18} height={18} viewBox="0 0 16 16" fill="none" stroke={t.c.onAccent} strokeWidth={1.6} strokeLinecap="round">
@@ -233,6 +245,10 @@ const styles = (t: Theme) => ({
     elevation: 16,
   },
   head: { flexDirection: "row" as const, alignItems: "center" as const, minHeight: 40, paddingHorizontal: 8, paddingBottom: 6 },
+  project: { flexDirection: "row" as const, alignItems: "center" as const, gap: 8, minWidth: 0, marginBottom: 8, paddingVertical: 6, paddingRight: 6, paddingLeft: 10, borderWidth: 1, borderColor: t.c.line, borderRadius: t.radius, backgroundColor: t.c.panel2 },
+  projectName: { ...font(t, "sans", 600, t.base.size), flex: 1, minWidth: 0, color: t.c.text },
+  switch: { flexShrink: 0, minHeight: 44, justifyContent: "center" as const, paddingVertical: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, backgroundColor: t.c.panel2 },
+  switchText: { ...(t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23 }), color: t.c.text },
   item: { flexDirection: "row" as const, alignItems: "center" as const, gap: 12, width: "100%" as const, minHeight: 44, paddingHorizontal: 10, borderRadius: t.radiusLg },
   pressed: { backgroundColor: t.c.panel2 },
   active: { backgroundColor: t.c.accentWash },

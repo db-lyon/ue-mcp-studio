@@ -84,7 +84,7 @@ function InProject({ name, hash, transport, children }: { name: string; hash?: s
   }, [scenario, hash, transport, theme]);
   return (
     <View style={{ flex: 1 }}>
-      <ProjectScreen device={{ id: "visual-qa", name: "StudioE2E", online: true, computerKey: "k", lastSeen: ago(0) }} transport={t} onBack={none} onUnpaired={none} />
+      <ProjectScreen device={{ id: "visual-qa", name: "StudioE2E on DEV-PC", online: true, computerKey: "k", lastSeen: ago(0) }} transport={t} onBack={none} onUnpaired={none} />
       {children}
     </View>
   );

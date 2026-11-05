@@ -100,6 +100,51 @@ export async function forget(): Promise<void> {
   secrets.clear();
 }
 
+/**
+ * At startup: pairings this phone remembers without the key they were made
+ * with (restored from a backup onto a new install, or a secure store the
+ * system reset) can never be used, and the computer answers "not paired" to
+ * every request. Forget them, so the app opens on pairing. True when it did.
+ */
+export async function dropPairingsWithoutKey(): Promise<boolean> {
+  let key: string | null;
+  try {
+    key = await SecureStore.getItemAsync("phone");
+  } catch {
+    // Stored under a key the system no longer has: unreadable, so as good as gone.
+    key = null;
+    await SecureStore.deleteItemAsync("phone").catch(() => undefined);
+  }
+  if (key) return false;
+  const remembered = Object.keys(await trusted().catch(() => ({}))).length > 0 || !!(await selected().catch(() => null));
+  if (remembered) await forget();
+  return remembered;
+}
+
+/** The computer's answer when it does not know this phone (its pairing is gone, or was made with another key), else null. */
+export function unpairedAnswer(e: unknown): string | null {
+  if (e instanceof NotPairedError) return e.message;
+  if (e instanceof RelayError && e.status === 403 && /not paired|did not decrypt/i.test(e.message)) return e.message;
+  return null;
+}
+
+/** A transport that reports, once, when the computer says it does not know this phone; the request still fails as it did. */
+export function watchUnpaired(transport: Transport, onUnpaired: (message: string) => void): Transport {
+  let told = false;
+  return async (method, path, options) => {
+    try {
+      return await transport(method, path, options);
+    } catch (e) {
+      const message = unpairedAnswer(e);
+      if (message && !told) {
+        told = true;
+        onUnpaired(message);
+      }
+      throw e;
+    }
+  };
+}
+
 export const selected = () => readStored<Device>("selected");
 export const select = (d: Device) => writeStored("selected", d);
 

@@ -19,7 +19,8 @@ import { fakeApi, renderInProject, session } from "./helpers";
 const fixture = vi.hoisted(() => ({ transport: null as Transport | null }));
 vi.mock("../src/relay", async (original) => {
   const real = await original<typeof import("../src/relay")>();
-  return { ...real, transportFor: () => fixture.transport! };
+  // The relay lists the last project online, so the app opens straight into it.
+  return { ...real, transportFor: () => fixture.transport!, account: async () => ({ devices: [{ id: "dev1", name: "Lyra", online: true, computerKey: "k1", lastSeen: "2026-11-04T12:00:00Z" }], viewers: [] }) };
 });
 // react-native-web draws no pull gesture: a button stands in for the pull.
 vi.mock("react-native", async (original) => {
@@ -107,6 +108,8 @@ const panel = () => screen.queryByText("ue-mcp on your computer is offline");
 
 beforeEach(() => {
   store.clear();
+  // The key the pairing was made with: without it the app drops the pairing at startup.
+  store.set("phone", JSON.stringify({ jwk: {}, publicKey: "phone" }));
   store.set("trusted", JSON.stringify({ k1: { pairedAt: "2026-11-04T12:00:00Z" } }));
   store.set("selected", JSON.stringify(DEVICE));
   vi.useFakeTimers();
