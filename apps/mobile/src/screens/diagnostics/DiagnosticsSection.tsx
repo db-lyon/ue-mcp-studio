@@ -68,7 +68,7 @@ function Event({ at, type, data, mono, testID }: { at: string; type: string; dat
       </View>
       {p.line ? (
         <View style={{ marginTop: 2, minWidth: 0 }}>
-          <Pressable accessibilityRole="button" accessibilityLabel={`Payload of ${type}`} accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={{ paddingVertical: 13, marginVertical: -6 }}>
+          <Pressable accessibilityRole="button" accessibilityLabel={`Payload of ${type}`} accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={{ minHeight: 44, paddingVertical: 13, marginVertical: -6 }}>
             <T numberOfLines={1} style={[font(t, "mono", 400, 12 * 0.92, 1.55), { color: open ? t.c.dim : t.c.muted }]}>
               {p.line}
             </T>
