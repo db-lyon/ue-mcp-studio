@@ -179,7 +179,7 @@ async function live() {
   const allowed = [];
   const { context, page, errors } = await openPage("");
   try {
-    await visible(page, "Pair with link", 60_000);
+    await visible(page, "Paste pairing link", 60_000);
     await page.waitForTimeout(500);
     await shot(page, "01-welcome");
     step("welcome screen", true);
@@ -187,12 +187,14 @@ async function live() {
     const pairing = await daemon.call("POST", "/remote/pair");
     if (pairing.status !== 200 || !pairing.body?.url) throw new Error(`pair: ${pairing.status} ${JSON.stringify(pairing.body)}`);
     step("pairing link from the daemon", true);
+    // Paste opens the link panel (filled from the clipboard when it holds a link; this page's is empty).
+    await (await visible(page, "Paste pairing link")).click();
     const input = await visible(page, "Pairing link");
     await input.fill(pairing.body.url);
-    await (await visible(page, "Pair with link")).click();
+    await (await visible(page, "Pair")).click();
 
-    const codeEl = await page.waitForSelector('[aria-label^="Pairing code"]', { timeout: 60_000 });
-    const shown = (await codeEl.getAttribute("aria-label")).replace(/^Pairing code\s*/, "").replace(/\s+/g, "");
+    const codeEl = await page.waitForSelector('[aria-label^="Code "]', { timeout: 60_000 });
+    const shown = (await codeEl.getAttribute("aria-label")).replace(/^Code\s*/, "").replace(/\s+/g, "");
     await page.waitForTimeout(400);
     await shot(page, "02-pairing-code");
     step("waiting with code", true, shown);
@@ -209,7 +211,7 @@ async function live() {
     if (decided.body?.browser?.id) allowed.push(decided.body.browser.id);
     step("approval allowed", true, `browser ${decided.body?.browser?.id}`);
 
-    await visible(page, "Your projects", 60_000);
+    await visible(page, "Choose the project to open in Studio.", 60_000);
     // The relay names a project "<project> on <computer>".
     const row = page.getByText(new RegExp(`^${projectName}( on .*)?$`, "i")).first();
     await row.waitFor({ state: "visible", timeout: 60_000 });
