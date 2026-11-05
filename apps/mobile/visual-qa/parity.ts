@@ -122,6 +122,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "settings-general": {owner: "agent-b"},
   "settings-general-signed-in": {owner: "agent-b"},
   "settings-general-paid": {owner: "agent-b"},
+  "settings-general-login-paid": {owner: "agent-b"},
   "settings-general-signing-in": {owner: "agent-b"},
   "settings-general-remote": {owner: "agent-b"},
   "settings-models-remote": {owner: "agent-b"},

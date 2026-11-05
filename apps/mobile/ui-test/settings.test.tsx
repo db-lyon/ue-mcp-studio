@@ -73,6 +73,24 @@ describe("Settings > General", () => {
     expect(screen.getByLabelText("Manage plan")).toBeTruthy();
   });
 
+  it("keeps the account on its own line beside the dot, with Manage plan and the login note on the line under it", async () => {
+    open("settings-general-login-paid", "general");
+    await settled();
+    const line = screen.getByTestId("account-line");
+    const actions = screen.getByTestId("account-actions");
+    // The first line is the dot and the account text, nothing else: no button squeezing it into a column.
+    expect(line.children).toHaveLength(2);
+    expect(line.textContent).toBe("ue-mcp account Signed in as @db-lyon");
+    expect(line.contains(screen.getByLabelText("Manage plan"))).toBe(false);
+    // The text takes the whole line beside the dot (flex 1), not an 80% basis Yoga shrinks to share a line.
+    const grow = line.children[1] as HTMLElement;
+    expect(getComputedStyle(grow).flexGrow).toBe("1");
+    expect(getComputedStyle(grow).flexBasis).not.toBe("80%");
+    expect(actions.contains(screen.getByLabelText("Manage plan"))).toBe(true);
+    expect(actions.textContent).toContain("from ue-mcp login");
+    expect(line.nextElementSibling).toBe(actions);
+  });
+
   it("says a signed-out account signs in on the computer", async () => {
     open("settings-general-signing-in", "general");
     await settled();

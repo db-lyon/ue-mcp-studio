@@ -122,6 +122,10 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     settings: { account: { login: "dev", via: "studio" } },
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: true, signedIn: true } : undefined),
   }),
+  "settings-general-login-paid": page("General with a paid ue-mcp account from ue-mcp login: Manage plan and the login note under the account", "general", {
+    settings: { account: { login: "db-lyon", via: "ue-mcp-login" } },
+    get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: true, signedIn: true } : undefined),
+  }),
   "settings-general-signing-in": page("General with the ue-mcp account sign-in started: the GitHub code and link", "general", {
     get: (p) => (p === "/v1/ext/studio/signin/studio" ? { state: "pending", url: "https://github.com/login/device", userCode: "ABCD-1234", expiresAt: "2030-01-01T00:00:00Z" } : undefined),
   }),

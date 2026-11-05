@@ -110,9 +110,13 @@ export function AccountCard() {
     <Card>
       <CardLabel>Account</CardLabel>
       <Message msg={msg} />
-      <View style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", gap: 14, paddingVertical: 11 }}>
+      {/* .account-row at phone width: the dot and the account fill the first line (.grow's calc(100% - 24px)), and
+          Manage plan and the login note wrap to the next, 14 px under it. Laid out as two explicit lines, since
+          Yoga shrinks a percentage basis to share one line instead of wrapping as a browser does. */}
+      <View style={{ gap: 14, paddingVertical: 11 }}>
+      <View testID="account-line" style={{ flexDirection: "row", alignItems: "flex-start", gap: 14 }}>
         <Dot kind={account ? "ok" : undefined} style={{ marginTop: 6 }} />
-        <View style={{ flexGrow: 1, flexShrink: 1, flexBasis: "80%", minWidth: 0 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           <Txt weight={500}>
             <Span weight={700}>ue-mcp account</Span> <Span size={12} tone="muted">{!settings ? "Loading" : account ? `Signed in as @${account.login}` : "Not signed in"}</Span>
           </Txt>
@@ -122,12 +126,17 @@ export function AccountCard() {
             </Txt>
           ) : null}
         </View>
-        {account && paid ? <ManagePlan /> : null}
-        {account && account.via !== "studio" ? (
-          <Txt size={12} tone="dim" style={{ alignSelf: "center" }}>
-            from ue-mcp login
-          </Txt>
-        ) : null}
+      </View>
+      {account && (paid || account.via !== "studio") ? (
+        <View testID="account-actions" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
+          {paid ? <ManagePlan /> : null}
+          {account.via !== "studio" ? (
+            <Txt size={12} tone="dim" numberOfLines={1}>
+              from ue-mcp login
+            </Txt>
+          ) : null}
+        </View>
+      ) : null}
       </View>
     </Card>
   );
