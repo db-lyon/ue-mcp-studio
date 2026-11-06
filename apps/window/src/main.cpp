@@ -1008,7 +1008,7 @@ const wchar_t* kShim = LR"JS((function () {
   var names = ["getstatus", "startdaemon", "installbridge", "startsetupplan", "getsetupplan", "runsetup", "restarteditor",
     "enableplugin", "openprojectfolder", "geteditortheme", "opennodedownload", "drawattention", "notify", "opendocs",
     "getwindowmode", "setwindowmode", "raiseeditor", "openlog", "setconnectionstate", "getconnectionstate", "retryconnection",
-    "startuemcpupdate", "getuemcpupdate"];
+    "startuemcpupdate", "getuemcpupdate", "lastinput"];
   var studio = {};
   names.forEach(function (name) {
     studio[name] = function (arg) {
@@ -1084,6 +1084,12 @@ std::string dispatch(const std::string& method, const std::string& arg) {
   }
   if (method == "drawattention") return b(drawAttention(widen(arg)));
   if (method == "notify") return s(notify(arg));
+  if (method == "lastinput") {
+    // Milliseconds since the owner last used the keyboard or mouse anywhere on this computer.
+    LASTINPUTINFO li = {sizeof li};
+    if (!GetLastInputInfo(&li)) return "null";
+    return std::to_string(static_cast<DWORD>(GetTickCount() - li.dwTime));
+  }
   if (method == "opendocs") {
     std::string path = arg.empty() ? "/docs/" : arg;
     if (path.rfind("/docs", 0) != 0 || path.find("..") != std::string::npos || path.find("://") != std::string::npos) return b(false);

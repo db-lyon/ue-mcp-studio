@@ -3,9 +3,13 @@ import {
   DEFAULT_DEVICE_NOTIFY,
   DEFAULT_PROJECT_NOTIFY,
   applyProjectNotify,
+  ACTIVE_INPUT_MS,
   decideNotice,
+  deliveryLine,
   deviceNotifyOf,
   inQuietHours,
+  inUse,
+  inputAge,
   noticeContent,
   noticeOf,
   projectNotifyOf,
@@ -14,7 +18,7 @@ import {
 } from "../src/notifications.js";
 
 const at = (hhmm: string) => new Date(2026, 10, 4, Number(hhmm.slice(0, 2)), Number(hhmm.slice(3)));
-const ctx = (over: Partial<NotifyContext> = {}): NotifyContext => ({ now: at("12:00"), projectKey: "Vale", device: "desktop", deviceActive: false, ...over });
+const ctx = (over: Partial<NotifyContext> = {}): NotifyContext => ({ now: at("12:00"), projectKey: "Vale", device: "desktop", ...over });
 const device = (over: Partial<DeviceNotifyPrefs> = {}): DeviceNotifyPrefs => ({ ...DEFAULT_DEVICE_NOTIFY, ...over });
 
 describe("inQuietHours", () => {
@@ -65,15 +69,49 @@ describe("decideNotice", () => {
     const d = device({ quiet: { on: true, from: "11:00", to: "13:00" } });
     expect(decideNotice(n, DEFAULT_PROJECT_NOTIFY, d, ctx())).toEqual({ show: false, why: "quiet" });
   });
-  it("only when away: skips the device in use", () => {
-    expect(decideNotice(n, DEFAULT_PROJECT_NOTIFY, device(), ctx({ deviceActive: true }))).toEqual({ show: false, why: "active" });
-    expect(decideNotice(n, DEFAULT_PROJECT_NOTIFY, device({ onlyWhenAway: false }), ctx({ deviceActive: true }))).toEqual({ show: true });
+  it("away off: being in use never keeps a notice off, on any device", () => {
+    const busy = { ...n, active: ["desktop", "browser", "phone"] as ("desktop" | "browser" | "phone")[] };
+    for (const d of ["desktop", "browser", "phone"] as const) expect(decideNotice(busy, DEFAULT_PROJECT_NOTIFY, device({ onlyWhenAway: false }), ctx({ device: d }))).toEqual({ show: true });
   });
-  it("only when away: a phone stays quiet while the Studio window is in use, the desktop does not", () => {
+  it("away on: no device in use, every device shows", () => {
+    for (const d of ["desktop", "browser", "phone"] as const) expect(decideNotice({ ...n, active: [] }, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: d }))).toEqual({ show: true });
+    expect(decideNotice(n, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "phone" }))).toEqual({ show: true });
+  });
+  it("away on: a device never stays quiet for being in use itself", () => {
+    expect(decideNotice({ ...n, active: ["desktop"] }, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "desktop" }))).toEqual({ show: true });
+    expect(decideNotice({ ...n, active: ["phone"] }, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "phone" }))).toEqual({ show: true });
+    expect(decideNotice({ ...n, active: ["browser"] }, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "browser" }))).toEqual({ show: true });
+  });
+  it("away on: phone and browser stay quiet while the computer is in use", () => {
     const busy = { ...n, active: ["desktop" as const] };
     expect(decideNotice(busy, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "phone" }))).toEqual({ show: false, why: "desktop-active" });
     expect(decideNotice(busy, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "browser" }))).toEqual({ show: false, why: "desktop-active" });
-    expect(decideNotice(busy, DEFAULT_PROJECT_NOTIFY, device({ onlyWhenAway: false }), ctx({ device: "phone" }))).toEqual({ show: true });
+  });
+  it("away on: the computer stays quiet while a phone or browser is in use", () => {
+    expect(decideNotice({ ...n, active: ["phone" as const] }, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "desktop" }))).toEqual({ show: false, why: "active" });
+    expect(decideNotice({ ...n, active: ["browser" as const] }, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "desktop" }))).toEqual({ show: false, why: "active" });
+    expect(decideNotice({ ...n, active: ["desktop", "phone"] as ("desktop" | "phone")[] }, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "phone" }))).toEqual({ show: false, why: "desktop-active" });
+  });
+  it("a test ignores away mode", () => {
+    expect(decideNotice({ ...n, test: { device: "phone" }, active: ["desktop"] }, DEFAULT_PROJECT_NOTIFY, device(), ctx({ device: "phone" }))).toEqual({ show: true });
+  });
+});
+
+describe("inUse", () => {
+  it("needs input under two minutes ago and the window focused", () => {
+    expect(inUse(1_000, true)).toBe(true);
+    expect(inUse(ACTIVE_INPUT_MS - 1, true)).toBe(true);
+    expect(inUse(ACTIVE_INPUT_MS, true)).toBe(false);
+    expect(inUse(3_900_000, true)).toBe(false);
+    expect(inUse(1_000, false)).toBe(false);
+    expect(inUse(undefined, true)).toBe(false);
+  });
+  it("puts the input age in each decision line", () => {
+    expect(inputAge(undefined)).toBe("unknown");
+    expect(inputAge(12_400)).toBe("12s");
+    expect(inputAge(3_783_000)).toBe("63m03s");
+    expect(deliveryLine({ noticeId: "n1", kind: "turn.finished", device: "phone", shown: false, why: "desktop-active", inputAgeMs: 20_000 })).toBe("notify turn.finished id=n1 device=phone suppressed rule=desktop-active input=20s");
+    expect(deliveryLine({ noticeId: "n1", kind: "turn.finished", device: "desktop", shown: true, via: "window", ok: true })).toBe("notify turn.finished id=n1 device=desktop shown via=window ok=true input=unknown");
   });
 });
 

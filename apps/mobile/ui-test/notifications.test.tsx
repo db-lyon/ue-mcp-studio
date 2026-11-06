@@ -10,15 +10,24 @@ import type { SettingsApi } from "@ue-mcp-studio/client-core";
 import { SettingsScreen } from "../src/screens/settings/SettingsScreen";
 import { SessionRow } from "../src/chat/SessionRow";
 import { DEVICE_PREFS_KEY, loadProjectNotify, resetNotifyState } from "../src/notifications/state";
-import { showNotice } from "../src/notifications/useNotifications";
+import { ensurePermission, noteInput, phoneInUse, resetPhoneNotifyState, showNotice } from "../src/notifications/useNotifications";
 import { store } from "./mocks/secure-store";
 import { renderArea, settled } from "./area-b";
+import { AppState } from "react-native";
+
+const AppStateRef = () => AppState;
+const ensureAsked = () => (g.__studioNotifyAsks ?? 0) > 0;
 
 type Req = { title: string; body: string; sound: string; vibrate: string; tag: string; data: Record<string, unknown> };
-const g = globalThis as { __studioNotifications?: Req[] };
+const g = globalThis as { __studioNotifications?: Req[]; __studioNotifyPermission?: string; __studioNotifyAnswer?: string; __studioNotifyAsks?: number; __studioNotifySettingsOpened?: number };
 
 beforeEach(() => {
   resetNotifyState();
+  resetPhoneNotifyState();
+  delete g.__studioNotifyPermission;
+  delete g.__studioNotifyAnswer;
+  g.__studioNotifyAsks = 0;
+  g.__studioNotifySettingsOpened = 0;
   store.delete(DEVICE_PREFS_KEY);
   g.__studioNotifications = [];
 });
@@ -115,13 +124,109 @@ describe("one notice on the phone", () => {
     prefs({ quiet: { on: true, from: "00:00", to: "00:00" } });
     expect((await showNotice(notice, device, fakeApi()))?.shown).toBe(false);
     resetNotifyState();
+    // Away on: the app in front and just touched is not a reason; only another device in use is.
     prefs({ onlyWhenAway: true });
-    expect((await showNotice(notice, device, fakeApi()))?.shown).toBe(false);
-    resetNotifyState();
-    prefs({ onlyWhenAway: true });
-    vi.spyOn(await import("react-native").then((m) => m.AppState), "currentState", "get").mockReturnValue("background");
-    expect((await showNotice({ ...notice, active: ["desktop"] }, device, fakeApi()))?.shown).toBe(false);
+    noteInput();
     expect((await showNotice(notice, device, fakeApi()))?.shown).toBe(true);
-    expect(g.__studioNotifications).toHaveLength(1);
+    expect((await showNotice({ ...notice, id: "n2", active: ["phone"] }, device, fakeApi()))?.shown).toBe(true);
+    expect(await showNotice({ ...notice, id: "n3", active: ["desktop"] }, device, fakeApi())).toMatchObject({ shown: false, why: "desktop-active" });
+    expect(await showNotice({ ...notice, id: "n4", active: ["browser"] }, device, fakeApi())).toMatchObject({ shown: false, why: "active" });
+    resetNotifyState();
+    // Away off: nothing in use keeps it off.
+    prefs({ onlyWhenAway: false });
+    expect((await showNotice({ ...notice, id: "n5", active: ["desktop", "browser"] }, device, fakeApi()))?.shown).toBe(true);
+    expect(g.__studioNotifications).toHaveLength(3);
+  });
+
+  it("reports the phone's input age with what it did", async () => {
+    prefs({ onlyWhenAway: true });
+    const api = fakeApi();
+    noteInput();
+    await showNotice({ ...notice, active: ["desktop"] }, device, api);
+    expect(api.notifyDelivery).toHaveBeenCalledWith(expect.objectContaining({ shown: false, why: "desktop-active", inputAgeMs: expect.any(Number) }));
   });
 });
+
+describe("the phone in use", () => {
+  it("is the app in front and touched within two minutes", () => {
+    expect(phoneInUse()).toEqual({ active: false });
+    noteInput();
+    expect(phoneInUse().active).toBe(true);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 121_000);
+    expect(phoneInUse().active).toBe(false);
+    vi.useRealTimers();
+    noteInput();
+    vi.spyOn(AppStateRef(), "currentState", "get").mockReturnValue("background");
+    expect(phoneInUse().active).toBe(false);
+  });
+});
+
+describe("Android's notification permission", () => {
+  it("asks once while the system can still ask, never once granted or denied", async () => {
+    g.__studioNotifyPermission = "undetermined";
+    g.__studioNotifyAnswer = "granted";
+    expect(await ensurePermission()).toBe("granted");
+    expect(await ensurePermission()).toBe("granted");
+    expect(g.__studioNotifyAsks).toBe(1);
+    resetPhoneNotifyState();
+    g.__studioNotifyAsks = 0;
+    g.__studioNotifyPermission = "denied";
+    expect(await ensurePermission(true)).toBe("denied");
+    expect(g.__studioNotifyAsks).toBe(0);
+  });
+
+  it("does not ask again in the same run after a dismissal, unless the owner asks", async () => {
+    g.__studioNotifyPermission = "undetermined";
+    g.__studioNotifyAnswer = "undetermined";
+    await ensurePermission();
+    await ensurePermission();
+    expect(g.__studioNotifyAsks).toBe(1);
+    await ensurePermission(true);
+    expect(g.__studioNotifyAsks).toBe(2);
+  });
+
+  it("asks when Settings > Notifications opens with notifications on", async () => {
+    g.__studioNotifyPermission = "undetermined";
+    g.__studioNotifyAnswer = "granted";
+    renderArea("settings-notifications", (daemon) => <SettingsScreen daemon={daemon} section="notifications" onSection={vi.fn()} onTheme={vi.fn()} />);
+    await settled(6);
+    fireEvent.click(screen.getByRole("button", { name: "Allow notifications" }));
+    await settled();
+    expect(g.__studioNotifyAsks).toBe(1);
+    expect(screen.queryByRole("button", { name: "Allow notifications" })).toBeNull();
+  });
+
+  it("asks when notifications are turned on", async () => {
+    store.set(DEVICE_PREFS_KEY, JSON.stringify({ enabled: false }));
+    g.__studioNotifyPermission = "undetermined";
+    g.__studioNotifyAnswer = "granted";
+    renderArea("settings-notifications-off", (daemon) => <SettingsScreen daemon={daemon} section="notifications" onSection={vi.fn()} onTheme={vi.fn()} />);
+    await settled(6);
+    fireEvent.click(sw("Notifications on this device"));
+    await settled(6);
+    expect(ensureAsked()).toBe(true);
+  });
+
+  it("the test button asks first when not allowed yet", async () => {
+    g.__studioNotifyPermission = "undetermined";
+    g.__studioNotifyAnswer = "granted";
+    renderArea("settings-notifications", (daemon) => <SettingsScreen daemon={daemon} section="notifications" onSection={vi.fn()} onTheme={vi.fn()} />);
+    await settled(6);
+    fireEvent.click(screen.getByRole("button", { name: "Send test notification" }));
+    await settled();
+    expect(g.__studioNotifyAsks).toBeGreaterThanOrEqual(1);
+  });
+
+  it("denied: a row that opens the app's notification settings", async () => {
+    g.__studioNotifyPermission = "denied";
+    renderArea("settings-notifications", (daemon) => <SettingsScreen daemon={daemon} section="notifications" onSection={vi.fn()} onTheme={vi.fn()} />);
+    await settled(6);
+    expect(screen.getByText("Notifications are blocked for Studio. Allow them in the system's settings.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open notification settings" }));
+    await settled();
+    expect(g.__studioNotifySettingsOpened).toBe(1);
+    expect(g.__studioNotifyAsks).toBe(0);
+  });
+});
+

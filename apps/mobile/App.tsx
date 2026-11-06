@@ -24,6 +24,7 @@ import { ErrorBoundary } from "./src/views/ErrorBoundary";
 import { keepAliveOnErrors } from "./src/native/keep-alive";
 import { onTap as onNotificationTap } from "./src/native/notify";
 import { pendingLatest } from "./src/notifications/state";
+import { noteInput } from "./src/notifications/useNotifications";
 
 keepAliveOnErrors();
 
@@ -71,7 +72,8 @@ export default function App() {
           {/* The window's insets from the first frame, so nothing is laid out once under the navigation bar and then moves. */}
           <SafeAreaProvider initialMetrics={initialWindowMetrics} style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>
             <StatusBar style="light" />
-            <View style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }}>
+            {/* Every touch is input for "Only when I'm away" (phoneInUse). */}
+            <View style={{ flex: 1, backgroundColor: THEMES[theme].c.bg }} onTouchStart={noteInput}>
               {/* Last line: a render error anywhere shows here with Reload, never closes the app. */}
               {fonts ? (
                 <ErrorBoundary what="Studio">

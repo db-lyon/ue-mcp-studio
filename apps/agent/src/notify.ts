@@ -7,7 +7,9 @@
  *
  *   GET  /notifications            { project, prefs, recent }
  *   PUT  /notifications            a ProjectNotifyUpdate: events, mute, unmute
- *   POST /notifications/presence   { id, device, active }: a device the owner is using, for "only when I'm away"
+ *   POST /notifications/presence   { id, device, active, inputAgeMs? }: whether the owner is using a device (inUse), for "only when I'm away"
+ *   GET  /notifications/desktop    { prefs }: the computer's own device settings, null before any
+ *   PUT  /notifications/desktop    the computer's own device settings
  *   POST /notifications/test       { id }: a test notice only the device with that presence id shows, or every device of a class (desktop, browser, phone)
  *   POST /notifications/delivery   a NotifyDelivery: what a device did with a notice
  *
@@ -23,6 +25,8 @@ import {
   applyProjectNotify,
   contextView,
   deliveryLine,
+  deviceNotifyOf,
+  inputAge,
   notifyDeliveryOf,
   projectNotifyOf,
   type ContextUsage,
@@ -69,12 +73,24 @@ const clip = (s: string, n = 160): string => {
 };
 
 export class Presence {
-  private readonly seen = new Map<string, { device: NotifyDevice; active: boolean; at: number }>();
+  private readonly seen = new Map<string, { device: NotifyDevice; active: boolean; at: number; inputAgeMs?: number }>();
   constructor(private readonly now: () => number = Date.now) {}
 
-  report(id: string, device: NotifyDevice, active: boolean): void {
+  report(id: string, device: NotifyDevice, active: boolean, inputAgeMs?: number): void {
     if (this.seen.size > 200) this.seen.clear();
-    this.seen.set(id, { device, active, at: this.now() });
+    this.seen.set(id, { device, active, at: this.now(), ...(typeof inputAgeMs === "number" ? { inputAgeMs } : {}) });
+  }
+
+  /** Each device class reported lately, active or idle, with its input age now: "desktop idle input=1h03m, phone active input=20s". */
+  describe(): string {
+    const cutoff = this.now() - PRESENCE_TTL_MS;
+    const parts: string[] = [];
+    for (const p of this.seen.values()) {
+      if (p.at < cutoff) continue;
+      const age = typeof p.inputAgeMs === "number" ? p.inputAgeMs + (this.now() - p.at) : undefined;
+      parts.push(`${p.device} ${p.active ? "active" : "idle"} input=${inputAge(age)}`);
+    }
+    return parts.join(", ") || "none";
   }
 
   /** Device classes in use now. */
@@ -257,7 +273,7 @@ export class Notifier {
       this.recentList.push(n);
       if (this.recentList.length > RECENT) this.recentList.shift();
     }
-    this.trace(`notify ${test ? "test" : kind} id=${n.id} project=${this.o.project}${sessionId ? ` session=${sessionId}` : ""} sent active=${n.active?.join(",") || "none"}`, { stage: "agent", kind, noticeId: n.id, ...(sessionId ? { sessionId } : {}), ...(test ? { test: true } : {}), decision: "sent" });
+    this.trace(`notify ${test ? "test" : kind} id=${n.id} project=${this.o.project}${sessionId ? ` session=${sessionId}` : ""} sent active=${n.active?.join(",") || "none"} presence=[${this.presence.describe()}]`, { stage: "agent", kind, noticeId: n.id, ...(sessionId ? { sessionId } : {}), ...(test ? { test: true } : {}), decision: "sent" });
     this.o.publish("notify", n as unknown as Record<string, unknown>);
     return n;
   }
@@ -311,11 +327,27 @@ export function registerNotifications(api: DaemonExtensionApi, o: Omit<NotifierO
     return { body: state(prefs) };
   });
   api.route("POST", "/notifications/presence", (req) => {
-    const b = (req.body ?? {}) as { id?: unknown; device?: unknown; active?: unknown };
+    const b = (req.body ?? {}) as { id?: unknown; device?: unknown; active?: unknown; inputAgeMs?: unknown };
     if (typeof b.id !== "string" || !b.id || b.id.length > 100 || !DEVICES.includes(b.device as NotifyDevice) || typeof b.active !== "boolean") {
-      return { status: 400, body: { error: "body must be { id, device: desktop | browser | phone, active }" } };
+      return { status: 400, body: { error: "body must be { id, device: desktop | browser | phone, active, inputAgeMs? }" } };
     }
-    notifier.presence.report(b.id, b.device as NotifyDevice, b.active);
+    const age = typeof b.inputAgeMs === "number" && Number.isFinite(b.inputAgeMs) && b.inputAgeMs >= 0 ? b.inputAgeMs : undefined;
+    notifier.presence.report(b.id, b.device as NotifyDevice, b.active, age);
+    return { status: 204 };
+  });
+  // The computer's own device settings: the window's page storage belongs to the daemon's port, which changes on every restart.
+  const desktopFile = path.join(api.dataDir, "notify-desktop.json");
+  api.route("GET", "/notifications/desktop", () => {
+    try {
+      return { body: { prefs: deviceNotifyOf(JSON.parse(fs.readFileSync(desktopFile, "utf-8"))) } };
+    } catch {
+      return { body: { prefs: null } };
+    }
+  });
+  api.route("PUT", "/notifications/desktop", (req) => {
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) return { status: 400, body: { error: "body must be this device's notification settings" } };
+    fs.mkdirSync(path.dirname(desktopFile), { recursive: true });
+    fs.writeFileSync(desktopFile, JSON.stringify(deviceNotifyOf(req.body), null, 2));
     return { status: 204 };
   });
   api.route("POST", "/notifications/test", (req) => {

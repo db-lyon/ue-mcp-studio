@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import { DEFAULT_PROJECT_NOTIFY, applyProjectNotify, type Notice, type ProjectNotifyPrefs } from "@ue-mcp-studio/shared";
-import { Notifier, NotifyPrefsStore, PRESENCE_TTL_MS, type NotifySession } from "../src/notify.js";
+import { Notifier, NotifyPrefsStore, PRESENCE_TTL_MS, registerNotifications, type NotifySession } from "../src/notify.js";
 
 function setup(sessions: Record<string, NotifySession> = {}, prefs: ProjectNotifyPrefs = DEFAULT_PROJECT_NOTIFY) {
   const published: Notice[] = [];
@@ -110,6 +110,17 @@ describe("Notifier", () => {
     expect(published.map((p) => p.active)).toEqual([["desktop"], []]);
   });
 
+  it("logs each device's state and input age with every notice sent", () => {
+    const lines: string[] = [];
+    let t = Date.parse("2026-11-04T12:00:00Z");
+    const n = new Notifier({ project: "Vale", session: () => session(), prefs: () => DEFAULT_PROJECT_NOTIFY, publish: () => true, window: () => 200_000, now: () => t, log: (l) => lines.push(l) });
+    n.presence.report("win", "desktop", false, 3_780_000);
+    n.presence.report("ph", "phone", true, 5_000);
+    t += 2_000;
+    n.observe({ type: "studio.approval.requested", data: { sessionId: "s1", approvalId: "a1", tool: "shell" } });
+    expect(lines.at(-1)).toContain("sent active=phone presence=[desktop idle input=63m02s, phone active input=7s]");
+  });
+
   it("keeps the latest notices for a device opened from a push", () => {
     const { n, ev } = setup({ s1: session() });
     for (let i = 0; i < 25; i++) ev("approval.requested", { sessionId: "s1", approvalId: `a${i}`, tool: "shell" });
@@ -128,5 +139,40 @@ describe("NotifyPrefsStore", () => {
     expect(again.events["turn.finished"]).toBe(false);
     expect(again.mutedSessions).toEqual(["s9"]);
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe("the notification routes", () => {
+  function api() {
+    const routes = new Map<string, (req: { body?: unknown }) => { status?: number; body?: unknown }>();
+    const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "notify-routes-"));
+    const fake = {
+      dataDir,
+      events: { publish: () => ({}), subscribe: () => () => undefined },
+      log: { info: () => undefined, warn: () => undefined },
+      route: (method: string, p: string, h: (req: { body?: unknown }) => { status?: number; body?: unknown }) => void routes.set(`${method} ${p}`, h),
+    };
+    const { notifier } = registerNotifications(fake as never, { project: "Vale", session: () => undefined, window: () => 200_000 });
+    const call = (key: string, body?: unknown) => routes.get(key)!({ body });
+    return { call, notifier, dataDir };
+  }
+
+  it("takes a device's input age with its presence, and refuses a bad one", () => {
+    const { call, notifier } = api();
+    expect(call("POST /notifications/presence", { id: "win", device: "desktop", active: false, inputAgeMs: 3_600_000 }).status).toBe(204);
+    expect(notifier.presence.describe()).toBe("desktop idle input=60m00s");
+    expect(call("POST /notifications/presence", { id: "ph", device: "phone", active: true, inputAgeMs: -5 }).status).toBe(204);
+    expect(notifier.presence.describe()).toContain("phone active input=unknown");
+    expect(notifier.presence.active()).toEqual(["phone"]);
+    expect(call("POST /notifications/presence", { id: "x", device: "tv", active: true }).status).toBe(400);
+  });
+
+  it("keeps the computer's own device settings across restarts", () => {
+    const { call, dataDir } = api();
+    expect(call("GET /notifications/desktop").body).toEqual({ prefs: null });
+    expect(call("PUT /notifications/desktop", { onlyWhenAway: false }).status).toBe(204);
+    expect((call("GET /notifications/desktop").body as { prefs: { onlyWhenAway: boolean } }).prefs.onlyWhenAway).toBe(false);
+    expect(fs.existsSync(path.join(dataDir, "notify-desktop.json"))).toBe(true);
+    expect(call("PUT /notifications/desktop", [1]).status).toBe(400);
   });
 });

@@ -23,6 +23,8 @@ export interface StudioBinding {
    * brings Studio forward and dispatches a "studio-notification" event on the page with target as its detail.
    */
   notify?(json: string): Promise<boolean>;
+  /** Studio's own window only: milliseconds since the owner's last keyboard or mouse input anywhere on the computer. */
+  lastinput?(): Promise<number | null>;
   /** Open the ue-mcp docs in their own editor tab; older host plugins do not have it. */
   opendocs?(path: string): Promise<boolean>;
   /** Start the project's daemon (or install Studio first when it is missing). */

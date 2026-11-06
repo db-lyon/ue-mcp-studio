@@ -3,7 +3,8 @@
  * shows from the event stream while it runs, the channels that carry each
  * sound and vibration choice, taps, and the FCM token the relay pushes to.
  */
-import { Platform } from "react-native";
+import { Linking, Platform } from "react-native";
+import * as Application from "expo-application";
 import * as Notifications from "expo-notifications";
 import type { NotifySound, NotifyVibrate } from "@ue-mcp-studio/shared";
 import { notifyChannel } from "@ue-mcp-studio/client-core";
@@ -52,9 +53,29 @@ export const prepareChannel = (sound: NotifySound, vibrate: NotifyVibrate): Prom
 
 export type NotifyPermission = "granted" | "denied" | "undetermined";
 
+/**
+ * Android 13 and later report "denied" before the app has asked; while the
+ * system can still ask, that is undetermined. Denied means only the system's
+ * settings can allow notifications now.
+ */
 export async function permission(): Promise<NotifyPermission> {
   const p = await Notifications.getPermissionsAsync().catch(() => null);
-  return p?.granted ? "granted" : p?.canAskAgain === false ? "denied" : (p?.status as NotifyPermission | undefined) ?? "undetermined";
+  if (!p) return "undetermined";
+  if (p.granted) return "granted";
+  return p.canAskAgain === false ? "denied" : "undetermined";
+}
+
+/** This app's notification settings in Android, where a denied permission is allowed again. */
+export async function openNotificationSettings(): Promise<void> {
+  if (Platform.OS === "android") {
+    const pkg = Application.applicationId ?? "com.uemcp.studio.remote";
+    const opened = await Linking.sendIntent("android.settings.APP_NOTIFICATION_SETTINGS", [{ key: "android.provider.extra.APP_PACKAGE", value: pkg }]).then(
+      () => true,
+      () => false,
+    );
+    if (opened) return;
+  }
+  await Linking.openSettings().catch(() => undefined);
 }
 
 export async function askPermission(): Promise<NotifyPermission> {

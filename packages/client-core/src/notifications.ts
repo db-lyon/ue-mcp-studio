@@ -100,9 +100,9 @@ export const NOTIFY_COPY = {
   enabled: { title: "Notifications on this device", help: "Off: this device shows none, whatever the events below say." },
   away: {
     title: "Only when I'm away",
-    help: "Not while you are using this device. Phones and other browsers also stay quiet while you use Studio on the computer.",
+    help: "Not while you are using another device: Studio in front there, with your last input under two minutes ago. A device never skips its own for being open.",
     /** Where remote control does not work: nothing is paired. */
-    helpLocal: "Not while you are using Studio on this computer.",
+    helpLocal: "This computer never skips its own notifications for Studio being open or in use.",
   },
   privacy: { title: "What a notification shows", help: "Event and project keeps your messages and file names off the lock screen." },
   quiet: { title: "Quiet hours", help: "No notifications between these times, on this device's clock." },
@@ -125,6 +125,8 @@ export const NOTIFY_COPY = {
     denied: "Notifications are blocked for Studio. Allow them in the system's settings.",
     unsupported: "This browser cannot show notifications.",
     button: "Allow notifications",
+    /** The app, once Android has denied it: only Android's settings can allow it now. */
+    openSettings: "Open notification settings",
   },
   test: {
     title: "Test notification",

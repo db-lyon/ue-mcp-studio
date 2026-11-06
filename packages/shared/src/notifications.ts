@@ -125,7 +125,7 @@ export interface DeviceNotifyPrefs {
   privacy: NotifyPrivacy;
   sound: NotifySound;
   vibrate: NotifyVibrate;
-  /** Skip a notification while this device is in use, and on a phone while the Studio window is. */
+  /** Skip a notification while the owner is using another device (input within ACTIVE_INPUT_MS, its window focused). */
   onlyWhenAway: boolean;
 }
 
@@ -173,13 +173,18 @@ export function inQuietHours(q: QuietHours, at: Date): boolean {
   return from < to ? now >= from && now < to : now >= from || now < to;
 }
 
+/** Input this recent, with Studio focused, is the owner using the device. */
+export const ACTIVE_INPUT_MS = 120_000;
+
+/** In use: the owner gave real input within ACTIVE_INPUT_MS and this client's window is focused (the app in front). */
+export const inUse = (inputAgeMs: number | undefined, focused: boolean): boolean =>
+  focused && typeof inputAgeMs === "number" && inputAgeMs >= 0 && inputAgeMs < ACTIVE_INPUT_MS;
+
 export interface NotifyContext {
   now: Date;
   /** This device's key for the notice's project (see DeviceNotifyPrefs.mutedProjects). */
   projectKey: string;
   device: NotifyDevice;
-  /** The owner is using this device right now: its Studio page is visible and focused, or the app is in front. */
-  deviceActive: boolean;
 }
 
 export type NotifySkip = "off" | "event" | "project-muted" | "session-muted" | "quiet" | "active" | "desktop-active";
@@ -198,9 +203,11 @@ export function decideNotice(n: Pick<Notice, "kind" | "sessionId" | "active" | "
   if (device.mutedProjects.includes(ctx.projectKey)) return { show: false, why: "project-muted" };
   if (n.sessionId && project.mutedSessions.includes(n.sessionId)) return { show: false, why: "session-muted" };
   if (inQuietHours(device.quiet, ctx.now)) return { show: false, why: "quiet" };
+  // "Only when I'm away" off: being in use never keeps a notice off. On: only another device in use (inUse) does, never this one.
   if (device.onlyWhenAway) {
-    if (ctx.deviceActive) return { show: false, why: "active" };
-    if (ctx.device !== "desktop" && n.active?.includes("desktop")) return { show: false, why: "desktop-active" };
+    const elsewhere = (n.active ?? []).filter((d) => d !== ctx.device);
+    if (elsewhere.includes("desktop")) return { show: false, why: "desktop-active" };
+    if (elsewhere.length) return { show: false, why: "active" };
   }
   return { show: true };
 }
@@ -266,6 +273,8 @@ export interface NotifyDelivery {
   ok?: boolean;
   /** What the system answered: a toast's result or HRESULT, the browser's permission. */
   detail?: string;
+  /** Milliseconds since the owner's last input on this device, when it can tell. */
+  inputAgeMs?: number;
 }
 
 const VIAS: readonly NotifyVia[] = ["window", "flash", "browser", "phone", "none"];
@@ -287,6 +296,7 @@ export function notifyDeliveryOf(raw: unknown): NotifyDelivery | null {
     ...(VIAS.includes(r.via as NotifyVia) ? { via: r.via as NotifyVia } : {}),
     ...(typeof r.ok === "boolean" ? { ok: r.ok } : {}),
     ...(typeof r.detail === "string" && r.detail ? { detail: r.detail.slice(0, 300) } : {}),
+    ...(typeof r.inputAgeMs === "number" && Number.isFinite(r.inputAgeMs) && r.inputAgeMs >= 0 ? { inputAgeMs: Math.round(r.inputAgeMs) } : {}),
   };
 }
 
@@ -297,15 +307,23 @@ export const SKIP_NAMES: Record<NotifySkip, string> = {
   "project-muted": "the project is muted on this device",
   "session-muted": "the session is muted",
   quiet: "quiet hours",
-  active: "only when away, and this device is in use",
+  active: "only when away, and the owner is using another device",
   "desktop-active": "only when away, and Studio is in use on the computer",
 };
 
 /** One line for the daemon's log: the device's decision and what the system answered. */
 export function deliveryLine(d: NotifyDelivery): string {
   const head = `notify ${d.test ? "test" : d.kind} id=${d.noticeId} device=${d.device}`;
-  if (!d.shown) return `${head} suppressed rule=${d.why ?? "unknown"}`;
-  return `${head} shown via=${d.via ?? "none"} ok=${d.ok === undefined ? "unknown" : d.ok}${d.detail ? ` detail=${d.detail}` : ""}`;
+  const input = ` input=${inputAge(d.inputAgeMs)}`;
+  if (!d.shown) return `${head} suppressed rule=${d.why ?? "unknown"}${input}`;
+  return `${head} shown via=${d.via ?? "none"} ok=${d.ok === undefined ? "unknown" : d.ok}${d.detail ? ` detail=${d.detail}` : ""}${input}`;
+}
+
+/** An input age for a log line: 12s, 3m40s, or unknown. */
+export function inputAge(ms: number | undefined): string {
+  if (typeof ms !== "number") return "unknown";
+  const s = Math.round(ms / 1000);
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
 }
 
 /** GET /v1/ext/studio/notifications */

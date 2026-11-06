@@ -107,6 +107,8 @@ const DENY: Array<{ path: RegExp; except?: string[] }> = [
   { path: /^\/v1\/ext\/studio\/signin(\/.*)?$/i, except: ["GET"] },
   { path: /^\/v1\/ext\/studio\/config\/?$/i, except: ["GET"] },
   { path: /^\/v1\/ext\/studio\/context-strategy\/?$/i, except: ["GET"] },
+  // The computer's own notification settings: a paired browser keeps its own.
+  { path: /^\/v1\/ext\/studio\/notifications\/desktop\/?$/i },
 ];
 
 /**
