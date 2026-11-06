@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { STUDIO_PLAN_AVAILABLE, remoteSurface, type RemoteSurface } from "@ue-mcp-studio/shared";
+import { REMOTE_PLAN_OFFERED, remoteSurface, type RemoteSurface } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 import { subscribeEvent } from "../../extensions/events";
 
@@ -8,16 +8,19 @@ export interface RemoteAnswer {
   available: boolean;
   /** A ue-mcp account is signed in on this computer. */
   signedIn: boolean;
+  /** This is a paired device: the computer refused the check, as it refuses a paired device every remote control route. */
+  paired: boolean;
 }
 
 /** Whether this account may use remote control (a paid plan), and whether any account is signed in, asked of the agent. */
 export async function remoteAvailable(refresh: boolean): Promise<RemoteAnswer> {
   try {
     const a = await api.remoteAvailable(refresh);
-    return { available: a.available === true, signedIn: a.signedIn !== false };
+    return { available: a.available === true, signedIn: a.signedIn !== false, paired: false };
   } catch (e) {
-    // A paired browser is refused remote control's routes; the section says why itself.
-    return { available: e instanceof ApiError && e.status === 403, signedIn: true };
+    // A paired device is refused remote control's routes: listed as working, and answered with REMOTE_ON_COMPUTER.
+    const paired = e instanceof ApiError && e.status === 403;
+    return { available: paired, signedIn: true, paired };
   }
 }
 
@@ -65,14 +68,14 @@ export function watchForCheckout(): void {
 
 /**
  * What remote control shows this account (remoteSurface): the working section
- * on a paid plan; while STUDIO_PLAN_AVAILABLE is on, a sign-in when no account
+ * on a paid plan; while REMOTE_PLAN_OFFERED is on, a sign-in when no account
  * is signed in and the plan note to a free account; nothing otherwise. An
  * error reads as a free account, silently. `refresh` asks the gateway past the
  * agent's cache, as Settings does on open. A sign-in or sign-out anywhere in
  * Studio asks again, and so does Studio's window coming back into focus, after
  * a checkout in the browser, and every answer watchForCheckout gets.
  */
-export function useRemoteAvailable(refresh = true): { available: boolean | null; signedIn: boolean | null; surface: RemoteSurface; recheck: () => void } {
+export function useRemoteAvailable(refresh = true): { available: boolean | null; signedIn: boolean | null; paired: boolean; surface: RemoteSurface; recheck: () => void } {
   const [answer, setAnswer] = useState<RemoteAnswer | null>(null);
   const alive = useRef(true);
   const recheck = useCallback(() => {
@@ -102,7 +105,8 @@ export function useRemoteAvailable(refresh = true): { available: boolean | null;
   return {
     available: answer?.available ?? null,
     signedIn: answer?.signedIn ?? null,
-    surface: remoteSurface(STUDIO_PLAN_AVAILABLE, answer?.available ?? null, answer?.signedIn ?? true),
+    paired: answer?.paired ?? false,
+    surface: remoteSurface(REMOTE_PLAN_OFFERED, answer?.available ?? null, answer?.signedIn ?? true),
     recheck,
   };
 }

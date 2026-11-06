@@ -1,14 +1,12 @@
 import { useState } from "react";
-import { UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
+import { BILLING_INTERVALS, REMOTE_INTERVAL_NAMES, UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../api";
 import { openExternal } from "../native";
 import { Seg } from "./settings/controls";
 import { watchForCheckout } from "./settings/remote-available";
 
-const INTERVALS: ReadonlyArray<{ id: BillingInterval; name: string }> = [
-  { id: "month", name: "Monthly" },
-  { id: "year", name: "Yearly" },
-];
+/** Monthly or yearly, each named by its price before tax. */
+const INTERVALS: ReadonlyArray<{ id: BillingInterval; name: string }> = BILLING_INTERVALS.map((id) => ({ id, name: REMOTE_INTERVAL_NAMES[id] }));
 
 /** What the row says once the payment page is open. */
 export const CHECKOUT_OPENED = "Checkout opened in your browser. Remote control shows here once the payment goes through.";

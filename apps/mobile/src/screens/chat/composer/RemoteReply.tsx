@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
-import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_AVAILABLE, isLocalCommand, remoteCommand, remoteShown, type SlashCommand } from "@ue-mcp-studio/shared";
+import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, isLocalCommand, remoteCommand, remoteShown, type SlashCommand } from "@ue-mcp-studio/shared";
 import { T, useTheme } from "../../../ui";
 import { SignInForm } from "./ModelPicker";
 import { IconButton } from "./ContextMeter";
@@ -48,7 +48,7 @@ export function useRemoteCommand({ sessionId, draft, setDraft, readyFiles, saveD
   const remote = useRemoteAvailable(false);
   // Listed in the menu only where Settings lists remote control; typed, it also answers any signed-in account without a paid plan.
   const listed = remoteShown(remote.surface);
-  const action = remoteCommand(STUDIO_PLAN_AVAILABLE, remote.available, remote.signedIn ?? true);
+  const action = remoteCommand(REMOTE_PLAN_OFFERED, remote.available, remote.signedIn ?? true);
   const commands = useMemo(() => (listed ? [...SLASH_COMMANDS, REMOTE_COMMAND] : SLASH_COMMANDS), [listed]);
   const [reply, setReply] = useState<string | null>(null);
   const runRemoteCommand = (): boolean => {
@@ -65,7 +65,7 @@ export function useRemoteCommand({ sessionId, draft, setDraft, readyFiles, saveD
 export function RemoteReply({ remote, onDismiss, onSettings }: { remote: RemoteState; onDismiss: () => void; onSettings?: () => void }) {
   const t = useTheme();
   const { height, width } = useWindowDimensions();
-  const text = remote.available ? REMOTE_NOW_ON : remote.signedIn === false ? REMOTE_SIGN_IN : REMOTE_COMMAND_REPLY;
+  const text = remote.paired ? REMOTE_ON_COMPUTER : remote.available ? REMOTE_NOW_ON : remote.signedIn === false ? REMOTE_SIGN_IN : REMOTE_COMMAND_REPLY;
   return (
     <ScrollView
       accessibilityLiveRegion="polite"
@@ -78,7 +78,7 @@ export function RemoteReply({ remote, onDismiss, onSettings }: { remote: RemoteS
         {/* .reply-close on a touch screen: a 44 px icon button. */}
         <IconButton label="Dismiss" glyph={"×"} onPress={onDismiss} />
       </View>
-      {remote.available ? (
+      {remote.paired ? null : remote.available ? (
         <RemoteChatCard onSettings={onSettings && (() => {
           onDismiss();
           onSettings();

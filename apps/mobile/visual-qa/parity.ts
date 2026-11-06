@@ -66,6 +66,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "mention-actor": {owner: "chat", type: { into: BOX, text: "@actor:Fro" }},
   "mention-empty": {owner: "chat", type: { into: BOX, text: "@Zebra" }},
   "mention-sent": {owner: "chat"},
+  "remote-signin-reply": {notOnPhone: "The sign-in reply answers a computer with no ue-mcp account signed in. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
   "remote-upgrade-reply": {notOnPhone: "The Upgrade reply answers a computer whose account has no paid plan. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
   "remote-checkout-opened-reply": {notOnPhone: "The checkout opens from the Upgrade reply on the computer. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},
   "remote-now-on-reply": {notOnPhone: "The plan showing after a checkout is the computer's own state. A paired phone is refused every remote control route, as a paired browser is; it shows remote-command-paired instead."},

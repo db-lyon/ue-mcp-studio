@@ -167,7 +167,7 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     storage: { "studio.notify.device": JSON.stringify({ enabled: false }) },
     get: notifyGet({ ...NOTIFY_STATE, prefs: { ...NOTIFY_STATE.prefs, mutedSessions: [] }, titles: {} }),
   }),
-  "settings-notifications-free": page("Notifications in Studio's window for an account without a paid plan: this computer's notifications only, nothing about paired devices or the remote-only events. With STUDIO_PLAN_AVAILABLE on, one line says phone and browser notifications come with remote control", "notifications", {
+  "settings-notifications-free": page("Notifications in Studio's window for an account without a paid plan: this computer's notifications only, nothing about paired devices or the remote-only events, and one line saying phone and browser notifications come with remote control", "notifications", {
     studioWindow: true,
     get: notifyGet(NOTIFY_STATE, { available: false, signedIn: true }),
   }),
@@ -216,10 +216,10 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-remote-pin-remove": page("Remote control removing the PIN: asks for the current PIN first", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: [".pin-lock .pin-lock-actions button:nth-child(2)"] }),
   "settings-remote-pin-weaken": page("Remote control turning Ask for sensitive actions off: held until the current PIN", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: ['.pin-lock button[aria-label="Ask for sensitive actions"]'] }),
   "settings-remote-pin-forgot": page("Remote control Forgot PIN: the confirm that every paired device goes with it", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: [".pin-lock .pin-forgot-link"] }),
-  "settings-remote-signin": page("Remote control on a signed-out computer, while STUDIO_PLAN_AVAILABLE is on: the ue-mcp account sign-in inline. With the flag off it is not listed and this opens General", "remote", {
+  "settings-remote-signin": page("Remote control on a signed-out computer: the ue-mcp account sign-in inline", "remote", {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : undefined),
   }),
-  "settings-remote-free": page("Remote control for an account without a paid plan, while STUDIO_PLAN_AVAILABLE is on: what it does and the Upgrade action. With the flag off it is not listed and this opens General", "remote", {
+  "settings-remote-free": page("Remote control for an account without a paid plan: what it does, the price before tax, and the Upgrade action with the monthly or yearly choice", "remote", {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
   }),
   ...OLD_DATA_SCENARIOS,

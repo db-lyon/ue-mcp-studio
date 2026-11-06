@@ -1,7 +1,7 @@
 /**
  * Remote control as the agent reports it at /v1/ext/studio/remote. It works
  * while the signed-in account has a paid plan; its routes answer 404
- * otherwise. With STUDIO_PLAN_AVAILABLE on, a signed-out or free account is
+ * otherwise. With REMOTE_PLAN_OFFERED on, a signed-out or free account is
  * told it exists (Settings and /remote); with it off, neither ever sees it.
  */
 
@@ -33,7 +33,14 @@ export const REMOTE_SUMMARY = "Use this project from your phone or another compu
 export const REMOTE_PLAN_NOTE = `Needs the Remote plan: ${REMOTE_PRICE}.`;
 
 /** What /remote answers a signed-in account without a paid plan in the chat, above the Upgrade action. */
-export const REMOTE_COMMAND_REPLY = `Remote control lets you use this project from your phone. It needs the Remote plan: ${REMOTE_PRICE}.`;
+export const REMOTE_COMMAND_REPLY = `Remote control lets you use this project from your phone or another computer. It needs the Remote plan: ${REMOTE_PRICE}.`;
+
+/**
+ * What a paired device is told about remote control, in Settings and as the
+ * /remote reply: the computer refuses a paired device every remote control
+ * route, so there is nothing to show or change there.
+ */
+export const REMOTE_ON_COMPUTER = "Remote control is turned on and paired from the computer running the project, not from a paired device.";
 
 /** The Upgrade action's button: checks out the Remote plan. */
 export const UPGRADE_LABEL = "Upgrade to Remote";

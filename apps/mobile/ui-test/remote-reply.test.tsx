@@ -6,6 +6,7 @@ import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/re
 import { Linking } from "react-native";
 import { HttpError } from "@ue-mcp-studio/client-core";
 import type { RemoteApproval, RemotePairing, RemoteStatus } from "@ue-mcp-studio/shared";
+import { REMOTE_ON_COMPUTER } from "@ue-mcp-studio/shared";
 import { RemoteReply, useRemoteCommand, type RemoteState } from "../src/screens/chat/composer/RemoteReply";
 import { RemoteChatCard } from "../src/screens/chat/composer/remote/RemoteChatCard";
 import { PairingCode } from "../src/screens/chat/composer/remote/PairingCode";
@@ -30,7 +31,7 @@ const ONLINE: RemoteStatus = { enabled: true, relay: "https://remote.ue-mcp.com"
 const pairing = (ms: number): RemotePairing => ({ url: "https://remote.ue-mcp.com/p/abc", expiresAt: new Date(Date.now() + ms).toISOString(), svg: "<svg viewBox=\"0 0 4 4\"><rect width=\"4\" height=\"4\"/></svg>" }) as RemotePairing;
 const button = (name: string) => screen.getByRole("button", { name });
 
-const state = (over: Partial<RemoteState>): RemoteState => ({ available: false, signedIn: true, surface: "hidden", recheck: vi.fn(), ...over });
+const state = (over: Partial<RemoteState>): RemoteState => ({ available: false, signedIn: true, paired: false, surface: "hidden", recheck: vi.fn(), ...over });
 
 describe("RemoteChatCard", () => {
   it("turns remote control on, waits for the relay, then shows the code, its link, the time left and the paired browsers", async () => {
@@ -147,8 +148,8 @@ describe("RemoteReply", () => {
     const open = vi.spyOn(Linking, "openURL").mockResolvedValue(undefined as never);
     const dismiss = vi.fn();
     renderInProject(<RemoteReply remote={state({ available: false, signedIn: true })} onDismiss={dismiss} />, api);
-    expect(screen.getByText("Remote control lets you use this project from your phone. It needs the Remote plan: $5 a month or $50 a year, before tax.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("tab", { name: "Yearly" }));
+    expect(screen.getByText("Remote control lets you use this project from your phone or another computer. It needs the Remote plan: $5 a month or $50 a year, before tax.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "$50/year" }));
     fireEvent.click(button("Upgrade to Remote"));
     await settle();
     expect(api.billingCheckout).toHaveBeenCalledWith({ plan: "remote", interval: "year" });
@@ -241,12 +242,15 @@ describe("useRemoteCommand", () => {
     expect(files.result.current.cmd.runRemoteCommand()).toBe(false);
   });
 
-  it("lists /remote in the menu only on a paid plan while the plan is not offered", async () => {
+  it("lists /remote in the menu for every account while the Remote plan is offered", async () => {
     const paid = hook({ available: true, signedIn: true }, "");
     await waitFor(() => expect(paid.result.current.cmd.commands.some((c) => c.name === "remote")).toBe(true));
     const free = hook({ available: false, signedIn: true }, "");
     await waitFor(() => expect(free.result.current.cmd.remote.available).toBe(false));
-    expect(free.result.current.cmd.commands.some((c) => c.name === "remote")).toBe(false);
+    expect(free.result.current.cmd.commands.some((c) => c.name === "remote")).toBe(true);
+    const signedOut = hook({ available: false, signedIn: false }, "");
+    await waitFor(() => expect(signedOut.result.current.cmd.remote.signedIn).toBe(false));
+    expect(signedOut.result.current.cmd.commands.some((c) => c.name === "remote")).toBe(true);
   });
 });
 
@@ -269,6 +273,7 @@ describe("/remote on a paired phone", () => {
       { wrapper: ({ children }) => <ProjectContext.Provider value={nav}>{children}</ProjectContext.Provider> },
     );
     await waitFor(() => expect(result.current.cmd.remote.available).toBe(true));
+    expect(result.current.cmd.remote.paired).toBe(true);
     expect(result.current.cmd.remote.surface).toBe("working");
     expect(result.current.cmd.commands.some((c) => c.name === "remote")).toBe(true);
     let took = false;
@@ -279,15 +284,17 @@ describe("/remote on a paired phone", () => {
     expect(result.current.cmd.reply).toBe("s1");
   });
 
-  it("answers with the refused status as the no-plan error and the refused approvals line, never a code, a sign-in or Upgrade", async () => {
+  it("answers with one line that remote control is managed on the computer: no plan claim, no error, never a code, a sign-in or Upgrade", async () => {
     const api = pairedApi();
-    renderInProject(<RemoteReply remote={state({ available: true, surface: "working" })} onDismiss={() => undefined} onSettings={() => undefined} />, api);
+    renderInProject(<RemoteReply remote={state({ available: true, paired: true, surface: "working" })} onDismiss={() => undefined} onSettings={() => undefined} />, api);
     await settle();
-    expect(screen.getByText("This account's plan includes remote control.")).toBeTruthy();
-    expect(screen.getByText("Remote control needs the Remote plan on this account.")).toBeTruthy();
-    expect(screen.getByText("Not available remotely.")).toBeTruthy();
-    expect(button("Retry")).toBeTruthy();
-    expect(button("Manage paired devices in Settings")).toBeTruthy();
+    expect(screen.getByText(REMOTE_ON_COMPUTER)).toBeTruthy();
+    expect(screen.queryByText("This account's plan includes remote control.")).toBeNull();
+    expect(screen.queryByText("Remote control needs the Remote plan on this account.")).toBeNull();
+    expect(screen.queryByText("Not available remotely.")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Retry")).toBeNull();
+    expect(api.remoteStatus).not.toHaveBeenCalled();
     expect(api.setRemote).not.toHaveBeenCalled();
     expect(api.pairRemote).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("Pairing QR code")).toBeNull();

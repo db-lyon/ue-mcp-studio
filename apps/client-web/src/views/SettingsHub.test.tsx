@@ -1,7 +1,17 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
+const flag = vi.hoisted(() => ({ on: true }));
+vi.mock("@ue-mcp-studio/shared", async (original) => {
+  const real = await original<typeof import("@ue-mcp-studio/shared")>();
+  return {
+    ...real,
+    get REMOTE_PLAN_OFFERED() {
+      return flag.on;
+    },
+  };
+});
 const m = vi.hoisted(() => ({ settings: vi.fn(async () => ({ route: null })) }));
 vi.mock("../api", () => ({ api: m, ApiError: Error }));
 vi.mock("./settings/AgentsSection", () => ({ AgentsSection: () => <div>AgentsSection body</div> }));
@@ -18,30 +28,33 @@ import { sectionOf } from "./settings/sections";
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  flag.on = true;
 });
 
 const daemon = {} as never;
 
 describe("Settings sections", () => {
-  it("puts General first, then groups the rest under Work and Project", async () => {
+  it("puts General first, then groups the rest under Work and Project, with Remote control offered under Studio", async () => {
     await act(async () => void render(<SettingsHub daemon={daemon} section="project" onSection={vi.fn()} onTheme={vi.fn()} />));
     const nav = screen.getByRole("navigation", { name: "Settings sections" });
     expect([...nav.querySelectorAll(".cfg-rail-label")].map((e) => e.textContent)).toEqual(["Studio", "Work", "Project"]);
     expect([...nav.querySelectorAll(".cfg-rail-text > span:first-child")].map((e) => e.textContent)).toEqual([
-      "General", "Notifications", "Agents", "Models & accounts", "Approvals & review", "Project", "Diagnostics",
+      "General", "Notifications", "Remote control", "Agents", "Models & accounts", "Approvals & review", "Project", "Diagnostics",
     ]);
     expect(screen.getByText("ProjectSection body")).toBeTruthy();
   });
 
-  it("keeps Remote control out of Settings while STUDIO_PLAN_AVAILABLE is off and the agent does not offer it, its name opening General", async () => {
+  it("keeps Remote control out of Settings while REMOTE_PLAN_OFFERED is off and the agent does not offer it, its name opening General", async () => {
+    flag.on = false;
     await act(async () => void render(<SettingsHub daemon={daemon} section="remote" onSection={vi.fn()} onTheme={vi.fn()} />));
     expect(screen.queryByText("Remote control")).toBeNull();
     expect(screen.getByText("GeneralSection body")).toBeTruthy();
     expect(sectionOf("remote")).toBe("remote");
   });
 
-  describe("Remote control on a paid plan, with STUDIO_PLAN_AVAILABLE off", () => {
+  describe("Remote control on a paid plan, with REMOTE_PLAN_OFFERED off", () => {
     const withRemote = m as unknown as { remoteAvailable?: ReturnType<typeof vi.fn> };
+    beforeEach(() => void (flag.on = false));
     afterEach(() => void delete withRemote.remoteAvailable);
 
     it("lists it under Studio and opens it when the agent offers it, asking afresh on open", async () => {

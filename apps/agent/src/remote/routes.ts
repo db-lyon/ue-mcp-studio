@@ -7,7 +7,7 @@
  * (./plan.ts), rechecked every few minutes so a new plan starts it and a
  * lapsed one stops it without a daemon restart. The account is the one chat
  * uses (../account-source.ts); a sign-in or sign-out there asks again at once. Otherwise every /remote/*
- * route answers 404 and the connector stays down. STUDIO_PLAN_AVAILABLE only
+ * route answers 404 and the connector stays down. REMOTE_PLAN_OFFERED only
  * decides whether the UI tells a free account about it.
  *
  * Per project, in <studio data dir>/remote/: remote.json (on or off, optional

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_AVAILABLE, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { useRemoteAvailable } from "./settings/remote-available";
 import { REMOTE_NOW_ON, REMOTE_SIGN_IN, UpgradeAction } from "./Upgrade";
@@ -237,7 +237,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const remote = useRemoteAvailable(false);
   // Listed in the menu only where Settings lists remote control; typed, it also answers any signed-in account without a paid plan.
   const remoteListed = remoteShown(remote.surface);
-  const remoteAction = remoteCommand(STUDIO_PLAN_AVAILABLE, remote.available, remote.signedIn ?? true);
+  const remoteAction = remoteCommand(REMOTE_PLAN_OFFERED, remote.available, remote.signedIn ?? true);
   const commands = useMemo(() => (remoteListed ? [...SLASH_COMMANDS, REMOTE_COMMAND] : SLASH_COMMANDS), [remoteListed]);
   /**
    * The session /remote was answered in: the pairing code on a paid plan, the
@@ -559,9 +559,9 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             <FormCards forms={forms} runs={qaRuns} />
             {remoteReply === detail.id && (
               <div className="msg assistant local-reply" role="status">
-                <p>{remote.available ? REMOTE_NOW_ON : remote.signedIn === false ? REMOTE_SIGN_IN : REMOTE_COMMAND_REPLY}</p>
+                <p>{remote.paired ? REMOTE_ON_COMPUTER : remote.available ? REMOTE_NOW_ON : remote.signedIn === false ? REMOTE_SIGN_IN : REMOTE_COMMAND_REPLY}</p>
                 <button className="icon-button reply-close" aria-label="Dismiss" title="Dismiss" onClick={() => setRemoteReply(null)}>{"×"}</button>
-                {remote.available ? (
+                {remote.paired ? null : remote.available ? (
                   <RemoteChatCard onSettings={onSettings && (() => { setRemoteReply(null); onSettings("remote"); })} />
                 ) : remote.signedIn === false ? (
                   <div className="remote-chat-card">

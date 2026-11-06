@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * /remote and /rc in the composer, and what a signed-out or free account sees
- * of remote control outside Settings, for each state: STUDIO_PLAN_AVAILABLE
+ * of remote control outside Settings, for each state: REMOTE_PLAN_OFFERED
  * off or on, signed out, a free or a paid account. The Upgrade action in the
  * reply opens the checkout in the system browser.
  */
@@ -13,7 +13,7 @@ vi.mock("@ue-mcp-studio/shared", async (original) => {
   const real = await original<typeof import("@ue-mcp-studio/shared")>();
   return {
     ...real,
-    get STUDIO_PLAN_AVAILABLE() {
+    get REMOTE_PLAN_OFFERED() {
       return flag.on;
     },
   };
@@ -37,7 +37,7 @@ vi.mock("./EditorBanner", () => ({ EditorBanner: () => null }));
 vi.mock("./DialogBanner", () => ({ DialogBanner: () => null }));
 vi.mock("./UpdateOverlay", () => ({ UpdateRunner: () => null }));
 import { App } from "../App";
-import { REMOTE_COMMAND_REPLY, STUDIO_PLAN_URL } from "@ue-mcp-studio/shared";
+import { REMOTE_COMMAND_REPLY, REMOTE_NO_PLAN, REMOTE_ON_COMPUTER, STUDIO_PLAN_URL } from "@ue-mcp-studio/shared";
 import { ApiError } from "../api";
 import { CHECKOUT_OPENED, REMOTE_NOW_ON, REMOTE_SIGN_IN } from "./Upgrade";
 import { CHECKOUT_POLL_MS, CHECKOUT_WATCH_MS, stopCheckoutWatch } from "./settings/remote-available";
@@ -146,6 +146,9 @@ describe("/remote and /rc", () => {
     expect(reply.textContent).toContain(REMOTE_COMMAND_REPLY);
     expect(reply.querySelector(`a[href="${STUDIO_PLAN_URL}"]`)).toBeNull();
     expect(screen.getByRole("button", { name: "Upgrade to Remote" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "$5/month" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "$50/year" })).toBeTruthy();
+    expect(reply.textContent).not.toMatch(/\bPro\b/);
     expect(box.value).toBe("");
     // /rc does the same.
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Dismiss" })));
@@ -168,7 +171,7 @@ describe("the Upgrade action", () => {
     const opened = vi.spyOn(window, "open").mockReturnValue(null);
     m.billingCheckout.mockResolvedValue({ url: "https://checkout.stripe.test/c/1", provider: "stripe" });
     await reply();
-    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Yearly" })));
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "$50/year" })));
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Remote" })));
     expect(m.billingCheckout).toHaveBeenCalledWith({ plan: "remote", interval: "year" });
     expect(opened).toHaveBeenCalledWith("https://checkout.stripe.test/c/1", "_blank", "noopener");
@@ -261,6 +264,31 @@ describe("after checkout opens", () => {
     m.remoteAvailable.mockClear();
     await act(async () => void document.dispatchEvent(new Event("visibilitychange")));
     expect(m.remoteAvailable).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("/remote on a paired device", () => {
+  it("answers with one line that remote control is managed on the computer: no plan claim, no error, no card", async () => {
+    // The computer refuses a paired device every remote control route (packages/remote DENY).
+    const refused = new ApiError(403, "Not available remotely.");
+    m.remoteAvailable.mockRejectedValue(refused);
+    m.remoteStatus.mockRejectedValue(refused);
+    m.pairRemote.mockRejectedValue(refused);
+    render(<App />);
+    const box = (await screen.findByPlaceholderText(COMPOSER)) as HTMLTextAreaElement;
+    await act(async () => undefined);
+    await type(box, "/re");
+    expect(menu()).toEqual(["/remote"]);
+    await type(box, "/remote ");
+    await enter(box);
+    expect(m.send).not.toHaveBeenCalled();
+    const reply = document.querySelector(".local-reply")!;
+    expect(reply.textContent).toContain(REMOTE_ON_COMPUTER);
+    expect(reply.textContent).not.toContain(REMOTE_NOW_ON);
+    expect(document.body.textContent).not.toContain(REMOTE_NO_PLAN);
+    expect(reply.querySelector("[role=alert], .remote-chat-card, .upgrade")).toBeNull();
+    expect(m.remoteStatus).not.toHaveBeenCalled();
+    expect(m.setRemote).not.toHaveBeenCalled();
   });
 });
 

@@ -9,7 +9,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Pressable, ScrollView, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { HttpError, SECTION_NAMES, SETTINGS_GROUPS, sectionOf, sectionStatus, strategyLine, type BuiltinSection, type SectionExtra, type SettingsSection } from "@ue-mcp-studio/client-core";
-import { STUDIO_PLAN_AVAILABLE, remoteSurface, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { REMOTE_PLAN_OFFERED, remoteSurface, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import type { DaemonState } from "../../state";
 import { Button, font, labelFont, NavBarBacking, T, useSheetInsets, useTheme } from "../../ui";
 import { useSettingsApi } from "./hooks";
@@ -52,7 +52,7 @@ function useRemoteListed(): boolean {
       (e) => setAnswer({ available: e instanceof HttpError && e.status === 403, signedIn: true }),
     );
   }, [api]);
-  return remoteSurface(STUDIO_PLAN_AVAILABLE, answer?.available ?? null, answer?.signedIn ?? true) !== "hidden";
+  return remoteSurface(REMOTE_PLAN_OFFERED, answer?.available ?? null, answer?.signedIn ?? true) !== "hidden";
 }
 
 /** Each section's line and dot, read when Settings opens; the daemon's health from the shell's. */
