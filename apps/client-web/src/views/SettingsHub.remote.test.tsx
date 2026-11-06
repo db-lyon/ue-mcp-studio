@@ -22,6 +22,8 @@ const m = vi.hoisted(() => ({
   settings: vi.fn(async () => ({ route: null })),
   remoteAvailable: vi.fn(async (): Promise<{ available: boolean; signedIn?: boolean }> => ({ available: true })),
   signIn: vi.fn(async () => ({ state: "idle" })),
+  // The account service offers no email sign-in here: the GitHub sign-in alone, as before.
+  authMethods: vi.fn(async () => ({ email: false, github: true })),
   startSignIn: vi.fn(),
   billingCheckout: vi.fn(),
 }));
@@ -68,7 +70,7 @@ describe("Settings > Remote control", () => {
     const { rail, content } = await open(true, "signed-out");
     expect(rail.slice(0, 3)).toEqual(["General", "Notifications", "Remote control"]);
     expect(screen.queryByText("RemoteSection body")).toBeNull();
-    expect(screen.getByText("Sign in to your ue-mcp account to use remote control.")).toBeTruthy();
+    expect(screen.getByText("Remote control needs a ue-mcp account.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in to your ue-mcp account" })).toBeTruthy();
     expect(content.querySelector("[role=switch], .remote-qr, .upgrade")).toBeNull();
   });

@@ -264,6 +264,25 @@ try {
         await page.mouse.move(1, 1);
         await page.waitForTimeout(after.wait);
       }
+      const then = await page.evaluate(() => window.__visualQa.then);
+      if (then) {
+        for (const each of then.types) {
+          const el = await page.waitForSelector(each.into, { timeout: 3000 }).catch(() => null);
+          if (!el) errors.push(`nothing matched ${each.into}`);
+          else {
+            await page.focus(each.into);
+            await page.keyboard.press("End");
+            await page.keyboard.type(each.text, { delay: 10 });
+          }
+        }
+        for (const sel of then.clicks) {
+          const el = await page.waitForSelector(sel, { timeout: 3000 }).catch(() => null);
+          if (!el) errors.push(`nothing matched ${sel}`);
+          else await el.click();
+        }
+        await page.mouse.move(1, 1);
+        await page.waitForTimeout(then.wait);
+      }
       const waitFor = await page.evaluate(() => window.__visualQa.waitFor);
       if (waitFor) {
         const el = await page.waitForSelector(waitFor.selector, { timeout: waitFor.timeout }).catch(() => null);

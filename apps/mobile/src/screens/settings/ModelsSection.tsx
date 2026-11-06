@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { REMOTE_CHANGE_NOTE, notThere } from "@ue-mcp-studio/client-core";
-import { DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, routesInOrder, type CustomEndpoint, type ModelCatalog, type ProviderId, type RouteOrder, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
+import { accountSignedInAs, DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, routesInOrder, type CustomEndpoint, type ModelCatalog, type ProviderId, type RouteOrder, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
 import { Banner, Button, Card, Dot, bannerText, font, T, useTheme } from "../../ui";
 import { CardLabel, Head, Seg, SettingRow, Span, Tag, Txt, useMessage } from "./controls";
 import { Message } from "./GeneralSection";
@@ -158,7 +158,7 @@ function ProviderRow({ provider, settings }: { provider: ProviderId; settings: S
   const t = useTheme();
   const connected = settings.connected[provider];
   const signIn = provider === "studio" || provider === "claude" || provider === "chatgpt";
-  const status = provider === "claude" || provider === "chatgpt" ? (connected ? "Signed in" : "Not signed in") : signIn ? (settings.account ? `Signed in as @${settings.account.login}` : "Not signed in") : connected ? "Key saved" : "No key";
+  const status = provider === "claude" || provider === "chatgpt" ? (connected ? "Signed in" : "Not signed in") : signIn ? (settings.account ? accountSignedInAs(settings.account) : "Not signed in") : connected ? "Key saved" : "No key";
   return (
     <View style={{ flexDirection: "row", gap: 14, alignItems: "flex-start", paddingVertical: 11, borderTopWidth: 1, borderTopColor: t.c.line }}>
       <Dot kind={connected ? "ok" : undefined} style={{ marginTop: 6 }} />

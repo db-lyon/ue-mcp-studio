@@ -124,6 +124,8 @@ const ALWAYS_ROUTES: RegExp[] = [
   /^\/context-strategy$/,
   /^\/endpoints(\/.*)?$/,
   /^\/signin\/[^/]+$/,
+  /^\/auth\//,
+  /^\/account\/.+$/,
   /^\/updates(\/.*)?$/,
   /^\/version-notice\/(keep|update)$/,
   /^\/refusal\/update$/,

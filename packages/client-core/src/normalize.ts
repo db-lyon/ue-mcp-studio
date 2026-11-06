@@ -71,7 +71,7 @@ export function settingsOf(raw: unknown): StudioSettings {
     usage: usageOf(s.usage),
     connected: Object.fromEntries(PROVIDER_IDS.map((p) => [p, connected[p] === true])) as Record<ProviderId, boolean>,
     ...(typeof s.endpoints === "number" ? { endpoints: s.endpoints } : {}),
-    account: typeof account.login === "string" ? { login: account.login, via: account.via === "ue-mcp-login" ? "ue-mcp-login" : "studio" } : null,
+    account: typeof account.login === "string" ? { login: account.login, via: account.via === "ue-mcp-login" ? "ue-mcp-login" : "studio", ...signInMethodsOf(account) } : null,
   };
 }
 
@@ -218,4 +218,12 @@ export function nativeOf(raw: unknown): NativeOverview {
       starts: SUBAGENT_MODES.includes(worker.starts as SubagentMode) ? (worker.starts as SubagentMode) : "asked",
     },
   };
+}
+
+/** The account's email and GitHub login, each kept only when the agent sent one (a string, or null for not set up). */
+function signInMethodsOf(account: Record<string, unknown>): { email?: string | null; github?: string | null } {
+  const out: { email?: string | null; github?: string | null } = {};
+  if (typeof account.email === "string" || account.email === null) out.email = account.email;
+  if (typeof account.github === "string" || account.github === null) out.github = account.github;
+  return out;
 }

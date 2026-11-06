@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
+import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, REMOTE_SIGN_IN, REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, contextView, isLocalCommand, parseSlashCommand, remoteCommand, remoteShown, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import { useRemoteAvailable } from "./settings/remote-available";
-import { REMOTE_NOW_ON, REMOTE_SIGN_IN, UpgradeAction } from "./Upgrade";
+import { REMOTE_NOW_ON, UpgradeAction } from "./Upgrade";
 import { RemoteChatCard } from "./remote/RemoteChatCard";
 import type { SettingsSection } from "./settings/sections";
 import { native } from "../native";
 import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
-import { ACCOUNT_NAME } from "./settings/AccountCard";
 import type { DaemonState } from "../state";
 import { agentCalls, finishedTurns } from "@ue-mcp-studio/client-core";
 import { useDismissed, useSeen } from "../chat/hooks";
@@ -565,7 +564,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
                   <RemoteChatCard onSettings={onSettings && (() => { setRemoteReply(null); onSettings("remote"); })} />
                 ) : remote.signedIn === false ? (
                   <div className="remote-chat-card">
-                    <SignInForm id="studio" name={ACCOUNT_NAME} about="Sign in with GitHub." onDone={remote.recheck} />
+                    <SignInForm id="studio" name={ACCOUNT_NAME} about={ACCOUNT_SIGN_IN_GITHUB} onDone={remote.recheck} />
                   </div>
                 ) : (
                   <UpgradeAction />

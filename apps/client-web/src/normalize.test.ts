@@ -36,6 +36,14 @@ describe("settings as earlier Studios sent them", () => {
       .toEqual({ shell: "allow", files: "allow", editorRestart: "allow", destructive: "ask" });
   });
 
+  it("keeps the account's email and GitHub login when the agent sends them, and leaves them out otherwise", () => {
+    expect(settingsOf({ account: { login: "octocat", via: "studio", email: "cat@example.com", github: "octocat" } }).account)
+      .toEqual({ login: "octocat", via: "studio", email: "cat@example.com", github: "octocat" });
+    expect(settingsOf({ account: { login: "dev@example.com", via: "studio", email: "dev@example.com", github: null } }).account)
+      .toEqual({ login: "dev@example.com", via: "studio", email: "dev@example.com", github: null });
+    expect(settingsOf({ account: { login: "dev", via: "studio", email: 3 } }).account).toEqual({ login: "dev", via: "studio" });
+  });
+
   it("an empty, null or wrong-typed answer is the defaults", () => {
     for (const raw of [undefined, null, {}, [], "settings", 3]) {
       const s = settingsOf(raw);

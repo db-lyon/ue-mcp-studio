@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, routesInOrder, type ModelCatalog, type ProviderId, type RouteOrder, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
+import { accountSignedInAs, DEFAULT_ROUTE_ORDER, KEY_PROVIDER_IDS, OFFERED_SIGN_INS, PROVIDERS, STUDIO_PLAN_AVAILABLE, routesInOrder, type ModelCatalog, type ProviderId, type RouteOrder, type SignInId, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { ClaudeLoginWhy, KeyForm, SignInForm } from "../ModelPicker";
 import { AccountView } from "../Account";
@@ -135,7 +135,7 @@ export function ProviderRow({ provider, settings, onChange, onError }: {
   const status = provider === "claude" || provider === "chatgpt"
     ? connected ? "Signed in" : "Not signed in"
     : signIn
-      ? settings.account ? `Signed in as @${settings.account.login}` : "Not signed in"
+      ? settings.account ? accountSignedInAs(settings.account) : "Not signed in"
       : connected ? "Key saved" : "No key";
   const disconnect = () =>
     api.saveSettings(signIn ? { signOut: provider } : { keys: { [provider]: "" } }).then(onChange, onError);

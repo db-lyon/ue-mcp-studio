@@ -7,22 +7,19 @@
  */
 import { useMemo, useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
-import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, isLocalCommand, remoteCommand, remoteShown, type SlashCommand } from "@ue-mcp-studio/shared";
+import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, REMOTE_SIGN_IN, REMOTE_COMMAND, REMOTE_COMMAND_REPLY, REMOTE_ON_COMPUTER, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, isLocalCommand, remoteCommand, remoteShown, type SlashCommand } from "@ue-mcp-studio/shared";
 import { T, useTheme } from "../../../ui";
 import { SignInForm } from "./ModelPicker";
 import { IconButton } from "./ContextMeter";
 import { RemoteChatCard } from "./remote/RemoteChatCard";
-import { REMOTE_NOW_ON, REMOTE_SIGN_IN, UpgradeAction } from "./remote/Upgrade";
+import { REMOTE_NOW_ON, UpgradeAction } from "./remote/Upgrade";
 import { useRemoteAvailable } from "./remote/remote-available";
 
 export { RemoteChatCard } from "./remote/RemoteChatCard";
 export { PairingCode, pairingExpired, timeLeft } from "./remote/PairingCode";
 export { ApprovalPrompt, PairedBrowsers, useApprovalsInCard, useRemoteApprovals } from "./remote/approvals";
-export { CHECKOUT_OPENED, REMOTE_NOW_ON, REMOTE_SIGN_IN, UpgradeAction } from "./remote/Upgrade";
+export { CHECKOUT_OPENED, REMOTE_NOW_ON, UpgradeAction } from "./remote/Upgrade";
 export { useRemoteAvailable, watchForCheckout, stopCheckoutWatch } from "./remote/remote-available";
-
-/** The account name the sign-in names, as Settings' account card does. */
-export const ACCOUNT_NAME = "your ue-mcp account";
 
 export type RemoteState = ReturnType<typeof useRemoteAvailable>;
 
@@ -85,7 +82,7 @@ export function RemoteReply({ remote, onDismiss, onSettings }: { remote: RemoteS
         })} />
       ) : remote.signedIn === false ? (
         <View style={{ gap: 8 }}>
-          <SignInForm id="studio" name={ACCOUNT_NAME} about="Sign in with GitHub." onDone={remote.recheck} />
+          <SignInForm id="studio" name={ACCOUNT_NAME} about={ACCOUNT_SIGN_IN_GITHUB} onDone={remote.recheck} />
         </View>
       ) : (
         <UpgradeAction />

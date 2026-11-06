@@ -17,8 +17,6 @@ export const PORTAL_OPENED = "This account already has a subscription. Its billi
 /** The /remote reply once the plan shows. */
 export const REMOTE_NOW_ON = "This account's plan includes remote control.";
 
-/** The /remote reply on a computer with no ue-mcp account signed in. */
-export const REMOTE_SIGN_IN = "Sign in to your ue-mcp account to use remote control.";
 
 /**
  * Buy the Remote plan: monthly or yearly, then the provider's checkout in the

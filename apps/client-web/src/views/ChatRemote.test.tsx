@@ -39,7 +39,8 @@ vi.mock("./UpdateOverlay", () => ({ UpdateRunner: () => null }));
 import { App } from "../App";
 import { REMOTE_COMMAND_REPLY, REMOTE_NO_PLAN, REMOTE_ON_COMPUTER, STUDIO_PLAN_URL } from "@ue-mcp-studio/shared";
 import { ApiError } from "../api";
-import { CHECKOUT_OPENED, REMOTE_NOW_ON, REMOTE_SIGN_IN } from "./Upgrade";
+import { CHECKOUT_OPENED, REMOTE_NOW_ON } from "./Upgrade";
+import { REMOTE_SIGN_IN } from "@ue-mcp-studio/shared";
 import { CHECKOUT_POLL_MS, CHECKOUT_WATCH_MS, stopCheckoutWatch } from "./settings/remote-available";
 
 const COMPOSER = "Ask for something in the editor, or drop files here";

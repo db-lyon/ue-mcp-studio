@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { StudioAccountResponse } from "@ue-mcp-studio/shared";
+import { accountHandle, type StudioAccountResponse } from "@ue-mcp-studio/shared";
 import { SignInForm } from "./ModelPicker";
 
 /**
@@ -57,7 +57,7 @@ export function AccountView() {
       <section className="card">
         <h2>Account</h2>
         <dl className="grid">
-          <dt>Signed in as</dt><dd>@{u.login}</dd>
+          <dt>Signed in as</dt><dd>{accountHandle(u.login)}</dd>
           <dt>Plan</dt><dd>{u.plan.name}{u.status === "past_due" ? " (payment past due)" : ""}</dd>
           <dt>Period</dt><dd>{new Date(u.periodStart).toLocaleDateString()} to {new Date(u.periodEnd).toLocaleDateString()}</dd>
         </dl>

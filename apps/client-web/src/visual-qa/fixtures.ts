@@ -210,6 +210,8 @@ export interface Scenario {
   types?: Array<{ into: string; text: string }>;
   /** Clicked one after another once the typing settles, then left for wait milliseconds: for a state a typed command leads to. */
   afterType?: { clicks: string[]; wait: number };
+  /** A second step once afterType settles: typed into each element, then the clicks, then left for wait milliseconds (a form the first step opened). */
+  then?: { types: Array<{ into: string; text: string }>; clicks: string[]; wait: number };
   /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */
   endpoints?: CustomEndpoint[] | "error";
   /** Shoot the whole page, for a settings section taller than the window. */
@@ -686,6 +688,12 @@ export const SCENARIOS: Record<string, Scenario> = {
   "remote-signin-reply": {
     ...inSession("/remote typed on a computer with no ue-mcp account signed in: the reply with the account sign-in, in the chat", "Door playtest", []),
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : undefined),
+    post: (p) => (p.endsWith("/draft") ? { status: 200, body: {} } : undefined),
+    type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
+  },
+  "remote-signin-reply-email": {
+    ...inSession("/remote typed on a signed-out computer with email sign-in offered: the reply with the account's email sign-in, in the chat", "Door playtest", []),
+    get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : p === "/v1/ext/studio/auth/methods" ? { email: true, github: true } : undefined),
     post: (p) => (p.endsWith("/draft") ? { status: 200, body: {} } : undefined),
     type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
   },
