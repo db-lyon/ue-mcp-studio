@@ -9,17 +9,23 @@ import type { StudioSignIn } from "@ue-mcp-studio/shared";
 
 /** The ue-mcp GitHub App's public device flow client id, the one `ue-mcp login` uses. */
 const CLIENT_ID = process.env.UE_MCP_OAUTH_CLIENT_ID || "Iv23li9lpE9A0FqmXlJH";
-const registryBase = () => (process.env.UE_MCP_REGISTRY || "https://plugins.ue-mcp.com").replace(/\/+$/, "");
+export const registryBase = () => (process.env.UE_MCP_REGISTRY || "https://plugins.ue-mcp.com").replace(/\/+$/, "");
 
 const GITHUB_HEADERS = { accept: "application/json", "content-type": "application/json", "user-agent": "ue-mcp-studio" };
 
-export class StudioSignInFlow {
+/**
+ * The GitHub device flow, ending in `finish` with the GitHub token, which
+ * answers the login to show. Signing in trades the token for an account
+ * token (StudioSignInFlow); linking GitHub to the signed-in account sends it
+ * to the account instead (account-routes.ts).
+ */
+export class GitHubDeviceFlow {
   private state: StudioSignIn = { state: "idle" };
   private run = 0;
 
   constructor(
-    private readonly save: (token: string, login: string) => void,
-    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly finish: (githubToken: string) => Promise<string>,
+    protected readonly fetchImpl: typeof fetch = fetch,
     private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
   ) {}
 
@@ -64,9 +70,8 @@ export class StudioSignInFlow {
         const body = (await res.json().catch(() => ({}))) as { access_token?: string; error?: string; interval?: number };
         if (run !== this.run) return;
         if (body.access_token) {
-          const { token, login } = await this.exchange(body.access_token);
+          const login = await this.finish(body.access_token);
           if (run !== this.run) return;
-          this.save(token, login);
           this.state = { state: "done", login };
           return;
         }
@@ -84,14 +89,30 @@ export class StudioSignInFlow {
     if (run === this.run) this.state = { state: "error", error };
   }
 
-  private async exchange(githubToken: string): Promise<{ token: string; login: string }> {
-    const res = await this.fetchImpl(`${registryBase()}/api/cli/exchange`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ githubToken }),
-    });
-    const data = (await res.json().catch(() => ({}))) as { token?: string; login?: string; error?: string };
-    if (!res.ok || !data.token) throw new Error(`The UE-MCP account service refused the sign-in: ${data.error ?? res.status}`);
-    return { token: data.token, login: data.login ?? "unknown" };
+}
+
+/** Signing in with GitHub: the GitHub token is traded at the registry for the account token, which `save` keeps. */
+export class StudioSignInFlow extends GitHubDeviceFlow {
+  constructor(
+    save: (token: string, login: string) => void,
+    fetchImpl: typeof fetch = fetch,
+    sleep?: (ms: number) => Promise<void>,
+  ) {
+    super(async (githubToken) => {
+      const { token, login } = await exchange(fetchImpl, githubToken);
+      save(token, login);
+      return login;
+    }, fetchImpl, sleep);
   }
+}
+
+async function exchange(fetchImpl: typeof fetch, githubToken: string): Promise<{ token: string; login: string }> {
+  const res = await fetchImpl(`${registryBase()}/api/cli/exchange`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ githubToken }),
+  });
+  const data = (await res.json().catch(() => ({}))) as { token?: string; login?: string; error?: string };
+  if (!res.ok || !data.token) throw new Error(`The UE-MCP account service refused the sign-in: ${data.error ?? res.status}`);
+  return { token: data.token, login: data.login ?? "unknown" };
 }

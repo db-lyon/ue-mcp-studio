@@ -8,6 +8,7 @@
  *   GET  /signin/:id                a sign-in's progress
  *   POST /signin/:id                start it
  *   DELETE /signin/:id              cancel it
+ *   /auth, /account/*               the ue-mcp account's email sign-in and ways to sign in (account-routes.ts)
  *   GET  /sessions                  every session, newest first
  *   POST /sessions                  a new session
  *   GET  /sessions/:id              one session's transcript and state
@@ -59,6 +60,7 @@ import { DEFAULT_PLAN_MODELS, ModelCatalogSource, pickRoute, type SignInCoverage
 import { knownWindow } from "./context-windows.js";
 import { registerNotifications, type NotifySession } from "./notify.js";
 import { StudioSignInFlow } from "./signin.js";
+import { registerAccountRoutes } from "./account-routes.js";
 import { AccountSource } from "./account-source.js";
 import { AttachmentStore } from "./attachments.js";
 import { detectVcs, diffOf, listChanges } from "./vcs.js";
@@ -198,11 +200,17 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       route: route(),
       connected: { ...signedIn(), ...keys },
       endpoints: endpoints.list().length,
-      account: login ? { login, via: "studio" } : account.registryLogin() ? { login: account.registryLogin()!.login, via: "ue-mcp-login" } : null,
+      account: login ? { login, via: "studio", ...settings.accountProfile() } : account.registryLogin() ? { login: account.registryLogin()!.login, via: "ue-mcp-login" } : null,
     };
   };
 
   const catalog = new ModelCatalogSource((p) => settings.key(p));
+
+  const accountChanged = () => {
+    account.changed();
+    void refreshAccount().then(() => api.events.publish("settings.changed", {}));
+  };
+  const accountRoutes = registerAccountRoutes(api, { settings, changed: accountChanged });
 
   const signins: Record<SignInId, { view(): unknown; start(): Promise<unknown>; cancel(): void }> = {
     claude: new ClaudeLoginCheck(() => api.events.publish("settings.changed", {})),
@@ -212,8 +220,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     }),
     studio: new StudioSignInFlow((token, login) => {
       settings.signIn(token, login);
-      account.changed();
-      void refreshAccount().then(() => api.events.publish("settings.changed", {}));
+      accountChanged();
+      // The email and whether GitHub is linked come from the account view.
+      void accountRoutes.refresh();
     }),
   };
   const signinOf = (id: string) => (id === "studio" || (id === "claude" && CLAUDE_SIGN_IN_AVAILABLE) || id === "chatgpt" ? signins[id] : null);

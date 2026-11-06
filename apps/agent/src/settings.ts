@@ -42,6 +42,13 @@ import {
   subagentsPerTurnOf,
 } from "@ue-mcp-studio/shared";
 
+
+/** The account's ways to sign in, kept beside its login: the address and the GitHub login, null when not set up. */
+export interface AccountProfile {
+  email: string | null;
+  github: string | null;
+}
+
 export const DEFAULT_MODEL = "claude-opus-5-5";
 export const DEFAULT_EFFORT: Effort = "high";
 export const DEFAULT_GATEWAY_URL = "https://api.ue-mcp.com";
@@ -294,9 +301,35 @@ export class SettingsStore {
   }
 
   /** After an in-panel sign-in: the account token, and the login to show beside it. */
-  signIn(token: string, login: string): void {
+  signIn(token: string, login: string, profile?: AccountProfile): void {
     this.writeSecret("account.token", token);
-    fs.writeFileSync(this.file("account.json"), JSON.stringify({ login }));
+    fs.writeFileSync(this.file("account.json"), JSON.stringify({ login, ...profile }));
+  }
+
+  /**
+   * The signed-in account's ways to sign in, as the account service last
+   * answered: true when that changed what is kept. Ignored while signed out.
+   */
+  saveAccountProfile(login: string, profile: AccountProfile): boolean {
+    if (!this.accountToken()) return false;
+    const before = { login: this.accountLogin(), ...this.accountProfile() };
+    if (before.login === login && before.email === profile.email && before.github === profile.github) return false;
+    fs.writeFileSync(this.file("account.json"), JSON.stringify({ login, ...profile }));
+    return true;
+  }
+
+  /** The kept email and GitHub login; each undefined when never read from the account service. */
+  accountProfile(): Partial<AccountProfile> {
+    try {
+      const v = JSON.parse(fs.readFileSync(this.file("account.json"), "utf-8")) as { email?: unknown; github?: unknown };
+      const field = (x: unknown) => (typeof x === "string" || x === null ? x : undefined);
+      const out: Partial<AccountProfile> = {};
+      if (field(v.email) !== undefined) out.email = field(v.email) as string | null;
+      if (field(v.github) !== undefined) out.github = field(v.github) as string | null;
+      return out;
+    } catch {
+      return {};
+    }
   }
 
   accountLogin(): string | null {
