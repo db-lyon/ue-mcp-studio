@@ -147,7 +147,7 @@ describe("RemoteReply", () => {
     const open = vi.spyOn(Linking, "openURL").mockResolvedValue(undefined as never);
     const dismiss = vi.fn();
     renderInProject(<RemoteReply remote={state({ available: false, signedIn: true })} onDismiss={dismiss} />, api);
-    expect(screen.getByText("Remote control lets you use this project from your phone. It needs the Remote plan: $5 a month or $50 a year, before tax.")).toBeTruthy();
+    expect(screen.getByText("Remote control lets you use this project from your phone or another computer. It needs the Remote plan: $5 a month or $50 a year, before tax.")).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "$50/year" }));
     fireEvent.click(button("Upgrade to Remote"));
     await settle();

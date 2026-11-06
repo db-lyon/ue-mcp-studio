@@ -33,7 +33,7 @@ export const REMOTE_SUMMARY = "Use this project from your phone or another compu
 export const REMOTE_PLAN_NOTE = `Needs the Remote plan: ${REMOTE_PRICE}.`;
 
 /** What /remote answers a signed-in account without a paid plan in the chat, above the Upgrade action. */
-export const REMOTE_COMMAND_REPLY = `Remote control lets you use this project from your phone. It needs the Remote plan: ${REMOTE_PRICE}.`;
+export const REMOTE_COMMAND_REPLY = `Remote control lets you use this project from your phone or another computer. It needs the Remote plan: ${REMOTE_PRICE}.`;
 
 /** The Upgrade action's button: checks out the Remote plan. */
 export const UPGRADE_LABEL = "Upgrade to Remote";
