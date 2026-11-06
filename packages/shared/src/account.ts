@@ -227,3 +227,21 @@ export function waitText(seconds: number): string {
   const s = Math.max(0, Math.ceil(seconds));
   return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}`;
 }
+
+/** Where the ue-mcp account's endpoints live: /api/auth/*, /api/account* and /api/cli/exchange. */
+export const AUTH_URL_DEFAULT = "https://accounts.ue-mcp.com";
+/** The registry host, which serves the same account routes and tokens: tried once when the default cannot be reached. */
+export const AUTH_URL_FALLBACK = "https://plugins.ue-mcp.com";
+/** The environment variable that moves the account endpoints elsewhere. Set, it is the only host asked. */
+export const AUTH_URL_ENV = "UE_MCP_AUTH_URL";
+
+/**
+ * The hosts to ask for an account call, in order, without trailing slashes:
+ * the override alone when one is set, otherwise the default and then the
+ * fallback, which a caller tries only after a network failure (no answer at
+ * all, not an HTTP status).
+ */
+export function authBases(override?: string | null): string[] {
+  const o = override?.trim();
+  return (o ? [o] : [AUTH_URL_DEFAULT, AUTH_URL_FALLBACK]).map((u) => u.replace(/\/+$/, ""));
+}

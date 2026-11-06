@@ -56,7 +56,7 @@ function routes() {
     changed: () => void changes++,
     fetch: stubFetch,
     sleep: async () => {},
-    registry: () => REGISTRY,
+    authBases: () => [REGISTRY],
   });
   const call = async (key: string, body?: unknown) => {
     const h = map.get(key);
@@ -89,7 +89,7 @@ describe("GET /auth/methods", () => {
     expect(await routes()("GET /auth/methods")).toEqual({ body: { email: false, github: true } });
     const map = new Map<string, ExtensionHandler>();
     registerAccountRoutes({ route: (m: string, p: string, h: ExtensionHandler) => void map.set(`${m} ${p}`, h) } as never, {
-      settings, changed: () => {}, registry: () => REGISTRY, fetch: (async () => { throw new Error("offline"); }) as unknown as typeof fetch,
+      settings, changed: () => {}, authBases: () => [REGISTRY], fetch: (async () => { throw new Error("offline"); }) as unknown as typeof fetch,
     });
     expect(await map.get("GET /auth/methods")!({} as never)).toEqual({ body: { email: false, github: true } });
   });

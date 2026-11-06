@@ -1,15 +1,15 @@
 /**
  * Signing in to the Studio account from the panel. The same GitHub device flow
  * `ue-mcp login` runs: the page shows a code, the user approves it on GitHub,
- * and the GitHub token is traded at the registry for the account token the
+ * and the GitHub token is traded at the account host for the account token the
  * gateway accepts. The account token is saved like any other secret; the
  * GitHub token is used once and dropped.
  */
 import type { StudioSignIn } from "@ue-mcp-studio/shared";
+import { authFetch } from "./auth-url.js";
 
 /** The ue-mcp GitHub App's public device flow client id, the one `ue-mcp login` uses. */
 const CLIENT_ID = process.env.UE_MCP_OAUTH_CLIENT_ID || "Iv23li9lpE9A0FqmXlJH";
-export const registryBase = () => (process.env.UE_MCP_REGISTRY || "https://plugins.ue-mcp.com").replace(/\/+$/, "");
 
 const GITHUB_HEADERS = { accept: "application/json", "content-type": "application/json", "user-agent": "ue-mcp-studio" };
 
@@ -91,7 +91,7 @@ export class GitHubDeviceFlow {
 
 }
 
-/** Signing in with GitHub: the GitHub token is traded at the registry for the account token, which `save` keeps. */
+/** Signing in with GitHub: the GitHub token is traded at the account host for the account token, which `save` keeps. */
 export class StudioSignInFlow extends GitHubDeviceFlow {
   constructor(
     save: (token: string, login: string) => void,
@@ -107,11 +107,11 @@ export class StudioSignInFlow extends GitHubDeviceFlow {
 }
 
 async function exchange(fetchImpl: typeof fetch, githubToken: string): Promise<{ token: string; login: string }> {
-  const res = await fetchImpl(`${registryBase()}/api/cli/exchange`, {
+  const res = await authFetch(fetchImpl, "/api/cli/exchange", () => ({
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ githubToken }),
-  });
+  }));
   const data = (await res.json().catch(() => ({}))) as { token?: string; login?: string; error?: string };
   if (!res.ok || !data.token) throw new Error(`The UE-MCP account service refused the sign-in: ${data.error ?? res.status}`);
   return { token: data.token, login: data.login ?? "unknown" };

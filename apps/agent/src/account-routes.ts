@@ -1,6 +1,6 @@
 /**
  * The ue-mcp account's own routes, passed on to the account service (the
- * ue-mcp registry). The UI never sees the account token: sign-ins keep it
+ * account host, auth-url.ts). The UI never sees the account token: sign-ins keep it
  * here (SettingsStore.signIn), and the account routes send it.
  *
  *   GET    /auth/methods          { email, github }: which sign-ins the service offers; email is the rollout flag
@@ -30,7 +30,8 @@ import {
   type EmailSignedIn,
   type RegistryAccountView,
 } from "@ue-mcp-studio/shared";
-import { GitHubDeviceFlow, registryBase } from "./signin.js";
+import { GitHubDeviceFlow } from "./signin.js";
+import { authBasesNow, authFetch } from "./auth-url.js";
 import type { AccountProfile } from "./settings.js";
 
 export interface AccountRoutesOptions {
@@ -44,7 +45,8 @@ export interface AccountRoutesOptions {
   changed: () => void;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
-  registry?: () => string;
+  /** The account hosts to try, in order (auth-url.ts). */
+  authBases?: () => string[];
 }
 
 const TIMEOUT_MS = 15_000;
@@ -71,13 +73,13 @@ async function replyOf<T>(res: Response): Promise<Reply<T> & { ok: boolean }> {
 
 export function registerAccountRoutes(api: Pick<DaemonExtensionApi, "route">, o: AccountRoutesOptions): { refresh(): Promise<void> } {
   const f = o.fetch ?? fetch;
-  const base = () => (o.registry ?? registryBase)().replace(/\/+$/, "");
 
   const ask = async <T>(method: string, path: string, body?: unknown, token?: string | null): Promise<Reply<T> & { ok: boolean }> => {
     const headers: Record<string, string> = { accept: "application/json", "user-agent": "ue-mcp-studio" };
     if (body !== undefined) headers["content-type"] = "application/json";
     if (token) headers.authorization = `Bearer ${token}`;
-    const res = await f(`${base()}${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
+    const init = () => ({ method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(TIMEOUT_MS) });
+    const res = await authFetch(f, path, init, (o.authBases ?? authBasesNow)()).catch(() => null);
     if (!res) return { ok: false, ...refused(502, "Could not reach the UE-MCP account service.") };
     return replyOf<T>(res);
   };
