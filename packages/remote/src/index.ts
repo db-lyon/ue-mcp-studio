@@ -105,6 +105,9 @@ const DENY: Array<{ path: RegExp; except?: string[] }> = [
   // Where prompts go and what ue-mcp runs: model endpoints, vendor sign-ins, ue-mcp.yml and its context strategy. Reading them stays allowed.
   { path: /^\/v1\/ext\/studio\/endpoints(\/.*)?$/i, except: ["GET"] },
   { path: /^\/v1\/ext\/studio\/signin(\/.*)?$/i, except: ["GET"] },
+  // The ue-mcp account's sign-ins and its ways to sign in (email, GitHub) change on the computer.
+  { path: /^\/v1\/ext\/studio\/auth(\/.*)?$/i, except: ["GET"] },
+  { path: /^\/v1\/ext\/studio\/account\/.+$/i, except: ["GET"] },
   { path: /^\/v1\/ext\/studio\/config\/?$/i, except: ["GET"] },
   { path: /^\/v1\/ext\/studio\/context-strategy\/?$/i, except: ["GET"] },
   // The computer's own notification settings: a paired browser keeps its own.

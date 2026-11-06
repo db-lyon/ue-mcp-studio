@@ -181,6 +181,25 @@ describe("remotePath", () => {
     for (const [m, p] of refused) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
   });
 
+  it("lets a paired browser read the ue-mcp account and its sign-in methods, and change none of it", () => {
+    for (const p of ["/v1/ext/studio/auth/methods", "/v1/ext/studio/account", "/v1/ext/studio/account/profile", "/v1/ext/studio/account/github/link"]) {
+      expect(remotePath("GET", p), p).toBe(p);
+    }
+    for (const m of ["POST", "PUT", "DELETE", "delete"]) {
+      for (const p of [
+        "/v1/ext/studio/auth/email/start",
+        "/v1/ext/studio/auth/email/verify",
+        "/v1/ext/studio/account/email",
+        "/v1/ext/studio/account/email/start",
+        "/v1/ext/studio/account/email/verify",
+        "/v1/ext/studio/account/github",
+        "/v1/ext/studio/account/github/link",
+        "/v1/ext/studio/Account/GitHub",
+        "/v1/ext/studio/x/../auth/email/start",
+      ]) expect(remotePath(m, p), `${m} ${p}`).toBeNull();
+    }
+  });
+
   it("refuses the settings fields that move prompts, keys or approvals, and keeps everyday ones", () => {
     const body = (v: unknown) => new TextEncoder().encode(typeof v === "string" ? v : JSON.stringify(v));
     const settings = "/v1/ext/studio/settings";
