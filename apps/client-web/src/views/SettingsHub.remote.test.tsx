@@ -97,7 +97,8 @@ describe("Settings > Remote control", () => {
     expect(screen.getByText("Needs the Remote plan: $5 a month or $50 a year, before tax.")).toBeTruthy();
     expect(content.querySelector(`a[href="${STUDIO_PLAN_URL}"]`)).toBeNull();
     expect(screen.getByRole("button", { name: "Upgrade to Remote" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Monthly" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "$5/month" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "$50/year" }).getAttribute("aria-checked")).toBe("false");
     expect(content.textContent).not.toMatch(/\bPro\b/);
     expect(content.querySelector("[role=switch], img, svg.qr, .remote-qr")).toBeNull();
   });

@@ -3,6 +3,7 @@ import {
   BILLING_PLANS,
   PAID_PLAN_IDS,
   PRO_PLAN_OFFERED,
+  REMOTE_INTERVAL_NAMES,
   REMOTE_PLAN_OFFERED,
   STUDIO_PLAN_AVAILABLE,
   remoteCommand,
@@ -42,6 +43,10 @@ describe("plans", () => {
     expect(remoteCommand(REMOTE_PLAN_OFFERED, false, false)).toBe("open");
     expect(remoteCommand(REMOTE_PLAN_OFFERED, false, true)).toBe("upgrade");
     expect(remoteCommand(REMOTE_PLAN_OFFERED, true, true)).toBe("open");
+  });
+
+  it("prices the billing choice as the gateway sells Remote", () => {
+    expect(REMOTE_INTERVAL_NAMES).toEqual({ month: "$5/month", year: "$50/year" });
   });
 
   it("names no Pro offer while Pro is not offered", () => {

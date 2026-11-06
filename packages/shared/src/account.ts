@@ -61,6 +61,9 @@ export const REMOTE_PLANS = PRO_PLAN_OFFERED ? "the Remote or Pro plan" : "the R
 /** What the Remote plan costs, as the gateway sells it. Tax is added at checkout. */
 export const REMOTE_PRICE = "$5 a month or $50 a year, before tax";
 
+/** The Upgrade action's billing choice, each with its price before tax. */
+export const REMOTE_INTERVAL_NAMES: Readonly<Record<BillingInterval, string>> = { month: "$5/month", year: "$50/year" };
+
 /**
  * Whether the account holds a plan with remote control at `now`: plan remote
  * or pro, status active or past_due, period end not passed. The gateway's own rule.

@@ -5,16 +5,14 @@
 import { useState } from "react";
 import { Linking, View } from "react-native";
 import { HttpError } from "@ue-mcp-studio/client-core";
-import { UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
+import { BILLING_INTERVALS, REMOTE_INTERVAL_NAMES, UPGRADE_LABEL, type BillingInterval } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../../nav";
 import { Banner, Button, Seg, T, useTheme } from "../../../../ui";
 import { small } from "../../../../chat/styles";
 import { watchForCheckout } from "./remote-available";
 
-const INTERVALS: Array<{ key: BillingInterval; title: string }> = [
-  { key: "month", title: "Monthly" },
-  { key: "year", title: "Yearly" },
-];
+/** Monthly or yearly, each named by its price before tax. */
+const INTERVALS: Array<{ key: BillingInterval; title: string }> = BILLING_INTERVALS.map((key) => ({ key, title: REMOTE_INTERVAL_NAMES[key] }));
 
 /** What the row says once the payment page is open. */
 export const CHECKOUT_OPENED = "Checkout opened in your browser. Remote control shows here once the payment goes through.";

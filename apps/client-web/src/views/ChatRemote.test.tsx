@@ -146,6 +146,8 @@ describe("/remote and /rc", () => {
     expect(reply.textContent).toContain(REMOTE_COMMAND_REPLY);
     expect(reply.querySelector(`a[href="${STUDIO_PLAN_URL}"]`)).toBeNull();
     expect(screen.getByRole("button", { name: "Upgrade to Remote" })).toBeTruthy();
+    expect(screen.getByRole("radio", { name: "$5/month" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "$50/year" })).toBeTruthy();
     expect(reply.textContent).not.toMatch(/\bPro\b/);
     expect(box.value).toBe("");
     // /rc does the same.
@@ -169,7 +171,7 @@ describe("the Upgrade action", () => {
     const opened = vi.spyOn(window, "open").mockReturnValue(null);
     m.billingCheckout.mockResolvedValue({ url: "https://checkout.stripe.test/c/1", provider: "stripe" });
     await reply();
-    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "Yearly" })));
+    await act(async () => void fireEvent.click(screen.getByRole("radio", { name: "$50/year" })));
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Upgrade to Remote" })));
     expect(m.billingCheckout).toHaveBeenCalledWith({ plan: "remote", interval: "year" });
     expect(opened).toHaveBeenCalledWith("https://checkout.stripe.test/c/1", "_blank", "noopener");
