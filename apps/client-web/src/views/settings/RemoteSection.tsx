@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { REMOTE_NO_PLAN, REMOTE_PLAN_NOTE, REMOTE_SUMMARY, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { REMOTE_NO_PLAN, REMOTE_ON_COMPUTER, REMOTE_PLAN_NOTE, REMOTE_SUMMARY, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 import { Head } from "../SettingsHub";
 import { Card, Row, Switch } from "./controls";
@@ -128,7 +128,7 @@ export function RemoteSection({ onUnavailable }: { onUnavailable?: () => void } 
     return (
       <>
         {head}
-        <div className="banner warn" role="status">Remote control is turned on and paired from the computer running the project, not from a paired device.</div>
+        <div className="banner warn" role="status">{REMOTE_ON_COMPUTER}</div>
       </>
     );
   }

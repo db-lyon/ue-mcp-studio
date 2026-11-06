@@ -14,15 +14,18 @@ export interface RemoteAnswer {
   available: boolean;
   /** A ue-mcp account is signed in on this computer. */
   signedIn: boolean;
+  /** This is a paired device: the computer refused the check, as it refuses a paired device every remote control route. */
+  paired: boolean;
 }
 
 export async function remoteAvailable(api: StudioApi, refresh: boolean): Promise<RemoteAnswer> {
   try {
     const a = await api.remoteAvailable(refresh);
-    return { available: a.available === true, signedIn: a.signedIn !== false };
+    return { available: a.available === true, signedIn: a.signedIn !== false, paired: false };
   } catch (e) {
-    // A paired browser is refused remote control's routes; the section says why itself.
-    return { available: e instanceof HttpError && e.status === 403, signedIn: true };
+    // A paired device is refused remote control's routes: listed as working, and answered with REMOTE_ON_COMPUTER.
+    const paired = e instanceof HttpError && e.status === 403;
+    return { available: paired, signedIn: true, paired };
   }
 }
 
@@ -70,7 +73,7 @@ export function watchForCheckout(api: StudioApi): void {
  * sign-out anywhere asks again, and so does the app coming back to the
  * foreground after a checkout in the browser.
  */
-export function useRemoteAvailable(refresh = true): { available: boolean | null; signedIn: boolean | null; surface: RemoteSurface; recheck: () => void } {
+export function useRemoteAvailable(refresh = true): { available: boolean | null; signedIn: boolean | null; paired: boolean; surface: RemoteSurface; recheck: () => void } {
   const { api, project } = useProjectNav();
   const [answer, setAnswer] = useState<RemoteAnswer | null>(null);
   const alive = useRef(true);
@@ -96,6 +99,7 @@ export function useRemoteAvailable(refresh = true): { available: boolean | null;
   return {
     available: answer?.available ?? null,
     signedIn: answer?.signedIn ?? null,
+    paired: answer?.paired ?? false,
     surface: remoteSurface(REMOTE_PLAN_OFFERED, answer?.available ?? null, answer?.signedIn ?? true),
     recheck,
   };

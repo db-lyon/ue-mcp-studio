@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { HttpError } from "@ue-mcp-studio/client-core";
+import { REMOTE_ON_COMPUTER } from "@ue-mcp-studio/shared";
 import { Banner, Button, Card, Dot, bannerText, useTheme } from "../../ui";
 import { CardLabel, Head, SettingRow, Switch, Txt } from "./controls";
 import { useSettingsApi } from "./hooks";
@@ -44,7 +45,7 @@ export function RemoteSection() {
       <>
         {head}
         <Banner kind="warn" role="status">
-          <Txt style={{ color: bannerText(t, "warn") }}>Remote control is turned on and paired from the computer running the project, not from a paired device.</Txt>
+          <Txt style={{ color: bannerText(t, "warn") }}>{REMOTE_ON_COMPUTER}</Txt>
         </Banner>
       </>
     );

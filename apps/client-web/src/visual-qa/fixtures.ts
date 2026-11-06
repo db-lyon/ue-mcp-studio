@@ -722,8 +722,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   "remote-pair-expired": remotePair("/remote on a paid account once the pairing code has run out: New code", { state: "online", expired: true }),
   "remote-pair-error": remotePair("/remote on a paid account when the relay cannot be reached: the reason, plainly, and Retry", { state: "error" }),
   "remote-pair-approval": remotePair("/remote on a paid account after a device scanned the code: the device asks to control the project, with the six digits it also shows, Allow and Deny, and the paired browsers with Remove", { state: "online", asking: true }),
-  // A paired browser is refused every remote control route (packages/remote DENY): its 403 reads as a paid plan, so
-  // /remote is listed and answered, and the card's own status call is refused in turn. Shot with --remote.
+  // A paired browser is refused every remote control route (packages/remote DENY): that 403 marks it paired, so
+  // /remote is listed and answered with REMOTE_ON_COMPUTER alone. Shot with --remote.
   "remote-command-menu-paired": {
     ...inSession("A paired browser typing /: the slash menu lists /remote, since the refused plan check reads as a paid plan", "Door playtest", []),
     remotePage: true,
@@ -731,7 +731,7 @@ export const SCENARIOS: Record<string, Scenario> = {
     afterType: { clicks: [], wait: 600 },
   },
   "remote-command-paired": {
-    ...inSession("/remote typed in a paired browser: the reply says the plan includes remote control, then the card's refused status call as the no-plan error with Retry, the refused approvals line and Manage paired devices in Settings", "Door playtest", []),
+    ...inSession("/remote typed in a paired browser: one line saying remote control is turned on and paired from the computer, with no card and no error", "Door playtest", []),
     remotePage: true,
     post: (p) => (p.endsWith("/draft") ? { status: 200, body: {} } : undefined),
     type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },

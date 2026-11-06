@@ -37,7 +37,7 @@ vi.mock("./EditorBanner", () => ({ EditorBanner: () => null }));
 vi.mock("./DialogBanner", () => ({ DialogBanner: () => null }));
 vi.mock("./UpdateOverlay", () => ({ UpdateRunner: () => null }));
 import { App } from "../App";
-import { REMOTE_COMMAND_REPLY, STUDIO_PLAN_URL } from "@ue-mcp-studio/shared";
+import { REMOTE_COMMAND_REPLY, REMOTE_NO_PLAN, REMOTE_ON_COMPUTER, STUDIO_PLAN_URL } from "@ue-mcp-studio/shared";
 import { ApiError } from "../api";
 import { CHECKOUT_OPENED, REMOTE_NOW_ON, REMOTE_SIGN_IN } from "./Upgrade";
 import { CHECKOUT_POLL_MS, CHECKOUT_WATCH_MS, stopCheckoutWatch } from "./settings/remote-available";
@@ -264,6 +264,31 @@ describe("after checkout opens", () => {
     m.remoteAvailable.mockClear();
     await act(async () => void document.dispatchEvent(new Event("visibilitychange")));
     expect(m.remoteAvailable).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("/remote on a paired device", () => {
+  it("answers with one line that remote control is managed on the computer: no plan claim, no error, no card", async () => {
+    // The computer refuses a paired device every remote control route (packages/remote DENY).
+    const refused = new ApiError(403, "Not available remotely.");
+    m.remoteAvailable.mockRejectedValue(refused);
+    m.remoteStatus.mockRejectedValue(refused);
+    m.pairRemote.mockRejectedValue(refused);
+    render(<App />);
+    const box = (await screen.findByPlaceholderText(COMPOSER)) as HTMLTextAreaElement;
+    await act(async () => undefined);
+    await type(box, "/re");
+    expect(menu()).toEqual(["/remote"]);
+    await type(box, "/remote ");
+    await enter(box);
+    expect(m.send).not.toHaveBeenCalled();
+    const reply = document.querySelector(".local-reply")!;
+    expect(reply.textContent).toContain(REMOTE_ON_COMPUTER);
+    expect(reply.textContent).not.toContain(REMOTE_NOW_ON);
+    expect(document.body.textContent).not.toContain(REMOTE_NO_PLAN);
+    expect(reply.querySelector("[role=alert], .remote-chat-card, .upgrade")).toBeNull();
+    expect(m.remoteStatus).not.toHaveBeenCalled();
+    expect(m.setRemote).not.toHaveBeenCalled();
   });
 });
 
