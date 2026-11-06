@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { STUDIO_PLAN_AVAILABLE, remoteSurface, type RemoteSurface } from "@ue-mcp-studio/shared";
+import { REMOTE_PLAN_OFFERED, remoteSurface, type RemoteSurface } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 import { subscribeEvent } from "../../extensions/events";
 
@@ -65,7 +65,7 @@ export function watchForCheckout(): void {
 
 /**
  * What remote control shows this account (remoteSurface): the working section
- * on a paid plan; while STUDIO_PLAN_AVAILABLE is on, a sign-in when no account
+ * on a paid plan; while REMOTE_PLAN_OFFERED is on, a sign-in when no account
  * is signed in and the plan note to a free account; nothing otherwise. An
  * error reads as a free account, silently. `refresh` asks the gateway past the
  * agent's cache, as Settings does on open. A sign-in or sign-out anywhere in
@@ -102,7 +102,7 @@ export function useRemoteAvailable(refresh = true): { available: boolean | null;
   return {
     available: answer?.available ?? null,
     signedIn: answer?.signedIn ?? null,
-    surface: remoteSurface(STUDIO_PLAN_AVAILABLE, answer?.available ?? null, answer?.signedIn ?? true),
+    surface: remoteSurface(REMOTE_PLAN_OFFERED, answer?.available ?? null, answer?.signedIn ?? true),
     recheck,
   };
 }

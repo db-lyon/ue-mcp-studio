@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * Remote control in Settings for each state: STUDIO_PLAN_AVAILABLE off or on,
+ * Remote control in Settings for each state: REMOTE_PLAN_OFFERED off or on,
  * signed out, a free or a paid account. With the flag off only a paid account
- * sees it; with it on a signed-out computer gets the sign-in and a free
- * account the Upgrade action.
+ * sees it; with it on (as shipped) a signed-out computer gets the sign-in and
+ * a free account the Upgrade action, and Pro is never named.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -13,7 +13,7 @@ vi.mock("@ue-mcp-studio/shared", async (original) => {
   const real = await original<typeof import("@ue-mcp-studio/shared")>();
   return {
     ...real,
-    get STUDIO_PLAN_AVAILABLE() {
+    get REMOTE_PLAN_OFFERED() {
       return flag.on;
     },
   };
@@ -98,6 +98,7 @@ describe("Settings > Remote control", () => {
     expect(content.querySelector(`a[href="${STUDIO_PLAN_URL}"]`)).toBeNull();
     expect(screen.getByRole("button", { name: "Upgrade to Remote" })).toBeTruthy();
     expect(screen.getByRole("radio", { name: "Monthly" }).getAttribute("aria-checked")).toBe("true");
+    expect(content.textContent).not.toMatch(/\bPro\b/);
     expect(content.querySelector("[role=switch], img, svg.qr, .remote-qr")).toBeNull();
   });
 

@@ -7,7 +7,7 @@
  */
 import { useMemo, useState } from "react";
 import { ScrollView, useWindowDimensions, View } from "react-native";
-import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, STUDIO_PLAN_AVAILABLE, isLocalCommand, remoteCommand, remoteShown, type SlashCommand } from "@ue-mcp-studio/shared";
+import { REMOTE_COMMAND, REMOTE_COMMAND_REPLY, SLASH_COMMANDS, REMOTE_PLAN_OFFERED, isLocalCommand, remoteCommand, remoteShown, type SlashCommand } from "@ue-mcp-studio/shared";
 import { T, useTheme } from "../../../ui";
 import { SignInForm } from "./ModelPicker";
 import { IconButton } from "./ContextMeter";
@@ -48,7 +48,7 @@ export function useRemoteCommand({ sessionId, draft, setDraft, readyFiles, saveD
   const remote = useRemoteAvailable(false);
   // Listed in the menu only where Settings lists remote control; typed, it also answers any signed-in account without a paid plan.
   const listed = remoteShown(remote.surface);
-  const action = remoteCommand(STUDIO_PLAN_AVAILABLE, remote.available, remote.signedIn ?? true);
+  const action = remoteCommand(REMOTE_PLAN_OFFERED, remote.available, remote.signedIn ?? true);
   const commands = useMemo(() => (listed ? [...SLASH_COMMANDS, REMOTE_COMMAND] : SLASH_COMMANDS), [listed]);
   const [reply, setReply] = useState<string | null>(null);
   const runRemoteCommand = (): boolean => {

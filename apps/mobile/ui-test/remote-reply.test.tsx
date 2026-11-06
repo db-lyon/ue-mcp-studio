@@ -241,12 +241,15 @@ describe("useRemoteCommand", () => {
     expect(files.result.current.cmd.runRemoteCommand()).toBe(false);
   });
 
-  it("lists /remote in the menu only on a paid plan while the plan is not offered", async () => {
+  it("lists /remote in the menu for every account while the Remote plan is offered", async () => {
     const paid = hook({ available: true, signedIn: true }, "");
     await waitFor(() => expect(paid.result.current.cmd.commands.some((c) => c.name === "remote")).toBe(true));
     const free = hook({ available: false, signedIn: true }, "");
     await waitFor(() => expect(free.result.current.cmd.remote.available).toBe(false));
-    expect(free.result.current.cmd.commands.some((c) => c.name === "remote")).toBe(false);
+    expect(free.result.current.cmd.commands.some((c) => c.name === "remote")).toBe(true);
+    const signedOut = hook({ available: false, signedIn: false }, "");
+    await waitFor(() => expect(signedOut.result.current.cmd.remote.signedIn).toBe(false));
+    expect(signedOut.result.current.cmd.commands.some((c) => c.name === "remote")).toBe(true);
   });
 });
 

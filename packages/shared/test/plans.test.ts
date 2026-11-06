@@ -3,6 +3,10 @@ import {
   BILLING_PLANS,
   PAID_PLAN_IDS,
   PRO_PLAN_OFFERED,
+  REMOTE_PLAN_OFFERED,
+  STUDIO_PLAN_AVAILABLE,
+  remoteCommand,
+  remoteSurface,
   REMOTE_COMMAND_REPLY,
   REMOTE_NO_PLAN,
   REMOTE_PLAN_NOTE,
@@ -23,6 +27,21 @@ describe("plans", () => {
 
   it("sells Remote and Pro, the gateway's checkout plans", () => {
     expect(BILLING_PLANS).toEqual(["remote", "pro"]);
+  });
+
+  it("offers Remote to every account while Pro and the Studio model plan stay hidden", () => {
+    expect(REMOTE_PLAN_OFFERED).toBe(true);
+    expect(PRO_PLAN_OFFERED).toBe(false);
+    expect(STUDIO_PLAN_AVAILABLE).toBe(false);
+  });
+
+  it("shows remote control in three states with the shipped flag: sign-in, Upgrade, working", () => {
+    expect(remoteSurface(REMOTE_PLAN_OFFERED, false, false)).toBe("signin");
+    expect(remoteSurface(REMOTE_PLAN_OFFERED, false, true)).toBe("upsell");
+    expect(remoteSurface(REMOTE_PLAN_OFFERED, true, true)).toBe("working");
+    expect(remoteCommand(REMOTE_PLAN_OFFERED, false, false)).toBe("open");
+    expect(remoteCommand(REMOTE_PLAN_OFFERED, false, true)).toBe("upgrade");
+    expect(remoteCommand(REMOTE_PLAN_OFFERED, true, true)).toBe("open");
   });
 
   it("names no Pro offer while Pro is not offered", () => {

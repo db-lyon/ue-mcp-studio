@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { REMOTE_COMMAND, SLASH_COMMANDS, isLocalCommand, matchCommands, parseSlashCommand, remoteCommand, remoteShown, remoteSurface } from "@ue-mcp-studio/shared";
 
 describe("remoteSurface", () => {
-  it("is the working section on a paid plan, whatever STUDIO_PLAN_AVAILABLE says", () => {
+  it("is the working section on a paid plan, whatever REMOTE_PLAN_OFFERED says", () => {
     expect(remoteSurface(false, true)).toBe("working");
     expect(remoteSurface(true, true)).toBe("working");
   });

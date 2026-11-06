@@ -1,7 +1,7 @@
 /**
  * Remote control as the agent reports it at /v1/ext/studio/remote. It works
  * while the signed-in account has a paid plan; its routes answer 404
- * otherwise. With STUDIO_PLAN_AVAILABLE on, a signed-out or free account is
+ * otherwise. With REMOTE_PLAN_OFFERED on, a signed-out or free account is
  * told it exists (Settings and /remote); with it off, neither ever sees it.
  */
 

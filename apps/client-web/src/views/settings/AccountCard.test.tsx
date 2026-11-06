@@ -2,7 +2,8 @@
 /**
  * Settings > General > Account: anyone can sign in to their ue-mcp account
  * there, whatever STUDIO_PLAN_AVAILABLE says. It never mentions plans or remote
- * control, except Manage plan for an account that already pays.
+ * control, except Manage plan (the billing portal, where the plan is changed
+ * or canceled) for an account that already pays.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";

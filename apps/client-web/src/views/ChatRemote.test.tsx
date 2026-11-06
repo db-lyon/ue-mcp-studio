@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
  * /remote and /rc in the composer, and what a signed-out or free account sees
- * of remote control outside Settings, for each state: STUDIO_PLAN_AVAILABLE
+ * of remote control outside Settings, for each state: REMOTE_PLAN_OFFERED
  * off or on, signed out, a free or a paid account. The Upgrade action in the
  * reply opens the checkout in the system browser.
  */
@@ -13,7 +13,7 @@ vi.mock("@ue-mcp-studio/shared", async (original) => {
   const real = await original<typeof import("@ue-mcp-studio/shared")>();
   return {
     ...real,
-    get STUDIO_PLAN_AVAILABLE() {
+    get REMOTE_PLAN_OFFERED() {
       return flag.on;
     },
   };
@@ -146,6 +146,7 @@ describe("/remote and /rc", () => {
     expect(reply.textContent).toContain(REMOTE_COMMAND_REPLY);
     expect(reply.querySelector(`a[href="${STUDIO_PLAN_URL}"]`)).toBeNull();
     expect(screen.getByRole("button", { name: "Upgrade to Remote" })).toBeTruthy();
+    expect(reply.textContent).not.toMatch(/\bPro\b/);
     expect(box.value).toBe("");
     // /rc does the same.
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Dismiss" })));

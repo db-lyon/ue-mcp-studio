@@ -40,6 +40,15 @@ export interface AccountUsage {
 export const PAID_PLAN_IDS: readonly string[] = ["remote", "pro"];
 
 /**
+ * Whether Studio offers the Remote plan to accounts that do not have it. On: a
+ * signed-out computer sees remote control with the sign-in, and a free account
+ * sees it with the Upgrade action, in Settings and from /remote. Off: only a
+ * paid account sees remote control. Independent of STUDIO_PLAN_AVAILABLE,
+ * which gates the Studio model plan sign-in.
+ */
+export const REMOTE_PLAN_OFFERED = true;
+
+/**
  * Whether Studio offers the Pro plan. Off: no Pro checkout or Pro wording is
  * shown, and remote control is sold as the Remote plan alone. A Pro account
  * still gets remote control either way.

@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
 import { HttpError, type StudioApi } from "@ue-mcp-studio/client-core";
-import { STUDIO_PLAN_AVAILABLE, remoteSurface, type RemoteSurface } from "@ue-mcp-studio/shared";
+import { REMOTE_PLAN_OFFERED, remoteSurface, type RemoteSurface } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../../nav";
 
 export interface RemoteAnswer {
@@ -96,7 +96,7 @@ export function useRemoteAvailable(refresh = true): { available: boolean | null;
   return {
     available: answer?.available ?? null,
     signedIn: answer?.signedIn ?? null,
-    surface: remoteSurface(STUDIO_PLAN_AVAILABLE, answer?.available ?? null, answer?.signedIn ?? true),
+    surface: remoteSurface(REMOTE_PLAN_OFFERED, answer?.available ?? null, answer?.signedIn ?? true),
     recheck,
   };
 }

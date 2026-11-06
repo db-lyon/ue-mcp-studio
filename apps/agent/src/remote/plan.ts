@@ -1,6 +1,7 @@
 /**
  * Whether the signed-in ue-mcp account has a paid plan, as the gateway says.
- * Remote control is offered on that answer while STUDIO_PLAN_AVAILABLE is off.
+ * Remote control works on that answer alone; REMOTE_PLAN_OFFERED only decides
+ * whether the UI tells a signed-out or free account about it.
  * Cached for a few minutes; no token, an error or a free plan reads as no.
  */
 import { hasPaidPlan, type AccountUsage } from "@ue-mcp-studio/shared";
