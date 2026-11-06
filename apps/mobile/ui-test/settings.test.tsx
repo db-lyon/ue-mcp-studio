@@ -92,6 +92,33 @@ describe("Settings > General", () => {
     expect(line.nextElementSibling).toBe(actions);
   });
 
+  it("an email account: the address without @, and its ways to sign in read only", async () => {
+    open("settings-account-email-only", "general");
+    await settled();
+    expect(screen.getByTestId("account-line").textContent).toBe("ue-mcp account Signed in as dev@example.com");
+    const methods = screen.getByTestId("account-methods");
+    expect(methods.textContent).toContain("Ways to sign in");
+    expect(methods.textContent).toContain("Emaildev@example.com");
+    expect(methods.textContent).toContain("GitHubNot linked");
+    for (const action of ["Link GitHub", "Remove email", "Add email", "Unlink GitHub", "Sign out"]) expect(screen.queryByText(action)).toBeNull();
+  });
+
+  it("both linked: the GitHub login and the address, read only", async () => {
+    open("settings-account-both", "general");
+    await settled();
+    expect(screen.getByTestId("account-line").textContent).toBe("ue-mcp account Signed in as @octocat");
+    const methods = screen.getByTestId("account-methods");
+    expect(methods.textContent).toContain("Emailcat@example.com");
+    expect(methods.textContent).toContain("GitHub@octocat");
+  });
+
+  it("a GitHub-only account says it has no email, with no Add email on the phone", async () => {
+    open("settings-account-github-only", "general");
+    await settled();
+    expect(screen.getByTestId("account-methods").textContent).toContain("EmailNo email");
+    expect(screen.queryByText("Add email")).toBeNull();
+  });
+
   it("says a signed-out account signs in on the computer", async () => {
     open("settings-general-signing-in", "general");
     await settled();

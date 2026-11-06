@@ -6,7 +6,7 @@
 import { useEffect, useState } from "react";
 import { Linking, Pressable, View } from "react-native";
 import { HttpError, REMOTE_CHANGE_NOTE, THEME_CHOICES } from "@ue-mcp-studio/client-core";
-import type { StudioSettings, StudioTheme } from "@ue-mcp-studio/shared";
+import { accountMethods, accountSignedInAs, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { Banner, Button, Card, Dot, bannerText, useTheme } from "../../ui";
 import { CardLabel, Head, Span, Txt, useMessage } from "./controls";
 import { useProjectEvents, useSettingsApi } from "./hooks";
@@ -87,8 +87,9 @@ export function Message({ msg }: { msg: ReturnType<typeof useMessage> }) {
 }
 
 /**
- * The ue-mcp account on the computer: who is signed in. Signing in or out
- * runs on the computer, so a paired client shows the note in their place;
+ * The ue-mcp account on the computer: who is signed in, and its ways to
+ * sign in (email, GitHub), read only. Signing in or out and changing those
+ * run on the computer, so a paired client shows the note in their place;
  * a paid account keeps Manage plan, its customer portal.
  */
 export function AccountCard() {
@@ -118,7 +119,7 @@ export function AccountCard() {
         <Dot kind={account ? "ok" : undefined} style={{ marginTop: 6 }} />
         <View style={{ flex: 1, minWidth: 0 }}>
           <Txt weight={500}>
-            <Span weight={700}>ue-mcp account</Span> <Span size={12} tone="muted">{!settings ? "Loading" : account ? `Signed in as @${account.login}` : "Not signed in"}</Span>
+            <Span weight={700}>ue-mcp account</Span> <Span size={12} tone="muted">{!settings ? "Loading" : account ? accountSignedInAs(account) : "Not signed in"}</Span>
           </Txt>
           {settings && !account ? (
             <Txt size={12} tone="dim" style={{ marginBottom: 8 }}>
@@ -127,6 +128,17 @@ export function AccountCard() {
           ) : null}
         </View>
       </View>
+      {account?.via === "studio" && accountMethods(account).length ? (
+        <View testID="account-methods" style={{ gap: 6, paddingLeft: 24 }}>
+          <Txt size={12} tone="muted">Ways to sign in</Txt>
+          {accountMethods(account).map((m) => (
+            <View key={m.kind} style={{ flexDirection: "row", gap: 12 }}>
+              <Txt size={12} style={{ width: 56 }}>{m.label}</Txt>
+              <Txt size={12} tone={m.value ? undefined : "dim"} style={{ flex: 1, minWidth: 0 }}>{m.value ?? (m.kind === "email" ? "No email" : "Not linked")}</Txt>
+            </View>
+          ))}
+        </View>
+      ) : null}
       {account && (paid || account.via !== "studio") ? (
         <View testID="account-actions" style={{ flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 14 }}>
           {paid ? <ManagePlan /> : null}
