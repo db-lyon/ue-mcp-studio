@@ -176,8 +176,12 @@ export interface StudioSettings {
   connected: Record<ProviderId, boolean>;
   /** How many custom endpoints are set up. Absent from an older agent. */
   endpoints?: number;
-  /** The Studio account's login, when signed in. */
-  account: { login: string; via: "studio" | "ue-mcp-login" } | null;
+  /**
+   * The Studio account's login, when signed in. `email` and `github` (the
+   * GitHub login) are its ways to sign in, null when not set up; absent from
+   * an agent from before email sign-in and for a `ue-mcp login` account.
+   */
+  account: { login: string; via: "studio" | "ue-mcp-login"; email?: string | null; github?: string | null } | null;
 }
 
 /** Whether anything on this machine can run a model: a sign-in, a key or a custom endpoint. */

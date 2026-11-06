@@ -126,3 +126,104 @@ export interface BillingError {
   error: string;
   code?: BillingRefusal;
 }
+
+/** What the account sign-in is called outside Models. */
+export const ACCOUNT_NAME = "your ue-mcp account";
+
+/** Under the GitHub sign-in while the account service offers no email sign-in: GitHub is then the only way in. */
+export const ACCOUNT_SIGN_IN_GITHUB = "Sign in with GitHub.";
+
+/** The heading of the account sign-in once email sign-in is offered. */
+export const ACCOUNT_SIGN_IN_HEADING = "Create an account or sign in";
+
+/** Under the email field: how email sign-in works. */
+export const ACCOUNT_EMAIL_ABOUT = "Studio emails you a 6-digit code. There is no password. A new address creates a new ue-mcp account.";
+
+/** Refused before the account service is asked. */
+export const ACCOUNT_EMAIL_MALFORMED = "Enter an email address, like name@example.com.";
+
+/** The account service's one answer for a wrong, expired or unknown code. */
+export const ACCOUNT_CODE_ERROR = "That code is wrong or has expired. Request a new one.";
+
+/** Why Unlink GitHub or Remove email is disabled: it is the account's only way to sign in. */
+export const ACCOUNT_LAST_METHOD = "This is the only way to sign in to this account, so it cannot be removed. Add another way first.";
+
+/**
+ * GET /v1/ext/studio/auth/methods: the sign-ins the account service offers.
+ * `email` is the rollout flag: false until the service can send email, and
+ * Studio then shows GitHub alone.
+ */
+export interface AuthMethods {
+  email: boolean;
+  github: boolean;
+}
+
+/** The account service's account view, as the agent passes it on (never with the token). */
+export interface RegistryAccountView {
+  userId: string;
+  login: string;
+  email: string | null;
+  emailVerified: boolean;
+  github: { login: string } | null;
+}
+
+/** POST /v1/ext/studio/auth/email/start and /account/email/start. */
+export interface EmailCodeSent {
+  ok: true;
+  expiresInSeconds: number;
+}
+
+/** POST /v1/ext/studio/auth/email/verify: signed in; the agent kept the token. */
+export interface EmailSignedIn {
+  ok: true;
+  login: string;
+  email: string;
+  /** This sign-in created the account. */
+  created: boolean;
+}
+
+/** A refusal from the account routes. `retryAfter`: seconds to wait, on a 429. */
+export interface AccountRouteError {
+  error: string;
+  retryAfter?: number;
+}
+
+/** Whether `s` looks like an email address: something, one @, a domain with a dot. */
+export function isEmailAddress(s: unknown): s is string {
+  return typeof s === "string" && s.length <= 254 && /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(s.trim());
+}
+
+/** Whether `s` is a 6-digit one-time code. */
+export const isEmailCode = (s: unknown): s is string => typeof s === "string" && /^\d{6}$/.test(s.trim());
+
+/**
+ * How an account's login reads: "@octocat" for a GitHub login, the address
+ * for an email. `github` undefined: an agent from before email sign-in, whose
+ * accounts all signed in with GitHub, unless the login is an address.
+ */
+export function accountHandle(login: string, github?: string | null): string {
+  if (github === undefined) return login.includes("@") ? login : `@${login}`;
+  return github !== null && github === login ? `@${login}` : login;
+}
+
+/** The account line's status: "Signed in as @octocat" or "Signed in as dev@example.com". */
+export const accountSignedInAs = (a: { login: string; github?: string | null }): string => `Signed in as ${accountHandle(a.login, a.github)}`;
+
+/** The account's ways to sign in, as both clients list them under the account. Empty for an agent from before email sign-in. */
+export function accountMethods(a: { email?: string | null; github?: string | null }): Array<{ kind: "email" | "github"; label: string; value: string | null }> {
+  if (a.email === undefined && a.github === undefined) return [];
+  return [
+    { kind: "email", label: "Email", value: a.email ?? null },
+    { kind: "github", label: "GitHub", value: a.github ? `@${a.github}` : null },
+  ];
+}
+
+/** Whether removing this way to sign in would leave the account with none. */
+export const isLastMethod = (a: { email?: string | null; github?: string | null }, kind: "email" | "github"): boolean =>
+  kind === "email" ? !a.github : !a.email;
+
+/** Seconds as the resend button counts them down: "42 s", "1 min 5 s". */
+export function waitText(seconds: number): string {
+  const s = Math.max(0, Math.ceil(seconds));
+  return s < 60 ? `${s} s` : `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} s` : ""}`;
+}

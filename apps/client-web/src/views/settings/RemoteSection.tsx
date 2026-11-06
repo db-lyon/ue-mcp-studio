@@ -1,11 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { REMOTE_NO_PLAN, REMOTE_ON_COMPUTER, REMOTE_PLAN_NOTE, REMOTE_SUMMARY, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, REMOTE_SIGN_IN, REMOTE_NO_PLAN, REMOTE_ON_COMPUTER, REMOTE_PLAN_NOTE, REMOTE_SUMMARY, type RemoteBrowser, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import { ApiError, api } from "../../api";
 import { Head } from "../SettingsHub";
 import { Card, Row, Switch } from "./controls";
 import { SignInForm } from "../ModelPicker";
 import { UpgradeAction } from "../Upgrade";
-import { ACCOUNT_NAME } from "./AccountCard";
 import { PairingCode } from "../remote/PairingCode";
 import { PinLockCard } from "./PinLockCard";
 
@@ -47,8 +46,8 @@ export function RemoteSignIn({ onDone }: { onDone: () => void }) {
     <>
       <Head title="Remote control" lead={REMOTE_SUMMARY} />
       <Card label="Account">
-        <p className="cfg-note">Sign in to your ue-mcp account to use remote control.</p>
-        <SignInForm id="studio" name={ACCOUNT_NAME} about="Sign in with GitHub." onDone={onDone} />
+        <p className="cfg-note">{REMOTE_SIGN_IN}</p>
+        <SignInForm id="studio" name={ACCOUNT_NAME} about={ACCOUNT_SIGN_IN_GITHUB} onDone={onDone} />
       </Card>
     </>
   );

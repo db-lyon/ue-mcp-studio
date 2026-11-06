@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { StudioSettings } from "@ue-mcp-studio/shared";
+import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { subscribeEvent } from "../../extensions/events";
 import { SignInForm } from "../ModelPicker";
@@ -7,9 +7,6 @@ import { Card, useMessage } from "./controls";
 import { ManagePlanButton } from "../Upgrade";
 import { useRemoteAvailable } from "./remote-available";
 import { onRemotePage } from "../../connection";
-
-/** What the account sign-in is called outside Models. */
-export const ACCOUNT_NAME = "your ue-mcp account";
 
 /**
  * The ue-mcp account on this computer: sign in with GitHub, who is signed in,
@@ -40,7 +37,7 @@ export function AccountCard() {
           <div className="t">
             <strong>ue-mcp account</strong> <span className="muted small">{!settings ? "Loading" : account ? `Signed in as @${account.login}` : "Not signed in"}</span>
           </div>
-          {settings && !account && <SignInForm id="studio" name={ACCOUNT_NAME} about="Sign in with GitHub." onDone={load} />}
+          {settings && !account && <SignInForm id="studio" name={ACCOUNT_NAME} about={ACCOUNT_SIGN_IN_GITHUB} onDone={load} />}
         </div>
         {account && paid && <ManagePlanButton />}
         {account?.via === "studio" ? (
