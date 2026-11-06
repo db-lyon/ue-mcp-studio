@@ -139,7 +139,7 @@ export const ACCOUNT_SCENARIOS: Record<string, Scenario> = {
   "settings-account-code-sent": page("General after Send code: the 6-digit code entry for the address, Resend code, Change email and the expiry", "general", { ...EMAIL_TYPED, post: CODE_SENT }),
   "settings-account-code-error": page("General after a wrong code: the account service's one error inline, the code entry still there", "general", {
     ...EMAIL_TYPED,
-    post: (p) => CODE_SENT(p) ?? (p === "/v1/ext/studio/auth/email/verify" ? { status: 400, body: { error: "That code is wrong or has expired. Request a new one." } } : undefined),
+    post: (p) => CODE_SENT(p) ?? (p === "/v1/ext/studio/auth/email/verify" ? { status: 400, body: { error: "That code is wrong or has expired. Resend the code to get a new one." } } : undefined),
     then: { types: [{ into: ".account-code input", text: "123450" }], clicks: [".account-code button.primary"], wait: 700 },
   }),
   "settings-account-rate-limited": page("General when Send code is rate limited: the service's message with the wait, and Send code held until it passes", "general", {
@@ -250,6 +250,9 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   "settings-remote-pin-forgot": page("Remote control Forgot PIN: the confirm that every paired device goes with it", "remote", { ...remoteLockGet({ pin: true, whole: true, sensitive: true, idleMinutes: 15 }), clicks: [".pin-lock .pin-forgot-link"] }),
   "settings-remote-signin": page("Remote control on a signed-out computer: the ue-mcp account sign-in inline", "remote", {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : undefined),
+  }),
+  "settings-remote-signin-email": page("Remote control on a signed-out computer with email sign-in offered: the account's email sign-in inline, Continue with GitHub below", "remote", {
+    get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : p === "/v1/ext/studio/auth/methods" ? { email: true, github: true } : undefined),
   }),
   "settings-remote-free": page("Remote control for an account without a paid plan: what it does, the price before tax, and the Upgrade action with the monthly or yearly choice", "remote", {
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),

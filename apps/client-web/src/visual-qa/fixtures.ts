@@ -691,6 +691,12 @@ export const SCENARIOS: Record<string, Scenario> = {
     post: (p) => (p.endsWith("/draft") ? { status: 200, body: {} } : undefined),
     type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
   },
+  "remote-signin-reply-email": {
+    ...inSession("/remote typed on a signed-out computer with email sign-in offered: the reply with the account's email sign-in, in the chat", "Door playtest", []),
+    get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : p === "/v1/ext/studio/auth/methods" ? { email: true, github: true } : undefined),
+    post: (p) => (p.endsWith("/draft") ? { status: 200, body: {} } : undefined),
+    type: { into: ".composer textarea:not(.composer-mirror)", text: "/remote \n" },
+  },
   "remote-upgrade-reply": {
     ...inSession("/remote typed by a signed-in account without a paid plan: the reply with the Upgrade action (the Remote plan, monthly or yearly)", "Door playtest", []),
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
