@@ -228,41 +228,26 @@ describe("Studio updates", () => {
 describe("the plugin's own record", () => {
   const m = { version: "0.1.9", url: "s", sha256: "x", pluginMin: "0.1.9", plugin: { version: "0.1.9", files: { "5.8": { url: "https://x/p.zip", sha256: "y" } } } };
 
-  it("marks a Fab install, wherever it is, and shows the newer version without offering it to Update", async () => {
-    const url = "com.epicgames.launcher://ue/Fab/product/abc";
+  it("reads a project plugin from its record, which Update keeps current", async () => {
+    const dir = project("0.1.8");
+    record(dir, { version: "0.1.8", dir: path.join(dir, "Plugins", "UE_MCP_Studio") });
+    expect((await new Updater(fakeHost(dir), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", available: true, location: "project" });
+  });
+
+  it("reads a plugin outside the project as an engine install that Update does not offer", async () => {
     const dir = project(null);
-    record(dir, { version: "0.1.8", dir: path.join(os.tmpdir(), "anywhere", "UE_MCP_Studio"), fab: true, fabUrl: url });
-    const status = await new Updater(fakeHost(dir), "0.1.9", () => {}, manifestFetch(m)).check();
-    expect(status.plugin).toMatchObject({ installed: "0.1.8", latest: "0.1.9", available: false, newer: true, required: true, location: "engine", source: "fab", fabUrl: url });
+    record(dir, { version: "0.1.8", dir: path.join(os.tmpdir(), "anywhere", "UE_MCP_Studio") });
+    expect((await new Updater(fakeHost(dir), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", latest: "0.1.9", available: false, newer: true, location: "engine" });
   });
 
-  it("never swaps a Fab install in the project's Plugins folder", async () => {
-    const dir = project("0.1.8");
-    record(dir, { version: "0.1.8", dir: path.join(dir, "Plugins", "UE_MCP_Studio"), fab: true, fabUrl: "" });
-    const host = fakeHost(dir);
-    const u = new Updater(host, "0.1.9", () => {}, manifestFetch(m));
-    const status = await u.check();
-    expect(status.plugin).toMatchObject({ available: false, newer: true, location: "project", source: "fab" });
-    expect(status.plugin.fabUrl).toBeUndefined();
-    expect(await u.updatePlugin()).toMatchObject({ ok: false, error: expect.stringMatching(/Fab Library/) });
-    expect(host.ops).toEqual([]);
-    expect(u.pluginVersion()).toBe("0.1.8");
-  });
-
-  it("takes fab false as a GitHub install, which Update keeps current", async () => {
-    const dir = project("0.1.8");
-    record(dir, { version: "0.1.8", dir: path.join(dir, "Plugins", "UE_MCP_Studio"), fab: false, fabUrl: "" });
-    expect((await new Updater(fakeHost(dir), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", available: true, location: "project", source: "github" });
-  });
-
-  it("falls back to the project's .uplugin as a GitHub install when the record is missing or malformed", async () => {
+  it("falls back to the project's .uplugin when the record is missing or malformed", async () => {
     expect(readPluginRecord(project("0.1.8"))).toBeNull();
-    expect((await new Updater(fakeHost(project("0.1.8")), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", available: true, source: "github" });
-    for (const bad of ["{not json", JSON.stringify({ version: "0.1.8", dir: "x" }), JSON.stringify({ version: 8, dir: "x", fab: true })]) {
+    expect((await new Updater(fakeHost(project("0.1.8")), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", available: true, location: "project" });
+    for (const bad of ["{not json", JSON.stringify({ version: "0.1.8", dir: "" }), JSON.stringify({ version: 8, dir: "x" })]) {
       const dir = project("0.1.8");
       record(dir, bad);
       expect(readPluginRecord(dir)).toBeNull();
-      expect((await new Updater(fakeHost(dir), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", available: true, location: "project", source: "github" });
+      expect((await new Updater(fakeHost(dir), "0.1.9", () => {}, manifestFetch(m)).check()).plugin).toMatchObject({ installed: "0.1.8", available: true, location: "project" });
     }
   });
 });

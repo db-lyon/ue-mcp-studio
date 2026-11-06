@@ -1,14 +1,11 @@
 import { useEffect, useState } from "react";
-import { PLUGIN_OUTSIDE, checkFailure, daemonMoves, daemonTarget, fabUpdate, pluginOutside, updateStatus, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
+import { PLUGIN_OUTSIDE, checkFailure, daemonMoves, daemonTarget, pluginOutside, updateStatus, updateFailureLine as failureLine, pluginStep, readUpdatesWith, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateRows, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate } from "@ue-mcp-studio/client-core";
 import { startUpdate, useRun } from "./UpdateOverlay";
 import { waitingSteps } from "./update-run";
 import { REMOTE_UPDATES, onRemotePage } from "../connection";
 
 /** The update check's model lives in client-core, shared with the mobile app. */
-export { checkFailure, daemonMoves, daemonTarget, fabUpdate, failureLine, pluginStep, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate };
-
-/** Opens in the system browser from the editor panel; a plain browser opens a tab. */
-const openLink = (url: string) => void window.open(url, "_blank", "noopener");
+export { checkFailure, daemonMoves, daemonTarget, failureLine, pluginStep, readyLine, studioUpdatesOf, ueMcpUpdateOf, updateSteps, waiting, withFloor, type StudioUpdates, type UeMcpUpdate };
 
 /** Keep the channel for every project; Update follows it for Studio and the editor plugin. */
 export async function setChannel(channel: "stable" | "beta"): Promise<void> {
@@ -77,7 +74,6 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
 
   const steps = u ? updateSteps(u) : [];
   const ready = u ? readyLine(u) : "";
-  const fab = fabUpdate(u?.studio);
   const engineOnly = pluginOutside(u?.studio);
   const unchecked = checkFailure(u);
   const status = updateStatus({ steps: steps.length, unchecked, waiting, working, ready });
@@ -122,20 +118,9 @@ export function UpdatesCard({ remote = onRemotePage() }: { remote?: boolean } = 
       )}
       {u?.studio?.plugin.required && (
         <div className="banner warn small">
-          {u.studio.plugin.source === "fab"
-            ? "Editor plugin too old. Update it from your Fab Library."
-            : u.studio.plugin.location === "project"
-              ? "Editor plugin too old. Update installs it and restarts the editor."
-              : "Editor plugin too old. Update it where it was installed."}
-        </div>
-      )}
-      {fab && (
-        <div className="row update-fab">
-          <span className="muted small">
-            {fab.version ? `Editor plugin ${fab.version} is available. ` : ""}Update the editor plugin from your Fab Library.
-          </span>
-          <span className="spacer" />
-          <button onClick={() => openLink(fab.url)}>Open Fab Library</button>
+          {u.studio.plugin.location === "project"
+            ? "Editor plugin too old. Update installs it and restarts the editor."
+            : "Editor plugin too old. Update it where it was installed."}
         </div>
       )}
       {engineOnly && <p className="dim small">{PLUGIN_OUTSIDE}</p>}

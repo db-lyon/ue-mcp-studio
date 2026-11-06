@@ -29,8 +29,8 @@ describe("the updates card", () => {
   });
 
   it("says a plugin outside the project is not replaced, only when one is installed", () => {
-    expect(pluginOutside(studio({ location: "engine", source: "github", installed: "1", latest: "2" } as never))).toBe(true);
-    expect(pluginOutside(studio({ location: "engine", source: "github", installed: null, latest: "2" } as never))).toBe(false);
+    expect(pluginOutside(studio({ location: "engine", installed: "1", latest: "2" } as never))).toBe(true);
+    expect(pluginOutside(studio({ location: "engine", installed: null, latest: "2" } as never))).toBe(false);
   });
 
   it("names what restarts once no turn is in progress", () => {

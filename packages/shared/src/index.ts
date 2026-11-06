@@ -872,17 +872,11 @@ export interface QuickResponse {
   sessionId: string;
 }
 
-/** Where the installed editor plugin came from: Fab installs and updates through the Fab Library, never Studio. */
-export type StudioPluginSource = "fab" | "github";
-
-/** The Fab Library, for a Fab install that names no listing. */
-export const FAB_LIBRARY_URL = "https://www.fab.com/library";
-
 /** The editor plugin in GET /v1/ext/studio/updates. */
 export interface StudioPluginUpdate {
   installed: string | null;
   latest: string | null;
-  /** Update can install the newer plugin itself. Never true for a Fab install. */
+  /** Update can install the newer plugin itself. */
   available: boolean;
   /** A newer plugin exists, whether or not Update can install it. */
   newer?: boolean;
@@ -891,9 +885,6 @@ export interface StudioPluginUpdate {
   engine: string | null;
   /** The installed plugin is older than this Studio needs. */
   required?: boolean;
-  source?: StudioPluginSource;
-  /** The plugin's Fab listing, from the record the plugin writes at startup. */
-  fabUrl?: string;
 }
 export * from "./qa.js";
 export * from "./playtests.js";
