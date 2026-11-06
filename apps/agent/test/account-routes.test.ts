@@ -143,8 +143,8 @@ describe("email sign-in", () => {
     expect(settings.accountToken()).toBeNull();
   });
 
-  it("passes the service's one code error on and keeps nothing", async () => {
-    answers["POST /api/auth/email/verify"] = { status: 400, body: { error: ACCOUNT_CODE_ERROR } };
+  it("puts the service's one code error in Studio's words, naming Resend code, and keeps nothing", async () => {
+    answers["POST /api/auth/email/verify"] = { status: 400, body: { error: "That code is wrong or has expired. Request a new one." } };
     expect(await routes()("POST /auth/email/verify", { email: "dev@example.com", code: "000000" })).toEqual({ status: 400, body: { error: ACCOUNT_CODE_ERROR } });
     expect(settings.accountToken()).toBeNull();
     expect(changes).toBe(0);
@@ -202,6 +202,8 @@ describe("the signed-in account", () => {
     answers["POST /api/account/email/verify"] = { status: 409, body: { error } };
     expect(await routes()("POST /account/email/verify", { email: "taken@example.com", code: "123456" })).toEqual({ status: 409, body: { error } });
     expect(await routes()("POST /account/email/start", { email: "nope" })).toEqual({ status: 400, body: { error: ACCOUNT_EMAIL_MALFORMED } });
+    answers["POST /api/account/email/verify"] = { status: 400, body: { error: "That code is wrong or has expired. Request a new one." } };
+    expect(await routes()("POST /account/email/verify", { email: "cat@example.com", code: "000000" })).toEqual({ status: 400, body: { error: ACCOUNT_CODE_ERROR } });
   });
 
   it("links GitHub: the device flow's GitHub token goes to the account, not to the exchange", async () => {

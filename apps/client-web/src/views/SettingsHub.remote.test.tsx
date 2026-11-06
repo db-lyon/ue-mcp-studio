@@ -70,7 +70,7 @@ describe("Settings > Remote control", () => {
     const { rail, content } = await open(true, "signed-out");
     expect(rail.slice(0, 3)).toEqual(["General", "Notifications", "Remote control"]);
     expect(screen.queryByText("RemoteSection body")).toBeNull();
-    expect(screen.getByText("Sign in to your ue-mcp account to use remote control.")).toBeTruthy();
+    expect(screen.getByText("Remote control needs a ue-mcp account.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in to your ue-mcp account" })).toBeTruthy();
     expect(content.querySelector("[role=switch], .remote-qr, .upgrade")).toBeNull();
   });

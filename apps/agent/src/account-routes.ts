@@ -105,6 +105,9 @@ export function registerAccountRoutes(api: Pick<DaemonExtensionApi, "route">, o:
     await authed("GET", "/api/account");
   };
 
+  // The address was checked before asking, so a 400 from verify is the service's one code error.
+  const codeRefusal = (r: { status?: number; body: unknown }): Reply<never> => (r.status === 400 ? refused(400, ACCOUNT_CODE_ERROR) : { status: r.status, body: r.body as AccountRouteError });
+
   const emailOf = (b: unknown) => ((b ?? {}) as { email?: unknown }).email;
   const codeOf = (b: unknown) => ((b ?? {}) as { code?: unknown }).code;
 
@@ -129,7 +132,7 @@ export function registerAccountRoutes(api: Pick<DaemonExtensionApi, "route">, o:
     if (!isEmailAddress(email)) return refused(400, ACCOUNT_EMAIL_MALFORMED);
     if (!isEmailCode(code)) return refused(400, ACCOUNT_CODE_ERROR);
     const r = await ask<{ token?: string; login?: string; email?: string; created?: boolean }>("POST", "/api/auth/email/verify", { email: email.trim(), code: code.trim() });
-    if (!r.ok) return { status: r.status, body: r.body };
+    if (!r.ok) return codeRefusal(r);
     const d = r.body as { token?: string; login?: string; email?: string; created?: boolean };
     if (typeof d.token !== "string" || !d.token) return refused(502, "The UE-MCP account service sent no account token.");
     const login = d.login ?? email.trim();
@@ -176,7 +179,7 @@ export function registerAccountRoutes(api: Pick<DaemonExtensionApi, "route">, o:
     const code = codeOf(req.body);
     if (!isEmailAddress(email)) return refused(400, ACCOUNT_EMAIL_MALFORMED);
     if (!isEmailCode(code)) return refused(400, ACCOUNT_CODE_ERROR);
-    return authed("POST", "/api/account/email/verify", { email: email.trim(), code: code.trim() });
+    return authed("POST", "/api/account/email/verify", { email: email.trim(), code: code.trim() }).then((r) => (r.status === 400 ? codeRefusal(r) : r));
   });
 
   api.route("DELETE", "/account/email", () => authed("DELETE", "/api/account/email"));

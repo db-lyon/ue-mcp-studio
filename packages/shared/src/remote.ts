@@ -11,7 +11,7 @@ import { REMOTE_PLANS, REMOTE_PRICE } from "./account.js";
 export const REMOTE_NO_PLAN = `Remote control needs ${REMOTE_PLANS} on this account.`;
 
 /** The /remote reply and Settings > Remote control on a computer with no ue-mcp account signed in, above the sign-in. */
-export const REMOTE_SIGN_IN = "Sign in to your ue-mcp account to use remote control.";
+export const REMOTE_SIGN_IN = "Remote control needs a ue-mcp account.";
 
 /** What the connector says when the relay no longer accepts the account's token. */
 export const REMOTE_SIGN_IN_AGAIN = "The relay did not accept this account. Sign in to your ue-mcp account again in Settings > General.";

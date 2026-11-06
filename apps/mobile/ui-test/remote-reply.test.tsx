@@ -177,7 +177,7 @@ describe("RemoteReply", () => {
 
   it("a signed-out computer gets the sign-in", () => {
     renderInProject(<RemoteReply remote={state({ signedIn: false })} onDismiss={() => undefined} />, remoteApi());
-    expect(screen.getByText("Sign in to your ue-mcp account to use remote control.")).toBeTruthy();
+    expect(screen.getByText("Remote control needs a ue-mcp account.")).toBeTruthy();
     expect(screen.queryByText("Upgrade to Remote")).toBeNull();
   });
 
@@ -299,6 +299,6 @@ describe("/remote on a paired phone", () => {
     expect(api.pairRemote).not.toHaveBeenCalled();
     expect(screen.queryByLabelText("Pairing QR code")).toBeNull();
     expect(screen.queryByText("Upgrade to Remote")).toBeNull();
-    expect(screen.queryByText("Sign in to your ue-mcp account to use remote control.")).toBeNull();
+    expect(screen.queryByText("Remote control needs a ue-mcp account.")).toBeNull();
   });
 });

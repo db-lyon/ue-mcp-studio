@@ -130,8 +130,8 @@ export interface BillingError {
 /** What the account sign-in is called outside Models. */
 export const ACCOUNT_NAME = "your ue-mcp account";
 
-/** Under the GitHub sign-in while the account service offers no email sign-in: GitHub is then the only way in. */
-export const ACCOUNT_SIGN_IN_GITHUB = "Sign in with GitHub.";
+/** Under the account's sign-in button while the account service offers no email sign-in: that button runs GitHub's. */
+export const ACCOUNT_SIGN_IN_GITHUB = "Uses your GitHub account. The first time creates your ue-mcp account.";
 
 /** The heading of the account sign-in once email sign-in is offered. */
 export const ACCOUNT_SIGN_IN_HEADING = "Create an account or sign in";
@@ -142,11 +142,18 @@ export const ACCOUNT_EMAIL_ABOUT = "Studio emails you a 6-digit code. There is n
 /** Refused before the account service is asked. */
 export const ACCOUNT_EMAIL_MALFORMED = "Enter an email address, like name@example.com.";
 
-/** The account service's one answer for a wrong, expired or unknown code. */
-export const ACCOUNT_CODE_ERROR = "That code is wrong or has expired. Request a new one.";
+/**
+ * A wrong, expired or unknown code, in Studio's words: it names the Resend
+ * code control. The account service's own message for these is mapped to it.
+ */
+export const ACCOUNT_CODE_ERROR = "That code is wrong or has expired. Resend the code to get a new one.";
 
-/** Why Unlink GitHub or Remove email is disabled: it is the account's only way to sign in. */
-export const ACCOUNT_LAST_METHOD = "This is the only way to sign in to this account, so it cannot be removed. Add another way first.";
+/** Why Remove email or Unlink GitHub is disabled: that method is the account's only way to sign in, and what to set up first. */
+export function accountLastMethod(kind: "email" | "github"): string {
+  return kind === "email"
+    ? "Email is the only way to sign in to this account, so it cannot be removed. Link GitHub first."
+    : "GitHub is the only way to sign in to this account, so it cannot be unlinked. Add an email first.";
+}
 
 /**
  * GET /v1/ext/studio/auth/methods: the sign-ins the account service offers.
