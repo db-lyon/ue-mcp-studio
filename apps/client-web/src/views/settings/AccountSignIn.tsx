@@ -89,7 +89,7 @@ export function EmailCodeForm({ mode, onDone, onCancel }: { mode: "signin" | "ad
         <label className="small muted" htmlFor={`${id}-email`}>{mode === "signin" ? "Email" : "New email address"}</label>
         <div className="row">
           <input id={`${id}-email`} type="email" autoComplete="email" inputMode="email" placeholder="name@example.com" value={email} onChange={(e) => { setEmail(e.target.value); setError(null); }} />
-          <button className="primary" type="submit" disabled={busy || wait > 0 || !email.trim()}>{wait > 0 ? `Wait ${waitText(wait)}` : busy ? "Sending" : "Send code"}</button>
+          <button className="primary" type="submit" disabled={busy || wait > 0}>{wait > 0 ? `Wait ${waitText(wait)}` : busy ? "Sending" : "Send code"}</button>
           {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
         </div>
         {banner}
@@ -108,12 +108,13 @@ export function EmailCodeForm({ mode, onDone, onCancel }: { mode: "signin" | "ad
         <button className="primary" type="submit" disabled={busy || expired || wait > 0 || code.length !== 6}>{busy ? "Checking" : mode === "signin" ? "Sign in" : "Add email"}</button>
       </div>
       {banner}
-      <p className="dim small account-code-help">
-        {expired ? "The code has expired. Send a new one." : `The code expires in ${minutes} min.`}{" "}
-        <button type="button" className="ghost small-button" disabled={busy || wait > 0} onClick={() => void send()}>{wait > 0 ? `Resend in ${waitText(wait)}` : "Resend code"}</button>{" "}
-        <button type="button" className="ghost small-button" onClick={() => { setStep("email"); setCode(""); setError(null); }}>Change email</button>
-        {onCancel && <>{" "}<button type="button" className="ghost small-button" onClick={onCancel}>Cancel</button></>}
-      </p>
+      {/* The error already says what to do; the expiry would only repeat it. */}
+      {!error && <p className="dim small">{expired ? "The code has expired. Resend the code to get a new one." : `The code expires in ${minutes} min.`}</p>}
+      <div className="account-code-actions">
+        <button type="button" disabled={busy || wait > 0} onClick={() => void send()}>{wait > 0 ? `Resend in ${waitText(wait)}` : "Resend code"}</button>
+        <button type="button" onClick={() => { setStep("email"); setCode(""); setError(null); }}>Change email</button>
+        {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
+      </div>
     </form>
   );
 }

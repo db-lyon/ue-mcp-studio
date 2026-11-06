@@ -100,6 +100,7 @@ describe("Settings > General", () => {
     expect(methods.textContent).toContain("Ways to sign in");
     expect(methods.textContent).toContain("Emaildev@example.com");
     expect(methods.textContent).toContain("GitHubNot linked");
+    expect(methods.textContent).toContain(REMOTE_CHANGE_NOTE);
     for (const action of ["Link GitHub", "Remove email", "Add email", "Unlink GitHub", "Sign out"]) expect(screen.queryByText(action)).toBeNull();
   });
 

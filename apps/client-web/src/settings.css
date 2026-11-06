@@ -323,7 +323,7 @@
 .account-signin .connect input, .account-methods .connect input { min-width: 0; }
 .account-code-input { letter-spacing: 0.3em; max-width: 9em; }
 .account-address { overflow-wrap: anywhere; }
-.account-code-help { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.account-code-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .account-or { display: flex; align-items: center; gap: 8px; }
 .account-or::before, .account-or::after { content: ""; flex: 1; border-top: 1px solid var(--line); }
 .account-methods { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 4px 24px; }
@@ -334,6 +334,8 @@
 .account-method-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .account-link { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .account-last-note { margin: 0; }
+/* A method that cannot be removed: outlined and dim in every theme, not filled like the buttons beside it. */
+.account-method-actions button:disabled { background: transparent; }
 /* On a phone each way to sign in keeps its actions on the line under it, so Add email and Unlink GitHub line up. */
 @media (max-width: 760px) {
   .account-method-actions { flex-basis: 100%; }

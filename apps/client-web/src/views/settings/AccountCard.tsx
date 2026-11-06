@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ACCOUNT_LAST_METHOD, ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, accountMethods, accountSignedInAs, isLastMethod, type StudioSettings } from "@ue-mcp-studio/shared";
+import { ACCOUNT_NAME, ACCOUNT_SIGN_IN_GITHUB, accountLastMethod, accountMethods, accountSignedInAs, isLastMethod, type StudioSettings } from "@ue-mcp-studio/shared";
 import { api } from "../../api";
 import { subscribeEvent } from "../../extensions/events";
 import { SignInForm } from "../ModelPicker";
@@ -9,6 +9,7 @@ import { ManagePlanButton } from "../Upgrade";
 import { useRemoteAvailable } from "./remote-available";
 import { onRemotePage } from "../../connection";
 import { EmailCodeForm } from "./AccountSignIn";
+import { REMOTE_CHANGE_NOTE } from "./RemoteReadOnly";
 
 const GITHUB_LINK: SignInCalls = { view: () => api.githubLink(), start: () => api.startGitHubLink(), cancel: () => api.cancelGitHubLink() };
 
@@ -83,7 +84,6 @@ function SignInMethods({ account, onChanged }: { account: Account; onChanged: ()
     setError(null);
     (kind === "email" ? api.removeAccountEmail() : api.unlinkGitHub()).then(onChanged, (e: Error) => setError(e.message)).finally(() => setBusy(null));
   };
-  const onlyOne = methods.filter((m) => m.value).length === 1;
   return (
     <div className="account-methods">
       <div className="account-methods-head small muted">Ways to sign in</div>
@@ -99,15 +99,16 @@ function SignInMethods({ account, onChanged }: { account: Account; onChanged: ()
                   {m.kind === "email" && !m.value && <button onClick={() => setOpen("email")}>Add email</button>}
                   {m.kind === "email" && m.value && <button onClick={() => setOpen("email")}>Change</button>}
                   {m.kind === "email" && m.value && (
-                    <button disabled={last || busy !== null} title={last ? ACCOUNT_LAST_METHOD : undefined} onClick={() => remove("email")}>{busy === "email" ? "Removing" : "Remove email"}</button>
+                    <button disabled={last || busy !== null} title={last ? accountLastMethod("email") : undefined} onClick={() => remove("email")}>{busy === "email" ? "Removing" : "Remove email"}</button>
                   )}
                   {m.kind === "github" && !m.value && <button onClick={() => setOpen("github")}>Link GitHub</button>}
                   {m.kind === "github" && m.value && (
-                    <button disabled={last || busy !== null} title={last ? ACCOUNT_LAST_METHOD : undefined} onClick={() => remove("github")}>{busy === "github" ? "Unlinking" : "Unlink GitHub"}</button>
+                    <button disabled={last || busy !== null} title={last ? accountLastMethod("github") : undefined} onClick={() => remove("github")}>{busy === "github" ? "Unlinking" : "Unlink GitHub"}</button>
                   )}
                 </span>
               )}
             </div>
+            {!remote && m.value && last && <p className="dim small account-last-note">{accountLastMethod(m.kind)}</p>}
             {open === "email" && m.kind === "email" && <EmailCodeForm mode="add" onDone={finished} onCancel={() => setOpen(null)} />}
             {open === "github" && m.kind === "github" && (
               <div className="account-link">
@@ -119,7 +120,7 @@ function SignInMethods({ account, onChanged }: { account: Account; onChanged: ()
         );
       })}
       {error && <div className="banner bad small" role="alert">{error}</div>}
-      {!remote && onlyOne && <p className="dim small account-last-note">{ACCOUNT_LAST_METHOD}</p>}
+      {remote && <p className="dim small remote-readonly-note">{REMOTE_CHANGE_NOTE}</p>}
     </div>
   );
 }

@@ -137,6 +137,7 @@ export function AccountCard() {
               <Txt size={12} tone={m.value ? undefined : "dim"} style={{ flex: 1, minWidth: 0 }}>{m.value ?? (m.kind === "email" ? "No email" : "Not linked")}</Txt>
             </View>
           ))}
+          <Txt size={12} tone="dim">{REMOTE_CHANGE_NOTE}</Txt>
         </View>
       ) : null}
       {account && (paid || account.via !== "studio") ? (
