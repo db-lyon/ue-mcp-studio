@@ -334,3 +334,7 @@
 .account-method-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .account-link { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
 .account-last-note { margin: 0; }
+/* On a phone each way to sign in keeps its actions on the line under it, so Add email and Unlink GitHub line up. */
+@media (max-width: 760px) {
+  .account-method-actions { flex-basis: 100%; }
+}
