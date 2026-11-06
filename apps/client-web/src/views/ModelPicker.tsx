@@ -19,6 +19,8 @@ import { api } from "../api";
 import { atMost, useBarTier } from "../chat/barTier";
 import { onRemotePage } from "../connection";
 import { REMOTE_CHANGE_NOTE } from "./settings/RemoteReadOnly";
+import { AppSignIn, SIGN_IN_ABOUT, TerminalSignIn } from "./AppSignIn";
+import { AccountSignIn } from "./settings/AccountSignIn";
 
 type Catalog = ModelCatalog;
 
@@ -284,17 +286,14 @@ export function KeyForm({ provider, onSaved }: { provider: KeyProviderId; onSave
   );
 }
 
-const SIGN_IN_ABOUT: Record<SignInId, string> = {
-  chatgpt: "Runs OpenAI models on your ChatGPT plan.",
-  claude: "Runs Claude models on your Claude plan, using your Claude Code login.",
-  studio: "Runs your Studio plan's models. Sign in with GitHub.",
-};
-
 /** `name` and `about` reword the form for a sign-in shown somewhere other than Models (the ue-mcp account row). */
 export function SignInForm(props: { id: SignInId; primary?: boolean; onDone: () => void; name?: string; about?: string }) {
   // Sign-ins put credentials on the computer; a paired browser cannot start one.
   if (onRemotePage()) return <p className="dim small remote-readonly-note">{REMOTE_CHANGE_NOTE}</p>;
-  return props.id === "claude" ? <ClaudeCodeLogin onDone={props.onDone} /> : <AppSignIn {...props} />;
+  if (props.id === "claude") return <ClaudeCodeLogin onDone={props.onDone} />;
+  // The ue-mcp account: email and GitHub when the account service offers email, GitHub alone otherwise.
+  if (props.id === "studio") return <AccountSignIn onDone={props.onDone} name={props.name} about={props.about} primary={props.primary} />;
+  return <AppSignIn {...props} />;
 }
 
 /** Why the Claude row has no sign-in button. */
@@ -338,87 +337,6 @@ function ClaudeCodeLogin({ onDone }: { onDone: () => void }) {
       </p>
       {state.state === "idle" && state.terminal && <TerminalSignIn command={state.terminal} lead="No Claude Code? Run Claude's login from Studio's copy in" />}
       <p className="dim small">{SIGN_IN_ABOUT.claude}</p>
-    </div>
-  );
-}
-
-/** One sign-in: a button, then the page to approve on, until it finishes. */
-function AppSignIn({ id, primary = true, onDone, name = PROVIDERS[id].name, about = SIGN_IN_ABOUT[id] }: { id: SignInId; primary?: boolean; onDone: () => void; name?: string; about?: string }) {
-  const [state, setState] = useState<StudioSignIn | null>(null);
-  const done = useRef(false);
-
-  useEffect(() => {
-    // A finished sign-in from before means a sign-out since, when this form is showing.
-    api.signIn(id).then((s) => setState(s.state === "done" ? { state: "idle" } : s), () => setState({ state: "idle" }));
-  }, [id]);
-
-  // Follow a pending sign-in until it is approved.
-  useEffect(() => {
-    if (state?.state !== "pending") return;
-    const t = setInterval(() => api.signIn(id).then(setState, () => {}), 2000);
-    return () => clearInterval(t);
-  }, [state?.state, id]);
-
-  useEffect(() => {
-    if (state?.state === "done" && !done.current) {
-      done.current = true;
-      onDone();
-    }
-  }, [state]);
-
-  const start = () => api.startSignIn(id).then((s) => {
-    setState(s);
-    if (s.state === "pending" && s.url) window.open(s.url, "_blank");
-  }, (e: Error) => setState({ state: "error", error: e.message }));
-
-  if (!state) return null;
-  if (state.state === "pending") {
-    return (
-      <div className="connect signin">
-        {state.userCode ? (
-          <>
-            <p className="small muted">Enter this code on GitHub to sign in to {name}:</p>
-            <div className="row">
-              <span className="signin-code mono">{state.userCode}</span>
-              <button onClick={() => void navigator.clipboard?.writeText(state.userCode!)}>Copy</button>
-              <a href={state.url} target="_blank" rel="noreferrer"><button className="primary">Open GitHub</button></a>
-            </div>
-          </>
-        ) : !state.url ? (
-          <>
-            <p className="small muted">{name}'s sign-in page opened in your browser. Approve it there.</p>
-            {state.terminal && <TerminalSignIn command={state.terminal} />}
-          </>
-        ) : (
-          <div className="row">
-            <span className="small muted">Approve the sign-in in your browser.</span>
-            <a href={state.url} target="_blank" rel="noreferrer"><button>Open again</button></a>
-          </div>
-        )}
-        <p className="dim small">Waiting for approval. <button className="ghost small-button" onClick={() => void api.cancelSignIn(id).then(() => setState({ state: "idle" }))}>Cancel</button></p>
-      </div>
-    );
-  }
-  if (state.state === "done") return <p className="small">Signed in to {name}.</p>;
-  return (
-    <div className="connect signin">
-      {state.state === "error" && <div className="banner bad small">{state.error}</div>}
-      {state.state === "error" && state.terminal && <TerminalSignIn command={state.terminal} />}
-      <button className={primary ? "primary" : ""} onClick={() => void start()}>Sign in to {name}</button>
-      {about && <p className="dim small">{about}</p>}
-    </div>
-  );
-}
-
-/** The sign-in command for a terminal. */
-function TerminalSignIn({ command, lead = "No browser opened? Run this in" }: { command: string; lead?: string }) {
-  return (
-    <div className="signin-terminal">
-      <p className="dim small">{lead} {command.startsWith("& ") || command.startsWith("$env:") ? "PowerShell" : "a terminal"} and follow its prompts:</p>
-      <div className="row">
-        <code className="mono small">{command}</code>
-        <button onClick={() => void navigator.clipboard?.writeText(command)}>Copy</button>
-      </div>
     </div>
   );
 }

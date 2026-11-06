@@ -5,6 +5,10 @@
  */
 import type { DaemonEvent } from "ue-mcp/daemon";
 import type {
+  AuthMethods,
+  EmailCodeSent,
+  EmailSignedIn,
+  RegistryAccountView,
   ApprovalDecision,
   AssetOpenResponse,
   AssetRef,
@@ -83,10 +87,17 @@ async function pluginCommand(command: "install" | "update" | "uninstall", body: 
 }
 
 export class ApiError extends Error {
-  constructor(readonly status: number, message: string) {
+  /** `body`: the refusal as the route sent it, for fields beside the message (a 429's retryAfter). */
+  constructor(readonly status: number, message: string, readonly body?: unknown) {
     super(message);
   }
 }
+
+/** Seconds a refused call says to wait before trying again (a 429's retryAfter), or null. */
+export const retryAfterOf = (e: unknown): number | null => {
+  const v = e instanceof ApiError ? (e.body as { retryAfter?: unknown } | undefined)?.retryAfter : undefined;
+  return typeof v === "number" && v > 0 ? v : null;
+};
 
 /** A route an older agent or daemon does not have: the part it feeds is left out, not reported as a failure. */
 export const notThere = (e: unknown): boolean => e instanceof ApiError && e.status === 404;
@@ -104,7 +115,7 @@ async function call<T>(method: string, url: string, body?: unknown, signal?: Abo
   const parsed = text ? (JSON.parse(text) as unknown) : undefined;
   if (!res.ok) {
     const msg = (parsed as { error?: string } | undefined)?.error ?? `${res.status} ${res.statusText}`;
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, parsed);
   }
   return parsed as T;
 }
@@ -178,6 +189,18 @@ export const api = {
   signIn: (id: SignInId) => call<StudioSignIn>("GET", `/v1/ext/studio/signin/${id}`),
   startSignIn: (id: SignInId) => call<StudioSignIn>("POST", `/v1/ext/studio/signin/${id}`),
   cancelSignIn: (id: SignInId) => call<void>("DELETE", `/v1/ext/studio/signin/${id}`),
+  /** The ue-mcp account (account-routes.ts on the agent): the sign-ins the service offers, email sign-in, and the account's ways to sign in. */
+  authMethods: () => call<AuthMethods>("GET", "/v1/ext/studio/auth/methods"),
+  startEmailSignIn: (email: string) => call<EmailCodeSent>("POST", "/v1/ext/studio/auth/email/start", { email }),
+  verifyEmailSignIn: (email: string, code: string) => call<EmailSignedIn>("POST", "/v1/ext/studio/auth/email/verify", { email, code }),
+  accountProfile: () => call<RegistryAccountView>("GET", "/v1/ext/studio/account/profile"),
+  startAccountEmail: (email: string) => call<EmailCodeSent>("POST", "/v1/ext/studio/account/email/start", { email }),
+  verifyAccountEmail: (email: string, code: string) => call<RegistryAccountView>("POST", "/v1/ext/studio/account/email/verify", { email, code }),
+  removeAccountEmail: () => call<RegistryAccountView>("DELETE", "/v1/ext/studio/account/email"),
+  unlinkGitHub: () => call<RegistryAccountView>("DELETE", "/v1/ext/studio/account/github"),
+  githubLink: () => call<StudioSignIn>("GET", "/v1/ext/studio/account/github/link"),
+  startGitHubLink: () => call<StudioSignIn>("POST", "/v1/ext/studio/account/github/link"),
+  cancelGitHubLink: () => call<void>("DELETE", "/v1/ext/studio/account/github/link"),
   plugins: () => call<{ plugins: InstalledPlugin[] }>("GET", "/v1/plugins"),
   pluginCatalog: () => call<{ plugins: CatalogPlugin[] }>("GET", "/v1/plugins/catalog"),
   installPlugin: (name: string) => pluginCommand("install", { name }),

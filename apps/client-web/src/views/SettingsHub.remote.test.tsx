@@ -22,6 +22,8 @@ const m = vi.hoisted(() => ({
   settings: vi.fn(async () => ({ route: null })),
   remoteAvailable: vi.fn(async (): Promise<{ available: boolean; signedIn?: boolean }> => ({ available: true })),
   signIn: vi.fn(async () => ({ state: "idle" })),
+  // The account service offers no email sign-in here: the GitHub sign-in alone, as before.
+  authMethods: vi.fn(async () => ({ email: false, github: true })),
   startSignIn: vi.fn(),
   billingCheckout: vi.fn(),
 }));
