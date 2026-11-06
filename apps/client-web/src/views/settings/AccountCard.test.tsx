@@ -87,7 +87,7 @@ describe("the ue-mcp account row", () => {
   });
 
   it("signed in from the panel, free: the login and Sign out, no Manage plan", async () => {
-    const card = await show({ login: "dev", via: "studio" });
+    const card = await show({ login: "dev", via: "studio", email: null, github: "dev" });
     expect(card.textContent).toContain("Signed in as @dev");
     expect(screen.queryByRole("button", { name: "Manage plan" })).toBeNull();
     expect(card.textContent).not.toMatch(/plan|remote|upgrade/i);
@@ -98,7 +98,7 @@ describe("the ue-mcp account row", () => {
   });
 
   it("signed in with ue-mcp login: shown, signed out there", async () => {
-    const card = await show({ login: "dev", via: "ue-mcp-login" });
+    const card = await show({ login: "dev", via: "ue-mcp-login", email: null, github: "dev" });
     expect(card.textContent).toContain("Signed in as @dev");
     expect(card.textContent).toContain("from ue-mcp login");
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
@@ -266,5 +266,25 @@ describe("the signed-in account's ways to sign in", () => {
   it("an agent from before email sign-in: no ways-to-sign-in list", async () => {
     const card = await show({ login: "dev", via: "studio" });
     expect(card.querySelector(".account-methods")).toBeNull();
+  });
+});
+
+describe("which logins get the @", () => {
+  it("ue-mcp login with an email login: plain, and the card asks the account view which it is", async () => {
+    const card = await show({ login: "dev@example.com", via: "ue-mcp-login" });
+    expect(card.textContent).toContain("Signed in as dev@example.com");
+    expect(m.accountProfile).toHaveBeenCalled();
+  });
+
+  it("the account view not read (it failed, or an older agent): the login plain, never an @ from the login alone", async () => {
+    m.accountProfile.mockImplementation(async () => { throw new Error("offline"); });
+    const card = await show({ login: "octocat", via: "ue-mcp-login" });
+    expect(card.textContent).toContain("Signed in as octocat");
+    expect(card.textContent).not.toContain("@octocat");
+  });
+
+  it("the account view says GitHub: the @", async () => {
+    const card = await show({ login: "octocat", via: "ue-mcp-login", email: null, github: "octocat" });
+    expect(card.textContent).toContain("Signed in as @octocat");
   });
 });

@@ -212,15 +212,15 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     get: (p) => (p === "/v1/ext/studio/notifications" ? NOTIFY_STATE : undefined),
   }),
   "settings-general-signed-in": page("General with the ue-mcp account signed in from the panel, no paid plan: the login and Sign out", "general", {
-    settings: { account: { login: "dev", via: "studio" } },
+    settings: { account: { login: "dev", via: "studio", email: null, github: "dev" } },
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : undefined),
   }),
   "settings-general-paid": page("General with a paid ue-mcp account: Manage plan beside Sign out", "general", {
-    settings: { account: { login: "dev", via: "studio" } },
+    settings: { account: { login: "dev", via: "studio", email: null, github: "dev" } },
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: true, signedIn: true } : undefined),
   }),
   "settings-general-login-paid": page("General with a paid ue-mcp account from ue-mcp login: Manage plan and the login note under the account", "general", {
-    settings: { account: { login: "db-lyon", via: "ue-mcp-login" } },
+    settings: { account: { login: "db-lyon", via: "ue-mcp-login", email: null, github: "db-lyon" } },
     get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: true, signedIn: true } : undefined),
   }),
   "settings-general-signing-in": page("General with the ue-mcp account sign-in started: the GitHub code and link", "general", {
@@ -228,7 +228,7 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
   }),
   "settings-general-remote": page("General in a paired browser: Updates shows what is newer with no Update button and the channel disabled, and no Sign out, since those run on the computer", "general", {
     remotePage: true,
-    settings: { account: { login: "dev", via: "studio" } },
+    settings: { account: { login: "dev", via: "studio", email: null, github: "dev" } },
     get: (p) => (p === "/v1/ext/studio/updates"
       ? { channel: "beta", studio: { installed: "0.1.25-beta.18", latest: "0.1.25-beta.19", available: true }, plugin: { installed: "0.1.7", latest: "0.1.7", available: false, newer: false, location: "project" } }
       : undefined),

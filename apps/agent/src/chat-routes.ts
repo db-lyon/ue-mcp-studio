@@ -200,7 +200,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       route: route(),
       connected: { ...signedIn(), ...keys },
       endpoints: endpoints.list().length,
-      account: login ? { login, via: "studio", ...settings.accountProfile() } : account.registryLogin() ? { login: account.registryLogin()!.login, via: "ue-mcp-login" } : null,
+      account: login ? { login, via: "studio", ...settings.accountProfile() } : account.registryLogin() ? { login: account.registryLogin()!.login, via: "ue-mcp-login", ...accountRoutes.registryProfile() } : null,
     };
   };
 
@@ -210,7 +210,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     account.changed();
     void refreshAccount().then(() => api.events.publish("settings.changed", {}));
   };
-  const accountRoutes = registerAccountRoutes(api, { settings, changed: accountChanged });
+  const accountRoutes = registerAccountRoutes(api, { settings, changed: accountChanged, registryToken: () => account.registryLogin()?.token ?? null });
 
   const signins: Record<SignInId, { view(): unknown; start(): Promise<unknown>; cancel(): void }> = {
     claude: new ClaudeLoginCheck(() => api.events.publish("settings.changed", {})),

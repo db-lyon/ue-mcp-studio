@@ -6,7 +6,8 @@
  *   GET    /auth/methods          { email, github }: which sign-ins the service offers; email is the rollout flag
  *   POST   /auth/email/start      { email }: email a 6-digit code
  *   POST   /auth/email/verify     { email, code }: sign in, or create the account; { ok, login, email, created }
- *   GET    /account/profile       the signed-in account's view: { userId, login, email, emailVerified, github }
+ *   GET    /account/profile       the signed-in account's view: { userId, login, email, emailVerified, github };
+ *                                 a `ue-mcp login` account's too, read with its token (the rest stay panel only)
  *   POST   /account/email/start   { email }: email a code to add or change the account's address
  *   POST   /account/email/verify  { email, code }: the address is the account's now; the account view
  *   DELETE /account/email         remove the address (refused when GitHub is not linked); the account view
@@ -43,6 +44,8 @@ export interface AccountRoutesOptions {
   };
   /** After the account token or what is shown of the account changed. */
   changed: () => void;
+  /** The `ue-mcp login` account's token, when that is the account Studio acts as. */
+  registryToken?: () => string | null;
   fetch?: typeof fetch;
   sleep?: (ms: number) => Promise<void>;
   /** The account hosts to try, in order (auth-url.ts). */
@@ -71,7 +74,7 @@ async function replyOf<T>(res: Response): Promise<Reply<T> & { ok: boolean }> {
   return { ok: false, ...refused([400, 409, 503].includes(res.status) ? res.status : 502, error) };
 }
 
-export function registerAccountRoutes(api: Pick<DaemonExtensionApi, "route">, o: AccountRoutesOptions): { refresh(): Promise<void> } {
+export function registerAccountRoutes(api: Pick<DaemonExtensionApi, "route">, o: AccountRoutesOptions): { refresh(): Promise<void>; registryProfile(): Partial<AccountProfile> } {
   const f = o.fetch ?? fetch;
 
   const ask = async <T>(method: string, path: string, body?: unknown, token?: string | null): Promise<Reply<T> & { ok: boolean }> => {
@@ -138,7 +141,26 @@ export function registerAccountRoutes(api: Pick<DaemonExtensionApi, "route">, o:
     return { body: out };
   });
 
-  api.route("GET", "/account/profile", () => authed("GET", "/api/account"));
+  // A `ue-mcp login` account: its login may be a GitHub login or an address, and only the account view says which.
+  let registry: { token: string; profile: AccountProfile } | null = null;
+  const registryProfile = (): Partial<AccountProfile> => {
+    const token = o.registryToken?.() ?? null;
+    return token && registry?.token === token ? registry.profile : {};
+  };
+
+  api.route("GET", "/account/profile", async () => {
+    if (o.settings.accountToken()) return authed("GET", "/api/account");
+    const token = o.registryToken?.() ?? null;
+    if (!token) return refused(401, ACCOUNT_SIGNED_OUT);
+    const r = await ask<RegistryAccountView>("GET", "/api/account", undefined, token);
+    if (r.ok) {
+      const profile = profileOf(r.body as RegistryAccountView);
+      const before = registryProfile();
+      registry = { token, profile };
+      if (before.email !== profile.email || before.github !== profile.github) o.changed();
+    }
+    return { status: r.status, body: r.body };
+  });
 
   api.route("POST", "/account/email/start", async (req) => {
     const email = emailOf(req.body);
@@ -178,5 +200,5 @@ export function registerAccountRoutes(api: Pick<DaemonExtensionApi, "route">, o:
     return { status: 204 };
   });
 
-  return { refresh };
+  return { refresh, registryProfile };
 }

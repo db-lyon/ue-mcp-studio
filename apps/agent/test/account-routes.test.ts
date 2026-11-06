@@ -48,12 +48,14 @@ const VIEW_BOTH = { userId: "u2", login: "octocat", email: "cat@example.com", em
 let dir: string;
 let settings: SettingsStore;
 let changes: number;
+let registryToken: string | null;
 
 function routes() {
   const map = new Map<string, ExtensionHandler>();
   const out = registerAccountRoutes({ route: (m: string, p: string, h: ExtensionHandler) => void map.set(`${m} ${p}`, h) } as never, {
     settings,
     changed: () => void changes++,
+    registryToken: () => registryToken,
     fetch: stubFetch,
     sleep: async () => {},
     authBases: () => [REGISTRY],
@@ -70,6 +72,7 @@ beforeEach(() => {
   hits = [];
   answers = {};
   changes = 0;
+  registryToken = null;
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-account-"));
   settings = new SettingsStore(dir);
 });
@@ -253,6 +256,47 @@ describe("the signed-in account", () => {
     signedIn();
     answers["GET /api/account"] = { status: 401, body: { error: "unknown token" } };
     expect(await routes()("GET /account/profile")).toEqual({ status: 401, body: { error: ACCOUNT_SIGNED_OUT } });
+  });
+});
+
+describe("a ue-mcp login account", () => {
+  it("reads the account view with the ue-mcp login token, to tell an email login from a GitHub login", async () => {
+    registryToken = "uemcp_cli";
+    answers["GET /api/account"] = { status: 200, body: { ...VIEW_EMAIL } };
+    const call = routes();
+    expect(call.registryProfile()).toEqual({});
+    expect((await call("GET /account/profile")).body).toEqual(VIEW_EMAIL);
+    expect(hits[0]).toMatchObject({ method: "GET", url: "/api/account", auth: "Bearer uemcp_cli" });
+    expect(call.registryProfile()).toEqual({ email: "dev@example.com", github: null });
+    expect(changes).toBe(1);
+    // Nothing is written to the panel's sign-in.
+    expect(settings.accountToken()).toBeNull();
+  });
+
+  it("the view failing leaves the profile unknown, so the login shows without an @", async () => {
+    registryToken = "uemcp_cli";
+    answers["GET /api/account"] = { status: 500, body: { error: "boom" } };
+    const call = routes();
+    expect((await call("GET /account/profile")).status).toBe(502);
+    expect(call.registryProfile()).toEqual({});
+    expect(changes).toBe(0);
+  });
+
+  it("a new ue-mcp login token forgets the old account's profile", async () => {
+    registryToken = "uemcp_cli";
+    answers["GET /api/account"] = { status: 200, body: VIEW_GITHUB };
+    const call = routes();
+    await call("GET /account/profile");
+    expect(call.registryProfile()).toEqual({ email: null, github: "octocat" });
+    registryToken = "uemcp_other";
+    expect(call.registryProfile()).toEqual({});
+  });
+
+  it("changing how it signs in stays with the panel's sign-in", async () => {
+    registryToken = "uemcp_cli";
+    const call = routes();
+    expect((await call("DELETE /account/github")).status).toBe(401);
+    expect(hits).toEqual([]);
   });
 });
 

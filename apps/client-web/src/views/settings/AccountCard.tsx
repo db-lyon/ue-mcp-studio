@@ -32,8 +32,8 @@ export function AccountCard() {
   const account = settings?.account ?? null;
   // What the account service says now; the agent keeps it and says when it changed.
   useEffect(() => {
-    if (account?.via === "studio" && !onRemotePage()) api.accountProfile().catch(() => {});
-  }, [account?.via]);
+    if (account && !onRemotePage()) api.accountProfile().catch(() => {});
+  }, [account?.via, account?.login]);
   // A paid plan is what remote control checks for; the same answer, asked once.
   const paid = useRemoteAvailable(false).available === true;
   const signOut = () => api.saveSettings({ signOut: "studio" }).then(setSettings, msg.fail);

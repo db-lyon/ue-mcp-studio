@@ -197,13 +197,13 @@ export function isEmailAddress(s: unknown): s is string {
 export const isEmailCode = (s: unknown): s is string => typeof s === "string" && /^\d{6}$/.test(s.trim());
 
 /**
- * How an account's login reads: "@octocat" for a GitHub login, the address
- * for an email. `github` undefined: an agent from before email sign-in, whose
- * accounts all signed in with GitHub, unless the login is an address.
+ * How an account's login reads: "@octocat" when the account view says it is
+ * the GitHub login, otherwise as given. The login alone never earns the @:
+ * an email account's login is its address, and `github` unknown (the view
+ * not read yet, or an agent from before email sign-in) shows it plain.
  */
 export function accountHandle(login: string, github?: string | null): string {
-  if (github === undefined) return login.includes("@") ? login : `@${login}`;
-  return github !== null && github === login ? `@${login}` : login;
+  return typeof github === "string" && github === login ? `@${login}` : login;
 }
 
 /** The account line's status: "Signed in as @octocat" or "Signed in as dev@example.com". */
