@@ -93,7 +93,7 @@ describe("Settings > Notifications", () => {
 });
 
 describe("Settings > Notifications by remote control's state", () => {
-  const RELAY = [/Shared by every device paired/, /Phones and other browsers/, /Other devices keep theirs/];
+  const RELAY = [/Shared by every device paired/, /using another device/, /Other devices keep theirs/];
   const PLAN = "Phone and browser notifications come with remote control, on the Remote plan.";
   const relayEvents = ["Project went offline", "Project came back"];
   const desktop = ["Notifications on this device", "Only when I'm away", "Quiet hours", "Mute Vale on this device", "Turn finished", "Approval waiting", "Playtest finished"];
@@ -105,7 +105,7 @@ describe("Settings > Notifications by remote control's state", () => {
     render(<NotificationsSection remote="working" />);
     await screen.findByText("Shared by every device paired with Vale.");
     for (const n of [...desktop, ...relayEvents]) expect(sw(n)).toBeTruthy();
-    expect(screen.getByText(/Phones and other browsers also stay quiet/)).toBeTruthy();
+    expect(screen.getByText(/Not while you are using another device/)).toBeTruthy();
     expect(screen.getByText(/Other devices keep theirs/)).toBeTruthy();
     expect(screen.queryByText(PLAN)).toBeNull();
   });
@@ -117,7 +117,7 @@ describe("Settings > Notifications by remote control's state", () => {
     for (const n of relayEvents) expect(screen.queryByRole("switch", { name: n })).toBeNull();
     const text = document.body.textContent ?? "";
     for (const r of RELAY) expect(text).not.toMatch(r);
-    expect(screen.getByText("Not while you are using Studio on this computer.")).toBeTruthy();
+    expect(screen.getByText("This computer never skips its own notifications for Studio being open or in use.")).toBeTruthy();
     expect(screen.getByText("Old experiment")).toBeTruthy();
     // Only a free account, while the plan is offered, gets the one line about it.
     if (remote === "upsell") expect(screen.getByText(PLAN)).toBeTruthy();

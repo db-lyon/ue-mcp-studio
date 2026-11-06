@@ -10,10 +10,10 @@ import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { latestTarget, noticeTag, pushPrefsFor, type SettingsApi } from "@ue-mcp-studio/client-core";
-import { DEFAULT_PROJECT_NOTIFY, NOTIFY_EVENT, decideNotice, noticeContent, noticeOf, testIsFor, type Notice, type NotifyDelivery, type NotifyKind, type NotifyTarget } from "@ue-mcp-studio/shared";
+import { DEFAULT_PROJECT_NOTIFY, NOTIFY_EVENT, decideNotice, inUse, noticeContent, noticeOf, testIsFor, type Notice, type NotifyDelivery, type NotifyKind, type NotifyTarget } from "@ue-mcp-studio/shared";
 import type { Device } from "../relay";
 import { registerPush } from "../relay";
-import { present, prepareChannel, pushToken, permission } from "../native/notify";
+import { askPermission, present, prepareChannel, pushToken, permission } from "../native/notify";
 import { devicePrefsNow, loadProjectNotify, pendingLatest, projectNotifyNow, readDevicePrefs, useDevicePrefs, useProjectNotify } from "./state";
 
 const SETTINGS_EVENT = "studio.notify.settings";
@@ -22,6 +22,38 @@ export const OFFLINE_AFTER_MS = 60_000;
 export const PRESENCE_EVERY_MS = 20_000;
 
 const appActive = (): boolean => AppState.currentState === "active";
+/** How often the app checks whether the owner went idle or came back. */
+export const PRESENCE_CHECK_MS = 10_000;
+
+/** When the owner last touched the app; null before any (App.tsx's root reports each touch). */
+let lastTouch: number | null = null;
+export const noteInput = (): void => void (lastTouch = Date.now());
+const touchAgeMs = (): number | undefined => (lastTouch === null ? undefined : Date.now() - lastTouch);
+
+/** The owner is using the phone now: the app in front, touched within two minutes. */
+export function phoneInUse(): { active: boolean; inputAgeMs?: number } {
+  const age = touchAgeMs();
+  return { active: inUse(age, appActive()), ...(age !== undefined ? { inputAgeMs: age } : {}) };
+}
+
+/**
+ * Ask Android for POST_NOTIFICATIONS while this phone's notifications are on
+ * and the system can still ask: once per run, when a project opens (the
+ * first launch after pairing) and when notifications are turned on.
+ */
+let asked = false;
+export async function ensurePermission(force = false): Promise<"granted" | "denied" | "undetermined"> {
+  const now = await permission().catch(() => "undetermined" as const);
+  if (now !== "undetermined" || (asked && !force)) return now;
+  asked = true;
+  return askPermission().catch(() => "undetermined" as const);
+}
+
+/** For tests. */
+export function resetPhoneNotifyState(): void {
+  lastTouch = null;
+  asked = false;
+}
 
 /** The name a project shows by: the relay's "<project> on <computer>" without the computer. */
 export const projectName = (d: Pick<Device, "name">): string => d.name.replace(/ on [^ ]+$/, "") || d.name;
@@ -47,8 +79,9 @@ export async function showNotice(n: Notice, device: Pick<Device, "id">, api: Set
   if (n.test && !testIsFor(n.test, phoneIdFor(device.id), "phone")) return null;
   const prefs = await readDevicePrefs();
   const project = projectNotifyNow(api)?.prefs ?? DEFAULT_PROJECT_NOTIFY;
-  const base = { noticeId: n.id, kind: n.kind, ...(n.test ? { test: true } : {}), device: "phone" as const };
-  const d = decideNotice(n, project, prefs, { now: new Date(), projectKey: device.id, device: "phone", deviceActive: appActive() });
+  const use = phoneInUse();
+  const base = { noticeId: n.id, kind: n.kind, ...(n.test ? { test: true } : {}), device: "phone" as const, ...(use.inputAgeMs !== undefined ? { inputAgeMs: use.inputAgeMs } : {}) };
+  const d = decideNotice(n, project, prefs, { now: new Date(), projectKey: device.id, device: "phone" });
   if (!d.show) {
     const r: NotifyDelivery = { ...base, shown: false, why: d.why };
     reported(api, r);
@@ -144,13 +177,27 @@ export function useNotifications({ events, device, api, streaming, onOpen }: { e
     return () => clearTimeout(t);
   }, [streaming, device, api]);
 
-  // Presence: the app in front is this phone in use.
+  // Notifications on: ask the system for permission while it can still ask.
+  useEffect(() => {
+    if (prefs.enabled) void ensurePermission();
+  }, [prefs.enabled]);
+
+  // Presence: the owner using the app (phoneInUse), at once on a change, idle included, and every PRESENCE_EVERY_MS while in use.
   useEffect(() => {
     const id = phoneIdFor(device.id);
-    const report = () => api.notifyPresence({ id, device: "phone", active: appActive() }).catch(() => undefined);
-    void report();
-    const sub = AppState.addEventListener("change", () => void report());
-    const timer = setInterval(() => appActive() && void report(), PRESENCE_EVERY_MS);
+    let last: boolean | null = null;
+    let sentAt = 0;
+    const report = (force = false) => {
+      const use = phoneInUse();
+      const due = use.active && Date.now() - sentAt >= PRESENCE_EVERY_MS;
+      if (!force && use.active === last && !due) return;
+      last = use.active;
+      sentAt = Date.now();
+      api.notifyPresence({ id, device: "phone", ...use }).catch(() => undefined);
+    };
+    report(true);
+    const sub = AppState.addEventListener("change", () => report());
+    const timer = setInterval(() => report(), PRESENCE_CHECK_MS);
     return () => {
       sub.remove();
       clearInterval(timer);

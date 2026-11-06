@@ -25,7 +25,14 @@ export interface NotifyRequest {
 
 export type NotifyPermission = "granted" | "denied" | "undetermined";
 
-const g = globalThis as { __studioNotifications?: NotifyRequest[]; __studioNotifyTap?: (d: NotifyData) => void; __studioNotifyPermission?: NotifyPermission };
+const g = globalThis as {
+  __studioNotifications?: NotifyRequest[];
+  __studioNotifyTap?: (d: NotifyData) => void;
+  __studioNotifyPermission?: NotifyPermission;
+  /** Tests: what the system answers when the app asks, and how many times it asked. */
+  __studioNotifyAnswer?: NotifyPermission;
+  __studioNotifyAsks?: number;
+};
 const taps = new Set<(d: NotifyData) => void>();
 /** Tap a shown notification, as the system would: the harness and tests call this. */
 g.__studioNotifyTap = (d) => taps.forEach((cb) => cb(d));
@@ -38,7 +45,14 @@ export async function permission(): Promise<NotifyPermission> {
   return Notification.permission === "default" ? "undetermined" : Notification.permission;
 }
 
+/** The harness and tests record the request: globalThis.__studioNotifySettingsOpened. */
+export async function openNotificationSettings(): Promise<void> {
+  (globalThis as { __studioNotifySettingsOpened?: number }).__studioNotifySettingsOpened = ((globalThis as { __studioNotifySettingsOpened?: number }).__studioNotifySettingsOpened ?? 0) + 1;
+}
+
 export async function askPermission(): Promise<NotifyPermission> {
+  g.__studioNotifyAsks = (g.__studioNotifyAsks ?? 0) + 1;
+  if (g.__studioNotifyAnswer) return (g.__studioNotifyPermission = g.__studioNotifyAnswer);
   if (typeof Notification !== "undefined" && Notification.permission === "default") await Notification.requestPermission().catch(() => undefined);
   g.__studioNotifyPermission = undefined;
   return permission();

@@ -4,7 +4,7 @@
  * the project's events, shared by every device; and the sessions muted.
  */
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { AppState, View } from "react-native";
 import { NOTIFY_KINDS, type DeviceNotifyPrefs, type NotifyKind } from "@ue-mcp-studio/shared";
 import { NOTIFY_COPY as C, PRIVACY_CHOICES, SOUND_CHOICES, VIBRATE_CHOICES, testResultText } from "@ue-mcp-studio/client-core";
 import { Button, Card, Input, useTheme } from "../../ui";
@@ -12,8 +12,8 @@ import { CardLabel, Head, Seg, SettingRow, Switch, Txt, useMessage } from "./con
 import { Message } from "./GeneralSection";
 import { useSettingsApi } from "./hooks";
 import { saveProjectNotify, useDevicePrefs, useProjectNotify } from "../../notifications/state";
-import { askPermission, permission as readPermission, type NotifyPermission } from "../../native/notify";
-import { sendTestNotification } from "../../notifications/useNotifications";
+import { openNotificationSettings, permission as readPermission, type NotifyPermission } from "../../native/notify";
+import { ensurePermission, sendTestNotification } from "../../notifications/useNotifications";
 import { useProjectNav } from "../../nav";
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -50,10 +50,18 @@ export function NotificationsSection() {
   const project = useProjectNotify(api);
   const msg = useMessage();
   const [perm, setPerm] = useState<NotifyPermission | null>(null);
+  // Read again on coming back from Android's settings, and after the app asked on turning notifications on.
   useEffect(() => {
     void readPermission().then(setPerm);
-  }, []);
+    const sub = AppState.addEventListener("change", (s) => s === "active" && void readPermission().then(setPerm));
+    return () => sub.remove();
+  }, [device.enabled]);
   const set = (u: Partial<DeviceNotifyPrefs>) => setDevice({ ...device, ...u });
+  // Turned on: ask Android while it can still ask.
+  const turnOn = (v: boolean) => {
+    set({ enabled: v });
+    if (v) void ensurePermission(true).then(setPerm);
+  };
   const projectName = project?.project ?? "";
   // The phone mutes a project by its relay id, so two computers' projects of one name stay apart.
   const key = open.device.id;
@@ -65,7 +73,9 @@ export function NotificationsSection() {
   const test = () => {
     setTesting(true);
     setTested(null);
-    void sendTestNotification(api, open.device)
+    // Not allowed yet: ask first, so the test can show.
+    void (perm === "granted" ? Promise.resolve() : ensurePermission(true).then(setPerm))
+      .then(() => sendTestNotification(api, open.device))
       .then((d) => setTested(testResultText(d)), (e: unknown) => setTested({ ok: false, text: `Could not send: ${e instanceof Error ? e.message : String(e)}` }))
       .finally(() => setTesting(false));
   };
@@ -78,11 +88,15 @@ export function NotificationsSection() {
         <CardLabel>This device</CardLabel>
         {perm && perm !== "granted" ? (
           <SettingRow first title={C.permission.title} help={perm === "denied" ? C.permission.denied : C.permission.ask}>
-            {perm === "undetermined" ? <Button variant="primary" title={C.permission.button} onPress={() => void askPermission().then(setPerm)} style={{ alignSelf: "flex-start" }} /> : null}
+            {perm === "undetermined" ? (
+              <Button variant="primary" title={C.permission.button} onPress={() => void ensurePermission(true).then(setPerm)} style={{ alignSelf: "flex-start" }} />
+            ) : (
+              <Button title={C.permission.openSettings} onPress={() => void openNotificationSettings()} style={{ alignSelf: "flex-start" }} />
+            )}
           </SettingRow>
         ) : null}
         <SettingRow first={!perm || perm === "granted"} title={C.enabled.title} help={C.enabled.help} inline>
-          <Switch on={device.enabled} onChange={(v) => set({ enabled: v })} label={C.enabled.title} />
+          <Switch on={device.enabled} onChange={turnOn} label={C.enabled.title} />
         </SettingRow>
         <View style={{ opacity: off ? 0.45 : 1 }} accessibilityState={{ disabled: off }}>
           <SettingRow title={C.away.title} help={C.away.help} inline>

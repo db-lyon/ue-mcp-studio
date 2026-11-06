@@ -13,6 +13,7 @@ import {
   NOTIFY_EVENT,
   decideNotice,
   deviceNotifyOf,
+  inUse,
   noticeContent,
   noticeOf,
   testIsFor,
@@ -63,6 +64,8 @@ export function saveDevicePrefs(next: DeviceNotifyPrefs): void {
   } catch {
     // Storage blocked: the change holds for this page only.
   }
+  // The computer's page storage belongs to the daemon's port, which changes on every restart: the agent keeps the copy that lasts.
+  if (deviceKind() === "desktop") api.saveDesktopNotify(devicePrefs).catch(() => undefined);
   for (const l of deviceListeners) l();
   window.dispatchEvent(new Event(PREFS_CHANGED));
 }
@@ -70,6 +73,42 @@ export function saveDevicePrefs(next: DeviceNotifyPrefs): void {
 export function useDevicePrefs(): [DeviceNotifyPrefs, (p: DeviceNotifyPrefs) => void] {
   const prefs = useSyncExternalStore(subscribeDevice, deviceSnapshot);
   return [prefs, saveDevicePrefs];
+}
+
+/**
+ * On the computer, the settings the agent kept win over this page's storage,
+ * which starts empty whenever the daemon comes back on another port. A page
+ * with settings and no kept copy hands its own over.
+ */
+let desktopLoad: Promise<void> | null = null;
+export function loadDesktopPrefs(force = false): Promise<void> {
+  if (deviceKind() !== "desktop") return Promise.resolve();
+  if (desktopLoad && !force) return desktopLoad;
+  desktopLoad = Promise.resolve()
+    .then(() => api.desktopNotify())
+    .then(
+      ({ prefs }) => {
+        if (prefs) {
+          devicePrefs = deviceNotifyOf(prefs);
+          try {
+            localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify(devicePrefs));
+          } catch {
+            // Storage blocked: the kept copy still holds for this page.
+          }
+          for (const l of deviceListeners) l();
+        } else {
+          let stored: string | null = null;
+          try {
+            stored = localStorage.getItem(DEVICE_PREFS_KEY);
+          } catch {
+            stored = null;
+          }
+          if (stored) api.saveDesktopNotify(readDevicePrefs()).catch(() => undefined);
+        }
+      },
+      () => undefined,
+    );
+  return desktopLoad;
 }
 
 // ── The project's shared settings, read once and kept current ───────
@@ -114,6 +153,8 @@ export function resetNotifyState(): void {
   projectState = null;
   loading = null;
   devicePrefs = null;
+  desktopLoad = null;
+  lastPageInput = null;
 }
 
 // ── Where this page runs ──────────────────────────────────────────
@@ -121,7 +162,35 @@ export function resetNotifyState(): void {
 export const deviceKind = (): NotifyDevice => (onRemotePage() ? "browser" : "desktop");
 /** This page's id for presence and for its own test notifications, kept for the page's life. */
 export const presenceId = `${deviceKind()}-${Math.random().toString(36).slice(2, 10)}`;
-export const pageActive = (): boolean => typeof document !== "undefined" && document.visibilityState === "visible" && document.hasFocus();
+/** This page's window is in front and has the keyboard. */
+export const pageFocused = (): boolean => typeof document !== "undefined" && document.visibilityState === "visible" && document.hasFocus();
+
+/** When the owner last gave this page input; null before any. */
+let lastPageInput: number | null = null;
+const INPUT_EVENTS = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"] as const;
+if (typeof window !== "undefined") {
+  for (const type of INPUT_EVENTS) window.addEventListener(type, () => void (lastPageInput = Date.now()), { capture: true, passive: true });
+}
+
+/**
+ * Milliseconds since the owner's last input: Studio's window asks Windows
+ * (any keyboard or mouse input on the computer); a browser knows only its own page.
+ */
+export async function inputAgeMs(): Promise<number | undefined> {
+  const nat = native();
+  if (window.ue?.studioWindow && nat.lastinput) {
+    const ms = await nat.lastinput().catch(() => null);
+    if (typeof ms === "number" && Number.isFinite(ms) && ms >= 0) return ms;
+  }
+  return lastPageInput === null ? undefined : Date.now() - lastPageInput;
+}
+
+/** The owner is using this page now: real input within two minutes, and its window focused. */
+export async function pageInUse(): Promise<{ active: boolean; inputAgeMs?: number }> {
+  const age = await inputAgeMs();
+  return { active: inUse(age, pageFocused()), ...(age !== undefined ? { inputAgeMs: age } : {}) };
+}
+
 
 /** What the browser allows: "unsupported" where there is no Notification API. */
 export function browserPermission(): NotificationPermission | "unsupported" {
@@ -210,10 +279,12 @@ function reported(d: NotifyDelivery): void {
 export async function handleNotice(n: Notice, onOpen: (t: NotifyTarget) => void): Promise<NotifyDelivery | null> {
   // Another device's test.
   if (n.test && !testIsFor(n.test, presenceId, deviceKind())) return null;
+  await loadDesktopPrefs();
   const prefs = devicePrefs ?? (devicePrefs = readDevicePrefs());
   const device = deviceKind();
-  const base = { noticeId: n.id, kind: n.kind, ...(n.test ? { test: true } : {}), device };
-  const d = decideNotice(n, projectState?.prefs ?? DEFAULT_PROJECT_NOTIFY, prefs, { now: new Date(), projectKey: projectKeyOf(n), device, deviceActive: pageActive() });
+  const use = await pageInUse();
+  const base = { noticeId: n.id, kind: n.kind, ...(n.test ? { test: true } : {}), device, ...(use.inputAgeMs !== undefined ? { inputAgeMs: use.inputAgeMs } : {}) };
+  const d = decideNotice(n, projectState?.prefs ?? DEFAULT_PROJECT_NOTIFY, prefs, { now: new Date(), projectKey: projectKeyOf(n), device });
   if (!d.show) {
     const r: NotifyDelivery = { ...base, shown: false, why: d.why };
     reported(r);
@@ -266,7 +337,10 @@ export function useNotifications(events: DaemonEvent[], onOpen: (t: NotifyTarget
   if (seen.current === null) seen.current = events.length ? events[events.length - 1].id : 0;
   const open = useRef(onOpen);
   open.current = onOpen;
-  useEffect(() => void loadProjectNotify(), []);
+  useEffect(() => {
+    void loadProjectNotify();
+    void loadDesktopPrefs();
+  }, []);
   useEffect(() => {
     const after = seen.current ?? 0;
     const fresh = events.filter((e) => e.id > after);
@@ -318,26 +392,36 @@ export const PRESENCE_EVERY_MS = 20_000;
 
 
 
+/** How often the page checks whether the owner went idle or came back. */
+export const PRESENCE_CHECK_MS = 10_000;
+
 /**
- * Tell the agent when this page is in use, so a phone set to "only when I'm
- * away" stays quiet while the owner sits at Studio.
+ * Tell the agent when the owner is using this page (pageInUse), so a phone
+ * set to "only when I'm away" stays quiet while the owner sits at Studio:
+ * at once on a change, idle included, and every PRESENCE_EVERY_MS while in use.
  */
 export function usePresence(): void {
   useEffect(() => {
     let last: boolean | null = null;
-    const report = (force = false) => {
-      const active = pageActive();
-      if (!force && active === last) return;
-      last = active;
-      api.notifyPresence({ id: presenceId, device: deviceKind(), active }).catch(() => undefined);
+    let sentAt = 0;
+    let gone = false;
+    const report = async (force = false) => {
+      const use = await pageInUse();
+      if (gone) return;
+      const due = use.active && Date.now() - sentAt >= PRESENCE_EVERY_MS;
+      if (!force && use.active === last && !due) return;
+      last = use.active;
+      sentAt = Date.now();
+      api.notifyPresence({ id: presenceId, device: deviceKind(), ...use }).catch(() => undefined);
     };
-    const change = () => report();
-    report(true);
-    const timer = setInterval(() => last && report(true), PRESENCE_EVERY_MS);
+    const change = () => void report();
+    void report(true);
+    const timer = setInterval(change, PRESENCE_CHECK_MS);
     window.addEventListener("focus", change);
     window.addEventListener("blur", change);
     document.addEventListener("visibilitychange", change);
     return () => {
+      gone = true;
       clearInterval(timer);
       window.removeEventListener("focus", change);
       window.removeEventListener("blur", change);
