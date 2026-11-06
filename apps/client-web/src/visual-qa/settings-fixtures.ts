@@ -121,7 +121,39 @@ export const OLD_DATA_SCENARIOS: Record<string, Scenario> = Object.fromEntries(S
   [`settings-empty-${s}`, page(`${s} with every settings answer empty`, s, { ...EMPTY, fullPage: true })],
 ]));
 
+/** Settings > General's account card as the account service answers: email sign-in offered or not, and the account's ways to sign in. */
+const methods = (email: boolean): Scenario["get"] => (p) => (p === "/v1/ext/studio/auth/methods" ? { email, github: true } : p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: false } : undefined);
+const EMAIL_TYPED: Partial<Scenario> = {
+  get: methods(true),
+  types: [{ into: ".account-email input", text: "dev@example.com" }],
+  afterType: { clicks: [".account-email button.primary"], wait: 700 },
+};
+const CODE_SENT = (p: string) => (p === "/v1/ext/studio/auth/email/start" ? { status: 200, body: { ok: true, expiresInSeconds: 600 } } : undefined);
+const signedIn = (account: NonNullable<StudioSettings["account"]>): Partial<Scenario> => ({
+  settings: { account },
+  get: (p) => (p === "/v1/ext/studio/remote/available" ? { available: false, signedIn: true } : p === "/v1/ext/studio/auth/methods" ? { email: true, github: true } : undefined),
+});
+
+export const ACCOUNT_SCENARIOS: Record<string, Scenario> = {
+  "settings-account-email": page("General, signed out, email sign-in offered: Create an account or sign in, the email field and Send code, Continue with GitHub below", "general", { get: methods(true) }),
+  "settings-account-code-sent": page("General after Send code: the 6-digit code entry for the address, Resend code, Change email and the expiry", "general", { ...EMAIL_TYPED, post: CODE_SENT }),
+  "settings-account-code-error": page("General after a wrong code: the account service's one error inline, the code entry still there", "general", {
+    ...EMAIL_TYPED,
+    post: (p) => CODE_SENT(p) ?? (p === "/v1/ext/studio/auth/email/verify" ? { status: 400, body: { error: "That code is wrong or has expired. Request a new one." } } : undefined),
+    then: { types: [{ into: ".account-code input", text: "123450" }], clicks: [".account-code button.primary"], wait: 700 },
+  }),
+  "settings-account-rate-limited": page("General when Send code is rate limited: the service's message with the wait, and Send code held until it passes", "general", {
+    ...EMAIL_TYPED,
+    post: (p) => (p === "/v1/ext/studio/auth/email/start" ? { status: 429, body: { error: "Too many codes requested for this address.", retryAfter: 600 } } : undefined),
+  }),
+  "settings-account-email-only": page("General signed in by email only: the address, Link GitHub, and Remove email held as the only way to sign in", "general", signedIn({ login: "dev@example.com", via: "studio", email: "dev@example.com", github: null })),
+  "settings-account-github-only": page("General signed in with GitHub only: the login, Add email, and Unlink GitHub held as the only way to sign in", "general", signedIn({ login: "octocat", via: "studio", email: null, github: "octocat" })),
+  "settings-account-both": page("General with email and GitHub both linked: Change and Remove email, Unlink GitHub", "general", signedIn({ login: "octocat", via: "studio", email: "cat@example.com", github: "octocat" })),
+  "settings-account-email-off": page("General, signed out, email sign-in not offered yet: the GitHub sign-in alone, as before", "general", { get: methods(false) }),
+};
+
 export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
+  ...ACCOUNT_SCENARIOS,
   "settings-list": page("Settings at narrow width: the list of sections, each with its state; wide opens Agents", "", { hash: "#/settings" }),
   "settings-agents": page("Agents: main agent, worker, and the project's Claude files with a subagent and a skill", "agents", { get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_FULL : undefined) }),
   "settings-agents-long": page("Agents with long skill and subagent descriptions, and a skill name too long to share its line", "agents", { get: (p) => (p === "/v1/ext/studio/native" ? NATIVE_LONG : undefined) }),

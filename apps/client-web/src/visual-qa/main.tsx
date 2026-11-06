@@ -129,6 +129,7 @@ window.open = () => null;
   type: scenario.type ?? null,
   types: scenario.types ?? [],
   afterType: scenario.afterType ?? null,
+  then: scenario.then ?? null,
   fullPage: scenario.fullPage ?? false,
   waitFor: scenario.waitFor ?? null,
   hover: scenario.hover ?? null,

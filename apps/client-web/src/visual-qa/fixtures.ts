@@ -210,6 +210,8 @@ export interface Scenario {
   types?: Array<{ into: string; text: string }>;
   /** Clicked one after another once the typing settles, then left for wait milliseconds: for a state a typed command leads to. */
   afterType?: { clicks: string[]; wait: number };
+  /** A second step once afterType settles: typed into each element, then the clicks, then left for wait milliseconds (a form the first step opened). */
+  then?: { types: Array<{ into: string; text: string }>; clicks: string[]; wait: number };
   /** The custom endpoints Models & accounts lists; "error" answers their route with a failure. */
   endpoints?: CustomEndpoint[] | "error";
   /** Shoot the whole page, for a settings section taller than the window. */
