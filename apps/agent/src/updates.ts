@@ -10,15 +10,14 @@
  * against its published SHA-256, unpacked under Intermediate/ (never under
  * Plugins/, where the editor would find a second copy), then the editor
  * is stopped, the folders are swapped (the old one kept until the swap is
- * done), and the editor is started again. A plugin installed from Fab is
- * never swapped: the Fab Library updates it.
+ * done), and the editor is started again.
  */
 import { spawn, execFile } from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { isNewer, type StudioPluginSource, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
+import { isNewer, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
 
 export const MANIFEST_URL = process.env.UE_MCP_STUDIO_CHANNEL || "https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/latest.json";
 /** The editor plugin's own channel, when a Studio manifest does not name one. */
@@ -90,7 +89,7 @@ export interface PluginManifest {
 export interface UpdateStatus {
   channel: UpdateChannel;
   studio: { installed: string; latest: string | null; available: boolean };
-  plugin: StudioPluginUpdate & { newer: boolean; required: boolean; source: StudioPluginSource };
+  plugin: StudioPluginUpdate & { newer: boolean; required: boolean };
   /** The oldest ue-mcp the latest Studio runs on: Update installs at least this before Studio. */
   ueMcpMin?: string;
   /** The step this daemon is running now, so a page that loads meanwhile waits for it. */
@@ -138,13 +137,11 @@ export function clearUpdateFailure(dataDir: string | undefined): void {
 /** How long a restart waits for the old daemon's process to exit before starting the new one. */
 export const RESTART_EXIT_WAIT_MS = 30_000;
 
-/** The editor plugin the project loads, and where it came from. */
+/** The editor plugin the project loads, and where it is. */
 export interface InstalledPlugin {
   dir: string;
   version: string | null;
   location: "project" | "engine";
-  source: StudioPluginSource;
-  fabUrl?: string;
 }
 
 /** What the editor plugin writes to Saved/UE_MCP_Studio/plugin.json at startup. */
@@ -157,24 +154,23 @@ export function pluginRecordFile(projectDir: string): string {
  * file is missing or malformed (plugins older than the record).
  */
 export function readPluginRecord(projectDir: string): InstalledPlugin | null {
-  let r: { version?: unknown; dir?: unknown; fab?: unknown; fabUrl?: unknown };
+  let r: { version?: unknown; dir?: unknown };
   try {
     r = JSON.parse(fs.readFileSync(pluginRecordFile(projectDir), "utf-8"));
   } catch {
     return null;
   }
-  if (!r || typeof r !== "object" || typeof r.version !== "string" || typeof r.dir !== "string" || !r.dir || typeof r.fab !== "boolean") return null;
+  if (!r || typeof r !== "object" || typeof r.version !== "string" || typeof r.dir !== "string" || !r.dir) return null;
   const rel = path.relative(path.join(projectDir, "Plugins"), path.resolve(r.dir));
   const inProject = !!rel && !rel.startsWith("..") && !path.isAbsolute(rel);
-  const fabUrl = r.fab && typeof r.fabUrl === "string" && r.fabUrl.trim() ? r.fabUrl.trim() : undefined;
-  return { dir: r.dir, version: r.version || null, location: inProject ? "project" : "engine", source: r.fab ? "fab" : "github", ...(fabUrl ? { fabUrl } : {}) };
+  return { dir: r.dir, version: r.version || null, location: inProject ? "project" : "engine" };
 }
 
-/** The plugin in the project's Plugins folder, read from its .uplugin: a GitHub install. */
+/** The plugin in the project's Plugins folder, read from its .uplugin. */
 function readProjectPlugin(dir: string): InstalledPlugin | null {
   try {
     const u = JSON.parse(fs.readFileSync(path.join(dir, `${PLUGIN}.uplugin`), "utf-8")) as { VersionName?: string };
-    return { dir, version: u.VersionName ?? null, location: "project", source: "github" };
+    return { dir, version: u.VersionName ?? null, location: "project" };
   } catch {
     return null;
   }
@@ -338,11 +334,10 @@ export class Updater {
       studio: { installed: this.installedVersion, latest: null, available: false },
       plugin: {
         installed: installedPlugin, latest: null, available: false, newer: false, location: found?.location ?? "engine", engine, required: false,
-        source: found?.source ?? "github", ...(found?.fabUrl ? { fabUrl: found.fabUrl } : {}),
       },
     };
-    // Only a project plugin from GitHub is swapped by Update.
-    const swappable = found?.location === "project" && found.source === "github";
+    // Only a plugin in the project's Plugins folder is swapped by Update.
+    const swappable = found?.location === "project";
     try {
       const m = await this.manifest();
       status.studio.latest = m.version;
@@ -520,7 +515,6 @@ export class Updater {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "studio-plugin-"));
     let swapped = false;
     try {
-      if (readPluginRecord(this.host.projectDir)?.source === "fab") throw new Error("the Studio plugin was installed from Fab; update it from your Fab Library");
       if (!readProjectPlugin(target)) throw new Error("the Studio plugin is not in this project's Plugins folder; update it where it was installed");
       const engine = this.engine();
       const p = await this.pluginManifest(await this.manifest().catch(() => undefined));

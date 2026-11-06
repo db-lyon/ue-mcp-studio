@@ -4,8 +4,8 @@
  * and the channel read only, since updates run on the computer.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Linking, View } from "react-native";
-import { PLUGIN_OUTSIDE, REMOTE_UPDATES, checkFailure, fabUpdate, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
+import { View } from "react-native";
+import { PLUGIN_OUTSIDE, REMOTE_UPDATES, checkFailure, pluginOutside, updateStatus, updateFailureLine, readUpdatesWith, readyLine, updateRows, updateSteps, waiting, waitingSteps, type Updates } from "@ue-mcp-studio/client-core";
 import { Banner, Button, Card, Pill, Spacer, bannerText, labelFont, T, useTheme } from "../../ui";
 import { Details } from "../settings/Details";
 import { Radio, Txt } from "../settings/controls";
@@ -54,7 +54,6 @@ export function UpdatesCard() {
 
   const steps = u ? updateSteps(u) : [];
   const ready = u ? readyLine(u) : "";
-  const fab = fabUpdate(u?.studio);
   const engineOnly = pluginOutside(u?.studio);
   const failure = updateFailureLine(u?.studio);
   const unchecked = checkFailure(u);
@@ -115,18 +114,9 @@ export function UpdatesCard() {
       {u?.studio?.plugin.required ? (
         <Banner kind="warn">
           <Txt size={12} style={{ color: bannerText(t, "warn") }}>
-            {u.studio.plugin.source === "fab" ? "Editor plugin too old. Update it from your Fab Library." : u.studio.plugin.location === "project" ? "Editor plugin too old. Update installs it and restarts the editor." : "Editor plugin too old. Update it where it was installed."}
+            {u.studio.plugin.location === "project" ? "Editor plugin too old. Update installs it and restarts the editor." : "Editor plugin too old. Update it where it was installed."}
           </Txt>
         </Banner>
-      ) : null}
-      {fab ? (
-        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 10, marginVertical: 6 }}>
-          <Txt size={12} tone="muted" style={{ flexShrink: 1 }}>
-            {fab.version ? `Editor plugin ${fab.version} is available. ` : ""}Update the editor plugin from your Fab Library.
-          </Txt>
-          <Spacer />
-          <Button title="Open Fab Library" onPress={() => void Linking.openURL(fab.url)} />
-        </View>
       ) : null}
       {engineOnly ? (
         <Txt size={12} tone="dim" style={{ marginVertical: 12 }}>

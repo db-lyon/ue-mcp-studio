@@ -35,7 +35,7 @@ const AGENT_0_1_23: Routes = {
     providers: [{ id: "anthropic", name: "Anthropic", connected: false, source: "default", models: [{ id: "claude-opus-5-5", name: "Opus 5.5", signIns: ["claude"] }] }],
   },
   "/v1/ext/studio/config": { path: "C:/P/ue-mcp.yml", exists: false, text: "" },
-  "/v1/ext/studio/updates": { channel: "stable", studio: { installed: "0.1.23", latest: "0.1.23", available: false }, plugin: { installed: "0.1.4", latest: "0.1.4", available: false, location: "project", engine: "5.7", newer: false, required: false, source: "github" } },
+  "/v1/ext/studio/updates": { channel: "stable", studio: { installed: "0.1.23", latest: "0.1.23", available: false }, plugin: { installed: "0.1.4", latest: "0.1.4", available: false, location: "project", engine: "5.7", newer: false, required: false } },
 };
 
 const INSTALL = {

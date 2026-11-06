@@ -4,7 +4,7 @@
  * by client-web's Updates card and the mobile app's; an update run's steps
  * are in update-run.ts.
  */
-import { FAB_LIBRARY_URL, isNewer, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
+import { isNewer, type StudioPluginUpdate } from "@ue-mcp-studio/shared";
 import { obj } from "./normalize.js";
 
 /** GET /v1/ext/studio/updates. */
@@ -59,7 +59,7 @@ export function checkFailure(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpda
  * A plugin installed outside the project's Plugins folder, which Update does not replace. location
  * defaults to engine when no plugin was found: only an installed one is outside the project.
  */
-export const pluginOutside = (s: StudioUpdates | null | undefined): boolean => s?.plugin.location === "engine" && s.plugin.source !== "fab" && !!s.plugin.installed && !!s.plugin.latest;
+export const pluginOutside = (s: StudioUpdates | null | undefined): boolean => s?.plugin.location === "engine" && !!s.plugin.installed && !!s.plugin.latest;
 
 export const PLUGIN_OUTSIDE = "Installed outside this project's Plugins folder, so Update does not replace it.";
 
@@ -72,14 +72,8 @@ export function updateStatus(o: { steps: number; unchecked: string | null; waiti
   };
 }
 
-/** Update installs the plugin itself: never for a Fab install, which the Fab Library updates. */
-export const pluginStep = (s: StudioUpdates | null | undefined): boolean => !!s?.plugin.available && s.plugin.source !== "fab";
-
-/** A Fab install with a newer plugin out: where to send the user. */
-export function fabUpdate(s: StudioUpdates | null | undefined): { version: string | null; url: string } | null {
-  if (s?.plugin.source !== "fab" || !(s.plugin.newer || s.plugin.required)) return null;
-  return { version: s.plugin.newer ? s.plugin.latest : null, url: s.plugin.fabUrl || FAB_LIBRARY_URL };
-}
+/** Update installs the plugin itself when a newer one is available. */
+export const pluginStep = (s: StudioUpdates | null | undefined): boolean => !!s?.plugin.available;
 
 /**
  * The ue-mcp check with its target raised to the latest Studio's floor while

@@ -198,7 +198,7 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     remotePage: true,
     settings: { account: { login: "dev", via: "studio" } },
     get: (p) => (p === "/v1/ext/studio/updates"
-      ? { channel: "beta", studio: { installed: "0.1.25-beta.18", latest: "0.1.25-beta.19", available: true }, plugin: { installed: "0.1.7", latest: "0.1.7", available: false, newer: false, location: "project", source: "github" } }
+      ? { channel: "beta", studio: { installed: "0.1.25-beta.18", latest: "0.1.25-beta.19", available: true }, plugin: { installed: "0.1.7", latest: "0.1.7", available: false, newer: false, location: "project" } }
       : undefined),
   }),
   "settings-models-remote": page("Models & accounts in a paired browser: sign-ins, API keys, custom endpoints and the gateway read only, with the note that they change on the computer", "models", { remotePage: true, fullPage: true }),
