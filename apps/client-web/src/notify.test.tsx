@@ -4,7 +4,8 @@ import { act, cleanup, render } from "@testing-library/react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { DEFAULT_DEVICE_NOTIFY, applyProjectNotify, DEFAULT_PROJECT_NOTIFY, type NotifyTarget, type ProjectNotifyPrefs } from "@ue-mcp-studio/shared";
 import { focusRun } from "./attention";
-import { DEVICE_PREFS_KEY, NOTIFICATION_CLICK, loadDesktopPrefs, loadProjectNotify, pageInUse, resetNotifyState, useNotifications, usePresence } from "./notify";
+import { PRESENCE_EVERY_MS } from "@ue-mcp-studio/client-core";
+import { DEVICE_PREFS_KEY, NOTIFICATION_CLICK, PRESENCE_CHECK_MS, loadDesktopPrefs, loadProjectNotify, pageInUse, resetNotifyState, useNotifications, usePresence } from "./notify";
 
 let prefs: ProjectNotifyPrefs = DEFAULT_PROJECT_NOTIFY;
 /** The computer's device settings the agent keeps (GET /notifications/desktop), and what the page sent. */
@@ -218,6 +219,23 @@ describe("in use", () => {
     await act(async () => void window.dispatchEvent(new Event("focus")));
     await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
     expect(sent.at(-1)).toMatchObject({ body: { active: true, inputAgeMs: 2_000 } });
+  });
+
+  it("presence keeps reporting while idle, so the agent keeps listing the page", async () => {
+    vi.useFakeTimers();
+    window.ue = { studio: { lastinput: vi.fn(async () => 3_600_000) } as never, studioWindow: true };
+    function P() {
+      usePresence();
+      return null;
+    }
+    render(<P />);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+    const reports = () => sent.filter((x) => x.path.endsWith("/notifications/presence"));
+    expect(reports()).toHaveLength(1);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(PRESENCE_EVERY_MS + PRESENCE_CHECK_MS)));
+    expect(reports().length).toBeGreaterThanOrEqual(2);
+    expect(reports().at(-1)).toMatchObject({ body: { active: false } });
+    vi.useRealTimers();
   });
 });
 

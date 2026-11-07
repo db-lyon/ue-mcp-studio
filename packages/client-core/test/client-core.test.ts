@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLock, createNoticeGate, newestEventId, HttpError, requestJson, SseParser, subscribeEvents, unreachable, type Reply, type StreamEvent, type Transport } from "../src/index.js";
+import { PRESENCE_EVERY_MS, createLock, createNoticeGate, newestEventId, presenceDue, HttpError, requestJson, SseParser, subscribeEvents, unreachable, type Reply, type StreamEvent, type Transport } from "../src/index.js";
 
 const enc = new TextEncoder();
 
@@ -162,4 +162,11 @@ describe("each notice once", () => {
     expect(newestEventId([{ id: 0 }], 5)).toBe(5);
   });
 
+  it("reports presence on a change, and every PRESENCE_EVERY_MS idle or not", () => {
+    expect(presenceDue(true, null, 0, 0)).toBe(true);
+    expect(presenceDue(false, false, 0, PRESENCE_EVERY_MS - 1)).toBe(false);
+    expect(presenceDue(false, false, 0, PRESENCE_EVERY_MS)).toBe(true);
+    expect(presenceDue(true, true, 0, PRESENCE_EVERY_MS)).toBe(true);
+    expect(presenceDue(false, true, 0, 1)).toBe(true);
+  });
 });

@@ -101,6 +101,12 @@ export function createNoticeGate(startedAt: number = Date.now(), keep = 500): No
 /** The newest event id among events, never less than `after`: a stream's events are not always in id order (a backlog replayed after live ones). */
 export const newestEventId = (events: ReadonlyArray<{ id: number }>, after: number): number => events.reduce((m, e) => (e.id > m ? e.id : m), after);
 
+/** How often a client tells the agent whether the owner is using it, idle included, so the agent's list of devices stays whole. */
+export const PRESENCE_EVERY_MS = 20_000;
+
+/** Whether a presence report is due: a change at once, else every PRESENCE_EVERY_MS whatever the state. */
+export const presenceDue = (active: boolean, last: boolean | null, sentAt: number, now: number): boolean => active !== last || now - sentAt >= PRESENCE_EVERY_MS;
+
 /** The Android notification channel for a device's sound and vibration. */
 export const notifyChannel = (p: Pick<DeviceNotifyPrefs, "sound" | "vibrate">): string => `studio-${p.sound}-${p.vibrate}`;
 

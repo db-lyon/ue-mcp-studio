@@ -11,7 +11,7 @@
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import type { DaemonEvent } from "ue-mcp/daemon";
-import { createNoticeGate, latestTarget, newestEventId, noticeTag, pushPrefsFor, type SettingsApi } from "@ue-mcp-studio/client-core";
+import { createNoticeGate, latestTarget, newestEventId, noticeTag, presenceDue, pushPrefsFor, type SettingsApi } from "@ue-mcp-studio/client-core";
 import { DEFAULT_PROJECT_NOTIFY, NOTIFY_EVENT, decideNotice, inUse, noticeContent, noticeOf, testIsFor, type Notice, type NotifyDelivery, type NotifyKind, type NotifyTarget } from "@ue-mcp-studio/shared";
 import type { Device } from "../relay";
 import { registerPush } from "../relay";
@@ -21,8 +21,6 @@ import { devicePrefsNow, loadProjectNotify, pendingLatest, projectNotifyNow, rea
 const SETTINGS_EVENT = "studio.notify.settings";
 /** A stream down this long, with the app in front, is the project going offline. */
 export const OFFLINE_AFTER_MS = 60_000;
-export const PRESENCE_EVERY_MS = 20_000;
-
 const appActive = (): boolean => AppState.currentState === "active";
 /** How often the app checks whether the owner went idle or came back. */
 export const PRESENCE_CHECK_MS = 10_000;
@@ -190,15 +188,14 @@ export function useNotifications({ events, device, api, streaming, onOpen }: { e
     if (prefs.enabled) void ensurePermission();
   }, [prefs.enabled]);
 
-  // Presence: the owner using the app (phoneInUse), at once on a change, idle included, and every PRESENCE_EVERY_MS while in use.
+  // Presence: the owner using the app (phoneInUse), at once on a change and every PRESENCE_EVERY_MS in either state (presenceDue), so the agent keeps listing the phone while the app runs.
   useEffect(() => {
     const id = phoneIdFor(device.id);
     let last: boolean | null = null;
     let sentAt = 0;
     const report = (force = false) => {
       const use = phoneInUse();
-      const due = use.active && Date.now() - sentAt >= PRESENCE_EVERY_MS;
-      if (!force && use.active === last && !due) return;
+      if (!force && !presenceDue(use.active, last, sentAt, Date.now())) return;
       last = use.active;
       sentAt = Date.now();
       api.notifyPresence({ id, device: "phone", ...use }).catch(() => undefined);

@@ -28,7 +28,7 @@ import {
   type ProjectNotifyUpdate,
 } from "@ue-mcp-studio/shared";
 import { api } from "./api";
-import { createNoticeGate, latestTarget, newestEventId, noticeTag } from "@ue-mcp-studio/client-core";
+import { createNoticeGate, latestTarget, newestEventId, noticeTag, presenceDue } from "@ue-mcp-studio/client-core";
 import { native } from "./native";
 import { onRemotePage } from "./connection";
 import { syncWebPush } from "./web-push";
@@ -396,17 +396,14 @@ export async function openLatest(onOpen: (t: NotifyTarget) => void): Promise<voi
   if (t) onOpen(t);
 }
 
-export const PRESENCE_EVERY_MS = 20_000;
-
-
-
 /** How often the page checks whether the owner went idle or came back. */
 export const PRESENCE_CHECK_MS = 10_000;
 
 /**
  * Tell the agent when the owner is using this page (pageInUse), so a phone
  * set to "only when I'm away" stays quiet while the owner sits at Studio:
- * at once on a change, idle included, and every PRESENCE_EVERY_MS while in use.
+ * at once on a change, and every PRESENCE_EVERY_MS in either state, so the
+ * agent keeps listing this page while it is open (presenceDue).
  */
 export function usePresence(): void {
   useEffect(() => {
@@ -416,8 +413,7 @@ export function usePresence(): void {
     const report = async (force = false) => {
       const use = await pageInUse();
       if (gone) return;
-      const due = use.active && Date.now() - sentAt >= PRESENCE_EVERY_MS;
-      if (!force && use.active === last && !due) return;
+      if (!force && !presenceDue(use.active, last, sentAt, Date.now())) return;
       last = use.active;
       sentAt = Date.now();
       api.notifyPresence({ id: presenceId, device: deviceKind(), ...use }).catch(() => undefined);
