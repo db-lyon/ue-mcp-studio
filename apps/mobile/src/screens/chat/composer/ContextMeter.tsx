@@ -109,7 +109,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   const button = useRef<HostInstance>(null);
   // The button's place, read again while the details are open: the keyboard closing under the tap moves it.
   const anchored = useAnchor(button);
-  const open = anchored.anchor !== null;
+  const open = anchored.shown;
   const setOpen = (v: boolean) => (v ? anchored.open() : anchored.close());
   useBack(open ? () => setOpen(false) : null, { overlay: true });
   // The details open over the conversation, 6 px above the composer bar, across its width.

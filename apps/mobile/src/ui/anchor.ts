@@ -21,8 +21,10 @@ type Measurable = { measureInWindow?: (cb: (x: number, y: number, width: number,
 /** How long after the keyboard moves the place is read once more, for the frames its slide takes. */
 export const SETTLE_MS = 350;
 
-export function useAnchor(ref: RefObject<unknown>): { anchor: Anchor | null; open: () => void; close: () => void } {
+/** `shown` turns on at once on open; `anchor` follows when the place has been read. */
+export function useAnchor(ref: RefObject<unknown>): { anchor: Anchor | null; shown: boolean; open: () => void; close: () => void } {
   const [anchor, setAnchor] = useState<Anchor | null>(null);
+  const [isShown, setShown] = useState(false);
   const shown = useRef(false);
   const keyboard = useKeyboardHeight();
   const win = useWindowDimensions();
@@ -33,10 +35,12 @@ export function useAnchor(ref: RefObject<unknown>): { anchor: Anchor | null; ope
   }, [ref]);
   const open = useCallback(() => {
     shown.current = true;
+    setShown(true);
     measure();
   }, [measure]);
   const close = useCallback(() => {
     shown.current = false;
+    setShown(false);
     setAnchor(null);
   }, []);
   useEffect(() => {
@@ -45,5 +49,5 @@ export function useAnchor(ref: RefObject<unknown>): { anchor: Anchor | null; ope
     const t = setTimeout(measure, SETTLE_MS);
     return () => clearTimeout(t);
   }, [keyboard, win.width, win.height, measure]);
-  return { anchor, open, close };
+  return { anchor, shown: isShown, open, close };
 }

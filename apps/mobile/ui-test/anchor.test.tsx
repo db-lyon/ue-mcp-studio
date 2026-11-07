@@ -20,9 +20,9 @@ const pillY = (keyboard: number) => 700 - keyboard;
 describe("the menu's place beside its button", () => {
   it("opens above the button, from the button's place with the keyboard up and with it down", () => {
     const up = menuPlace({ x: 60, y: pillY(KEYBOARD), width: 140, height: 44 }, { win: WIN, insets: INSETS, up: true, narrowest: false });
-    expect(up.bottom).toBe(WIN.height - pillY(KEYBOARD) + 6);
+    expect((up as { bottom?: number }).bottom).toBe(WIN.height - pillY(KEYBOARD) + 6);
     const down = menuPlace({ x: 60, y: pillY(0), width: 140, height: 44 }, { win: WIN, insets: INSETS, up: true, narrowest: false });
-    expect(down.bottom).toBe(WIN.height - pillY(0) + 6);
+    expect((down as { bottom?: number }).bottom).toBe(WIN.height - pillY(0) + 6);
     // Never past the status bar.
     expect(down.maxHeight).toBeLessThanOrEqual(pillY(0) - 6 - INSETS.top);
   });
