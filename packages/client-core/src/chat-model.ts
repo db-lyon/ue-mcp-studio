@@ -3,6 +3,7 @@
  * no DOM, so every rule here is unit tested on its own.
  */
 import type { ToolCallRecord, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import { baseName } from "./vcs.js";
 
 export type Call = ToolCallRecord;
 
@@ -62,25 +63,64 @@ export const TOOL_TAG: Record<string, string> = {
   grep: "grep",
   web_fetch: "fetch",
   web_search: "search",
+  skill: "skill",
+  Skill: "skill",
 };
 
-/** A tool call as one short line: the action it ran, the command, the file, or the search it made. */
-export function toolLabel(call: Call): string {
-  const i = call.input as {
-    action?: string; category?: string; method?: string; query?: string; operation?: string;
-    command?: string; path?: string; pattern?: string; url?: string; offset?: number; limit?: number; glob?: string;
-  };
+interface CallInput {
+  action?: string; category?: string; method?: string; query?: string; operation?: string; name?: string; skill?: string;
+  command?: string; path?: string; file_path?: string; filePath?: string; pattern?: string; url?: string; offset?: number; limit?: number; glob?: string;
+}
+
+/**
+ * The file a call names. Studio's tools take path; a built-in reached through
+ * an alias records file_path, so both are read.
+ */
+export function callPath(call: Call): string {
+  const i = (call.input ?? {}) as CallInput;
+  return i.path ?? i.file_path ?? i.filePath ?? "";
+}
+
+/** The lines a read asked for: "lines 55-74", "from line 55", or "" for the whole file. */
+export function lineRange(offset?: number, limit?: number): string {
+  if (!offset && !limit) return "";
+  const first = offset || 1;
+  return limit ? `lines ${first}-${first + limit - 1}` : `from line ${first}`;
+}
+
+function label(call: Call, full: boolean): string {
+  const i = (call.input ?? {}) as CallInput;
+  const file = full ? callPath(call) : baseName(callPath(call));
   if (call.name === "editor_restart") return `editor ${i.operation ?? ""}`;
   if (call.name === "shell") return firstLine(i.command ?? "");
-  if (call.name === "read_file") return i.offset || i.limit ? `${i.path ?? ""} (from line ${i.offset ?? 1})` : i.path ?? "";
-  if (call.name === "write_file" || call.name === "edit_file") return i.path ?? "";
+  if (call.name === "read_file") {
+    const range = lineRange(i.offset, i.limit);
+    return range ? `${file} (${range})` : file;
+  }
+  if (call.name === "write_file" || call.name === "edit_file") return file;
   if (call.name === "glob") return `${i.pattern ?? ""}${i.path ? ` in ${i.path}` : ""}`;
   if (call.name === "grep") return `/${i.pattern ?? ""}/${i.glob ? ` ${i.glob}` : ""}${i.path ? ` in ${i.path}` : ""}`;
   if (call.name === "web_fetch") return i.url ?? "";
   if (call.name === "web_search") return `"${i.query ?? ""}"`;
+  if (call.name === "skill" || call.name === "Skill") return i.name ?? i.skill ?? "";
+  if (call.name !== "ue_mcp") return firstString(call.input);
   if (i.action === "call") return `${i.category}.${i.method}`;
   if (i.action === "search") return `search "${i.query ?? ""}"`;
-  return `describe ${i.category ?? ""}${i.method ? `.${i.method}` : ""}`;
+  if (i.action === "describe" || (!i.action && i.category)) return `describe ${i.category ?? ""}${i.method ? `.${i.method}` : ""}`;
+  return (i.action ?? "").replace(/_/g, " ");
+}
+
+/** A tool call as one short line: the action it ran, the command, the file by name with the lines read, or the search it made. */
+export const toolLabel = (call: Call): string => label(call, false);
+
+/** The same line with paths in full, for the hover or long press on a call. */
+export const toolTitle = (call: Call): string => label(call, true);
+
+/** The first text in a tool's input, for a tool this client has no line for. */
+function firstString(input: unknown): string {
+  if (!input || typeof input !== "object") return "";
+  const v = Object.values(input as Record<string, unknown>).find((x) => typeof x === "string" && x.trim());
+  return typeof v === "string" ? firstLine(v) : "";
 }
 
 /** A command's first line, with a mark when it has more. */
@@ -162,14 +202,93 @@ export type MainItem =
   /** Subagents the main agent started together, drawn as one block. */
   | { kind: "agents"; calls: Call[] }
   /** The main agent's progress messages from a finished turn, folded behind its final answer. */
-  | { kind: "progress"; entries: TranscriptEntry[] };
+  | { kind: "progress"; entries: TranscriptEntry[] }
+  /** Consecutive working steps (reads, commands, searches, edits, editor calls) folded into one summary line. */
+  | { kind: "steps"; calls: Call[] };
+
+/** A thread's lines when only the step fold applies: a subagent's own thread. */
+export type StepItem = Extract<MainItem, { kind: "entry" | "steps" }>;
+
+/** The fewest neighbouring steps that fold; a lone step is already one line. */
+export const FOLD_MIN = 2;
+
+/**
+ * Whether a call folds into a run of steps: finished or running, not a
+ * subagent, and not waiting for the user's approval. A failed, declined,
+ * stopped or unknown call stays its own line and ends the run, so nothing that
+ * went wrong is hidden behind a summary.
+ */
+export function foldsAway(call: Call, asked: ReadonlySet<string> = NONE): boolean {
+  if (call.name === "agent") return false;
+  return call.outcome === "done" || (call.outcome === "pending" && !asked.has(call.id));
+}
+
+/** The run's call that is running now, the newest one, or null once all have finished. */
+export const liveStep = (calls: Call[]): Call | null => [...calls].reverse().find((c) => c.outcome === "pending") ?? null;
+
+/** What each kind of step counts as in a summary: the verb, the noun, and whether it counts distinct files. */
+const STEP_KINDS: Array<{ names: string[]; verb: string; one: string; many: string; files?: boolean }> = [
+  { names: ["read_file"], verb: "read", one: "file", many: "files", files: true },
+  { names: ["shell"], verb: "ran", one: "command", many: "commands" },
+  { names: ["glob", "grep", "web_search"], verb: "searched", one: "time", many: "times" },
+  { names: ["edit_file"], verb: "edited", one: "file", many: "files", files: true },
+  { names: ["write_file"], verb: "wrote", one: "file", many: "files", files: true },
+  { names: ["web_fetch"], verb: "fetched", one: "page", many: "pages" },
+  { names: ["ue_mcp", "editor_restart"], verb: "made", one: "editor call", many: "editor calls" },
+  { names: ["skill", "Skill"], verb: "loaded", one: "skill", many: "skills" },
+];
+
+/** "Read 9 files, ran 2 commands": each kind of step in the order it first ran. */
+export function stepsSummary(calls: Call[]): string {
+  const parts = new Map<string, { kind: (typeof STEP_KINDS)[number] | null; n: number; files: Set<string> }>();
+  for (const c of calls) {
+    const kind = STEP_KINDS.find((k) => k.names.includes(c.name)) ?? null;
+    const key = kind ? kind.verb : "other";
+    const part = parts.get(key) ?? { kind, n: 0, files: new Set<string>() };
+    part.n++;
+    part.files.add(callPath(c) || c.id);
+    parts.set(key, part);
+  }
+  const text = [...parts.values()].map(({ kind, n, files }) => {
+    if (!kind) return `used ${n} other ${n === 1 ? "tool" : "tools"}`;
+    const count = kind.files ? files.size : n;
+    return `${kind.verb} ${count} ${count === 1 ? kind.one : kind.many}`;
+  }).join(", ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * Groups runs of neighbouring steps: each run of FOLD_MIN or more calls that
+ * fold away becomes one steps item, and everything else (replies, failed
+ * calls, calls waiting on the user, cards, markers) stays its own line and
+ * ends the run.
+ */
+export function foldSteps(entries: TranscriptEntry[], asked: ReadonlySet<string> = NONE): StepItem[] {
+  const out: StepItem[] = [];
+  let run: TranscriptEntry[] = [];
+  const flush = () => {
+    if (run.length >= FOLD_MIN) out.push({ kind: "steps", calls: run.map((t) => (t as Extract<TranscriptEntry, { kind: "tool" }>).call) });
+    else for (const t of run) out.push({ kind: "entry", entry: t });
+    run = [];
+  };
+  for (const t of entries) {
+    if (t.kind === "tool" && foldsAway(t.call, asked)) run.push(t);
+    else {
+      flush();
+      out.push({ kind: "entry", entry: t });
+    }
+  }
+  flush();
+  return out;
+}
 
 /**
  * The main thread: entries without a parent that `shown` accepts (a card nothing draws is not),
- * neighbouring agent calls grouped, and in a finished turn that ran subagents, every
- * message the main agent wrote before its final one folded into one progress line.
+ * neighbouring agent calls grouped, runs of working steps folded into one line (foldSteps; `asked`
+ * holds the calls waiting on the user, which never fold), and in a finished turn that ran
+ * subagents, every message the main agent wrote before its final one folded into one progress line.
  */
-export function mainTimeline(transcript: TranscriptEntry[], status: TurnStatus, shown?: (t: TranscriptEntry) => boolean): MainItem[] {
+export function mainTimeline(transcript: TranscriptEntry[], status: TurnStatus, shown?: (t: TranscriptEntry) => boolean, asked: ReadonlySet<string> = NONE): MainItem[] {
   const main = transcript.filter((t) => !t.parent && (!shown || shown(t)));
   // Turns: each starts at a user message.
   const turns: TranscriptEntry[][] = [];
@@ -185,8 +304,14 @@ export function mainTimeline(transcript: TranscriptEntry[], status: TurnStatus, 
     const replies = turn.filter((t) => t.kind === "assistant");
     const folded = new Set<TranscriptEntry>(finished && ranAgents && replies.length > 1 ? replies.slice(0, -1) : []);
     let progress: TranscriptEntry[] = [];
+    let run: TranscriptEntry[] = [];
+    const flushRun = () => {
+      if (run.length > 0) out.push(...foldSteps(run, asked));
+      run = [];
+    };
     for (const t of turn) {
       if (folded.has(t)) {
+        flushRun();
         progress.push(t);
         continue;
       }
@@ -194,6 +319,11 @@ export function mainTimeline(transcript: TranscriptEntry[], status: TurnStatus, 
         out.push({ kind: "progress", entries: progress });
         progress = [];
       }
+      if (t.kind === "tool" && foldsAway(t.call, asked)) {
+        run.push(t);
+        continue;
+      }
+      flushRun();
       const last = out[out.length - 1];
       if (t.kind === "tool" && t.call.name === "agent") {
         if (last?.kind === "agents") last.calls.push(t.call);
@@ -202,6 +332,7 @@ export function mainTimeline(transcript: TranscriptEntry[], status: TurnStatus, 
         out.push({ kind: "entry", entry: t });
       }
     }
+    flushRun();
     if (progress.length > 0) out.push({ kind: "progress", entries: progress });
   });
   return out;
