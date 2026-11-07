@@ -6,12 +6,13 @@
  * .composer-bar, at a phone's width and coarse pointer.
  */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Image, PanResponder, Platform, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
+import { Image, PanResponder, Platform, Pressable, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, extOf, fitHeight, formatBytes } from "@ue-mcp-studio/client-core";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 import { Button, font, RemoveButton, Sheet, useAvoidedInsets, useStyles, useTheme, type Theme } from "../../../ui";
 import { haptic } from "../../../native/haptics";
+import { useKeyboardHeight } from "../../../native/keyboard";
 import { clipboardHasImage, pastedImage, pickFiles, type PendingFile, type PickSource, type PickedFile } from "./attachments";
 import { useSlashMenu, type MenuKey } from "./SlashMenu";
 import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
@@ -93,6 +94,8 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   };
   // Above the navigation bar; with the keyboard up, the chat's KeyboardAvoidingView has lifted it onto the keys instead.
   const insets = useAvoidedInsets();
+  // With the keyboard up the box starts at its least and grows with the text: the dragged height waits until it is down.
+  const keyboardUp = useKeyboardHeight() > 0;
   const box = useRef<TextInputInstance>(null);
   const slash = useSlashMenu(draft, onDraft, commands, flows, actions);
   const mention = useMentionMenu(draft, onDraft, box, mentions);
@@ -132,7 +135,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     readStage();
   }, [stage, draft.length > 0]);
   const room = () => (stageHeight.current === null ? Infinity : current() + stageHeight.current - MIN_TRANSCRIPT);
-  const fit = fitHeight({ content: content ?? MIN_HEIGHT, line: LINE, chrome: CHROME, floor, room: room() });
+  const fit = fitHeight({ content: content ?? MIN_HEIGHT, line: LINE, chrome: CHROME, floor: keyboardUp ? null : floor, room: room() });
   useEffect(() => {
     if (fit.height !== boxHeight) setBoxHeight(fit.height);
   }, [fit.height]);
@@ -272,6 +275,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           <View style={[s.dividerLine, active && { backgroundColor: t.c.accent }]} />
           <View style={[s.grip, active && { backgroundColor: t.c.accent }]} />
         </View>
+        <View testID="composer-shell" style={[s.shell, focused && s.shellFocus]}>
         {files.length > 0 && (
           <View style={s.attachList} accessibilityLabel="Attached files">
             {files.map((f) => (
@@ -286,7 +290,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         )}
         {mentions && <MentionChips draft={draft} onDraft={onDraft} />}
         {/* The mirror: the text laid out at the box's width, measured instead of the box. */}
-        <View pointerEvents="none" style={[s.mirror, { left: 10 + insets.left, right: 10 + insets.right }]} aria-hidden importantForAccessibility="no-hide-descendants">
+        <View pointerEvents="none" style={[s.mirror, { left: 10 + insets.left + SHELL_INSET, right: 10 + insets.right + SHELL_INSET }]} aria-hidden importantForAccessibility="no-hide-descendants">
           <Text style={[textFont, s.mirrorText]} onLayout={(e) => setContent(Math.round(e.nativeEvent.layout.height) + BORDER)}>{mirrorText}</Text>
         </View>
         {menu}
@@ -314,20 +318,31 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           onKeyPress={onKeyPress}
           onSubmitEditing={submit}
           {...(slash.open ? slash.a11y : mention.a11y)}
-          style={[s.box, textFont, { height: fit.height }, focused && s.boxFocus, closed && { color: t.c.dim }]}
+          style={[s.box, textFont, { height: fit.height }, closed && { color: t.c.dim }]}
         />
-        {/* Send or Stop is last and never shrinks; the rest gives way by tier (barTier.ts). */}
+        {/* One row: attach, the model and effort, the context ring; Send or Stop last, never shrinking. */}
         <View style={s.bar} onLayout={onBar}>
+          <RoundButton label="Attach" hint="Attach files" disabled={closed} onPress={openAttach}>
+            <PlusGlyph color={closed ? t.c.dim : t.c.text} />
+          </RoundButton>
           <BarTierContext.Provider value={tier}>
             {picker}
-            <BarButton label="Attach" title="Attach files" icon={<AttachGlyph />} disabled={closed} onClick={openAttach} />
             {extras}
           </BarTierContext.Provider>
           <View style={s.spacer} />
           {/* A phone has no keyboard shortcuts to hint at: the hint is for a tablet's width, with a hardware keyboard. */}
           {onQueue && tier === "full" && window.width > 760 && <Text style={s.hint} numberOfLines={1}>{busy ? "Enter to queue, Ctrl+Enter to stop and send now" : "Enter to send, Shift+Enter for a new line"}</Text>}
-          {busy && onQueue && <Button title="Queue" label="Queue" hint="Send after the running turn completes. A stopped or failed turn holds the queue." disabled={!canSend} onPress={queue} />}
-          {busy ? <Button title="Stop" onPress={stop} /> : <Button title="Send" variant="primary" disabled={!canSend} onPress={send} />}
+          {busy && onQueue && <Button title="Queue" label="Queue" hint="Send after the running turn completes. A stopped or failed turn holds the queue." disabled={!canSend} onPress={queue} style={{ borderRadius: 22 }} />}
+          {busy ? (
+            <RoundButton label="Stop" kind="stop" onPress={stop}>
+              <View style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: t.c.bad }} />
+            </RoundButton>
+          ) : (
+            <RoundButton label="Send" kind="send" disabled={!canSend} onPress={send}>
+              <ArrowUpGlyph color={canSend ? t.c.onAccent : t.c.dim} />
+            </RoundButton>
+          )}
+        </View>
         </View>
         {children}
       </View>
@@ -341,6 +356,44 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
         </View>
       </Sheet>
     </>
+  );
+}
+
+/** The shell's border and padding: how far in from the composer's edge the box's text starts, for the mirror that measures it. */
+const SHELL_INSET = 1 + 6;
+
+/** A round 44 dp button of the composer row: attach, Send in the accent, Stop. */
+function RoundButton({ label, hint, kind = "plain", disabled, onPress, children }: { label: string; hint?: string; kind?: "plain" | "send" | "stop"; disabled?: boolean; onPress: () => void; children: ReactNode }) {
+  const t = useTheme();
+  const bg = kind === "send" && !disabled ? t.c.accent : t.c.panel3;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityHint={hint}
+      accessibilityState={{ disabled: !!disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={({ pressed }) => ({ width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", flexShrink: 0, backgroundColor: bg, borderWidth: 1, borderColor: kind === "stop" ? t.c.bad : pressed ? t.c.lineStrong : "transparent", opacity: pressed ? 0.85 : 1 })}
+    >
+      {children}
+    </Pressable>
+  );
+}
+
+function PlusGlyph({ color }: { color: string }) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+      <Path d="M9 3v12M3 9h12" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+    </Svg>
+  );
+}
+
+function ArrowUpGlyph({ color }: { color: string }) {
+  return (
+    <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
+      <Path d="M9 15V3M4 8l5-5 5 5" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
   );
 }
 
@@ -375,15 +428,6 @@ function useGlyphColor(): string {
   return useContext(GlyphColorContext) ?? t.c.muted;
 }
 
-function AttachGlyph() {
-  const color = useGlyphColor();
-  return (
-    <Svg width={16} height={16} viewBox="0 0 16 16" fill="none">
-      <Path d="M13.5 7.5 8 13a3.5 3.5 0 0 1-5-5l5.8-5.8a2.3 2.3 0 0 1 3.3 3.3L6.3 11.3a1.1 1.1 0 0 1-1.6-1.6L10 4.5" stroke={color} strokeWidth={1.4} strokeLinecap="round" strokeLinejoin="round" />
-    </Svg>
-  );
-}
-
 /** Checkpoints: a flag on a pole. */
 export function CheckpointsGlyph() {
   const color = useGlyphColor();
@@ -408,9 +452,10 @@ const styles = (t: Theme) => ({
   attachSize: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.dim, flexShrink: 0 },
   mirror: { position: "absolute" as const, top: 0, opacity: 0 },
   // A browser's textarea wraps its text a caret's width before its edge, and the web client's mirror is a textarea: the same 2 px here.
-  mirrorText: { paddingVertical: 8, paddingLeft: 11, paddingRight: 11 + (Platform.OS === "web" ? 2 : 0) },
-  box: { width: "100%" as const, backgroundColor: t.c.panel2, color: t.c.text, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 10, textAlignVertical: "top" as const, outlineStyle: "none" as never },
-  boxFocus: { borderColor: t.c.accentLine, boxShadow: `0 0 0 3px ${t.c.accentWash}` },
+  mirrorText: { paddingVertical: 8, paddingLeft: 10, paddingRight: 10 + (Platform.OS === "web" ? 2 : 0) },
+  shell: { gap: 4, padding: 6, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 22, backgroundColor: t.c.panel2 },
+  shellFocus: { borderColor: t.c.accentLine },
+  box: { width: "100%" as const, backgroundColor: "transparent", color: t.c.text, paddingVertical: 8, paddingHorizontal: 10, textAlignVertical: "top" as const, outlineStyle: "none" as never },
   bar: { flexDirection: "row" as const, flexWrap: "nowrap" as const, alignItems: "center" as const, gap: 6, minWidth: 0, position: "relative" as const },
   spacer: { flex: 1, minWidth: 0 },
   hint: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.dim, flexShrink: 1000, minWidth: 0, textAlign: "right" as const },

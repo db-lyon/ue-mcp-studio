@@ -590,7 +590,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (!s) return missing(req.params.id);
     const detail = SessionStore.detail(s);
     if (req.query.sync === undefined) return { body: detail };
-    return { body: syncOf(detail, typeof req.query.have === "string" ? req.query.have : undefined) };
+    const count = (v: unknown) => (typeof v === "string" && /^\d+$/.test(v) ? Number(v) : undefined);
+    return { body: syncOf(detail, typeof req.query.have === "string" ? req.query.have : undefined, { tail: count(req.query.tail), before: count(req.query.before) }) };
   });
   api.route("GET", "/sessions/:id/calls/:callId/result", (req) => {
     const s = store.get(req.params.id);

@@ -49,3 +49,29 @@ describe("session delta", () => {
     expect(syncOf(detail([{ kind: "user", text: "hi", at }]), "!!").transcript).toHaveLength(1);
   });
 });
+
+describe("session delta, a page at a time", () => {
+  const many = (n: number) => detail(Array.from({ length: n }, (_, i) => ({ kind: "user", text: `m${i}`, at }) as TranscriptEntry));
+
+  it("sends only the newest `tail` entries with where they start, and hashes for the whole transcript", () => {
+    const s = syncOf(many(10), undefined, { tail: 3 });
+    expect(s.transcript?.map((e) => (e as { text: string }).text)).toEqual(["m7", "m8", "m9"]);
+    expect(s.from).toBe(7);
+    expect(s.total).toBe(10);
+    expect(decodeHashes(s.hashes)).toHaveLength(10);
+  });
+
+  it("sends the page before `before`, and stops at the start", () => {
+    expect(syncOf(many(10), undefined, { tail: 3, before: 7 }).transcript?.map((e) => (e as { text: string }).text)).toEqual(["m4", "m5", "m6"]);
+    const first = syncOf(many(10), undefined, { tail: 3, before: 2 });
+    expect(first.transcript?.map((e) => (e as { text: string }).text)).toEqual(["m0", "m1"]);
+    expect(first.from).toBe(0);
+  });
+
+  it("keeps the old answers: no tail is the whole transcript, and held hashes get a delta whatever the tail", () => {
+    const whole = syncOf(many(4), undefined);
+    expect(whole.transcript).toHaveLength(4);
+    expect(whole.from).toBeUndefined();
+    expect(syncOf(many(5), whole.hashes, { tail: 2 }).changed).toEqual({ length: 5, entries: [[4, { kind: "user", text: "m4", at }]] });
+  });
+});

@@ -75,6 +75,7 @@ export function ModelPicker({
   up = false,
   follow,
   merged = false,
+  pill = false,
   disabled = false,
 }: {
   settings: StudioSettings;
@@ -84,6 +85,8 @@ export function ModelPicker({
   follow?: Follow<string>;
   /** The effort too: the button names both and the menu has an Effort section under the models. */
   merged?: boolean;
+  /** The composer row's rounded pill: the model in the text colour, the effort muted, no caret or route badge. */
+  pill?: boolean;
   disabled?: boolean;
 }) {
   const t = useTheme();
@@ -134,7 +137,7 @@ export function ModelPicker({
   const withEffort = merged && !follow && settings.route !== null;
   const label = withEffort ? `${shown} · ${EFFORT_NAMES[settings.effort]}` : shown;
   // In the composer bar below full, the route badge goes (barTier.ts).
-  const showVia = via && tier === "full";
+  const showVia = via && tier === "full" && !pill;
   const viaText = via ? viaName(via, current?.vendor.name ?? (via === "key" ? PROVIDERS[settings.provider as KeyProviderId]?.name ?? settings.provider : settings.provider)) : "";
 
   // The menu: above the button in the composer, across the whole bar at its narrowest.
@@ -161,11 +164,18 @@ export function ModelPicker({
         accessibilityHint={withEffort ? "Model and effort" : "Model"}
         disabled={disabled}
         onPress={toggle}
-        style={({ pressed }) => [s.button, pressed && !disabled && s.buttonPressed, disabled && { borderColor: t.c.disabledLine }]}
+        style={({ pressed }) => [s.button, pill && s.pill, pressed && !disabled && s.buttonPressed, disabled && { borderColor: t.c.disabledLine }]}
       >
-        <Text style={[s.label, disabled && { color: t.c.dim }]} numberOfLines={1}>{label}</Text>
+        {pill ? (
+          <Text style={[s.label, disabled && { color: t.c.dim }]} numberOfLines={1}>
+            {shown}
+            {withEffort ? <Text style={{ color: t.c.muted }}>{` ${EFFORT_NAMES[settings.effort]}`}</Text> : null}
+          </Text>
+        ) : (
+          <Text style={[s.label, disabled && { color: t.c.dim }]} numberOfLines={1}>{label}</Text>
+        )}
         {showVia ? <View style={s.viaBadge}><Text style={s.via}>{viaText}</Text></View> : null}
-        <Text style={s.caret} aria-hidden>{"▾"}</Text>
+        {pill ? null : <Text style={s.caret} aria-hidden>{"▾"}</Text>}
       </Pressable>
       <Modal visible={!!open} transparent animationType="none" onRequestClose={done} statusBarTranslucent navigationBarTranslucent>
         <Pressable accessibilityLabel="Close the menu" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={done} />
@@ -328,7 +338,8 @@ export function ClaudeLoginWhy() {
  * The model and the effort in the composer bar: two controls while there is
  * room, one chip with one menu when the bar narrows (chat/barTier.ts).
  */
-export function ModelAndEffort({ settings, onSettings }: { settings: StudioSettings; onSettings: (s: StudioSettings) => void }) {
+export function ModelAndEffort({ settings, onSettings, pill = false }: { settings: StudioSettings; onSettings: (s: StudioSettings) => void; pill?: boolean }) {
+  if (pill) return <ModelPicker settings={settings} onSettings={onSettings} up merged pill />;
   return atMost("merged", useBarTier())
     ? <ModelPicker settings={settings} onSettings={onSettings} up merged />
     : <><ModelPicker settings={settings} onSettings={onSettings} up /><EffortPicker settings={settings} onSettings={onSettings} /></>;
@@ -416,6 +427,7 @@ const styles = (t: Theme) => {
     viaBadge: { flexShrink: 0, paddingVertical: 2, paddingHorizontal: 6, borderWidth: 1, borderColor: t.c.line, borderRadius: 999 },
     via: { ...font(t, "sans", 500, 11, 1), color: t.c.dim, flexShrink: 0 },
     caret: { ...font(t, "sans", t.editor ? 400 : 500, 10, 1.2), color: t.c.dim, flexShrink: 0 },
+    pill: { height: 44, borderRadius: 22, paddingHorizontal: 16, borderColor: "transparent", backgroundColor: t.c.panel3 },
     menu: { position: "absolute" as const, padding: 6, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radiusLg, ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}) },
     groupNext: { borderTopWidth: 1, borderTopColor: t.c.line, marginTop: 4, paddingTop: 4 },
     groupHead: { flexDirection: "row" as const, alignItems: "center" as const, justifyContent: "space-between" as const, paddingTop: 6, paddingHorizontal: 8, paddingBottom: 4 },
