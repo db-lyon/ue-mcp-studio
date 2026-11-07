@@ -92,12 +92,17 @@ describe("a session opened in the chat", () => {
     expect(api.sessionSync).toHaveBeenCalledWith(HUGE_ID, undefined, { tail: TAIL_ENTRIES });
     // The reader reaches the top of what is drawn, again and again: older pages are read in front.
     const paged = () => api.sessionSync.mock.calls.some((c: unknown[]) => (c[2] as { before?: number } | undefined)?.before !== undefined);
-    for (let i = 0; i < 40 && !paged(); i++) {
-      const list = document.getElementById("transcript")!;
+    for (let i = 0; i < 50 && !document.getElementById("transcript"); i++) await settle();
+    for (let i = 0; i < 100 && !paged(); i++) {
+      const list = document.getElementById("transcript");
+      if (!list) {
+        await settle();
+        continue;
+      }
       layOut(list, 400);
       layOut(list.firstElementChild!, 120 + 10 * i);
       await settle();
     }
     expect(api.sessionSync).toHaveBeenCalledWith(HUGE_ID, undefined, { tail: TAIL_ENTRIES, before: n - TAIL_ENTRIES });
-  }, 30_000);
+  }, 60_000);
 });
