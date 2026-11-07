@@ -2164,3 +2164,15 @@ button.review-item-name:hover:not(:disabled) { background: none; border: 0; colo
 
 /* A session whose notifications are muted: a small struck bell after its title. */
 .session-muted { display: inline-block; width: 11px; height: 11px; margin-left: 6px; vertical-align: -1px; color: var(--dim); }
+
+/* A run of working steps folded into one line, the step running now under it; opened, each call. */
+.steps-fold { display: flex; flex-direction: column; gap: 4px; }
+.transcript .steps-fold > * { flex-shrink: 0; }
+.steps-head { display: grid; grid-template-columns: 10px minmax(0, auto); align-items: center; column-gap: 8px; row-gap: 2px; align-self: flex-start; max-width: 100%; min-width: 0; height: auto; padding: 3px 8px 3px 2px; background: transparent; border: 0; text-align: left; font: 12px/1.6 var(--mono); color: var(--muted); cursor: pointer; }
+.steps-head:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--text); }
+.steps-head .steps-summary { min-width: 0; }
+.steps-live { grid-column: 2; display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.steps-live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; animation: pulse 1.2s ease-in-out infinite; }
+.steps-live .tool-name { color: var(--accent-hi); flex-shrink: 0; }
+.steps-live .tool-call { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.steps-list { display: flex; flex-direction: column; gap: 2px; margin-left: 14px; padding-left: 8px; border-left: 1px solid var(--line); }

@@ -20,14 +20,19 @@ import {
   TOOL_TAG,
   STATE_LABEL,
   agentStatus,
+  callPath,
   callsIn,
   describe,
   formatDuration,
+  foldSteps,
   formatResult,
   isActive,
+  liveStep,
   mainTimeline,
+  stepsSummary,
   summarize,
   toolLabel,
+  toolTitle,
   type Call,
 } from "@ue-mcp-studio/client-core";
 import { useFollow, useNow } from "./hooks";
@@ -47,6 +52,12 @@ function positionIn(transcript: readonly unknown[] | null | undefined, entry: Tr
     positions.set(transcript, map);
   }
   return map.get(entry) ?? -1;
+}
+
+/** A row's key from its entry's place in the transcript, so rows keep their state as lines are added; the row index when the entry is not found. */
+function placeKey(transcript: readonly unknown[], entry: TranscriptEntry, i: number): string {
+  const p = positionIn(transcript, entry);
+  return p < 0 ? `i${i}` : `e${p}`;
 }
 
 /**
@@ -294,16 +305,19 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   sent?: number;
 }) {
   const cards = useSlot("chat.card");
-  const items = useMemo(() => mainTimeline(transcript, status, (t) => t.kind !== "card" || cards.some((i) => i.ext === t.ext && i.contribution.id === t.type)), [transcript, status, cards]);
+  const askedIds = useAsked();
+  const items = useMemo(() => mainTimeline(transcript, status, (t) => t.kind !== "card" || cards.some((i) => i.ext === t.ext && i.contribution.id === t.type), askedIds), [transcript, status, cards, askedIds]);
   const follow = useFollow<HTMLDivElement>(`${transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
-  const asked = useAsked().size;
+  const asked = askedIds.size;
   return (
     <>
       <div className="transcript" ref={follow.ref} onScroll={follow.onScroll} aria-hidden={hidden || undefined}>
         {items.map((item, i) => {
-          if (item.kind === "entry") return <Entry key={i} entry={item.entry} />;
-          if (item.kind === "progress") return <ProgressFold key={i} entries={item.entries} />;
+          // Keyed by the entry or first call each item starts at, so a fold keeps its open state while the turn streams.
+          if (item.kind === "entry") return <Entry key={placeKey(transcript, item.entry, i)} entry={item.entry} />;
+          if (item.kind === "progress") return <ProgressFold key={`p${placeKey(transcript, item.entries[0], i)}`} entries={item.entries} />;
+          if (item.kind === "steps") return <StepsFold key={`s${item.calls[0].id}`} calls={item.calls} />;
           return <AgentGroup key={item.calls[0].id} calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} />;
         })}
         {streaming && <div className="msg assistant">{streaming}</div>}
@@ -326,6 +340,29 @@ export function ProgressFold({ entries }: { entries: TranscriptEntry[] }) {
         {entries.length} progress {entries.length === 1 ? "update" : "updates"}
       </button>
       {open && entries.map((e, i) => <Entry key={i} entry={e} />)}
+    </div>
+  );
+}
+
+/**
+ * A run of working steps as one line: what they did ("Read 9 files, ran 2
+ * commands"), and while one runs, that step. Opened, every call in the run.
+ */
+export function StepsFold({ calls }: { calls: Call[] }) {
+  const [open, setOpen] = useState(false);
+  const live = liveStep(calls);
+  return (
+    <div className={`steps-fold${live ? " running" : ""}`}>
+      <button className="steps-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <span className="agents-caret">{open ? "▾" : "▸"}</span>
+        <span className="steps-summary">{stepsSummary(calls)}</span>
+        {live && (
+          <span className="steps-live" title={toolTitle(live)}>
+            <span className="tool-name">{TOOL_TAG[live.name] ?? live.name}</span> <span className="tool-call">{toolLabel(live)}</span>
+          </span>
+        )}
+      </button>
+      {open && <div className="steps-list">{calls.map((c) => <ToolCall key={c.id} call={c} />)}</div>}
     </div>
   );
 }
@@ -387,6 +424,8 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack, onSto
   const st = agentStatus(call, transcript, sessionWaiting, now, useAsked());
   const prompt = (call.input as { prompt?: string }).prompt;
   const steps = transcript.filter((t) => t.parent === call.id);
+  const asked = useAsked();
+  const items = useMemo(() => foldSteps(transcript.filter((t) => t.parent === call.id), asked), [transcript, call.id, asked]);
   const follow = useFollow<HTMLDivElement>(`${steps.length}:${call.outcome}`);
   return (
     <>
@@ -406,7 +445,7 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack, onSto
             {prompt}
           </div>
         )}
-        {steps.map((t, i) => <Entry key={i} entry={t} />)}
+        {items.map((item, i) => (item.kind === "steps" ? <StepsFold key={`s${item.calls[0].id}`} calls={item.calls} /> : <Entry key={placeKey(transcript, item.entry, i)} entry={item.entry} />))}
         {call.outcome === "done" && <div className="dim small">Reported back to the main agent.</div>}
         {call.outcome === "stopped" && <div className="dim small">Stopped. The main agent was told.</div>}
         {(call.outcome === "error" || call.outcome === "unknown") && call.result && <div className="banner bad">{call.result}</div>}
@@ -418,20 +457,21 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack, onSto
 
 /** How a call's input reads when opened: the command, the change as a diff, or the input itself. */
 function CallInput({ call, links }: { call: Call; links: boolean }) {
-  const i = call.input as { command?: string; path?: string; content?: string; old_string?: string; new_string?: string; replace_all?: boolean };
+  const i = call.input as { command?: string; content?: string; old_string?: string; new_string?: string; replace_all?: boolean };
+  const path = callPath(call);
   if (call.name === "shell") return <pre className="output command">{`$ ${i.command ?? ""}`}</pre>;
   if (call.name === "edit_file") {
     return (
       <>
         {i.replace_all && <div className="dim small call-note">every occurrence</div>}
-        <DiffView lines={lineDiff(i.old_string ?? "", i.new_string ?? "")} label={`Edit to ${i.path ?? ""}`} />
+        <DiffView lines={lineDiff(i.old_string ?? "", i.new_string ?? "")} label={`Edit to ${path}`} />
       </>
     );
   }
   if (call.name === "write_file") {
     const lines = (i.content ?? "").split("\n");
     const shown = lines.slice(0, WRITE_PREVIEW_LINES).map((text) => ({ op: "+" as const, text }));
-    return <DiffView lines={lines.length > WRITE_PREVIEW_LINES ? [...shown, { op: "gap", count: lines.length - WRITE_PREVIEW_LINES }] : shown} label={`Content of ${i.path ?? ""}`} />;
+    return <DiffView lines={lines.length > WRITE_PREVIEW_LINES ? [...shown, { op: "gap", count: lines.length - WRITE_PREVIEW_LINES }] : shown} label={`Content of ${path}`} />;
   }
   if (call.name === "web_search" || call.name === "read_file" || call.name === "glob" || call.name === "grep" || call.name === "web_fetch") return null;
   return <pre className="output">{links ? <LinkedText text={JSON.stringify(call.input, null, 2)} /> : JSON.stringify(call.input, null, 2)}</pre>;
@@ -477,6 +517,7 @@ const WRITE_PREVIEW_LINES = 40;
 /** A tool call: its label and outcome; open, its input and its result, long results shortened. */
 export function ToolCall({ call }: { call: Call }) {
   const label = useMemo(() => toolLabel(call), [call]);
+  const title = useMemo(() => toolTitle(call), [call]);
   // Paths in the input and result become links only while the call is open.
   const [open, setOpen] = useState(false);
   const [all, setAll] = useState(false);
@@ -500,7 +541,7 @@ export function ToolCall({ call }: { call: Call }) {
     <details className={`tool ${call.outcome}`} onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary>
         <span className="tool-name">{TOOL_TAG[call.name] ?? call.name}</span>
-        <span className="tool-call">{label}</span>
+        <span className="tool-call" title={title}>{label}</span>
         <span className="dim">{OUTCOME_LABEL[call.outcome]}</span>
       </summary>
       <CallInput call={call} links={open} />

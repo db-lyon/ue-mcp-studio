@@ -320,6 +320,39 @@ function withTools(): SessionDetail {
   };
 }
 
+/**
+ * A turn of working steps as the owner saw it: a command, nine reads (one from
+ * line 55), another command, then a failed build and the reply. Running: the
+ * newest read is still going and the reply has not come.
+ */
+function withSteps(state: "idle" | "running"): SessionDetail {
+  const d = detail("What the wiki says about caravans", []);
+  let k = 0;
+  const call = (name: string, input: Record<string, unknown>, outcome: "done" | "error" | "pending" = "done", result = "ok"): TranscriptEntry =>
+    ({ kind: "tool", call: { id: `st-${++k}`, name, input, outcome, startedAt: ago(9), ...(outcome === "pending" ? {} : { endedAt: ago(8), result }) } });
+  const wiki = "C:/Users/dev/Projects/StudioE2E/.wiki";
+  const pages = ["Caravan-Routes", "Caravan-Exposure", "Monster-Hunting", "Ocarina", "Directional-Hints", "Weather", "Waystations", "Bandit-Camps"];
+  const steps: TranscriptEntry[] = [
+    call("shell", { command: 'ls .wiki/ ; echo ---; find Docs -maxdepth 3 -name "*.md" | head -50' }, "done", "Caravan-Routes.md\nCaravan-Exposure.md"),
+    ...pages.map((p) => call("read_file", { file_path: `${wiki}/${p}.md` })),
+    call("read_file", { file_path: `${wiki}/Caravan-Exposure.md`, offset: 55 }),
+    call("shell", { command: 'head -12 .wiki/Caravan-Exposure.md; grep -n -i "directional\\|ocarina" .wiki/*.md' }),
+  ];
+  const tail: TranscriptEntry[] = state === "running"
+    ? [call("grep", { pattern: "caravan", path: wiki, glob: "*.md" }), call("read_file", { file_path: `${wiki}/Trade-Goods.md`, offset: 1, limit: 80 }, "pending")]
+    : [
+      call("shell", { command: "npx ue-mcp project build_project" }, "error", "Build failed: CaravanComponent.cpp(88): error C2065: 'Exposure': undeclared identifier"),
+      call("ue_mcp", { action: "call", category: "level", method: "get_outliner" }),
+      call("ue_mcp", { action: "call", category: "blueprint", method: "get_components", args: { blueprint: "/Game/Caravan/BP_Caravan" } }),
+      { kind: "assistant", text: "The wiki puts caravan exposure on the north road between the waystations, with bandit camps raising it at night. The build failed on an undeclared Exposure in CaravanComponent.cpp, so I left the component as it was.", at: ago(1) },
+    ];
+  return {
+    ...d,
+    status: state,
+    transcript: [{ kind: "user", text: "What does the wiki say about caravan exposure? Check the component matches.", at: ago(10) }, ...steps, ...tail],
+  };
+}
+
 /** Three messages queued behind a turn, one carrying a file: running, or left waiting after a Stop. */
 function withQueue(status: "running" | "stopped"): SessionDetail {
   const d = withTools();
@@ -567,8 +600,11 @@ export const SCENARIOS: Record<string, Scenario> = {
     index: { playtests: [], listed: true },
     narrowClicks: [".bar-menu-button"],
   },
-  "tools-open": { title: "A turn's tool calls, the command and its output opened", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, click: ".thread-stage details.tool > summary" },
-  "tools-open-edit": { title: "An edit_file call opened: its diff, long lines wrapped under their text", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, click: ".thread-stage details.tool:nth-of-type(2) > summary", scroll: ".thread-stage details.tool:nth-of-type(2)" },
+  "tools-open": { title: "A turn's tool calls, their fold opened and the command and its output opened", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, clicks: [".thread-stage .steps-head", ".thread-stage .steps-list details.tool > summary"] },
+  "tools-open-edit": { title: "An edit_file call opened: its diff, long lines wrapped under their text", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, clicks: [".thread-stage .steps-head", ".thread-stage .steps-list details.tool:nth-of-type(2) > summary"], scroll: ".thread-stage .steps-list details.tool:nth-of-type(2)" },
+  "steps-folded": { title: "A run of reads and commands folded into one line, a failed build and the reply in view", hash: `#/chat/${SESSION_ID}`, session: withSteps("idle"), index: { playtests: [], listed: true } },
+  "steps-expanded": { title: "The run of steps opened: every read named by its file, the line range where given", hash: `#/chat/${SESSION_ID}`, session: withSteps("idle"), index: { playtests: [], listed: true }, click: ".thread-stage .steps-head", height: 1100 },
+  "steps-running": { title: "A run of steps while the turn runs: the read going now on its summary line", hash: `#/chat/${SESSION_ID}`, session: withSteps("running"), index: { playtests: [], listed: true } },
   "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },
   "queue-running": { title: "Three messages queued behind a running turn: Send now, Edit and Remove on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("running"), index: { playtests: [], listed: true } },
   "queue-stopped": { title: "The queue waiting after a Stop: Send next in its header, Send now on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("stopped"), index: { playtests: [], listed: true } },

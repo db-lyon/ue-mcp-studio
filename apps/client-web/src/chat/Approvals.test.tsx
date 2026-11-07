@@ -98,10 +98,11 @@ describe("machine tool calls in the transcript", () => {
     expect(container.textContent).toContain("Exit code: 0");
   });
 
-  it("shows an edit as a diff, by file path", () => {
+  it("shows an edit as a diff, by file name with the full path on hover", () => {
     const { container } = render(<ToolCall call={call("edit_file", { path: "Source/A.cpp", old_string: "int a = 1;", new_string: "int a = 2;" }, "Edited")} />);
     expect(screen.getByText("edit")).toBeTruthy();
-    expect(container.querySelector(".tool-call")?.textContent).toBe("Source/A.cpp");
+    expect(container.querySelector(".tool-call")?.textContent).toBe("A.cpp");
+    expect(container.querySelector(".tool-call")?.getAttribute("title")).toBe("Source/A.cpp");
     expect(container.querySelector(".diff-del")?.textContent).toBe("- int a = 1;\n");
     expect(container.querySelector(".diff-add")?.textContent).toBe("+ int a = 2;\n");
   });
@@ -113,7 +114,8 @@ describe("machine tool calls in the transcript", () => {
       <ToolCall call={call("write_file", { path: "x.txt", content: "a" }, "The user declined this file change", "declined")} />
     </>);
     const labels = [...container.querySelectorAll(".tool-call")].map((e) => e.textContent);
-    expect(labels).toEqual(["Docs/WorldGen/PASSES.md (from line 1)", "\"unreal 5.8\"", "x.txt"]);
+    expect(labels).toEqual(["PASSES.md (lines 1-20)", "\"unreal 5.8\"", "x.txt"]);
+    expect(container.querySelector(".tool-call")?.getAttribute("title")).toBe("Docs/WorldGen/PASSES.md (lines 1-20)");
     expect(container.querySelector(".tool.declined")).toBeTruthy();
     expect(screen.getByText("declined")).toBeTruthy();
   });
