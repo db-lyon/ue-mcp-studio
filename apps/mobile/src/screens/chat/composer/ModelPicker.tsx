@@ -25,6 +25,7 @@ import {
 import { findModel as find, lockedVia, runsVia, viaName, VIA_LABEL } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
 import { Banner, Sheet, font, labelFont, useSheetInsets, useStyles, useTheme, type Theme } from "../../../ui";
+import { useAnchor, type Anchor } from "../../../ui/anchor";
 import { atMost, useBarTier } from "./barTier";
 import { REMOTE_CHANGE_NOTE } from "../../../views/settings/RemoteReadOnly";
 
@@ -55,12 +56,21 @@ export interface Follow<T> {
   label: string;
 }
 
-/** Where a menu opens from: the button's place on the screen. */
-interface Anchor {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+/**
+ * The menu's place beside its button: above it (the composer) or below it
+ * (Settings), across the bar at its narrowest, and never past the status bar,
+ * the navigation bar or the keyboard.
+ */
+export function menuPlace(open: Anchor, o: { win: { width: number; height: number }; insets: { top: number; bottom: number; left: number; right: number }; up: boolean; narrowest: boolean }) {
+  const { win, insets, up, narrowest } = o;
+  const menuWidth = Math.min(320, win.width - 24);
+  const room = up ? open.y - 6 - insets.top : win.height - (open.y + open.height + 6) - insets.bottom;
+  return {
+    left: narrowest ? 10 + insets.left : Math.max(insets.left, Math.min(open.x, win.width - menuWidth - insets.right)),
+    ...(narrowest ? { right: 10 + insets.right } : { width: menuWidth }),
+    ...(up ? { bottom: win.height - open.y + 6 } : { top: open.y + open.height + 6 }),
+    maxHeight: Math.max(120, Math.min(win.height * 0.6, room)),
+  };
 }
 
 /**
@@ -95,14 +105,19 @@ export function ModelPicker({
   const tier = useBarTier();
   const win = useWindowDimensions();
   const insets = useSheetInsets();
-  const [open, setOpen] = useState<Anchor | null>(null);
+  const button = useRef<HostInstance>(null);
+  // Beside the button, its place read again while open: the keyboard closing under a tap moves it.
+  const anchored = useAnchor(button);
+  // The composer's pill opens a bottom sheet instead, which has no place to get wrong.
+  const [sheet, setSheet] = useState(false);
+  const open = pill ? null : anchored.anchor;
   const catalog = useCatalog(settings);
   const [connecting, setConnecting] = useState<{ vendor: VendorId; model: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const button = useRef<HostInstance>(null);
 
   const done = () => {
-    setOpen(null);
+    anchored.close();
+    setSheet(false);
     setConnecting(null);
   };
   useBack(open ? done : null, { overlay: true });
@@ -114,10 +129,9 @@ export function ModelPicker({
           done();
         })).catch((e: Error) => setError(e.message));
   const toggle = () => {
-    if (open) return done();
-    const el = button.current;
-    if (!el?.measureInWindow) return setOpen({ x: 0, y: 0, width: 0, height: 0 });
-    el.measureInWindow((x: number, y: number, width: number, height: number) => setOpen({ x, y, width, height }));
+    if (open || sheet) return done();
+    if (pill) return setSheet(true);
+    anchored.open();
   };
 
   // Following, only the main agent's vendor is offered: the worker runs on its sign-in or key.
@@ -141,47 +155,10 @@ export function ModelPicker({
   const viaText = via ? viaName(via, current?.vendor.name ?? (via === "key" ? PROVIDERS[settings.provider as KeyProviderId]?.name ?? settings.provider : settings.provider)) : "";
 
   // The menu: above the button in the composer, across the whole bar at its narrowest.
-  const narrowest = tier === "narrowest";
-  const menuWidth = Math.min(320, win.width - 24);
-  // Opening down (Settings), it stops above the navigation bar or the keyboard; opening up, below the status bar.
-  const room = open ? (up ? open.y - 6 - insets.top : win.height - (open.y + open.height + 6) - insets.bottom) : 0;
-  const place = open
-    ? {
-        left: narrowest ? 10 + insets.left : Math.max(insets.left, Math.min(open.x, win.width - menuWidth - insets.right)),
-        ...(narrowest ? { right: 10 + insets.right } : { width: menuWidth }),
-        ...(up ? { bottom: win.height - open.y + 6 } : { top: open.y + open.height + 6 }),
-        maxHeight: Math.max(120, Math.min(win.height * 0.6, room)),
-      }
-    : null;
+  const place = open ? menuPlace(open, { win, insets, up, narrowest: tier === "narrowest" }) : null;
 
-  return (
-    <View style={[s.picker, merged && s.pickerBar]}>
-      <Pressable
-        ref={button}
-        accessibilityRole="button"
-        accessibilityState={{ disabled, expanded: !!open }}
-        accessibilityLabel={follow ? `${follow.label}: ${shown}` : withEffort ? `Model and effort: ${shown}, ${EFFORT_NAMES[settings.effort]}` : label}
-        accessibilityHint={withEffort ? "Model and effort" : "Model"}
-        disabled={disabled}
-        onPress={toggle}
-        style={({ pressed }) => [s.button, pill && s.pill, pressed && !disabled && s.buttonPressed, disabled && { borderColor: t.c.disabledLine }]}
-      >
-        {pill ? (
-          <Text style={[s.label, disabled && { color: t.c.dim }]} numberOfLines={1}>
-            {shown}
-            {withEffort ? <Text style={{ color: t.c.muted }}>{` ${EFFORT_NAMES[settings.effort]}`}</Text> : null}
-          </Text>
-        ) : (
-          <Text style={[s.label, disabled && { color: t.c.dim }]} numberOfLines={1}>{label}</Text>
-        )}
-        {showVia ? <View style={s.viaBadge}><Text style={s.via}>{viaText}</Text></View> : null}
-        {pill ? null : <Text style={s.caret} aria-hidden>{"▾"}</Text>}
-      </Pressable>
-      <Modal visible={!!open} transparent animationType="none" onRequestClose={done} statusBarTranslucent navigationBarTranslucent>
-        <Pressable accessibilityLabel="Close the menu" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={done} />
-        {place && (
-          <View style={[s.menu, place]}>
-            <ScrollView style={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled">
+  const body = (
+    <>
               {error ? (
                 <Pressable onPress={() => setError(null)}>
                   <Banner kind="bad"><Text style={[s.small, { color: t.c.badText }]}>{error}</Text></Banner>
@@ -224,10 +201,47 @@ export function ModelPicker({
               )}
               {withEffort && !connecting && <EffortSegments settings={settings} onSettings={onSettings} />}
               {!catalog && !error ? <Text style={[s.small, { color: t.c.muted, marginVertical: 12 }]}>Loading models</Text> : null}
+    </>
+  );
+
+  return (
+    <View style={[s.picker, merged && s.pickerBar]}>
+      <Pressable
+        ref={button}
+        accessibilityRole="button"
+        accessibilityState={{ disabled, expanded: !!open || sheet }}
+        accessibilityLabel={follow ? `${follow.label}: ${shown}` : withEffort ? `Model and effort: ${shown}, ${EFFORT_NAMES[settings.effort]}` : label}
+        accessibilityHint={withEffort ? "Model and effort" : "Model"}
+        disabled={disabled}
+        onPress={toggle}
+        style={({ pressed }) => [s.button, pill && s.pill, pressed && !disabled && s.buttonPressed, disabled && { borderColor: t.c.disabledLine }]}
+      >
+        {pill ? (
+          <Text style={[s.label, disabled && { color: t.c.dim }]} numberOfLines={1}>
+            {shown}
+            {withEffort ? <Text style={{ color: t.c.muted }}>{` ${EFFORT_NAMES[settings.effort]}`}</Text> : null}
+          </Text>
+        ) : (
+          <Text style={[s.label, disabled && { color: t.c.dim }]} numberOfLines={1}>{label}</Text>
+        )}
+        {showVia ? <View style={s.viaBadge}><Text style={s.via}>{viaText}</Text></View> : null}
+        {pill ? null : <Text style={s.caret} aria-hidden>{"▾"}</Text>}
+      </Pressable>
+      <Modal visible={!!open} transparent animationType="none" onRequestClose={done} statusBarTranslucent navigationBarTranslucent>
+        <Pressable accessibilityLabel="Close the menu" style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} onPress={done} />
+        {place && (
+          <View style={[s.menu, place]}>
+            <ScrollView style={{ flexGrow: 0 }} keyboardShouldPersistTaps="handled">
+              {body}
             </ScrollView>
           </View>
         )}
       </Modal>
+      {pill ? (
+        <Sheet open={sheet} title={withEffort ? "Model and effort" : "Model"} onClose={done}>
+          {body}
+        </Sheet>
+      ) : null}
     </View>
   );
 }

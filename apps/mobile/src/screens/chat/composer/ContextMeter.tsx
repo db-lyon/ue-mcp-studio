@@ -6,6 +6,7 @@
  * behind it, Compact now, and the session's totals, which are spend, not
  * context, across the whole composer bar.
  */
+import { useAnchor } from "../../../ui/anchor";
 import { useBack } from "../../../back";
 import { useRef, useState, type ReactNode } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type HostInstance } from "react-native";
@@ -105,10 +106,14 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   const t = useTheme();
   const win = useWindowDimensions();
   const insets = useInsets();
-  const [open, setOpen] = useState(false);
-  useBack(open ? () => setOpen(false) : null, { overlay: true });
-  const [bottom, setBottom] = useState(0);
   const button = useRef<HostInstance>(null);
+  // The button's place, read again while the details are open: the keyboard closing under the tap moves it.
+  const anchored = useAnchor(button);
+  const open = anchored.shown;
+  const setOpen = (v: boolean) => (v ? anchored.open() : anchored.close());
+  useBack(open ? () => setOpen(false) : null, { overlay: true });
+  // The details open over the conversation, 6 px above the composer bar, across its width.
+  const bottom = anchored.anchor ? win.height - anchored.anchor.y + 6 : 0;
   const tight = atMost("merged", useBarTier());
   const view = contextView(context, model, listedWindow);
   if (!view && !totals?.requests) return null;
@@ -118,10 +123,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   const tip = view ? tipLines(view, context, { nameOf, modelName: modelName ?? model, runtime: runtimeNow, compacting, owner }) : ["Context is measured after the next reply"];
   const pctColor = view?.level === "warn" ? t.c.warn : view?.level === "high" ? t.c.bad : t.c.muted;
   const toggle = () => {
-    if (open) return setOpen(false);
-    // The details open over the conversation, 6 px above the composer bar, across its width.
-    setOpen(true);
-    button.current?.measureInWindow((_x, y) => setBottom(win.height - y + 6));
+    setOpen(!open);
   };
   // .context-pop p { margin: 4px 0 }: the web's margins collapse, so each paragraph keeps only its top margin here and the box adds the last one's bottom.
   const p = (children: ReactNode, extra?: object) => <T style={[small(t), { color: t.c.dim, marginTop: 4 }, extra]}>{children}</T>;
