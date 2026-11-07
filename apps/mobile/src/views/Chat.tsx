@@ -45,7 +45,7 @@ import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../screens/chat/items";
 import { useSessionRuns } from "../chat/sessionRuns";
 import { buttonText, small } from "../chat/styles";
-import { DiagStrip, setDiag } from "../chat/diag";
+import { DiagStrip, resetDiag, setDiag } from "../chat/diag";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -121,6 +121,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const [showArchived, setShowArchived] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  /** The diagnostics strip, shown by a long press on the session title. */
+  const [diagOpen, setDiagOpen] = useState(false);
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const slide = useRef(new Animated.Value(0)).current;
@@ -228,6 +230,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     setDraft("");
     streamed.current = "";
     setStreaming("");
+    resetDiag();
     void loadDetail(selected);
   }, [selected]);
 
@@ -565,9 +568,10 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
             onStop={stopSubagent}
             onAgents={() => setSheet(true)}
             onReview={() => setReviewOpen(true)}
+            onTitleLongPress={() => setDiagOpen((v) => !v)}
           />
         ) : null}
-        {selected ? <DiagStrip /> : null}
+        {selected && diagOpen ? <DiagStrip /> : null}
         {error ? (
           <Pressable accessibilityRole="button" accessibilityLabel={error} onPress={() => setError(null)}>
             <Banner kind="bad" role="alert" style={bannerBox}>{error}</Banner>
@@ -593,7 +597,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                     <PlaytestCommandContext.Provider value={playtest}>
                       <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
                         <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onLayout={(e) => setDiag({ boxH: e.nativeEvent.layout.height })}>
-                          <MainTranscript transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
+                          <MainTranscript key={detail.id} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
                           {drawerCall ? (
                             <Animated.View
                               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.c.panel, borderLeftWidth: 1, borderLeftColor: t.c.line, shadowColor: "#000", shadowOpacity: 0.28, shadowRadius: 16, shadowOffset: { width: -16, height: 0 }, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [width, 0] }) }] }}

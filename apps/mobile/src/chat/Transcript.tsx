@@ -369,6 +369,14 @@ export interface ThreadRow {
 export const FIRST_ROWS = 12;
 /** A thread with lines that has shown none of them this long after opening says so. */
 export const UNDRAWN_MS = 4000;
+/** How many of the newest lines a thread opens with, and how many more each time the reader reaches the oldest drawn. */
+export const PAGE_ROWS = 10;
+/**
+ * The tallest a line draws before it folds behind Show more, in dp. On
+ * Android a scroller whose content runs to tens of thousands of pixels draws
+ * nothing at all, so the lines in it stay short until the reader opens one.
+ */
+export const FOLD_MAX = 400;
 
 const VIEWABLE = { itemVisiblePercentThreshold: 1 };
 
@@ -392,10 +400,13 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
   const t = useTheme();
   const [width, setWidth] = useState<number | null>(null);
   const window = useWindowDimensions().width;
-  const data = useMemo(() => [...rows].reverse(), [rows]);
+  // The newest lines first, a page at a time: older pages join as the reader reaches the top.
+  const [shown, setShown] = useState(PAGE_ROWS);
+  const data = useMemo(() => rows.slice(Math.max(0, rows.length - shown)).reverse(), [rows, shown]);
+  const older = () => setShown((n) => (n < rows.length ? n + PAGE_ROWS : n));
   const measured = useRef<Measured>({ height: 0, content: 0, offset: 0, seen: 0 });
   useUndrawn(data.length, measured);
-  useEffect(() => setDiag({ rows: data.length }), [data.length]);
+  useEffect(() => setDiag({ rows: rows.length }), [rows.length]);
   const mode = useDiag().mode;
   const onLayout = (e: LayoutChangeEvent) => {
     measured.current.height = e.nativeEvent.layout.height;
@@ -414,12 +425,12 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
   }).current;
   return (
     <WidthContext.Provider value={width ?? window - 24}>
-      {/* Diagnostics: a magenta bar that paints whatever the rows do. */}
-      <View testID="diag-probe" style={{ height: 4, backgroundColor: "#ff00ff" }} />
       {mode === "plain" ? (
         <View testID="diag-plain" style={{ flex: 1, justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 14, gap: 12, overflow: "hidden" }} onLayout={onLayout}>
           {data.slice(0, 12).reverse().map((item) => (
-            <EntryBoundary key={item.key}>{item.render()}</EntryBoundary>
+            <Fold key={item.key}>
+              <EntryBoundary>{item.render()}</EntryBoundary>
+            </Fold>
           ))}
           {foot}
         </View>
@@ -431,14 +442,16 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
         inverted
         keyExtractor={(r: ThreadRow) => r.key}
         renderItem={({ item, index }: { item: ThreadRow; index: number }) => (
-          <View onLayout={(e) => noteRow(index, e.nativeEvent.layout.height)}>
+          <Fold onHeight={(h) => noteRow(index, h)}>
             <EntryBoundary>{item.render()}</EntryBoundary>
-          </View>
+          </Fold>
         )}
         ItemSeparatorComponent={Gap}
         // An inverted list draws its header upright at the bottom of the thread and its footer at the top.
         ListHeaderComponent={foot ? <View style={{ gap: 12, marginTop: data.length ? 12 : 0 }}>{foot}</View> : undefined}
         ListFooterComponent={head ? <View style={{ marginBottom: data.length ? 12 : 0 }}>{head}</View> : undefined}
+        onEndReached={older}
+        onEndReachedThreshold={0.5}
         initialNumToRender={FIRST_ROWS}
         maxToRenderPerBatch={8}
         windowSize={9}
@@ -468,6 +481,43 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
 }
 
 const Gap = () => <View style={{ height: 12 }} />;
+
+/**
+ * One line of a thread, folded to FOLD_MAX with Show more under it when it
+ * draws taller, so no line makes the scroller's content tall enough to blank.
+ */
+export function Fold({ children, onHeight }: { children: ReactNode; onHeight?: (h: number) => void }) {
+  const t = useTheme();
+  const [height, setHeight] = useState(0);
+  const [open, setOpen] = useState(false);
+  const long = height > FOLD_MAX;
+  return (
+    <View>
+      <View testID="fold" style={long && !open ? { maxHeight: FOLD_MAX, overflow: "hidden" } : null}>
+        <View
+          testID="fold-body"
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            setHeight(h);
+            onHeight?.(h);
+          }}
+        >
+          {children}
+        </View>
+      </View>
+      {long ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          onPress={() => setOpen(!open)}
+          style={({ pressed }) => ({ alignSelf: "flex-start", minHeight: 44, minWidth: 44, justifyContent: "center", paddingVertical: 3, paddingHorizontal: 8, borderRadius: t.radius, borderTopWidth: open ? 0 : 1, borderTopColor: t.c.line, backgroundColor: pressed ? t.c.panel2 : "transparent" })}
+        >
+          <Text style={[foldText(t), { color: t.c.dim }]}>{open ? "Show less" : "Show more"}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
 
 /**
  * On a phone, a thread with lines that has shown none of them a while after

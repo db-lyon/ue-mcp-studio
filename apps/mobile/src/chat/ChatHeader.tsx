@@ -60,7 +60,7 @@ export const HEADER_ROW = (t: Theme) => ({ flexDirection: "row" as const, alignI
  */
 const backSpacing = (t: Theme) => (t.editor ? 0 : 0.32);
 
-export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, onSessions, onMain, onStop, onAgents, onReview }: {
+export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, onSessions, onMain, onStop, onAgents, onReview, onTitleLongPress }: {
   title: string;
   thread: Call | null;
   transcript: TranscriptEntry[];
@@ -73,6 +73,8 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
   onAgents?: () => void;
   /** Opens the session's review switch and checkpoint timeline. */
   onReview?: () => void;
+  /** A long press on the title: shows or hides the diagnostics strip. */
+  onTitleLongPress?: () => void;
 }) {
   const t = useTheme();
   const now = useNow(thread?.outcome === "pending");
@@ -91,7 +93,7 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
             {title}
           </T>
         ) : null}
-        <T weight={600} numberOfLines={1} style={{ lineHeight: t.base.lineHeight }}>
+        <T weight={600} numberOfLines={1} onLongPress={onTitleLongPress} style={{ lineHeight: t.base.lineHeight }}>
           {thread ? describe(thread) : title}
         </T>
       </View>

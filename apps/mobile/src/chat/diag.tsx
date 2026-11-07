@@ -24,8 +24,15 @@ export interface Diag {
   mode: "list" | "plain";
 }
 
-const state: Diag = { entries: -1, rows: -1, listH: -1, contentH: -1, seen: 0, offset: 0, boxH: -1, composerH: -1, undrawn: null, error: null, rowH: "", mode: "list" };
+const fresh = (): Diag => ({ entries: -1, rows: -1, listH: -1, contentH: -1, seen: 0, offset: 0, boxH: -1, composerH: -1, undrawn: null, error: null, rowH: "", mode: "list" });
+const state: Diag = fresh();
 const rowHeights = new Map<number, number>();
+
+/** Another session opened: nothing measured for the last one carries over. */
+export function resetDiag(): void {
+  rowHeights.clear();
+  setDiag(fresh());
+}
 export function noteRow(i: number, h: number): void {
   if (i > 5) return;
   rowHeights.set(i, h);
