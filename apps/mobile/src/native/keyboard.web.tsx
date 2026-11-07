@@ -6,8 +6,9 @@ export function KeyboardProvider({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
-export function KeyboardAvoidingView({ behavior: _b, keyboardVerticalOffset: _k, ...rest }: ViewProps & { behavior?: string; keyboardVerticalOffset?: number }) {
-  return <View {...rest} />;
+export function KeyboardAvoidingView({ behavior: _b, keyboardVerticalOffset: _k, automaticOffset, ...rest }: ViewProps & { behavior?: string; keyboardVerticalOffset?: number; automaticOffset?: boolean }) {
+  // Tests read whether the native view measures its place on screen (data-automatic-offset).
+  return <View {...rest} {...({ dataSet: { automaticOffset: String(!!automaticOffset) } } as object)} />;
 }
 
 export function KeyboardStickyView({ offset: _o, ...rest }: ViewProps & { offset?: { closed?: number; opened?: number } }) {

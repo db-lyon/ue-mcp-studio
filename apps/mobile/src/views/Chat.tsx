@@ -560,7 +560,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
 
   return (
     <AskedContext.Provider value={asked}>
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: t.c.panel }}>
+      {/* automaticOffset: the chat sits under the app's header, so the keyboard's reach is measured from where it is on screen. */}
+      <KeyboardAvoidingView behavior="padding" automaticOffset style={{ flex: 1, backgroundColor: t.c.panel }}>
         {detail ? (
           <ChatHeader
             title={detail.title}
@@ -666,7 +667,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, fail)}
                           picker={
                             <>
-                              {settings ? <ModelAndEffort settings={settings} onSettings={setSettings} /> : null}
+                              {settings ? <ModelAndEffort pill settings={settings} onSettings={setSettings} /> : null}
                               {settings ? (
                                 <ContextMeter
                                   context={mainContext}
@@ -680,6 +681,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                                   runtime={runtimeCompacts}
                                   onCompact={() => compactNow()}
                                   owner={openThread ? "Main" : undefined}
+                                  ringOnly
                                 />
                               ) : null}
                             </>

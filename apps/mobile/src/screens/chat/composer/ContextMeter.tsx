@@ -82,7 +82,7 @@ export function IconButton({ label, glyph, onPress }: { label: string; glyph: st
   );
 }
 
-export function ContextMeter({ context, totals, model, modelName, nameOf = (id) => id, listedWindow, busy, compacting, runtime, onCompact, owner }: {
+export function ContextMeter({ context, totals, model, modelName, nameOf = (id) => id, listedWindow, busy, compacting, runtime, onCompact, owner, ringOnly = false }: {
   context: ContextUsage | undefined;
   totals: SessionSpend | undefined;
   /** The model the next turn runs on, by id, and as the picker names it. */
@@ -99,6 +99,8 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   onCompact: () => void;
   /** Whose context it is, shown before the bar when that is not obvious (a subagent's thread is open). */
   owner?: string;
+  /** Only the ring, in a round 44 dp target: the phone composer's row. */
+  ringOnly?: boolean;
 }) {
   const t = useTheme();
   const win = useWindowDimensions();
@@ -132,14 +134,20 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
         accessibilityState={{ expanded: open }}
         accessibilityHint={open ? undefined : tip.join(". ")}
         onPress={toggle}
-        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: tight ? 4 : 5, minHeight: 44, paddingHorizontal: tight ? 5 : 7, borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.line : "transparent", backgroundColor: pressed ? t.c.panel2 : "transparent" })}
+        style={({ pressed }) =>
+          ringOnly
+            ? { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: pressed ? t.c.panel3 : "transparent" }
+            : { flexDirection: "row", alignItems: "center", gap: tight ? 4 : 5, minHeight: 44, paddingHorizontal: tight ? 5 : 7, borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.line : "transparent", backgroundColor: pressed ? t.c.panel2 : "transparent" }
+        }
       >
         {view ? <ContextRing view={view} pulsing={compacting} /> : <EmptyRing />}
         {/* .compacting: the ring's fill and the percentage pulse while the conversation is compacted. */}
-        <Pulse on={compacting} period={1600}>
-          {/* The editor themes' button rule (400 12px/1.2 sans) outranks button.context-button's mono. */}
-          <T style={[t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "mono", 500, 12, 1), { color: pctColor }]}>{contextPct(view)}</T>
-        </Pulse>
+        {ringOnly ? null : (
+          <Pulse on={compacting} period={1600}>
+            {/* The editor themes' button rule (400 12px/1.2 sans) outranks button.context-button's mono. */}
+            <T style={[t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "mono", 500, 12, 1), { color: pctColor }]}>{contextPct(view)}</T>
+          </Pulse>
+        )}
       </Pressable>
       {/* Edge to edge as the app is, so the button's window position is the popover's and the bars' insets apply. */}
       <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent>
