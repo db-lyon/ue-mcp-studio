@@ -618,6 +618,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .queue-row textarea, .msg.user.editing textarea { width: 100%; resize: vertical; padding: 6px 8px; border-radius: 6px; line-height: 1.5; }
 .queue-n { width: 14px; text-align: right; flex-shrink: 0; }
 .queue-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-now { flex: none; white-space: nowrap; }
 .queue-remove { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; font-size: 13px; color: var(--muted); background: transparent; border-color: transparent; }
 .queue-remove:hover:not(:disabled) { color: var(--bad); background: var(--panel-3); border-color: transparent; }
 .msg.user { position: relative; }

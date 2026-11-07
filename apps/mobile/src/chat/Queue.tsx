@@ -2,7 +2,8 @@
  * Messages written while a turn ran, in the order they will go, under the
  * conversation. Each can be changed or removed until it is sent. A turn that
  * finishes sends the next one; after a Stop or an error the queue waits, and
- * Send next starts it again.
+ * Send next starts it again. Send now on a row sends that one at once,
+ * stopping a running turn as Stop does; the rest keep their order.
  */
 import { useState } from "react";
 import { Pressable, ScrollView, TextInput, View } from "react-native";
@@ -26,12 +27,13 @@ export function SmallButton({ title, onPress, variant = "default", disabled, lab
   );
 }
 
-export function QueuedMessages({ queue, busy, onEdit, onRemove, onSendNext }: {
+export function QueuedMessages({ queue, busy, onEdit, onRemove, onSendNext, onSendNow }: {
   queue: QueuedMessage[];
   busy: boolean;
   onEdit: (id: string, text: string) => void;
   onRemove: (id: string) => void;
   onSendNext: () => void;
+  onSendNow: (id: string) => void;
 }) {
   const t = useTheme();
   const { height } = useWindowDimensions();
@@ -45,13 +47,13 @@ export function QueuedMessages({ queue, busy, onEdit, onRemove, onSendNext }: {
         {!busy ? <SmallButton title="Send next" variant="ghost" onPress={onSendNext} /> : null}
       </View>
       {queue.map((q, i) => (
-        <QueuedRow key={q.id} q={q} n={i + 1} onEdit={onEdit} onRemove={onRemove} />
+        <QueuedRow key={q.id} q={q} n={i + 1} onEdit={onEdit} onRemove={onRemove} onSendNow={onSendNow} />
       ))}
     </ScrollView>
   );
 }
 
-function QueuedRow({ q, n, onEdit, onRemove }: { q: QueuedMessage; n: number; onEdit: (id: string, text: string) => void; onRemove: (id: string) => void }) {
+function QueuedRow({ q, n, onEdit, onRemove, onSendNow }: { q: QueuedMessage; n: number; onEdit: (id: string, text: string) => void; onRemove: (id: string) => void; onSendNow: (id: string) => void }) {
   const t = useTheme();
   const [editing, setEditing] = useState<string | null>(null);
   const box = { paddingVertical: 3, paddingHorizontal: 8, borderWidth: 1, borderColor: t.c.accentLine, borderRadius: 6, backgroundColor: t.c.accentWash };
@@ -87,6 +89,7 @@ function QueuedRow({ q, n, onEdit, onRemove }: { q: QueuedMessage; n: number; on
         {q.text || <T style={{ fontSize: 13, color: t.c.dim }}>(files only)</T>}
       </T>
       {q.attachments.length > 0 ? <T style={[small(t), { color: t.c.dim }]}>{`${q.attachments.length} ${q.attachments.length === 1 ? "file" : "files"}`}</T> : null}
+      <SmallButton title="Send now" variant="ghost" label={`Send queued message ${n} now`} onPress={() => onSendNow(q.id)} />
       <SmallButton title="Edit" variant="ghost" label={`Edit queued message ${n}`} onPress={() => setEditing(q.text)} />
       <Pressable accessibilityRole="button" accessibilityLabel={`Remove queued message ${n}`} onPress={() => onRemove(q.id)} style={({ pressed }) => ({ minWidth: 44, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: t.radius, backgroundColor: pressed ? t.c.panel3 : "transparent" })}>
         {({ pressed }) => <T style={{ fontSize: 13, lineHeight: 16, color: pressed ? t.c.bad : t.c.muted }}>{"×"}</T>}

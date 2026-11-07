@@ -142,7 +142,7 @@ describe("QueuedMessages", () => {
     const onEdit = vi.fn();
     const onRemove = vi.fn();
     const onSendNext = vi.fn();
-    renderInProject(<QueuedMessages queue={queue} busy={false} onEdit={onEdit} onRemove={onRemove} onSendNext={onSendNext} />);
+    renderInProject(<QueuedMessages queue={queue} busy={false} onEdit={onEdit} onRemove={onRemove} onSendNext={onSendNext} onSendNow={() => undefined} />);
     expect(screen.getByText("Queued (2)")).toBeTruthy();
     expect(screen.getByText("(files only)")).toBeTruthy();
     expect(screen.getByText("1 file")).toBeTruthy();
@@ -156,8 +156,22 @@ describe("QueuedMessages", () => {
     expect(onEdit).toHaveBeenCalledWith("q1", "Then tint the fog blue");
   });
 
+  it("sends any one row now, while a turn runs and when idle, with a finger-sized button", () => {
+    const onSendNow = vi.fn();
+    const first = renderInProject(<QueuedMessages queue={queue} busy onEdit={() => undefined} onRemove={() => undefined} onSendNext={() => undefined} onSendNow={onSendNow} />);
+    const now = screen.getByLabelText("Send queued message 2 now");
+    expect(now.textContent).toBe("Send now");
+    expect(getComputedStyle(now).minHeight).toBe("44px");
+    fireEvent.click(now);
+    expect(onSendNow).toHaveBeenCalledWith("q2");
+    first.unmount();
+    renderInProject(<QueuedMessages queue={queue} busy={false} onEdit={() => undefined} onRemove={() => undefined} onSendNext={() => undefined} onSendNow={onSendNow} />);
+    fireEvent.click(screen.getByLabelText("Send queued message 1 now"));
+    expect(onSendNow).toHaveBeenLastCalledWith("q1");
+  });
+
   it("says the queue goes one by one while a turn runs, without Send next", () => {
-    renderInProject(<QueuedMessages queue={queue} busy onEdit={() => undefined} onRemove={() => undefined} onSendNext={() => undefined} />);
+    renderInProject(<QueuedMessages queue={queue} busy onEdit={() => undefined} onRemove={() => undefined} onSendNext={() => undefined} onSendNow={() => undefined} />);
     expect(screen.getByText("Queued (2), sent one by one as each turn completes")).toBeTruthy();
     expect(screen.queryByLabelText("Send next")).toBeNull();
   });

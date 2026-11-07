@@ -622,6 +622,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           onEdit={(qid, text) => queueCall(api.editQueued(detail.id, qid, text))}
                           onRemove={(qid) => queueCall(api.removeQueued(detail.id, qid))}
                           onSendNext={() => queueCall(api.sendQueued(detail.id))}
+                          onSendNow={(qid) => queueCall(api.sendQueuedNow(detail.id, qid))}
                         />
                         <DialogCards dialogs={(dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === detail.id)} now={dialogs.now()} />
                         <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />

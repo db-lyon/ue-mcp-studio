@@ -320,6 +320,20 @@ function withTools(): SessionDetail {
   };
 }
 
+/** Three messages queued behind a turn, one carrying a file: running, or left waiting after a Stop. */
+function withQueue(status: "running" | "stopped"): SessionDetail {
+  const d = withTools();
+  return {
+    ...d,
+    status,
+    queue: [
+      { id: "q-ease", text: "Then make the door ease closed the same way it opens.", attachments: [], at: ago(2) },
+      { id: "q-ref", text: "Match the swing in this reference clip.", attachments: [{ id: "f-ref", name: "door-swing.mp4", type: "video/mp4", size: 1_480_000 }], at: ago(2) },
+      { id: "q-test", text: "Run the door playtest when the build passes.", attachments: [], at: ago(1) },
+    ],
+  };
+}
+
 /** Two approvals waiting at once: a file edit with its diff, and a build command. */
 function withApprovals(): SessionDetail {
   const d = detail("Door hinge fix", []);
@@ -556,6 +570,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   "tools-open": { title: "A turn's tool calls, the command and its output opened", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, click: ".thread-stage details.tool > summary" },
   "tools-open-edit": { title: "An edit_file call opened: its diff, long lines wrapped under their text", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, click: ".thread-stage details.tool:nth-of-type(2) > summary", scroll: ".thread-stage details.tool:nth-of-type(2)" },
   "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },
+  "queue-running": { title: "Three messages queued behind a running turn: Send now, Edit and Remove on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("running"), index: { playtests: [], listed: true } },
+  "queue-stopped": { title: "The queue waiting after a Stop: Send next in its header, Send now on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("stopped"), index: { playtests: [], listed: true } },
   "vcs-changes": { title: "The source control chip opened: the changed files and the picked file's diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-list li button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li button"] },
   "vcs-changes-remote": { title: "A paired browser: the source control chip opened, the changed files and the picked file's diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, remotePage: true, clicks: ["button.chip.vcs", ".changes-list li button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li button"] },
   "vcs-changes-list-narrow": { title: "The source control chip opened on a phone: only the changed files, no diff until one is tapped", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
