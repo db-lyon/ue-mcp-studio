@@ -9,7 +9,7 @@ afterEach(cleanup);
 const q = (id: string, text: string): QueuedMessage => ({ id, text, attachments: [], at: "t" });
 
 describe("the queue", () => {
-  const props = () => ({ queue: [q("a", "first"), q("b", "second")], busy: true, onEdit: vi.fn(), onRemove: vi.fn(), onSendNext: vi.fn() });
+  const props = () => ({ queue: [q("a", "first"), q("b", "second")], busy: true, onEdit: vi.fn(), onRemove: vi.fn(), onSendNext: vi.fn(), onSendNow: vi.fn() });
 
   it("lists queued messages in order and removes one", () => {
     const p = props();
@@ -29,6 +29,22 @@ describe("the queue", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(p.onEdit).toHaveBeenCalledWith("a", "first, better");
     expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("sends any one row now, while a turn runs and when idle", () => {
+    const p = props();
+    const { rerender } = render(<QueuedMessages {...p} />);
+    const now = screen.getByRole("button", { name: "Send queued message 2 now" });
+    expect(now.textContent).toBe("Send now");
+    expect(now.getAttribute("title")).toBe("Stop the running turn and send this now");
+    fireEvent.click(now);
+    expect(p.onSendNow).toHaveBeenCalledWith("b");
+    rerender(<QueuedMessages {...p} busy={false} />);
+    expect(screen.getAllByRole("button", { name: /^Send queued message \d now$/ })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Send queued message 1 now" }).getAttribute("title")).toBe("Send this now");
+    fireEvent.click(screen.getByRole("button", { name: "Send queued message 1 now" }));
+    expect(p.onSendNow).toHaveBeenLastCalledWith("a");
+    expect(p.onRemove).not.toHaveBeenCalled();
   });
 
   it("offers Send next when no turn is running, and shows nothing when empty", () => {

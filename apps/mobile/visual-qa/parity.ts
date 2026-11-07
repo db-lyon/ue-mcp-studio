@@ -35,6 +35,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "tools-open": {owner: "chat", clicks: ["shell"]},
   "tools-open-edit": {owner: "chat", clicks: ["edit"], scroll: "edit"},
   "approvals-waiting": {owner: "chat"},
+  "queue-running": {owner: "chat"},
+  "queue-stopped": {owner: "chat"},
   "vcs-changes": {owner: "agent-a", clicks: ["Open navigation", "Git feat/door-hinge-easing, 4 changed, 2 ahead. Show the changes.", "modified Source/StudioE2E/Door/DoorComponent.cpp"]},
   "vcs-changes-remote": {owner: "agent-a", clicks: ["Open navigation", "Git feat/door-hinge-easing, 4 changed, 2 ahead. Show the changes.", "modified Source/StudioE2E/Door/DoorComponent.cpp"]},
   "vcs-changes-list-narrow": {owner: "agent-a", clicks: ["Open navigation", "Git feat/door-hinge-easing, 4 changed, 2 ahead. Show the changes."]},

@@ -65,6 +65,7 @@ describe("which requests the PIN guards", () => {
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/queue", true)).toBe(true);
     // The next queued item may be a /flow queued on the computer: running it always asks.
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/queue/next", false)).toBe(true);
+    expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/queue/q1/now", false)).toBe(true);
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/queue", false, JSON.stringify({ text: "hi" }))).toBe(false);
     expect(sensitiveRequest("POST", "/v1/ext/studio/quick", true)).toBe(true);
   });
@@ -78,7 +79,8 @@ describe("which requests the PIN guards", () => {
       ["or stop turns waiting on it", "POST", "/v1/ext/studio/busy/stop"],
       ["Run playtests or flows", "POST", "/v1/ext/studio/sessions/s1/playtest"],
       ["Run playtests or flows", "POST", "/v1/ext/studio/sessions/s1/flow"],
-      ["Run the next queued message", "POST", "/v1/ext/studio/sessions/s1/queue/next"],
+      ["Send the next queued message, or one now", "POST", "/v1/ext/studio/sessions/s1/queue/next"],
+      ["Send the next queued message, or one now", "POST", "/v1/ext/studio/sessions/s1/queue/q1/now"],
       ["or change playtest scripts", "PUT", "/v1/ext/studio/qa/playtests/script"],
       ["or change playtest scripts", "DELETE", "/v1/ext/studio/qa/runs/r1/script"],
       ["Keep, revert or undo changes", "POST", "/v1/ext/studio/sessions/s1/reviews/r1/keep"],
@@ -485,6 +487,7 @@ describe("the lock in the connector, for sealed requests", () => {
       ["/v1/ext/studio/sessions/s1/queue", { text: "/flow beacon" }],
       ["/v1/ext/studio/sessions/s1/messages", { text: "/playtest BP_Door" }],
       ["/v1/ext/studio/sessions/s1/queue/next", {}],
+      ["/v1/ext/studio/sessions/s1/queue/q1/now", {}],
     ] as const) expect(await browser.send("POST", p, body), p).toEqual({ status: 423, json: { error: "Enter your PIN to do this.", code: "pin-required" } });
     expect(hits).toEqual([]);
     expect((await browser.send("POST", "/v1/ext/studio/sessions/s1/messages", { text: "hi" })).status).toBe(200);

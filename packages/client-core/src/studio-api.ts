@@ -106,6 +106,8 @@ export function studioApi(t: Transport) {
     reviewNativeDiff: (id: string, reviewId: string, path: string) => send<{ opened: string; windowTitle?: string }>("POST", `${review(id, reviewId)}/native-diff`, { path }),
     removeQueued: (id: string, qid: string) => send<void>("DELETE", `${session(id)}/queue/${enc(qid)}`),
     sendQueued: (id: string) => send<void>("POST", `${session(id)}/queue/next`),
+    /** Send one queued message now with its files, stopping a running turn first; 404 when it is not queued any more. */
+    sendQueuedNow: (id: string, qid: string) => send<{ sessionId: string }>("POST", `${session(id)}/queue/${enc(qid)}/now`),
     stop: (id: string) => send<void>("POST", `${session(id)}/stop`),
     saveDraft: (id: string, draft: string) => send<void>("PUT", `${session(id)}/draft`, { draft }),
     approve: (id: string, approvalId: string, decision: ApprovalDecision) => send<void>("POST", `${session(id)}/approvals/${enc(approvalId)}`, { decision }),
