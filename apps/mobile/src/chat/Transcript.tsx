@@ -42,6 +42,7 @@ import { SessionIdContext, attachmentUrl, formatBytes, isImage, useDaemonImage }
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
 import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";
+import { noteError, noteRow, setDiag, useDiag } from "./diag";
 
 /** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
 const positions = new WeakMap<readonly unknown[], Map<unknown, number>>();
@@ -349,6 +350,9 @@ export class EntryBoundary extends Component<{ children: ReactNode }, { failed: 
   static getDerivedStateFromError(e: unknown) {
     return { failed: e instanceof Error ? e.message : String(e) };
   }
+  componentDidCatch(e: unknown) {
+    noteError(e);
+  }
   render() {
     if (this.state.failed === null) return this.props.children;
     return <Banner kind="bad">{`This item could not be shown: ${this.state.failed}`}</Banner>;
@@ -365,6 +369,14 @@ export interface ThreadRow {
 export const FIRST_ROWS = 12;
 /** A thread with lines that has shown none of them this long after opening says so. */
 export const UNDRAWN_MS = 4000;
+/** How many of the newest lines a thread opens with, and how many more each time the reader reaches the oldest drawn. */
+export const PAGE_ROWS = 10;
+/**
+ * The tallest a line draws before it folds behind Show more, in dp. On
+ * Android a scroller whose content runs to tens of thousands of pixels draws
+ * nothing at all, so the lines in it stay short until the reader opens one.
+ */
+export const FOLD_MAX = 400;
 
 const VIEWABLE = { itemVisiblePercentThreshold: 1 };
 
@@ -388,34 +400,58 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
   const t = useTheme();
   const [width, setWidth] = useState<number | null>(null);
   const window = useWindowDimensions().width;
-  const data = useMemo(() => [...rows].reverse(), [rows]);
+  // The newest lines first, a page at a time: older pages join as the reader reaches the top.
+  const [shown, setShown] = useState(PAGE_ROWS);
+  const data = useMemo(() => rows.slice(Math.max(0, rows.length - shown)).reverse(), [rows, shown]);
+  const older = () => setShown((n) => (n < rows.length ? n + PAGE_ROWS : n));
   const measured = useRef<Measured>({ height: 0, content: 0, offset: 0, seen: 0 });
-  const undrawn = useUndrawn(data.length, measured);
+  useUndrawn(data.length, measured);
+  useEffect(() => setDiag({ rows: rows.length }), [rows.length]);
+  const mode = useDiag().mode;
   const onLayout = (e: LayoutChangeEvent) => {
     measured.current.height = e.nativeEvent.layout.height;
+    setDiag({ listH: e.nativeEvent.layout.height });
     setWidth(e.nativeEvent.layout.width - 24);
   };
   const followScroll = follow.props.onScroll;
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     measured.current.offset = e.nativeEvent.contentOffset.y;
+    setDiag({ offset: e.nativeEvent.contentOffset.y });
     followScroll(e);
   };
   const onViewable = useRef(({ viewableItems }: { viewableItems: unknown[] }) => {
     measured.current.seen = Math.max(measured.current.seen, viewableItems.length);
+    setDiag({ seen: viewableItems.length });
   }).current;
   return (
     <WidthContext.Provider value={width ?? window - 24}>
+      {mode === "plain" ? (
+        <View testID="diag-plain" style={{ flex: 1, justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 14, gap: 12, overflow: "hidden" }} onLayout={onLayout}>
+          {data.slice(0, 12).reverse().map((item) => (
+            <Fold key={item.key}>
+              <EntryBoundary>{item.render()}</EntryBoundary>
+            </Fold>
+          ))}
+          {foot}
+        </View>
+      ) : (
       <FlatList
         nativeID="transcript"
         ref={follow.ref as never}
         data={data}
         inverted
         keyExtractor={(r: ThreadRow) => r.key}
-        renderItem={({ item }: { item: ThreadRow }) => <EntryBoundary>{item.render()}</EntryBoundary>}
+        renderItem={({ item, index }: { item: ThreadRow; index: number }) => (
+          <Fold onHeight={(h) => noteRow(index, h)}>
+            <EntryBoundary>{item.render()}</EntryBoundary>
+          </Fold>
+        )}
         ItemSeparatorComponent={Gap}
         // An inverted list draws its header upright at the bottom of the thread and its footer at the top.
         ListHeaderComponent={foot ? <View style={{ gap: 12, marginTop: data.length ? 12 : 0 }}>{foot}</View> : undefined}
         ListFooterComponent={head ? <View style={{ marginBottom: data.length ? 12 : 0 }}>{head}</View> : undefined}
+        onEndReached={older}
+        onEndReachedThreshold={0.5}
         initialNumToRender={FIRST_ROWS}
         maxToRenderPerBatch={8}
         windowSize={9}
@@ -426,7 +462,10 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
         onScroll={onScroll}
         scrollEventThrottle={follow.props.scrollEventThrottle}
         onLayout={onLayout}
-        onContentSizeChange={(_w: number, h: number) => void (measured.current.content = h)}
+        onContentSizeChange={(_w: number, h: number) => {
+          measured.current.content = h;
+          setDiag({ contentH: h });
+        }}
         onViewableItemsChanged={onViewable}
         viewabilityConfig={VIEWABLE}
         accessibilityElementsHidden={hidden}
@@ -436,7 +475,7 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
         // where a short thread starts as on the web.
         contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end", paddingTop: 10, paddingHorizontal: 12, paddingBottom: 14 }}
       />
-      {undrawn ? <Banner kind="bad" role="alert" style={{ margin: 10 }}>{undrawn}</Banner> : null}
+      )}
     </WidthContext.Provider>
   );
 }
@@ -444,11 +483,48 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
 const Gap = () => <View style={{ height: 12 }} />;
 
 /**
+ * One line of a thread, folded to FOLD_MAX with Show more under it when it
+ * draws taller, so no line makes the scroller's content tall enough to blank.
+ */
+export function Fold({ children, onHeight }: { children: ReactNode; onHeight?: (h: number) => void }) {
+  const t = useTheme();
+  const [height, setHeight] = useState(0);
+  const [open, setOpen] = useState(false);
+  const long = height > FOLD_MAX;
+  return (
+    <View>
+      <View testID="fold" style={long && !open ? { maxHeight: FOLD_MAX, overflow: "hidden" } : null}>
+        <View
+          testID="fold-body"
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            setHeight(h);
+            onHeight?.(h);
+          }}
+        >
+          {children}
+        </View>
+      </View>
+      {long ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          onPress={() => setOpen(!open)}
+          style={({ pressed }) => ({ alignSelf: "flex-start", minHeight: 44, minWidth: 44, justifyContent: "center", paddingVertical: 3, paddingHorizontal: 8, borderRadius: t.radius, borderTopWidth: open ? 0 : 1, borderTopColor: t.c.line, backgroundColor: pressed ? t.c.panel2 : "transparent" })}
+        >
+          <Text style={[foldText(t), { color: t.c.dim }]}>{open ? "Show less" : "Show more"}</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
+}
+
+/**
  * On a phone, a thread with lines that has shown none of them a while after
  * opening says so, with what the list measured, instead of staying blank.
  */
-function useUndrawn(count: number, measured: { current: Measured }): string | null {
-  const [text, setText] = useState<string | null>(null);
+function useUndrawn(count: number, measured: { current: Measured }): void {
+  const setText = (text: string | null) => setDiag({ undrawn: text });
   const some = count > 0;
   useEffect(() => {
     setText(null);
@@ -460,7 +536,6 @@ function useUndrawn(count: number, measured: { current: Measured }): string | nu
     }, UNDRAWN_MS);
     return () => clearTimeout(id);
   }, [some]);
-  return text;
 }
 
 /**

@@ -45,6 +45,7 @@ import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../screens/chat/items";
 import { useSessionRuns } from "../chat/sessionRuns";
 import { buttonText, small } from "../chat/styles";
+import { DiagStrip, resetDiag, setDiag } from "../chat/diag";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -120,6 +121,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const [showArchived, setShowArchived] = useState(false);
   const [sheet, setSheet] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
+  /** The diagnostics strip, shown by a long press on the session title. */
+  const [diagOpen, setDiagOpen] = useState(false);
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const slide = useRef(new Animated.Value(0)).current;
@@ -227,6 +230,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     setDraft("");
     streamed.current = "";
     setStreaming("");
+    resetDiag();
     void loadDetail(selected);
   }, [selected]);
 
@@ -407,6 +411,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
+  useEffect(() => setDiag({ entries: detail ? (Array.isArray(detail.transcript) ? detail.transcript.length : -2) : -1 }), [detail]);
   // The calls waiting for approval, so the thread a call waits in says it waits on the user.
   const asked = useMemo(() => new Set((detail?.approvals ?? []).map((a) => a.toolUseId)), [detail?.approvals]);
   // Retry on a failed playtest: the playtest flow, started when no turn runs.
@@ -563,8 +568,10 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
             onStop={stopSubagent}
             onAgents={() => setSheet(true)}
             onReview={() => setReviewOpen(true)}
+            onTitleLongPress={() => setDiagOpen((v) => !v)}
           />
         ) : null}
+        {selected && diagOpen ? <DiagStrip /> : null}
         {error ? (
           <Pressable accessibilityRole="button" accessibilityLabel={error} onPress={() => setError(null)}>
             <Banner kind="bad" role="alert" style={bannerBox}>{error}</Banner>
@@ -589,8 +596,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                   <EditMessageContext.Provider value={disconnected ? null : editMessage}>
                     <PlaytestCommandContext.Provider value={playtest}>
                       <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
-                        <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                          <MainTranscript transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
+                        <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onLayout={(e) => setDiag({ boxH: e.nativeEvent.layout.height })}>
+                          <MainTranscript key={detail.id} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
                           {drawerCall ? (
                             <Animated.View
                               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.c.panel, borderLeftWidth: 1, borderLeftColor: t.c.line, shadowColor: "#000", shadowOpacity: 0.28, shadowRadius: 16, shadowOffset: { width: -16, height: 0 }, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [width, 0] }) }] }}
@@ -624,6 +631,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           <ContextWarning view={meterView} runtime={runtimeCompacts} busy={busy} onCompact={() => compactNow()} onDismiss={() => setWarnDismissed(warnKey)} />
                         ) : null}
                         {playtest ? <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} /> : null}
+                        <View onLayout={(e) => setDiag({ composerH: e.nativeEvent.layout.height })}>
                         <Composer
                           draft={draft}
                           onDraft={setDraft}
@@ -668,6 +676,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                             </>
                           }
                         />
+                        </View>
                         <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>
                           {threads}
                         </Sheet>
