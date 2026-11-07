@@ -26,6 +26,7 @@ import { ProjectScreen } from "../src/screens/Project";
 import { OfflineBanner } from "../src/views/OfflineBanner";
 import { RememberOffer } from "../src/views/remote/RemoteLock";
 import { THEMES, ThemeProvider, useStudioFonts, useTheme } from "../src/ui";
+import { setKeyboardHeight } from "../src/native/keyboard.web";
 
 const g = globalThis as Record<string, unknown>;
 const now = Date.now();
@@ -110,6 +111,27 @@ const LONG_TITLE = "Core game loop revisions";
 const LONG_OLDER = longThread(false);
 const LONG_NEWEST = longThread(true);
 
+/** A soft keyboard's height on a 390 by 844 phone, and a draft far longer than the room above it. */
+const KEYBOARD = 300;
+const LONG_DRAFT = [
+  "Also, yes the persisting stuff would ostensibly be things like home base upgrades, equipment, facilities, new biomes and quest types unlocking, etc.",
+  "In fact, I think some of the docs already mentioned the concept of the omen and maybe that is the final destination of each run. Restore POIs on the way to the omen, kill the big baddie, reset.",
+  "But ultimately the player returns to the home base and readies for the next bout, spending what the run brought back on the next set of upgrades.",
+  "The question is how much of the map persists between runs: the restored POIs could stay restored, or the omen could undo a share of them each time.",
+].join("\n\n");
+const LONG_DRAFT_SCENARIO: Scenario = { ...LONG_OLDER, session: { ...LONG_OLDER.session!, draft: LONG_DRAFT } };
+
+/** The keys, drawn where the native KeyboardAvoidingView would leave them: under the chat, which gives up their height. */
+function OnKeyboard({ children }: { children: ReactNode }) {
+  const t = useTheme();
+  return (
+    <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, minHeight: 0 }}>{children}</View>
+      <View style={{ height: KEYBOARD, backgroundColor: "#1b2421", borderTopWidth: 1, borderTopColor: t.c.line }} />
+    </View>
+  );
+}
+
 const oldStudio = (base: Transport): Transport => (method, path, o) => (path.startsWith("/v1/health") ? healthOf("0.1.25-beta.12")(method, path, o) : base(method, path, o));
 
 export interface Scene {
@@ -184,6 +206,12 @@ export const SCENES: Record<string, Scene> = {
   "thread-show-more-folded": { title: "A long reply above a newer turn: folded at 400 dp, faded into the panel, Show more centred under it", clicks: [LONG_TITLE], draw: () => <InProject name="steps-folded" scenario={LONG_OLDER} /> },
   "thread-show-more-expanded": { title: "That reply opened: its last piece, Show less centred under it", clicks: [LONG_TITLE, "Show more"], draw: () => <InProject name="steps-folded" scenario={LONG_OLDER} /> },
   "thread-newest-long": { title: "A reply about 6000 dp tall as the newest line: never folded, drawn as pieces", clicks: [LONG_TITLE], draw: () => <InProject name="steps-folded" scenario={LONG_NEWEST} /> },
+  "composer-long-draft-keyboard": {
+    title: "A long draft with the keyboard up: the box stops at the room above the keys and scrolls, the bar stays on the keys",
+    setup: () => setKeyboardHeight(KEYBOARD),
+    clicks: [LONG_TITLE],
+    draw: () => <OnKeyboard><InProject name="steps-folded" scenario={LONG_DRAFT_SCENARIO} /></OnKeyboard>,
+  },
   "lock-remember": { title: "After a typed PIN: the fingerprint offered for next time", draw: () => <InProject name="session-empty"><RememberOffer onYes={none} onNo={none} /></InProject> },
 };
 

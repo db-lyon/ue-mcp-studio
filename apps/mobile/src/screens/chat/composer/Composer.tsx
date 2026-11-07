@@ -5,8 +5,8 @@
  * styles.css: .composer, .composer-divider, .composer-grip, .attach-*,
  * .composer-bar, at a phone's width and coarse pointer.
  */
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
-import { Image, PanResponder, Platform, Pressable, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Image, PanResponder, Platform, Pressable, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, extOf, fitHeight, formatBytes } from "@ue-mcp-studio/client-core";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
@@ -27,6 +27,21 @@ const LINE = 24;
 /** The box's padding (8 top and bottom) and border (1 each side). */
 const CHROME = 18;
 const BORDER = 2;
+/**
+ * The composer's height less the box's with nothing attached: its border and
+ * padding (1 + 12 + 10), the shell's (2 + 12), the gap and the 44 dp bar. The
+ * safe-area bottom comes on top. Used until the composer has been laid out.
+ */
+export const COMPOSER_CHROME = 1 + 12 + 10 + 2 + 12 + 4 + 44;
+
+/**
+ * The tallest the box may get: the height the transcript and the composer
+ * share (`space`), less the transcript's least height and everything of the
+ * composer that is not the box. Never below MIN_HEIGHT.
+ */
+export function composerRoom({ space, chrome }: { space: number; chrome: number }): number {
+  return Number.isFinite(space) ? Math.max(MIN_HEIGHT, Math.floor(space - MIN_TRANSCRIPT - chrome)) : Infinity;
+}
 
 /**
  * Where the user writes: the text, the files added to it, and the bar with the
@@ -34,12 +49,14 @@ const BORDER = 2;
  * message behind it, and Ctrl+Enter on a hardware keyboard stops the turn and
  * sends the message now.
  *
- * The text box sizes itself to what is written. The handle above it drags the
- * box taller or shorter against `stage`, the transcript that gives up the room;
- * the dragged height is a minimum the content can still grow past. A double tap
- * on the handle forgets it. `height` is the saved one, `onHeight` saves.
+ * The text box sizes itself to what is written, up to the room `space` leaves
+ * once the transcript keeps MIN_TRANSCRIPT and the bar keeps its row, then
+ * scrolls inside that height. The handle above it drags the box taller or
+ * shorter within the same room; the dragged height is a minimum the content
+ * can still grow past. A double tap on the handle forgets it. `height` is the
+ * saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, extras, stage, height, onHeight, commands, flows, actions, mentions, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, extras, space, height, onHeight, commands, flows, actions, mentions, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -59,8 +76,12 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   picker: ReactNode;
   /** More bar controls, after Attach: the composer.action slot. */
   extras?: ReactNode;
-  /** The transcript that gives up the room the box is dragged into. */
-  stage?: RefObject<HostInstance | null>;
+  /**
+   * The height the transcript and the composer share: below the header, above
+   * the keyboard, less the cards between them. Without it, the window less the
+   * keyboard and the top inset.
+   */
+  space?: number | null;
   height?: number | null;
   onHeight?: (h: number | null) => void;
   /** The slash commands the menu offers; the registry's when not given. */
@@ -95,7 +116,8 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   // Above the navigation bar; with the keyboard up, the chat's KeyboardAvoidingView has lifted it onto the keys instead.
   const insets = useAvoidedInsets();
   // With the keyboard up the box starts at its least and grows with the text: the dragged height waits until it is down.
-  const keyboardUp = useKeyboardHeight() > 0;
+  const keyboard = useKeyboardHeight();
+  const keyboardUp = keyboard > 0;
   const box = useRef<TextInputInstance>(null);
   const slash = useSlashMenu(draft, onDraft, commands, flows, actions);
   const mention = useMentionMenu(draft, onDraft, box, mentions);
@@ -126,15 +148,14 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   const [content, setContent] = useState<number | null>(null);
   const [boxHeight, setBoxHeight] = useState<number>(MIN_HEIGHT);
   const current = () => boxHeight || MIN_HEIGHT;
-  /** The transcript's height, read when the box is dragged and when it grows. */
-  const stageHeight = useRef<number | null>(null);
-  const readStage = () => stage?.current?.measure?.((_x: number, _y: number, _w: number, h: number) => {
-    if (h > 0) stageHeight.current = h;
-  });
-  useEffect(() => {
-    readStage();
-  }, [stage, draft.length > 0]);
-  const room = () => (stageHeight.current === null ? Infinity : current() + stageHeight.current - MIN_TRANSCRIPT);
+  /** The composer's laid-out height and the box's, for the part of the composer that is not the box. */
+  const [outer, setOuter] = useState(0);
+  const [laidBox, setLaidBox] = useState(0);
+  const chrome = Math.max(COMPOSER_CHROME + insets.bottom, outer > 0 && laidBox > 0 ? Math.round(outer - laidBox) : 0);
+  // Before the window has a size (a test page), nothing caps the box but its line count.
+  const shared = space ?? (window.height > 0 ? window.height - keyboard - insets.top : Infinity);
+  const cap = composerRoom({ space: shared, chrome });
+  const room = () => cap;
   const fit = fitHeight({ content: content ?? MIN_HEIGHT, line: LINE, chrome: CHROME, floor: keyboardUp ? null : floor, room: room() });
   useEffect(() => {
     if (fit.height !== boxHeight) setBoxHeight(fit.height);
@@ -173,7 +194,6 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
       onMoveShouldSetPanResponder: () => true,
       onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: () => {
-        readStage();
         startH = live.current.current();
         r = live.current.room();
         last = live.current.floor;
@@ -252,14 +272,14 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
 
   return (
     <>
-      <View testID="composer" style={[s.composer, { paddingBottom: 10 + insets.bottom, paddingLeft: 10 + insets.left, paddingRight: 10 + insets.right }]}>
+      <View testID="composer" onLayout={(e) => setOuter(e.nativeEvent.layout.height)} style={[s.composer, { paddingBottom: 10 + insets.bottom, paddingLeft: 10 + insets.left, paddingRight: 10 + insets.right }]}>
         <View
           style={s.divider}
           accessible
           accessibilityRole="adjustable"
           accessibilityLabel="Resize the message box"
           accessibilityHint="Drag to resize, double-tap to reset"
-          accessibilityValue={{ min: MIN_HEIGHT, max: Number.isFinite(room()) ? Math.round(room()) : undefined, now: floor ?? undefined }}
+          accessibilityValue={{ min: MIN_HEIGHT, max: Number.isFinite(cap) ? cap : undefined, now: floor ?? undefined }}
           accessibilityActions={[{ name: "increment" }, { name: "decrement" }, { name: "activate" }]}
           onAccessibilityAction={(e) => {
             if (e.nativeEvent.actionName === "increment") nudge(NUDGE);
@@ -318,6 +338,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           onKeyPress={onKeyPress}
           onSubmitEditing={submit}
           {...(slash.open ? slash.a11y : mention.a11y)}
+          onLayout={(e) => setLaidBox(e.nativeEvent.layout.height)}
           style={[s.box, textFont, { height: fit.height }, closed && { color: t.c.dim }]}
         />
         {/* One row: attach, the model and effort, the context ring; Send or Stop last, never shrinking. */}
