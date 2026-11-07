@@ -118,21 +118,14 @@ describe("a dialog card", () => {
     expect(screen.queryByRole("button", { name: "Let the agent decide" })).toBeNull();
   });
 
-  it("flashes the window when it asks while Studio is not in front", () => {
+  it("leaves telling an away user to notifications: the card itself flashes and toasts nothing", () => {
     const drawattention = vi.fn(async () => true);
-    (window as { ue?: unknown }).ue = { studio: { drawattention } };
+    const notify = vi.fn(async () => true);
+    (window as { ue?: unknown }).ue = { studio: { drawattention, notify } };
     vi.spyOn(document, "hasFocus").mockReturnValue(false);
     render(<DialogCards dialogs={[base]} now={T0} />);
-    expect(drawattention).toHaveBeenCalledWith("Unreal is waiting on a dialog: Save Content");
-    vi.mocked(document.hasFocus).mockRestore();
-  });
-
-  it("does not flash a window the user is looking at", () => {
-    const drawattention = vi.fn(async () => true);
-    (window as { ue?: unknown }).ue = { studio: { drawattention } };
-    vi.spyOn(document, "hasFocus").mockReturnValue(true);
-    render(<DialogCards dialogs={[base]} now={T0} />);
     expect(drawattention).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
     vi.mocked(document.hasFocus).mockRestore();
   });
 });

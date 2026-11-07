@@ -4,7 +4,8 @@ import { act, cleanup, render } from "@testing-library/react";
 import type { DaemonEvent } from "ue-mcp/daemon";
 import { DEFAULT_DEVICE_NOTIFY, applyProjectNotify, DEFAULT_PROJECT_NOTIFY, type NotifyTarget, type ProjectNotifyPrefs } from "@ue-mcp-studio/shared";
 import { focusRun } from "./attention";
-import { DEVICE_PREFS_KEY, NOTIFICATION_CLICK, loadDesktopPrefs, loadProjectNotify, pageInUse, resetNotifyState, useNotifications, usePresence } from "./notify";
+import { PRESENCE_EVERY_MS } from "@ue-mcp-studio/client-core";
+import { DEVICE_PREFS_KEY, NOTIFICATION_CLICK, PRESENCE_CHECK_MS, loadDesktopPrefs, loadProjectNotify, pageInUse, resetNotifyState, useNotifications, usePresence } from "./notify";
 
 let prefs: ProjectNotifyPrefs = DEFAULT_PROJECT_NOTIFY;
 /** The computer's device settings the agent keeps (GET /notifications/desktop), and what the page sent. */
@@ -36,7 +37,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const notice = (over: Record<string, unknown> = {}) => ({ id: "n1", kind: "turn.finished", project: "Vale", at: "x", sessionId: "s1", title: "Done: Fix the door", text: "The door opens now.", target: { sessionId: "s1" }, active: [], ...over });
+const notice = (over: Record<string, unknown> = {}) => ({ id: "n1", kind: "turn.finished", project: "Vale", at: "x", sessionId: "s1", title: "Fix the door", text: "Ready for your review", target: { sessionId: "s1" }, active: [], ...over });
 const ev = (id: number, data: Record<string, unknown>, type = "studio.notify"): DaemonEvent => ({ id, type, at: "x", data });
 
 function Probe({ events, onOpen }: { events: DaemonEvent[]; onOpen: (t: NotifyTarget) => void }) {
@@ -57,7 +58,7 @@ describe("a notice on this device", () => {
     const notify = vi.fn(async () => true);
     window.ue = { studio: { notify } as never };
     await arrive([ev(1, notice())]);
-    expect(notify).toHaveBeenCalledWith(JSON.stringify({ title: "Done: Fix the door", text: "Vale: The door opens now.", target: { sessionId: "s1" }, group: "Vale" }));
+    expect(notify).toHaveBeenCalledWith(JSON.stringify({ id: "n1", title: "Vale: Fix the door", text: "Ready for your review", target: { sessionId: "s1" }, group: "Vale" }));
   });
 
   it("shows only the event and the project when details are hidden", async () => {
@@ -65,14 +66,14 @@ describe("a notice on this device", () => {
     window.ue = { studio: { notify } as never };
     localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify({ ...DEFAULT_DEVICE_NOTIFY, privacy: "minimal" }));
     await arrive([ev(1, notice())]);
-    expect(notify).toHaveBeenCalledWith(JSON.stringify({ title: "Turn finished", text: "Vale", target: { sessionId: "s1" }, group: "Vale" }));
+    expect(notify).toHaveBeenCalledWith(JSON.stringify({ id: "n1", title: "Turn finished", text: "Vale", target: { sessionId: "s1" }, group: "Vale" }));
   });
 
   it("flashes the editor where there is no notify", async () => {
     const drawattention = vi.fn(async () => true);
     window.ue = { studio: { drawattention } as never };
-    await arrive([ev(1, notice({ kind: "playtest.needs-you", title: "Playtest needs you", text: "No progress.", target: { sessionId: "s1", runId: "r1" } }))]);
-    expect(drawattention).toHaveBeenCalledWith("Vale: No progress.");
+    await arrive([ev(1, notice({ kind: "playtest.needs-you", title: "Fix the door", text: "A playtest loop needs you", target: { sessionId: "s1", runId: "r1" } }))]);
+    expect(drawattention).toHaveBeenCalledWith("Vale: Fix the door - A playtest loop needs you");
   });
 
   it("uses the browser's notification on a plain page, and its click opens the session", async () => {
@@ -89,7 +90,7 @@ describe("a notice on this device", () => {
     vi.spyOn(window, "focus").mockImplementation(() => {});
     const onOpen = vi.fn();
     await arrive([ev(1, notice())], onOpen);
-    expect(shown[0]).toMatchObject({ title: "Done: Fix the door", options: { body: "Vale: The door opens now.", tag: "uemcp:turn.finished:Vale" } });
+    expect(shown[0]).toMatchObject({ title: "Vale: Fix the door", options: { body: "Ready for your review", tag: "uemcp:turn.finished:Vale" } });
     shown[0].onclick!();
     expect(onOpen).toHaveBeenCalledWith({ sessionId: "s1" });
   });
@@ -129,6 +130,34 @@ describe("a notice on this device", () => {
     const r = render(<Probe events={[ev(5, notice())]} onOpen={() => {}} />);
     await act(async () => void r.rerender(<Probe events={[ev(5, notice()), ev(6, { sessionId: "s1" }, "studio.session.changed")]} onOpen={() => {}} />));
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("decides a notice once when the stream brings it twice, out of id order, or to a remounted view", async () => {
+    const notify = vi.fn(async () => JSON.stringify({ ok: true, via: "toast" }));
+    window.ue = { studio: { notify, lastinput: vi.fn(async () => 1_000) } as never, studioWindow: true };
+    const fresh = notice({ at: new Date().toISOString() });
+    const r = await arrive([ev(10, fresh), ev(9, { stage: "agent" }, "studio.notify.trace"), ev(10, fresh)]);
+    await act(async () => void r.rerender(<Probe events={[ev(10, fresh), ev(9, { stage: "agent" }, "studio.notify.trace"), ev(10, fresh), ev(11, { stage: "device" }, "studio.notify.trace")]} onOpen={() => {}} />));
+    cleanup();
+    await arrive([ev(10, fresh)]);
+    await act(async () => void (await new Promise((done) => setTimeout(done, 0))));
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(sent.filter((x) => x.path.endsWith("/notifications/delivery"))).toHaveLength(1);
+  });
+
+  it("skips a notice from before the page loaded that the stream's backlog replays", async () => {
+    const notify = vi.fn(async () => true);
+    window.ue = { studio: { notify } as never };
+    await arrive([ev(3, notice({ id: "old", at: new Date(Date.now() - 60 * 60_000).toISOString() }))]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("says when Studio's window had already shown the notice", async () => {
+    const notify = vi.fn(async () => JSON.stringify({ ok: true, via: "toast", duplicate: true }));
+    window.ue = { studio: { notify } as never, studioWindow: true };
+    await arrive([ev(1, notice())]);
+    await act(async () => void (await new Promise((done) => setTimeout(done, 0))));
+    expect(sent).toContainEqual(expect.objectContaining({ body: expect.objectContaining({ shown: true, via: "window", ok: true, detail: "toast, already shown" }) }));
   });
 
   it("opens the session when the window's notification is clicked", () => {
@@ -190,6 +219,23 @@ describe("in use", () => {
     await act(async () => void window.dispatchEvent(new Event("focus")));
     await act(async () => void (await new Promise((r) => setTimeout(r, 0))));
     expect(sent.at(-1)).toMatchObject({ body: { active: true, inputAgeMs: 2_000 } });
+  });
+
+  it("presence keeps reporting while idle, so the agent keeps listing the page", async () => {
+    vi.useFakeTimers();
+    window.ue = { studio: { lastinput: vi.fn(async () => 3_600_000) } as never, studioWindow: true };
+    function P() {
+      usePresence();
+      return null;
+    }
+    render(<P />);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(0)));
+    const reports = () => sent.filter((x) => x.path.endsWith("/notifications/presence"));
+    expect(reports()).toHaveLength(1);
+    await act(async () => void (await vi.advanceTimersByTimeAsync(PRESENCE_EVERY_MS + PRESENCE_CHECK_MS)));
+    expect(reports().length).toBeGreaterThanOrEqual(2);
+    expect(reports().at(-1)).toMatchObject({ body: { active: false } });
+    vi.useRealTimers();
   });
 });
 

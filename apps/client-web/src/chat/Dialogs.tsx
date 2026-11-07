@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { DialogAnswer, EditorDialog } from "@ue-mcp-studio/shared";
 import { api } from "../api";
-import { native } from "../native";
 import { decider, outcomeLine, readyIn, statusLine, whoLine } from "@ue-mcp-studio/client-core";
 
 /** The open editor dialogs of one session, each a card with the dialog's own buttons. */
@@ -46,11 +45,7 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
   const who = decider(d);
   const wait = readyIn(d, now);
 
-  // Asked while the user is elsewhere: flash the window and post a notification.
-  const wants = who === "you" || d.held !== null;
-  useEffect(() => {
-    if (wants && !document.hasFocus()) void native().drawattention?.(`Unreal is waiting on a dialog: ${d.title}`).catch(() => false);
-  }, [wants, d.id]);
+  // Asked while the user is elsewhere: the dialog.waiting notification tells them, under each device's rules (notify.ts).
   // A new phase can be answered again.
   useEffect(() => setSent(null), [who, d.held?.button]);
 

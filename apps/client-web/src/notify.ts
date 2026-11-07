@@ -3,8 +3,9 @@
  * against the project's shared settings and this device's own, then shown as
  * a Windows notification from Studio's window, a flash of the editor where
  * there is no window, or the browser's notification on a paired or local
- * browser. Clicking one opens its session. Only notices that arrive after the
- * page mounts are shown, so a reload does not repeat one.
+ * browser. Clicking one opens its session. Each notice is decided once per
+ * page, and none from before the page loaded (createNoticeGate), so neither a
+ * reload nor the backlog a new stream starts with repeats one.
  */
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { DaemonEvent } from "ue-mcp/daemon";
@@ -27,7 +28,7 @@ import {
   type ProjectNotifyUpdate,
 } from "@ue-mcp-studio/shared";
 import { api } from "./api";
-import { latestTarget, noticeTag } from "@ue-mcp-studio/client-core";
+import { createNoticeGate, latestTarget, newestEventId, noticeTag, presenceDue } from "@ue-mcp-studio/client-core";
 import { native } from "./native";
 import { onRemotePage } from "./connection";
 import { syncWebPush } from "./web-push";
@@ -148,6 +149,9 @@ export function useProjectNotify(load = true): NotificationsState | null {
   return state;
 }
 
+/** The notices this page has decided, kept for the page's life whatever remounts. */
+let gate = createNoticeGate();
+
 /** For tests: forget what was read. */
 export function resetNotifyState(): void {
   projectState = null;
@@ -155,6 +159,7 @@ export function resetNotifyState(): void {
   devicePrefs = null;
   desktopLoad = null;
   lastPageInput = null;
+  gate = createNoticeGate();
 }
 
 // ── Where this page runs ──────────────────────────────────────────
@@ -211,7 +216,7 @@ export interface DeliveryResult {
 
 /**
  * What the host's notify call answered. Studio's window answers
- * { ok, via, hr?, setting?, error? }; an older window or the editor answers true or false.
+ * { ok, via, hr?, setting?, error?, duplicate? }; an older window or the editor answers true or false.
  */
 export function hostAnswer(v: unknown): { ok: boolean; detail?: string } {
   if (typeof v === "boolean") return { ok: v };
@@ -222,9 +227,9 @@ export function hostAnswer(v: unknown): { ok: boolean; detail?: string } {
       return { ok: false, detail: v.slice(0, 200) };
     }
   }
-  const r = v as { ok?: unknown; via?: unknown; hr?: unknown; setting?: unknown; error?: unknown } | null;
+  const r = v as { ok?: unknown; via?: unknown; hr?: unknown; setting?: unknown; error?: unknown; duplicate?: unknown } | null;
   if (!r || typeof r !== "object") return { ok: false };
-  const parts = [r.via, r.setting && `setting ${String(r.setting)}`, r.hr && `HRESULT ${String(r.hr)}`, r.error].filter((p): p is string => typeof p === "string" && p.length > 0);
+  const parts = [r.via, r.setting && `setting ${String(r.setting)}`, r.hr && `HRESULT ${String(r.hr)}`, r.error, r.duplicate === true && "already shown"].filter((p): p is string => typeof p === "string" && p.length > 0);
   return { ok: r.ok === true, ...(parts.length ? { detail: parts.join(", ") } : {}) };
 }
 
@@ -233,11 +238,13 @@ export async function deliver(n: Notice, prefs: DeviceNotifyPrefs, onOpen: (t: N
   const { title, body } = noticeContent(n, prefs.privacy);
   const nat = native();
   if (nat.notify) {
-    const answer = hostAnswer(await nat.notify(JSON.stringify({ title, text: body, target: n.target, group: n.project })).catch((e: unknown) => String(e)));
+    // The id lets Studio's window show one toast per notice, whichever page asks.
+    const answer = hostAnswer(await nat.notify(JSON.stringify({ id: n.id, title, text: body, target: n.target, group: n.project })).catch((e: unknown) => String(e)));
     if (answer.ok || window.ue?.studioWindow) return { via: "window", ...answer };
   }
   if (window.ue?.studio && nat.drawattention) {
-    const flashed = await nat.drawattention(body).catch(() => false);
+    // The editor's toast has one line: the subject and the state together.
+    const flashed = await nat.drawattention(`${title} - ${body}`).catch(() => false);
     return { via: "flash", ok: !!flashed };
   }
   const permission = browserPermission();
@@ -279,6 +286,8 @@ function reported(d: NotifyDelivery): void {
 export async function handleNotice(n: Notice, onOpen: (t: NotifyTarget) => void): Promise<NotifyDelivery | null> {
   // Another device's test.
   if (n.test && !testIsFor(n.test, presenceId, deviceKind())) return null;
+  // Decided already, or from before this page loaded.
+  if (!gate.admit(n)) return null;
   await loadDesktopPrefs();
   const prefs = devicePrefs ?? (devicePrefs = readDevicePrefs());
   const device = deviceKind();
@@ -345,7 +354,7 @@ export function useNotifications(events: DaemonEvent[], onOpen: (t: NotifyTarget
     const after = seen.current ?? 0;
     const fresh = events.filter((e) => e.id > after);
     if (fresh.length === 0) return;
-    seen.current = fresh[fresh.length - 1].id;
+    seen.current = newestEventId(fresh, after);
     for (const e of fresh) {
       if (e.type === SETTINGS_EVENT) void loadProjectNotify(true);
       if (e.type !== NOTIFY_EVENT) continue;
@@ -388,17 +397,14 @@ export async function openLatest(onOpen: (t: NotifyTarget) => void): Promise<voi
   if (t) onOpen(t);
 }
 
-export const PRESENCE_EVERY_MS = 20_000;
-
-
-
 /** How often the page checks whether the owner went idle or came back. */
 export const PRESENCE_CHECK_MS = 10_000;
 
 /**
  * Tell the agent when the owner is using this page (pageInUse), so a phone
  * set to "only when I'm away" stays quiet while the owner sits at Studio:
- * at once on a change, idle included, and every PRESENCE_EVERY_MS while in use.
+ * at once on a change, and every PRESENCE_EVERY_MS in either state, so the
+ * agent keeps listing this page while it is open (presenceDue).
  */
 export function usePresence(): void {
   useEffect(() => {
@@ -408,8 +414,7 @@ export function usePresence(): void {
     const report = async (force = false) => {
       const use = await pageInUse();
       if (gone) return;
-      const due = use.active && Date.now() - sentAt >= PRESENCE_EVERY_MS;
-      if (!force && use.active === last && !due) return;
+      if (!force && !presenceDue(use.active, last, sentAt, Date.now())) return;
       last = use.active;
       sentAt = Date.now();
       api.notifyPresence({ id: presenceId, device: deviceKind(), ...use }).catch(() => undefined);

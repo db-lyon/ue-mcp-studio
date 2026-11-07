@@ -87,7 +87,7 @@ describe("the session menu on the phone", () => {
 });
 
 describe("one notice on the phone", () => {
-  const notice: Notice = { id: "n1", kind: "turn.finished", project: "StudioE2E", at: "x", sessionId: "s1", title: "Done: Fix the door", text: "The door opens now.", target: { sessionId: "s1" }, active: [] };
+  const notice: Notice = { id: "n1", kind: "turn.finished", project: "StudioE2E", at: "x", sessionId: "s1", title: "Fix the door", text: "Ready for your review", target: { sessionId: "s1" }, active: [] };
   const fakeApi = (prefs = DEFAULT_PROJECT_NOTIFY) =>
     ({ notifications: async (): Promise<NotificationsState> => ({ project: "StudioE2E", prefs, recent: [], titles: {} }), notifyDelivery: vi.fn(async () => undefined) }) as unknown as SettingsApi;
   const device = { id: "dev1" };
@@ -101,7 +101,7 @@ describe("one notice on the phone", () => {
     // What the phone did goes back to the computer's log.
     expect(api.notifyDelivery).toHaveBeenCalledWith(expect.objectContaining({ noticeId: "n1", kind: "turn.finished", device: "phone", shown: true, via: "phone" }));
     expect(g.__studioNotifications).toEqual([
-      { title: "Done: Fix the door", body: "StudioE2E: The door opens now.", sound: "soft", vibrate: "short", tag: "uemcp:turn.finished:StudioE2E", data: { deviceId: "dev1", kind: "turn.finished", sessionId: "s1" } },
+      { title: "StudioE2E: Fix the door", body: "Ready for your review", sound: "soft", vibrate: "short", tag: "uemcp:turn.finished:StudioE2E", data: { deviceId: "dev1", kind: "turn.finished", sessionId: "s1" } },
     ]);
   });
 
@@ -119,15 +119,15 @@ describe("one notice on the phone", () => {
     expect(api.notifyDelivery).toHaveBeenCalledWith(expect.objectContaining({ shown: false, why: "session-muted" }));
     resetNotifyState();
     prefs({ mutedProjects: ["dev1"] });
-    expect((await showNotice({ ...notice, sessionId: "s2" }, device, fakeApi()))?.shown).toBe(false);
+    expect((await showNotice({ ...notice, id: "m2", sessionId: "s2" }, device, fakeApi()))?.shown).toBe(false);
     resetNotifyState();
     prefs({ quiet: { on: true, from: "00:00", to: "00:00" } });
-    expect((await showNotice(notice, device, fakeApi()))?.shown).toBe(false);
+    expect((await showNotice({ ...notice, id: "m3" }, device, fakeApi()))?.shown).toBe(false);
     resetNotifyState();
     // Away on: the app in front and just touched is not a reason; only another device in use is.
     prefs({ onlyWhenAway: true });
     noteInput();
-    expect((await showNotice(notice, device, fakeApi()))?.shown).toBe(true);
+    expect((await showNotice({ ...notice, id: "m4" }, device, fakeApi()))?.shown).toBe(true);
     expect((await showNotice({ ...notice, id: "n2", active: ["phone"] }, device, fakeApi()))?.shown).toBe(true);
     expect(await showNotice({ ...notice, id: "n3", active: ["desktop"] }, device, fakeApi())).toMatchObject({ shown: false, why: "desktop-active" });
     expect(await showNotice({ ...notice, id: "n4", active: ["browser"] }, device, fakeApi())).toMatchObject({ shown: false, why: "active" });
@@ -144,6 +144,32 @@ describe("one notice on the phone", () => {
     noteInput();
     await showNotice({ ...notice, active: ["desktop"] }, device, api);
     expect(api.notifyDelivery).toHaveBeenCalledWith(expect.objectContaining({ shown: false, why: "desktop-active", inputAgeMs: expect.any(Number) }));
+  });
+});
+
+describe("each notice once on the phone", () => {
+  const notice: Notice = { id: "once", kind: "playtest.finished", project: "StudioE2E", at: new Date().toISOString(), title: "Playtest passed", text: "Smoke: every step passed.", target: {}, active: [] };
+  const fakeApi = () =>
+    ({ notifications: async (): Promise<NotificationsState> => ({ project: "StudioE2E", prefs: DEFAULT_PROJECT_NOTIFY, recent: [], titles: {} }), notifyDelivery: vi.fn(async () => undefined) }) as unknown as SettingsApi;
+  const device = { id: "dev1" };
+
+  it("decides a notice once however often the stream or a remount brings it back, and shows one notification", async () => {
+    store.set(DEVICE_PREFS_KEY, JSON.stringify({ ...DEFAULT_DEVICE_NOTIFY, onlyWhenAway: false }));
+    const api = fakeApi();
+    expect((await showNotice(notice, device, api))?.shown).toBe(true);
+    expect(await showNotice(notice, device, api)).toBeNull();
+    expect(await showNotice({ ...notice }, device, fakeApi())).toBeNull();
+    expect(api.notifyDelivery).toHaveBeenCalledTimes(1);
+    expect(g.__studioNotifications).toHaveLength(1);
+  });
+
+  it("skips what the daemon's backlog replays from before the app started, and still shows a test", async () => {
+    store.set(DEVICE_PREFS_KEY, JSON.stringify({ ...DEFAULT_DEVICE_NOTIFY, onlyWhenAway: false }));
+    const api = fakeApi();
+    const old = new Date(Date.now() - 60 * 60_000).toISOString();
+    expect(await showNotice({ ...notice, id: "old", at: old }, device, api)).toBeNull();
+    expect(api.notifyDelivery).not.toHaveBeenCalled();
+    expect((await showNotice({ ...notice, id: "t1", at: old, test: { device: "phone" } }, device, api))?.shown).toBe(true);
   });
 });
 

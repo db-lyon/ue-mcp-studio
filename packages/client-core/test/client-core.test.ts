@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLock, HttpError, requestJson, SseParser, subscribeEvents, unreachable, type Reply, type StreamEvent, type Transport } from "../src/index.js";
+import { PRESENCE_EVERY_MS, createLock, createNoticeGate, newestEventId, presenceDue, HttpError, requestJson, SseParser, subscribeEvents, unreachable, type Reply, type StreamEvent, type Transport } from "../src/index.js";
 
 const enc = new TextEncoder();
 
@@ -128,5 +128,45 @@ describe("subscribeEvents retryNow", () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(calls).toBe(before + 1);
     stream.stop();
+  });
+});
+
+describe("each notice once", () => {
+  const n = (id: string, at: string, test?: { device: string }) => ({ id, at, ...(test ? { test } : {}) });
+  it("admits a notice the first time only, and none from before the client started", () => {
+    const start = Date.parse("2026-11-07T15:00:00Z");
+    const gate = createNoticeGate(start);
+    expect(gate.admit(n("a", "2026-11-07T15:01:00Z"))).toBe(true);
+    expect(gate.admit(n("a", "2026-11-07T15:01:00Z"))).toBe(false);
+    // The backlog a new stream starts with: an hour old.
+    expect(gate.admit(n("b", "2026-11-07T14:00:00Z"))).toBe(false);
+    // A phone's clock a little ahead of the computer's still admits a live notice.
+    expect(gate.admit(n("c", "2026-11-07T14:57:00Z"))).toBe(true);
+    // A test is asked for now, whatever its time says.
+    expect(gate.admit(n("d", "2026-11-07T14:00:00Z", { device: "phone" }))).toBe(true);
+    expect(gate.admit(n("e", "not a time"))).toBe(true);
+  });
+
+  it("forgets the oldest ids past what it keeps", () => {
+    const gate = createNoticeGate(0, 2);
+    gate.admit(n("a", "x"));
+    gate.admit(n("b", "x"));
+    gate.admit(n("c", "x"));
+    expect(gate.admit(n("a", "x"))).toBe(true);
+    expect(gate.admit(n("c", "x"))).toBe(false);
+  });
+
+  it("takes the newest event id, not the last in the list", () => {
+    expect(newestEventId([{ id: 10 }, { id: 9 }], 5)).toBe(10);
+    expect(newestEventId([], 5)).toBe(5);
+    expect(newestEventId([{ id: 0 }], 5)).toBe(5);
+  });
+
+  it("reports presence on a change, and every PRESENCE_EVERY_MS idle or not", () => {
+    expect(presenceDue(true, null, 0, 0)).toBe(true);
+    expect(presenceDue(false, false, 0, PRESENCE_EVERY_MS - 1)).toBe(false);
+    expect(presenceDue(false, false, 0, PRESENCE_EVERY_MS)).toBe(true);
+    expect(presenceDue(true, true, 0, PRESENCE_EVERY_MS)).toBe(true);
+    expect(presenceDue(false, true, 0, 1)).toBe(true);
   });
 });

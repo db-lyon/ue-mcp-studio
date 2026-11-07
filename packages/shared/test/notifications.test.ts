@@ -139,9 +139,10 @@ describe("settings shapes", () => {
 });
 
 describe("content", () => {
-  const n = { kind: "approval.waiting" as const, project: "Vale", title: "Approval waiting", text: "Allow shell: npm run build?" };
-  it("shows the full text with the project", () => {
-    expect(noticeContent(n, "full")).toEqual({ title: "Approval waiting", body: "Vale: Allow shell: npm run build?" });
+  const n = { kind: "approval.waiting" as const, project: "Vale", title: "Core game loop revisions", text: "Needs your approval" };
+  it("titles it with the project and the subject, and says the state below", () => {
+    expect(noticeContent(n, "full")).toEqual({ title: "Vale: Core game loop revisions", body: "Needs your approval" });
+    expect(noticeContent({ ...n, project: "" }, "full")).toEqual({ title: "Core game loop revisions", body: "Needs your approval" });
   });
   it("hides details: only the event and the project", () => {
     expect(noticeContent(n, "minimal")).toEqual({ title: "Approval waiting", body: "Vale" });

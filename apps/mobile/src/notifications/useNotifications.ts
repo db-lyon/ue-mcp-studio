@@ -5,11 +5,13 @@
  * the app is in front, so "only when I'm away" holds on every device; and the
  * FCM token goes to the relay with this phone's filter, for the time the app
  * is closed. The project going offline and coming back is noticed here too.
+ * Each notice is decided once per run of the app, and none from before it
+ * started (createNoticeGate), so a remount or a new stream's backlog repeats none.
  */
 import { useEffect, useRef } from "react";
 import { AppState } from "react-native";
 import type { DaemonEvent } from "ue-mcp/daemon";
-import { latestTarget, noticeTag, pushPrefsFor, type SettingsApi } from "@ue-mcp-studio/client-core";
+import { createNoticeGate, latestTarget, newestEventId, noticeTag, presenceDue, pushPrefsFor, type SettingsApi } from "@ue-mcp-studio/client-core";
 import { DEFAULT_PROJECT_NOTIFY, NOTIFY_EVENT, decideNotice, inUse, noticeContent, noticeOf, testIsFor, type Notice, type NotifyDelivery, type NotifyKind, type NotifyTarget } from "@ue-mcp-studio/shared";
 import type { Device } from "../relay";
 import { registerPush } from "../relay";
@@ -19,8 +21,6 @@ import { devicePrefsNow, loadProjectNotify, pendingLatest, projectNotifyNow, rea
 const SETTINGS_EVENT = "studio.notify.settings";
 /** A stream down this long, with the app in front, is the project going offline. */
 export const OFFLINE_AFTER_MS = 60_000;
-export const PRESENCE_EVERY_MS = 20_000;
-
 const appActive = (): boolean => AppState.currentState === "active";
 /** How often the app checks whether the owner went idle or came back. */
 export const PRESENCE_CHECK_MS = 10_000;
@@ -49,10 +49,14 @@ export async function ensurePermission(force = false): Promise<"granted" | "deni
   return askPermission().catch(() => "undetermined" as const);
 }
 
+/** The notices this run of the app has decided, kept whatever remounts. */
+let gate = createNoticeGate();
+
 /** For tests. */
 export function resetPhoneNotifyState(): void {
   lastTouch = null;
   asked = false;
+  gate = createNoticeGate();
 }
 
 /** The name a project shows by: the relay's "<project> on <computer>" without the computer. */
@@ -77,6 +81,8 @@ function reported(api: SettingsApi, d: NotifyDelivery): void {
 /** Decide and show one notice on this phone, and report both to the computer. Resolves with the report, or null for another device's test. */
 export async function showNotice(n: Notice, device: Pick<Device, "id">, api: SettingsApi): Promise<NotifyDelivery | null> {
   if (n.test && !testIsFor(n.test, phoneIdFor(device.id), "phone")) return null;
+  // Decided already, or from before the app started.
+  if (!gate.admit(n)) return null;
   const prefs = await readDevicePrefs();
   const project = projectNotifyNow(api)?.prefs ?? DEFAULT_PROJECT_NOTIFY;
   const use = phoneInUse();
@@ -150,7 +156,7 @@ export function useNotifications({ events, device, api, streaming, onOpen }: { e
     const after = seen.current ?? 0;
     const fresh = events.filter((e) => e.id > after);
     if (fresh.length === 0) return;
-    seen.current = fresh[fresh.length - 1].id;
+    seen.current = newestEventId(fresh, after);
     for (const e of fresh) {
       if (e.type === SETTINGS_EVENT) void loadProjectNotify(api, true);
       if (e.type !== NOTIFY_EVENT) continue;
@@ -182,15 +188,14 @@ export function useNotifications({ events, device, api, streaming, onOpen }: { e
     if (prefs.enabled) void ensurePermission();
   }, [prefs.enabled]);
 
-  // Presence: the owner using the app (phoneInUse), at once on a change, idle included, and every PRESENCE_EVERY_MS while in use.
+  // Presence: the owner using the app (phoneInUse), at once on a change and every PRESENCE_EVERY_MS in either state (presenceDue), so the agent keeps listing the phone while the app runs.
   useEffect(() => {
     const id = phoneIdFor(device.id);
     let last: boolean | null = null;
     let sentAt = 0;
     const report = (force = false) => {
       const use = phoneInUse();
-      const due = use.active && Date.now() - sentAt >= PRESENCE_EVERY_MS;
-      if (!force && use.active === last && !due) return;
+      if (!force && !presenceDue(use.active, last, sentAt, Date.now())) return;
       last = use.active;
       sentAt = Date.now();
       api.notifyPresence({ id, device: "phone", ...use }).catch(() => undefined);
