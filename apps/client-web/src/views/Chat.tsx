@@ -5,10 +5,9 @@ import { useRemoteAvailable } from "./settings/remote-available";
 import { REMOTE_NOW_ON, UpgradeAction } from "./Upgrade";
 import { RemoteChatCard } from "./remote/RemoteChatCard";
 import type { SettingsSection } from "./settings/sections";
-import { native } from "../native";
 import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
-import { agentCalls, finishedTurns } from "@ue-mcp-studio/client-core";
+import { agentCalls } from "@ue-mcp-studio/client-core";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
@@ -106,17 +105,11 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   /** Files are being dragged over the conversation. */
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
-  const lastList = useRef<SessionSummary[] | null>(null);
   /** The transcript area, which gives up height when the composer's divider is dragged up. */
   const stage = useRef<HTMLDivElement>(null);
 
+  // A finished turn is told by notifications (notify.ts), under this device's rules.
   const loadList = () => api.sessions().then((r) => {
-    // A turn that finished while the panel was in the background asks the editor for attention.
-    if (lastList.current && !document.hasFocus()) {
-      const done = finishedTurns(lastList.current, r.sessions);
-      if (done.length > 0) void native().drawattention?.(done.length === 1 ? `Studio: "${done[0].title}" finished` : `Studio: ${done.length} sessions finished`);
-    }
-    lastList.current = r.sessions;
     setSessions(r.sessions);
     setListed(true);
     setSlow(false);

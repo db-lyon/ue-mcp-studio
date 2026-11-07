@@ -54,7 +54,6 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { DEFAULT_RUN, DraftEditor, RunPanel, playersNeeded, type RunOptions } from "./PlaytestDraft";
 import { LoopPanel, loopPill } from "./PlaytestLoop";
-import { native } from "../native";
 import { PictureOr } from "./AssetTile";
 import { ExactAssetLink, StepText } from "./AssetLink";
 import { stepPlain } from "./asset-links";
@@ -235,11 +234,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const asked = new Set(form?.q?.steps ?? []);
   const waiting = run.steps.filter((s) => s.status === "awaiting_verdict");
 
-  // Asked while the user is elsewhere: flash the window, as an editor dialog does.
-  const wants = waiting.length > 0;
-  useEffect(() => {
-    if (wants && !document.hasFocus()) void native().drawattention?.(`A playtest needs you: ${run.scriptName}`).catch(() => false);
-  }, [wants, run.runId]);
+  // Asked while the user is elsewhere: the playtest.needs-you notification tells them, under each device's rules (notify.ts).
   /** The step a bar or Fail opened the card on: scrolled to, focused and flashed once it is drawn. */
   const [target, setTarget] = useState<number | null>(null);
   /** The step the card was last opened on, marked for as long as it is open. */
