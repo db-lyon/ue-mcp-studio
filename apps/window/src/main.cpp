@@ -1331,16 +1331,24 @@ bool drawAttention(const std::wstring& text) {
 }
 
 /**
- * A notification the user can act on: { title?, text, target?, group? }. It
+ * A notification the user can act on: { id?, title?, text, target?, group? }. It
  * shows even while Studio has focus, since the user may be on another session.
  * Clicking it brings Studio forward and hands target to the page, which opens
- * it. Answers toast::answer's JSON, which the page reports to the agent.
+ * it. A second call for the same notice id shows nothing (toast::Shown).
+ * Answers toast::answer's JSON, which the page reports to the agent.
  */
+toast::Shown gShownNotices;
+
 std::string notify(const std::string& arg) {
   json::Value v;
   if (!json::parse(arg, v) || !v.isObject()) return toast::answer(false, "toast", {}, 0, "the notification was not JSON");
   const json::Value* text = v.get("text");
   if (!text || !text->isString() || text->s.empty()) return toast::answer(false, "toast", {}, 0, "the notification had no text");
+  const json::Value* id = v.get("id");
+  if (!gShownNotices.first(id && id->isString() ? id->s : std::string())) {
+    logLine("notification: already shown " + id->s);
+    return toast::answer(true, "toast", {}, 0, {}, true);
+  }
   const json::Value* title = v.get("title");
   const json::Value* target = v.get("target");
   const json::Value* group = v.get("group");

@@ -18,7 +18,7 @@ describe.skipIf(!built)("the window: the dock protocol, the panel location, the 
     const r = spawnSync(testExe, [], { encoding: "utf-8", timeout: 20_000 });
     const lines = r.stdout.trim().split(/\r?\n/);
     expect(lines.filter((l) => l.startsWith("FAIL"))).toEqual([]);
-    expect(lines.filter((l) => l.startsWith("ok ")).length).toBeGreaterThanOrEqual(44);
+    expect(lines.filter((l) => l.startsWith("ok ")).length).toBeGreaterThanOrEqual(45);
     expect(r.status).toBe(0);
   });
 });

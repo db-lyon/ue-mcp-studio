@@ -465,6 +465,18 @@ int main() {
     CHECK(std::string(toast::settingName(9)) == "unknown");
   });
 
+  test("a second notify for the same notice shows nothing; an older page's notify without an id always shows", [] {
+    toast::Shown shown;
+    CHECK(shown.first("n1"));
+    CHECK(!shown.first("n1"));
+    CHECK(shown.first("n2"));
+    CHECK(shown.first(""));
+    CHECK(shown.first(""));
+    for (int i = 0; i < 200; ++i) shown.first("x" + std::to_string(i));
+    CHECK(shown.first("n1"));
+    CHECK(toast::answer(true, "toast", {}, 0, {}, true) == "{\"ok\":true,\"via\":\"toast\",\"duplicate\":true}");
+  });
+
   test("injected keys and mouse events are not the owner's input", [] {
     CHECK(input::realKey(0));
     CHECK(input::realKey(0x01));  // LLKHF_EXTENDED: a real arrow key

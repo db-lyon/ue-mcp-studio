@@ -211,7 +211,7 @@ export interface DeliveryResult {
 
 /**
  * What the host's notify call answered. Studio's window answers
- * { ok, via, hr?, setting?, error? }; an older window or the editor answers true or false.
+ * { ok, via, hr?, setting?, error?, duplicate? }; an older window or the editor answers true or false.
  */
 export function hostAnswer(v: unknown): { ok: boolean; detail?: string } {
   if (typeof v === "boolean") return { ok: v };
@@ -222,9 +222,9 @@ export function hostAnswer(v: unknown): { ok: boolean; detail?: string } {
       return { ok: false, detail: v.slice(0, 200) };
     }
   }
-  const r = v as { ok?: unknown; via?: unknown; hr?: unknown; setting?: unknown; error?: unknown } | null;
+  const r = v as { ok?: unknown; via?: unknown; hr?: unknown; setting?: unknown; error?: unknown; duplicate?: unknown } | null;
   if (!r || typeof r !== "object") return { ok: false };
-  const parts = [r.via, r.setting && `setting ${String(r.setting)}`, r.hr && `HRESULT ${String(r.hr)}`, r.error].filter((p): p is string => typeof p === "string" && p.length > 0);
+  const parts = [r.via, r.setting && `setting ${String(r.setting)}`, r.hr && `HRESULT ${String(r.hr)}`, r.error, r.duplicate === true && "already shown"].filter((p): p is string => typeof p === "string" && p.length > 0);
   return { ok: r.ok === true, ...(parts.length ? { detail: parts.join(", ") } : {}) };
 }
 
@@ -233,7 +233,8 @@ export async function deliver(n: Notice, prefs: DeviceNotifyPrefs, onOpen: (t: N
   const { title, body } = noticeContent(n, prefs.privacy);
   const nat = native();
   if (nat.notify) {
-    const answer = hostAnswer(await nat.notify(JSON.stringify({ title, text: body, target: n.target, group: n.project })).catch((e: unknown) => String(e)));
+    // The id lets Studio's window show one toast per notice, whichever page asks.
+    const answer = hostAnswer(await nat.notify(JSON.stringify({ id: n.id, title, text: body, target: n.target, group: n.project })).catch((e: unknown) => String(e)));
     if (answer.ok || window.ue?.studioWindow) return { via: "window", ...answer };
   }
   if (window.ue?.studio && nat.drawattention) {

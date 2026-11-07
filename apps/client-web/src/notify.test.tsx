@@ -57,7 +57,7 @@ describe("a notice on this device", () => {
     const notify = vi.fn(async () => true);
     window.ue = { studio: { notify } as never };
     await arrive([ev(1, notice())]);
-    expect(notify).toHaveBeenCalledWith(JSON.stringify({ title: "Done: Fix the door", text: "Vale: The door opens now.", target: { sessionId: "s1" }, group: "Vale" }));
+    expect(notify).toHaveBeenCalledWith(JSON.stringify({ id: "n1", title: "Done: Fix the door", text: "Vale: The door opens now.", target: { sessionId: "s1" }, group: "Vale" }));
   });
 
   it("shows only the event and the project when details are hidden", async () => {
@@ -65,7 +65,7 @@ describe("a notice on this device", () => {
     window.ue = { studio: { notify } as never };
     localStorage.setItem(DEVICE_PREFS_KEY, JSON.stringify({ ...DEFAULT_DEVICE_NOTIFY, privacy: "minimal" }));
     await arrive([ev(1, notice())]);
-    expect(notify).toHaveBeenCalledWith(JSON.stringify({ title: "Turn finished", text: "Vale", target: { sessionId: "s1" }, group: "Vale" }));
+    expect(notify).toHaveBeenCalledWith(JSON.stringify({ id: "n1", title: "Turn finished", text: "Vale", target: { sessionId: "s1" }, group: "Vale" }));
   });
 
   it("flashes the editor where there is no notify", async () => {
@@ -129,6 +129,14 @@ describe("a notice on this device", () => {
     const r = render(<Probe events={[ev(5, notice())]} onOpen={() => {}} />);
     await act(async () => void r.rerender(<Probe events={[ev(5, notice()), ev(6, { sessionId: "s1" }, "studio.session.changed")]} onOpen={() => {}} />));
     expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("says when Studio's window had already shown the notice", async () => {
+    const notify = vi.fn(async () => JSON.stringify({ ok: true, via: "toast", duplicate: true }));
+    window.ue = { studio: { notify } as never, studioWindow: true };
+    await arrive([ev(1, notice())]);
+    await act(async () => void (await new Promise((done) => setTimeout(done, 0))));
+    expect(sent).toContainEqual(expect.objectContaining({ body: expect.objectContaining({ shown: true, via: "window", ok: true, detail: "toast, already shown" }) }));
   });
 
   it("opens the session when the window's notification is clicked", () => {

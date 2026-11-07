@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <deque>
 #include <string>
 
 #include "json.h"
@@ -71,13 +72,35 @@ inline std::string hresult(int32_t hr) {
   return buf;
 }
 
-/** The answer to the page's notify call: { ok, via, setting?, hr?, error? }. */
-inline std::string answer(bool ok, const std::string& via, const std::string& setting = {}, int32_t hr = 0, const std::string& error = {}) {
+/** The answer to the page's notify call: { ok, via, setting?, hr?, error?, duplicate? }. */
+inline std::string answer(bool ok, const std::string& via, const std::string& setting = {}, int32_t hr = 0, const std::string& error = {}, bool duplicate = false) {
   std::string out = std::string("{\"ok\":") + (ok ? "true" : "false") + ",\"via\":" + json::quote(via);
   if (!setting.empty()) out += ",\"setting\":" + json::quote(setting);
   if (hr) out += ",\"hr\":" + json::quote(hresult(hr));
   if (!error.empty()) out += ",\"error\":" + json::quote(error);
+  if (duplicate) out += ",\"duplicate\":true";
   return out + "}";
 }
+
+/**
+ * The notices this window has shown a toast for, by the agent's notice id:
+ * a second notify for the same notice, from any page, shows nothing.
+ */
+class Shown {
+ public:
+  static constexpr size_t kKeep = 100;
+  /** True the first time an id is seen; an empty id (an older page) is always new. */
+  bool first(const std::string& id) {
+    if (id.empty()) return true;
+    for (const std::string& s : ids_)
+      if (s == id) return false;
+    ids_.push_back(id);
+    if (ids_.size() > kKeep) ids_.pop_front();
+    return true;
+  }
+
+ private:
+  std::deque<std::string> ids_;
+};
 
 }  // namespace toast
