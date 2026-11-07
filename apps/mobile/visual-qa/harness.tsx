@@ -72,7 +72,8 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
             for (let i = 0; i < 50 && !document.getElementById("transcript")?.scrollHeight; i++) await new Promise((r) => setTimeout(r, 100));
             await new Promise((r) => setTimeout(r, 700));
             const list = document.getElementById("transcript");
-            if (list) list.scrollTop = 0;
+            // Inverted: the oldest line is at the largest offset.
+            if (list) list.scrollTop = list.scrollHeight;
             await new Promise((r) => setTimeout(r, 150));
             arrived = true;
             yield enc.encode(`id: 1\nevent: studio.transcript.added\ndata: ${JSON.stringify({ sessionId: scenario.session.id, at: new Date().toISOString() })}\n\n`);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, renderHook, screen } from "@testing-library/react";
-import { SETTLE_FIRST_MS, SETTLE_GAP_MS, useFollow } from "../src/chat/hooks";
+import { BOTTOM_SLACK, useFollow } from "../src/chat/hooks";
 import type { ApprovalRequest, EditorDialog, PendingForm, TranscriptEntry } from "@ue-mcp-studio/shared";
 import { AssetLinks } from "@ue-mcp-studio/client-core";
 import { Markdown } from "../src/ui";
@@ -203,7 +203,8 @@ describe("MainTranscript", () => {
     Object.defineProperty(list, "scrollHeight", { value: 2000, configurable: true });
     Object.defineProperty(list, "clientHeight", { value: 500, configurable: true });
     Object.defineProperty(list, "offsetHeight", { value: 500, configurable: true });
-    list.scrollTop = 0;
+    // Inverted: offset 0 is the newest line, so up the thread is a larger offset.
+    list.scrollTop = 1000;
     fireEvent.scroll(list);
     act(() => view.rerender(inProject(<MainTranscript {...transcriptProps([...talk, { kind: "assistant", text: "More", at }])} />)));
     expect(screen.queryByText("New messages \u2193")).toBeTruthy();
@@ -362,31 +363,43 @@ describe("AssetToken", () => {
 });
 
 describe("useFollow", () => {
-  /** The hook over a stand-in scroll view, at the bottom. */
+  /** The hook over a stand-in inverted list, at its newest line. */
   function follow() {
-    const scrollToEnd = vi.fn();
-    const r = renderHook(({ content }: { content: string }) => useFollow(content), { initialProps: { content: "1" } });
-    (r.result.current.ref as { current: unknown }).current = { scrollToEnd };
-    return { ...r, scrollToEnd, sized: () => act(() => r.result.current.props.onContentSizeChange()) };
+    const scrollToOffset = vi.fn();
+    const r = renderHook(({ content, snap }: { content: string; snap?: number }) => useFollow(content, snap), { initialProps: { content: "1", snap: 0 } });
+    (r.result.current.ref as { current: unknown }).current = { scrollToOffset };
+    const scrolled = (y: number) => act(() => r.result.current.props.onScroll({ nativeEvent: { contentOffset: { x: 0, y } } } as never));
+    return { ...r, scrollToOffset, scrolled };
   }
 
-  it("follows the layout passes that settle a new line, and not growth after them, as the web follows a new line but not text that reflows later", () => {
-    vi.useFakeTimers();
-    try {
-      const f = follow();
-      f.rerender({ content: "2" });
-      f.scrollToEnd.mockClear();
-      act(() => void vi.advanceTimersByTime(SETTLE_FIRST_MS - 100));
-      f.sized();
-      act(() => void vi.advanceTimersByTime(SETTLE_GAP_MS - 50));
-      f.sized();
-      expect(f.scrollToEnd).toHaveBeenCalledTimes(2);
-      // A call opened in place a moment later: the reader stays where they are.
-      act(() => void vi.advanceTimersByTime(SETTLE_GAP_MS + 10));
-      f.sized();
-      expect(f.scrollToEnd).toHaveBeenCalledTimes(2);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("keeps the newest line in view at the bottom and says New messages up the thread", () => {
+    const f = follow();
+    f.rerender({ content: "2", snap: 0 });
+    expect(f.scrollToOffset).toHaveBeenLastCalledWith({ offset: 0, animated: false });
+    expect(f.result.current.behind).toBe(false);
+    f.scrolled(BOTTOM_SLACK + 200);
+    expect(f.result.current.up).toBe(true);
+    f.scrollToOffset.mockClear();
+    f.rerender({ content: "3", snap: 0 });
+    expect(f.scrollToOffset).not.toHaveBeenCalled();
+    expect(f.result.current.behind).toBe(true);
+    f.scrolled(0);
+    expect(f.result.current.behind).toBe(false);
+    expect(f.result.current.up).toBe(false);
+  });
+
+  it("takes the reader back down on a send and on New messages", () => {
+    const f = follow();
+    f.scrolled(900);
+    f.rerender({ content: "1", snap: 1 });
+    expect(f.scrollToOffset).toHaveBeenLastCalledWith({ offset: 0, animated: false });
+    expect(f.result.current.up).toBe(false);
+    f.scrolled(900);
+    f.rerender({ content: "2", snap: 1 });
+    expect(f.result.current.behind).toBe(true);
+    f.scrollToOffset.mockClear();
+    act(() => f.result.current.jump());
+    expect(f.scrollToOffset).toHaveBeenCalledWith({ offset: 0, animated: false });
+    expect(f.result.current.behind).toBe(false);
   });
 });
