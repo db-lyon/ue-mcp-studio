@@ -337,7 +337,7 @@ async function fakeNotify() {
     await page.evaluate((n) => window.__studioEmit("studio.notify", n), notice);
     await page.waitForFunction(() => (window.__studioNotifications ?? []).length > 0, null, { timeout: 10_000 });
     const req = await page.evaluate(() => window.__studioNotifications.at(-1));
-    const want = { title: `Done: ${sessionTitle}`, body: "StudioE2E: The hinge eases in and out now.", tag: "uemcp:turn.finished:StudioE2E", data: { deviceId: "e2e-fake", kind: "turn.finished", sessionId: "qa-session" } };
+    const want = { title: `StudioE2E: Done: ${sessionTitle}`, body: "The hinge eases in and out now.", tag: "uemcp:turn.finished:StudioE2E", data: { deviceId: "e2e-fake", kind: "turn.finished", sessionId: "qa-session" } };
     const got = { title: req.title, body: req.body, tag: req.tag, data: req.data };
     if (JSON.stringify(got) !== JSON.stringify(want)) throw new Error(`the request was ${JSON.stringify(got)}, wanted ${JSON.stringify(want)}`);
     step("fake notify: a finished turn asks for a notification with its title, project, text and session", true, JSON.stringify(got));

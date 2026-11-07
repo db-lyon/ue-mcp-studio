@@ -9,7 +9,9 @@ import { useMemo, useState, type ReactNode } from "react";
 import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import type { Transport } from "@ue-mcp-studio/client-core";
-import type { StudioTheme } from "@ue-mcp-studio/shared";
+import type { StudioTheme, TranscriptEntry } from "@ue-mcp-studio/shared";
+import type { Scenario } from "../../client-web/src/visual-qa/fixtures";
+import { longReply } from "./long-reply";
 import { SCENARIOS, scenarioTransport } from "./harness";
 import { store } from "../ui-test/mocks/secure-store";
 import { clip } from "../ui-test/mocks/clipboard";
@@ -75,8 +77,8 @@ const none = () => undefined;
 const failed = (kind: PairFailure["kind"], message = ""): ReactNode => <PairFailed failure={{ kind, message }} onScan={none} onStart={none} onRetry={none} />;
 
 /** A web scenario's project, the phone's way, with what the scene changes about it. */
-function InProject({ name, hash, transport, children }: { name: string; hash?: string; transport?: (base: Transport) => Transport; children?: ReactNode }) {
-  const scenario = SCENARIOS[name];
+function InProject({ name, hash, transport, children, scenario: given }: { name: string; hash?: string; transport?: (base: Transport) => Transport; children?: ReactNode; scenario?: Scenario }) {
+  const scenario = given ?? SCENARIOS[name];
   const theme = useTheme().name;
   const t = useMemo(() => {
     const base = scenarioTransport(hash ? { ...scenario, hash } : scenario, theme);
@@ -89,6 +91,24 @@ function InProject({ name, hash, transport, children }: { name: string; hash?: s
     </View>
   );
 }
+
+/** steps-folded's session holding a reply about 6000 dp tall: the newest line, or an older one with a short turn after it. */
+function longThread(newest: boolean): Scenario {
+  const base = SCENARIOS["steps-folded"];
+  const at = ago(5);
+  const transcript: TranscriptEntry[] = [
+    { kind: "user", text: "How much of the built code carries over to the bastion plan?", at },
+    { kind: "assistant", text: longReply(), at },
+    ...(newest ? [] : ([
+      { kind: "user", text: "Start with the save system.", at },
+      { kind: "assistant", text: "Starting there: region, beacon and camp state go into ValeSaveSystem first.", at },
+    ] as TranscriptEntry[])),
+  ];
+  return { ...base, session: { ...base.session!, title: LONG_TITLE, status: "idle", transcript } };
+}
+const LONG_TITLE = "Core game loop revisions";
+const LONG_OLDER = longThread(false);
+const LONG_NEWEST = longThread(true);
 
 const oldStudio = (base: Transport): Transport => (method, path, o) => (path.startsWith("/v1/health") ? healthOf("0.1.25-beta.12")(method, path, o) : base(method, path, o));
 
@@ -161,6 +181,9 @@ export const SCENES: Record<string, Scene> = {
     setup: () => void (g.__qaBiometric = { available: true, enabled: true, unlock: async () => null, remember: async () => undefined, forget: async () => undefined }),
     draw: () => <InProject name="remote-lock-screen" />,
   },
+  "thread-show-more-folded": { title: "A long reply above a newer turn: folded at 400 dp, faded into the panel, Show more centred under it", clicks: [LONG_TITLE], draw: () => <InProject name="steps-folded" scenario={LONG_OLDER} /> },
+  "thread-show-more-expanded": { title: "That reply opened: its last piece, Show less centred under it", clicks: [LONG_TITLE, "Show more"], draw: () => <InProject name="steps-folded" scenario={LONG_OLDER} /> },
+  "thread-newest-long": { title: "A reply about 6000 dp tall as the newest line: never folded, drawn as pieces", clicks: [LONG_TITLE], draw: () => <InProject name="steps-folded" scenario={LONG_NEWEST} /> },
   "lock-remember": { title: "After a typed PIN: the fingerprint offered for next time", draw: () => <InProject name="session-empty"><RememberOffer onYes={none} onNo={none} /></InProject> },
 };
 
