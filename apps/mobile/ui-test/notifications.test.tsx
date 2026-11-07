@@ -87,7 +87,7 @@ describe("the session menu on the phone", () => {
 });
 
 describe("one notice on the phone", () => {
-  const notice: Notice = { id: "n1", kind: "turn.finished", project: "StudioE2E", at: "x", sessionId: "s1", title: "Done: Fix the door", text: "The door opens now.", target: { sessionId: "s1" }, active: [] };
+  const notice: Notice = { id: "n1", kind: "turn.finished", project: "StudioE2E", at: "x", sessionId: "s1", title: "Fix the door", text: "Ready for your review", target: { sessionId: "s1" }, active: [] };
   const fakeApi = (prefs = DEFAULT_PROJECT_NOTIFY) =>
     ({ notifications: async (): Promise<NotificationsState> => ({ project: "StudioE2E", prefs, recent: [], titles: {} }), notifyDelivery: vi.fn(async () => undefined) }) as unknown as SettingsApi;
   const device = { id: "dev1" };
@@ -101,7 +101,7 @@ describe("one notice on the phone", () => {
     // What the phone did goes back to the computer's log.
     expect(api.notifyDelivery).toHaveBeenCalledWith(expect.objectContaining({ noticeId: "n1", kind: "turn.finished", device: "phone", shown: true, via: "phone" }));
     expect(g.__studioNotifications).toEqual([
-      { title: "Done: Fix the door", body: "StudioE2E: The door opens now.", sound: "soft", vibrate: "short", tag: "uemcp:turn.finished:StudioE2E", data: { deviceId: "dev1", kind: "turn.finished", sessionId: "s1" } },
+      { title: "StudioE2E: Fix the door", body: "Ready for your review", sound: "soft", vibrate: "short", tag: "uemcp:turn.finished:StudioE2E", data: { deviceId: "dev1", kind: "turn.finished", sessionId: "s1" } },
     ]);
   });
 

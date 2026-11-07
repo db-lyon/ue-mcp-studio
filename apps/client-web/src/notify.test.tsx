@@ -37,7 +37,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const notice = (over: Record<string, unknown> = {}) => ({ id: "n1", kind: "turn.finished", project: "Vale", at: "x", sessionId: "s1", title: "Done: Fix the door", text: "The door opens now.", target: { sessionId: "s1" }, active: [], ...over });
+const notice = (over: Record<string, unknown> = {}) => ({ id: "n1", kind: "turn.finished", project: "Vale", at: "x", sessionId: "s1", title: "Fix the door", text: "Ready for your review", target: { sessionId: "s1" }, active: [], ...over });
 const ev = (id: number, data: Record<string, unknown>, type = "studio.notify"): DaemonEvent => ({ id, type, at: "x", data });
 
 function Probe({ events, onOpen }: { events: DaemonEvent[]; onOpen: (t: NotifyTarget) => void }) {
@@ -58,7 +58,7 @@ describe("a notice on this device", () => {
     const notify = vi.fn(async () => true);
     window.ue = { studio: { notify } as never };
     await arrive([ev(1, notice())]);
-    expect(notify).toHaveBeenCalledWith(JSON.stringify({ id: "n1", title: "Done: Fix the door", text: "Vale: The door opens now.", target: { sessionId: "s1" }, group: "Vale" }));
+    expect(notify).toHaveBeenCalledWith(JSON.stringify({ id: "n1", title: "Vale: Fix the door", text: "Ready for your review", target: { sessionId: "s1" }, group: "Vale" }));
   });
 
   it("shows only the event and the project when details are hidden", async () => {
@@ -72,8 +72,8 @@ describe("a notice on this device", () => {
   it("flashes the editor where there is no notify", async () => {
     const drawattention = vi.fn(async () => true);
     window.ue = { studio: { drawattention } as never };
-    await arrive([ev(1, notice({ kind: "playtest.needs-you", title: "Playtest needs you", text: "No progress.", target: { sessionId: "s1", runId: "r1" } }))]);
-    expect(drawattention).toHaveBeenCalledWith("Vale: No progress.");
+    await arrive([ev(1, notice({ kind: "playtest.needs-you", title: "Fix the door", text: "A playtest loop needs you", target: { sessionId: "s1", runId: "r1" } }))]);
+    expect(drawattention).toHaveBeenCalledWith("Vale: Fix the door - A playtest loop needs you");
   });
 
   it("uses the browser's notification on a plain page, and its click opens the session", async () => {
@@ -90,7 +90,7 @@ describe("a notice on this device", () => {
     vi.spyOn(window, "focus").mockImplementation(() => {});
     const onOpen = vi.fn();
     await arrive([ev(1, notice())], onOpen);
-    expect(shown[0]).toMatchObject({ title: "Done: Fix the door", options: { body: "Vale: The door opens now.", tag: "uemcp:turn.finished:Vale" } });
+    expect(shown[0]).toMatchObject({ title: "Vale: Fix the door", options: { body: "Ready for your review", tag: "uemcp:turn.finished:Vale" } });
     shown[0].onclick!();
     expect(onOpen).toHaveBeenCalledWith({ sessionId: "s1" });
   });

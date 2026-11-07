@@ -72,6 +72,25 @@ const clip = (s: string, n = 160): string => {
   return one.length > n ? `${one.slice(0, n - 1)}…` : one;
 };
 
+/** One plain line: markdown links reduced to their text, code and emphasis marks dropped, clipped. */
+export const plainLine = (s: string, n = 60): string =>
+  clip(
+    s
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+      .replace(/`+|\*+|__|~~/g, "")
+      .replace(/^[#>\s]+/, "")
+      .replace(/https?:\/\/\S+/g, ""),
+    n,
+  );
+
+/**
+ * What a notification says: its subject as the title (the session, the
+ * playtest, the dialog), and the state plainly as the text. The device puts
+ * the project before the title (noticeContent). No excerpt of the agent's
+ * message: it is markdown, and it was cut mid-sentence.
+ */
+const subject = (title: string | undefined, fallback: string): string => (title && plainLine(title)) || fallback;
+
 export class Presence {
   private readonly seen = new Map<string, { device: NotifyDevice; active: boolean; at: number; inputAgeMs?: number }>();
   constructor(private readonly now: () => number = Date.now) {}
@@ -130,13 +149,13 @@ export class Notifier {
         if (sessionId) this.sessionChanged(sessionId, String(d.status ?? ""));
         return;
       case "studio.approval.requested":
-        if (sessionId) this.emit("approval.waiting", sessionId, "Approval waiting", `Allow ${String(d.tool ?? "a tool call")}?`, { sessionId, approvalId: typeof d.approvalId === "string" ? d.approvalId : undefined });
+        if (sessionId) this.emit("approval.waiting", sessionId, subject(this.o.session(sessionId)?.title, "A session"), "Needs your approval", { sessionId, approvalId: typeof d.approvalId === "string" ? d.approvalId : undefined });
         return;
       case "studio.dialog.changed":
         this.dialogs(d as unknown as DialogsState);
         return;
       case "studio.qa.attention":
-        if (sessionId) this.emit("playtest.needs-you", sessionId, String(d.title ?? "Playtest needs you"), String(d.text ?? "A playtest loop stopped and needs you."), { sessionId, runId: typeof d.runId === "string" ? d.runId : undefined });
+        if (sessionId) this.emit("playtest.needs-you", sessionId, subject(this.o.session(sessionId)?.title, "A playtest"), "A playtest loop needs you", { sessionId, runId: typeof d.runId === "string" ? d.runId : undefined });
         return;
       case "studio.qa.changed":
         if (d.run) this.run(d.run as unknown as QaRun);
@@ -155,15 +174,10 @@ export class Notifier {
     this.status.set(id, status);
     if (was !== "running" && was !== "waiting") return;
     const s = this.o.session(id);
-    if (status === "idle") {
-      const last = [...(s?.transcript ?? [])].reverse().find((t) => t.kind === "assistant" && !t.parent);
-      const text = last?.kind === "assistant" && last.text.trim() ? clip(last.text) : "The agent finished its turn.";
-      this.emit("turn.finished", id, s?.title ? `Done: ${clip(s.title, 60)}` : "Turn finished", text, { sessionId: id });
-    } else if (status === "error") {
-      this.emit("turn.failed", id, s?.title ? `Failed: ${clip(s.title, 60)}` : "Turn failed", s?.error ? clip(s.error) : "The turn ended with an error.", { sessionId: id });
-    } else if (status === "stopped") {
-      this.emit("turn.failed", id, s?.title ? `Stopped: ${clip(s.title, 60)}` : "Turn stopped", "The turn was stopped.", { sessionId: id });
-    }
+    const title = subject(s?.title, "A session");
+    if (status === "idle") this.emit("turn.finished", id, title, "Ready for your review", { sessionId: id });
+    else if (status === "error") this.emit("turn.failed", id, title, "Stopped on an error", { sessionId: id });
+    else if (status === "stopped") this.emit("turn.failed", id, title, "Stopped", { sessionId: id });
   }
 
   private dialogs(state: DialogsState): void {
@@ -171,7 +185,7 @@ export class Notifier {
       if (!dlg.asking || dlg.outcome || this.dialogsSeen.has(dlg.id)) continue;
       this.dialogsSeen.add(dlg.id);
       const sid = dlg.sessionId ?? undefined;
-      this.emit("dialog.waiting", sid, `Editor dialog: ${clip(dlg.title || "Unreal Editor", 60)}`, clip(dlg.message || "An editor dialog waits for your answer."), { ...(sid ? { sessionId: sid } : {}), dialogId: dlg.id });
+      this.emit("dialog.waiting", sid, subject(dlg.title, "Unreal Editor"), "An editor dialog needs your answer", { ...(sid ? { sessionId: sid } : {}), dialogId: dlg.id });
     }
     if (this.dialogsSeen.size > 500) this.dialogsSeen.clear();
   }
@@ -184,10 +198,10 @@ export class Notifier {
     const target: NotifyTarget = { ...(sid ? { sessionId: sid } : {}), runId: run.runId };
     if (run.state === "awaiting_verdict") {
       const step = run.steps.find((s) => s.status === "awaiting_verdict");
-      this.emit("playtest.needs-you", sid, "Verdict needed", clip(`${run.scriptName}: ${step ? `step ${step.index + 1}` : "a manual step"} waits for your verdict.`), target);
+      this.emit("playtest.needs-you", sid, subject(run.scriptName, "A playtest"), step ? `Step ${step.index + 1} needs your verdict` : "Needs your verdict", target);
     } else if (run.state === "finished" && was && was !== "draft") {
       const failed = run.summary?.failed ?? run.steps.filter((s) => s.status === "failed").length;
-      this.emit("playtest.finished", sid, failed ? "Playtest failed" : "Playtest passed", clip(`${run.scriptName}: ${failed ? `${failed} step${failed === 1 ? "" : "s"} failed` : "every step passed"}.`), target);
+      this.emit("playtest.finished", sid, subject(run.scriptName, "A playtest"), failed ? `Failed, ${failed} step${failed === 1 ? "" : "s"}` : "Passed", target);
     }
   }
 
@@ -196,9 +210,9 @@ export class Notifier {
     const entry = s?.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId);
     if (entry?.kind !== "tool" || !/^(agent|task)$/i.test(entry.call.name) || entry.parent) return;
     const input = entry.call.input as { description?: unknown; name?: unknown };
-    const task = typeof input.description === "string" ? input.description : typeof input.name === "string" ? input.name : "A subagent";
-    const how = outcome === "done" ? "finished" : outcome === "stopped" ? "was stopped" : "ended with an error";
-    this.emit("subagent.finished", sessionId, "Subagent finished", clip(`${task} ${how}.`), { sessionId });
+    const task = typeof input.description === "string" ? input.description : typeof input.name === "string" ? input.name : undefined;
+    const how = outcome === "done" ? "Subagent finished" : outcome === "stopped" ? "Subagent stopped" : "Subagent stopped on an error";
+    this.emit("subagent.finished", sessionId, subject(s?.title, "A session"), task ? `${how}: ${plainLine(task, 40)}` : how, { sessionId });
   }
 
   private context(sessionId: string, agent: string): void {
@@ -211,7 +225,7 @@ export class Notifier {
     if (view?.level === "high") {
       if (!this.highContext.has(key)) {
         this.highContext.add(key);
-        this.emit("context.limit", sessionId, "Context near the limit", clip(`${s.title || "A conversation"} is at ${Math.round(view.fraction * 100)}% of its context window.`), { sessionId });
+        this.emit("context.limit", sessionId, subject(s.title, "A session"), `Context ${Math.round(view.fraction * 100)}% full`, { sessionId });
       }
     } else if (view) this.highContext.delete(key);
     for (const t of s.transcript) {
@@ -219,7 +233,7 @@ export class Notifier {
       const id = `${sessionId}/${t.at}`;
       if (this.compactionsSeen.has(id)) continue;
       this.compactionsSeen.add(id);
-      this.emit("context.limit", sessionId, "Compaction failed", clip(t.error ?? "The conversation could not be compacted."), { sessionId });
+      this.emit("context.limit", sessionId, subject(s.title, "A session"), "Compaction failed", { sessionId });
     }
   }
 
@@ -239,7 +253,7 @@ export class Notifier {
    * published as studio.notify, decided and shown by the device that asked.
    */
   test(device: string): Notice {
-    return this.send("turn.finished", undefined, TEST_TITLE, "Notifications from this project reach this device.", {}, { device });
+    return this.send("turn.finished", undefined, TEST_TITLE, "Notifications reach this device", {}, { device });
   }
 
   /** A device's report of what it did with a notice: logged and traced. */

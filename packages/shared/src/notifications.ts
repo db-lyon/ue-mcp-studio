@@ -218,7 +218,8 @@ export const notifyKindName = (kind: NotifyKind): string => NOTIFY_KINDS.find((k
 /** What the notification says on this device. */
 export function noticeContent(n: Pick<Notice, "kind" | "project" | "title" | "text" | "test">, privacy: NotifyPrivacy): { title: string; body: string } {
   if (privacy === "minimal") return { title: n.test ? TEST_TITLE : notifyKindName(n.kind), body: n.project };
-  return { title: n.title, body: n.project ? `${n.project}: ${n.text}` : n.text };
+  // "Vale: Core game loop revisions" over "Ready for your review": Android's collapsed card and a Windows toast each show both lines whole.
+  return { title: n.project ? `${n.project}: ${n.title}` : n.title, body: n.text };
 }
 
 /** A Notice read from an event's data, or null when it is not one. */

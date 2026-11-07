@@ -24,12 +24,12 @@ function setup(sessions: Record<string, NotifySession> = {}, prefs: ProjectNotif
 const session = (over: Partial<NotifySession> = {}): NotifySession => ({ title: "Fix the door", transcript: [], ...over });
 
 describe("Notifier", () => {
-  it("a turn that ends idle is turn.finished, with the last reply and the session as its target", () => {
-    const { ev, published } = setup({ s1: session({ transcript: [{ kind: "assistant", text: "The door opens now.", at: "x" }] }) });
+  it("a turn that ends idle is turn.finished: the session, ready for review, and no excerpt of the reply", () => {
+    const { ev, published } = setup({ s1: session({ transcript: [{ kind: "assistant", text: "Next is [#95](https://git.example/95), then **#102**.", at: "x" }] }) });
     ev("session.changed", { sessionId: "s1", status: "running" });
     ev("session.changed", { sessionId: "s1", status: "idle" });
     expect(published).toHaveLength(1);
-    expect(published[0]).toMatchObject({ kind: "turn.finished", project: "Vale", sessionId: "s1", sessionTitle: "Fix the door", title: "Done: Fix the door", text: "The door opens now.", target: { sessionId: "s1" } });
+    expect(published[0]).toMatchObject({ kind: "turn.finished", project: "Vale", sessionId: "s1", sessionTitle: "Fix the door", title: "Fix the door", text: "Ready for your review", target: { sessionId: "s1" } });
   });
 
   it("an idle session that was never running does not notify", () => {
@@ -44,7 +44,7 @@ describe("Notifier", () => {
     ev("session.changed", { sessionId: "s1", status: "error" });
     ev("session.changed", { sessionId: "s1", status: "waiting" });
     ev("session.changed", { sessionId: "s1", status: "stopped" });
-    expect(published.map((p) => [p.kind, p.title])).toEqual([["turn.failed", "Failed: Fix the door"], ["turn.failed", "Stopped: Fix the door"]]);
+    expect(published.map((p) => [p.kind, p.title, p.text])).toEqual([["turn.failed", "Fix the door", "Stopped on an error"], ["turn.failed", "Fix the door", "Stopped"]]);
   });
 
   it("approval and dialog waiting, each dialog once", () => {
@@ -66,10 +66,10 @@ describe("Notifier", () => {
     ev("qa.changed", { runId: "r1", run: run("awaiting_verdict", [{ index: 0, status: "awaiting_verdict" }]) });
     ev("qa.attention", { sessionId: "s1", runId: "r1", title: "Playtest needs you", text: "The door never opened." });
     ev("qa.changed", { runId: "r1", run: run("finished", [{ index: 0, status: "failed" }]) });
-    expect(published.map((p) => [p.kind, p.title, p.target.runId])).toEqual([
-      ["playtest.needs-you", "Verdict needed", "r1"],
-      ["playtest.needs-you", "Playtest needs you", "r1"],
-      ["playtest.finished", "Playtest failed", "r1"],
+    expect(published.map((p) => [p.kind, p.title, p.text, p.target.runId])).toEqual([
+      ["playtest.needs-you", "Door test", "Step 1 needs your verdict", "r1"],
+      ["playtest.needs-you", "Fix the door", "A playtest loop needs you", "r1"],
+      ["playtest.finished", "Door test", "Failed, 1 step", "r1"],
     ]);
   });
 
@@ -80,7 +80,7 @@ describe("Notifier", () => {
     expect(published).toHaveLength(0);
     p.prefs = applyProjectNotify(DEFAULT_PROJECT_NOTIFY, { events: { "subagent.finished": true } });
     ev("tool.finished", { sessionId: "s1", toolUseId: "c1", outcome: "done" });
-    expect(published[0]).toMatchObject({ kind: "subagent.finished", text: "Audit the level finished." });
+    expect(published[0]).toMatchObject({ kind: "subagent.finished", title: "Fix the door", text: "Subagent finished: Audit the level" });
   });
 
   it("context near the limit once per crossing, and a failed compaction once", () => {
@@ -90,8 +90,25 @@ describe("Notifier", () => {
     ev("context.changed", { sessionId: "s1", agent: "main" });
     s.transcript.push({ kind: "compaction", at: "t1", trigger: "auto", state: "failed", before: 190_000, error: "The summary request failed." } as never);
     ev("context.changed", { sessionId: "s1", agent: "main" });
-    expect(published.map((x) => x.title)).toEqual(["Context near the limit", "Compaction failed"]);
+    expect(published.map((x) => [x.title, x.text])).toEqual([["Fix the door", "Context 95% full"], ["Fix the door", "Compaction failed"]]);
     expect(p.prefs.events["context.limit"]).toBe(true);
+  });
+
+  it("names the subject in plain words: markdown links, code marks and emphasis dropped, names with underscores kept", async () => {
+    const { plainLine } = await import("../src/notify.js");
+    expect(plainLine("**Wire** [BP_Hero](https://x/y) `jump`")).toBe("Wire BP_Hero jump");
+    expect(plainLine("## Fix M_Door_Wood")).toBe("Fix M_Door_Wood");
+    expect(plainLine("x".repeat(80))).toHaveLength(60);
+  });
+
+  it("approval and dialog say the state plainly", () => {
+    const { ev, published } = setup({ s1: session() });
+    ev("approval.requested", { sessionId: "s1", approvalId: "a1", tool: "shell" });
+    ev("dialog.changed", { now: 1, dialogs: [{ id: "d1", title: "Save Content", message: "Save 3 assets?", asking: { since: 1 }, outcome: null, sessionId: "s1" }] });
+    expect(published.map((p) => [p.title, p.text])).toEqual([
+      ["Fix the door", "Needs your approval"],
+      ["Save Content", "An editor dialog needs your answer"],
+    ]);
   });
 
   it("a muted session is dropped at the source", () => {

@@ -243,7 +243,8 @@ export async function deliver(n: Notice, prefs: DeviceNotifyPrefs, onOpen: (t: N
     if (answer.ok || window.ue?.studioWindow) return { via: "window", ...answer };
   }
   if (window.ue?.studio && nat.drawattention) {
-    const flashed = await nat.drawattention(body).catch(() => false);
+    // The editor's toast has one line: the subject and the state together.
+    const flashed = await nat.drawattention(`${title} - ${body}`).catch(() => false);
     return { via: "flash", ok: !!flashed };
   }
   const permission = browserPermission();
