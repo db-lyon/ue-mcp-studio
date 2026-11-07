@@ -42,6 +42,7 @@ import { SessionIdContext, attachmentUrl, formatBytes, isImage, useDaemonImage }
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
 import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";
+import { noteError, setDiag } from "./diag";
 
 /** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
 const positions = new WeakMap<readonly unknown[], Map<unknown, number>>();
@@ -349,6 +350,9 @@ export class EntryBoundary extends Component<{ children: ReactNode }, { failed: 
   static getDerivedStateFromError(e: unknown) {
     return { failed: e instanceof Error ? e.message : String(e) };
   }
+  componentDidCatch(e: unknown) {
+    noteError(e);
+  }
   render() {
     if (this.state.failed === null) return this.props.children;
     return <Banner kind="bad">{`This item could not be shown: ${this.state.failed}`}</Banner>;
@@ -390,18 +394,22 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
   const window = useWindowDimensions().width;
   const data = useMemo(() => [...rows].reverse(), [rows]);
   const measured = useRef<Measured>({ height: 0, content: 0, offset: 0, seen: 0 });
-  const undrawn = useUndrawn(data.length, measured);
+  useUndrawn(data.length, measured);
+  useEffect(() => setDiag({ rows: data.length }), [data.length]);
   const onLayout = (e: LayoutChangeEvent) => {
     measured.current.height = e.nativeEvent.layout.height;
+    setDiag({ listH: e.nativeEvent.layout.height });
     setWidth(e.nativeEvent.layout.width - 24);
   };
   const followScroll = follow.props.onScroll;
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     measured.current.offset = e.nativeEvent.contentOffset.y;
+    setDiag({ offset: e.nativeEvent.contentOffset.y });
     followScroll(e);
   };
   const onViewable = useRef(({ viewableItems }: { viewableItems: unknown[] }) => {
     measured.current.seen = Math.max(measured.current.seen, viewableItems.length);
+    setDiag({ seen: viewableItems.length });
   }).current;
   return (
     <WidthContext.Provider value={width ?? window - 24}>
@@ -426,7 +434,10 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
         onScroll={onScroll}
         scrollEventThrottle={follow.props.scrollEventThrottle}
         onLayout={onLayout}
-        onContentSizeChange={(_w: number, h: number) => void (measured.current.content = h)}
+        onContentSizeChange={(_w: number, h: number) => {
+          measured.current.content = h;
+          setDiag({ contentH: h });
+        }}
         onViewableItemsChanged={onViewable}
         viewabilityConfig={VIEWABLE}
         accessibilityElementsHidden={hidden}
@@ -436,7 +447,6 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
         // where a short thread starts as on the web.
         contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end", paddingTop: 10, paddingHorizontal: 12, paddingBottom: 14 }}
       />
-      {undrawn ? <Banner kind="bad" role="alert" style={{ margin: 10 }}>{undrawn}</Banner> : null}
     </WidthContext.Provider>
   );
 }
@@ -447,8 +457,8 @@ const Gap = () => <View style={{ height: 12 }} />;
  * On a phone, a thread with lines that has shown none of them a while after
  * opening says so, with what the list measured, instead of staying blank.
  */
-function useUndrawn(count: number, measured: { current: Measured }): string | null {
-  const [text, setText] = useState<string | null>(null);
+function useUndrawn(count: number, measured: { current: Measured }): void {
+  const setText = (text: string | null) => setDiag({ undrawn: text });
   const some = count > 0;
   useEffect(() => {
     setText(null);
@@ -460,7 +470,6 @@ function useUndrawn(count: number, measured: { current: Measured }): string | nu
     }, UNDRAWN_MS);
     return () => clearTimeout(id);
   }, [some]);
-  return text;
 }
 
 /**

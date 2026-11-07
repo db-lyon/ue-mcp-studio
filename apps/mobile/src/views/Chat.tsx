@@ -45,6 +45,7 @@ import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../screens/chat/items";
 import { useSessionRuns } from "../chat/sessionRuns";
 import { buttonText, small } from "../chat/styles";
+import { DiagStrip, setDiag } from "../chat/diag";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -407,6 +408,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
+  useEffect(() => setDiag({ entries: detail ? (Array.isArray(detail.transcript) ? detail.transcript.length : -2) : -1 }), [detail]);
   // The calls waiting for approval, so the thread a call waits in says it waits on the user.
   const asked = useMemo(() => new Set((detail?.approvals ?? []).map((a) => a.toolUseId)), [detail?.approvals]);
   // Retry on a failed playtest: the playtest flow, started when no turn runs.
@@ -565,6 +567,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
             onReview={() => setReviewOpen(true)}
           />
         ) : null}
+        {selected ? <DiagStrip /> : null}
         {error ? (
           <Pressable accessibilityRole="button" accessibilityLabel={error} onPress={() => setError(null)}>
             <Banner kind="bad" role="alert" style={bannerBox}>{error}</Banner>
@@ -589,7 +592,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                   <EditMessageContext.Provider value={disconnected ? null : editMessage}>
                     <PlaytestCommandContext.Provider value={playtest}>
                       <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
-                        <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+                        <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onLayout={(e) => setDiag({ boxH: e.nativeEvent.layout.height })}>
                           <MainTranscript transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
                           {drawerCall ? (
                             <Animated.View
@@ -624,6 +627,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           <ContextWarning view={meterView} runtime={runtimeCompacts} busy={busy} onCompact={() => compactNow()} onDismiss={() => setWarnDismissed(warnKey)} />
                         ) : null}
                         {playtest ? <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} /> : null}
+                        <View onLayout={(e) => setDiag({ composerH: e.nativeEvent.layout.height })}>
                         <Composer
                           draft={draft}
                           onDraft={setDraft}
@@ -668,6 +672,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                             </>
                           }
                         />
+                        </View>
                         <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>
                           {threads}
                         </Sheet>
