@@ -42,7 +42,7 @@ import { SessionIdContext, attachmentUrl, formatBytes, isImage, useDaemonImage }
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
 import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";
-import { noteError, setDiag } from "./diag";
+import { noteError, noteRow, setDiag, useDiag } from "./diag";
 
 /** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
 const positions = new WeakMap<readonly unknown[], Map<unknown, number>>();
@@ -396,6 +396,7 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
   const measured = useRef<Measured>({ height: 0, content: 0, offset: 0, seen: 0 });
   useUndrawn(data.length, measured);
   useEffect(() => setDiag({ rows: data.length }), [data.length]);
+  const mode = useDiag().mode;
   const onLayout = (e: LayoutChangeEvent) => {
     measured.current.height = e.nativeEvent.layout.height;
     setDiag({ listH: e.nativeEvent.layout.height });
@@ -413,13 +414,27 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
   }).current;
   return (
     <WidthContext.Provider value={width ?? window - 24}>
+      {/* Diagnostics: a magenta bar that paints whatever the rows do. */}
+      <View testID="diag-probe" style={{ height: 4, backgroundColor: "#ff00ff" }} />
+      {mode === "plain" ? (
+        <View testID="diag-plain" style={{ flex: 1, justifyContent: "flex-end", paddingHorizontal: 12, paddingBottom: 14, gap: 12, overflow: "hidden" }} onLayout={onLayout}>
+          {data.slice(0, 12).reverse().map((item) => (
+            <EntryBoundary key={item.key}>{item.render()}</EntryBoundary>
+          ))}
+          {foot}
+        </View>
+      ) : (
       <FlatList
         nativeID="transcript"
         ref={follow.ref as never}
         data={data}
         inverted
         keyExtractor={(r: ThreadRow) => r.key}
-        renderItem={({ item }: { item: ThreadRow }) => <EntryBoundary>{item.render()}</EntryBoundary>}
+        renderItem={({ item, index }: { item: ThreadRow; index: number }) => (
+          <View onLayout={(e) => noteRow(index, e.nativeEvent.layout.height)}>
+            <EntryBoundary>{item.render()}</EntryBoundary>
+          </View>
+        )}
         ItemSeparatorComponent={Gap}
         // An inverted list draws its header upright at the bottom of the thread and its footer at the top.
         ListHeaderComponent={foot ? <View style={{ gap: 12, marginTop: data.length ? 12 : 0 }}>{foot}</View> : undefined}
@@ -447,6 +462,7 @@ function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeo
         // where a short thread starts as on the web.
         contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end", paddingTop: 10, paddingHorizontal: 12, paddingBottom: 14 }}
       />
+      )}
     </WidthContext.Provider>
   );
 }
