@@ -407,6 +407,23 @@ describe("ModelPicker", () => {
     expect(onSettings).toHaveBeenCalled();
   });
 
+  it("in the composer row, the pill opens the models and the effort in a sheet from the bottom of the screen", async () => {
+    const a = api();
+    a.models.mockResolvedValue(catalog);
+    a.saveSettings.mockResolvedValue({ ...settings, effort: "high" });
+    renderInProject(<ModelAndEffort pill settings={settings} onSettings={vi.fn()} />, a);
+    await settle();
+    await openPicker("Model and effort: Sonnet 5.5, Medium");
+    const sheet = screen.getByLabelText("Model and effort");
+    expect(within(sheet).getByText("Anthropic")).toBeTruthy();
+    expect(within(sheet).getByRole("radio", { name: "High" })).toBeTruthy();
+    // No menu placed beside the pill: nothing there to misplace.
+    expect(screen.queryByLabelText("Close the menu")).toBeNull();
+    fireEvent.click(within(sheet).getByRole("radio", { name: "High" }));
+    await settle();
+    expect(a.saveSettings).toHaveBeenCalledWith({ effort: "high" });
+  });
+
   it("a model nothing connected runs says to connect it on the computer", async () => {
     const a = api();
     a.models.mockResolvedValue(catalog);
