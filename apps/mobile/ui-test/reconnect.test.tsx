@@ -4,7 +4,7 @@
  * after REMOTE_RECONNECT_MS, never the relay's own "That project is offline."
  * as an error; and once the project answers again the sessions, the open
  * session and its transcript are read again without a touch. Pull to refresh
- * reads them again too.
+ * on the sessions list reads them again too.
  */
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -227,7 +227,7 @@ describe("the chat's reads", () => {
     expect(screen.getByText("Fix it")).toBeTruthy();
   });
 
-  it("reads the sessions and the open session again on a pull", async () => {
+  it("reads the sessions again on a pull, and an open thread has no pull, its top being its oldest line", async () => {
     const api = fakeApi();
     api.sessions.mockResolvedValue({ sessions: SESSIONS });
     api.settings.mockResolvedValue({ route: "key" });
@@ -242,9 +242,7 @@ describe("the chat's reads", () => {
     expect(nav.project.reconnect).toHaveBeenCalled();
     fireEvent.click(screen.getByLabelText("Door that opens"));
     await tick(10);
-    const syncs = api.sessionSync.mock.calls.length;
-    fireEvent.click(screen.getByLabelText("Pull to refresh"));
-    await tick(10);
-    expect(api.sessionSync.mock.calls.length).toBe(syncs + 1);
+    expect(screen.getByText("Fix it")).toBeTruthy();
+    expect(screen.queryByLabelText("Pull to refresh")).toBeNull();
   });
 });

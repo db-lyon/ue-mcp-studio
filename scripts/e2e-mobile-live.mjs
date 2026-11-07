@@ -15,7 +15,7 @@
 // Then a restart: the computer away when the app opens (Reconnecting, then the sessions with no
 // banner once it answers), and away again under an open session, whose transcript is read again.
 // Then a long session (about 8 MB of transcript): it opens on its newest line, and older lines
-// come a page at a time.
+// are drawn as the reader scrolls up.
 import * as fs from "node:fs";
 import * as https from "node:https";
 import * as os from "node:os";
@@ -240,13 +240,13 @@ async function live() {
       step("unlocked: sessions list", !(await page.getByText("That project is offline.").count()));
       const started = Date.now();
       await page.getByText(liveSession, { exact: true }).first().click();
-      // A long session opens on its newest lines with the rest one press away.
-      await page.getByText(/^Show earlier messages \(\d+ more\)$/).first().waitFor({ state: "attached", timeout: 60_000 });
+      // A session opens on its newest lines, the older ones drawn as the reader scrolls up.
+      await page.waitForSelector("#transcript", { state: "visible", timeout: 60_000 });
+      await page.waitForFunction(() => (document.getElementById("transcript")?.innerText ?? "").trim().length > 0, null, { timeout: 60_000 });
       const ms = Date.now() - started;
       await page.waitForTimeout(1500);
       await shot(page, "06-live-session-open");
-      const earlier = await page.getByText(/^Show earlier messages \(\d+ more\)$/).first().textContent();
-      step("real session transcript drawn", !(await page.getByText("That project is offline.").count()), `${ms} ms to the transcript; ${earlier}`);
+      step("real session transcript drawn", !(await page.getByText("That project is offline.").count()), `${ms} ms to the transcript`);
     }
   } catch (e) {
     await shot(page, "live-failure").catch(() => undefined);
@@ -437,14 +437,20 @@ async function fakeLongSession() {
     await page.waitForTimeout(800);
     await shot(page, "11-fake-long-session");
     step("fake long session: opens on its newest line", true, `${took} ms`);
-    const earlier = page.locator('[aria-label^="Show earlier messages"]').first();
-    await earlier.waitFor({ state: "attached", timeout: 5000 });
-    const before = await page.getByText(/^Turn \d+$/).count();
-    await earlier.click();
-    await page.waitForTimeout(800);
-    const after = await page.getByText(/^Turn \d+$/).count();
-    if (after <= before) throw new Error(`Show earlier drew nothing more (${before} turns, then ${after})`);
-    step("fake long session: older lines a page at a time", true, `${before} then ${after} turns drawn`);
+    // The thread is an inverted list: its oldest lines are at the largest offset, drawn as they near the screen.
+    const turns = () => page.getByText(/^Turn \d+$/).count();
+    const before = await turns();
+    for (let i = 0; i < 6; i++) {
+      await page.evaluate(() => {
+        const list = document.getElementById("transcript");
+        if (list) list.scrollTop += list.clientHeight * 3;
+      });
+      await page.waitForTimeout(250);
+    }
+    const after = await turns();
+    if (after <= before) throw new Error(`scrolling up drew nothing more (${before} turns, then ${after})`);
+    await shot(page, "12-fake-long-session-up");
+    step("fake long session: older lines drawn as the reader scrolls up", true, `${before} then ${after} turns drawn`);
   } catch (e) {
     await shot(page, "fake-long-failure").catch(() => undefined);
     step("fake long session", false, `${e.message}${errors.length ? ` | page errors: ${errors.slice(0, 5).join(" | ")}` : ""}`);

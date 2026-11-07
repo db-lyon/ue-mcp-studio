@@ -590,7 +590,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                     <PlaytestCommandContext.Provider value={playtest}>
                       <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
                         <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-                          <MainTranscript transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} refreshing={pulling} onRefresh={pull} />
+                          <MainTranscript transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
                           {drawerCall ? (
                             <Animated.View
                               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.c.panel, borderLeftWidth: 1, borderLeftColor: t.c.line, shadowColor: "#000", shadowOpacity: 0.28, shadowRadius: 16, shadowOffset: { width: -16, height: 0 }, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [width, 0] }) }] }}

@@ -5,8 +5,8 @@
  * line while the reader is at the bottom, with a New messages pill under it
  * when they have scrolled up; a subagent's own thread is drawn the same way.
  */
-import { Component, createContext, memo, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle } from "react-native";
+import { Component, createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { FlatList, Image, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
@@ -343,44 +343,6 @@ function JumpLatest({ onPress }: { onPress: () => void }) {
   );
 }
 
-/** A long thread draws its newest TRANSCRIPT_PAGE lines first, and a page more each time the reader reaches the top. */
-export const TRANSCRIPT_PAGE = 40;
-/** Within this many pixels of the top counts as reaching it. */
-const TOP_SLACK = 600;
-
-interface Tail {
-  /** The first line drawn; the ones before it wait above. */
-  from: number;
-  /** Draw a page more above, or null when every line is drawn. */
-  more: (() => void) | null;
-}
-
-/** The newest lines of `count`, a page more on each `more`; back to one page when `reset` changes. */
-export function useTail(count: number, reset: unknown): Tail {
-  const [shown, setShown] = useState(TRANSCRIPT_PAGE);
-  useEffect(() => setShown(TRANSCRIPT_PAGE), [reset]);
-  const from = Math.max(0, count - shown);
-  // One page per arrival at the top, however many scroll events say so before it is drawn.
-  const asked = useRef(-1);
-  const more = useCallback(() => {
-    if (asked.current === from) return;
-    asked.current = from;
-    setShown((n) => n + TRANSCRIPT_PAGE);
-  }, [from]);
-  return { from, more: from > 0 ? more : null };
-}
-
-/** The way to the lines not drawn yet, above the oldest one that is. */
-function Earlier({ count, onPress }: { count: number; onPress: () => void }) {
-  const t = useTheme();
-  const label = `Show earlier messages (${count} more)`;
-  return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => ({ alignSelf: "center", minHeight: 44, justifyContent: "center", paddingHorizontal: 12, borderRadius: t.radius, backgroundColor: pressed ? t.c.panel2 : "transparent" })}>
-      <Text style={[foldText(t), { color: t.c.dim }]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 /** One line that fails to draw says so in its place, and the rest of the thread still shows. */
 export class EntryBoundary extends Component<{ children: ReactNode }, { failed: string | null }> {
   state = { failed: null as string | null };
@@ -393,46 +355,112 @@ export class EntryBoundary extends Component<{ children: ReactNode }, { failed: 
   }
 }
 
+/** One line of a thread as the list draws it: a stable key and what to draw. */
+export interface ThreadRow {
+  key: string;
+  render: () => ReactNode;
+}
+
+/** How many of the newest lines the list draws before it has measured any; the rest are drawn as they near the screen. */
+export const FIRST_ROWS = 12;
+/** A thread with lines that has shown none of them this long after opening says so. */
+export const UNDRAWN_MS = 4000;
+
+const VIEWABLE = { itemVisiblePercentThreshold: 1 };
+
+/** The list as it last reported itself, for saying why a thread did not draw. */
+interface Measured {
+  height: number;
+  content: number;
+  offset: number;
+  seen: number;
+}
+
 /**
  * .transcript: the scrolling column, 12px between lines, 14px 12px 10px inside.
- * It paints the panel it sits on: a scroller Chrome scrolls on the GPU keeps
- * subpixel text only over an opaque background, and react-native-web's
- * ScrollViews scroll there.
+ * An inverted FlatList: the newest line sits at offset 0 at the bottom, so a
+ * thread opens on it without scrolling to the end, and only the lines near
+ * the screen are drawn however long the session grows. It paints the panel
+ * it sits on: a scroller Chrome scrolls on the GPU keeps subpixel text only
+ * over an opaque background, and react-native-web's ScrollViews scroll there.
  */
-function Column({ follow, hidden, refreshing, onRefresh, tail, children }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; refreshing?: boolean; onRefresh?: () => void; tail?: Tail; children: ReactNode }) {
+function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; rows: ThreadRow[]; head?: ReactNode; foot?: ReactNode }) {
   const t = useTheme();
   const [width, setWidth] = useState<number | null>(null);
   const window = useWindowDimensions().width;
+  const data = useMemo(() => [...rows].reverse(), [rows]);
+  const measured = useRef<Measured>({ height: 0, content: 0, offset: 0, seen: 0 });
+  const undrawn = useUndrawn(data.length, measured);
   const onLayout = (e: LayoutChangeEvent) => {
+    measured.current.height = e.nativeEvent.layout.height;
     setWidth(e.nativeEvent.layout.width - 24);
-    follow.props.onLayout(e);
   };
   const followScroll = follow.props.onScroll;
-  // Scrolled up to the oldest line drawn: the page before it is drawn above, where the reader is.
   const onScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    measured.current.offset = e.nativeEvent.contentOffset.y;
     followScroll(e);
-    if (tail?.more && e.nativeEvent.contentOffset.y < TOP_SLACK) tail.more();
   };
+  const onViewable = useRef(({ viewableItems }: { viewableItems: unknown[] }) => {
+    measured.current.seen = Math.max(measured.current.seen, viewableItems.length);
+  }).current;
   return (
     <WidthContext.Provider value={width ?? window - 24}>
-      <ScrollView
+      <FlatList
         nativeID="transcript"
-        {...follow.props}
+        ref={follow.ref as never}
+        data={data}
+        inverted
+        keyExtractor={(r: ThreadRow) => r.key}
+        renderItem={({ item }: { item: ThreadRow }) => <EntryBoundary>{item.render()}</EntryBoundary>}
+        ItemSeparatorComponent={Gap}
+        // An inverted list draws its header upright at the bottom of the thread and its footer at the top.
+        ListHeaderComponent={foot ? <View style={{ gap: 12, marginTop: data.length ? 12 : 0 }}>{foot}</View> : undefined}
+        ListFooterComponent={head ? <View style={{ marginBottom: data.length ? 12 : 0 }}>{head}</View> : undefined}
+        initialNumToRender={FIRST_ROWS}
+        maxToRenderPerBatch={8}
+        windowSize={9}
+        // Clipped subviews leave blank rows in an inverted list on Android.
+        removeClippedSubviews={false}
+        // Up the thread, lines arriving below keep the one being read where it is.
+        maintainVisibleContentPosition={follow.up ? { minIndexForVisible: 0 } : undefined}
         onScroll={onScroll}
+        scrollEventThrottle={follow.props.scrollEventThrottle}
         onLayout={onLayout}
-        // Lines drawn above keep the one being read where it is.
-        maintainVisibleContentPosition={tail?.more ? { minIndexForVisible: 1 } : undefined}
-        refreshControl={onRefresh ? <RefreshControl refreshing={!!refreshing} onRefresh={onRefresh} tintColor={t.c.accent} colors={[t.c.accent]} progressBackgroundColor={t.c.panel2} /> : undefined}
+        onContentSizeChange={(_w: number, h: number) => void (measured.current.content = h)}
+        onViewableItemsChanged={onViewable}
+        viewabilityConfig={VIEWABLE}
         accessibilityElementsHidden={hidden}
         importantForAccessibility={hidden ? "no-hide-descendants" : "auto"}
         style={{ flex: 1, backgroundColor: t.c.panel }}
-        contentContainerStyle={{ gap: 12, paddingTop: 14, paddingHorizontal: 12, paddingBottom: 10 }}
-      >
-        {tail?.more ? <Earlier count={tail.from} onPress={tail.more} /> : null}
-        {children}
-      </ScrollView>
+        // Inverted: the container's top padding is the bottom of the thread, and its end the top,
+        // where a short thread starts as on the web.
+        contentContainerStyle={{ flexGrow: 1, justifyContent: "flex-end", paddingTop: 10, paddingHorizontal: 12, paddingBottom: 14 }}
+      />
+      {undrawn ? <Banner kind="bad" role="alert" style={{ margin: 10 }}>{undrawn}</Banner> : null}
     </WidthContext.Provider>
   );
+}
+
+const Gap = () => <View style={{ height: 12 }} />;
+
+/**
+ * On a phone, a thread with lines that has shown none of them a while after
+ * opening says so, with what the list measured, instead of staying blank.
+ */
+function useUndrawn(count: number, measured: { current: Measured }): string | null {
+  const [text, setText] = useState<string | null>(null);
+  const some = count > 0;
+  useEffect(() => {
+    setText(null);
+    if (Platform.OS === "web" || !some) return;
+    const id = setTimeout(() => {
+      const m = measured.current;
+      if (m.seen > 0 && m.height > 0) return;
+      setText(`This conversation did not draw: ${count} lines, the list ${Math.round(m.height)} px tall, its content ${Math.round(m.content)} px, scrolled ${Math.round(m.offset)} px.`);
+    }, UNDRAWN_MS);
+    return () => clearTimeout(id);
+  }, [some]);
+  return text;
 }
 
 /**
@@ -440,7 +468,7 @@ function Column({ follow, hidden, refreshing, onRefresh, tail, children }: { fol
  * bottom, with a way back down when they have scrolled up. Memoized: typing in
  * the composer does not render it again.
  */
-export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden, sent, refreshing, onRefresh }: {
+export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden, sent }: {
   transcript: TranscriptEntry[];
   status: TurnStatus;
   streaming: string;
@@ -450,9 +478,6 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   hidden: boolean;
   /** Counts the reader's sends; each one snaps the thread to its newest line. */
   sent?: number;
-  /** Pull to refresh: the session read again. */
-  refreshing?: boolean;
-  onRefresh?: () => void;
 }) {
   const t = useTheme();
   // The app has no extension cards, so an extension's card entry is left out of the timeline.
@@ -460,16 +485,18 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   const follow = useFollow(`${transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = useAsked().size;
-  const tail = useTail(items.length, null);
-  return (
-    <>
-      <Column follow={follow} hidden={hidden} refreshing={refreshing} onRefresh={onRefresh} tail={tail}>
-        {items.slice(tail.from).map((item, n) => {
-          const i = tail.from + n;
-          if (item.kind === "entry") return <EntryBoundary key={i}><Entry entry={item.entry} /></EntryBoundary>;
-          if (item.kind === "progress") return <EntryBoundary key={i}><ProgressFold entries={item.entries} /></EntryBoundary>;
-          return <EntryBoundary key={item.calls[0].id}><AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} /></EntryBoundary>;
-        })}
+  const rows = useMemo<ThreadRow[]>(
+    () =>
+      items.map((item, i) => {
+        if (item.kind === "entry") return { key: `e${i}`, render: () => <Entry entry={item.entry} /> };
+        if (item.kind === "progress") return { key: `p${i}`, render: () => <ProgressFold entries={item.entries} /> };
+        return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} /> };
+      }),
+    [items, transcript, waiting, onOpen],
+  );
+  const foot =
+    streaming || asked > 0 || waiting || (status === "error" && error) ? (
+      <>
         {streaming ? (
           <View style={{ alignSelf: "flex-start", maxWidth: "100%", paddingVertical: 10, paddingRight: 13, paddingLeft: 2 }}>
             <Text style={baseFont(t)}>{streaming}</Text>
@@ -478,7 +505,11 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
         {asked > 0 ? <Banner kind="warn" role="status">{`Waiting on you: ${asked === 1 ? "a call needs" : `${asked} calls need`} your approval below.`}</Banner> : null}
         {waiting ? <Banner kind="warn">{`Waiting for editor: ${waitingCause ?? "not connected"}. The turn continues when it is back.`}</Banner> : null}
         {status === "error" && error ? <Banner kind="bad">{error}</Banner> : null}
-      </Column>
+      </>
+    ) : null;
+  return (
+    <>
+      <Column follow={follow} hidden={hidden} rows={rows} foot={foot} />
       {follow.behind ? <JumpLatest onPress={follow.jump} /> : null}
     </>
   );
@@ -626,18 +657,17 @@ export function SubagentThread({ call, transcript, sessionWaiting: _sessionWaiti
 }) {
   const t = useTheme();
   const prompt = (call.input as { prompt?: string }).prompt;
-  const steps = transcript.filter((e) => e.parent === call.id);
+  const steps = useMemo(() => transcript.filter((e) => e.parent === call.id), [transcript, call.id]);
   const follow = useFollow(`${steps.length}:${call.outcome}`);
-  const tail = useTail(steps.length, call.id);
+  const rows = useMemo<ThreadRow[]>(() => steps.map((e, i) => ({ key: `s${i}`, render: () => <Entry entry={e} /> })), [steps]);
+  const ended =
+    call.outcome === "done" ? <Text style={small(t, t.c.dim)}>Reported back to the main agent.</Text>
+      : call.outcome === "stopped" ? <Text style={small(t, t.c.dim)}>Stopped. The main agent was told.</Text>
+      : (call.outcome === "error" || call.outcome === "unknown") && call.result ? <Banner kind="bad">{call.result}</Banner>
+      : null;
   return (
     <>
-      <Column follow={follow} tail={tail}>
-        {prompt && tail.from === 0 ? <TaskMessage prompt={prompt} /> : null}
-        {steps.slice(tail.from).map((e, n) => <EntryBoundary key={tail.from + n}><Entry entry={e} /></EntryBoundary>)}
-        {call.outcome === "done" ? <Text style={small(t, t.c.dim)}>Reported back to the main agent.</Text> : null}
-        {call.outcome === "stopped" ? <Text style={small(t, t.c.dim)}>Stopped. The main agent was told.</Text> : null}
-        {(call.outcome === "error" || call.outcome === "unknown") && call.result ? <Banner kind="bad">{call.result}</Banner> : null}
-      </Column>
+      <Column key={call.id} follow={follow} rows={rows} head={prompt ? <TaskMessage prompt={prompt} /> : null} foot={ended} />
       {follow.behind ? <JumpLatest onPress={follow.jump} /> : null}
     </>
   );

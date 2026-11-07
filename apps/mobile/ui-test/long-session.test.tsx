@@ -1,12 +1,12 @@
 /**
  * A long session (8 MB of transcript, as a real one grows): it opens on its
- * newest lines at once, draws older ones a page at a time from the top, and a
- * line that cannot be drawn says so in place instead of blanking the thread.
+ * newest lines at once, draws only the lines near the screen, and a line that
+ * cannot be drawn says so in place instead of blanking the thread.
  */
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
-import { MainTranscript, TRANSCRIPT_PAGE } from "../src/chat/Transcript";
+import { FIRST_ROWS, MainTranscript } from "../src/chat/Transcript";
 import { Chat } from "../src/views/Chat";
 import { HUGE_ID, HUGE_LAST, HUGE_TITLE, hugeSession, hugeTranscript } from "../visual-qa/huge-session";
 import { fakeApi, renderInProject, settle } from "./helpers";
@@ -26,26 +26,24 @@ vi.mock("../src/ui/Markdown", async (original) => {
 const props = (transcript: TranscriptEntry[]) => ({ transcript, status: "idle" as const, streaming: "", waitingCause: null, error: null, onOpen: vi.fn(), hidden: false });
 
 describe("a long session", () => {
-  it("opens an 8 MB transcript on its newest lines, quickly, and draws older ones a page at a time", () => {
+  it("opens an 8 MB transcript on its newest lines, quickly, drawing only the lines near the screen", () => {
     const transcript = hugeTranscript(8_000_000);
     expect(JSON.stringify(transcript).length).toBeGreaterThan(8_000_000);
     const started = performance.now();
     renderInProject(<MainTranscript {...props(transcript)} />);
     expect(performance.now() - started).toBeLessThan(3000);
     expect(screen.getByText(HUGE_LAST)).toBeTruthy();
-    const turns = () => screen.queryAllByText(/^Turn \d+$/).length;
-    const first = turns();
-    expect(first).toBeGreaterThan(0);
-    expect(first).toBeLessThanOrEqual(TRANSCRIPT_PAGE);
-    fireEvent.click(screen.getByLabelText(/^Show earlier messages \(\d+ more\)$/));
-    expect(turns()).toBeGreaterThan(first);
-    expect(screen.getByText(HUGE_LAST)).toBeTruthy();
+    const turns = screen.queryAllByText(/^Turn \d+$/).length;
+    expect(turns).toBeGreaterThan(0);
+    expect(turns).toBeLessThanOrEqual(FIRST_ROWS);
+    // No scroll to the end and no page button: the newest line is the list's first.
+    expect(screen.queryByLabelText(/^Show earlier messages/)).toBeNull();
   });
 
   it("draws every line of a short session, with no way to earlier ones", () => {
     renderInProject(<MainTranscript {...props([{ kind: "user", text: "Fix it", at: "2026-11-04T12:00:00Z" }, { kind: "assistant", text: "Fixed.", at: "2026-11-04T12:01:00Z" }])} />);
     expect(screen.getByText("Fix it")).toBeTruthy();
-    expect(screen.queryByLabelText(/^Show earlier messages/)).toBeNull();
+    expect(screen.getByText("Fixed.")).toBeTruthy();
   });
 
   it("opens in the chat from the daemon's answer and shows its newest line", async () => {
