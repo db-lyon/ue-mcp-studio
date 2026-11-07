@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { PRESENCE_EVERY_MS, createLock, createNoticeGate, newestEventId, presenceDue, HttpError, requestJson, SseParser, subscribeEvents, unreachable, type Reply, type StreamEvent, type Transport } from "../src/index.js";
+import { PRESENCE_EVERY_MS, studioApi, createLock, createNoticeGate, newestEventId, presenceDue, HttpError, requestJson, SseParser, subscribeEvents, unreachable, type Reply, type StreamEvent, type Transport } from "../src/index.js";
 
 const enc = new TextEncoder();
 
@@ -168,5 +168,21 @@ describe("each notice once", () => {
     expect(presenceDue(false, false, 0, PRESENCE_EVERY_MS)).toBe(true);
     expect(presenceDue(true, true, 0, PRESENCE_EVERY_MS)).toBe(true);
     expect(presenceDue(false, true, 0, 1)).toBe(true);
+  });
+});
+
+describe("studioApi.sendQueuedNow", () => {
+  it("posts to the queued message's now route and surfaces a 404 when it is gone", async () => {
+    const asked: string[] = [];
+    let status = 202;
+    const transport: Transport = async (m, path) => {
+      asked.push(`${m} ${path}`);
+      return status === 202 ? reply(202, { sessionId: "s 1" }) : reply(404, { error: "that message is not queued any more" });
+    };
+    const api = studioApi(transport);
+    expect(await api.sendQueuedNow("s 1", "q/1")).toEqual({ sessionId: "s 1" });
+    expect(asked).toEqual(["POST /v1/ext/studio/sessions/s%201/queue/q%2F1/now"]);
+    status = 404;
+    await expect(api.sendQueuedNow("s 1", "q1")).rejects.toMatchObject({ status: 404, message: "that message is not queued any more" });
   });
 });

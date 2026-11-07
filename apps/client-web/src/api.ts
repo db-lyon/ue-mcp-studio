@@ -239,6 +239,8 @@ export const api = {
   editQueued: (id: string, qid: string, text: string) => call<void>("PUT", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(qid)}`, { text }),
   removeQueued: (id: string, qid: string) => call<void>("DELETE", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(qid)}`),
   sendQueued: (id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/next`),
+  sendQueuedNow: (id: string, qid: string) =>
+    call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/queue/${encodeURIComponent(qid)}/now`),
   editMessage: (id: string, index: number, text: string, mode: "rewind" | "fork" = "rewind") =>
     call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/transcript/${index}/edit`, { text, mode }),
   uploadAttachment: (id: string, upload: AttachmentUpload) =>
