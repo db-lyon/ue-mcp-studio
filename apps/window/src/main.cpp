@@ -42,6 +42,7 @@
 #include <winrt/Windows.UI.Notifications.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cwctype>
 #include <map>
@@ -51,6 +52,7 @@
 #include "WebView2.h"
 #include "connection.h"
 #include "dock.h"
+#include "input.h"
 #include "json.h"
 #include "location.h"
 #include "toast.h"
@@ -551,6 +553,7 @@ void notificationClicked(const std::string& target);
 void bringToFront();
 HICON makeIcon(int size);
 void logLine(const std::string& text);
+long long realInputAgeMs();
 
 /** Follow the editor: its exit, its minimize and restore, and the z-order while either is in front. */
 void trackEditor() {
@@ -1085,10 +1088,9 @@ std::string dispatch(const std::string& method, const std::string& arg) {
   if (method == "drawattention") return b(drawAttention(widen(arg)));
   if (method == "notify") return s(notify(arg));
   if (method == "lastinput") {
-    // Milliseconds since the owner last used the keyboard or mouse anywhere on this computer.
-    LASTINPUTINFO li = {sizeof li};
-    if (!GetLastInputInfo(&li)) return "null";
-    return std::to_string(static_cast<DWORD>(GetTickCount() - li.dwTime));
+    // Milliseconds since the owner last used the keyboard or mouse anywhere on this computer, injected input left out.
+    long long age = realInputAgeMs();
+    return age < 0 ? "null" : std::to_string(age);
   }
   if (method == "opendocs") {
     std::string path = arg.empty() ? "/docs/" : arg;
@@ -1123,6 +1125,86 @@ std::string dispatch(const std::string& method, const std::string& arg) {
     return b(true);
   }
   return "null";
+}
+
+// ---------------------------------------------------------------- the owner's input (input.h)
+
+std::atomic<bool> gInputHooked{false};
+/** GetTickCount64 of the last key or mouse event a person made, as the low-level hooks saw it. */
+std::atomic<uint64_t> gLastRealInput{0};
+
+LRESULT CALLBACK onKeyHook(int code, WPARAM wp, LPARAM lp) {
+  if (code == HC_ACTION && input::realKey(reinterpret_cast<const KBDLLHOOKSTRUCT*>(lp)->flags)) gLastRealInput.store(GetTickCount64(), std::memory_order_relaxed);
+  return CallNextHookEx(nullptr, code, wp, lp);
+}
+
+LRESULT CALLBACK onMouseHook(int code, WPARAM wp, LPARAM lp) {
+  if (code == HC_ACTION && input::realMouse(reinterpret_cast<const MSLLHOOKSTRUCT*>(lp)->flags)) gLastRealInput.store(GetTickCount64(), std::memory_order_relaxed);
+  return CallNextHookEx(nullptr, code, wp, lp);
+}
+
+/** The hooks on a thread of their own that does nothing else, so Windows never drops them for answering late. */
+DWORD WINAPI inputHookThread(void*) {
+  HHOOK keys = SetWindowsHookExW(WH_KEYBOARD_LL, onKeyHook, GetModuleHandleW(nullptr), 0);
+  HHOOK mouse = SetWindowsHookExW(WH_MOUSE_LL, onMouseHook, GetModuleHandleW(nullptr), 0);
+  if (!keys || !mouse) {
+    if (keys) UnhookWindowsHookEx(keys);
+    if (mouse) UnhookWindowsHookEx(mouse);
+    logLine("input: the keyboard and mouse hooks could not be installed; away is read from Windows' last input, which counts injected input");
+    return 0;
+  }
+  gInputHooked.store(true);
+  MSG m;
+  while (GetMessageW(&m, nullptr, 0, 0) > 0) DispatchMessageW(&m);
+  gInputHooked.store(false);
+  UnhookWindowsHookEx(keys);
+  UnhookWindowsHookEx(mouse);
+  return 0;
+}
+
+uint64_t lastInputInfoTick() {
+  LASTINPUTINFO li = {sizeof li};
+  uint64_t now = GetTickCount64();
+  return GetLastInputInfo(&li) ? input::widenTick(now, li.dwTime) : now;
+}
+
+void startInputClock() {
+  // Until the first real event, the last input Windows knows of stands in.
+  gLastRealInput.store(lastInputInfoTick());
+  HANDLE t = CreateThread(nullptr, 0, inputHookThread, nullptr, 0, nullptr);
+  if (t) CloseHandle(t);
+}
+
+bool elevated(HANDLE process) {
+  HANDLE token = nullptr;
+  if (!OpenProcessToken(process, TOKEN_QUERY, &token)) return false;
+  TOKEN_ELEVATION e = {};
+  DWORD n = 0;
+  bool yes = GetTokenInformation(token, TokenElevation, &e, sizeof e, &n) && e.TokenIsElevated;
+  CloseHandle(token);
+  return yes;
+}
+
+/** The window in front is an elevated process's and this one is not: the hooks are not told about input to it. */
+bool foregroundUnhookable() {
+  static const bool self = elevated(GetCurrentProcess());
+  if (self) return false;
+  DWORD pid = pidOf(GetForegroundWindow());
+  if (!pid) return false;
+  HANDLE p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (!p) return true;
+  bool yes = elevated(p);
+  CloseHandle(p);
+  return yes;
+}
+
+/** Milliseconds since the owner's last real keyboard or mouse input (input::ageMs), -1 when Windows cannot say. */
+long long realInputAgeMs() {
+  LASTINPUTINFO li = {sizeof li};
+  if (!GetLastInputInfo(&li)) return -1;
+  uint64_t now = GetTickCount64();
+  bool hooked = gInputHooked.load();
+  return static_cast<long long>(input::ageMs(now, hooked, gLastRealInput.load(std::memory_order_relaxed), input::widenTick(now, li.dwTime), hooked && foregroundUnhookable()));
 }
 
 // ---------------------------------------------------------------- notifications (toast.h)
@@ -1965,6 +2047,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
 
   if (FAILED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) return 1;
   registerNotifications();
+  startInputClock();
   setEditor(gOpt.editorPid);
   if (gEditorProcess) gEditorMain = findEditorMain();
 

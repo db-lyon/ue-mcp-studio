@@ -1,5 +1,5 @@
 // Unit tests for dock.h (the shared-memory protocol and where the window goes),
-// location.h, connection.h, update.h and toast.h.
+// location.h, connection.h, update.h, toast.h and input.h.
 // Built beside studio-window.exe; apps/window/test/dock.test.ts runs it.
 // Prints "ok <name>" or "FAIL <name>: <what>" per case and exits non-zero on a failure.
 
@@ -9,6 +9,7 @@
 
 #include "../src/connection.h"
 #include "../src/dock.h"
+#include "../src/input.h"
 #include "../src/location.h"
 #include "../src/toast.h"
 #include "../src/update.h"
@@ -462,6 +463,37 @@ int main() {
     CHECK(toast::answer(false, "toast", {}, static_cast<int32_t>(0x80070490), "Element not found.") ==
           "{\"ok\":false,\"via\":\"toast\",\"hr\":\"0x80070490\",\"error\":\"Element not found.\"}");
     CHECK(std::string(toast::settingName(9)) == "unknown");
+  });
+
+  test("injected keys and mouse events are not the owner's input", [] {
+    CHECK(input::realKey(0));
+    CHECK(input::realKey(0x01));  // LLKHF_EXTENDED: a real arrow key
+    CHECK(!input::realKey(0x10));
+    CHECK(!input::realKey(0x12));
+    CHECK(input::realMouse(0));
+    CHECK(!input::realMouse(0x01));
+    CHECK(!input::realMouse(0x03));
+  });
+
+  test("away is timed from real input; the editor's zero mouse move every 50 seconds does not reset it", [] {
+    const uint64_t now = 10'000'000;
+    // Real input ten minutes ago, Windows' last input (an injected move) two seconds ago.
+    CHECK(input::ageMs(now, true, now - 600'000, now - 2'000, false) == 600'000);
+    // Without the hooks only Windows' last input is known.
+    CHECK(input::ageMs(now, false, now - 600'000, now - 2'000, false) == 2'000);
+    // An elevated window in front, which the hooks are not told about: Windows' last input counts.
+    CHECK(input::ageMs(now, true, now - 600'000, now - 2'000, true) == 2'000);
+    CHECK(input::ageMs(now, true, now - 1'000, now - 2'000, true) == 1'000);
+    // A tick from just after now reads as no time at all, not a wrapped huge age.
+    CHECK(input::ageMs(now, true, now + 5, now, false) == 0);
+  });
+
+  test("Windows' 32-bit last input tick widens across the 49.7-day wrap", [] {
+    const uint64_t wrap = 0x100000000ULL;
+    CHECK(input::widenTick(wrap * 3 + 1000, 400) == wrap * 3 + 400);
+    // Taken just before the wrap, read just after it.
+    CHECK(input::widenTick(wrap * 3 + 100, 0xFFFFFF00u) == wrap * 3 - 256);
+    CHECK(input::widenTick(500, 900) == 0);
   });
 
   std::printf(failures ? "%d failed\n" : "all passed\n", failures);
