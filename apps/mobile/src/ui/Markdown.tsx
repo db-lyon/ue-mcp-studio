@@ -90,6 +90,182 @@ export const Markdown = memo(function Markdown({ text, tone, breaks = true, asse
   return <View style={edges}>{place(blocks, true)}</View>;
 });
 
+/**
+ * A long reply is drawn as pieces on rows of their own, cut where a block
+ * ends: Android draws nothing in a scroller holding a row thousands of dp
+ * tall. A list is cut between items, fenced code between runs of lines and a
+ * paragraph at its line breaks, and the pieces stack back into the same layout.
+ * The budget is in characters, about 500 dp of prose at phone width.
+ */
+export const PIECE_CHARS = 1000;
+/** Lines of fenced code a piece holds, about the height of PIECE_CHARS of prose. */
+export const PIECE_CODE_LINES = 24;
+const BLOCK_WEIGHT = 40;
+const CODE_LINE_WEIGHT = PIECE_CHARS / PIECE_CODE_LINES;
+
+type Unit =
+  | { kind: "node"; node: HNode; weight: number }
+  | { kind: "inline"; nodes: HNode[]; weight: number }
+  | { kind: "item"; list: HNode; index: number; count: number; weight: number }
+  | { kind: "code"; text: string; lang: string; first: boolean; last: boolean; weight: number }
+  | { kind: "lines"; node: HNode; from: number; to: number; last: boolean; weight: number };
+
+interface Plan {
+  units: Unit[];
+  /** Each piece's units, [from, to). */
+  pieces: [number, number][];
+}
+
+const codeOf = (pre: HNode) => (pre.children ?? []).find((k) => k.tagName === "code") ?? pre;
+const codeText = (pre: HNode) => textOf(codeOf(pre)).replace(/\n$/, "");
+const textWeight = (nodes: HNode[]) => nodes.reduce((a, c) => a + textOf(c).length, 0);
+function weightOf(n: HNode): number {
+  if (n.tagName === "pre") return codeText(n).split("\n").length * CODE_LINE_WEIGHT + BLOCK_WEIGHT;
+  return textOf(n).length + BLOCK_WEIGHT;
+}
+
+/** Runs of consecutive items, each within the budget unless one item alone is over it. */
+function group<T>(items: T[], weight: (x: T) => number, budget: number): T[][] {
+  const out: T[][] = [];
+  let cur: T[] = [];
+  let sum = 0;
+  for (const x of items) {
+    const w = weight(x);
+    if (cur.length && sum + w > budget) {
+      out.push(cur);
+      cur = [];
+      sum = 0;
+    }
+    cur.push(x);
+    sum += w;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+
+/** A top-level block as units: itself, or cut where it can be when it is over the budget. */
+function unitsOf(n: HNode): Unit[] {
+  const weight = weightOf(n);
+  if (weight <= PIECE_CHARS) return [{ kind: "node", node: n, weight }];
+  if (n.tagName === "ul" || n.tagName === "ol") {
+    const items = (n.children ?? []).filter((k) => k.type === "element" && k.tagName === "li");
+    return items.map((li, index) => ({ kind: "item", list: n, index, count: items.length, weight: weightOf(li) }));
+  }
+  if (n.tagName === "pre") {
+    const lines = codeText(n).split("\n");
+    const lang = langOf(codeOf(n));
+    const runs: string[][] = [];
+    for (let i = 0; i < lines.length; i += PIECE_CODE_LINES) runs.push(lines.slice(i, i + PIECE_CODE_LINES));
+    return runs.map((run, i) => ({ kind: "code", text: run.join("\n"), lang, first: i === 0, last: i === runs.length - 1, weight: run.length * CODE_LINE_WEIGHT }));
+  }
+  if (n.tagName === "p") {
+    // Its lines between breaks, grouped; the break at a cut is where one piece ends and the next starts.
+    const kids = n.children ?? [];
+    const lines: { from: number; to: number; weight: number }[] = [];
+    let from = 0;
+    kids.forEach((k, i) => {
+      if (k.tagName !== "br") return;
+      lines.push({ from, to: i, weight: textWeight(kids.slice(from, i)) });
+      from = i + 1;
+    });
+    lines.push({ from, to: kids.length, weight: textWeight(kids.slice(from)) });
+    if (lines.length < 2) return [{ kind: "node", node: n, weight }];
+    const runs = group(lines, (l) => l.weight, PIECE_CHARS);
+    return runs.map((run, i) => ({ kind: "lines", node: n, from: run[0].from, to: run[run.length - 1].to, last: i === runs.length - 1, weight: run.reduce((a, l) => a + l.weight, 0) }));
+  }
+  return [{ kind: "node", node: n, weight }];
+}
+
+const plans = new Map<string, Plan | null>();
+function planOf(text: string, breaks: boolean, assets: boolean): Plan | null {
+  const key = `${breaks}:${assets}:${text}`;
+  if (plans.has(key)) {
+    const hit = plans.get(key)!;
+    plans.delete(key);
+    plans.set(key, hit);
+    return hit;
+  }
+  let plan: Plan | null = null;
+  try {
+    const tree = markdownTree(text, breaks, assets);
+    const units: Unit[] = [];
+    let run: HNode[] = [];
+    const flush = () => {
+      if (run.some((n) => !blank(n))) units.push({ kind: "inline", nodes: run, weight: textWeight(run) });
+      run = [];
+    };
+    for (const n of tree.children ?? []) {
+      if (!isBlock(n)) {
+        run.push(n);
+        continue;
+      }
+      flush();
+      units.push(...unitsOf(n));
+    }
+    flush();
+    const pieces: [number, number][] = [];
+    let at = 0;
+    for (const g of group(units, (u) => u.weight, PIECE_CHARS)) {
+      pieces.push([at, at + g.length]);
+      at += g.length;
+    }
+    plan = { units, pieces };
+  } catch {
+    plan = null;
+  }
+  plans.set(key, plan);
+  if (plans.size > 64) plans.delete(plans.keys().next().value!);
+  return plan;
+}
+
+/** How many pieces `text` is drawn in: 1 when it fits one row. */
+export function markdownPieces(text: string, breaks = true, assets = false): number {
+  return Math.max(1, planOf(text, breaks, assets)?.pieces.length ?? 1);
+}
+
+function unitBlock(ctx: Ctx, u: Unit, lists: Map<HNode, Block[]>): Block {
+  switch (u.kind) {
+    case "node":
+      return block(ctx, u.node) ?? { el: () => null, mt: 0, mb: 0 };
+    case "inline":
+      return { el: (s) => <Text style={[ctx.body, s as TextStyle]} selectable>{inlines(ctx, u.nodes, true)}</Text>, mt: 0, mb: 0 };
+    case "item": {
+      let lis = lists.get(u.list);
+      if (!lis) lists.set(u.list, (lis = listItems(ctx, u.list)));
+      const li = lis[u.index];
+      return {
+        mt: u.index === 0 ? Math.max(0, li.mt) : li.mt,
+        mb: u.index === u.count - 1 ? Math.max(8, li.mb) : li.mb,
+        el: (s) => <View accessibilityRole="list" style={[{ paddingLeft: 20 }, s as ViewStyle]}>{place([li], false)}</View>,
+      };
+    }
+    case "code":
+      return codeBlock(ctx, u.text, u.lang, u.first, u.last);
+    case "lines": {
+      const kids = (u.node.children ?? []).slice(u.from, u.to);
+      return { el: (s) => <Text style={[ctx.body, s as TextStyle]} selectable>{inlines(ctx, kids, true)}</Text>, mt: 0, mb: u.last ? (ctx.paragraphMargin ?? 8) : 0 };
+    }
+  }
+}
+
+/**
+ * Piece `piece` of `text` (see markdownPieces), with the space above it that
+ * the block before it leaves, so the pieces drawn one under another look as
+ * the whole reply does.
+ */
+export const MarkdownPiece = memo(function MarkdownPiece({ text, piece, tone, breaks = true, assets = false, renderAsset, renderCode, renderLink, paragraphMargin = 8 }: MarkdownProps & { piece: number }) {
+  const t = useTheme();
+  const plan = planOf(text, breaks, assets);
+  if (!plan?.pieces[piece]) return piece === 0 ? <Markdown text={text} tone={tone} breaks={breaks} assets={assets} renderAsset={renderAsset} renderCode={renderCode} renderLink={renderLink} paragraphMargin={paragraphMargin} /> : null;
+  const body: TextStyle = { ...baseFont(t), ...tone };
+  const ctx: Ctx = { t, body, renderAsset, renderCode, renderLink, depth: 0, paragraphMargin };
+  const lists = new Map<HNode, Block[]>();
+  const [from, to] = plan.pieces[piece];
+  const blocks = plan.units.slice(from, to).map((u) => unitBlock(ctx, u, lists));
+  const gap = from > 0 ? Math.max(unitBlock(ctx, plan.units[from - 1], lists).mb, blocks[0].mt) : 0;
+  return <View style={gap ? { marginTop: gap } : null}>{place(blocks, true)}</View>;
+});
+
 interface Ctx {
   t: Theme;
   body: TextStyle;
@@ -172,46 +348,12 @@ function block(ctx: Ctx, n: HNode): Block | null {
     }
     case "ul":
     case "ol": {
-      const ordered = tag === "ol";
-      const start = Number(n.properties?.start ?? 1) || 1;
-      const items = kids.filter((k) => k.type === "element" && k.tagName === "li");
-      const inner = { ...ctx, depth: ctx.depth + 1 };
-      const lis: Block[] = items.map((li, i) => {
-        const content = flow(inner, li.children ?? []);
-        const m = through({ mt: 0, mb: 0 }, content);
-        return {
-          mt: m.mt,
-          mb: m.mb,
-          el: (s) => (
-            <View style={s as ViewStyle}>
-              {ordered ? (
-                <Text style={[body, { position: "absolute", left: -20, width: 20, paddingRight: 4, textAlign: "right" }]} importantForAccessibility="no">{`${start + i}.`}</Text>
-              ) : (
-                <ListBullet ctx={ctx} />
-              )}
-              {place(content, false)}
-            </View>
-          ),
-        };
-      });
+      const lis = listItems(ctx, n);
       const m = through({ mt: 0, mb: 8 }, lis);
       return { ...m, el: (s) => <View accessibilityRole="list" style={[{ paddingLeft: 20 }, s as ViewStyle]}>{place(lis, false)}</View> };
     }
     case "pre": {
-      const code = kids.find((k) => k.tagName === "code") ?? n;
-      const text = textOf(code).replace(/\n$/, "");
-      const lang = String((code.properties?.className as string[] | undefined)?.find((c) => c.startsWith("language-"))?.slice(9) ?? "");
-      return {
-        mt: 0,
-        mb: 8,
-        el: (s) => (
-          <View accessibilityLabel={lang ? `${lang} code` : "Code"} style={[{ backgroundColor: t.c.panel2, borderRadius: 6 }, s as ViewStyle]}>
-            <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ paddingVertical: 8, paddingHorizontal: 10 }}>
-              <Text style={[font(t, "mono", 400, 12), { lineHeight: monoNormal(t, 12), color: body.color }]} selectable>{text}</Text>
-            </ScrollView>
-          </View>
-        ),
-      };
+      return codeBlock(ctx, codeText(n), langOf(codeOf(n)), true, true);
     }
     case "blockquote": {
       const content = flow(ctx, kids);
@@ -230,6 +372,52 @@ function block(ctx: Ctx, n: HNode): Block | null {
   }
 }
 
+
+/** A list's items as blocks, each numbered or bulleted as it is in the whole list. */
+function listItems(ctx: Ctx, n: HNode): Block[] {
+  const { body } = ctx;
+  const ordered = n.tagName === "ol";
+  const start = Number(n.properties?.start ?? 1) || 1;
+  const items = (n.children ?? []).filter((k) => k.type === "element" && k.tagName === "li");
+  const inner = { ...ctx, depth: ctx.depth + 1 };
+  return items.map((li, i) => {
+    const content = flow(inner, li.children ?? []);
+    const m = through({ mt: 0, mb: 0 }, content);
+    return {
+      mt: m.mt,
+      mb: m.mb,
+      el: (s) => (
+        <View style={s as ViewStyle}>
+          {ordered ? (
+            <Text style={[body, { position: "absolute", right: "100%", paddingRight: 4 }]} numberOfLines={1} importantForAccessibility="no">{`${start + i}.`}</Text>
+          ) : (
+            <ListBullet ctx={ctx} />
+          )}
+          {place(content, false)}
+        </View>
+      ),
+    };
+  });
+}
+
+const langOf = (code: HNode) => String((code.properties?.className as string[] | undefined)?.find((c) => c.startsWith("language-"))?.slice(9) ?? "");
+
+/** Fenced code, or a run of its lines: `first` and `last` say which ends of the box this run draws. */
+function codeBlock(ctx: Ctx, text: string, lang: string, first: boolean, last: boolean): Block {
+  const { t, body } = ctx;
+  const r = 6;
+  return {
+    mt: 0,
+    mb: last ? 8 : 0,
+    el: (s) => (
+      <View accessibilityLabel={lang ? `${lang} code` : "Code"} style={[{ backgroundColor: t.c.panel2, borderTopLeftRadius: first ? r : 0, borderTopRightRadius: first ? r : 0, borderBottomLeftRadius: last ? r : 0, borderBottomRightRadius: last ? r : 0 }, s as ViewStyle]}>
+        <ScrollView horizontal showsHorizontalScrollIndicator contentContainerStyle={{ paddingTop: first ? 8 : 0, paddingBottom: last ? 8 : 0, paddingHorizontal: 10 }}>
+          <Text style={[font(t, "mono", 400, 12), { lineHeight: monoNormal(t, 12), color: body.color }]} selectable>{text}</Text>
+        </ScrollView>
+      </View>
+    ),
+  };
+}
 
 /** The sans faces' ascent and descent per em, as Chrome reads them (Plus Jakarta Sans's typo metrics, Roboto's hhea). */
 const SANS_METRICS: Partial<Record<Theme["sans"], [number, number]>> = { jakarta: [1.038, 0.222], roboto: [1900 / 2048, 500 / 2048] };
