@@ -69,6 +69,38 @@ export function latestTarget(recent: readonly Notice[], kind?: string): NotifyTa
   return (withSession.find((n) => !kind || n.kind === kind) ?? withSession[0])?.target ?? null;
 }
 
+/**
+ * How old a notice may be and still show when a client starts. A stream that
+ * opens with no id to resume from gets the daemon's whole backlog first, and
+ * a remounted view sees that again, so without this every kept notice showed
+ * again. Wide enough for a phone's clock to differ from the computer's.
+ */
+export const NOTICE_FRESH_MS = 5 * 60_000;
+
+/** Each notice once per run of a client: none it already decided, none from before it started (NOTICE_FRESH_MS). Tests are always new. */
+export interface NoticeGate {
+  admit(n: Pick<Notice, "id" | "at" | "test">): boolean;
+}
+
+export function createNoticeGate(startedAt: number = Date.now(), keep = 500): NoticeGate {
+  const seen = new Set<string>();
+  const order: string[] = [];
+  return {
+    admit(n) {
+      if (seen.has(n.id)) return false;
+      seen.add(n.id);
+      order.push(n.id);
+      if (order.length > keep) seen.delete(order.shift() as string);
+      if (n.test) return true;
+      const at = Date.parse(n.at);
+      return !(Number.isFinite(at) && at < startedAt - NOTICE_FRESH_MS);
+    },
+  };
+}
+
+/** The newest event id among events, never less than `after`: a stream's events are not always in id order (a backlog replayed after live ones). */
+export const newestEventId = (events: ReadonlyArray<{ id: number }>, after: number): number => events.reduce((m, e) => (e.id > m ? e.id : m), after);
+
 /** The Android notification channel for a device's sound and vibration. */
 export const notifyChannel = (p: Pick<DeviceNotifyPrefs, "sound" | "vibrate">): string => `studio-${p.sound}-${p.vibrate}`;
 

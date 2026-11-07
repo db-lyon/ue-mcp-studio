@@ -131,6 +131,26 @@ describe("a notice on this device", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
+  it("decides a notice once when the stream brings it twice, out of id order, or to a remounted view", async () => {
+    const notify = vi.fn(async () => JSON.stringify({ ok: true, via: "toast" }));
+    window.ue = { studio: { notify, lastinput: vi.fn(async () => 1_000) } as never, studioWindow: true };
+    const fresh = notice({ at: new Date().toISOString() });
+    const r = await arrive([ev(10, fresh), ev(9, { stage: "agent" }, "studio.notify.trace"), ev(10, fresh)]);
+    await act(async () => void r.rerender(<Probe events={[ev(10, fresh), ev(9, { stage: "agent" }, "studio.notify.trace"), ev(10, fresh), ev(11, { stage: "device" }, "studio.notify.trace")]} onOpen={() => {}} />));
+    cleanup();
+    await arrive([ev(10, fresh)]);
+    await act(async () => void (await new Promise((done) => setTimeout(done, 0))));
+    expect(notify).toHaveBeenCalledTimes(1);
+    expect(sent.filter((x) => x.path.endsWith("/notifications/delivery"))).toHaveLength(1);
+  });
+
+  it("skips a notice from before the page loaded that the stream's backlog replays", async () => {
+    const notify = vi.fn(async () => true);
+    window.ue = { studio: { notify } as never };
+    await arrive([ev(3, notice({ id: "old", at: new Date(Date.now() - 60 * 60_000).toISOString() }))]);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it("says when Studio's window had already shown the notice", async () => {
     const notify = vi.fn(async () => JSON.stringify({ ok: true, via: "toast", duplicate: true }));
     window.ue = { studio: { notify } as never, studioWindow: true };

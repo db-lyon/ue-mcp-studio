@@ -3,8 +3,9 @@
  * against the project's shared settings and this device's own, then shown as
  * a Windows notification from Studio's window, a flash of the editor where
  * there is no window, or the browser's notification on a paired or local
- * browser. Clicking one opens its session. Only notices that arrive after the
- * page mounts are shown, so a reload does not repeat one.
+ * browser. Clicking one opens its session. Each notice is decided once per
+ * page, and none from before the page loaded (createNoticeGate), so neither a
+ * reload nor the backlog a new stream starts with repeats one.
  */
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import type { DaemonEvent } from "ue-mcp/daemon";
@@ -27,7 +28,7 @@ import {
   type ProjectNotifyUpdate,
 } from "@ue-mcp-studio/shared";
 import { api } from "./api";
-import { latestTarget, noticeTag } from "@ue-mcp-studio/client-core";
+import { createNoticeGate, latestTarget, newestEventId, noticeTag } from "@ue-mcp-studio/client-core";
 import { native } from "./native";
 import { onRemotePage } from "./connection";
 import { syncWebPush } from "./web-push";
@@ -148,6 +149,9 @@ export function useProjectNotify(load = true): NotificationsState | null {
   return state;
 }
 
+/** The notices this page has decided, kept for the page's life whatever remounts. */
+let gate = createNoticeGate();
+
 /** For tests: forget what was read. */
 export function resetNotifyState(): void {
   projectState = null;
@@ -155,6 +159,7 @@ export function resetNotifyState(): void {
   devicePrefs = null;
   desktopLoad = null;
   lastPageInput = null;
+  gate = createNoticeGate();
 }
 
 // ── Where this page runs ──────────────────────────────────────────
@@ -280,6 +285,8 @@ function reported(d: NotifyDelivery): void {
 export async function handleNotice(n: Notice, onOpen: (t: NotifyTarget) => void): Promise<NotifyDelivery | null> {
   // Another device's test.
   if (n.test && !testIsFor(n.test, presenceId, deviceKind())) return null;
+  // Decided already, or from before this page loaded.
+  if (!gate.admit(n)) return null;
   await loadDesktopPrefs();
   const prefs = devicePrefs ?? (devicePrefs = readDevicePrefs());
   const device = deviceKind();
@@ -346,7 +353,7 @@ export function useNotifications(events: DaemonEvent[], onOpen: (t: NotifyTarget
     const after = seen.current ?? 0;
     const fresh = events.filter((e) => e.id > after);
     if (fresh.length === 0) return;
-    seen.current = fresh[fresh.length - 1].id;
+    seen.current = newestEventId(fresh, after);
     for (const e of fresh) {
       if (e.type === SETTINGS_EVENT) void loadProjectNotify(true);
       if (e.type !== NOTIFY_EVENT) continue;
