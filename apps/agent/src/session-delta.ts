@@ -49,15 +49,27 @@ export function decodeHashes(s: string): number[] | null {
   }
 }
 
+/** A page of the transcript: the `tail` entries that end before `before` (the end when absent). */
+export interface SyncPage {
+  tail?: number;
+  before?: number;
+}
+
 /**
  * The detail to send: in full when the client has nothing (`have` absent or
- * unreadable), else the entries that differ from what it holds.
+ * unreadable), only a page of it when it asks for one, else the entries that
+ * differ from what it holds.
  */
-export function syncOf(detail: SessionDetail, have: string | undefined): SessionSync {
+export function syncOf(detail: SessionDetail, have: string | undefined, page: SyncPage = {}): SessionSync {
   const { transcript, ...rest } = detail;
   const lean = transcript.map(leanEntry);
   const hashes = lean.map((e) => hash(JSON.stringify(e)));
   const held = have === undefined ? null : decodeHashes(have);
+  if (!held && page.tail !== undefined && page.tail > 0) {
+    const end = Math.min(lean.length, Math.max(0, page.before ?? lean.length));
+    const from = Math.max(0, end - page.tail);
+    return { ...rest, hashes: encodeHashes(hashes), transcript: lean.slice(from, end), from, total: lean.length };
+  }
   if (!held) return { ...rest, hashes: encodeHashes(hashes), transcript: lean };
   const entries: Array<[number, TranscriptEntry]> = [];
   for (let i = 0; i < lean.length; i++) if (held[i] !== hashes[i]) entries.push([i, lean[i]]);

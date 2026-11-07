@@ -8,7 +8,9 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, screen } from "@testing-library/react";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { FOLD_MAX, MainTranscript, PAGE_ROWS } from "../src/chat/Transcript";
-import { renderInProject } from "./helpers";
+import { fakeApi, renderInProject, settle } from "./helpers";
+import { Chat, TAIL_ENTRIES } from "../src/views/Chat";
+import { HUGE_ID, hugeSession } from "../visual-qa/huge-session";
 
 const props = (transcript: TranscriptEntry[]) => ({ transcript, status: "idle" as const, streaming: "", waitingCause: null, error: null, onOpen: vi.fn(), hidden: false });
 
@@ -52,4 +54,50 @@ describe("a thread on a phone", () => {
     expect(screen.queryByText(`Line ${40 - PAGE_ROWS - 1}`)).toBeNull();
     expect(screen.queryByText("Line 0")).toBeNull();
   });
+});
+
+describe("a thread read a page at a time", () => {
+  it("asks for the entries before the held ones once every held line is drawn and the reader reaches the top", async () => {
+    const more = vi.fn();
+    renderInProject(<MainTranscript {...props([{ kind: "user", text: "Fix it", at }, { kind: "assistant", text: "Fixed.", at }])} more={more} />);
+    // The platform lays the list out: 400 dp of screen, the two short lines 120 dp of content.
+    const list = document.getElementById("transcript")!;
+    layOut(list, 400);
+    layOut(list.firstElementChild!, 120);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(more).toHaveBeenCalled();
+  });
+});
+
+describe("a session opened in the chat", () => {
+  it("reads only its newest entries, and the entries before them as the reader reaches the top", async () => {
+    const api = fakeApi();
+    const whole = hugeSession(400_000);
+    const n = whole.transcript.length;
+    expect(n).toBeGreaterThan(TAIL_ENTRIES);
+    api.sessions.mockResolvedValue({ sessions: [{ ...whole, transcript: undefined }] });
+    api.settings.mockResolvedValue({ route: "key" });
+    api.sessionSync.mockImplementation(async (_id: string, have?: string, page?: { tail?: number; before?: number }) => {
+      // Asked again with the hashes held (the stream came up): nothing changed.
+      if (have !== undefined) return { ...whole, transcript: undefined, hashes: "H", changed: { length: n, entries: [] } };
+      const end = page?.before ?? n;
+      const from = Math.max(0, end - (page?.tail ?? n));
+      return { ...whole, hashes: "H", transcript: whole.transcript.slice(from, end), from, total: n };
+    });
+    renderInProject(<Chat initialSession={HUGE_ID} />, api);
+    await settle();
+    await settle();
+    expect(api.sessionSync).toHaveBeenCalledWith(HUGE_ID, undefined, { tail: TAIL_ENTRIES });
+    // The reader reaches the top of what is drawn, again and again: older pages are read in front.
+    const paged = () => api.sessionSync.mock.calls.some((c: unknown[]) => (c[2] as { before?: number } | undefined)?.before !== undefined);
+    for (let i = 0; i < 40 && !paged(); i++) {
+      const list = document.getElementById("transcript")!;
+      layOut(list, 400);
+      layOut(list.firstElementChild!, 120 + 10 * i);
+      await settle();
+    }
+    expect(api.sessionSync).toHaveBeenCalledWith(HUGE_ID, undefined, { tail: TAIL_ENTRIES, before: n - TAIL_ENTRIES });
+  }, 30_000);
 });

@@ -56,6 +56,9 @@ function positionIn(transcript: readonly unknown[] | null | undefined, entry: Tr
   return map.get(entry) ?? -1;
 }
 
+/** The index in the session's transcript of the first entry held, when only the newest are (a page read with `tail`). */
+export const TranscriptFromContext = createContext(0);
+
 /** The transcript's inner width, for the user bubble's min(92%, 100% - 52px). */
 const WidthContext = createContext<number>(366);
 
@@ -71,13 +74,14 @@ export const EditMessageContext = createContext<((index: number, text: string, m
 /** One line of a conversation that is not a subagent: a message, a note or a tool call. Renders again only when the entry changes. */
 export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) {
   const transcript = useContext(AssetTranscriptContext);
+  const from = useContext(TranscriptFromContext);
   if (entry.kind === "user") {
     const at = positionIn(transcript, entry);
-    return <UserMessage entry={entry} at={at < 0 || entry.parent ? undefined : at} />;
+    return <UserMessage entry={entry} at={at < 0 || entry.parent ? undefined : from + at} />;
   }
   if (entry.kind === "assistant") {
     const at = positionIn(transcript, entry);
-    return <Reply text={entry.text} at={at < 0 ? undefined : at} />;
+    return <Reply text={entry.text} at={at < 0 ? undefined : from + at} />;
   }
   if (entry.kind === "note") return <Note text={entry.text} />;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
@@ -196,7 +200,8 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
   const [text, setText] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const transcript = useContext(AssetTranscriptContext);
-  const last = at !== undefined && transcript ? transcript.length - 1 === at : false;
+  const from = useContext(TranscriptFromContext);
+  const last = at !== undefined && transcript ? from + transcript.length - 1 === at : false;
   const close = () => {
     setText(null);
     setConfirming(false);
@@ -396,14 +401,18 @@ interface Measured {
  * it sits on: a scroller Chrome scrolls on the GPU keeps subpixel text only
  * over an opaque background, and react-native-web's ScrollViews scroll there.
  */
-function Column({ follow, hidden, rows, head, foot }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; rows: ThreadRow[]; head?: ReactNode; foot?: ReactNode }) {
+function Column({ follow, hidden, rows, head, foot, more }: { follow: ReturnType<typeof useFollow>; hidden?: boolean; rows: ThreadRow[]; head?: ReactNode; foot?: ReactNode; more?: () => void }) {
   const t = useTheme();
   const [width, setWidth] = useState<number | null>(null);
   const window = useWindowDimensions().width;
   // The newest lines first, a page at a time: older pages join as the reader reaches the top.
   const [shown, setShown] = useState(PAGE_ROWS);
   const data = useMemo(() => rows.slice(Math.max(0, rows.length - shown)).reverse(), [rows, shown]);
-  const older = () => setShown((n) => (n < rows.length ? n + PAGE_ROWS : n));
+  // Every held line drawn: ask for the entries before them.
+  const older = () => {
+    if (shown < rows.length) setShown(shown + PAGE_ROWS);
+    else more?.();
+  };
   const measured = useRef<Measured>({ height: 0, content: 0, offset: 0, seen: 0 });
   useUndrawn(data.length, measured);
   useEffect(() => setDiag({ rows: rows.length }), [rows.length]);
@@ -543,7 +552,7 @@ function useUndrawn(count: number, measured: { current: Measured }): void {
  * bottom, with a way back down when they have scrolled up. Memoized: typing in
  * the composer does not render it again.
  */
-export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden, sent }: {
+export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden, sent, more }: {
   transcript: TranscriptEntry[];
   status: TurnStatus;
   streaming: string;
@@ -553,21 +562,30 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   hidden: boolean;
   /** Counts the reader's sends; each one snaps the thread to its newest line. */
   sent?: number;
+  /** Reads the entries before the ones held; absent when the session is held whole. */
+  more?: () => void;
 }) {
   const t = useTheme();
   // The app has no extension cards, so an extension's card entry is left out of the timeline.
   const items = useMemo(() => mainTimeline(transcript, status, (e) => e.kind !== "card"), [transcript, status]);
-  const follow = useFollow(`${transcript.length}:${streaming.length}:${status}`, sent);
+  const from = useContext(TranscriptFromContext);
+  // A page read in front of the held entries is not a new line below.
+  const follow = useFollow(`${from + transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = useAsked().size;
   const rows = useMemo<ThreadRow[]>(
     () =>
       items.map((item, i) => {
-        if (item.kind === "entry") return { key: `e${i}`, render: () => <Entry entry={item.entry} /> };
-        if (item.kind === "progress") return { key: `p${i}`, render: () => <ProgressFold entries={item.entries} /> };
+        // Keyed by the entry's place in the transcript, so a page read in front keeps every row as it was.
+        const place = (e: TranscriptEntry) => {
+          const p = positionIn(transcript, e);
+          return p < 0 ? `i${i}` : String(from + p);
+        };
+        if (item.kind === "entry") return { key: `e${place(item.entry)}`, render: () => <Entry entry={item.entry} /> };
+        if (item.kind === "progress") return { key: `p${place(item.entries[0])}`, render: () => <ProgressFold entries={item.entries} /> };
         return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} /> };
       }),
-    [items, transcript, waiting, onOpen],
+    [items, transcript, waiting, onOpen, from],
   );
   const foot =
     streaming || asked > 0 || waiting || (status === "error" && error) ? (
@@ -584,7 +602,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
     ) : null;
   return (
     <>
-      <Column follow={follow} hidden={hidden} rows={rows} foot={foot} />
+      <Column follow={follow} hidden={hidden} rows={rows} foot={foot} more={more} />
       {follow.behind ? <JumpLatest onPress={follow.jump} /> : null}
     </>
   );

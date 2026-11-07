@@ -18,7 +18,7 @@ import { publishRecentSessions } from "../native/shortcuts";
 import { Banner, Button, font, labelFont, NavBarBacking, T, useAvoidedInsets, useSheetInsets, useTheme, type Theme } from "../ui";
 import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPicker";
 import { useDaemonState, useDismissed, useSeen } from "../chat/hooks";
-import { EditMessageContext, EntryBoundary, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
+import { EditMessageContext, EntryBoundary, MainTranscript, TranscriptFromContext, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
 import { pillsFor } from "../chat/pill-providers";
 import { PillRow } from "../chat/Pills";
@@ -56,6 +56,9 @@ export const EXAMPLES = [
   "Build a Niagara fire at the player start",
   "List every Blueprint that has no references",
 ];
+
+/** How many of a session's newest entries are read when it opens, and how many more per page up the thread. */
+export const TAIL_ENTRIES = 60;
 
 /** How long the session list may take before the chat says Studio is not answering. */
 export const LIST_SLOW_MS = 8000;
@@ -154,7 +157,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const detailLoader = useMemo(
     () =>
       new DetailLoader(
-        (id, have) => api.sessionSync(id, have),
+        (id, have, page) => api.sessionSync(id, have, page),
         (d) => {
           setDetail(d);
           setDetailError(null);
@@ -162,10 +165,15 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
           setDraft((cur) => (cur ? cur : d.draft));
         },
         (e) => (unreachable(e) ? setMissed((n) => n + 1) : setDetailError(e.message)),
+        // The newest entries first; older ones a page at a time as the reader scrolls up.
+        { tail: TAIL_ENTRIES },
       ),
     [api],
   );
   const loadDetail = useCallback((id: string) => detailLoader.load(id), [detailLoader]);
+  const olderEntries = useCallback(() => {
+    if (selectedNow.current) void detailLoader.older(selectedNow.current);
+  }, [detailLoader]);
 
   // The shell asked for a session, or for the list (null).
   const navSeen = useRef(nav?.n ?? 0);
@@ -593,11 +601,12 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
             <SessionIdContext.Provider value={detail.id}>
               <AssetLinksContext.Provider value={assetLinks}>
                 <AssetTranscriptContext.Provider value={detail.transcript}>
+                <TranscriptFromContext.Provider value={detail.from ?? 0}>
                   <EditMessageContext.Provider value={disconnected ? null : editMessage}>
                     <PlaytestCommandContext.Provider value={playtest}>
                       <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
                         <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onLayout={(e) => setDiag({ boxH: e.nativeEvent.layout.height })}>
-                          <MainTranscript key={detail.id} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
+                          <MainTranscript key={detail.id} more={(detail.from ?? 0) > 0 ? olderEntries : undefined} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
                           {drawerCall ? (
                             <Animated.View
                               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.c.panel, borderLeftWidth: 1, borderLeftColor: t.c.line, shadowColor: "#000", shadowOpacity: 0.28, shadowRadius: 16, shadowOffset: { width: -16, height: 0 }, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [width, 0] }) }] }}
@@ -690,6 +699,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                       </CompactContext.Provider>
                     </PlaytestCommandContext.Provider>
                   </EditMessageContext.Provider>
+                </TranscriptFromContext.Provider>
                 </AssetTranscriptContext.Provider>
               </AssetLinksContext.Provider>
             </SessionIdContext.Provider>

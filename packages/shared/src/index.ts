@@ -413,6 +413,11 @@ export interface SessionUpdate {
 
 export interface SessionDetail extends SessionSummary {
   transcript: TranscriptEntry[];
+  /**
+   * The index in the session's transcript of `transcript[0]`, when a client
+   * holds only its newest entries (asked for with `tail`). Absent or 0: whole.
+   */
+  from?: number;
   touched: TouchedItem[];
   draft: string;
   /** The subagent threads the user has opened. */
@@ -439,14 +444,19 @@ export interface SessionDetail extends SessionSummary {
 }
 
 /**
- * GET /sessions/:id?sync=1[&have=<hashes>]: the detail with long tool results
- * left out, and a hash per transcript entry. Without `have`, `transcript` is
- * whole; with it, `changed` holds only the entries whose hash differs and the
- * transcript's new length.
+ * GET /sessions/:id?sync=1[&have=<hashes>][&tail=<n>[&before=<i>]]: the detail
+ * with long tool results left out, and a hash per transcript entry (always for
+ * the whole transcript). Without `have`, `transcript` is whole; with it,
+ * `changed` holds only the entries whose hash differs and the transcript's new
+ * length. Without `have` but with `tail`, `transcript` is only the `tail`
+ * entries ending before index `before` (the end when absent), `from` is the
+ * index of the first, and `total` the transcript's length.
  */
 export interface SessionSync extends Omit<SessionDetail, "transcript"> {
   hashes: string;
   transcript?: TranscriptEntry[];
+  /** With `tail`: how many entries the whole transcript has. */
+  total?: number;
   changed?: { length: number; entries: Array<[number, TranscriptEntry]> };
 }
 

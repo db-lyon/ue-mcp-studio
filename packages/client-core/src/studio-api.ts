@@ -75,7 +75,10 @@ export function studioApi(t: Transport) {
     health: () => get<{ version?: string; startedAt?: string; lastEventId?: number }>("/v1/health"),
     sessions: () => get<{ sessions: SessionSummary[] }>(`${S}/sessions`),
     newSession: () => send<SessionDetail>("POST", `${S}/sessions`),
-    sessionSync: (id: string, have?: string) => get<SessionSync | SessionDetail>(`${session(id)}?sync=1${have !== undefined ? `&have=${have}` : ""}`),
+    sessionSync: (id: string, have?: string, page?: { tail?: number; before?: number }) =>
+      get<SessionSync | SessionDetail>(
+        `${session(id)}?sync=1${have !== undefined ? `&have=${have}` : ""}${page?.tail !== undefined ? `&tail=${page.tail}` : ""}${page?.before !== undefined ? `&before=${page.before}` : ""}`,
+      ),
     callResult: (id: string, callId: string) => get<{ result: string }>(`${session(id)}/calls/${enc(callId)}/result`),
     send: (id: string, text: string, attachments: string[] = [], now = false) =>
       send<{ sessionId: string }>("POST", `${session(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),

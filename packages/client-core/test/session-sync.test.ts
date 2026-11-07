@@ -74,3 +74,72 @@ describe("DetailLoader", () => {
     expect(asks).toEqual([{ id: "s1", have: undefined }, { id: "s2", have: undefined }]);
   });
 });
+
+describe("a loader holding only the newest entries", () => {
+  const page = (id: string, transcript: TranscriptEntry[], from: number, total: number, hashes = "H"): SessionSync => ({ ...base, id, hashes, transcript, from, total }) as unknown as SessionSync;
+  const texts = (d: SessionDetail) => d.transcript.map((e) => (e as { text: string }).text);
+
+  it("asks for the tail first, puts later changes in by their place in the whole transcript, and reads older pages in front", async () => {
+    const asks: unknown[] = [];
+    const shown: SessionDetail[] = [];
+    const answers: SessionSync[] = [
+      page("s1", [user("m8"), user("m9")], 8, 10, "H1"),
+      delta("s1", 11, [[9, user("M9")], [10, user("m10")], [2, user("ignored, not held")]], "H2"),
+      page("s1", [user("m6"), user("m7")], 6, 11, "H3"),
+    ];
+    const loader = new DetailLoader(
+      async (id, have, p) => {
+        asks.push({ have, ...p });
+        return answers.shift()!;
+      },
+      (d) => shown.push(d),
+      () => {},
+      { tail: 2 },
+    );
+    await loader.load("s1");
+    expect(texts(shown.at(-1)!)).toEqual(["m8", "m9"]);
+    expect(shown.at(-1)!.from).toBe(8);
+    await loader.load("s1");
+    expect(texts(shown.at(-1)!)).toEqual(["m8", "M9", "m10"]);
+    expect(loader.hasOlder("s1")).toBe(true);
+    await loader.older("s1");
+    expect(texts(shown.at(-1)!)).toEqual(["m6", "m7", "m8", "M9", "m10"]);
+    expect(shown.at(-1)!.from).toBe(6);
+    expect(asks).toEqual([{ have: undefined, tail: 2 }, { have: "H1" }, { have: undefined, tail: 2, before: 8 }]);
+  });
+
+  it("reads the newest page again when the transcript is cut back past what it holds", async () => {
+    const asks: unknown[] = [];
+    const shown: SessionDetail[] = [];
+    const answers: SessionSync[] = [page("s1", [user("m8"), user("m9")], 8, 10, "H1"), delta("s1", 5, [], "H2"), page("s1", [user("m3"), user("m4")], 3, 5, "H3")];
+    const loader = new DetailLoader(
+      async (id, have, p) => {
+        asks.push({ have, ...p });
+        return answers.shift()!;
+      },
+      (d) => shown.push(d),
+      () => {},
+      { tail: 2 },
+    );
+    await loader.load("s1");
+    await loader.load("s1");
+    expect(asks).toEqual([{ have: undefined, tail: 2 }, { have: "H1" }, { have: undefined, tail: 2 }]);
+    expect(texts(shown.at(-1)!)).toEqual(["m3", "m4"]);
+    expect(shown.at(-1)!.from).toBe(3);
+  });
+
+  it("without a tail, asks as before and holds the session whole", async () => {
+    const asks: unknown[] = [];
+    const loader = new DetailLoader(
+      async (id, have, p) => {
+        asks.push([have, p]);
+        return full(id, [user("a")]);
+      },
+      () => {},
+      () => {},
+    );
+    await loader.load("s1");
+    expect(asks).toEqual([[undefined, undefined]]);
+    expect(loader.hasOlder("s1")).toBe(false);
+  });
+});
