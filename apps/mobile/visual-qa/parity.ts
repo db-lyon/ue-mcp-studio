@@ -32,8 +32,11 @@ const BOX = "textarea";
 export const PARITY: Record<string, ParityEntry> = {
   "version-notice": {owner: "shell"},
   "nav-drawer": {owner: "shell", clicks: ["Open navigation"]},
-  "tools-open": {owner: "chat", clicks: ["shell"]},
-  "tools-open-edit": {owner: "chat", clicks: ["edit"], scroll: "edit"},
+  "tools-open": {owner: "chat", clicks: ["Ran 1 command*", "shell"]},
+  "tools-open-edit": {owner: "chat", clicks: ["Ran 1 command*", "edit"], scroll: "edit"},
+  "steps-folded": {owner: "chat"},
+  "steps-expanded": {owner: "chat", clicks: ["Ran 2 commands*"]},
+  "steps-running": {owner: "chat"},
   "approvals-waiting": {owner: "chat"},
   "queue-running": {owner: "chat"},
   "queue-stopped": {owner: "chat"},

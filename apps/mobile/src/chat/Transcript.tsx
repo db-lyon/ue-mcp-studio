@@ -15,14 +15,19 @@ import {
   TOOL_TAG,
   STATE_LABEL,
   agentStatus,
+  callPath,
   callsIn,
   describe,
   formatDuration,
+  foldSteps,
   formatResult,
   isActive,
+  liveStep,
   mainTimeline,
+  stepsSummary,
   summarize,
   toolLabel,
+  toolTitle,
   type AgentState,
   type Call,
 } from "@ue-mcp-studio/client-core";
@@ -567,12 +572,13 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
 }) {
   const t = useTheme();
   // The app has no extension cards, so an extension's card entry is left out of the timeline.
-  const items = useMemo(() => mainTimeline(transcript, status, (e) => e.kind !== "card"), [transcript, status]);
+  const askedIds = useAsked();
+  const items = useMemo(() => mainTimeline(transcript, status, (e) => e.kind !== "card", askedIds), [transcript, status, askedIds]);
   const from = useContext(TranscriptFromContext);
   // A page read in front of the held entries is not a new line below.
   const follow = useFollow(`${from + transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
-  const asked = useAsked().size;
+  const asked = askedIds.size;
   const rows = useMemo<ThreadRow[]>(
     () =>
       items.map((item, i) => {
@@ -583,6 +589,8 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
         };
         if (item.kind === "entry") return { key: `e${place(item.entry)}`, render: () => <Entry entry={item.entry} /> };
         if (item.kind === "progress") return { key: `p${place(item.entries[0])}`, render: () => <ProgressFold entries={item.entries} /> };
+        // Keyed by its first call, so a fold stays open while the turn streams more steps into it.
+        if (item.kind === "steps") return { key: `s${item.calls[0].id}`, render: () => <StepsFold calls={item.calls} /> };
         return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} /> };
       }),
     [items, transcript, waiting, onOpen, from],
@@ -629,6 +637,49 @@ export function ProgressFold({ entries }: { entries: TranscriptEntry[] }) {
         <Text style={[foldText(t), { color: t.c.dim }]}>{`${entries.length} progress ${entries.length === 1 ? "update" : "updates"}`}</Text>
       </Pressable>
       {open ? entries.map((e, i) => <Entry key={i} entry={e} />) : null}
+    </View>
+  );
+}
+
+/**
+ * A run of working steps as one line: what they did ("Read 9 files, ran 2
+ * commands"), and while one runs, that step under it. Tapped, every call in the run.
+ */
+export function StepsFold({ calls }: { calls: Call[] }) {
+  const t = useTheme();
+  const [open, setOpen] = useState(false);
+  const live = liveStep(calls);
+  const summary = stepsSummary(calls);
+  // .steps-head: 12px/1.6 mono; the editor themes' button rule outranks it with 12px/1.2 sans.
+  const mono = t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "mono", 400, 12, 1.6);
+  const dot = <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.c.accent }} />;
+  return (
+    <View style={{ gap: 4 }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        aria-expanded={open}
+        accessibilityLabel={live ? `${summary}. Now: ${TOOL_TAG[live.name] ?? live.name} ${toolLabel(live)}` : summary}
+        onPress={() => setOpen(!open)}
+        style={({ pressed }) => ({ alignSelf: "flex-start", maxWidth: "100%", minHeight: 44, minWidth: 44, justifyContent: "center", gap: 2, paddingVertical: 3, paddingRight: 8, paddingLeft: 2, borderRadius: t.radius, backgroundColor: pressed ? t.c.panel2 : "transparent" })}
+      >
+        <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+          <Text style={[mono, { color: t.c.muted, width: 10 }]}>{open ? "▾" : "▸"}</Text>
+          <Text style={[mono, { color: t.c.muted, flexShrink: 1 }]}>{summary}</Text>
+        </View>
+        {live ? (
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 18, minWidth: 0 }}>
+            <Pulse>{dot}</Pulse>
+            <Text style={[mono, { color: t.c.accentHi, flexShrink: 0 }]}>{TOOL_TAG[live.name] ?? live.name}</Text>
+            <Text style={[mono, { color: t.c.text, flexShrink: 1, minWidth: 0 }]} numberOfLines={1} ellipsizeMode="tail">{toolLabel(live)}</Text>
+          </View>
+        ) : null}
+      </Pressable>
+      {open ? (
+        <View style={{ marginLeft: 6, paddingLeft: 8, borderLeftWidth: 1, borderLeftColor: t.c.line }}>
+          {calls.map((c) => <ToolCall key={c.id} call={c} />)}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -751,8 +802,14 @@ export function SubagentThread({ call, transcript, sessionWaiting: _sessionWaiti
   const t = useTheme();
   const prompt = (call.input as { prompt?: string }).prompt;
   const steps = useMemo(() => transcript.filter((e) => e.parent === call.id), [transcript, call.id]);
+  const asked = useAsked();
   const follow = useFollow(`${steps.length}:${call.outcome}`);
-  const rows = useMemo<ThreadRow[]>(() => steps.map((e, i) => ({ key: `s${i}`, render: () => <Entry entry={e} /> })), [steps]);
+  const rows = useMemo<ThreadRow[]>(
+    () => foldSteps(steps, asked).map((item) => (item.kind === "steps"
+      ? { key: `f${item.calls[0].id}`, render: () => <StepsFold calls={item.calls} /> }
+      : { key: `s${steps.indexOf(item.entry)}`, render: () => <Entry entry={item.entry} /> })),
+    [steps, asked],
+  );
   const ended =
     call.outcome === "done" ? <Text style={small(t, t.c.dim)}>Reported back to the main agent.</Text>
       : call.outcome === "stopped" ? <Text style={small(t, t.c.dim)}>Stopped. The main agent was told.</Text>
@@ -784,21 +841,22 @@ const WRITE_PREVIEW_LINES = 40;
 /** How a call's input reads when opened: the command, the change as a diff, or the input itself. */
 function CallInput({ call, links, maxHeight }: { call: Call; links: boolean; maxHeight: number }) {
   const t = useTheme();
-  const i = call.input as { command?: string; path?: string; content?: string; old_string?: string; new_string?: string; replace_all?: boolean };
+  const i = call.input as { command?: string; content?: string; old_string?: string; new_string?: string; replace_all?: boolean };
+  const path = callPath(call);
   const indent = { marginTop: 6, marginLeft: 14 };
   if (call.name === "shell") return <Output maxHeight={maxHeight} style={indent} color={t.c.text}>{`$ ${i.command ?? ""}`}</Output>;
   if (call.name === "edit_file") {
     return (
       <>
         {i.replace_all ? <Text style={[small(t, t.c.dim), font(t, "mono", 400, 12), { lineHeight: lineBox(12, 1.6) }, indent]}>every occurrence</Text> : null}
-        <DiffView lines={lineDiff(i.old_string ?? "", i.new_string ?? "")} label={`Edit to ${i.path ?? ""}`} maxHeight={maxHeight} style={indent} />
+        <DiffView lines={lineDiff(i.old_string ?? "", i.new_string ?? "")} label={`Edit to ${path}`} maxHeight={maxHeight} style={indent} />
       </>
     );
   }
   if (call.name === "write_file") {
     const lines = (i.content ?? "").split("\n");
     const shown = lines.slice(0, WRITE_PREVIEW_LINES).map((text) => ({ op: "+" as const, text }));
-    return <DiffView lines={lines.length > WRITE_PREVIEW_LINES ? [...shown, { op: "gap", count: lines.length - WRITE_PREVIEW_LINES }] : shown} label={`Content of ${i.path ?? ""}`} maxHeight={maxHeight} style={indent} />;
+    return <DiffView lines={lines.length > WRITE_PREVIEW_LINES ? [...shown, { op: "gap", count: lines.length - WRITE_PREVIEW_LINES }] : shown} label={`Content of ${path}`} maxHeight={maxHeight} style={indent} />;
   }
   if (call.name === "web_search" || call.name === "read_file" || call.name === "glob" || call.name === "grep" || call.name === "web_fetch") return null;
   const json = JSON.stringify(call.input, null, 2);
@@ -851,8 +909,11 @@ export function ToolCall({ call }: { call: Call }) {
   const t = useTheme();
   const vh = useWindowDimensions().height;
   const label = useMemo(() => toolLabel(call), [call]);
+  const title = useMemo(() => toolTitle(call), [call]);
   // Paths in the input and result become links only while the call is open.
   const [open, setOpen] = useState(false);
+  // A long press shows the line with its paths in full, as hover does on the web.
+  const [full, setFull] = useState(false);
   const [all, setAll] = useState(false);
   const [copied, setCopied] = useState(false);
   // A long result was left out of the session: fetched the first time the call is opened.
@@ -875,12 +936,21 @@ export function ToolCall({ call }: { call: Call }) {
   const outputMax = vh * 0.6;
   const details = (
     <View style={{ paddingHorizontal: 2 }}>
-      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, minWidth: 0 }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        aria-expanded={open}
+        accessibilityHint={title !== label ? title : undefined}
+        onPress={() => setOpen(!open)}
+        onLongPress={() => setFull(!full)}
+        style={{ flexDirection: "row", alignItems: "center", gap: 8, minHeight: 44, minWidth: 0 }}
+      >
         {call.outcome === "pending" ? <Pulse>{dot}</Pulse> : dot}
         <Text style={[mono, { color: t.c.accentHi, flexShrink: 0 }]}>{tag}</Text>
         <Text style={[mono, { color: t.c.text, flexShrink: 1, minWidth: 0 }]} numberOfLines={1} ellipsizeMode="tail">{label}</Text>
         <Text style={[mono, { color: t.c.dim, flexShrink: 0 }]}>{OUTCOME_LABEL[call.outcome]}</Text>
       </Pressable>
+      {full && title !== label ? <Text selectable style={[mono, { color: t.c.muted, marginLeft: 14, marginBottom: 4 }]}>{title}</Text> : null}
       {open ? (
         <>
           <CallInput call={call} links={open} maxHeight={outputMax} />
