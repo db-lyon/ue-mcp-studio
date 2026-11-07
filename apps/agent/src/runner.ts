@@ -1667,6 +1667,26 @@ ${result}`);
     }
   }
 
+  /**
+   * Send one queued message now with its files: a running turn stops, as Stop does, and the rest
+   * of the queue keeps its order. Taken from the queue in one step, so it goes once. False when it is not queued.
+   */
+  sendQueuedNow(sessionId: string, id: string): boolean {
+    const s = this.require(sessionId);
+    const q = s.queue?.find((x) => x.id === id);
+    if (!q) return false;
+    s.queue = s.queue!.filter((x) => x.id !== id);
+    this.o.store.save(s);
+    this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+    if (this.busy(s)) this.stop(sessionId);
+    const files = q.attachments.flatMap((a) => {
+      const f = this.files.get(s.id, a.id);
+      return f ? [f] : [];
+    });
+    this.send(s.id, q.text, files).catch((e) => this.o.host.log.warn(`a queued message in session ${sessionId} failed`, e));
+    return true;
+  }
+
   /** Stop the running turn, as Stop does, and send this message now, ahead of the queue. */
   async sendNow(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = []): Promise<void> {
     const s = this.require(sessionId);

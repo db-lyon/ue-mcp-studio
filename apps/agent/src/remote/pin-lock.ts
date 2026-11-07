@@ -111,8 +111,8 @@ const ALWAYS_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/reviews\/[^/]+\/(keep|revert|undo)$/,
   /^\/sessions\/[^/]+\/timeline\/(restore|undo)$/,
   /^\/sessions\/[^/]+\/playtest$/,
-  // Runs whatever is next in the queue, which may be a /flow queued on the computer.
-  /^\/sessions\/[^/]+\/queue\/next$/,
+  // Runs the next queued message, or one now, which may be a /flow queued on the computer.
+  /^\/sessions\/[^/]+\/queue\/(next|[^/]+\/now)$/,
   // A flow's steps can run Python, console commands or write files.
   /^\/sessions\/[^/]+\/flow$/,
   /^\/qa\/runs\/[^/]+\/(run|loop\/revert)$/,

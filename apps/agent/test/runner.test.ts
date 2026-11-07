@@ -17,6 +17,8 @@ import { DEFAULT_USAGE, type UsageSettings } from "@ue-mcp-studio/shared";
 import { loadout } from "../src/native.js";
 import { composeNative, type NativeRun } from "../src/native-runtime.js";
 import { setRipgrep } from "../src/local-tools.js";
+import { registerQueueRoutes } from "../src/queue-routes.js";
+import { AttachmentStore } from "../src/attachments.js";
 
 class FakeHost implements AgentHost {
   connected = true;
@@ -907,6 +909,98 @@ describe("queued messages", () => {
     model.release();
     await until(() => model.requests.length === 3);
     expect(userTexts(model.requests[2].messages).at(-1)).toContain("later");
+    model.release();
+  });
+});
+
+type QueueHandler = (req: { params: Record<string, string>; body?: unknown }) => Promise<{ status?: number; body?: unknown }>;
+
+/** The queue's routes against a real runner and a fake daemon API. */
+function queueRoutes(runner: AgentRunner) {
+  const routes = new Map<string, QueueHandler>();
+  const stops: string[] = [];
+  const api = { route: (m: string, p: string, h: QueueHandler) => void routes.set(`${m} ${p}`, h), log: host.log };
+  registerQueueRoutes(api as never, {
+    store,
+    runner,
+    messageBody: (_id, body) => ({ text: (body as { text: string }).text, files: [] }),
+    stopSide: (id) => void stops.push(id),
+  });
+  const now = (id: string, qid: string) => routes.get("POST /sessions/:id/queue/:qid/now")!({ params: { id, qid } });
+  return { now, stops };
+}
+
+describe("send now on a queued message", () => {
+  it("stops the running turn, sends that message with its files, and the rest go after it in order", async () => {
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const { now, stops } = queueRoutes(runner);
+    const s = store.create();
+    void runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    const file = new AttachmentStore(host.dataDir).keep(s.id, "ref.png", "image/png", pngBytes(4, 4));
+    runner.enqueue(s.id, "two", []);
+    const three = runner.enqueue(s.id, "three", [{ id: file.id, name: file.name, type: file.type, size: file.size }]);
+    runner.enqueue(s.id, "four", []);
+    expect(await now(s.id, three.id)).toEqual({ status: 202, body: { sessionId: s.id } });
+    expect(stops).toEqual([s.id]);
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(["two", "four"]);
+    await until(() => model.requests.length === 2);
+    const sent = model.requests[1].messages.at(-1)!.content as Array<{ type: string; text?: string }>;
+    expect(sent.map((b) => b.type)).toContain("image");
+    expect(sent.at(-1)!.text).toBe("three");
+    const entry = store.get(s.id)!.transcript.filter((t) => t.kind === "user").at(-1)!;
+    expect(entry.kind === "user" && entry.attachments?.map((a) => a.name)).toEqual(["ref.png"]);
+    // The same message again: it went once.
+    expect((await now(s.id, three.id)).status).toBe(404);
+    model.release();
+    await until(() => model.requests.length === 3);
+    expect(userTexts(model.requests[2].messages).at(-1)).toContain("two");
+    model.release();
+    await until(() => model.requests.length === 4);
+    expect(userTexts(model.requests[3].messages).at(-1)).toContain("four");
+    model.release();
+    await until(() => store.get(s.id)!.status === "idle" && store.get(s.id)!.queue!.length === 0);
+    expect(store.get(s.id)!.transcript.filter((t) => t.kind === "user").map((t) => t.kind === "user" && t.text)).toEqual(["one", "three", "two", "four"]);
+  });
+
+  it("when idle, sends that message and stops nothing; the queue it skipped goes after it", async () => {
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const { now, stops } = queueRoutes(runner);
+    const s = store.create();
+    void runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    runner.enqueue(s.id, "two", []);
+    const three = runner.enqueue(s.id, "three", []);
+    runner.stop(s.id);
+    await until(() => store.get(s.id)!.status === "stopped");
+    expect(await now(s.id, three.id)).toEqual({ status: 202, body: { sessionId: s.id } });
+    expect(stops).toEqual([]);
+    await until(() => model.requests.length === 2);
+    expect(userTexts(model.requests[1].messages).at(-1)).toContain("three");
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(["two"]);
+    model.release();
+    await until(() => model.requests.length === 3);
+    expect(userTexts(model.requests[2].messages).at(-1)).toContain("two");
+    model.release();
+    await until(() => store.get(s.id)!.status === "idle" && store.get(s.id)!.queue!.length === 0);
+  });
+
+  it("answers 404 for a message that is not queued, or a session that does not exist, and changes nothing", async () => {
+    const model = new GatedModel();
+    const runner = runnerWith(model as unknown as ScriptedModel);
+    const { now, stops } = queueRoutes(runner);
+    const s = store.create();
+    void runner.send(s.id, "one");
+    await until(() => model.waiting === 1);
+    runner.enqueue(s.id, "two", []);
+    expect(await now(s.id, "not-a-message")).toEqual({ status: 404, body: { error: "that message is not queued any more" } });
+    expect((await now("no-such-session", "q")).status).toBe(404);
+    expect(stops).toEqual([]);
+    expect(store.get(s.id)!.status).toBe("running");
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(["two"]);
+    expect(runner.sendQueuedNow(s.id, "not-a-message")).toBe(false);
     model.release();
   });
 });
