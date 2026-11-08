@@ -136,8 +136,31 @@ function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: ()
   );
 }
 
+/**
+ * The lock draws over the page, which stays as it was: a text box under it
+ * that kept the focus would hold a phone's keyboard up over the keypad. The
+ * focus is dropped when the lock shows and whenever the page comes back.
+ */
+function useNoKeyboard() {
+  useEffect(() => {
+    const away = () => {
+      const el = document.activeElement;
+      if (el instanceof HTMLElement && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))) el.blur();
+    };
+    away();
+    const back = () => document.visibilityState === "visible" && away();
+    document.addEventListener("visibilitychange", back);
+    window.addEventListener("focus", away);
+    return () => {
+      document.removeEventListener("visibilitychange", back);
+      window.removeEventListener("focus", away);
+    };
+  }, []);
+}
+
 /** The whole client is locked: everything but this waits for the PIN. */
 export function LockScreen() {
+  useNoKeyboard();
   const lock = useLock();
   return (
     <div className="lock-screen" role="dialog" aria-modal="true" aria-labelledby="lock-title">
@@ -159,6 +182,7 @@ export function LockScreen() {
 
 /** A sensitive action asked for the PIN: it goes ahead once the PIN is in. */
 export function PinSheet() {
+  useNoKeyboard();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") cancelPrompt();
