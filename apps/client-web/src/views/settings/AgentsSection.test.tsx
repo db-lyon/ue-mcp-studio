@@ -26,10 +26,12 @@ const m = vi.hoisted(() => ({
   native: vi.fn(),
   nativePreview: vi.fn(async () => ({ convention: "codex", text: "The project's own instructions...", tokens: 10, loadedBy: "studio" })),
   openFile: vi.fn(async () => undefined),
+  readFile: vi.fn(async (path: string) => ({ path, text: "name = \"scout\"", size: 14 })),
   models: vi.fn(async () => ({ signedIn: {}, providers: [] })),
 }));
 vi.mock("../../api", () => ({ api: m, ApiError: Error }));
 import { AgentsSection, CONCURRENCY_HELP } from "./AgentsSection";
+import { FileViewerProvider } from "../../chat/FileViewer";
 
 afterEach(() => {
   cleanup();
@@ -43,7 +45,7 @@ async function show(usage: Partial<UsageSettings> = {}, o = overview()) {
   m.settings.mockResolvedValue(settingsWith(usage));
   m.saveSettings.mockImplementation(async (u: { usage: Partial<UsageSettings> }) => settingsWith({ ...usage, ...u.usage }));
   m.native.mockResolvedValue(o);
-  await act(async () => void render(<AgentsSection onSection={vi.fn()} />));
+  await act(async () => void render(<FileViewerProvider><AgentsSection onSection={vi.fn()} /></FileViewerProvider>));
 }
 
 describe("Agents: what each vendor's own files give its models", () => {
@@ -81,9 +83,13 @@ describe("Agents: what each vendor's own files give its models", () => {
     expect(screen.getByRole("navigation", { name: "Whose files" }).querySelector("[aria-current=page]")?.textContent).toBe("Codex4, read by a connected route");
   });
 
-  it("opens a listed file in the system's editor", async () => {
+  it("shows a listed file in the file viewer, which opens it in the system's editor", async () => {
     await show();
     await act(async () => void fireEvent.click(screen.getByRole("button", { name: "Open .codex/agents/scout.toml" })));
+    expect(m.readFile).toHaveBeenCalledWith(".codex/agents/scout.toml");
+    const viewer = screen.getByRole("dialog", { name: ".codex/agents/scout.toml" });
+    expect(viewer.querySelector(".file-line-text")?.textContent).toBe('name = "scout"');
+    await act(async () => void fireEvent.click(within(viewer).getByRole("button", { name: "Open in editor" })));
     expect(m.openFile).toHaveBeenCalledWith(".codex/agents/scout.toml");
   });
 

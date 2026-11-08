@@ -2,18 +2,18 @@
  * Agents > the project's agent files (client-web views/settings/NativePanel.tsx)
  * at phone width: the convention picked from a list, whether a connected route
  * reads it, and its instruction files, subagents and skills, read only. Open
- * file opens the file on the computer, as the web page does.
+ * file shows the file in Studio's file viewer, as the web page does.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useContext, useEffect, useState, type ReactNode } from "react";
 import { Linking, Pressable, Text, View } from "react-native";
 import { INSTRUCTION_FILE, SKILL_DIR, SOURCE_NAME, SUBAGENT_DIR, conventionOrder, fileCount, firstTab, scopeLine, sharedWith, tokens } from "@ue-mcp-studio/client-core";
 import { CONVENTION_INFO, EFFORT_NAMES, type Convention, type Effort, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
 import { Banner, Card, Dot, Sheet, bannerText, font, fontName, T, useTheme } from "../../ui";
-import { CardLabel, Span, Tag, Txt, useMessage } from "./controls";
+import { CardLabel, Span, Tag, Txt } from "./controls";
 import { Details } from "./Details";
 import { Chevron } from "./Pickers";
-import { Message } from "./GeneralSection";
 import { useSettingsApi } from "./hooks";
+import { FileViewerContext } from "../../chat/FileLink";
 
 /** A path in the mono face, wrapping after its slashes. */
 export function PathText({ p, dim }: { p: string; dim?: boolean }) {
@@ -21,15 +21,15 @@ export function PathText({ p, dim }: { p: string; dim?: boolean }) {
   return <T style={[font(t, "mono", 400, 12, 1.4), { color: dim ? t.c.dim : t.c.text }]}>{p.split(/(?<=[\\/])/).join("​")}</T>;
 }
 
-function OpenFile({ path, onError, small, onWidth }: { path: string; onError: (e: Error) => void; small?: boolean; onWidth?: (w: number) => void }) {
-  const api = useSettingsApi();
+function OpenFile({ path, small, onWidth }: { path: string; small?: boolean; onWidth?: (w: number) => void }) {
+  const viewer = useContext(FileViewerContext);
   const t = useTheme();
   // .cfg button.open-file: the sans at 12px, 3px 10px, 44px tall at a finger. Small, it is drawn 30 px tall and takes taps over 44.
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityLabel={`Open ${path}`}
-      onPress={() => void api.openFile(path).catch(onError)}
+      onPress={() => viewer?.open({ path })}
       onLayout={onWidth ? (e) => onWidth(e.nativeEvent.layout.width) : undefined}
       hitSlop={small ? { top: 7, bottom: 7, left: 4, right: 4 } : undefined}
       style={{ alignSelf: "flex-start", flexShrink: 0, ...(small ? { height: 30 } : { minHeight: 44, minWidth: 44, paddingVertical: 3 }), paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radius, backgroundColor: t.c.panel2, justifyContent: "center" }}
@@ -51,7 +51,7 @@ export function openFileInline(nameWidth: number, rowWidth: number, buttonWidth:
  * goes under the description. The name's own width is measured off screen,
  * so where the button sits never changes what is measured.
  */
-export function AgentFileRow({ name, path, onError, first, children }: { name: ReactNode; path: string; onError: (e: Error) => void; first: boolean; children: ReactNode }) {
+export function AgentFileRow({ name, path, first, children }: { name: ReactNode; path: string; first: boolean; children: ReactNode }) {
   const t = useTheme();
   const [row, setRow] = useState(0);
   const [nameWidth, setNameWidth] = useState(0);
@@ -68,12 +68,12 @@ export function AgentFileRow({ name, path, onError, first, children }: { name: R
         <View style={{ flex: 1, minWidth: 0 }}>
           <Txt>{name}</Txt>
         </View>
-        {inline ? <OpenFile small path={path} onError={onError} onWidth={setButton} /> : null}
+        {inline ? <OpenFile small path={path} onWidth={setButton} /> : null}
       </View>
       {children}
       {inline ? null : (
         <View style={{ marginTop: 5 }}>
-          <OpenFile small path={path} onError={onError} onWidth={setButton} />
+          <OpenFile small path={path} onWidth={setButton} />
         </View>
       )}
     </View>
@@ -87,7 +87,6 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
   const [tab, setTab] = useState<Convention>(() => firstTab(overview));
   const [choosing, setChoosing] = useState(false);
   const [preview, setPreview] = useState<NativePreview | null>(null);
-  const msg = useMessage();
   const view = overview.conventions.find((c) => c.convention === tab) ?? null;
   useEffect(() => {
     setPreview(null);
@@ -119,8 +118,7 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
           </Sheet>
         </View>
       ) : null}
-      <Message msg={msg} />
-      {view ? <ConventionView view={view} main={overview.main} preview={preview} shared={sharedWith(view, overview)} onPick={setTab} onConnect={onConnect} onError={msg.fail} /> : null}
+      {view ? <ConventionView view={view} main={overview.main} preview={preview} shared={sharedWith(view, overview)} onPick={setTab} onConnect={onConnect} /> : null}
     </>
   );
 }
@@ -161,7 +159,7 @@ function Fields({ rows }: { rows: Array<[string, ReactNode]> }) {
   );
 }
 
-function ConventionView({ view, main, preview, shared, onPick, onConnect, onError }: { view: NativeView; main: Convention | null; preview: NativePreview | null; shared: ReturnType<typeof sharedWith>; onPick: (c: Convention) => void; onConnect: () => void; onError: (e: Error) => void }) {
+function ConventionView({ view, main, preview, shared, onPick, onConnect }: { view: NativeView; main: Convention | null; preview: NativePreview | null; shared: ReturnType<typeof sharedWith>; onPick: (c: Convention) => void; onConnect: () => void }) {
   const t = useTheme();
   const info = CONVENTION_INFO[view.convention];
   const inUse = view.routes.length > 0;
@@ -238,7 +236,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
               </Txt>
               <AlsoRead p={f.path} />
             </View>
-            <OpenFile path={f.path} onError={onError} />
+            <OpenFile path={f.path} />
           </View>
         ))}
         {view.skipped.map((f) => (
@@ -249,7 +247,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
                 {f.why}
               </Txt>
             </View>
-            <OpenFile path={f.path} onError={onError} />
+            <OpenFile path={f.path} />
           </View>
         ))}
         {preview?.text ? (
@@ -278,7 +276,6 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
             key={a.path}
             first={i === 0}
             path={a.path}
-            onError={onError}
             name={
               <>
                 <Span weight={700}>{a.name}</Span> <Tag>{SOURCE_NAME[a.source]}</Tag>
@@ -318,7 +315,6 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
             key={s.path}
             first={i === 0}
             path={s.path}
-            onError={onError}
             name={
               <>
                 <Span weight={700} mono size={t.base.size * 0.92}>

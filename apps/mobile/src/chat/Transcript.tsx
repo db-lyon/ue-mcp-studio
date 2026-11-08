@@ -31,7 +31,7 @@ import {
   type AgentState,
   type Call,
 } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, ContentButton, buttonFont, font, labelFont, lineBox, Markdown, MarkdownPiece, markdownPieces, Output, PIECE_CHARS, Pulse, stopOf, useTheme, type AssetMark, type Theme } from "../ui";
+import { Banner, baseFont, ContentButton, buttonFont, font, labelFont, lineBox, MarkdownPiece, markdownPieces, Output, PIECE_CHARS, Pulse, stopOf, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import { copyText } from "../native/clipboard";
 import { MentionText } from "./MentionMenu";
@@ -46,7 +46,8 @@ import { CompactionMarker } from "../screens/chat/items";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage, useDaemonImage } from "./attachments";
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
-import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";
+import { LinkedText } from "./AssetLink";
+import { ReplyMarkdown, renderReplyMark } from "./ReplyMarkdown";
 import { noteError, noteRow, setDiag, useDiag } from "./diag";
 
 /** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
@@ -322,10 +323,6 @@ function SentFiles({ files }: { files: Attachment[] }) {
   );
 }
 
-/** A reply's asset names: exact links, and tokens linked once resolved. */
-const renderAsset = (mark: AssetMark, key: number): ReactNode =>
-  mark.kind === "exact" ? <ExactAssetLink key={key} path={mark.path} label={mark.label} /> : <AssetToken key={key} token={mark.token} code={mark.code} />;
-
 /**
  * A model reply, rendered as markdown without raw HTML; a single line break
  * stays a line break. at: its transcript index, for tracing the names in it.
@@ -334,7 +331,7 @@ export const Reply = memo(function Reply({ text, at }: { text: string; at?: numb
   return (
     <AssetAnchorContext.Provider value={at}>
       <View style={{ alignSelf: "flex-start", maxWidth: "100%", paddingVertical: 10, paddingRight: 13, paddingLeft: 2 }}>
-        <Markdown text={text} assets renderAsset={renderAsset} renderCode={breakable} />
+        <ReplyMarkdown text={text} />
       </View>
     </AssetAnchorContext.Provider>
   );
@@ -345,7 +342,7 @@ export const ReplyPiece = memo(function ReplyPiece({ text, at, piece, count }: {
   return (
     <AssetAnchorContext.Provider value={at}>
       <View testID="reply-piece" style={{ alignSelf: "stretch", paddingTop: piece === 0 ? 10 : 0, paddingBottom: piece === count - 1 ? 10 : 0, paddingRight: 13, paddingLeft: 2 }}>
-        <MarkdownPiece text={text} piece={piece} assets renderAsset={renderAsset} renderCode={breakable} />
+        <MarkdownPiece text={text} piece={piece} links renderMark={renderReplyMark} renderCode={breakable} />
       </View>
     </AssetAnchorContext.Provider>
   );

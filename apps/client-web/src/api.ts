@@ -11,6 +11,7 @@ import type {
   RegistryAccountView,
   ApprovalDecision,
   AssetOpenResponse,
+  FileReadResponse,
   AssetRef,
   AssetResolveResponse,
   BusyState,
@@ -309,7 +310,11 @@ export const api = {
   stopBusy: () => call<{ stopped: string[] }>("POST", "/v1/ext/studio/busy/stop"),
   native: () => call<unknown>("GET", "/v1/ext/studio/native").then(nativeOf),
   nativePreview: (convention: Convention) => call<NativePreview>("GET", `/v1/ext/studio/native/preview?convention=${encodeURIComponent(convention)}`),
-  openFile: (path: string) => call<void>("POST", "/v1/ext/studio/files/open", { path }),
+  /** A project file for the file viewer; from: the viewed file a relative path is resolved against. */
+  readFile: (path: string, from?: string) =>
+    call<FileReadResponse>("GET", `/v1/ext/studio/files/read?path=${encodeURIComponent(path)}${from ? `&from=${encodeURIComponent(from)}` : ""}`),
+  /** Open a text file in the computer's editor; the paired browser is refused it. */
+  openFile: (path: string, from?: string) => call<void>("POST", "/v1/ext/studio/files/open", from ? { path, from } : { path }),
   contextStrategy: () => call<unknown>("GET", "/v1/ext/studio/context-strategy").then(contextOf),
   saveContextStrategy: (strategy: ContextStrategy) => call<unknown>("PUT", "/v1/ext/studio/context-strategy", { strategy }).then(contextOf),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),

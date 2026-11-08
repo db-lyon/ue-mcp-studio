@@ -44,10 +44,10 @@ describe("Markdown", () => {
     expect(screen.getByText("a b")).toBeTruthy();
   });
 
-  it("marks asset names for the caller with the asset plugin", () => {
+  it("marks asset names and file links for the caller with the reply link plugin", () => {
     const seen: string[] = [];
-    renderInProject(<Markdown text={"Open `BP_Door` and [the door](/Game/Props/BP_Door.BP_Door)"} assets renderAsset={(m, k) => (seen.push(m.kind === "exact" ? m.path : m.token), <span key={k}>{m.kind}</span>)} />);
-    expect(seen).toEqual(["BP_Door", "/Game/Props/BP_Door.BP_Door"]);
+    renderInProject(<Markdown text={"Open `BP_Door`, [the door](/Game/Props/BP_Door.BP_Door) and [notes](.wiki/Door.md#L4)"} links renderMark={(m, _c, k) => (seen.push(m.kind === "exact" ? m.path : m.kind === "token" ? m.token : `${m.path}:${m.line}`), <span key={k}>{m.kind}</span>)} />);
+    expect(seen).toEqual(["BP_Door", "/Game/Props/BP_Door.BP_Door", ".wiki/Door.md:4"]);
   });
 });
 

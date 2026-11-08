@@ -1,8 +1,9 @@
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useContext, useEffect, useState } from "react";
 import { CONVENTION_INFO, EFFORT_NAMES, type Effort, type Convention, type NativeOverview, type NativePreview, type NativeView } from "@ue-mcp-studio/shared";
 import { INSTRUCTION_FILE, SKILL_DIR, SOURCE_NAME, SUBAGENT_DIR, conventionOrder, fileCount, firstTab, scopeLine, sharedWith } from "@ue-mcp-studio/client-core";
 import { api } from "../../api";
-import { Card, tokens, useMessage } from "./controls";
+import { Card, tokens } from "./controls";
+import { FileViewerContext } from "../../chat/FileLink";
 
 /** A path that wraps only after its slashes, never inside a name. */
 export function Path({ p, className = "path" }: { p: string; className?: string }) {
@@ -15,8 +16,10 @@ export function Path({ p, className = "path" }: { p: string; className?: string 
   );
 }
 
-function OpenFile({ path, onError }: { path: string; onError: (e: Error) => void }) {
-  return <button className="small-button open-file" onClick={() => void api.openFile(path).catch(onError)} aria-label={`Open ${path}`} title={`Open ${path} in its default app`}>Open file</button>;
+/** A listed file in Studio's file viewer, which can open it in the computer's editor. */
+function OpenFile({ path }: { path: string }) {
+  const viewer = useContext(FileViewerContext);
+  return <button className="small-button open-file" onClick={() => viewer?.open({ path })} aria-label={`Open ${path}`} title={`Show ${path}`}>Open file</button>;
 }
 
 const count = fileCount;
@@ -32,7 +35,6 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
   const ordered = conventionOrder(overview);
   const [tab, setTab] = useState<Convention>(() => firstTab(overview));
   const [preview, setPreview] = useState<NativePreview | null>(null);
-  const msg = useMessage();
   const view = overview.conventions.find((c) => c.convention === tab) ?? null;
   useEffect(() => {
     setPreview(null);
@@ -57,13 +59,12 @@ export function NativePanel({ overview, onConnect }: { overview: NativeOverview;
           </label>
         </>
       )}
-      {msg.node}
-      {view && <ConventionView view={view} main={overview.main} preview={preview} shared={sharedWith(view, overview)} onPick={setTab} onConnect={onConnect} onError={msg.fail} />}
+      {view && <ConventionView view={view} main={overview.main} preview={preview} shared={sharedWith(view, overview)} onPick={setTab} onConnect={onConnect} />}
     </>
   );
 }
 
-function ConventionView({ view, main, preview, shared, onPick, onConnect, onError }: { view: NativeView; main: Convention | null; preview: NativePreview | null; shared: ReturnType<typeof sharedWith>; onPick: (c: Convention) => void; onConnect: () => void; onError: (e: Error) => void }) {
+function ConventionView({ view, main, preview, shared, onPick, onConnect }: { view: NativeView; main: Convention | null; preview: NativePreview | null; shared: ReturnType<typeof sharedWith>; onPick: (c: Convention) => void; onConnect: () => void }) {
   const info = CONVENTION_INFO[view.convention];
   const inUse = view.routes.length > 0;
   /** On a tab no route reads: where else the same file is read, on its own row. */
@@ -109,7 +110,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
                 <div className="readers">{tokens(f.tokens)} tokens, {scopeLine(f)}{f.imports?.length ? `, imports ${f.imports.join(", ")}` : ""}</div>
                 <AlsoRead p={f.path} />
               </div>
-              <OpenFile path={f.path} onError={onError} />
+              <OpenFile path={f.path} />
             </li>
           ))}
         </ol>
@@ -119,7 +120,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
               <Path p={f.path} className="path dim" />
               <div className="readers">{f.why}</div>
             </div>
-            <OpenFile path={f.path} onError={onError} />
+            <OpenFile path={f.path} />
           </div>
         ))}
         {preview?.text && (
@@ -155,7 +156,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
                 {a.problems.map((p) => <div key={p} className="cfg-note warn-text">{p}</div>)}
                 <Path p={a.path} className="path dim" />
               </div>
-              <OpenFile path={a.path} onError={onError} />
+              <OpenFile path={a.path} />
             </li>
           ))}
         </ul>
@@ -173,7 +174,7 @@ function ConventionView({ view, main, preview, shared, onPick, onConnect, onErro
                 {s.problems.map((p) => <div key={p} className="cfg-note warn-text">{p}</div>)}
                 <Path p={`${s.path}/SKILL.md`} className="path dim" />
               </div>
-              <OpenFile path={s.path} onError={onError} />
+              <OpenFile path={s.path} />
             </li>
           ))}
         </ul>

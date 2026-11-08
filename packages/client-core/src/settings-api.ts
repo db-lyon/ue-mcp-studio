@@ -69,7 +69,6 @@ export function settingsApi(t: Transport) {
       send<unknown>("PUT", `${S}/agent-settings`, u).then(agentSettingsOf) as Promise<AgentSettings>,
     native: () => get<unknown>(`${S}/native`).then(nativeOf) as Promise<NativeOverview>,
     nativePreview: (convention: Convention) => get<NativePreview>(`${S}/native/preview?convention=${enc(convention)}`),
-    openFile: (path: string) => send<void>("POST", `${S}/files/open`, { path }),
     contextStrategy: () => get<unknown>(`${S}/context-strategy`).then(contextOf) as Promise<ClientContextStrategy>,
     config: () => get<StudioConfigFile>(`${S}/config`),
     endpoints: () => get<CustomEndpointList>(`${S}/endpoints`),

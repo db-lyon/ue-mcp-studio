@@ -15,14 +15,14 @@ import { api } from "../api";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
-import { AssetLinks, LINK_PENDING, remarkAssets, type LinkState } from "@ue-mcp-studio/client-core";
+import { AssetLinks, LINK_PENDING, remarkReplyLinks, type LinkState } from "@ue-mcp-studio/client-core";
 
-export { AssetLinks, RETRY_MS, remarkAssets, splitText, stepParts, stepPlain, type LinkState, type Resolve, type StepPart } from "@ue-mcp-studio/client-core";
+export { AssetLinks, RETRY_MS, splitText, stepParts, stepPlain, type LinkState, type Resolve, type StepPart } from "@ue-mcp-studio/client-core";
 
 /** The asset tokens a reply names, in order, once each. */
 export function assetCandidates(markdown: string): string[] {
   const out: string[] = [];
-  const processor = unified().use(remarkParse).use(remarkGfm).use(remarkAssets, { found: (t: string) => void (out.includes(t) || out.push(t)) });
+  const processor = unified().use(remarkParse).use(remarkGfm).use(remarkReplyLinks, { found: (t: string) => void (out.includes(t) || out.push(t)) });
   processor.runSync(processor.parse(markdown as never) as never);
   return out;
 }

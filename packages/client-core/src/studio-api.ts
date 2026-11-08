@@ -20,6 +20,7 @@ import type {
   BusyState,
   StudioRefusal,
   AssetOpenResponse,
+  FileReadResponse,
   AssetRef,
   AssetResolveResponse,
   CheckpointChange,
@@ -131,6 +132,8 @@ export function studioApi(t: Transport) {
     resolveAssets: (refs: AssetRef[], sessionId: string | null) => send<AssetResolveResponse>("POST", `${S}/assets/resolve`, sessionId ? { refs, sessionId } : { refs }),
     reportAssetMiss: (name: string, candidates: number) => send<void>("POST", `${S}/assets/missed`, { name, candidates }),
     openAsset: (path: string) => send<AssetOpenResponse>("POST", `${S}/assets/open`, { path }),
+    /** A project file for the file viewer; from: the viewed file a relative path is resolved against. */
+    readFile: (path: string, from?: string) => get<FileReadResponse>(`${S}/files/read?path=${enc(path)}${from ? `&from=${enc(from)}` : ""}`),
     vcsDiff: (path: string) => get<{ diff: string | null; reason?: string }>(`${S}/vcs/diff?path=${enc(path)}`),
     versionNotice: () => get<{ notice: StudioVersionNotice | null }>(`${S}/version-notice`),
     keepStudio: (version: string) => send<{ notice: StudioVersionNotice | null }>("POST", `${S}/version-notice/keep`, { version }),
