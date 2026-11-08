@@ -80,10 +80,12 @@ describe("MainTranscript", () => {
     { kind: "note", text: "The editor restarted.", at },
   ];
 
-  it("draws the user's message, the reply as markdown, tool rows and notes", () => {
+  it("draws the user's message, the reply as markdown, a lone call folded to one row, and notes", () => {
     renderInProject(<MainTranscript {...transcriptProps(talk)} />);
     expect(screen.getByText("Fix the door")).toBeTruthy();
     expect(screen.getByText("door")).toBeTruthy();
+    expect(screen.queryByText("shell")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Ran 1 command" }));
     expect(screen.getByText("shell")).toBeTruthy();
     expect(screen.getByText("git grep OpenAngle")).toBeTruthy();
     expect(screen.getByText("done")).toBeTruthy();
@@ -97,6 +99,7 @@ describe("MainTranscript", () => {
 
   it("opens a call to its command, output and Copy", async () => {
     renderInProject(<MainTranscript {...transcriptProps(talk)} />);
+    fireEvent.click(screen.getByRole("button", { name: "Ran 1 command" }));
     fireEvent.click(screen.getByText("shell"));
     expect(screen.getByText("$ git grep OpenAngle")).toBeTruthy();
     expect(screen.getByText("Output, 2 lines")).toBeTruthy();
@@ -156,7 +159,7 @@ describe("MainTranscript", () => {
     expect(screen.getByText("The model refused.")).toBeTruthy();
   });
 
-  it("folds a finished turn's progress messages", () => {
+  it("draws a finished turn's progress messages where they fall, never folded", () => {
     const turn: TranscriptEntry[] = [
       { kind: "user", text: "Go", at },
       { kind: "assistant", text: "Looking first.", at },
@@ -164,9 +167,9 @@ describe("MainTranscript", () => {
       { kind: "assistant", text: "All done.", at },
     ];
     renderInProject(<MainTranscript {...transcriptProps(turn)} />);
-    expect(screen.queryByText("Looking first.")).toBeNull();
-    fireEvent.click(screen.getByText("1 progress update"));
     expect(screen.getByText("Looking first.")).toBeTruthy();
+    expect(screen.getByText("All done.")).toBeTruthy();
+    expect(screen.queryByText(/progress update/)).toBeNull();
   });
 
   it("opens a subagent's thread from its row", () => {

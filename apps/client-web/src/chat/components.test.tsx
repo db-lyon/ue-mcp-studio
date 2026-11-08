@@ -218,7 +218,7 @@ describe("the main thread", () => {
     expect(onStop).toHaveBeenCalledWith("w");
   });
 
-  it("folds progress messages behind the final answer", () => {
+  it("draws progress messages where they fall, never folded", () => {
     const t: TranscriptEntry[] = [
       { kind: "user", text: "go", at: at(0) },
       { kind: "assistant", text: "Started them.", at: at(1) },
@@ -226,10 +226,9 @@ describe("the main thread", () => {
       { kind: "assistant", text: "All done.", at: at(4) },
     ];
     render(<MainTranscript transcript={t} {...props} />);
-    expect(screen.queryByText("Started them.")).toBeNull();
-    expect(screen.getByText("All done.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /1 progress update/ }));
     expect(screen.getByText("Started them.")).toBeTruthy();
+    expect(screen.getByText("All done.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /progress update/ })).toBeNull();
   });
 });
 

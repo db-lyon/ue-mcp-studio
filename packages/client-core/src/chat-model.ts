@@ -196,31 +196,20 @@ export function summarize(states: AgentState[]): string {
   ].filter(Boolean).join(", ");
 }
 
-/** A line of the main thread as the view draws it. */
-export type MainItem =
+/** A line of a thread (the main one or a subagent's) as the view draws it. */
+export type ThreadItem =
   | { kind: "entry"; entry: TranscriptEntry }
-  /** Subagents the main agent started together, drawn as one block. */
+  /** Subagents started together, drawn as one block. */
   | { kind: "agents"; calls: Call[] }
-  /** The main agent's progress messages from a finished turn, folded behind its final answer. */
-  | { kind: "progress"; entries: TranscriptEntry[] }
-  /** Consecutive working steps (reads, commands, searches, edits, editor calls) folded into one summary line. */
+  /** A run of neighbouring tool calls, whatever their outcome, folded into one summary line. */
   | { kind: "steps"; calls: Call[] };
 
-/** A thread's lines when only the step fold applies: a subagent's own thread. */
-export type StepItem = Extract<MainItem, { kind: "entry" | "steps" }>;
-
-/** The fewest neighbouring steps that fold; a lone step is already one line. */
-export const FOLD_MIN = 2;
-
 /**
- * Whether a call folds into a run of steps: finished or running, not a
- * subagent, and not waiting for the user's approval. A failed, declined,
- * stopped or unknown call stays its own line and ends the run, so nothing that
- * went wrong is hidden behind a summary.
+ * Whether a call folds into a run of steps: every call but a subagent and a
+ * call waiting for the user's approval, which the reader needs to see now.
  */
 export function foldsAway(call: Call, asked: ReadonlySet<string> = NONE): boolean {
-  if (call.name === "agent") return false;
-  return call.outcome === "done" || (call.outcome === "pending" && !asked.has(call.id));
+  return call.name !== "agent" && !(call.outcome === "pending" && asked.has(call.id));
 }
 
 /** The run's call that is running now, the newest one, or null once all have finished. */
@@ -269,86 +258,43 @@ export function stepsSummary(calls: Call[]): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/**
- * Groups runs of neighbouring steps: each run of FOLD_MIN or more calls that
- * fold away becomes one steps item, and everything else (replies, failed
- * calls, calls waiting on the user, cards, markers) stays its own line and
- * ends the run.
- */
-export function foldSteps(entries: TranscriptEntry[], asked: ReadonlySet<string> = NONE): StepItem[] {
-  const out: StepItem[] = [];
-  let run: TranscriptEntry[] = [];
-  const flush = () => {
-    if (run.length >= FOLD_MIN) out.push({ kind: "steps", calls: run.map((t) => (t as Extract<TranscriptEntry, { kind: "tool" }>).call) });
-    else for (const t of run) out.push({ kind: "entry", entry: t });
-    run = [];
-  };
-  for (const t of entries) {
-    if (t.kind === "tool" && foldsAway(t.call, asked)) run.push(t);
-    else {
-      flush();
-      out.push({ kind: "entry", entry: t });
-    }
-  }
-  flush();
-  return out;
+/** "1 failed, 1 declined": the calls in a run that went wrong, for the summary line in the bad colour. */
+export function stepsTrouble(calls: Call[]): string {
+  const n = (...outcomes: Call["outcome"][]) => calls.filter((c) => outcomes.includes(c.outcome)).length;
+  const failed = n("error", "unknown");
+  const declined = n("declined");
+  const stopped = n("stopped");
+  return [failed && `${failed} failed`, declined && `${declined} declined`, stopped && `${stopped} stopped`].filter(Boolean).join(", ");
 }
 
 /**
- * The main thread: entries without a parent that `shown` accepts (a card nothing draws is not),
- * neighbouring agent calls grouped, runs of working steps folded into one line (foldSteps; `asked`
- * holds the calls waiting on the user, which never fold), and in a finished turn that ran
- * subagents, every message the main agent wrote before its final one folded into one progress line.
+ * A thread's lines: each run of tool calls between two other lines folds into
+ * one steps item, neighbouring subagent calls group, and everything else
+ * (messages, held calls, cards, dialogs, markers) is its own line.
  */
-export function mainTimeline(transcript: TranscriptEntry[], status: TurnStatus, shown?: (t: TranscriptEntry) => boolean, asked: ReadonlySet<string> = NONE): MainItem[] {
-  const main = transcript.filter((t) => !t.parent && (!shown || shown(t)));
-  // Turns: each starts at a user message.
-  const turns: TranscriptEntry[][] = [];
-  for (const t of main) {
-    if (t.kind === "user" || turns.length === 0) turns.push([]);
-    turns[turns.length - 1].push(t);
+export function timeline(entries: TranscriptEntry[], asked: ReadonlySet<string> = NONE): ThreadItem[] {
+  const out: ThreadItem[] = [];
+  for (const t of entries) {
+    const last = out[out.length - 1];
+    if (t.kind === "tool" && t.call.name === "agent") {
+      if (last?.kind === "agents") last.calls.push(t.call);
+      else out.push({ kind: "agents", calls: [t.call] });
+    } else if (t.kind === "tool" && foldsAway(t.call, asked)) {
+      if (last?.kind === "steps") last.calls.push(t.call);
+      else out.push({ kind: "steps", calls: [t.call] });
+    } else out.push({ kind: "entry", entry: t });
   }
-  const busy = status === "running" || status === "waiting";
-  const out: MainItem[] = [];
-  turns.forEach((turn, ti) => {
-    const finished = ti < turns.length - 1 || !busy;
-    const ranAgents = turn.some((t) => t.kind === "tool" && t.call.name === "agent");
-    const replies = turn.filter((t) => t.kind === "assistant");
-    const folded = new Set<TranscriptEntry>(finished && ranAgents && replies.length > 1 ? replies.slice(0, -1) : []);
-    let progress: TranscriptEntry[] = [];
-    let run: TranscriptEntry[] = [];
-    const flushRun = () => {
-      if (run.length > 0) out.push(...foldSteps(run, asked));
-      run = [];
-    };
-    for (const t of turn) {
-      if (folded.has(t)) {
-        flushRun();
-        progress.push(t);
-        continue;
-      }
-      if (progress.length > 0) {
-        out.push({ kind: "progress", entries: progress });
-        progress = [];
-      }
-      if (t.kind === "tool" && foldsAway(t.call, asked)) {
-        run.push(t);
-        continue;
-      }
-      flushRun();
-      const last = out[out.length - 1];
-      if (t.kind === "tool" && t.call.name === "agent") {
-        if (last?.kind === "agents") last.calls.push(t.call);
-        else out.push({ kind: "agents", calls: [t.call] });
-      } else {
-        out.push({ kind: "entry", entry: t });
-      }
-    }
-    flushRun();
-    if (progress.length > 0) out.push({ kind: "progress", entries: progress });
-  });
   return out;
 }
+
+/** The main thread: entries without a parent that `shown` accepts (a card nothing draws is not). */
+export function mainTimeline(transcript: TranscriptEntry[], shown?: (t: TranscriptEntry) => boolean, asked: ReadonlySet<string> = NONE): ThreadItem[] {
+  return timeline(transcript.filter((t) => !t.parent && (!shown || shown(t))), asked);
+}
+
+/** A subagent's own thread, folded the same way as the main one. */
+export const subagentTimeline = (transcript: TranscriptEntry[], id: string, asked: ReadonlySet<string> = NONE): ThreadItem[] =>
+  timeline(transcript.filter((t) => t.parent === id), asked);
 
 /** A tool result for reading: JSON indented, and how many lines it has. */
 export function formatResult(text: string): { text: string; lines: number } {
