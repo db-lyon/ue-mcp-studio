@@ -19,7 +19,7 @@ const NAMES: Array<keyof StudioApi> = [
   "versionNotice", "keepStudio", "useInstalledStudio", "busy", "stopBusy", "editor", "refusal", "saveUpdateRun", "updatesDeferredNow",
   "editQueued", "updateSession", "deleteSession", "markSeen", "dismissAgents", "editMessage", "uploadAttachment", "stopSubagent", "compact", "flow", "action", "playtest",
   "flows", "actions", "searchMentions", "forms", "answerForm", "bytes", "reviewNativeDiff",
-  "resolveAssets", "reportAssetMiss", "openAsset", 
+  "resolveAssets", "reportAssetMiss", "openAsset", "readFile",
 ];
 /** The editor and flow routes. */
 const EDITOR_NAMES: Array<keyof StudioApi> = ["daemonHealth", "busy", "stopBusy", "editor", "flows", "planFlow", "flow"];

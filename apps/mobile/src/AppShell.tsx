@@ -39,6 +39,7 @@ import { RemoteLock } from "./views/remote/RemoteLock";
 import { CompatBanner } from "./native/CompatBanner";
 import { useDeviceOnline } from "./native/online";
 import { OFFLINE_STRIP } from "./views/OfflineBanner";
+import { FileViewerProvider } from "./chat/FileViewer";
 
 const TABS = ["Chat", "Playtests", "Plugins", "Settings"] as const;
 type Tab = (typeof TABS)[number];
@@ -84,6 +85,7 @@ export function AppShell({ device, onBack, onUnpaired, onPair, transport, initia
   return (
     <Exits.Provider value={exits}>
     <ProjectContext.Provider value={nav}>
+    <FileViewerProvider>
       <View style={{ flex: 1 }} onTouchStart={() => project.lock.touched()}>
         <Root initial={initial} onBack={onBack} device={device} />
         {top ? (
@@ -92,6 +94,7 @@ export function AppShell({ device, onBack, onUnpaired, onPair, transport, initia
         ) : null}
         <RemoteLock lock={project.lock} computerKey={device.computerKey} onRemoved={() => onUnpaired("This phone was removed after too many wrong PINs. Pair it again.")} />
       </View>
+    </FileViewerProvider>
     </ProjectContext.Provider>
     </Exits.Provider>
   );

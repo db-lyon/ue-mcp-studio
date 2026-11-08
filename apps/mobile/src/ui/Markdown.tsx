@@ -1,7 +1,7 @@
 /**
  * Markdown as the web client's `.md` draws it. The text goes through the same
  * pipeline react-markdown runs there (remark-parse, remark-gfm, remark-breaks
- * where the web passes it, the asset plugin, remark-rehype), and the HTML tree
+ * where the web passes it, the reply link plugin, remark-rehype), and the HTML tree
  * that comes out is drawn as native views with the browser's defaults and the
  * `.md` rules of styles.css: 8px under paragraphs, lists and code, lists
  * indented 20px with their markers outside, inline code in 12px mono on
@@ -16,13 +16,13 @@ import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import remarkRehype from "remark-rehype";
-import { remarkReplyLinks } from "@ue-mcp-studio/client-core";
+import { classifyLink, remarkReplyLinks } from "@ue-mcp-studio/client-core";
 import { baseFont, font, italic, labelFont, monoNormal } from "./Text";
 import { useTheme } from "./ThemeProvider";
 import type { Theme } from "./theme";
 
-/** An asset the asset plugin marked: an exact link from the model, or a token to resolve. */
-export type AssetMark = { kind: "exact"; path: string; label: string } | { kind: "token"; token: string; code: boolean };
+/** What remarkReplyLinks marked: an exact asset link from the model, a token to resolve, or a project file. */
+export type LinkMark = { kind: "exact"; path: string; label: string } | { kind: "token"; token: string; code: boolean } | { kind: "file"; path: string; line?: number };
 
 export interface MarkdownProps {
   text: string;
@@ -30,12 +30,12 @@ export interface MarkdownProps {
   tone?: TextStyle;
   /** A single line break stays a line break (remark-breaks). On by default, as a reply renders. */
   breaks?: boolean;
-  /** Mark asset names with the asset plugin and draw them with `renderAsset`. */
-  assets?: boolean;
-  renderAsset?: (mark: AssetMark, key: number) => ReactNode;
+  /** Mark a reply's links and asset names with remarkReplyLinks and draw them with `renderMark`. */
+  links?: boolean;
+  /** children: the link's own text, which a file link shows. */
+  renderMark?: (mark: LinkMark, children: ReactNode, key: number) => ReactNode;
   /** Inline code that names no asset: its text, for a caller that allows breaks inside it. */
   renderCode?: (text: string) => ReactNode;
-  renderLink?: (href: string, children: ReactNode, key: number) => ReactNode | null;
   /**
    * A document rather than a chat message (a plugin's readme): the first and
    * last blocks keep their margins, as `.md` outside `.msg` keeps them.
@@ -54,13 +54,13 @@ interface HNode {
 }
 
 const processors = new Map<string, Processor<never, never, never, never, never>>();
-function processor(breaks: boolean, assets: boolean) {
-  const key = `${breaks}:${assets}`;
+function processor(breaks: boolean, links: boolean) {
+  const key = `${breaks}:${links}`;
   let p = processors.get(key);
   if (!p) {
     let u = unified().use(remarkParse).use(remarkGfm) as never as Processor;
     if (breaks) u = u.use(remarkBreaks) as never;
-    if (assets) u = u.use(remarkReplyLinks as never) as never;
+    if (links) u = u.use(remarkReplyLinks as never) as never;
     p = u.use(remarkRehype) as never;
     processors.set(key, p!);
   }
@@ -68,23 +68,23 @@ function processor(breaks: boolean, assets: boolean) {
 }
 
 /** The HTML tree react-markdown would render for `text`. */
-export function markdownTree(text: string, breaks = true, assets = false): HNode {
-  const p = processor(breaks, assets) as never as { parse(t: string): unknown; runSync(t: unknown): HNode };
+export function markdownTree(text: string, breaks = true, links = false): HNode {
+  const p = processor(breaks, links) as never as { parse(t: string): unknown; runSync(t: unknown): HNode };
   return p.runSync(p.parse(text));
 }
 
-export const Markdown = memo(function Markdown({ text, tone, breaks = true, assets = false, renderAsset, renderCode, renderLink, page, paragraphMargin = 8 }: MarkdownProps) {
+export const Markdown = memo(function Markdown({ text, tone, breaks = true, links = false, renderMark, renderCode, page, paragraphMargin = 8 }: MarkdownProps) {
   const t = useTheme();
   const tree = useMemo(() => {
     try {
-      return markdownTree(text, breaks, assets);
+      return markdownTree(text, breaks, links);
     } catch {
       return null;
     }
-  }, [text, breaks, assets]);
+  }, [text, breaks, links]);
   const body: TextStyle = { ...baseFont(t), ...tone };
   if (!tree) return <Text style={body}>{text}</Text>;
-  const ctx: Ctx = { t, body, renderAsset, renderCode, renderLink, depth: 0, paragraphMargin };
+  const ctx: Ctx = { t, body, renderMark, renderCode, depth: 0, paragraphMargin };
   const blocks = flow(ctx, tree.children ?? []);
   const edges = page && blocks.length ? { marginTop: blocks[0].mt, marginBottom: blocks[blocks.length - 1].mb } : null;
   return <View style={edges}>{place(blocks, true)}</View>;
@@ -177,8 +177,8 @@ function unitsOf(n: HNode): Unit[] {
 }
 
 const plans = new Map<string, Plan | null>();
-function planOf(text: string, breaks: boolean, assets: boolean): Plan | null {
-  const key = `${breaks}:${assets}:${text}`;
+function planOf(text: string, breaks: boolean, links: boolean): Plan | null {
+  const key = `${breaks}:${links}:${text}`;
   if (plans.has(key)) {
     const hit = plans.get(key)!;
     plans.delete(key);
@@ -187,7 +187,7 @@ function planOf(text: string, breaks: boolean, assets: boolean): Plan | null {
   }
   let plan: Plan | null = null;
   try {
-    const tree = markdownTree(text, breaks, assets);
+    const tree = markdownTree(text, breaks, links);
     const units: Unit[] = [];
     let run: HNode[] = [];
     const flush = () => {
@@ -219,8 +219,8 @@ function planOf(text: string, breaks: boolean, assets: boolean): Plan | null {
 }
 
 /** How many pieces `text` is drawn in: 1 when it fits one row. */
-export function markdownPieces(text: string, breaks = true, assets = false): number {
-  return Math.max(1, planOf(text, breaks, assets)?.pieces.length ?? 1);
+export function markdownPieces(text: string, breaks = true, links = false): number {
+  return Math.max(1, planOf(text, breaks, links)?.pieces.length ?? 1);
 }
 
 function unitBlock(ctx: Ctx, u: Unit, lists: Map<HNode, Block[]>): Block {
@@ -253,12 +253,12 @@ function unitBlock(ctx: Ctx, u: Unit, lists: Map<HNode, Block[]>): Block {
  * the block before it leaves, so the pieces drawn one under another look as
  * the whole reply does.
  */
-export const MarkdownPiece = memo(function MarkdownPiece({ text, piece, tone, breaks = true, assets = false, renderAsset, renderCode, renderLink, paragraphMargin = 8 }: MarkdownProps & { piece: number }) {
+export const MarkdownPiece = memo(function MarkdownPiece({ text, piece, tone, breaks = true, links = false, renderMark, renderCode, paragraphMargin = 8 }: MarkdownProps & { piece: number }) {
   const t = useTheme();
-  const plan = planOf(text, breaks, assets);
-  if (!plan?.pieces[piece]) return piece === 0 ? <Markdown text={text} tone={tone} breaks={breaks} assets={assets} renderAsset={renderAsset} renderCode={renderCode} renderLink={renderLink} paragraphMargin={paragraphMargin} /> : null;
+  const plan = planOf(text, breaks, links);
+  if (!plan?.pieces[piece]) return piece === 0 ? <Markdown text={text} tone={tone} breaks={breaks} links={links} renderMark={renderMark} renderCode={renderCode} paragraphMargin={paragraphMargin} /> : null;
   const body: TextStyle = { ...baseFont(t), ...tone };
-  const ctx: Ctx = { t, body, renderAsset, renderCode, renderLink, depth: 0, paragraphMargin };
+  const ctx: Ctx = { t, body, renderMark, renderCode, depth: 0, paragraphMargin };
   const lists = new Map<HNode, Block[]>();
   const [from, to] = plan.pieces[piece];
   const blocks = plan.units.slice(from, to).map((u) => unitBlock(ctx, u, lists));
@@ -269,9 +269,8 @@ export const MarkdownPiece = memo(function MarkdownPiece({ text, piece, tone, br
 interface Ctx {
   t: Theme;
   body: TextStyle;
-  renderAsset?: MarkdownProps["renderAsset"];
+  renderMark?: MarkdownProps["renderMark"];
   renderCode?: MarkdownProps["renderCode"];
-  renderLink?: MarkdownProps["renderLink"];
   /** List nesting, for the marker: disc, circle, square. */
   depth: number;
   paragraphMargin?: number;
@@ -557,20 +556,26 @@ function inline(ctx: Ctx, n: HNode, key: number, lineStart: boolean): ReactNode 
       return <Text key={key} style={{ textDecorationLine: "line-through" }}>{inlines(ctx, kids, lineStart)}</Text>;
     case "code": {
       const token = p["data-asset"] as string | undefined;
-      if (token && ctx.renderAsset) return <Text key={key}>{ctx.renderAsset({ kind: "token", token, code: true }, key)}</Text>;
+      if (token && ctx.renderMark) return <Text key={key}>{ctx.renderMark({ kind: "token", token, code: true }, null, key)}</Text>;
       const text = textOf(n);
       return <Text key={key} style={inlineCode(t)}>{ctx.renderCode ? ctx.renderCode(text) : text}</Text>;
     }
     case "span": {
-      if (p["data-asset-path"] && ctx.renderAsset) return <Text key={key}>{ctx.renderAsset({ kind: "exact", path: String(p["data-asset-path"]), label: String(p["data-asset-label"] ?? "") }, key)}</Text>;
-      if (p["data-asset"] && ctx.renderAsset) return <Text key={key}>{ctx.renderAsset({ kind: "token", token: String(p["data-asset"]), code: false }, key)}</Text>;
-      return <Text key={key}>{inlines(ctx, kids, lineStart)}</Text>;
+      const children = inlines(ctx, kids, lineStart);
+      const mark: LinkMark | null = p["data-asset-path"]
+        ? { kind: "exact", path: String(p["data-asset-path"]), label: String(p["data-asset-label"] ?? "") }
+        : p["data-asset"]
+          ? { kind: "token", token: String(p["data-asset"]), code: false }
+          : p["data-file-path"]
+            ? { kind: "file", path: String(p["data-file-path"]), ...(p["data-file-line"] ? { line: Number(p["data-file-line"]) } : {}) }
+            : null;
+      return <Text key={key}>{mark && ctx.renderMark ? ctx.renderMark(mark, children, key) : children}</Text>;
     }
     case "a": {
+      // Only web links reach here as links; a reference link to anything else is its text.
       const href = String(p.href ?? "");
       const children = inlines(ctx, kids, lineStart);
-      const custom = ctx.renderLink?.(href, children, key);
-      if (custom) return custom;
+      if (classifyLink(href).kind !== "web") return <Text key={key}>{children}</Text>;
       return (
         <Text key={key} style={{ color: t.c.accentHi }} accessibilityRole="link" onPress={() => void Linking.openURL(href).catch(() => undefined)}>
           {children}

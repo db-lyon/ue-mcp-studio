@@ -122,13 +122,13 @@ describe("a thread on a phone", () => {
   it("cuts a long reply into pieces that stack back into the whole, each within the budget", () => {
     const text = longReply();
     const n = markdownPieces(text, true, true);
-    const whole = render(<Markdown text={text} assets />).container.textContent;
+    const whole = render(<Markdown text={text} links />).container.textContent;
     cleanup();
     const { container } = render(
       <View>
         {Array.from({ length: n }, (_, i) => (
           <View key={i} testID="piece">
-            <MarkdownPiece text={text} piece={i} assets />
+            <MarkdownPiece text={text} piece={i} links />
           </View>
         ))}
       </View>,
