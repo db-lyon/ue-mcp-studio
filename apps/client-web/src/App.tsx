@@ -8,6 +8,7 @@ import { PluginsView } from "./views/Plugins";
 import { useUpdateCount } from "./views/Updates";
 import { UpdateRunner } from "./views/UpdateOverlay";
 import { FeedbackDialog } from "./views/Feedback";
+import { FileViewerProvider } from "./chat/FileViewer";
 import { ChatView } from "./views/Chat";
 import { SettingsHub } from "./views/SettingsHub";
 import { sectionOf, type SettingsSection } from "./views/settings/sections";
@@ -132,84 +133,86 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   );
 
   return (
-    <div className="app">
-      <header className="bar">
-        {narrow ? (
-          <>
-            <button className="ghost bar-menu-button" aria-label="Open navigation" aria-expanded={drawer} onClick={() => setDrawer(true)}>
-              <MenuGlyph />
-              {updates > 0 && <span className="tab-dot" />}
-            </button>
-            <span className="bar-title">{tab}</span>
-            <span className="spacer" />
-            <EditorBanner daemon={daemon} compact />
-          </>
-        ) : (
-          <>
-            <span className="brand">
-              <span className="mark" />
-              <span className="name">ue-mcp</span>
-              <span className="product">Studio</span>
-            </span>
-            <nav>
-              {SHOWN.map((t) => (
-                <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
-                  {t}
-                  {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
-                  {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={`${playtestsWaiting} ${playtestsWaiting === 1 ? "playtest needs" : "playtests need"} you`}>{playtestsWaiting}</span>}
-                </button>
-              ))}
-            </nav>
-            <span className="spacer" />
-            {/* A paired browser at full width: the open project and the way to every other one, where the drawer has them when narrow. */}
-            {remote && <BarProjectSwitch name={projectName} onSwitch={switchProject} />}
+    <FileViewerProvider>
+      <div className="app">
+        <header className="bar">
+          {narrow ? (
+            <>
+              <button className="ghost bar-menu-button" aria-label="Open navigation" aria-expanded={drawer} onClick={() => setDrawer(true)}>
+                <MenuGlyph />
+                {updates > 0 && <span className="tab-dot" />}
+              </button>
+              <span className="bar-title">{tab}</span>
+              <span className="spacer" />
+              <EditorBanner daemon={daemon} compact />
+            </>
+          ) : (
+            <>
+              <span className="brand">
+                <span className="mark" />
+                <span className="name">ue-mcp</span>
+                <span className="product">Studio</span>
+              </span>
+              <nav>
+                {SHOWN.map((t) => (
+                  <button key={t} className={t === tab ? "tab active" : "tab"} onClick={() => setTab(t)}>
+                    {t}
+                    {t === "Settings" && updates > 0 && <span className="tab-dot" title={`${updates} ${updates === 1 ? "update" : "updates"} available`} />}
+                    {t === "Playtests" && playtestsWaiting > 0 && <span className="tab-count warn" aria-label={`${playtestsWaiting} need you`} title={`${playtestsWaiting} ${playtestsWaiting === 1 ? "playtest needs" : "playtests need"} you`}>{playtestsWaiting}</span>}
+                  </button>
+                ))}
+              </nav>
+              <span className="spacer" />
+              {/* A paired browser at full width: the open project and the way to every other one, where the drawer has them when narrow. */}
+              {remote && <BarProjectSwitch name={projectName} onSwitch={switchProject} />}
+              {tools}
+            </>
+          )}
+        </header>
+        {narrow && (
+          <NavDrawer
+            open={drawer}
+            onClose={() => setDrawer(false)}
+            tab={tab}
+            session={tab === "Chat" ? readLocation().session : null}
+            updates={updates}
+            playtestsWaiting={playtestsWaiting}
+            onTab={setTab}
+            onSession={openChat}
+            onNewSession={newSession}
+            project={remote ? { name: projectName, onSwitch: switchProject } : undefined}
+          >
             {tools}
-          </>
+          </NavDrawer>
         )}
-      </header>
-      {narrow && (
-        <NavDrawer
-          open={drawer}
-          onClose={() => setDrawer(false)}
-          tab={tab}
-          session={tab === "Chat" ? readLocation().session : null}
-          updates={updates}
-          playtestsWaiting={playtestsWaiting}
-          onTab={setTab}
-          onSession={openChat}
-          onNewSession={newSession}
-          project={remote ? { name: projectName, onSwitch: switchProject } : undefined}
-        >
-          {tools}
-        </NavDrawer>
-      )}
-      {/* While the connection overlay is up it says the same thing; the banner is for a stream that is up but health failing. */}
-      {daemon.error && daemon.streaming && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
-      <DialogBanner daemon={daemon} />
-      <VersionNotice daemon={daemon} />
-      <RemoteApprovalBanner />
-      {!narrow && <EditorBanner daemon={daemon} />}
-      <div className="stage">
-        {chatShown.current && (
-          <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
-            <ErrorBoundary what="Chat">
-              <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={(s) => { setSection(s); setTab("Settings"); }} />
-            </ErrorBoundary>
-          </main>
-        )}
-        {tab !== "Chat" && (
-          <main className={`view-${tab.toLowerCase()}`}>
-            <ErrorBoundary what={tab} resetKey={tab}>
-              {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
-              {tab === "Plugins" && <PluginsView daemon={daemon} />}
-              {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
-            </ErrorBoundary>
-          </main>
-        )}
+        {/* While the connection overlay is up it says the same thing; the banner is for a stream that is up but health failing. */}
+        {daemon.error && daemon.streaming && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
+        <DialogBanner daemon={daemon} />
+        <VersionNotice daemon={daemon} />
+        <RemoteApprovalBanner />
+        {!narrow && <EditorBanner daemon={daemon} />}
+        <div className="stage">
+          {chatShown.current && (
+            <main className={tab === "Chat" ? "view-chat" : "view-chat parked"} aria-hidden={tab !== "Chat" || undefined}>
+              <ErrorBoundary what="Chat">
+                <ChatView daemon={daemon} nav={chatNav} active={tab === "Chat"} onSettings={(s) => { setSection(s); setTab("Settings"); }} />
+              </ErrorBoundary>
+            </main>
+          )}
+          {tab !== "Chat" && (
+            <main className={`view-${tab.toLowerCase()}`}>
+              <ErrorBoundary what={tab} resetKey={tab}>
+                {tab === "Playtests" && <PlaytestsView daemon={daemon} index={playtests} onOpenSession={openPlaytest} onChat={() => setTab("Chat")} />}
+                {tab === "Plugins" && <PluginsView daemon={daemon} />}
+                {tab === "Settings" && <SettingsHub daemon={daemon} section={section} onSection={setSection} onTheme={(t: StudioTheme) => void applyTheme(t)} updates={updates} narrow={narrow} />}
+              </ErrorBoundary>
+            </main>
+          )}
+        </div>
+        <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
+        {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
       </div>
-      <UpdateRunner streaming={daemon.streaming} events={daemon.events} />
-      {feedback && <FeedbackDialog onClose={() => setFeedback(false)} />}
-    </div>
+    </FileViewerProvider>
   );
 }
 

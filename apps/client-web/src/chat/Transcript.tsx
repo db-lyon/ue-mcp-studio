@@ -1,13 +1,9 @@
 import { createContext, memo, useContext, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { MentionText } from "./MentionMenu";
-import Markdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkBreaks from "remark-breaks";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
 import { useAsked } from "./asked";
-import { breakable } from "./breakable";
 import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
 import { TurnReviewCard } from "./TurnReview";
@@ -37,9 +33,8 @@ import {
 } from "@ue-mcp-studio/client-core";
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
-import { remarkReplyLinks } from "@ue-mcp-studio/client-core";
-import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";
-import type { Components } from "react-markdown";
+import { ReplyMarkdown } from "./ReplyMarkdown";
+import { LinkedText } from "./AssetLink";
 import { useSlot } from "../extensions/registry";
 import { Contribution } from "../extensions/Slot";
 
@@ -258,33 +253,13 @@ function SentFiles({ files }: { files: Attachment[] }) {
 }
 
 /**
- * Markdown links to object paths render as exact asset links; inline code and
- * bare object paths that name an asset render as links once resolved.
- */
-const REPLY_COMPONENTS: Components = {
-  code: ({ node: _node, children, ...props }) => {
-    const token = (props as { "data-asset"?: string })["data-asset"];
-    return token ? <AssetToken token={token} code /> : <code {...props}>{breakable(children)}</code>;
-  },
-  // Wide tables scroll in a wrapper of their own instead of squeezing their columns.
-  table: ({ node: _node, children, ...props }) => <div className="md-table"><table {...props}>{children}</table></div>,
-  span: ({ node: _node, children, ...props }) => {
-    const exact = props as { "data-asset-path"?: string; "data-asset-label"?: string };
-    if (exact["data-asset-path"]) return <ExactAssetLink path={exact["data-asset-path"]} label={exact["data-asset-label"] ?? ""} />;
-    const token = (props as { "data-asset"?: string })["data-asset"];
-    return token ? <AssetToken token={token} code={false} /> : <span {...props}>{children}</span>;
-  },
-};
-const REPLY_PLUGINS = [remarkGfm, remarkBreaks, remarkReplyLinks];
-
-/**
  * A model reply, rendered as markdown without raw HTML; a single line break
  * stays a line break. at: its transcript index, for tracing the names in it.
  */
 export const Reply = memo(function Reply({ text, at }: { text: string; at?: number }) {
   return (
     <AssetAnchorContext.Provider value={at}>
-      <div className="msg assistant md"><Markdown remarkPlugins={REPLY_PLUGINS} components={REPLY_COMPONENTS}>{text}</Markdown></div>
+      <div className="msg assistant md"><ReplyMarkdown text={text} /></div>
     </AssetAnchorContext.Provider>
   );
 });
