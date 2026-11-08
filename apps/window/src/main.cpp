@@ -184,6 +184,7 @@ struct Options {
   std::wstring instanceTest;  // tests only: no window, report hand-offs to this file
   std::wstring senderVersion;
   std::wstring mode;       // "docked" or "window": the choice to switch to and keep
+  std::wstring location;   // where the panel opens: a hash such as #/settings/general
   DWORD editorPid = 0;
   bool closeWithEditor = false;  // accepted from older plugins; Studio no longer closes with the editor
   bool quit = false;
@@ -208,6 +209,7 @@ bool parseArgs(const wchar_t* commandLine, Options& o) {
     else if (a == L"--instance-test") next(o.instanceTest);
     else if (a == L"--sender-version") next(o.senderVersion);
     else if (a == L"--mode") next(o.mode);
+    else if (a == L"--location") next(o.location);
     else if (a == L"--editor-pid" && i + 1 < argc) o.editorPid = (DWORD)_wtoi(argv[++i]);
     else if (a == L"--close-with-editor") o.closeWithEditor = true;
     else if (a == L"--quit") o.quit = true;
@@ -1392,6 +1394,15 @@ void logLine(const std::string& text) {
   appendFile(logPath(), std::string(stamp) + "studio-window: " + text + "\n");
 }
 
+/** Open the panel at a hash it was asked for: kept for the next load, and applied to the page loaded now. */
+void goToLocation(const std::wstring& hash) {
+  if (hash.empty() || !location::safeFragment(hash)) return;
+  gLastHash = hash;
+  makeDirs(studioDir());
+  writeFile(locationPath(), narrow(hash) + "\n");
+  if (gWeb && !gLocalPage && gLoaded.port) gWeb->ExecuteScript((L"window.location.hash = '" + hash + L"'").c_str(), nullptr);
+}
+
 void loadLocation() {
   std::string text;
   if (!readFile(locationPath(), text)) return;
@@ -1798,6 +1809,7 @@ LRESULT onHandOff(const COPYDATASTRUCT* cds) {
   if (!o.node.empty()) gOpt.node = o.node;
   if (!o.ueMcp.empty()) gOpt.ueMcp = o.ueMcp;
   if (!o.mode.empty()) setMode(dock::parseMode(narrow(o.mode)), false);
+  goToLocation(o.location);
   bringToFront();
   return kHandedOff;
 }
@@ -2076,6 +2088,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   if (!gView) return 1;
   openDock();
   loadLocation();
+  goToLocation(gOpt.location);
   dock::Mode mode = dock::parseMode(narrow(gOpt.mode));
   if (mode != dock::Mode::None) {
     setMode(mode, false);

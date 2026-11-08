@@ -37,6 +37,9 @@ export interface WindowHost {
   openUrl(url: string): void;
 }
 
+/** A panel hash the window accepts (location.h's safeFragment): '#' then letters, digits and / _ - . */
+const PANEL_HASH = /^#[A-Za-z0-9/_.-]{0,511}$/;
+
 /** A body field the route accepts: a positive whole number. */
 const pid = (v: unknown): number | undefined => (typeof v === "number" && Number.isInteger(v) && v > 0 && v < 2 ** 32 ? v : undefined);
 
@@ -48,7 +51,8 @@ export function parseWindowRequest(body: unknown): WindowRequest | string {
   if (b.editorPid !== undefined && pid(b.editorPid) === undefined) return "editorPid must be a process id";
   if (b.fromEditor !== undefined && typeof b.fromEditor !== "boolean") return "fromEditor must be a boolean";
   if (b.mode !== undefined && b.mode !== "docked" && b.mode !== "window") return 'mode must be "docked" or "window"';
-  return { editorPid: pid(b.editorPid), fromEditor: b.fromEditor as boolean | undefined, mode: b.mode as WindowRequest["mode"] };
+  if (b.location !== undefined && (typeof b.location !== "string" || !PANEL_HASH.test(b.location))) return "location must be a panel hash such as #/settings/general";
+  return { editorPid: pid(b.editorPid), fromEditor: b.fromEditor as boolean | undefined, mode: b.mode as WindowRequest["mode"], location: b.location as string | undefined };
 }
 
 /** The project's name, for the window title: its .uproject, else its folder. */
@@ -76,6 +80,7 @@ export function windowArgs(host: WindowHost, req: WindowRequest): string[] {
   if (editorPid) args.push("--editor-pid", String(editorPid));
   if (editorPid && req.fromEditor && req.editorPid) args.push("--close-with-editor");
   if (req.mode) args.push("--mode", req.mode);
+  if (req.location) args.push("--location", req.location);
   return args;
 }
 
