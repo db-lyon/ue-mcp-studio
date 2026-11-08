@@ -33,6 +33,40 @@ function rgb(hex: string): string {
 }
 
 describe("a thread on a phone", () => {
+  it("opens and folds an older reply between a table, a user message and steps by adding rows after its first piece, never swapping a row", () => {
+    const para = (n: number) => `Paragraph ${n}. ${"The run ends at the omen and the bastion keeps what it brought back. ".repeat(12)}`;
+    const reply = [para(1), para(2), para(3), para(4)].join("\n\n");
+    const table = ["Agreed, structurally it is Hades. The match:", "", "| Hades | Ours |", "| --- | --- |", "| The House | the bastion |", "| Back home win or lose | the same |"].join("\n");
+    const shell: ToolCallRecord = { id: "sh", name: "shell", input: { command: "set -e; f=.wiki/Core-Loop.md" }, outcome: "done", startedAt: at, endedAt: at, result: "done" };
+    const t: TranscriptEntry[] = [
+      { kind: "assistant", text: table, at },
+      { kind: "user", text: "Honestly the loop mirrors Hades more than anything else.", at },
+      { kind: "assistant", text: reply, at },
+      { kind: "tool", call: shell },
+      { kind: "assistant", text: "Logging it as a reference point under Decision 14.", at },
+    ];
+    const n = markdownPieces(reply, true, true);
+    expect(n).toBeGreaterThan(2);
+    renderInProject(<MainTranscript {...props(t)} />);
+    const keyed = () => [...document.querySelectorAll("[data-testid=fold-body]")].map((b) => b.textContent);
+    const before = screen.getAllByTestId("reply-piece");
+    expect(before).toHaveLength(1);
+    const rows = keyed();
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    const open = screen.getAllByTestId("reply-piece");
+    expect(open).toHaveLength(n);
+    // The first piece is the same view, now the oldest of the reply's rows; the rows around it are untouched and in order.
+    expect(open.at(-1)).toBe(before[0]);
+    const after = keyed();
+    expect(after.length).toBe(rows.length + n - 1);
+    const idx = after.indexOf(before[0].parentElement!.closest("[data-testid=fold-body]")!.textContent);
+    expect(after.slice(idx + 1)).toEqual(rows.slice(rows.indexOf(after[idx]) + 1));
+    expect(after.slice(0, idx - (n - 1))).toEqual(rows.slice(0, rows.indexOf(after[idx])));
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }));
+    expect(screen.getAllByTestId("reply-piece")).toEqual(before);
+    expect(keyed()).toEqual(rows);
+  });
+
   it("folds an older line taller than FOLD_MAX behind a centred Show more pill over a fade, and opens it on a press", () => {
     renderInProject(<MainTranscript {...props([{ kind: "user", text: "What's next?", at }, { kind: "assistant", text: "A tall answer.", at }, { kind: "user", text: "Thanks", at }])} />);
     const bodies = screen.getAllByTestId("fold-body");
@@ -115,10 +149,10 @@ describe("a thread on a phone", () => {
     expect(screen.getAllByTestId("reply-piece").length).toBeGreaterThan(3);
     const second: TranscriptEntry[] = [...first, { kind: "user", text: "And then?", at }];
     rerender(<MainTranscript {...props(second)} />);
-    // One row again, folded from its first frame because it is known to be long.
-    expect(screen.queryAllByTestId("reply-piece")).toHaveLength(0);
-    expect(screen.getAllByTestId("fold")[1].style.maxHeight).toBe(`${FOLD_MAX}px`);
-    layOut(screen.getAllByTestId("fold-body")[1], 6000);
+    // Folded to its first piece, with Show more under it.
+    const first0 = screen.getAllByTestId("reply-piece");
+    expect(first0).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Show more" })).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Show more" }));
     expect(screen.getAllByTestId("reply-piece").length).toBeGreaterThan(3);
     // Show less sits once, under the last piece: the inverted list holds the newest row first.
@@ -131,8 +165,8 @@ describe("a thread on a phone", () => {
     rerender(<MainTranscript {...props([...second, { kind: "assistant", text: "Then the save system.", at }])} />);
     expect(screen.getAllByTestId("reply-piece").length).toBeGreaterThan(3);
     fireEvent.click(screen.getByRole("button", { name: "Show less" }));
-    expect(screen.queryAllByTestId("reply-piece")).toHaveLength(0);
-    expect(screen.getAllByTestId("fold")[2].style.maxHeight).toBe(`${FOLD_MAX}px`);
+    expect(screen.getAllByTestId("reply-piece")).toEqual(first0);
+    expect(screen.getAllByRole("button", { name: "Show more" })).toHaveLength(1);
   });
 
   it("draws the newest reply of a subagent's own thread as pieces too, never folded", () => {
