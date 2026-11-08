@@ -112,22 +112,6 @@ describe("a long draft", () => {
     barKept();
   });
 
-  it("without a measured column, caps by the window less the keyboard and the status bar", () => {
-    const root = document.documentElement;
-    Object.defineProperty(root, "clientHeight", { value: 860, configurable: true });
-    act(() => void window.dispatchEvent(new Event("resize")));
-    try {
-      setSafeAreaInsets({ top: 24 });
-      setKeyboardHeight(300);
-      render(<Long />);
-      mirrorAt(40 * 24 + 18);
-      expect(boxHeight()).toBe(860 - 300 - 24 - MIN_TRANSCRIPT - COMPOSER_CHROME);
-    } finally {
-      delete (root as unknown as { clientHeight?: number }).clientHeight;
-      act(() => void window.dispatchEvent(new Event("resize")));
-    }
-  });
-
   it("counts what the composer measures besides the box, such as attached files", () => {
     render(<Long space={700} />);
     mirrorAt(40 * 24 + 18);

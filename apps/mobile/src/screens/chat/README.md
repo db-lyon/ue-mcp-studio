@@ -49,7 +49,7 @@ Area-d exports these names from `src/screens/chat/composer/index.ts`.
 
 - Theme, fonts and controls: `src/ui` (`useTheme().c.*`, `T`, `font()`, `labelFont()`, `Button`, `Card`, `Banner`, `Label`, `Chip`, `Pill`, `Dot`, `Input`, `Seg`, `Check`, `Row`, `Sheet`, `Output`, `DiffView`, `Markdown`, `Spinner`, `RemoveButton`). Add a primitive as a new file plus one export line in `src/ui/index.ts`.
 - Daemon calls: `useProjectNav().api` (`studioApi` in `packages/client-core/src/studio-api.ts`); events: `project.onEvent`. Pure logic shared with the web client goes in `packages/client-core`.
-- Native: `src/native/haptics.ts` (`haptic.tap/select/success/warning/error`), `keyboard.tsx` (`KeyboardAvoidingView`, `KeyboardStickyView`), `share.tsx` (`useSharedFiles`), `shortcuts.ts` (`publishRecentSessions`), each with a `.web` variant for the harness and tests.
+- Native: `src/native/haptics.ts` (`haptic.tap/select/success/warning/error`), `keyboard.tsx` (`KeyboardAvoidingView`, `useKeyboardHeight`), `keyboard-down.ts` (`useKeyboardDown`), `share.tsx` (`useSharedFiles`), `shortcuts.ts` (`publishRecentSessions`), each with a `.web` variant for the harness and tests.
 - Verification: `scripts/parity-mobile.mjs` against `scripts/visual-qa.mjs --remote --widths 390`; scenario owners in `apps/mobile/visual-qa/parity.ts`; component tests in `apps/mobile/ui-test`.
 
 ## Text metrics

@@ -39,8 +39,8 @@ export const COMPOSER_CHROME = 1 + 12 + 10 + 2 + 12 + 4 + 44;
  * share (`space`), less the transcript's least height and everything of the
  * composer that is not the box. Never below MIN_HEIGHT.
  */
-export function composerRoom({ space, chrome }: { space: number; chrome: number }): number {
-  return Number.isFinite(space) ? Math.max(MIN_HEIGHT, Math.floor(space - MIN_TRANSCRIPT - chrome)) : Infinity;
+export function composerRoom({ space, chrome }: { space: number | null | undefined; chrome: number }): number {
+  return space == null ? Infinity : Math.max(MIN_HEIGHT, Math.floor(space - MIN_TRANSCRIPT - chrome));
 }
 
 /**
@@ -78,8 +78,8 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   extras?: ReactNode;
   /**
    * The height the transcript and the composer share: below the header, above
-   * the keyboard, less the cards between them. Without it, the window less the
-   * keyboard and the top inset.
+   * the keyboard, less the cards between them. Until it is measured, only
+   * MAX_LINES caps the box.
    */
   space?: number | null;
   height?: number | null;
@@ -116,8 +116,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   // Above the navigation bar; with the keyboard up, the chat's KeyboardAvoidingView has lifted it onto the keys instead.
   const insets = useAvoidedInsets();
   // With the keyboard up the box starts at its least and grows with the text: the dragged height waits until it is down.
-  const keyboard = useKeyboardHeight();
-  const keyboardUp = keyboard > 0;
+  const keyboardUp = useKeyboardHeight() > 0;
   const box = useRef<TextInputInstance>(null);
   const slash = useSlashMenu(draft, onDraft, commands, flows, actions);
   const mention = useMentionMenu(draft, onDraft, box, mentions);
@@ -152,9 +151,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   const [outer, setOuter] = useState(0);
   const [laidBox, setLaidBox] = useState(0);
   const chrome = Math.max(COMPOSER_CHROME + insets.bottom, outer > 0 && laidBox > 0 ? Math.round(outer - laidBox) : 0);
-  // Before the window has a size (a test page), nothing caps the box but its line count.
-  const shared = space ?? (window.height > 0 ? window.height - keyboard - insets.top : Infinity);
-  const cap = composerRoom({ space: shared, chrome });
+  const cap = composerRoom({ space, chrome });
   const room = () => cap;
   const fit = fitHeight({ content: content ?? MIN_HEIGHT, line: LINE, chrome: CHROME, floor: keyboardUp ? null : floor, room: room() });
   useEffect(() => {

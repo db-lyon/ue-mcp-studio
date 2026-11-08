@@ -11,10 +11,6 @@ export function KeyboardAvoidingView({ behavior: _b, keyboardVerticalOffset: _k,
   return <View {...rest} {...({ dataSet: { automaticOffset: String(!!automaticOffset) } } as object)} />;
 }
 
-export function KeyboardStickyView({ offset: _o, ...rest }: ViewProps & { offset?: { closed?: number; opened?: number } }) {
-  return <View {...rest} />;
-}
-
 // No soft keyboard here: tests set one to see what a screen does while it is up.
 let height = 0;
 const listeners = new Set<() => void>();
