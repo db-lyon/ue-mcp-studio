@@ -1,0 +1,185 @@
+/* The UE-MCP app: Studio's tokens and type (styles.css), a light palette for
+   Windows' light theme, and the app's own layout: a rail and one screen. */
+
+:root[data-scheme="light"] {
+  --bg: #f6f4ef;
+  --panel: #ffffff;
+  --panel-2: #f1eee8;
+  --panel-3: #e8e4dc;
+  --line: rgba(20, 18, 14, 0.09);
+  --line-strong: rgba(20, 18, 14, 0.16);
+  --text: #1c1b18;
+  --muted: #514e47;
+  --dim: #6f6b63;
+  --disabled-line: #a19c92;
+  --accent: #c65d04;
+  --accent-hi: #b35303;
+  --accent-deep: #8f4507;
+  --accent-wash: rgba(198, 93, 4, 0.08);
+  --accent-line: rgba(198, 93, 4, 0.45);
+  --on-accent: #ffffff;
+  --ok: #2e7d4f;
+  --warn: #9a6408;
+  --bad: #b8392a;
+  --bad-text: #8c271b;
+  --warn-text: #6e4806;
+  --glow: rgba(232, 114, 12, 0.06);
+  --selection: rgba(232, 114, 12, 0.25);
+  --scroll: rgba(0, 0, 0, 0.14);
+  --scroll-hover: rgba(0, 0, 0, 0.24);
+  --bar-bg: rgba(246, 244, 239, 0.85);
+  --tint: rgba(0, 0, 0, 0.02);
+  --shadow: 0 16px 32px -22px rgba(30, 24, 12, 0.35);
+  --code-bg: #f1eee8;
+  --code-text: #2a2824;
+  --mark-glow: none;
+  color-scheme: light;
+}
+
+body { background: var(--bg); overflow: hidden; }
+
+/* ---------------------------------------------------------------- shell */
+
+.app-shell { display: grid; grid-template-columns: 208px minmax(0, 1fr); height: 100%; }
+.app-loading { display: block; }
+.app-rail {
+  display: flex; flex-direction: column; gap: 18px;
+  padding: 18px 12px; border-right: 1px solid var(--line); background: var(--panel);
+}
+.app-brand { display: flex; align-items: center; gap: 10px; padding: 2px 8px 6px; }
+.app-brand-name { font: 700 15px/1 var(--sans); letter-spacing: -0.01em; }
+.app-mark { flex-shrink: 0; border-radius: 22%; }
+:root[data-scheme="light"] .app-mark rect { fill: #1c1b18; }
+.app-nav { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.app-nav-item {
+  width: 100%; display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; border: 1px solid transparent; background: transparent;
+  color: var(--muted); font: 500 13px/1.2 var(--sans); letter-spacing: 0; text-align: left;
+}
+.app-nav-item svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.app-nav-item:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--text); }
+.app-nav-item.active { background: var(--accent-wash); color: var(--text); border-color: var(--accent-line); }
+.app-nav-item.active svg { color: var(--accent); }
+.app-rail-foot { margin-top: auto; display: flex; flex-direction: column; gap: 2px; padding: 0 10px; }
+
+.app-main { overflow-y: auto; padding: 28px 32px 40px; }
+.app-screen { max-width: 980px; margin: 0 auto; }
+.app-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+.app-head > div { flex: 1 1 320px; min-width: 0; }
+.app-head h1 { font: 700 24px/1.15 var(--sans); letter-spacing: -0.02em; margin: 0 0 4px; color: var(--text); text-transform: none; }
+.app-head p { margin: 0; }
+.app-filter { width: 180px; }
+.app-banner { display: flex; align-items: center; gap: 12px; max-width: 980px; margin: 0 auto 16px; }
+.app-banner span { flex: 1; }
+
+/* ---------------------------------------------------------------- rows */
+
+.app-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.app-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 18px; align-items: start;
+  padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg);
+}
+.app-row-main { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.app-row-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.app-row-name { font: 650 15px/1.3 var(--sans); letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.app-engine { font: 500 11px/1.6 var(--mono); color: var(--muted); padding: 0 7px; border-radius: 4px; background: var(--panel-2); }
+/* A long folder keeps its end, the project's own folders, and loses its start. */
+.app-row-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--mono); font-size: 11.5px; direction: rtl; text-align: left; }
+.app-row-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.app-row-note { grid-column: 1 / -1; margin: 0; }
+.app-row-work { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 6px; }
+.app-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.app-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 1px 9px; border-radius: 999px;
+  font: 500 11px/1.65 var(--mono); border: 1px solid var(--line-strong); color: var(--muted);
+}
+.app-chip::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; opacity: 0.85; }
+.app-chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 40%, transparent); }
+.app-chip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+.app-chip.accent { color: var(--accent); border-color: var(--accent-line); background: var(--accent-wash); }
+.app-chip.dim { color: var(--dim); }
+.app-chip.dim::before { background: transparent; border: 1px solid currentColor; }
+.app-row-skeleton .app-row-main { gap: 9px; }
+.app-bar { display: block; height: 11px; border-radius: 6px; background: var(--panel-2); animation: app-pulse 1.4s ease-in-out infinite; }
+@keyframes app-pulse { 50% { opacity: 0.5; } }
+
+.app-menu { position: relative; }
+.app-menu-button { padding: 6px 7px; }
+.app-menu-button svg { width: 16px; height: 16px; fill: currentColor; display: block; }
+.app-menu-list {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 5; min-width: 170px;
+  display: flex; flex-direction: column; padding: 4px; background: var(--panel); border: 1px solid var(--line-strong);
+  border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.app-menu-list button { border: 0; background: transparent; text-align: left; font: 500 12.5px/1.3 var(--sans); letter-spacing: 0; padding: 8px 10px; }
+.app-menu-list button:hover:not(:disabled) { background: var(--panel-2); }
+
+.app-job { border: 1px solid var(--line); border-radius: var(--radius); background: var(--code-bg); overflow: hidden; }
+.app-job.bad { border-color: color-mix(in srgb, var(--bad) 35%, transparent); }
+.app-job.ok { border-color: color-mix(in srgb, var(--ok) 35%, transparent); }
+.app-job-title { display: flex; align-items: center; gap: 8px; padding: 7px 10px; font: 600 12px/1.3 var(--sans); border-bottom: 1px solid var(--line); }
+.app-job-lines { margin: 0; padding: 8px 10px; font: 11.5px/1.5 var(--mono); color: var(--code-text); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 150px; overflow-y: auto; }
+.app-job-error { padding: 8px 10px; color: var(--bad-text); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12.5px; border-top: 1px solid var(--line); }
+
+.app-details summary { cursor: pointer; width: fit-content; }
+.app-details > div { padding-left: 14px; font-family: var(--mono); }
+.app-self { margin-bottom: 18px; border-color: var(--accent-line); }
+.app-daemon-facts { display: flex; gap: 14px; flex-wrap: wrap; font-family: var(--mono); font-size: 11.5px; }
+
+.app-log { margin-top: 6px; }
+.app-log-text {
+  margin: 0; max-height: 300px; overflow: auto; padding: 10px 12px; border-radius: var(--radius);
+  background: var(--code-bg); color: var(--code-text); border: 1px solid var(--line);
+  font: 11.5px/1.5 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- empty and blocking states */
+
+.app-empty, .app-callout {
+  max-width: 560px; margin: 40px auto; padding: 28px; text-align: left;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-lg);
+}
+.app-callout { margin: 0 auto 20px; max-width: 980px; }
+.app-node { max-width: 600px; margin: 60px auto; }
+.app-empty h2, .app-callout h2 { font: 650 17px/1.3 var(--sans); margin: 0 0 8px; color: var(--text); text-transform: none; letter-spacing: -0.01em; }
+.app-empty p, .app-callout p { margin: 0 0 14px; }
+.app-none { margin: 10px 2px 18px; }
+.app-consent { display: flex; gap: 10px; align-items: flex-start; margin: 4px 0 12px; cursor: pointer; }
+.app-consent input { margin-top: 3px; }
+
+/* ---------------------------------------------------------------- setup */
+
+.setup { height: 100%; display: flex; flex-direction: column; padding: 28px 34px 24px; }
+.setup-head { display: flex; align-items: center; gap: 14px; margin-bottom: 26px; }
+.setup-product { font: 700 19px/1.1 var(--sans); letter-spacing: -0.01em; }
+.setup-body { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.setup-body h1 { font: 700 26px/1.15 var(--sans); letter-spacing: -0.02em; margin: 0 0 10px; color: var(--text); text-transform: none; }
+.setup-body > p { margin: 0 0 18px; max-width: 34em; }
+.setup-check { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel); }
+.setup-check .app-consent { margin: 10px 0 0; }
+.setup-dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 6px; flex-shrink: 0; }
+.setup-dot.ok { background: var(--ok); }
+.setup-dot.warn { background: var(--warn); }
+.setup-where { margin: 16px 0 0; overflow-wrap: anywhere; }
+.setup-foot { margin-top: auto; padding-top: 18px; display: flex; gap: 10px; align-items: center; }
+.setup-foot button { padding: 9px 18px; font-size: 12px; }
+.setup-progress { height: 4px; border-radius: 4px; background: var(--panel-3); overflow: hidden; margin: 18px 0 10px; }
+.setup-progress span { display: block; width: 35%; height: 100%; background: var(--accent); border-radius: 4px; animation: setup-slide 1.3s ease-in-out infinite; }
+@keyframes setup-slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+
+/* ---------------------------------------------------------------- narrow windows */
+
+@media (max-width: 760px) {
+  .app-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .app-rail { flex-direction: row; align-items: center; gap: 8px; padding: 8px 12px; border-right: 0; border-bottom: 1px solid var(--line); }
+  .app-brand-name, .app-rail-foot { display: none; }
+  .app-brand { padding: 0 4px 0 0; }
+  .app-nav { flex-direction: row; gap: 4px; }
+  .app-nav-item { padding: 7px 10px; }
+  .app-main { padding: 18px 16px 28px; }
+  .app-row { grid-template-columns: 1fr; }
+  .app-row-actions { justify-content: flex-start; }
+  .app-filter { width: 100%; order: 5; }
+  .setup { padding: 20px; }
+}
+.app-mark rect { stroke: var(--line-strong); stroke-width: 2; }

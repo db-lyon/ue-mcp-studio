@@ -90,9 +90,12 @@ inline std::wstring spec(const std::wstring& tag, const std::wstring& exact) {
   return L"ue-mcp@" + (exact.empty() ? tag : exact);
 }
 
-/** A ue-mcp command through npx, from the npm cache when the version is already there. */
+/**
+ * A ue-mcp command through npx, from the npm cache when the version is
+ * already there. --package takes a registry spec or a local tarball alike.
+ */
 inline std::wstring npx(const std::wstring& npxCmd, const std::wstring& packageSpec, const std::wstring& args) {
-  return L"\"" + npxCmd + L"\" -y --prefer-offline --min-release-age=0 " + packageSpec + L" " + args;
+  return L"\"" + npxCmd + L"\" -y --prefer-offline --min-release-age=0 --package=" + packageSpec + L" ue-mcp " + args;
 }
 
 }  // namespace job

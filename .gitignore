@@ -7,3 +7,4 @@ dist/
 release/
 # Usage parity runs: harness bundles, results and reports.
 apps/agent/.usage-parity/
+dist-app/
