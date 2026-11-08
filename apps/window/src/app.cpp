@@ -649,7 +649,10 @@ std::string install() {
   return {};
 }
 
-bool launchInstalled() { return createDetached(installedExe(), L"\"" + installedExe() + L"\"", installDir(), 0); }
+/** Start the installed app. relaunch: it replaces this one, so it waits for this one to exit rather than hand over to it. */
+bool launchInstalled(bool relaunch = false) {
+  return createDetached(installedExe(), L"\"" + installedExe() + L"\"" + (relaunch ? L" --relaunch" : L""), installDir(), 0);
+}
 
 void removeTree(const std::wstring& dir) {
   WIN32_FIND_DATAW fd;
@@ -682,10 +685,14 @@ int uninstallRun(DWORD waitPid) {
   }
   tellApp(L"UE-MCP.exe --quit");
   for (int i = 0; i < 100 && runningApp(); ++i) Sleep(100);
+  // The app that just quit can hold its exe and folder for a moment after its window goes.
   std::wstring exe = installedExe();
-  DeleteFileW(exe.c_str());
-  DeleteFileW((exe + L".old").c_str());
-  RemoveDirectoryW(installDir().c_str());
+  for (int i = 0; i < 40; ++i) {
+    DeleteFileW(exe.c_str());
+    DeleteFileW((exe + L".old").c_str());
+    if (RemoveDirectoryW(installDir().c_str()) || !exists(installDir())) break;
+    Sleep(250);
+  }
   std::wstring lnk = startMenuShortcut();
   if (!lnk.empty()) DeleteFileW(lnk.c_str());
   RegDeleteTreeW(HKEY_CURRENT_USER, kUninstallKey);
@@ -1237,7 +1244,7 @@ LRESULT CALLBACK messageProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
     std::wstring line(static_cast<const wchar_t*>(cds->lpData), cds->cbData / sizeof(wchar_t));
     if (line.find(L"--relaunch") != std::wstring::npos) {
       // An upgrade replaced the exe: start the new one, which waits for this one to go.
-      launchInstalled();
+      launchInstalled(true);
       PostMessageW(gMain, WM_CLOSE, 0, 0);
     } else if (line.find(L"--quit") != std::wstring::npos) {
       PostMessageW(gMain, WM_CLOSE, 0, 0);
@@ -1350,7 +1357,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
   if (gMode == Mode::App) {
     if (!claimApp(GetCommandLineW())) return 0;
     SetCurrentProcessExplicitAppUserModelID(kAumid);
-    DeleteFileW((installedExe() + L".old").c_str());
+    // The copy an upgrade renamed aside goes once the app it ran has exited.
+    std::thread([] {
+      std::wstring old = installedExe() + L".old";
+      for (int i = 0; i < 60 && exists(old) && !DeleteFileW(old.c_str()); ++i) Sleep(500);
+    }).detach();
     cleanJobs();
   }
   probeNode();
