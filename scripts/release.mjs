@@ -8,10 +8,12 @@
  * studio-window.exe (scripts/build-window.mjs), signs
  * the UI with the release key from ~/.ue-mcp-studio/keys, adds the third-party
  * notices (scripts/notices.mjs), and writes release/studio-<version>.zip plus
- * release/latest.json, the manifest `ue-mcp extension install` follows and the
- * editor plugin fetches on first start. The editor plugin is its own package,
- * released from db-lyon/ue-mcp-studio-plugin; latest.json names where its
- * manifest is and the oldest plugin this release works with.
+ * release/latest.json, the manifest `ue-mcp install studio` follows and the
+ * editor plugin fetches on first start, and release/UE-MCP-Studio-Setup.exe,
+ * the Windows installer that runs that command (scripts/build-installer.mjs).
+ * The editor plugin is its own package, released from
+ * db-lyon/ue-mcp-studio-plugin; latest.json names where its manifest is and
+ * the oldest plugin this release works with.
  *
  * --publish   creates release v<version> on db-lyon/ue-mcp-studio. A stable version is marked
  *             latest, so .../releases/latest/download/latest.json resolves to it; a
@@ -115,13 +117,19 @@ const latest = {
 fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(latest, null, 2) + "\n");
 console.log(`\n${zipName} (${Object.keys(manifest.files).length} UI files) sha256 ${latest.sha256}`);
 
+// 4. The installer, under one name so releases/latest/download/<name> always resolves.
+const INSTALLER = "UE-MCP-Studio-Setup.exe";
+run(process.execPath, [path.join(ROOT, "scripts", "build-installer.mjs")], { cwd: ROOT });
+fs.copyFileSync(path.join(ROOT, "apps", "installer", "dist", INSTALLER), path.join(OUT, INSTALLER));
+
 if (has("--publish")) {
   const tag = `v${version}`;
-  // Every release carries everything the extension install needs.
-  for (const f of [zipName, "latest.json"]) if (!fs.existsSync(path.join(OUT, f))) throw new Error(`refusing to publish ${tag}: no ${f}`);
+  // Every release carries everything the install needs.
+  const assets = [zipName, "latest.json", INSTALLER];
+  for (const f of assets) if (!fs.existsSync(path.join(OUT, f))) throw new Error(`refusing to publish ${tag}: no ${f}`);
   const notes = arg("--notes-file", null);
   const notesArgs = notes ? ["--notes-file", notes] : ["--notes", `UE-MCP Studio ${version}.`];
-  const files = [zipName, "latest.json"].map((f) => path.join(OUT, f));
+  const files = assets.map((f) => path.join(OUT, f));
   // A prerelease is for testers: it never becomes latest, so the stable channel cannot pick it up.
   const channel = version.includes("-") ? ["--prerelease", "--latest=false"] : ["--latest"];
   run("gh", ["release", "create", tag, "--repo", REPO, "--title", tag, "--target", "main", ...channel, ...notesArgs, ...files]);
