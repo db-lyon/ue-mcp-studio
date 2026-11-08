@@ -434,7 +434,7 @@ export class EntryBoundary extends Component<{ children: ReactNode }, { failed: 
 export interface ThreadRow {
   key: string;
   render: () => ReactNode;
-  /** A long reply cut into pieces, each its own row of the list, drawn instead of `render` while it is open. */
+  /** A long reply cut into pieces, each its own row of the list, drawn instead of `render`. */
   pieces?: ThreadRow[];
 }
 
@@ -452,41 +452,59 @@ export const PAGE_ROWS = 10;
 export const FOLD_MAX = 400;
 /**
  * The newest line is never folded: a long reply is drawn as pieces on rows of
- * their own. A row that cannot be cut still folds past this, in dp, so no row
- * grows to where Android stops drawing.
+ * their own. A row that cannot be cut (a user's long message, a long table)
+ * still folds past this, in dp, so no row grows to where Android stops drawing.
  */
 export const UNFOLDED_MAX = 2000;
 /** The fade over the bottom of a folded line, in dp. */
 export const FOLD_FADE = 48;
 
-/** A row as the list draws it: a line, or one piece of an open long reply. */
+/** A row as the list draws it: a line, or one piece of a long reply. */
 interface Cell {
   key: string;
   render: () => ReactNode;
   /** The line a piece belongs to: pieces of one line are drawn with no gap between them. */
   group?: string;
+  /** The row folds past this height; `open` and `toggle` are its own fold. */
   limit: number;
   open: boolean;
   toggle: () => void;
-  /** Known to be long before it is measured, so it is drawn folded from the first frame. */
-  long?: boolean;
-  /** The last piece of a line the reader opened: Show less under it closes the line. */
+  /** The first piece of a folded long reply: Show more under it draws the rest. */
+  more?: () => void;
+  /** The last piece of a long reply the reader opened: Show less under it folds the line. */
   less?: () => void;
 }
 
-/** The rows the list draws, newest first: the newest line and every line the reader opened, long replies as their pieces. */
+/**
+ * The rows the list draws, newest first. A line is one row; a long reply is
+ * always its pieces, all of them while it is the newest line or the reader
+ * opened it, else only the first. The first piece is keyed as the line, so
+ * opening or folding a reply adds or removes the rows after it and never
+ * swaps the row being read for another.
+ */
 function cellsOf(rows: ThreadRow[], start: number, open: ReadonlySet<string>, toggle: (key: string) => void): Cell[] {
   const out: Cell[] = [];
   for (let i = start; i < rows.length; i++) {
     const r = rows[i];
     const newest = i === rows.length - 1;
-    const isOpen = open.has(r.key);
-    if (r.pieces && (newest || isOpen)) {
-      const pieces = r.pieces;
-      pieces.forEach((p, j) => out.push({ key: p.key, render: p.render, group: r.key, limit: UNFOLDED_MAX, open: open.has(p.key), toggle: () => toggle(p.key), less: !newest && j === pieces.length - 1 ? () => toggle(r.key) : undefined }));
-    } else {
-      out.push({ key: r.key, render: r.render, limit: newest ? UNFOLDED_MAX : FOLD_MAX, open: isOpen, toggle: () => toggle(r.key), long: !!r.pieces });
+    const own = (key: string, limit: number) => ({ limit, open: open.has(key), toggle: () => toggle(key) });
+    if (!r.pieces) {
+      out.push({ key: r.key, render: r.render, ...own(r.key, newest ? UNFOLDED_MAX : FOLD_MAX) });
+      continue;
     }
+    const line = `${r.key}:whole`;
+    const whole = newest || open.has(line);
+    const shown = whole ? r.pieces : r.pieces.slice(0, 1);
+    shown.forEach((p, j) =>
+      out.push({
+        key: j === 0 ? r.key : p.key,
+        render: p.render,
+        group: r.key,
+        ...own(p.key, whole ? UNFOLDED_MAX : FOLD_MAX),
+        more: whole ? undefined : () => toggle(line),
+        less: whole && !newest && j === shown.length - 1 ? () => toggle(line) : undefined,
+      }),
+    );
   }
   return out.reverse();
 }
@@ -499,7 +517,7 @@ function CellView({ data, index, onHeight }: { data: Cell[]; index: number; onHe
   const gap = gapBelow(data, index);
   return (
     <View style={gap ? { paddingBottom: gap } : null}>
-      <Fold limit={c.limit} open={c.open} onToggle={c.toggle} long={c.long} less={c.less} onHeight={onHeight}>
+      <Fold limit={c.limit} open={c.open} onToggle={c.toggle} more={c.more} less={c.less} onHeight={onHeight}>
         <EntryBoundary>{c.render()}</EntryBoundary>
       </Fold>
     </View>
@@ -617,23 +635,26 @@ function Column({ follow, hidden, rows, head, foot, more }: { follow: ReturnType
  * One row of a thread, folded to `limit` when it draws taller, so no row
  * makes the scroller's content tall enough to blank: the bottom of the fold
  * fades into the panel and a Show more pill sits centred under it. Open, the
- * pill reads Show less; `less` puts that pill under the last piece of a line.
+ * pill reads Show less. `more` and `less` put the line's own pill under
+ * the first piece of a folded reply and the last piece of an opened one.
  */
-export function Fold({ children, onHeight, limit = FOLD_MAX, open = false, onToggle, long: known, less }: {
+export function Fold({ children, onHeight, limit = FOLD_MAX, open = false, onToggle, more, less }: {
   children: ReactNode;
   onHeight?: (h: number) => void;
   limit?: number;
   open?: boolean;
   onToggle?: () => void;
-  long?: boolean;
+  more?: () => void;
   less?: () => void;
 }) {
   const [height, setHeight] = useState(0);
   const long = height > limit;
-  const folded = (long || !!known) && !open;
+  const folded = long && !open;
   return (
     <View>
-      <View testID="fold" style={folded ? { maxHeight: limit, overflow: "hidden" } : null}>
+      {/* Always clipping: a view whose style drops overflow is flattened into its parent by Fabric, and moving the
+          body between native parents as a line opens left its rows drawn at stale offsets on Android. */}
+      <View testID="fold" collapsable={false} style={{ overflow: "hidden", maxHeight: folded ? limit : undefined }}>
         <View
           testID="fold-body"
           onLayout={(e) => {
@@ -644,9 +665,9 @@ export function Fold({ children, onHeight, limit = FOLD_MAX, open = false, onTog
         >
           {children}
         </View>
-        {folded && long ? <FoldFade /> : null}
+        {folded ? <FoldFade /> : null}
       </View>
-      {long && onToggle ? <FoldPill open={open} onPress={onToggle} /> : less ? <FoldPill open onPress={less} /> : null}
+      {more ? <FoldPill open={false} onPress={more} /> : long && onToggle ? <FoldPill open={open} onPress={onToggle} /> : less ? <FoldPill open onPress={less} /> : null}
     </View>
   );
 }

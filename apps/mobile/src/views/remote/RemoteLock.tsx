@@ -14,6 +14,7 @@ import { Button, font, T, useInsets, useSheetInsets, useStyles, useTheme, type T
 import { useLockView } from "../../connection";
 import { haptic } from "../../native/haptics";
 import { useBiometricUnlock } from "../../native/biometric";
+import { useKeyboardDown } from "../../native/keyboard-down";
 
 /** Seconds left of a wait the computer set, counting down. */
 function useCountdown(ms: number | undefined): number {
@@ -194,6 +195,8 @@ function LockGlyph() {
 
 /** The whole client is locked: everything but this waits for the PIN. */
 export function LockScreen({ lock, bio, onUnlocked, onRemoved }: { lock: Lock; bio: Biometric; onUnlocked: (pin: string, typed: boolean) => void; onRemoved?: () => void }) {
+  // Drawn over the mounted app: nothing under it may hold the keyboard up over the keypad.
+  useKeyboardDown();
   const s = useStyles(styles);
   const view = useLockView(lock);
   const insets = useInsets();
@@ -222,6 +225,8 @@ export function LockScreen({ lock, bio, onUnlocked, onRemoved }: { lock: Lock; b
 
 /** A sensitive action asked for the PIN: it goes ahead once the PIN is in. */
 export function PinSheet({ lock, bio, onUnlocked }: { lock: Lock; bio: Biometric; onUnlocked: (pin: string, typed: boolean) => void }) {
+  // Drawn over the mounted app: nothing under it may hold the keyboard up over the keypad.
+  useKeyboardDown();
   const s = useStyles(styles);
   const edge = useSheetEdge();
   useBack(() => lock.cancelPrompt(), { overlay: true });

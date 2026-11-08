@@ -29,6 +29,26 @@ describe("the remote PIN keypad", () => {
     for (const d of "0123456789") expect(key(d)).toBeTruthy();
   });
 
+  it("drops the focus of a text box under it when it shows and when the page comes back, so a phone's keyboard goes away", () => {
+    const box = document.createElement("textarea");
+    document.body.appendChild(box);
+    try {
+      box.focus();
+      expect(document.activeElement).toBe(box);
+      render(<LockScreen />);
+      expect(document.activeElement).not.toBe(box);
+      box.focus();
+      act(() => void document.dispatchEvent(new Event("visibilitychange")));
+      expect(document.activeElement).not.toBe(box);
+      cleanup();
+      box.focus();
+      render(<PinSheet />);
+      expect(document.activeElement).not.toBe(box);
+    } finally {
+      box.remove();
+    }
+  });
+
   it("fills a dot per digit, deletes, and enables enter at four digits", async () => {
     m.unlockWith.mockResolvedValue({ ok: true });
     render(<LockScreen />);

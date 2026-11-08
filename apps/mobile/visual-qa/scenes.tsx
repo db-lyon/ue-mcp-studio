@@ -111,6 +111,23 @@ const LONG_TITLE = "Core game loop revisions";
 const LONG_OLDER = longThread(false);
 const LONG_NEWEST = longThread(true);
 
+/** An older long reply between a table, the user's own message and a finished shell step: the rows around a Show more. */
+function betweenThread(): Scenario {
+  const base = SCENARIOS["steps-folded"];
+  const at = ago(5);
+  const table = ["Agreed, structurally it is Hades. The match:", "", "| Hades | The loop we sketched |", "| --- | --- |", "| The House | the bastion |", "| Hades at the end | the Omen at the end |", "| Back home win or lose | the same |"].join("\n");
+  const transcript: TranscriptEntry[] = [
+    { kind: "user", text: "Does the loop match anything?", at },
+    { kind: "assistant", text: table, at },
+    { kind: "user", text: "Honestly I am now realizing that the game loop really mirrors Hades more than anything else.", at },
+    { kind: "assistant", text: longReply(), at },
+    { kind: "tool", call: { id: "sh-1", name: "shell", input: { command: "set -e; f=.wiki/Core-Loop.md" }, outcome: "done", startedAt: at, endedAt: at, result: "done" } },
+    { kind: "assistant", text: "Logging it as a reference point under Decision 14. It is useful framing, not a decision.", at },
+  ];
+  return { ...base, session: { ...base.session!, title: LONG_TITLE, status: "idle", transcript } };
+}
+const LONG_BETWEEN = betweenThread();
+
 /** A soft keyboard's height on a 390 by 844 phone, and a draft far longer than the room above it. */
 const KEYBOARD = 300;
 const LONG_DRAFT = [
@@ -205,6 +222,7 @@ export const SCENES: Record<string, Scene> = {
   },
   "thread-show-more-folded": { title: "A long reply above a newer turn: folded at 400 dp, faded into the panel, Show more centred under it", clicks: [LONG_TITLE], draw: () => <InProject name="steps-folded" scenario={LONG_OLDER} /> },
   "thread-show-more-expanded": { title: "That reply opened: its last piece, Show less centred under it", clicks: [LONG_TITLE, "Show more"], draw: () => <InProject name="steps-folded" scenario={LONG_OLDER} /> },
+  "thread-show-more-between": { title: "An older long reply opened between a table, the user's message and a shell step: each row below the last", clicks: [LONG_TITLE, "Show more"], draw: () => <InProject name="steps-folded" scenario={LONG_BETWEEN} /> },
   "thread-newest-long": { title: "A reply about 6000 dp tall as the newest line: never folded, drawn as pieces", clicks: [LONG_TITLE], draw: () => <InProject name="steps-folded" scenario={LONG_NEWEST} /> },
   "composer-long-draft-keyboard": {
     title: "A long draft with the keyboard up: the box stops at the room above the keys and scrolls, the bar stays on the keys",
