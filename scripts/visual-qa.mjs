@@ -1,6 +1,11 @@
 // Screenshot the playtest UI, the review card and Settings in every state, theme and width, with no daemon and no editor.
 //
 //   node scripts/visual-qa.mjs [--out <dir>] [--browser <chrome.exe>] [--only <scenario,prefix*,...>] [--widths <px,px,...>] [--remote] [--grayscale-text]
+//   node scripts/visual-qa.mjs --app [--out <dir>] [--only ...]
+//
+// --app shoots the UE-MCP app and its setup instead (app-visual-qa.html, scenarios in
+// apps/client-web/src/app/visual-qa/fixtures.ts) in Windows' light and dark themes: the
+// app at 1120 and 640 pixels wide, the setup at its own 640 by 520.
 //
 // --remote draws every scenario as a paired browser sees it through the relay: the
 // reference scripts/parity-mobile.mjs compares the mobile app against.
@@ -186,7 +191,57 @@ const open = async (scenario, theme, width, height = 860) => {
   return { page, errors };
 };
 
+/** The UE-MCP app's scenarios, each in light and dark, the app at two widths and the setup at its window size. */
+async function shootApp() {
+  const page0 = await browser.newPage();
+  await page0.goto(`${base}/app-visual-qa.html`);
+  await page0.waitForSelector(".app-shell, .setup");
+  const scenarios = await page0.evaluate(() => window.__appQa.scenarios);
+  await page0.close();
+  const lines = ["# UE-MCP app visual QA", "", `Rendered ${new Date().toISOString()} from apps/client-web/src/app/visual-qa/fixtures.ts, no ue-mcp, daemon or editor.`, ""];
+  for (const [scenario, title] of Object.entries(scenarios)) {
+    if (only && !only.some((o) => (o.endsWith("*") ? scenario.startsWith(o.slice(0, -1)) : o === scenario))) continue;
+    lines.push(`## ${scenario}`, "", title, "");
+    const sizes = scenario.startsWith("setup-") ? [["window", 640, 520]] : [["wide", 1120, 740], ["narrow", 640, 900]];
+    for (const scheme of ["light", "dark"]) for (const [label, width, height] of sizes) {
+      const page = await browser.newPage({ viewport: { width, height } });
+      const errors = [];
+      page.on("pageerror", (e) => errors.push(e.message));
+      await page.goto(`${base}/app-visual-qa.html?scenario=${encodeURIComponent(scenario)}&scheme=${scheme}`);
+      await page.waitForSelector(".app-shell, .setup");
+      await page.waitForTimeout(500);
+      for (const sel of await page.evaluate(() => window.__appQa.clicks)) {
+        const el = await page.$(sel);
+        if (!el) errors.push(`nothing matched ${sel}`);
+        else {
+          await el.click();
+          await page.mouse.move(1, 1);
+          await page.waitForTimeout(900);
+        }
+      }
+      if (audit) findings.push(...(await auditPage(page)).map((f) => ({ scenario, theme: scheme, width, ...f })));
+      const file = `${scenario}-${scheme}-${label}.png`;
+      await page.screenshot({ path: path.join(out, file), animations: "disabled" });
+      lines.push(`- [${scheme}, ${label} (${width}px)](${file})${errors.length ? ` errors: ${errors.join("; ")}` : ""}`);
+      console.log(`${file}${errors.length ? `  errors: ${errors.join("; ")}` : ""}`);
+      await page.close();
+    }
+    lines.push("");
+  }
+  fs.writeFileSync(path.join(out, "index.md"), lines.join("\n"));
+  if (audit) fs.writeFileSync(path.join(out, "audit.json"), JSON.stringify(findings, null, 2));
+  console.log(`wrote ${path.join(out, "index.md")}`);
+}
+
 try {
+  if (process.argv.includes("--app")) await shootApp();
+  else await shootStudio();
+} finally {
+  await browser.close();
+  await server.close();
+}
+
+async function shootStudio() {
   const first = await open("session-empty", "ue-mcp", 1280);
   const scenarios = await first.page.evaluate(() => window.__visualQa.scenarios);
   const heights = await first.page.evaluate(() => window.__visualQa.heights);
@@ -311,7 +366,4 @@ try {
     console.log(`audit: ${findings.length} finding(s) in ${path.join(out, "audit.json")}`);
   }
   console.log(`wrote ${path.join(out, "index.md")}`);
-} finally {
-  await browser.close();
-  await server.close();
 }

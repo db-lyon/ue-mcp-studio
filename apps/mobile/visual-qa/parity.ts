@@ -26,6 +26,9 @@ export interface ParityEntry {
   types?: Array<{ into: string; text: string }>;
 }
 
+/** The UE-MCP desktop app's screens (apps/client-web/src/app): they manage the computer itself. */
+const DESKTOP_APP = "The UE-MCP desktop app manages this computer's projects, updates, daemons and its own setup; a paired phone reaches one project's Studio, never the computer's app.";
+
 /** The message box, as the app's page draws it. */
 const BOX = "textarea";
 
@@ -259,4 +262,27 @@ export const PARITY: Record<string, ParityEntry> = {
   "flow-card-running": {owner: "agent-a"},
   "flow-card-succeeded": {owner: "agent-a"},
   "flow-card-failed": {owner: "agent-a"},
+  // The UE-MCP desktop app.
+  "app-projects-states": {notOnPhone: DESKTOP_APP},
+  "app-projects-many": {notOnPhone: DESKTOP_APP},
+  "app-projects-empty": {notOnPhone: DESKTOP_APP},
+  "app-projects-loading": {notOnPhone: DESKTOP_APP},
+  "app-install-running": {notOnPhone: DESKTOP_APP},
+  "app-install-failed": {notOnPhone: DESKTOP_APP},
+  "app-install-done": {notOnPhone: DESKTOP_APP},
+  "app-node-missing": {notOnPhone: DESKTOP_APP},
+  "app-node-old": {notOnPhone: DESKTOP_APP},
+  "app-ue-mcp-old": {notOnPhone: DESKTOP_APP},
+  "app-report-offline": {notOnPhone: DESKTOP_APP},
+  "app-updates": {notOnPhone: DESKTOP_APP},
+  "app-updates-current": {notOnPhone: DESKTOP_APP},
+  "app-daemons": {notOnPhone: DESKTOP_APP},
+  "app-daemons-none": {notOnPhone: DESKTOP_APP},
+  "setup-welcome": {notOnPhone: DESKTOP_APP},
+  "setup-node-missing": {notOnPhone: DESKTOP_APP},
+  "setup-upgrade": {notOnPhone: DESKTOP_APP},
+  "setup-installed": {notOnPhone: DESKTOP_APP},
+  "setup-installing": {notOnPhone: DESKTOP_APP},
+  "setup-done": {notOnPhone: DESKTOP_APP},
+  "setup-failed": {notOnPhone: DESKTOP_APP},
 };

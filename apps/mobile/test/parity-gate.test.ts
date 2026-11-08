@@ -13,10 +13,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { SCENARIOS } from "../../client-web/src/visual-qa/daemon";
+import { SCENARIOS as STUDIO_SCENARIOS } from "../../client-web/src/visual-qa/daemon";
+import { APP_SCENARIOS } from "../../client-web/src/app/visual-qa/fixtures";
 import { PARITY } from "../visual-qa/parity";
 
 const repo = path.resolve(__dirname, "../../..");
+/** Studio's scenarios and the UE-MCP desktop app's: every web view the client draws. */
+const SCENARIOS: Record<string, unknown> = { ...STUDIO_SCENARIOS, ...APP_SCENARIOS };
 
 describe("phone parity inventory", () => {
   it("gives every web scenario a phone port or a reason it never reaches a phone", () => {
