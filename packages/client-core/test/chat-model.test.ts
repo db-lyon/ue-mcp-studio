@@ -25,6 +25,15 @@ describe("a subagent's state", () => {
     expect(st).toEqual({ state: "working", activity: "level.get_outliner", secs: 5 });
   });
 
+  it("names a running command or file in a few words, never the command itself", () => {
+    const a = agent("a");
+    const run = (name: string, input: object): TranscriptEntry => ({ kind: "tool", at: at(2), parent: "a", call: { id: "s1", name, input, outcome: "pending", startedAt: at(2) } });
+    const now = T0 + 5000;
+    expect(agentStatus(callOf(a), [a, run("shell", { command: "cd /c/x && git show 488e:Docs/A.md | sed -n '1,12p'" })], false, now).activity).toBe("running a command");
+    expect(agentStatus(callOf(a), [a, run("read_file", { file_path: "C:\\x\\Docs\\ARCHITECTURE.md" })], false, now).activity).toBe("reading ARCHITECTURE.md");
+    expect(agentStatus(callOf(a), [a, run("grep", { pattern: "x" })], false, now).activity).toBe("searching");
+  });
+
   it("is thinking between calls", () => {
     const a = agent("a");
     expect(agentStatus(callOf(a), [a, step("a", "s1", "done", 2, 3)], false, T0 + 10_000).activity).toBe("thinking");

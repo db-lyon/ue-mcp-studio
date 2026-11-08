@@ -175,7 +175,7 @@ export function agentStatus(call: Call, transcript: TranscriptEntry[], sessionWa
   if (held?.kind === "tool") return { state: "approval", activity: `approve ${toolLabel(held.call)}`, secs };
   if (sessionWaiting) return { state: "waiting", activity: null, secs };
   const running = [...steps].reverse().find((t) => t.kind === "tool" && t.call.outcome === "pending");
-  if (running?.kind === "tool") return { state: "working", activity: toolLabel(running.call), secs };
+  if (running?.kind === "tool") return { state: "working", activity: stepActivity(running.call), secs };
   const last = Math.max(Date.parse(call.startedAt), ...steps.map(timeOf));
   if (now - last > QUIET_MS) return { state: "working", activity: `thinking, ${formatDuration((now - last) / 1000)} since its last step`, secs };
   return { state: "working", activity: "thinking", secs };
@@ -226,17 +226,29 @@ export function foldsAway(call: Call, asked: ReadonlySet<string> = NONE): boolea
 /** The run's call that is running now, the newest one, or null once all have finished. */
 export const liveStep = (calls: Call[]): Call | null => [...calls].reverse().find((c) => c.outcome === "pending") ?? null;
 
-/** What each kind of step counts as in a summary: the verb, the noun, and whether it counts distinct files. */
-const STEP_KINDS: Array<{ names: string[]; verb: string; one: string; many: string; files?: boolean }> = [
-  { names: ["read_file"], verb: "read", one: "file", many: "files", files: true },
-  { names: ["shell"], verb: "ran", one: "command", many: "commands" },
-  { names: ["glob", "grep", "web_search"], verb: "searched", one: "time", many: "times" },
-  { names: ["edit_file"], verb: "edited", one: "file", many: "files", files: true },
-  { names: ["write_file"], verb: "wrote", one: "file", many: "files", files: true },
-  { names: ["web_fetch"], verb: "fetched", one: "page", many: "pages" },
-  { names: ["ue_mcp", "editor_restart"], verb: "made", one: "editor call", many: "editor calls" },
-  { names: ["skill", "Skill"], verb: "loaded", one: "skill", many: "skills" },
+/** What each kind of step counts as in a summary (the verb, the noun, whether it counts distinct files) and says while it runs. */
+const STEP_KINDS: Array<{ names: string[]; verb: string; one: string; many: string; doing: string; files?: boolean }> = [
+  { names: ["read_file"], verb: "read", one: "file", many: "files", doing: "reading", files: true },
+  { names: ["shell"], verb: "ran", one: "command", many: "commands", doing: "running a command" },
+  { names: ["glob", "grep", "web_search"], verb: "searched", one: "time", many: "times", doing: "searching" },
+  { names: ["edit_file"], verb: "edited", one: "file", many: "files", doing: "editing", files: true },
+  { names: ["write_file"], verb: "wrote", one: "file", many: "files", doing: "writing", files: true },
+  { names: ["web_fetch"], verb: "fetched", one: "page", many: "pages", doing: "fetching a page" },
+  { names: ["ue_mcp", "editor_restart"], verb: "made", one: "editor call", many: "editor calls", doing: "" },
+  { names: ["skill", "Skill"], verb: "loaded", one: "skill", many: "skills", doing: "loading a skill" },
 ];
+
+/**
+ * A running step in a few words, the same at its first frame and its last:
+ * "running a command", "reading Transcript.tsx", "level.get_outliner".
+ */
+export function stepActivity(call: Call): string {
+  const kind = STEP_KINDS.find((k) => k.names.includes(call.name));
+  if (!kind) return call.name;
+  if (!kind.doing) return toolLabel(call);
+  const file = kind.files ? baseName(callPath(call)) : "";
+  return file ? `${kind.doing} ${file}` : kind.files ? `${kind.doing} a file` : kind.doing;
+}
 
 /** "Read 9 files, ran 2 commands": each kind of step in the order it first ran. */
 export function stepsSummary(calls: Call[]): string {
