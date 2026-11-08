@@ -72,6 +72,7 @@ export function readProjectFile(scope: FileScope, request: unknown, from?: unkno
   if (!r.ok) return { status: r.status, body: { error: r.error } };
   const stat = fs.statSync(r.real);
   if (stat.isDirectory()) return { status: 400, body: { error: `${r.shown} is a folder.` } };
+  if (!stat.isFile()) return { status: 400, body: { error: `${r.shown} is not a file.` } };
   if (stat.size > FILE_READ_MAX_BYTES) return { status: 413, body: { error: `${r.shown} is ${(stat.size / 1048576).toFixed(1)} MB; Studio shows files up to ${FILE_READ_MAX_BYTES / 1048576} MB.` } };
   const buf = fs.readFileSync(r.real);
   const text = decodeText(buf.subarray(0, FILE_SHOW_BYTES));

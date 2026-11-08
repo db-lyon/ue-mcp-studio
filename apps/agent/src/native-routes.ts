@@ -9,6 +9,7 @@
  * Read only: Studio writes none of these files.
  */
 import { spawn } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { CONVENTIONS, conventionOf, openableInEditor, type Convention, type NativeOverview, type NativePreview, type NativeView, type WorkerView } from "@ue-mcp-studio/shared";
@@ -147,7 +148,7 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
     const r = resolveProjectFile(scope(), b.path, b.from);
     if (!r.ok) return { status: r.status, body: { error: r.error } };
     // The resolved name decides too: a .md link to a program is still a program.
-    if (!openableInEditor(r.abs) || !openableInEditor(r.real)) return { status: 403, body: { error: `Studio opens text files only, not ${r.shown}.` } };
+    if (!fs.statSync(r.real).isFile() || !openableInEditor(r.abs) || !openableInEditor(r.real)) return { status: 403, body: { error: `Studio opens text files only, not ${r.shown}.` } };
     (o.open ?? openWithSystem)(r.real);
     return { status: 204 };
   });
