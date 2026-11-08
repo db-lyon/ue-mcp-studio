@@ -20,16 +20,19 @@ import {
   callsIn,
   describe,
   formatDuration,
-  foldSteps,
   formatResult,
   isActive,
   liveStep,
   mainTimeline,
+  stepActivity,
   stepsSummary,
+  stepsTrouble,
+  subagentTimeline,
   summarize,
   toolLabel,
   toolTitle,
   type Call,
+  type ThreadItem,
 } from "@ue-mcp-studio/client-core";
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
@@ -282,20 +285,14 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
 }) {
   const cards = useSlot("chat.card");
   const askedIds = useAsked();
-  const items = useMemo(() => mainTimeline(transcript, status, (t) => t.kind !== "card" || cards.some((i) => i.ext === t.ext && i.contribution.id === t.type), askedIds), [transcript, status, cards, askedIds]);
+  const items = useMemo(() => mainTimeline(transcript, (t) => t.kind !== "card" || cards.some((i) => i.ext === t.ext && i.contribution.id === t.type), askedIds), [transcript, cards, askedIds]);
   const follow = useFollow<HTMLDivElement>(`${transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = askedIds.size;
   return (
     <>
       <div className="transcript" ref={follow.ref} onScroll={follow.onScroll} aria-hidden={hidden || undefined}>
-        {items.map((item, i) => {
-          // Keyed by the entry or first call each item starts at, so a fold keeps its open state while the turn streams.
-          if (item.kind === "entry") return <Entry key={placeKey(transcript, item.entry, i)} entry={item.entry} />;
-          if (item.kind === "progress") return <ProgressFold key={`p${placeKey(transcript, item.entries[0], i)}`} entries={item.entries} />;
-          if (item.kind === "steps") return <StepsFold key={`s${item.calls[0].id}`} calls={item.calls} />;
-          return <AgentGroup key={item.calls[0].id} calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} />;
-        })}
+        <ThreadItems items={items} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} />
         {streaming && <div className="msg assistant">{streaming}</div>}
         {asked > 0 && <div className="banner warn" role="status">Waiting on you: {asked === 1 ? "a call needs" : `${asked} calls need`} your approval below.</div>}
         {waiting && <div className="banner warn">Waiting for editor: {waitingCause ?? "not connected"}. The turn continues when it is back.</div>}
@@ -306,37 +303,33 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   );
 });
 
-/** The main agent's progress messages from a finished turn, folded behind its final answer. */
-export function ProgressFold({ entries }: { entries: TranscriptEntry[] }) {
-  const [open, setOpen] = useState(false);
+/** A thread's lines, the main one or a subagent's, keyed by the entry or first call each starts at so a fold keeps its open state while the turn streams. */
+function ThreadItems({ items, transcript, sessionWaiting, onOpen }: { items: ThreadItem[]; transcript: TranscriptEntry[]; sessionWaiting: boolean; onOpen?: (id: string) => void }) {
   return (
-    <div className="progress-fold">
-      <button className="fold-toggle dim small" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <span className="agents-caret">{open ? "▾" : "▸"}</span>
-        {entries.length} progress {entries.length === 1 ? "update" : "updates"}
-      </button>
-      {open && entries.map((e, i) => <Entry key={i} entry={e} />)}
-    </div>
+    <>
+      {items.map((item, i) => {
+        if (item.kind === "entry") return <Entry key={placeKey(transcript, item.entry, i)} entry={item.entry} />;
+        if (item.kind === "steps") return <StepsFold key={`s${item.calls[0].id}`} calls={item.calls} />;
+        return <AgentGroup key={item.calls[0].id} calls={item.calls} transcript={transcript} sessionWaiting={sessionWaiting} onOpen={onOpen ?? (() => {})} />;
+      })}
+    </>
   );
 }
 
 /**
- * A run of working steps as one line: what they did ("Read 9 files, ran 2
- * commands"), and while one runs, that step. Opened, every call in the run.
+ * A run of tool calls as one line: what they did ("Ran 3 commands, edited 2
+ * files"), what went wrong in the bad colour, and the step running now. Opened, every call.
  */
 export function StepsFold({ calls }: { calls: Call[] }) {
   const [open, setOpen] = useState(false);
   const live = liveStep(calls);
+  const trouble = stepsTrouble(calls);
   return (
     <div className={`steps-fold${live ? " running" : ""}`}>
       <button className="steps-head" aria-expanded={open} onClick={() => setOpen(!open)}>
         <span className="agents-caret">{open ? "▾" : "▸"}</span>
-        <span className="steps-summary">{stepsSummary(calls)}</span>
-        {live && (
-          <span className="steps-live" title={toolTitle(live)}>
-            <span className="tool-name">{TOOL_TAG[live.name] ?? live.name}</span> <span className="tool-call">{toolLabel(live)}</span>
-          </span>
-        )}
+        <span className="steps-summary">{stepsSummary(calls)}{trouble && <>, <span className="steps-trouble">{trouble}</span></>}</span>
+        {live && <span className="steps-live" title={toolTitle(live)}><span>{stepActivity(live)}</span></span>}
       </button>
       {open && <div className="steps-list">{calls.map((c) => <ToolCall key={c.id} call={c} />)}</div>}
     </div>
@@ -401,7 +394,7 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack, onSto
   const prompt = (call.input as { prompt?: string }).prompt;
   const steps = transcript.filter((t) => t.parent === call.id);
   const asked = useAsked();
-  const items = useMemo(() => foldSteps(transcript.filter((t) => t.parent === call.id), asked), [transcript, call.id, asked]);
+  const items = useMemo(() => subagentTimeline(transcript, call.id, asked), [transcript, call.id, asked]);
   const follow = useFollow<HTMLDivElement>(`${steps.length}:${call.outcome}`);
   return (
     <>
@@ -421,7 +414,7 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack, onSto
             {prompt}
           </div>
         )}
-        {items.map((item, i) => (item.kind === "steps" ? <StepsFold key={`s${item.calls[0].id}`} calls={item.calls} /> : <Entry key={placeKey(transcript, item.entry, i)} entry={item.entry} />))}
+        <ThreadItems items={items} transcript={transcript} sessionWaiting={sessionWaiting} />
         {call.outcome === "done" && <div className="dim small">Reported back to the main agent.</div>}
         {call.outcome === "stopped" && <div className="dim small">Stopped. The main agent was told.</div>}
         {(call.outcome === "error" || call.outcome === "unknown") && call.result && <div className="banner bad">{call.result}</div>}

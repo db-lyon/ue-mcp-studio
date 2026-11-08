@@ -100,26 +100,14 @@ describe("summaries and formats", () => {
 
 describe("the main thread", () => {
   it("leaves subagent steps out and groups subagents started together", () => {
-    const items = mainTimeline([user("go"), agent("a", "done", 3), agent("b", "done", 3), step("a", "s", "done", 1, 2), reply("done")], "idle");
+    const items = mainTimeline([user("go"), agent("a", "done", 3), agent("b", "done", 3), step("a", "s", "done", 1, 2), reply("done")]);
     expect(items.map((i) => i.kind)).toEqual(["entry", "agents", "entry"]);
     expect(items[1].kind === "agents" && items[1].calls.map((c) => c.id)).toEqual(["a", "b"]);
   });
 
-  it("folds a finished turn's progress messages behind its final answer", () => {
+  it("draws every progress message where it falls, in a finished turn or a running one", () => {
     const t = [user("go"), reply("started"), agent("a", "done", 3), reply("one back"), reply("final")];
-    const items = mainTimeline(t, "idle");
-    expect(items.map((i) => i.kind)).toEqual(["entry", "progress", "agents", "progress", "entry"]);
-    expect(items[4].kind === "entry" && items[4].entry).toBe(t[4]);
-  });
-
-  it("does not fold while the turn is still running, nor a turn without subagents", () => {
-    expect(mainTimeline([user("go"), reply("started"), agent("a"), reply("one back")], "running").some((i) => i.kind === "progress")).toBe(false);
-    expect(mainTimeline([user("go"), reply("a"), reply("b")], "idle").some((i) => i.kind === "progress")).toBe(false);
-  });
-
-  it("folds an earlier finished turn while a later one runs", () => {
-    const items = mainTimeline([user("1"), reply("p"), agent("a", "done", 2), reply("f"), user("2"), reply("working")], "running");
-    expect(items.map((i) => i.kind)).toEqual(["entry", "progress", "agents", "entry", "entry", "entry"]);
+    expect(mainTimeline(t).map((i) => i.kind)).toEqual(["entry", "entry", "agents", "entry", "entry"]);
   });
 });
 

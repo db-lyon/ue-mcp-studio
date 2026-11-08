@@ -18,6 +18,7 @@ const read = (path: string, outcome: ToolCallRecord["outcome"] = "done", extra: 
 const sh = (command: string, outcome: ToolCallRecord["outcome"] = "done") => tool("shell", { command }, outcome);
 const user: TranscriptEntry = { kind: "user", text: "What does the wiki say about caravans?", at: at(0) };
 const reply = (text: string): TranscriptEntry => ({ kind: "assistant", text, at: at(99) });
+const edit = (path: string) => tool("edit_file", { path, old_string: "a", new_string: "b" });
 const props = { status: "idle" as const, streaming: "", waitingCause: null, error: null, onOpen: vi.fn(), hidden: false };
 
 /** The owner's screenshot: a command, eight reads, a read from line 55 and another command. */
@@ -53,7 +54,7 @@ describe("a run of steps in the transcript", () => {
     const t = [...wikiTurn(), read("C:/Users/dev/Vale/.wiki/Monsters.md", "pending")];
     const { container } = render(<MainTranscript transcript={t} {...props} status="running" />);
     expect(container.querySelector(".steps-fold.running")).toBeTruthy();
-    expect(container.querySelector(".steps-live")?.textContent).toBe("read Monsters.md");
+    expect(container.querySelector(".steps-live")?.textContent).toBe("reading Monsters.md");
     expect(container.querySelector(".steps-live")?.getAttribute("title")).toBe("C:/Users/dev/Vale/.wiki/Monsters.md");
   });
 
@@ -64,18 +65,34 @@ describe("a run of steps in the transcript", () => {
     const more = [...t, read("a/Next.md"), sh("git log -1", "pending")];
     rerender(<MainTranscript transcript={more} {...props} status="running" />);
     expect(screen.getByRole("button", { name: /Ran 3 commands, read 10 files/ }).getAttribute("aria-expanded")).toBe("true");
-    expect(container.querySelector(".steps-live")?.textContent).toBe("shell git log -1");
+    expect(container.querySelector(".steps-live")?.textContent).toBe("running a command");
     // Once the turn ends the fold stays open.
     rerender(<MainTranscript transcript={[...more.slice(0, -1), sh("git log -1"), reply("Done.")]} {...props} />);
     expect(screen.getByRole("button", { name: /Ran 3 commands, read 10 files/ }).getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("leaves a failed call outside the fold, in view", () => {
+  it("folds a failed call into its run, counted in the bad colour and drawn as failed inside", () => {
     const t = [user, read("a/One.md"), read("a/Two.md"), sh("npx ue-mcp project build_project", "error"), read("a/Three.md"), read("a/Four.md")];
     const { container } = render(<MainTranscript transcript={t} {...props} />);
-    expect(container.querySelectorAll(".steps-fold")).toHaveLength(2);
-    const failed = container.querySelector(".transcript > details.tool.error");
-    expect(failed?.querySelector(".tool-call")?.textContent).toBe("npx ue-mcp project build_project");
+    expect(container.querySelectorAll(".steps-fold")).toHaveLength(1);
+    expect(container.querySelector(".transcript > details.tool")).toBeNull();
+    expect(container.querySelector(".steps-trouble")?.textContent).toBe("1 failed");
+    fireEvent.click(screen.getByRole("button", { name: /Read 4 files, ran 1 command, 1 failed/ }));
+    expect(container.querySelector(".steps-list details.tool.error .tool-call")?.textContent).toBe("npx ue-mcp project build_project");
+  });
+
+  it("gives the screenshot's turn four folds with every message in view", () => {
+    const progress = ["Looking at the wiki.", "Found the pages, editing.", "The build failed, fixing it."];
+    const t = [
+      user, sh("ls"), reply(progress[0]), sh("a"), sh("b"), edit("x"), edit("y"), edit("z"), reply(progress[1]),
+      edit("p"), edit("q"), sh("c"), sh("npm run build", "error"), reply(progress[2]), sh("d"), reply("Done: the pages are linked."),
+    ];
+    const { container } = render(<MainTranscript transcript={t} {...props} />);
+    expect([...container.querySelectorAll(".steps-summary")].map((e) => e.textContent)).toEqual([
+      "Ran 1 command", "Ran 2 commands, edited 3 files", "Edited 2 files, ran 2 commands, 1 failed", "Ran 1 command",
+    ]);
+    for (const text of [...progress, "Done: the pages are linked."]) expect(screen.getByText(text)).toBeTruthy();
+    expect(container.querySelector(".transcript > details.tool")).toBeNull();
   });
 
   it("leaves a call waiting on approval outside the fold", () => {
@@ -87,10 +104,10 @@ describe("a run of steps in the transcript", () => {
     expect(container.querySelector(".transcript > details.tool.pending .tool-call")?.textContent).toBe("git push");
   });
 
-  it("folds a subagent's own steps too", () => {
+  it("folds a subagent's own steps the same way, a failure included", () => {
     const agent: ToolCallRecord = { id: "ag", name: "agent", input: { description: "Read the wiki", prompt: "read it" }, outcome: "done", startedAt: at(0), endedAt: at(9) };
-    const t: TranscriptEntry[] = [{ kind: "tool", call: agent }, tool("read_file", { path: "w/A.md" }, "done", "ag"), tool("read_file", { path: "w/B.md" }, "done", "ag")];
+    const t: TranscriptEntry[] = [{ kind: "tool", call: agent }, tool("read_file", { path: "w/A.md" }, "done", "ag"), tool("shell", { command: "x" }, "error", "ag"), tool("read_file", { path: "w/B.md" }, "done", "ag")];
     render(<SubagentThread call={agent} transcript={t} sessionWaiting={false} onBack={vi.fn()} onStop={vi.fn()} />);
-    expect(screen.getByRole("button", { name: /Read 2 files/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Read 2 files, ran 1 command, 1 failed/ })).toBeTruthy();
   });
 });

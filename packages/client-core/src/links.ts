@@ -38,11 +38,12 @@ export function classifyLink(raw: string | null | undefined): LinkTarget {
   return fileTarget(slashed);
 }
 
-/** file:///C:/a, file:///home/a and file://localhost/a as paths; a file URL to another host is a network path. */
+/** file:///C:/a, file://localhost/a, file:/C:/a and file:docs/a.md as paths; a file URL to another host is a network path. */
 function fileUrlPath(url: string): string | null {
-  const m = /^file:\/\/([^/]*)(\/.*)?$/i.exec(url.replace(/\\/g, "/"));
-  if (!m || (m[1] && m[1].toLowerCase() !== "localhost")) return null;
-  const p = m[2] ?? "";
+  const rest = url.replace(/\\/g, "/").replace(/^file:/i, "");
+  const m = /^\/\/([^/]*)(\/.*)?$/.exec(rest);
+  if (m && m[1] && m[1].toLowerCase() !== "localhost") return null;
+  const p = m ? m[2] ?? "" : rest;
   return /^\/[a-z]:\//i.test(p) ? p.slice(1) : p;
 }
 

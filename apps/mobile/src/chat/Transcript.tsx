@@ -1,6 +1,6 @@
 /**
  * chat/Transcript.tsx: the conversation as the web client draws it at phone
- * width. The main thread (messages, tool calls, the progress fold, subagents,
+ * width. The main thread (messages, folded runs of tool calls, subagents,
  * notes, the streaming reply, the waiting and error lines) follows its newest
  * line while the reader is at the bottom, with a New messages pill under it
  * when they have scrolled up; a subagent's own thread is drawn the same way.
@@ -19,17 +19,20 @@ import {
   callsIn,
   describe,
   formatDuration,
-  foldSteps,
   formatResult,
   isActive,
   liveStep,
   mainTimeline,
+  stepActivity,
   stepsSummary,
+  stepsTrouble,
+  subagentTimeline,
   summarize,
   toolLabel,
   toolTitle,
   type AgentState,
   type Call,
+  type ThreadItem,
 } from "@ue-mcp-studio/client-core";
 import { Banner, baseFont, ContentButton, buttonFont, font, labelFont, lineBox, MarkdownPiece, markdownPieces, Output, PIECE_CHARS, Pulse, stopOf, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
@@ -752,31 +755,13 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   const t = useTheme();
   // The app has no extension cards, so an extension's card entry is left out of the timeline.
   const askedIds = useAsked();
-  const items = useMemo(() => mainTimeline(transcript, status, (e) => e.kind !== "card", askedIds), [transcript, status, askedIds]);
+  const items = useMemo(() => mainTimeline(transcript, (e) => e.kind !== "card", askedIds), [transcript, askedIds]);
   const from = useContext(TranscriptFromContext);
   // A page read in front of the held entries is not a new line below.
   const follow = useFollow(`${from + transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = askedIds.size;
-  const rows = useMemo<ThreadRow[]>(
-    () =>
-      items.map((item, i) => {
-        // Keyed by the entry's place in the transcript, so a page read in front keeps every row as it was.
-        const place = (e: TranscriptEntry) => {
-          const p = positionIn(transcript, e);
-          return p < 0 ? `i${i}` : String(from + p);
-        };
-        if (item.kind === "entry") {
-          const p = positionIn(transcript, item.entry);
-          return entryRow(`e${place(item.entry)}`, item.entry, p < 0 ? undefined : from + p);
-        }
-        if (item.kind === "progress") return { key: `p${place(item.entries[0])}`, render: () => <ProgressFold entries={item.entries} /> };
-        // Keyed by its first call, so a fold stays open while the turn streams more steps into it.
-        if (item.kind === "steps") return { key: `s${item.calls[0].id}`, render: () => <StepsFold calls={item.calls} /> };
-        return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} /> };
-      }),
-    [items, transcript, waiting, onOpen, from],
-  );
+  const rows = useMemo(() => itemRows(items, transcript, from, waiting, onOpen), [items, transcript, waiting, onOpen, from]);
   // The streaming reply is the newest line, cut into pieces as it grows.
   const drawn = useMemo(() => (streaming ? [...rows, streamRow(streaming)] : rows), [rows, streaming]);
   const foot =
@@ -795,40 +780,31 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   );
 });
 
-/** A fold or group header: a bare button of dim 12px text (`.fold-toggle.dim.small`, `.agent-group-head`). */
-function foldText(t: Theme): TextStyle {
-  return t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 500, 12, 1.2), letterSpacing: 0.24 };
-}
-
-/** The main agent's progress messages from a finished turn, folded behind its final answer. */
-export function ProgressFold({ entries }: { entries: TranscriptEntry[] }) {
-  const t = useTheme();
-  const [open, setOpen] = useState(false);
-  return (
-    <View style={{ gap: 10 }}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ expanded: open }}
-        onPress={() => setOpen(!open)}
-        style={({ pressed }) => ({ flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start", minHeight: 44, minWidth: 44, paddingVertical: 3, paddingHorizontal: 8, borderRadius: t.radius, backgroundColor: pressed ? t.c.panel2 : "transparent" })}
-      >
-        <Text style={[foldText(t), { color: t.c.dim, width: 10 }]}>{open ? "▾" : "▸"}</Text>
-        <Text style={[foldText(t), { color: t.c.dim }]}>{`${entries.length} progress ${entries.length === 1 ? "update" : "updates"}`}</Text>
-      </Pressable>
-      {open ? entries.map((e, i) => <Entry key={i} entry={e} />) : null}
-    </View>
-  );
+/**
+ * A thread's lines as rows, the main one or a subagent's. An entry is keyed by its place in the
+ * transcript and a fold or group by its first call, so a page read in front or a run that grows keeps every row as it was.
+ */
+function itemRows(items: ThreadItem[], transcript: TranscriptEntry[], from: number, sessionWaiting: boolean, onOpen?: (id: string) => void): ThreadRow[] {
+  return items.map((item, i) => {
+    if (item.kind === "entry") {
+      const p = positionIn(transcript, item.entry);
+      return entryRow(p < 0 ? `i${i}` : `e${from + p}`, item.entry, p < 0 ? undefined : from + p);
+    }
+    if (item.kind === "steps") return { key: `s${item.calls[0].id}`, render: () => <StepsFold calls={item.calls} /> };
+    return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={sessionWaiting} onOpen={onOpen ?? (() => {})} /> };
+  });
 }
 
 /**
- * A run of working steps as one line: what they did ("Read 9 files, ran 2
- * commands"), and while one runs, that step under it. Tapped, every call in the run.
+ * A run of tool calls as one line: what they did ("Ran 3 commands, edited 2
+ * files"), what went wrong in the bad colour, and the step running now under it. Tapped, every call.
  */
 export function StepsFold({ calls }: { calls: Call[] }) {
   const t = useTheme();
   const [open, setOpen] = useState(false);
   const live = liveStep(calls);
-  const summary = stepsSummary(calls);
+  const trouble = stepsTrouble(calls);
+  const summary = trouble ? `${stepsSummary(calls)}, ${trouble}` : stepsSummary(calls);
   // .steps-head: 12px/1.6 mono; the editor themes' button rule outranks it with 12px/1.2 sans.
   const mono = t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "mono", 400, 12, 1.6);
   const dot = <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: t.c.accent }} />;
@@ -838,19 +814,21 @@ export function StepsFold({ calls }: { calls: Call[] }) {
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         aria-expanded={open}
-        accessibilityLabel={live ? `${summary}. Now: ${TOOL_TAG[live.name] ?? live.name} ${toolLabel(live)}` : summary}
+        accessibilityLabel={live ? `${summary}. Now: ${stepActivity(live)}` : summary}
         onPress={() => setOpen(!open)}
         style={({ pressed }) => ({ alignSelf: "flex-start", maxWidth: "100%", minHeight: 44, minWidth: 44, justifyContent: "center", gap: 2, paddingVertical: 3, paddingRight: 8, paddingLeft: 2, borderRadius: t.radius, backgroundColor: pressed ? t.c.panel2 : "transparent" })}
       >
         <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
           <Text style={[mono, { color: t.c.muted, width: 10 }]}>{open ? "▾" : "▸"}</Text>
-          <Text style={[mono, { color: t.c.muted, flexShrink: 1 }]}>{summary}</Text>
+          <Text style={[mono, { color: t.c.muted, flexShrink: 1 }]}>
+            {stepsSummary(calls)}
+            {trouble ? <>{", "}<Text style={{ color: t.c.bad }}>{trouble}</Text></> : null}
+          </Text>
         </View>
         {live ? (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginLeft: 18, minWidth: 0 }}>
             <Pulse>{dot}</Pulse>
-            <Text style={[mono, { color: t.c.accentHi, flexShrink: 0 }]}>{TOOL_TAG[live.name] ?? live.name}</Text>
-            <Text style={[mono, { color: t.c.text, flexShrink: 1, minWidth: 0 }]} numberOfLines={1} ellipsizeMode="tail">{toolLabel(live)}</Text>
+            <Text style={[mono, { color: t.c.text, flexShrink: 1, minWidth: 0 }]} numberOfLines={1} ellipsizeMode="tail">{stepActivity(live)}</Text>
           </View>
         ) : null}
       </Pressable>
@@ -971,7 +949,7 @@ function AgentLink({ row, transcript, onOpen }: { row: Row; transcript: Transcri
  * reported back. On a phone the header (back, name, state, Stop) is the
  * conversation's own, so the thread is the column alone.
  */
-export function SubagentThread({ call, transcript, sessionWaiting: _sessionWaiting, onBack: _onBack, onStop: _onStop }: {
+export function SubagentThread({ call, transcript, sessionWaiting, onBack: _onBack, onStop: _onStop }: {
   call: Call;
   transcript: TranscriptEntry[];
   sessionWaiting: boolean;
@@ -984,14 +962,7 @@ export function SubagentThread({ call, transcript, sessionWaiting: _sessionWaiti
   const asked = useAsked();
   const follow = useFollow(`${steps.length}:${call.outcome}`);
   const from = useContext(TranscriptFromContext);
-  const rows = useMemo<ThreadRow[]>(
-    () => foldSteps(steps, asked).map((item) => {
-      if (item.kind === "steps") return { key: `f${item.calls[0].id}`, render: () => <StepsFold calls={item.calls} /> };
-      const p = positionIn(transcript, item.entry);
-      return entryRow(`s${steps.indexOf(item.entry)}`, item.entry, p < 0 ? undefined : from + p);
-    }),
-    [steps, asked, transcript, from],
-  );
+  const rows = useMemo(() => itemRows(subagentTimeline(transcript, call.id, asked), transcript, from, sessionWaiting), [transcript, call.id, asked, from, sessionWaiting]);
   const ended =
     call.outcome === "done" ? <Text style={small(t, t.c.dim)}>Reported back to the main agent.</Text>
       : call.outcome === "stopped" ? <Text style={small(t, t.c.dim)}>Stopped. The main agent was told.</Text>

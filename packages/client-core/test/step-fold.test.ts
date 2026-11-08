@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { FOLD_MIN, foldSteps, foldsAway, lineRange, liveStep, mainTimeline, stepsSummary, toolLabel, toolTitle, type MainItem } from "../src/chat-model.js";
+import { foldsAway, lineRange, liveStep, mainTimeline, stepActivity, stepsSummary, stepsTrouble, subagentTimeline, timeline, toolLabel, toolTitle, type ThreadItem } from "../src/chat-model.js";
 
 const at = (s: number) => new Date(Date.parse("2026-11-07T10:00:00Z") + s * 1000).toISOString();
 let n = 0;
@@ -13,8 +13,10 @@ const read = (path: string, outcome: ToolCallRecord["outcome"] = "done", extra: 
 const sh = (command: string, outcome: ToolCallRecord["outcome"] = "done") => tool("shell", { command }, outcome);
 const user = (text: string): TranscriptEntry => ({ kind: "user", text, at: at(0) });
 const reply = (text: string): TranscriptEntry => ({ kind: "assistant", text, at: at(1) });
-const agent = (id: string): TranscriptEntry => ({ kind: "tool", call: { id, name: "agent", input: { description: id }, outcome: "done", startedAt: at(0), endedAt: at(2) } });
-const kinds = (items: MainItem[]) => items.map((i) => i.kind);
+const agent = (id: string, outcome: ToolCallRecord["outcome"] = "done"): TranscriptEntry => ({ kind: "tool", call: { id, name: "agent", input: { description: id }, outcome, startedAt: at(0), ...(outcome === "pending" ? {} : { endedAt: at(2) }) } });
+const edit = (path: string) => tool("edit_file", { path, old_string: "a", new_string: "b" });
+const folds = (items: ThreadItem[]) => items.flatMap((i) => (i.kind === "steps" ? [i.calls] : []));
+const kinds = (items: ThreadItem[]) => items.map((i) => i.kind);
 const callOf = (e: TranscriptEntry) => (e as Extract<TranscriptEntry, { kind: "tool" }>).call;
 
 describe("a read names its file", () => {
@@ -57,35 +59,54 @@ describe("the summary line", () => {
   });
 });
 
-describe("folding steps", () => {
-  it("folds a run of two or more steps into one item, and leaves a lone step as it was", () => {
-    expect(FOLD_MIN).toBe(2);
-    expect(kinds(foldSteps([read("a"), read("b"), sh("ls")]))).toEqual(["steps"]);
-    expect(kinds(foldSteps([read("a"), reply("x"), read("b")]))).toEqual(["entry", "entry", "entry"]);
+describe("the trouble line", () => {
+  it("counts the calls that went wrong, and is empty when none did", () => {
+    const calls = [sh("a", "error"), sh("b", "unknown"), sh("c", "declined"), sh("d", "stopped"), sh("e")].map(callOf);
+    expect(stepsTrouble(calls)).toBe("2 failed, 1 declined, 1 stopped");
+    expect(stepsTrouble([callOf(sh("ok"))])).toBe("");
+  });
+});
+
+describe("folding tool calls", () => {
+  it("folds each run of calls between two messages, a lone call included, and never folds a message", () => {
+    // The shape of the owner's screenshot: a lone call, progress, steps, progress, steps with a failure, progress, a call, the reply.
+    const failed = sh("npm run build", "error");
+    const progress = [reply("Looking at the wiki."), reply("Found the pages, editing."), reply("The build failed, fixing it.")];
+    const final = reply("Done: the pages are linked.");
+    const t = [user("go"), sh("ls"), progress[0], sh("a"), sh("b"), edit("x"), edit("y"), edit("z"), progress[1], edit("p"), edit("q"), sh("c"), failed, progress[2], sh("d"), final];
+    const items = mainTimeline(t);
+    expect(kinds(items)).toEqual(["entry", "steps", "entry", "steps", "entry", "steps", "entry", "steps", "entry"]);
+    const runs = folds(items);
+    expect(runs).toHaveLength(4);
+    expect(runs.map(stepsSummary)).toEqual(["Ran 1 command", "Ran 2 commands, edited 3 files", "Edited 2 files, ran 2 commands", "Ran 1 command"]);
+    expect(runs.map(stepsTrouble)).toEqual(["", "", "1 failed", ""]);
+    expect(runs[2]).toContain(callOf(failed));
+    const shown = items.flatMap((i) => (i.kind === "entry" ? [i.entry] : []));
+    expect(shown).toEqual([t[0], ...progress.slice(0, 2), progress[2], final]);
   });
 
-  it("never folds a failed, declined, stopped or unknown call: it ends the run and stays visible", () => {
+  it("folds failed, declined, stopped and unknown calls into the run", () => {
     for (const outcome of ["error", "declined", "stopped", "unknown"] as const) {
-      const failed = sh("build", outcome);
-      const items = foldSteps([read("a"), read("b"), failed, read("c"), read("d")]);
-      expect(kinds(items)).toEqual(["steps", "entry", "steps"]);
-      expect(items[1].kind === "entry" && items[1].entry).toBe(failed);
-      expect(foldsAway(callOf(failed))).toBe(false);
+      expect(kinds(timeline([read("a"), sh("build", outcome), read("c")]))).toEqual(["steps"]);
+      expect(foldsAway(callOf(sh("build", outcome)))).toBe(true);
     }
   });
 
-  it("never folds a call waiting on the user's approval", () => {
-    const held = sh("rm -rf Saved", "pending");
-    expect(kinds(foldSteps([read("a"), read("b"), held], new Set([callOf(held).id])))).toEqual(["steps", "entry"]);
+  it("keeps a call waiting on approval and a running subagent outside, and names the live step", () => {
+    const held = sh("git push", "pending");
+    const running = read("Docs/Now.md", "pending");
+    const t = [user("go"), reply("Starting."), read("a"), running, agent("s1", "pending"), held];
+    const items = mainTimeline(t, undefined, new Set([callOf(held).id]));
+    expect(kinds(items)).toEqual(["entry", "entry", "steps", "agents", "entry"]);
+    expect(items[4].kind === "entry" && items[4].entry).toBe(held);
+    const run = folds(items)[0];
+    expect(liveStep(run)).toBe(callOf(running));
+    expect(stepActivity(liveStep(run)!)).toBe("reading Now.md");
+    expect(liveStep(run.slice(0, 1))).toBeNull();
   });
 
-  it("keeps a running step in the run and names it as the live step", () => {
-    const running = read("Docs/Now.md", "pending");
-    const items = foldSteps([read("a"), sh("ls"), running]);
-    expect(kinds(items)).toEqual(["steps"]);
-    const calls = items[0].kind === "steps" ? items[0].calls : [];
-    expect(liveStep(calls)).toBe(callOf(running));
-    expect(liveStep(calls.slice(0, 2))).toBeNull();
+  it("draws a turn with no calls without a fold", () => {
+    expect(kinds(mainTimeline([user("hi"), reply("Hello.")]))).toEqual(["entry", "entry"]);
   });
 });
 
@@ -103,41 +124,26 @@ describe("the main thread folds steps", () => {
       { kind: "playtest", state: "drafting", request: {} as never, attempt: 1, at: at(1) },
     ];
     for (const v of visible) {
-      const items = mainTimeline([user("go"), read("a"), read("b"), v, read("c"), read("d")], "idle");
+      const items = mainTimeline([user("go"), read("a"), read("b"), v, read("c"), read("d")]);
       expect(kinds(items)).toEqual(["entry", "steps", "entry", "steps"]);
       expect(items[2].kind === "entry" && items[2].entry).toBe(v);
     }
-    expect(kinds(mainTimeline([user("go"), read("a"), read("b"), agent("s1"), read("c"), read("d")], "idle"))).toEqual(["entry", "steps", "agents", "steps"]);
-  });
-
-  it("keeps the final reply after the fold", () => {
-    const t = [user("go"), sh("ls"), ...Array.from({ length: 9 }, (_, i) => read(`.wiki/P${i}.md`)), sh("head"), reply("Here is what the wiki says.")];
-    const items = mainTimeline(t, "idle");
-    expect(kinds(items)).toEqual(["entry", "steps", "entry"]);
-    expect(items[1].kind === "steps" && items[1].calls).toHaveLength(11);
-  });
-
-  it("leaves held calls out of the fold through asked", () => {
-    const held = sh("git push", "pending");
-    expect(kinds(mainTimeline([user("go"), read("a"), read("b"), held], "running", undefined, new Set([callOf(held).id])))).toEqual(["entry", "steps", "entry"]);
+    expect(kinds(mainTimeline([user("go"), read("a"), read("b"), agent("s1"), read("c"), read("d")]))).toEqual(["entry", "steps", "agents", "steps"]);
   });
 
   it("keeps a run's first call, and so its key, while the run grows during a turn", () => {
     const first = read("a");
-    const a = mainTimeline([user("go"), first, read("b", "pending")], "running");
-    const b = mainTimeline([user("go"), first, read("b"), sh("ls", "pending")], "running");
-    const head = (items: MainItem[]) => (items[1].kind === "steps" ? items[1].calls[0] : null);
+    const a = mainTimeline([user("go"), first, read("b", "pending")]);
+    const b = mainTimeline([user("go"), first, read("b"), sh("ls", "pending")]);
+    const head = (items: ThreadItem[]) => (items[1].kind === "steps" ? items[1].calls[0] : null);
     expect(head(a)).toBe(callOf(first));
     expect(head(b)).toBe(callOf(first));
   });
 
-  it("splits steps around progress replies folded in a finished turn with subagents", () => {
-    const t = [user("go"), read("a"), read("b"), reply("progress"), agent("s1"), read("c"), read("d"), reply("final")];
-    expect(kinds(mainTimeline(t, "idle"))).toEqual(["entry", "steps", "progress", "agents", "steps", "entry"]);
-  });
-
-  it("folds a subagent's own steps the same way", () => {
-    const steps = [tool("read_file", { path: "a" }, "done", "s1"), tool("read_file", { path: "b" }, "done", "s1"), tool("shell", { command: "x" }, "error", "s1")];
-    expect(kinds(foldSteps(steps))).toEqual(["steps", "entry"]);
+  it("folds a subagent's own thread the same way", () => {
+    const t = [user("go"), agent("s1"), tool("read_file", { path: "a" }, "done", "s1"), tool("shell", { command: "x" }, "error", "s1"), { kind: "assistant", text: "Found it.", at: at(1), parent: "s1" } as TranscriptEntry];
+    const items = subagentTimeline(t, "s1");
+    expect(kinds(items)).toEqual(["steps", "entry"]);
+    expect(stepsTrouble(folds(items)[0])).toBe("1 failed");
   });
 });

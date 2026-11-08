@@ -419,7 +419,7 @@ button.example:hover:not(:disabled) { color: var(--text); background: var(--acce
 .transcript { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 12px; padding: 18px 18px 12px; }
 /* Nothing in a scrolling column shrinks: once the column overflows, a flex item would otherwise shrink to its
    min-height, and a 44 pixel touch minimum would cut a tall tile down to one row with the rest spilling out. */
-.transcript > *, .agent-group > *, .progress-fold > *, .approvals > * { flex-shrink: 0; }
+.transcript > *, .agent-group > *, .approvals > * { flex-shrink: 0; }
 .msg { white-space: pre-wrap; overflow-wrap: anywhere; padding: 10px 13px; border-radius: 10px; max-width: 86%; }
 .msg.user { align-self: flex-end; background: var(--accent-wash); border: 1px solid var(--accent-line); }
 .msg.assistant { align-self: flex-start; background: transparent; padding-left: 2px; max-width: 92%; }
@@ -757,9 +757,6 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agent-group .agent-link { margin-left: 16px; width: calc(100% - 16px); }
 
 /* Progress messages of a finished turn, folded */
-.progress-fold { display: flex; flex-direction: column; gap: 10px; }
-.fold-toggle { display: flex; align-items: center; gap: 6px; align-self: flex-start; height: auto; padding: 3px 8px; background: transparent; border: 0; cursor: pointer; }
-.fold-toggle:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--text); }
 
 /* Back to the newest message */
 .jump-latest { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); z-index: 3; padding: 5px 12px; border-radius: 14px; background: var(--panel-3); border-color: var(--line-strong); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3); }
@@ -2184,8 +2181,8 @@ button.review-item-name:hover:not(:disabled) { background: none; border: 0; colo
 .steps-head { display: grid; grid-template-columns: 10px minmax(0, auto); align-items: center; column-gap: 8px; row-gap: 2px; align-self: flex-start; max-width: 100%; min-width: 0; height: auto; padding: 3px 8px 3px 2px; background: transparent; border: 0; text-align: left; font: 12px/1.6 var(--mono); color: var(--muted); cursor: pointer; }
 .steps-head:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; color: var(--text); }
 .steps-head .steps-summary { min-width: 0; }
-.steps-live { grid-column: 2; display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.steps-trouble { color: var(--bad); }
+.steps-live > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.steps-live { grid-column: 2; display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--text); }
 .steps-live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; animation: pulse 1.2s ease-in-out infinite; }
-.steps-live .tool-name { color: var(--accent-hi); flex-shrink: 0; }
-.steps-live .tool-call { color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .steps-list { display: flex; flex-direction: column; gap: 2px; margin-left: 14px; padding-left: 8px; border-left: 1px solid var(--line); }
