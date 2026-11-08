@@ -31,6 +31,8 @@ describe("classifyLink", () => {
     expect(classifyLink("file:///C:/Users/me/Vale/My%20Notes.md")).toEqual({ kind: "file", path: "C:/Users/me/Vale/My Notes.md" });
     expect(classifyLink("file:///home/me/notes.md")).toEqual({ kind: "file", path: "/home/me/notes.md" });
     expect(classifyLink("file://localhost/home/me/notes.md")).toEqual({ kind: "file", path: "/home/me/notes.md" });
+    expect(classifyLink("file:.wiki/Decisions.md")).toEqual({ kind: "file", path: ".wiki/Decisions.md" });
+    expect(classifyLink("file:/C:/Users/me/notes.md")).toEqual({ kind: "file", path: "C:/Users/me/notes.md" });
     expect(classifyLink("~/.claude/CLAUDE.md")).toEqual({ kind: "file", path: "~/.claude/CLAUDE.md" });
     expect(classifyLink("My%20Notes.md")).toEqual({ kind: "file", path: "My Notes.md" });
   });
