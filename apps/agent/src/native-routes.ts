@@ -3,16 +3,18 @@
  *
  *   GET  /native                     per convention: instruction files, subagents and skills, with paths and sizes
  *   GET  /native/preview?convention= the instruction text an agent on that convention is given
- *   POST /files/open                 { path }: open a file the view listed in the system's editor
+ *   GET  /files/read?path=&from=     a project file as text, for Studio's file viewer
+ *   POST /files/open                 { path, from? }: open a text file in the system's editor
  *
  * Read only: Studio writes none of these files.
  */
 import { spawn } from "node:child_process";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { CONVENTIONS, conventionOf, type Convention, type NativeOverview, type NativePreview, type NativeView, type WorkerView } from "@ue-mcp-studio/shared";
+import { CONVENTIONS, conventionOf, openableInEditor, type Convention, type NativeOverview, type NativePreview, type NativeView, type WorkerView } from "@ue-mcp-studio/shared";
 import { loadout, type Loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor } from "./native-runtime.js";
+import { readProjectFile, resolveProjectFile, type FileScope } from "./project-files.js";
 
 export interface NativeRouteOptions {
   /** "Read the project's own files". */
@@ -36,10 +38,15 @@ export interface NativeRouteOptions {
 
 const VENDOR_OF: Record<Convention, string | null> = { claude: "anthropic", codex: "openai", gemini: "google", agents: null };
 
-/** Opens a file in the system's default app for its type. */
+/**
+ * Opens a file in the system's default app for its type. On Windows the path
+ * reaches Start-Process through the environment, so no shell parses it.
+ */
 export function openWithSystem(abs: string): void {
-  const [cmd, args] = process.platform === "win32" ? ["cmd", ["/c", "start", "", abs]] : process.platform === "darwin" ? ["open", [abs]] : ["xdg-open", [abs]];
-  spawn(cmd, args as string[], { detached: true, stdio: "ignore", windowsHide: true }).unref();
+  const [cmd, args] = process.platform === "win32"
+    ? ["powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", "Start-Process -LiteralPath $env:STUDIO_OPEN_PATH"]]
+    : process.platform === "darwin" ? ["open", [abs]] : ["xdg-open", [abs]];
+  spawn(cmd, args as string[], { detached: true, stdio: "ignore", windowsHide: true, env: { ...process.env, STUDIO_OPEN_PATH: abs } }).unref();
 }
 
 /** A tool list in Studio's words. */
@@ -123,15 +130,25 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
     return { body };
   });
 
+  const scope = (): FileScope => ({
+    projectDir: api.projectDir,
+    home: o.home(),
+    listed: () => {
+      if (listed.size === 0) loadAll().forEach((l) => [...l.instructions, ...l.subagents].forEach((f) => listed.add(path.resolve(f.abs))));
+      return listed;
+    },
+  });
+
+  api.route("GET", "/files/read", (req) => readProjectFile(scope(), req.query.path, req.query.from));
+
   api.route("POST", "/files/open", (req) => {
-    const p = (req.body as { path?: unknown } | undefined)?.path;
-    if (typeof p !== "string" || !p) return { status: 400, body: { error: "body must be { path: string }" } };
-    if (listed.size === 0) loadAll().forEach((l) => [...l.instructions, ...l.subagents].forEach((f) => listed.add(path.resolve(f.abs))));
-    const home = o.home();
-    const abs = path.resolve(p.startsWith("~/") ? path.join(home, p.slice(2)) : path.isAbsolute(p) ? p : path.join(api.projectDir, p));
-    const target = listed.has(abs) ? abs : listed.has(path.join(abs, "SKILL.md")) ? path.join(abs, "SKILL.md") : null;
-    if (!target) return { status: 403, body: { error: "Only a file this page lists can be opened." } };
-    (o.open ?? openWithSystem)(target);
+    const b = req.body as { path?: unknown; from?: unknown } | undefined;
+    if (typeof b?.path !== "string" || !b.path) return { status: 400, body: { error: "body must be { path: string, from?: string }" } };
+    const r = resolveProjectFile(scope(), b.path, b.from);
+    if (!r.ok) return { status: r.status, body: { error: r.error } };
+    // The resolved name decides too: a .md link to a program is still a program.
+    if (!openableInEditor(r.abs) || !openableInEditor(r.real)) return { status: 403, body: { error: `Studio opens text files only, not ${r.shown}.` } };
+    (o.open ?? openWithSystem)(r.real);
     return { status: 204 };
   });
 }

@@ -94,6 +94,8 @@ const ALLOW: Array<{ methods: string[] | "any"; path: RegExp }> = [
 const DENY: Array<{ path: RegExp; except?: string[] }> = [
   // Opens a window on the machine, which nobody remote can see.
   { path: /^\/v1\/ext\/studio\/window(\/.*)?$/i },
+  // Opens a file in an app on the machine; a paired browser reads it in Studio's viewer instead.
+  { path: /^\/v1\/ext\/studio\/files\/open\/?$/i },
   // Remote control itself: a paired browser may not pair others, turn it off or revoke anyone.
   { path: /^\/v1\/ext\/studio\/remote(\/.*)?$/i },
   // Updates install and restart software on the computer. A paired browser may read their status (GET /updates, /updates/run), nothing else.

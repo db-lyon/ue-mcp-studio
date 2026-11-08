@@ -10,6 +10,8 @@ describe("remotePath", () => {
     // Compacting keeps the whole transcript, so a paired phone may ask for it like any message.
     expect(remotePath("POST", "/v1/ext/studio/sessions/1/compact")).toBe("/v1/ext/studio/sessions/1/compact");
     expect(remotePath("POST", "/v1/editor/restart")).toBe("/v1/editor/restart");
+    // The file viewer reads a file; opening one in an app on the computer stays there.
+    expect(remotePath("GET", "/v1/ext/studio/files/read?path=.wiki%2FDecisions.md")).toBe("/v1/ext/studio/files/read?path=.wiki%2FDecisions.md");
     for (const [m, p] of [
       ["POST", "/v1/mcp"],
       ["POST", "/v1/shutdown"],
@@ -17,6 +19,7 @@ describe("remotePath", () => {
       ["POST", "/v1/update/apply"],
       ["POST", "/v1/plugins/install"],
       ["POST", "/v1/ext/studio/window"],
+      ["POST", "/v1/ext/studio/files/open"],
       ["GET", "/v1/ext/remote/status"],
       ["POST", "/v1/health"],
       ["GET", "/ui/../v1/mcp"],

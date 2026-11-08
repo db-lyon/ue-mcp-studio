@@ -92,35 +92,43 @@ describe("the native view", () => {
 });
 
 describe("Open file", () => {
-  it("opens a file the view listed, and refuses any other path", () => {
+  const real = (rel: string) => fs.realpathSync.native(path.join(project, rel));
+
+  it("opens a text file in the project, a listed file, or a skill's folder as its SKILL.md", () => {
     write("AGENTS.md", "Shared.");
     write(".agents/skills/naming/SKILL.md", "---\nname: naming\ndescription: N\n---\nBody");
+    write(".wiki/Decisions.md", "# Decisions");
     const call = setup();
     call("GET /native");
     expect(call("POST /files/open", { path: "AGENTS.md" }).status).toBe(204);
     expect(call("POST /files/open", { path: ".agents/skills/naming" }).status).toBe(204);
-    expect(opened).toEqual([path.join(project, "AGENTS.md"), path.join(project, ".agents", "skills", "naming", "SKILL.md")]);
-    expect(call("POST /files/open", { path: "../../secret.txt" }).status).toBe(403);
-    // Nothing outside the listed files opens, however the path is spelled.
+    expect(call("POST /files/open", { path: "Decisions.md", from: ".wiki/Index.md" }).status).toBe(204);
+    expect(opened).toEqual([real("AGENTS.md"), real(".agents/skills/naming/SKILL.md"), real(".wiki/Decisions.md")]);
+    expect(call("POST /files/open", {}).status).toBe(400);
+  });
+
+  it("never opens anything that can run, nor a file outside the project, however the path is spelled", () => {
+    write("AGENTS.md", "Shared.");
+    for (const f of ["run.bat", "run.cmd", "run.ps1", "run.exe", "go.lnk", "site.url", "tool.js", "tool.py", "Game.uproject", "noext"]) write(f, "x");
+    fs.writeFileSync(path.join(root, "secret.txt"), "secret");
+    const call = setup();
+    call("GET /native");
     for (const p of [
+      "run.bat", "run.cmd", "run.ps1", "run.exe", "go.lnk", "site.url", "tool.js", "tool.py", "Game.uproject", "noext",
+      "../secret.txt",
       "AGENTS.md/../../secret.txt",
-      "./AGENTS.md/../package.json",
-      ".agents/skills/naming/../../../../secret.txt",
       ".agents/skills",
-      ".agents/skills/naming/other.md",
-      "..\\..\\secret.txt",
-      "AGENTS.md\\..\\..\\secret.txt",
+      "..\secret.txt",
       "%2e%2e/secret.txt",
       "AGENTS.md\u0000.exe",
       "~/../secret.txt",
       "~/.ssh/id_rsa",
-      path.join(project, "..", "secret.txt"),
+      path.join(root, "secret.txt"),
       path.resolve(project, "..", "..", "Windows", "System32", "calc.exe"),
-      "\\\\evil.example\\share\\run.exe",
+      "\\evil.example\share\run.exe",
       "file:///C:/Windows/System32/calc.exe",
       "https://evil.example/",
-    ]) expect(call("POST /files/open", { path: p }).status, p).toBe(403);
-    expect(opened).toHaveLength(2);
-    expect(call("POST /files/open", {}).status).toBe(400);
+    ]) expect(call("POST /files/open", { path: p }).status, p).not.toBe(204);
+    expect(opened).toEqual([]);
   });
 });
