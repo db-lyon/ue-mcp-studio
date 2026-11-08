@@ -8,7 +8,7 @@ Studio runs in its own window beside the editor, in a separate process, so the c
 
 Close the project in Unreal, then either:
 
-- **Run the installer**, [UE-MCP-Studio-Setup.exe](https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/UE-MCP-Studio-Setup.exe). It checks for Node.js 20 or newer and offers to install it, lets you pick one of your Unreal projects, and runs the command below. It needs no administrator rights.
+- **Install the UE-MCP app**, [UE-MCP-Setup.exe](https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/UE-MCP-Setup.exe). It installs for your Windows user with no administrator rights, checks for Node.js 20 or newer and offers to install it. The app lists your Unreal projects: choose **Add Studio** on one and it runs the command below. It also launches the editor, opens each project's Studio, shows what has an update across your projects, and lists the ue-mcp daemons running with their logs. It does not hold the chat, which stays in each project's Studio.
 - **Or run one command** in your project folder, the one holding the `.uproject`:
 
   ```bash
@@ -19,7 +19,7 @@ Either way the project gets the Studio editor plugin for its engine, Studio itse
 
 Unreal Engine 5.7 and 5.8 on Windows, with Node.js installed. The **Updates** card under **Settings > General** keeps ue-mcp, the plugin and Studio current with one button. An update that restarts ue-mcp or the editor waits until no turn is running; **Restart now** installs it at once and stops the turn.
 
-Studio comes as two packages, each with its own releases: the editor plugin from [db-lyon/ue-mcp-studio-plugin](https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest), which you can also unzip into your project's `Plugins/` folder by hand, and the agent and UI from [this repository's releases](https://github.com/db-lyon/ue-mcp-studio/releases/latest): `studio-<version>.zip` and `latest.json`, which the plugin and `npx ue-mcp install studio` follow.
+Studio comes as two packages, each with its own releases: the editor plugin from [db-lyon/ue-mcp-studio-plugin](https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest), which you can also unzip into your project's `Plugins/` folder by hand, and the agent and UI from [this repository's releases](https://github.com/db-lyon/ue-mcp-studio/releases/latest): `studio-<version>.zip` and `latest.json`, which the plugin and `npx ue-mcp install studio` follow, and `UE-MCP-Setup.exe`, the UE-MCP app.
 
 ## Models
 
