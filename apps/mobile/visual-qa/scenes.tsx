@@ -111,7 +111,7 @@ const LONG_TITLE = "Core game loop revisions";
 const LONG_OLDER = longThread(false);
 const LONG_NEWEST = longThread(true);
 
-/** An older long reply between a table, the user's own message and a finished shell step: the rows around a Show more. */
+/** An older long reply between a table, the user's own message and a finished shell step folded to one row: the rows around a Show more. */
 function betweenThread(): Scenario {
   const base = SCENARIOS["steps-folded"];
   const at = ago(5);
@@ -222,7 +222,7 @@ export const SCENES: Record<string, Scene> = {
   },
   "thread-show-more-folded": { title: "A long reply above a newer turn: folded at 400 dp, faded into the panel, Show more centred under it", clicks: [LONG_TITLE], draw: () => <InProject name="steps-folded" scenario={LONG_OLDER} /> },
   "thread-show-more-expanded": { title: "That reply opened: its last piece, Show less centred under it", clicks: [LONG_TITLE, "Show more"], draw: () => <InProject name="steps-folded" scenario={LONG_OLDER} /> },
-  "thread-show-more-between": { title: "An older long reply opened between a table, the user's message and a shell step: each row below the last", clicks: [LONG_TITLE, "Show more"], draw: () => <InProject name="steps-folded" scenario={LONG_BETWEEN} /> },
+  "thread-show-more-between": { title: "An older long reply opened between a table, the user's message and a folded shell step: each row below the last", clicks: [LONG_TITLE, "Show more"], draw: () => <InProject name="steps-folded" scenario={LONG_BETWEEN} /> },
   "thread-newest-long": { title: "A reply about 6000 dp tall as the newest line: never folded, drawn as pieces", clicks: [LONG_TITLE], draw: () => <InProject name="steps-folded" scenario={LONG_NEWEST} /> },
   "composer-long-draft-keyboard": {
     title: "A long draft with the keyboard up: the box stops at the room above the keys and scrolls, the bar stays on the keys",

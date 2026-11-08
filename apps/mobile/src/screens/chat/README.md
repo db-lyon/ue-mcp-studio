@@ -8,7 +8,7 @@ The app ports the web client one file to one file: `apps/client-web/src/chat/X.t
 |---|---|---|
 | Chat orchestration (list or open session, session sync, events, send/queue/stop, where every card goes) | `src/views/Chat.tsx` (`Chat`) | integrator (chat-core) |
 | Sessions list, row menu (rename, archive, delete), header, threads and subagent tiles, queue, sheet, skeletons | `src/chat/SessionRow.tsx`, `ChatHeader.tsx`, `Threads.tsx`, `Queue.tsx`, `Sheet.tsx`, `Skeleton.tsx` | integrator (chat-core) |
-| Transcript container (messages, markdown and code, asset links and tiles, attachments, tool rows and lazy results, progress folding, subagent threads, streaming, new-messages pill) | `src/chat/Transcript.tsx` (`MainTranscript`, `SubagentThread`), `AssetLink.tsx`, `AssetTile.tsx`; markdown in `src/ui/Markdown.tsx` | integrator (transcript) |
+| Transcript container (messages, markdown and code, asset links and tiles, attachments, tool rows and lazy results, folded runs of tool calls, subagent threads, streaming, new-messages pill) | `src/chat/Transcript.tsx` (`MainTranscript`, `SubagentThread`), `AssetLink.tsx`, `AssetTile.tsx`; markdown in `src/ui/Markdown.tsx` | integrator (transcript) |
 | Transcript item cards | `src/screens/chat/items/` | area-c |
 | Composer and pickers | `src/screens/chat/composer/` (moved from `src/chat/Composer.tsx` and friends) | area-d |
 | Shell (bar, drawer, banners, overlays, lock) | `src/AppShell.tsx`, `src/views/*` | integrator |
