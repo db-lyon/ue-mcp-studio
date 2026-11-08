@@ -231,34 +231,23 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     return true;
   };
 
-  /** Return's modifiers, from the key press that comes before the submit. */
-  const enter = useRef({ shift: false, ctrl: false });
   const key = (k: MenuKey): boolean => {
     if (slash.keyDown(k)) return true;
     if (!slash.open && mention.keyDown(k)) return true;
     return false;
   };
-  const submit = () => {
-    const mods = enter.current;
-    enter.current = { shift: false, ctrl: false };
-    if (key({ key: "Enter", shiftKey: mods.shift, ctrlKey: mods.ctrl, metaKey: false })) return;
-    if (!canSend) return;
-    if (!busy) send();
-    else if (mods.ctrl) sendNow?.();
-    else queue?.();
-  };
+  // On a phone the keyboard's Enter is a new line and the send button sends. On the web Enter sends, Shift+Enter is a new line.
   const onKeyPress = (e: TextInputKeyPressEvent) => {
     const n = e.nativeEvent as typeof e.nativeEvent & { shiftKey?: boolean; ctrlKey?: boolean; metaKey?: boolean };
-    if (n.key === "Enter") {
-      enter.current = { shift: !!n.shiftKey, ctrl: !!(n.ctrlKey || n.metaKey) };
-      // react-native-web submits a multiline box only by blurring it: there Enter sends here, and Shift+Enter is a new line.
-      if (Platform.OS === "web" && !n.shiftKey) {
-        e.preventDefault?.();
-        submit();
-      }
-      return;
-    }
-    if (key({ key: n.key, shiftKey: !!n.shiftKey, ctrlKey: !!n.ctrlKey, metaKey: !!n.metaKey })) e.preventDefault?.();
+    const ev = { key: n.key, shiftKey: !!n.shiftKey, ctrlKey: !!n.ctrlKey, metaKey: !!n.metaKey };
+    if (ev.key === "Enter" && (Platform.OS !== "web" || ev.shiftKey)) return;
+    if (key(ev)) return e.preventDefault?.();
+    if (ev.key !== "Enter") return;
+    e.preventDefault?.();
+    if (!canSend) return;
+    if (!busy) send();
+    else if (ev.ctrlKey || ev.metaKey) sendNow?.();
+    else queue?.();
   };
 
   const closed = busy && !onQueue;
@@ -321,8 +310,6 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           cursorColor={t.c.accent}
           editable={!closed}
           scrollEnabled={fit.scroll}
-          submitBehavior="submit"
-          returnKeyType={busy ? "default" : "send"}
           selection={mention.selection}
           onChangeText={onDraft}
           onSelectionChange={(e) => mention.track(e.nativeEvent.selection)}
@@ -333,7 +320,6 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
             onBlur();
           }}
           onKeyPress={onKeyPress}
-          onSubmitEditing={submit}
           {...(slash.open ? slash.a11y : mention.a11y)}
           onLayout={(e) => setLaidBox(e.nativeEvent.layout.height)}
           style={[s.box, textFont, { height: fit.height }, closed && { color: t.c.dim }]}
