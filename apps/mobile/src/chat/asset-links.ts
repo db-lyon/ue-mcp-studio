@@ -7,7 +7,7 @@ import { createContext, useContext, useEffect, useMemo, useSyncExternalStore } f
 import { AssetLinks, LINK_PENDING, type LinkState } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 
-export { AssetLinks, RETRY_MS, remarkAssets, splitText, stepParts, stepPlain, type LinkState, type Resolve, type StepPart } from "@ue-mcp-studio/client-core";
+export { AssetLinks, RETRY_MS, splitText, stepParts, stepPlain, type LinkState, type Resolve, type StepPart } from "@ue-mcp-studio/client-core";
 
 /** The open session's resolutions; null outside a session, where tokens stay plain. */
 export const AssetLinksContext = createContext<AssetLinks | null>(null);

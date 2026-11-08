@@ -36,7 +36,8 @@ import {
   type Call,
 } from "@ue-mcp-studio/client-core";
 import { useFollow, useNow } from "./hooks";
-import { AssetAnchorContext, AssetTranscriptContext, remarkAssets } from "./asset-links";
+import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
+import { remarkReplyLinks } from "@ue-mcp-studio/client-core";
 import { AssetToken, ExactAssetLink, LinkedText } from "./AssetLink";
 import type { Components } from "react-markdown";
 import { useSlot } from "../extensions/registry";
@@ -274,7 +275,7 @@ const REPLY_COMPONENTS: Components = {
     return token ? <AssetToken token={token} code={false} /> : <span {...props}>{children}</span>;
   },
 };
-const REPLY_PLUGINS = [remarkGfm, remarkBreaks, remarkAssets];
+const REPLY_PLUGINS = [remarkGfm, remarkBreaks, remarkReplyLinks];
 
 /**
  * A model reply, rendered as markdown without raw HTML; a single line break

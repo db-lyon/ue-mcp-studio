@@ -16,7 +16,7 @@ import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import remarkRehype from "remark-rehype";
-import { remarkAssets } from "@ue-mcp-studio/client-core";
+import { remarkReplyLinks } from "@ue-mcp-studio/client-core";
 import { baseFont, font, italic, labelFont, monoNormal } from "./Text";
 import { useTheme } from "./ThemeProvider";
 import type { Theme } from "./theme";
@@ -60,7 +60,7 @@ function processor(breaks: boolean, assets: boolean) {
   if (!p) {
     let u = unified().use(remarkParse).use(remarkGfm) as never as Processor;
     if (breaks) u = u.use(remarkBreaks) as never;
-    if (assets) u = u.use(remarkAssets as never) as never;
+    if (assets) u = u.use(remarkReplyLinks as never) as never;
     p = u.use(remarkRehype) as never;
     processors.set(key, p!);
   }
