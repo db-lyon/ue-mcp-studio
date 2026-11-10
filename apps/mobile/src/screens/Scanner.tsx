@@ -1,10 +1,11 @@
 /**
  * The pairing code scanner: the camera full screen behind a viewfinder, the
- * torch for a dim room, and Scan from a picture for a code saved or
- * screenshotted. The first code read goes to pairing, with a haptic tick; a
- * picture without one says so. The camera permission is asked in place, as a
- * pairing state in the relay's look, and once refused for good the system
- * settings are one press away. The permission is read again whenever
+ * torch for a dim room, Scan from a picture for a code saved or
+ * screenshotted, and Paste pairing link for the link Studio copies under the
+ * code. The first code read goes to pairing, with a haptic tick; a picture or
+ * a clipboard without one says so. The camera permission is asked in place,
+ * as a pairing state in the relay's look, and once refused for good the
+ * system settings are one press away. The permission is read again whenever
  * the app comes back to the front, so a camera turned on in the settings
  * opens on return instead of leaving the refusal on screen.
  */
@@ -14,6 +15,8 @@ import { Camera, CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import Svg, { Path } from "react-native-svg";
 import { haptic } from "../native/haptics";
+import { readClipboard } from "../native/clipboard";
+import { isPairLink } from "../relay";
 import { Banner, bannerText, Button, font, T, useInsets, useTheme, Waiting } from "../ui";
 import { Page, StateView } from "./StudioPage";
 import { Code } from "./Pairing";
@@ -22,6 +25,7 @@ const FRAME = 248;
 /** The camera's picture outside the frame. */
 const DIM = "rgba(0, 0, 0, 0.5)";
 const NO_CODE = "No pairing code in that picture. Pick one that shows the whole code.";
+const NO_LINK = "The clipboard has no pairing link. In Studio on your computer, choose Copy link under the code, then paste again.";
 
 /** The scanner's round buttons over the camera: a dark disc, its glyph, 44 points. */
 function Round({ label, onPress, on, children, role = "button" }: { label: string; onPress: () => void; on?: boolean; children: ReactNode; role?: "button" | "switch" }) {
@@ -85,6 +89,14 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
     setNote(NO_CODE);
   };
 
+  const fromClipboard = async () => {
+    setNote(null);
+    const text = (await readClipboard()).trim();
+    if (isPairLink(text)) return take(text);
+    haptic.error();
+    setNote(NO_LINK);
+  };
+
   if (!permission)
     return (
       <Page stage title="Scan pairing code" onBack={onCancel}>
@@ -101,12 +113,13 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
         <StateView
           glyph={ask ? "camera" : "camera-off"}
           title={ask ? "This app needs the camera" : "The camera is off for this app"}
-          lead={ask ? "It reads the pairing code on your computer's screen, and only while this screen is open." : "Turn the camera on for UE-MCP Studio in this phone's settings, or scan a picture of the code instead."}
+          lead={ask ? "It reads the pairing code on your computer's screen, and only while this screen is open." : "Turn the camera on for UE-MCP Studio in this phone's settings, or scan a picture of the code or paste its link instead."}
           note={note ? <NoteBanner text={note} /> : null}
           actions={
             <>
               {ask ? <Button title="Allow camera" variant="primary" size="large" onPress={() => void requestPermission()} /> : <Button title="Open settings" variant="primary" size="large" onPress={() => void Linking.openSettings()} />}
               <Button title="Scan from a picture" size="large" onPress={() => void fromPicture()} />
+              <Button title="Paste pairing link" size="large" onPress={() => void fromClipboard()} />
             </>
           }
         />
@@ -169,6 +182,7 @@ export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; 
         </T>
         {note ? <NoteBanner text={note} /> : null}
         <Button title="Scan from a picture" size="large" onPress={() => void fromPicture()} />
+        <Button title="Paste pairing link" size="large" onPress={() => void fromClipboard()} />
       </View>
     </View>
   );

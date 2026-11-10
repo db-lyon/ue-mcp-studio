@@ -289,6 +289,29 @@ describe("scanner", () => {
     spy.mockRestore();
   });
 
+  it("pairs with a link on the clipboard, and says when there is none", async () => {
+    const codes: string[] = [];
+    clip.text = "a shopping list";
+    render(<Scanner onCode={(c) => codes.push(c)} onCancel={() => undefined} />);
+    fireEvent.click(screen.getByText("Paste pairing link"));
+    await settle();
+    expect(screen.getByText(/The clipboard has no pairing link/)).toBeTruthy();
+    expect(codes).toEqual([]);
+    clip.text = `  ${LINK}\n`;
+    fireEvent.click(screen.getByText("Paste pairing link"));
+    await settle();
+    expect(codes).toEqual([LINK]);
+  });
+
+  it("offers the paste with the camera refused", async () => {
+    const codes: string[] = [];
+    clip.text = LINK;
+    g.__qaCamera = { granted: false, canAskAgain: false, status: "denied" };
+    render(<Scanner onCode={(c) => codes.push(c)} onCancel={() => undefined} />);
+    fireEvent.click(screen.getByText("Paste pairing link"));
+    await settle();
+    expect(codes).toEqual([LINK]);
+  });
 });
 
 describe("Projects and Devices", () => {
