@@ -6,13 +6,25 @@
  * (__qaCameraFeed) the view draws a stand-in for the camera's picture: a
  * computer's screen with a code on it.
  */
+import { useCallback, useState } from "react";
 import { Pressable, Text, View } from "react-native";
 
 type Permission = { granted: boolean; canAskAgain: boolean; status: string };
 export const permission: Permission = { granted: true, canAskAgain: true, status: "granted" };
 const g = globalThis as { __qaCamera?: Permission | null; __scan?: string; __scanPicture?: string; __qaCameraFeed?: boolean };
 
-export const useCameraPermissions = () => [g.__qaCamera === undefined ? permission : g.__qaCamera, async () => g.__qaCamera ?? permission] as const;
+const current = () => (g.__qaCamera === undefined ? permission : g.__qaCamera);
+
+/** As expo's hook: the status read on mount, and again only when request or get is called. */
+export const useCameraPermissions = () => {
+  const [status, setStatus] = useState(current);
+  const read = useCallback(async () => {
+    const now = current();
+    setStatus(now);
+    return now ?? permission;
+  }, []);
+  return [status, read, read] as const;
+};
 
 export const Camera = {
   scanFromURLAsync: async (_uri: string, _types?: string[]) => (g.__scanPicture ? [{ data: g.__scanPicture, type: "qr" }] : []),
