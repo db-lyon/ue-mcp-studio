@@ -32,7 +32,7 @@ import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../cha
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
-import { DetailLoader } from "@ue-mcp-studio/client-core";
+import { DetailLoader, sessionGone } from "@ue-mcp-studio/client-core";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
@@ -86,6 +86,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** An action that failed. A session deleted meanwhile is not an error: the list drops it. */
+  const fail = (e: Error) => (sessionGone(e) ? undefined : setError(e.message));
   const seenEvent = useRef(0);
   const streamed = useRef("");
   const [streaming, setStreaming] = useState("");
@@ -115,7 +117,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     setSlow(false);
     // A session the location names but that is gone (deleted elsewhere) is not opened.
     setSelected((cur) => (cur && !r.sessions.some((x) => x.id === cur) ? null : cur));
-  }, (e: Error) => setError(e.message));
+  }, fail);
   // Only what changed since the last answer, one request at a time however many events ask.
   const detailLoader = useMemo(() => new DetailLoader(
     (id, have) => api.sessionSync(id, have),
@@ -124,6 +126,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
       setDraft((cur) => (cur ? cur : d.draft));
     },
     (e) => setError(e.message),
+    // A session deleted meanwhile closes quietly instead of showing an error.
+    { gone: (id) => (setSelected((cur) => (cur === id ? null : cur)), setDetail((d) => (d?.id === id ? null : d))) },
   ), []);
   const loadDetail = (id: string) => detailLoader.load(id);
 
@@ -203,7 +207,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     if (prompt) await api.saveDraft(d.id, prompt);
     void loadList();
     setSelected(d.id);
-  }).catch((e: Error) => setError(e.message));
+  }).catch(fail);
 
   const [sent, setSent] = useState(0);
   const canSend = !!selected && !disconnected && !attach.uploading && (draft.trim().length > 0 || attach.ready.length > 0);
@@ -293,7 +297,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     if (!selected) return;
     const id = selected;
     setSent((n) => n + 1);
-    api.compact(id, instructions).then(() => loadDetail(id), (e: Error) => setError(e.message));
+    api.compact(id, instructions).then(() => loadDetail(id), fail);
   };
   const catalog = useCatalog(settings);
   const nameOf = (id: string): string => {
@@ -320,11 +324,11 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
         void loadList();
         setSelected(r.sessionId);
       } else void loadDetail(selected);
-    }, (e: Error) => setError(e.message));
+    }, fail);
   }, [selected]);
   const queueCall = (p: Promise<unknown>) => void p.then(() => {
     if (selected) void loadDetail(selected);
-  }, (e: Error) => setError(e.message));
+  }, fail);
 
   // Files dropped anywhere on the conversation are added to the message being written.
   const hasFiles = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
@@ -358,7 +362,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     if (id) markSeen(id);
   }, [markSeen]);
   const stopSubagent = (id: string) => {
-    if (selected) void api.stopSubagent(selected, id).catch((e: Error) => setError(e.message));
+    if (selected) void api.stopSubagent(selected, id).catch(fail);
   };
 
   const busy = detail?.status === "running" || detail?.status === "waiting";
@@ -371,7 +375,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
         run: (request: PlaytestRequest) => {
           setThread(null);
           setSent((n) => n + 1);
-          api.playtest(detail.id, request).then(() => loadDetail(detail.id), (e: Error) => setError(e.message));
+          api.playtest(detail.id, request).then(() => loadDetail(detail.id), fail);
         },
       }
     : null), [detail?.id, disconnected, busy]);
@@ -593,7 +597,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
               extras={<Slot name="composer.action" ctx={{ sessionId: detail.id, draft, setDraft, busy, addFiles: attach.add }} />}
               stage={stage}
               height={settings?.composerHeight ?? null}
-              onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, (e: Error) => setError(e.message))}
+              onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, fail)}
               picker={<>
                 {settings && <ModelAndEffort settings={settings} onSettings={setSettings} />}
                 {settings && (

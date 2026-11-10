@@ -43,6 +43,18 @@ export type FetchSync = (id: string, have: string | undefined, page?: SyncPage) 
 export interface DetailLoaderOptions {
   /** Hold only this many of the newest entries at first; older ones come a page of this size at a time. */
   tail?: number;
+  /**
+   * The session is gone (deleted here or elsewhere). Called instead of the
+   * failure, because a deleted session is not an error to show: a refresh an
+   * event asked for can land just after the delete.
+   */
+  gone?: (id: string) => void;
+}
+
+/** The daemon answered that the session does not exist: 404 with "no session <id>". */
+export function sessionGone(e: unknown): boolean {
+  const status = (e as { status?: unknown } | null)?.status;
+  return status === 404 && e instanceof Error && /^no session\b/.test(e.message);
 }
 
 export class DetailLoader {
@@ -113,7 +125,8 @@ export class DetailLoader {
         this.apply(detail);
       } catch (e) {
         if (this.held?.id === id) this.held = null;
-        this.fail(e instanceof Error ? e : new Error(String(e)));
+        if (sessionGone(e) && this.options.gone) this.options.gone(id);
+        else this.fail(e instanceof Error ? e : new Error(String(e)));
       }
     }
   }
@@ -134,7 +147,8 @@ export class DetailLoader {
       this.held = { ...held, detail };
       this.apply(detail);
     } catch (e) {
-      this.fail(e instanceof Error ? e : new Error(String(e)));
+      if (sessionGone(e) && this.options.gone) this.options.gone(id);
+      else this.fail(e instanceof Error ? e : new Error(String(e)));
     }
   }
 }
