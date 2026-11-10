@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.uemcp.studio.remote",
-      "versionCode": 31,
+      "versionCode": 32,
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png",
@@ -90,7 +90,6 @@
         "expo-image-picker",
         {
           "photosPermission": "UE-MCP Studio attaches the images you pick to a message, and reads a pairing code from a saved picture.",
-          "cameraPermission": false,
           "microphonePermission": false
         }
       ],

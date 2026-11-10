@@ -31,6 +31,15 @@ describe("app.json", () => {
   it("keeps Android from backing up and restoring the app's data", () => {
     expect(app.android?.allowBackup).toBe(false);
   });
+
+  // Builds up to 31: expo-image-picker given cameraPermission: false blocks android.permission.CAMERA
+  // (tools:node="remove"), which also takes it from expo-camera. The scanner could never be allowed the
+  // camera, and Android settings did not even list it.
+  it("blocks no plugin from declaring the camera, which the scanner needs", () => {
+    expect(app.android?.permissions).toContain("android.permission.CAMERA");
+    expect(app.android?.blockedPermissions ?? []).not.toContain("android.permission.CAMERA");
+    for (const p of app.plugins) if (Array.isArray(p)) expect(p[1]?.cameraPermission, String(p[0])).not.toBe(false);
+  });
 });
 
 describe("the generated Android manifest", () => {
