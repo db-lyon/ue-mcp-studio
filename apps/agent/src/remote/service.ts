@@ -14,12 +14,15 @@ import {
   ReplayGuard,
   ResponseSealer,
   b64u,
+  listedPairingCode,
   openRequest,
+  pairCommit,
   pairingCode,
   randomBytes,
   remoteBodyAllowed,
   remotePath,
   verifyPairingMac,
+  type EnrollListed,
   type EnrollPending,
   type EnrollRequest,
   type PlainRequest,
@@ -70,9 +73,16 @@ export interface PairingApproval {
 
 interface Approval extends PairingApproval {
   phonePublic: string;
-  state: "pending" | "allowed" | "denied";
+  /** "committed": a pairing from the list waiting for the client to reveal its nonce; not shown to the owner yet. */
+  state: "committed" | "pending" | "allowed" | "denied";
   phoneId?: string;
+  /** A pairing from the list: the client's commitment and this computer's nonce. */
+  commit?: string;
+  nonce?: string;
 }
+
+/** 32 bytes as unpadded base64url: a nonce, or the commitment to one. */
+const B64U_32 = /^[\w-]{43}$/;
 
 /** How long a decided approval is kept so the browser's next poll still learns the answer. */
 const DECIDED_KEEP_MS = 5 * 60_000;
@@ -183,7 +193,9 @@ export class RemoteService {
       return sink.fail(400, "Malformed enrollment.");
     }
     this.prune();
-    if (typeof e.poll === "string") return this.answerPoll(e.poll, sink);
+    if (typeof e.poll === "string") return this.answerPoll(e.poll, sink, typeof (e as { reveal?: unknown }).reveal === "string" ? (e as { reveal: string }).reveal : undefined);
+    const listed = e as Partial<EnrollListed>;
+    if (listed.listed === true) return this.enrollListed(listed, sink);
     if (typeof e.phonePublic !== "string" || typeof e.mac !== "string") return sink.fail(400, "Malformed enrollment.");
     const me = await this.o.keys.identity();
     const secrets = this.secrets();
@@ -209,9 +221,42 @@ export class RemoteService {
     sink.fail(403, "That pairing code is used, expired, or for another computer. Make a new one.");
   }
 
-  private async answerPoll(id: string, sink: CallSink): Promise<void> {
+  /**
+   * A client already signed in to the account, pairing from the list without a
+   * code. Nothing is shown yet: the computer answers with its nonce, and the
+   * approval comes up once the client reveals the nonce it committed to.
+   */
+  private async enrollListed(e: Partial<EnrollListed>, sink: CallSink): Promise<void> {
+    if (typeof e.phonePublic !== "string" || typeof e.commit !== "string" || !B64U_32.test(e.commit)) return sink.fail(400, "Malformed enrollment.");
+    const approval: Approval = {
+      id: b64u(randomBytes(16)),
+      label: (typeof e.label === "string" ? e.label : "Browser").slice(0, 120) || "Browser",
+      code: "",
+      expiresAt: new Date(this.now() + PAIR_APPROVAL_TTL_MS).toISOString(),
+      phonePublic: e.phonePublic,
+      state: "committed",
+      commit: e.commit,
+      nonce: b64u(randomBytes(32)),
+    };
+    this.approvals.set(approval.id, approval);
+    const pending: EnrollPending = { approval: approval.id, expiresAt: approval.expiresAt, nonce: approval.nonce };
+    return this.json(sink, 202, pending);
+  }
+
+  private async answerPoll(id: string, sink: CallSink, reveal?: string): Promise<void> {
     const a = this.approvals.get(id);
     if (!a) return sink.fail(403, "The computer no longer knows this request. Make a new code.");
+    if (a.state === "committed") {
+      // The nonce must be the one committed to before this computer's was known; anything else ends the request.
+      if (!reveal || !B64U_32.test(reveal) || (await pairCommit(reveal)) !== a.commit) {
+        a.state = "denied";
+        return sink.fail(403, "The pairing request did not check out. Try again.");
+      }
+      const me = await this.o.keys.identity();
+      a.code = await listedPairingCode(a.phonePublic, me.publicKey, a.nonce!, reveal);
+      a.state = "pending";
+      this.o.onApproval?.({ id: a.id, label: a.label, code: a.code, expiresAt: a.expiresAt });
+    }
     if (a.state === "allowed" && a.phoneId) {
       const me = await this.o.keys.identity();
       this.approvals.delete(id);

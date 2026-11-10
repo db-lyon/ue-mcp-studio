@@ -30,19 +30,35 @@ export interface EnrollRequest {
   label: string;
 }
 
-/** A browser asking again how the owner answered its enrollment. */
+/**
+ * A client already signed in to the account, pairing with a computer from the
+ * account's list instead of its code: its public key and the commitment to its
+ * nonce (pairCommit). The computer answers 202 with its own nonce, and shows
+ * the approval only once the client's first poll reveals the nonce.
+ */
+export interface EnrollListed {
+  listed: true;
+  phonePublic: string;
+  commit: string;
+  label: string;
+}
+
+/** A browser asking again how the owner answered its enrollment; a pairing from the list reveals its nonce here. */
 export interface EnrollPoll {
   poll: string;
+  reveal?: string;
 }
 
 /**
  * The computer's answer to an enrollment the owner has not decided yet: HTTP
  * 202 with this. The browser asks again with EnrollPoll until a 200 (allowed)
- * or a refusal (denied, or no answer by expiresAt).
+ * or a refusal (denied, or no answer by expiresAt). `nonce` answers a pairing
+ * from the list.
  */
 export interface EnrollPending {
   approval: string;
   expiresAt: string;
+  nonce?: string;
 }
 
 /** Connector to relay. Chunk data is base64; for a sealed call it is response frames. */
