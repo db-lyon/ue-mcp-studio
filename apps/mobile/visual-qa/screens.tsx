@@ -24,7 +24,7 @@ export const APP_SCREENS: Record<string, () => ReactElement> = {
   welcome: () => <Welcome onScan={none} onLink={none} />,
   "pairing-code": () => <Pairing step={{ kind: "code", code: "482913" }} />,
   "pairing-status": () => <Pairing step={{ kind: "status", text: "Waiting for your computer" }} />,
-  projects: () => <Projects onOpen={none} onPair={none} onSettings={none} onUnpaired={none} />,
+  projects: () => <Projects onOpen={none} onPair={none} onPairWith={none} onSettings={none} onUnpaired={none} />,
   devices: () => <Settings onBack={none} onRemoved={none} onAbout={none} />,
   about: () => <About onBack={none} />,
   scanner: () => <Scanner onCode={none} onCancel={none} />,

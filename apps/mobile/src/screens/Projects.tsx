@@ -19,7 +19,7 @@ export function lastSeen(iso: string, now = Date.now()): string {
   return `Offline, last seen ${ago}`;
 }
 
-export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (d: Device) => void; onPair: () => void; onSettings: () => void; onUnpaired: (message: string) => void }) {
+export function Projects({ onOpen, onPair, onPairWith, onSettings, onUnpaired }: { onOpen: (d: Device) => void; onPair: () => void; onPairWith: (d: Device) => void; onSettings: () => void; onUnpaired: (message: string) => void }) {
   const t = useTheme();
   // With the phone offline, what the relay last said about each project is stale: no green dots.
   const phoneOnline = useDeviceOnline();
@@ -72,7 +72,8 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
         <ListCard>
           {rows.map((d) => {
             const paired = d.computerKey in keys;
-            // A project on a computer this phone has not paired with opens the scanner: its code is the way in.
+            // A project on a computer this phone has not paired with pairs from here, no code: the computer asks
+            // its owner, and both screens show six digits to compare. Offline, it cannot answer: its code waits.
             if (!paired)
               return (
                 <ListRow
@@ -80,9 +81,9 @@ export function Projects({ onOpen, onPair, onSettings, onUnpaired }: { onOpen: (
                   lead={<View style={{ width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: t.c.dim }} />}
                   title={d.name}
                   sub={d.online ? "Not paired with this phone" : lastSeen(d.lastSeen)}
-                  label={`Scan the code for ${d.name}`}
-                  onPress={onPair}
-                  right={<T style={t.editor ? { ...font(t, "sans", 400, 12, 1.2), color: t.c.accent } : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23, color: t.c.accentHi }}>Scan code</T>}
+                  label={d.online ? `Pair with ${d.name}` : `Scan the code for ${d.name}`}
+                  onPress={d.online ? () => onPairWith(d) : onPair}
+                  right={<T style={t.editor ? { ...font(t, "sans", 400, 12, 1.2), color: t.c.accent } : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23, color: t.c.accentHi }}>{d.online ? "Pair" : "Scan code"}</T>}
                 />
               );
             return (

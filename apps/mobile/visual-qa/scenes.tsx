@@ -195,10 +195,10 @@ export const SCENES: Record<string, Scene> = {
     draw: () => <Scanner onCode={none} onCancel={none} />,
   },
 
-  "projects": { title: "Projects: paired, opened last, on another computer, offline", setup: () => (relay({}), pairedWith(["keyA"], DEVICES[0])), draw: () => <Projects onOpen={none} onPair={none} onSettings={none} onUnpaired={none} /> },
-  "projects-loading": { title: "Projects while the relay has not answered", setup: () => (relay({ hang: true }), pairedWith(["keyA"])), draw: () => <Projects onOpen={none} onPair={none} onSettings={none} onUnpaired={none} /> },
-  "projects-empty": { title: "Projects with none connected yet", setup: () => (relay({ devices: [] }), pairedWith(["keyA"])), draw: () => <Projects onOpen={none} onPair={none} onSettings={none} onUnpaired={none} /> },
-  "projects-error": { title: "Projects when the relay answers with an error", setup: () => (relay({ status: 503 }), pairedWith(["keyA"])), draw: () => <Projects onOpen={none} onPair={none} onSettings={none} onUnpaired={none} /> },
+  "projects": { title: "Projects: paired, opened last, on another computer, offline", setup: () => (relay({}), pairedWith(["keyA"], DEVICES[0])), draw: () => <Projects onOpen={none} onPair={none} onPairWith={none} onSettings={none} onUnpaired={none} /> },
+  "projects-loading": { title: "Projects while the relay has not answered", setup: () => (relay({ hang: true }), pairedWith(["keyA"])), draw: () => <Projects onOpen={none} onPair={none} onPairWith={none} onSettings={none} onUnpaired={none} /> },
+  "projects-empty": { title: "Projects with none connected yet", setup: () => (relay({ devices: [] }), pairedWith(["keyA"])), draw: () => <Projects onOpen={none} onPair={none} onPairWith={none} onSettings={none} onUnpaired={none} /> },
+  "projects-error": { title: "Projects when the relay answers with an error", setup: () => (relay({ status: 503 }), pairedWith(["keyA"])), draw: () => <Projects onOpen={none} onPair={none} onPairWith={none} onSettings={none} onUnpaired={none} /> },
   "devices": { title: "Paired devices: this phone, other browsers, the computer it trusts", setup: () => (relay({}), pairedWith(["keyA"])), draw: () => <Settings onBack={none} onRemoved={none} onAbout={none} /> },
   "devices-loading": { title: "Paired devices while the relay has not answered", setup: () => (relay({ hang: true }), pairedWith(["keyA"])), draw: () => <Settings onBack={none} onRemoved={none} onAbout={none} /> },
   "devices-error": { title: "Paired devices when the relay answers with an error", setup: () => (relay({ status: 503 }), pairedWith(["keyA"])), draw: () => <Settings onBack={none} onRemoved={none} onAbout={none} /> },
@@ -207,7 +207,7 @@ export const SCENES: Record<string, Scene> = {
   "about-unreachable": { title: "About when the computer does not answer", setup: () => pairedWith(["keyA"], DEVICES[0]), draw: () => <About onBack={none} transport={() => unreachable} /> },
   "about-no-project": { title: "About before any project was opened", draw: () => <About onBack={none} /> },
 
-  "offline-projects": { title: "This phone offline, over the projects", setup: () => (relay({}), pairedWith(["keyA"], DEVICES[0]), (g.__qaOffline = true)), draw: () => (<><Projects onOpen={none} onPair={none} onSettings={none} onUnpaired={none} /><OfflineBanner /></>) },
+  "offline-projects": { title: "This phone offline, over the projects", setup: () => (relay({}), pairedWith(["keyA"], DEVICES[0]), (g.__qaOffline = true)), draw: () => (<><Projects onOpen={none} onPair={none} onPairWith={none} onSettings={none} onUnpaired={none} /><OfflineBanner /></>) },
   "offline-project": { title: "This phone offline, over an open project", setup: () => void (g.__qaOffline = true), draw: () => (<><InProject name="session-empty" /><OfflineBanner /></>) },
   "compat-banner": { title: "The computer's Studio is older than this app needs: the banner under the bar", draw: () => <InProject name="session-empty" hash="#/chat" transport={oldStudio} /> },
   "share-pick-session": {

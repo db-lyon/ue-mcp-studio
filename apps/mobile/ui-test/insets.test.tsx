@@ -224,7 +224,7 @@ describe("pages scroll their end clear of the bar", () => {
     const c = render(<Pairing step={{ kind: "code", code: "123456" }} />);
     expect(px(content("page"), "paddingBottom")).toBe(24 + BAR);
     c.unmount();
-    const pr = render(<Projects onOpen={none} onPair={none} onSettings={none} onUnpaired={none} />);
+    const pr = render(<Projects onOpen={none} onPair={none} onPairWith={none} onSettings={none} onUnpaired={none} />);
     const foot = screen.getByTestId("page-footer");
     expect(foot.contains(screen.getByText("Pair another computer"))).toBe(true);
     expect(px(foot, "paddingBottom")).toBe(16 + BAR);
