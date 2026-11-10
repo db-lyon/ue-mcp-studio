@@ -4,10 +4,12 @@
  * screenshotted. The first code read goes to pairing, with a haptic tick; a
  * picture without one says so. The camera permission is asked in place, as a
  * pairing state in the relay's look, and once refused for good the system
- * settings are one press away.
+ * settings are one press away. The permission is read again whenever
+ * the app comes back to the front, so a camera turned on in the settings
+ * opens on return instead of leaving the refusal on screen.
  */
-import { useRef, useState, type ReactNode } from "react";
-import { Linking, Pressable, StyleSheet, View } from "react-native";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AppState, Linking, Pressable, StyleSheet, View } from "react-native";
 import { Camera, CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 import Svg, { Path } from "react-native-svg";
@@ -51,10 +53,19 @@ function NoteBanner({ text }: { text: string }) {
 export function Scanner({ onCode, onCancel }: { onCode: (data: string) => void; onCancel: () => void }) {
   const t = useTheme();
   const insets = useInsets();
-  const [permission, requestPermission] = useCameraPermissions();
+  const [permission, requestPermission, getPermission] = useCameraPermissions();
   const [torch, setTorch] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const done = useRef(false);
+
+  // expo's hook reads the permission once, on mount. A camera turned on in the
+  // system settings is only seen if it is read again when the app is back in front.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") void getPermission().catch(() => undefined);
+    });
+    return () => sub.remove();
+  }, [getPermission]);
 
   const take = (data: string) => {
     if (done.current) return;

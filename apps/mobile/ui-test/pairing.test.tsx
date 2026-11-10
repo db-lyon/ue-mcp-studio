@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
-import { Alert, Linking } from "react-native";
+import { Alert, AppState, Linking } from "react-native";
 import type { Transport } from "@ue-mcp-studio/client-core";
 import { ApprovalCode, Paired, PairFailed, Pairing, Welcome, type PairFailure } from "../src/screens/Pairing";
 import { Scanner } from "../src/screens/Scanner";
@@ -271,6 +271,24 @@ describe("scanner", () => {
     expect(back).toBe(true);
     delete (Linking as { openSettings?: unknown }).openSettings;
   });
+
+  it("opens the camera on return from the settings once it was turned on there", async () => {
+    let onChange: ((s: string) => void) | undefined;
+    const spy = vi.spyOn(AppState, "addEventListener").mockImplementation(((_: string, fn: (s: string) => void) => ((onChange = fn), { remove: () => undefined })) as never);
+    g.__qaCamera = { granted: false, canAskAgain: false, status: "denied" };
+    render(<Scanner onCode={() => undefined} onCancel={() => undefined} />);
+    expect(screen.getByText("The camera is off for this app")).toBeTruthy();
+    g.__qaCamera = { granted: true, canAskAgain: true, status: "granted" };
+    onChange?.("background");
+    await settle();
+    expect(screen.getByText("The camera is off for this app")).toBeTruthy();
+    onChange?.("active");
+    await settle();
+    expect(screen.queryByText("The camera is off for this app")).toBeNull();
+    expect(screen.getByText("Point the camera at the code")).toBeTruthy();
+    spy.mockRestore();
+  });
+
 });
 
 describe("Projects and Devices", () => {
