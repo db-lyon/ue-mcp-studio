@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SessionDetail, SessionSync, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { DetailLoader, mergeSync } from "../src/session-sync.js";
+import { DetailLoader, mergeSync, sessionGone } from "../src/session-sync.js";
+import { HttpError } from "../src/transport.js";
 
 const at = "2026-11-03T12:00:00.000Z";
 const user = (text: string): TranscriptEntry => ({ kind: "user", text, at });
@@ -27,6 +28,21 @@ describe("mergeSync", () => {
 });
 
 describe("DetailLoader", () => {
+  it("says a deleted session is gone instead of failing, and still fails on anything else", async () => {
+    const gone: string[] = [];
+    const failed: string[] = [];
+    let answer: Error = new HttpError(404, "no session s1");
+    const loader = new DetailLoader(async () => { throw answer; }, () => {}, (e) => failed.push(e.message), { gone: (id) => gone.push(id) });
+    await loader.load("s1");
+    expect(gone).toEqual(["s1"]);
+    expect(failed).toEqual([]);
+    answer = new HttpError(500, "boom");
+    await loader.load("s1");
+    expect(failed).toEqual(["boom"]);
+    expect(sessionGone(new HttpError(404, "no call c1"))).toBe(false);
+    expect(sessionGone(new Error("no session s1"))).toBe(false);
+  });
+
   it("runs one request at a time and folds the asks made meanwhile into one follow-up with the hashes held", async () => {
     const asks: Array<{ id: string; have?: string }> = [];
     let release: () => void = () => {};

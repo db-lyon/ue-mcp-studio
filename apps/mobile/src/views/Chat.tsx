@@ -9,7 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { DetailLoader, agentCalls, chatPane, unreachable } from "@ue-mcp-studio/client-core";
+import { DetailLoader, agentCalls, chatPane, sessionGone, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { haptic } from "../native/haptics";
 import { KeyboardAvoidingView } from "../native/keyboard";
@@ -118,7 +118,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   /** A pull to refresh running. */
   const [pulling, setPulling] = useState(false);
   /** An action that failed: ue-mcp being away is said plainly, never as the relay's own words. */
-  const fail = useCallback((e: Error) => setError(unreachable(e) ? NOT_ANSWERING : e.message), []);
+  // A session deleted meanwhile is not an error: the list drops it and the next read closes it.
+  const fail = useCallback((e: Error) => (sessionGone(e) ? undefined : setError(unreachable(e) ? NOT_ANSWERING : e.message)), []);
   const streamed = useRef("");
   const [streaming, setStreaming] = useState("");
   const [settings, setSettings] = useState<StudioSettings | null>(null);
@@ -169,7 +170,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
         },
         (e) => (unreachable(e) ? setMissed((n) => n + 1) : setDetailError(e.message)),
         // The newest entries first; older ones a page at a time as the reader scrolls up.
-        { tail: TAIL_ENTRIES },
+        // A session deleted meanwhile closes quietly instead of showing an error.
+        { tail: TAIL_ENTRIES, gone: (id) => (setSelected((cur) => (cur === id ? null : cur)), setDetail((d) => (d?.id === id ? null : d)), setDetailError(null)) },
       ),
     [api],
   );
