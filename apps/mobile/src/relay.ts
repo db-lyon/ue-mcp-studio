@@ -9,7 +9,7 @@
  * requests whose Origin is not its own, so every call names the relay's origin,
  * as its own pages do.
  */
-import { ACCEPT_GZIP, b64u, exportPrivateJwk, exportPublic, generateKeyPair, importPrivateJwk, keyId, pairingCode, pairingMac, parsePairingFragment, ResponseOpener, sealRequest, sharedSecret, type ResponseHead } from "@ue-mcp-studio/remote";
+import { ACCEPT_GZIP, b64u, exportPrivateJwk, exportPublic, generateKeyPair, importPrivateJwk, keyId, listedPairingCode, pairCommit, pairingCode, pairingMac, parsePairingFragment, randomBytes, ResponseOpener, sealRequest, sharedSecret, type ResponseHead } from "@ue-mcp-studio/remote";
 import type { Reply, Transport } from "@ue-mcp-studio/client-core";
 import { Gunzip } from "fflate";
 import * as SecureStore from "expo-secure-store";
@@ -231,6 +231,33 @@ export async function pair(scanned: string, onStep: (s: PairStep) => void): Prom
   // The relay could answer for the computer; what matters is that the key we trust is the one the code carried.
   if (a.body.computerPublic !== parts.computerPublic || a.body.phoneId !== me.id) throw new PairError("mismatch", "The answer did not match the pairing code, so this phone does not trust it.");
   await trust(parts.computerPublic);
+}
+
+/**
+ * Pair with a computer from the account's list, no code: this phone is already
+ * allowed on the account, so it sees the computer and its key. That key came
+ * through the relay, so the six digits both screens show are what prove it:
+ * this phone commits to its nonce before it learns the computer's, and the
+ * digits hash both keys and both nonces (packages/remote/src/e2e.ts).
+ */
+export async function pairListed(device: Device, onStep: (s: PairStep) => void): Promise<void> {
+  onStep({ kind: "status", text: "Asking your computer" });
+  const me = await phoneKey();
+  const nonce = b64u(randomBytes(32));
+  let a = await post("/api/pair/enroll", { deviceId: device.id, listed: true, phonePublic: me.publicKey, commit: await pairCommit(nonce), label: LABEL });
+  // An older relay or Studio on that computer does not know this request; its code still works.
+  if (a.status === 400) throw new PairError("failed", "Pairing from the list needs a newer Studio on that computer. Scan its code instead.");
+  if (a.status !== 202 || typeof a.body.approval !== "string" || typeof a.body.nonce !== "string") throw pairFailureOf(a.status, a.body.error);
+  const approval = a.body.approval;
+  onStep({ kind: "code", code: await listedPairingCode(me.publicKey, device.computerKey, a.body.nonce, nonce) });
+  a = await post("/api/pair/enroll", { deviceId: device.id, poll: approval, reveal: nonce });
+  while (a.status === 202) {
+    await new Promise((done) => setTimeout(done, POLL_MS));
+    a = await post("/api/pair/enroll", { deviceId: device.id, poll: approval });
+  }
+  if (a.status !== 200) throw pairFailureOf(a.status, a.body.error ?? "Your computer did not accept this phone.");
+  if (a.body.computerPublic !== device.computerKey || a.body.phoneId !== me.id) throw new PairError("mismatch", "The answer did not match that computer's key, so this phone does not trust it.");
+  await trust(device.computerKey);
 }
 
 export class NotPairedError extends Error {}

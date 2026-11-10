@@ -133,6 +133,27 @@ export async function pairingCode(secret: string, phonePublic: string): Promise<
   return String(n % 1_000_000).padStart(6, "0");
 }
 
+// ── Pairing from the account's list ─────────────────────────────
+//
+// A client already signed in to the account sees the account's computers and
+// their public keys, but those keys came through the relay. The six digits
+// both screens show prove they are the real ones: they hash both public keys
+// and a nonce from each side, and the client commits to its nonce before it
+// learns the computer's, so a relay that swapped either key cannot search for
+// keys that make the two screens agree. A match by chance is one in a million.
+
+/** The commitment a client sends before it learns the computer's nonce. */
+export async function pairCommit(phoneNonce: string): Promise<string> {
+  return b64u(new Uint8Array(await subtle().digest("SHA-256", concat(enc.encode("uemcp-remote/pair-commit/"), unb64u(phoneNonce)))));
+}
+
+/** The six digits for a pairing from the list, the same on both screens only when both saw the same keys and nonces. */
+export async function listedPairingCode(phonePublic: string, computerPublic: string, computerNonce: string, phoneNonce: string): Promise<string> {
+  const d = new Uint8Array(await subtle().digest("SHA-256", concat(enc.encode("uemcp-remote/pair-listed/"), unb64u(phonePublic), unb64u(computerPublic), unb64u(computerNonce), unb64u(phoneNonce))));
+  const n = ((d[0] << 24) | (d[1] << 16) | (d[2] << 8) | d[3]) >>> 0;
+  return String(n % 1_000_000).padStart(6, "0");
+}
+
 /** "123456" as "123 456", the way both screens show it. */
 export function formatPairingCode(code: string): string {
   return code.length === 6 ? `${code.slice(0, 3)} ${code.slice(3)}` : code;

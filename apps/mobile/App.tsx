@@ -6,7 +6,7 @@ import { initialWindowMetrics, SafeAreaProvider } from "react-native-safe-area-c
 import * as SecureStore from "expo-secure-store";
 import type { PanelLocation } from "@ue-mcp-studio/client-core";
 import { THEMES, ThemeProvider, useStudioFonts, type ThemeName } from "./src/ui";
-import { account, dropPairingsWithoutKey, forgetComputer, isPairLink, pair, PairError, select, selected, trusted, forget, type Device, type PairStep } from "./src/relay";
+import { account, dropPairingsWithoutKey, forgetComputer, isPairLink, pair, pairListed, PairError, select, selected, trusted, forget, type Device, type PairStep } from "./src/relay";
 import { applySystemTheme, hideSplash } from "./src/native/system";
 import { KeyboardProvider } from "./src/native/keyboard";
 import { ShareProvider, useSharedFiles } from "./src/native/share";
@@ -34,7 +34,8 @@ type Screen =
   | { name: "scan"; from: "welcome" | "projects" }
   | { name: "pairing"; step: PairStep }
   | { name: "paired" }
-  | { name: "pair-failed"; failure: PairFailure; link: string }
+  /** `link` retries a code; `device` retries a pairing from the list. */
+  | { name: "pair-failed"; failure: PairFailure; link?: string; device?: Device }
   | { name: "projects" }
   | { name: "settings" }
   | { name: "about" }
@@ -100,11 +101,11 @@ function Root() {
     void select(device).then(() => setScreen({ name: "project", device, initial, n: ++opened.current, from }));
   }, []);
 
-  const startPairing = useCallback((scanned: string) => {
+  const runPairing = useCallback((run: (onStep: (s: PairStep) => void) => Promise<void>, retry: { link?: string; device?: Device }, first: string) => {
     if (pairing.current) return;
     pairing.current = true;
-    setScreen({ name: "pairing", step: { kind: "status", text: "Reading the code" } });
-    pair(scanned, (step) => setScreen({ name: "pairing", step }))
+    setScreen({ name: "pairing", step: { kind: "status", text: first } });
+    run((step) => setScreen({ name: "pairing", step }))
       .then(async () => {
         haptic.success();
         // A moment on the tick, as the relay's page holds Paired before it opens Studio.
@@ -115,10 +116,13 @@ function Root() {
       .catch((e) => {
         haptic.error();
         const failure: PairFailure = e instanceof PairError ? { kind: e.kind, message: e.message } : { kind: "failed", message: String(e?.message ?? e) };
-        setScreen({ name: "pair-failed", failure, link: scanned });
+        setScreen({ name: "pair-failed", failure, ...retry });
       })
       .finally(() => (pairing.current = false));
   }, []);
+  const startPairing = useCallback((scanned: string) => runPairing((onStep) => pair(scanned, onStep), { link: scanned }, "Reading the code"), [runPairing]);
+  // A computer already on the account's list pairs without a code: both screens show six digits to compare.
+  const pairWith = useCallback((device: Device) => runPairing((onStep) => pairListed(device, onStep), { device }, "Asking your computer"), [runPairing]);
 
   useEffect(() => {
     void (async () => {
@@ -227,8 +231,8 @@ function Root() {
       {screen.name === "scan" && <Scanner onCode={startPairing} onCancel={() => setScreen(screen.from === "welcome" ? { name: "welcome" } : { name: "projects" })} />}
       {screen.name === "pairing" && <Pairing step={screen.step} />}
       {screen.name === "paired" && <Paired />}
-      {screen.name === "pair-failed" && <PairFailed failure={screen.failure} onScan={() => setScreen({ name: "scan", from: "welcome" })} onStart={startOver} onRetry={() => startPairing(screen.link)} />}
-      {screen.name === "projects" && <Projects onOpen={(d) => openProject(d)} onPair={() => setScreen({ name: "scan", from: "projects" })} onSettings={() => setScreen({ name: "settings" })} onUnpaired={unpaired} />}
+      {screen.name === "pair-failed" && <PairFailed failure={screen.failure} onScan={() => setScreen({ name: "scan", from: "welcome" })} onStart={startOver} onRetry={() => (screen.device ? pairWith(screen.device) : screen.link ? startPairing(screen.link) : undefined)} />}
+      {screen.name === "projects" && <Projects onOpen={(d) => openProject(d)} onPairWith={pairWith} onPair={() => setScreen({ name: "scan", from: "projects" })} onSettings={() => setScreen({ name: "settings" })} onUnpaired={unpaired} />}
       {screen.name === "settings" && <Settings onBack={() => setScreen({ name: "projects" })} onRemoved={() => setScreen({ name: "welcome" })} onAbout={() => setScreen({ name: "about" })} />}
       {screen.name === "about" && <About onBack={() => setScreen({ name: "settings" })} />}
       {screen.name === "project" && (

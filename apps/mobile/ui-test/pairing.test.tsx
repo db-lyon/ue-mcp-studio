@@ -191,6 +191,65 @@ describe("why pairing stopped", () => {
     expect(await reason(pair(LINK, () => undefined))).toBe("network");
   });
 
+  /** A relay and computer answering a pairing from the list, as apps/agent's RemoteService does; `swap` stands in a relay that replaced the computer's key. */
+  async function listedComputer(swap = false) {
+    const r = await import("@ue-mcp-studio/remote");
+    const own = r.b64u(r.randomBytes(65));
+    const nonce = r.b64u(r.randomBytes(32));
+    const shown: string[] = [];
+    let commit = "";
+    let phonePublic = "";
+    let phoneId = "";
+    globalThis.fetch = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      const b = JSON.parse(String(init?.body)) as Record<string, string | boolean>;
+      const json = (status: number, v: unknown) => new Response(JSON.stringify(v), { status });
+      if (b.listed === true) {
+        commit = String(b.commit);
+        phonePublic = String(b.phonePublic);
+        phoneId = await r.keyId(phonePublic);
+        return json(202, { approval: "l1", expiresAt: new Date(Date.now() + 120_000).toISOString(), nonce });
+      }
+      if (typeof b.reveal === "string") {
+        if ((await r.pairCommit(b.reveal)) !== commit) return json(403, { error: "The pairing request did not check out. Try again." });
+        shown.push(await r.listedPairingCode(phonePublic, own, nonce, b.reveal));
+        return json(202, { approval: "l1", expiresAt: "" });
+      }
+      return json(200, { phoneId, computerPublic: own });
+    }) as typeof fetch;
+    const listedKey = swap ? r.b64u(r.randomBytes(65)) : own;
+    return { shown, device: { id: "d9", name: "Vale on DESKTOP", online: true, computerKey: listedKey, lastSeen: "" } };
+  }
+
+  it("pairs with a computer from the list, both screens showing the same six digits", async () => {
+    const { pairListed } = await import("../src/relay");
+    const { shown, device } = await listedComputer();
+    const steps: Array<{ kind: string; code?: string }> = [];
+    await pairListed(device, (s) => steps.push(s as { kind: string; code?: string }));
+    const code = steps.find((s) => s.kind === "code")?.code;
+    expect(code).toMatch(/^\d{6}$/);
+    expect(shown).toEqual([code]);
+    expect(JSON.stringify([...store.entries()])).toContain(device.computerKey);
+  });
+
+  it("trusts no key a relay swapped in the list: the digits differ and the answer does not match", async () => {
+    const { pairListed, PairError } = await import("../src/relay");
+    const { shown, device } = await listedComputer(true);
+    const steps: Array<{ kind: string; code?: string }> = [];
+    const err = await pairListed(device, (s) => steps.push(s as { kind: string; code?: string })).catch((e) => e);
+    expect(err).toBeInstanceOf(PairError);
+    expect((err as InstanceType<typeof PairError>).kind).toBe("mismatch");
+    expect(shown[0]).not.toBe(steps.find((s) => s.kind === "code")?.code);
+    expect(JSON.stringify([...store.entries()])).not.toContain(device.computerKey);
+  });
+
+  it("sends a computer whose Studio is too old for it back to its code", async () => {
+    const { pairListed, PairError } = await import("../src/relay");
+    answer(400, { error: "Malformed enrollment." });
+    const err = await pairListed({ id: "d9", name: "Old", online: true, computerKey: "k", lastSeen: "" }, () => undefined).catch((e) => e);
+    expect(err).toBeInstanceOf(PairError);
+    expect(String((err as Error).message)).toMatch(/Scan its code instead/);
+  });
+
   it("reads the computer's answers while it decides", async () => {
     const { pairFailureOf } = await import("../src/relay");
     expect(pairFailureOf(403, "The computer denied this device.").kind).toBe("denied");
@@ -331,34 +390,35 @@ describe("Projects and Devices", () => {
     });
   });
 
-  it("opens a paired project, and the scanner for one on another computer", async () => {
+  it("opens a paired project, and pairs from the list with one on another computer, no code", async () => {
     const opened: string[] = [];
-    render(<Projects onOpen={(d) => opened.push(d.id)} onPair={() => opened.push("scan")} onSettings={() => undefined} onUnpaired={() => undefined} />);
+    render(<Projects onOpen={(d) => opened.push(d.id)} onPair={() => opened.push("scan")} onPairWith={(d) => opened.push(`pair ${d.id}`)} onSettings={() => undefined} onUnpaired={() => undefined} />);
     await settle();
     expect(screen.getByText("Not paired with this phone")).toBeTruthy();
     expect(screen.getByText("Offline, last seen 3h ago")).toBeTruthy();
+    expect(screen.queryByText("Scan code")).toBeNull();
     fireEvent.click(screen.getByText("Lyra"));
-    fireEvent.click(screen.getByLabelText("Scan the code for Other"));
-    expect(opened).toEqual(["d1", "scan"]);
+    fireEvent.click(screen.getByLabelText("Pair with Other"));
+    expect(opened).toEqual(["d1", "pair d2"]);
   });
 
   it("marks the project opened last", async () => {
     store.set("selected", JSON.stringify({ id: "d1" }));
-    render(<Projects onOpen={() => undefined} onPair={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
+    render(<Projects onOpen={() => undefined} onPair={() => undefined} onPairWith={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
     await settle();
     expect(screen.getByText("Opened last")).toBeTruthy();
   });
 
   it("says when no project has connected, and when the relay fails", async () => {
     relay.account.mockResolvedValueOnce({ devices: [], viewers: [] });
-    const first = render(<Projects onOpen={() => undefined} onPair={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
+    const first = render(<Projects onOpen={() => undefined} onPair={() => undefined} onPairWith={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
     expect(screen.getByText("Loading your projects")).toBeTruthy();
     await settle();
     expect(screen.getByText("No projects yet")).toBeTruthy();
     expect(screen.queryByText("Choose the project to open in Studio.")).toBeNull();
     first.unmount();
     relay.account.mockRejectedValueOnce(new Error("The relay answered 503."));
-    render(<Projects onOpen={() => undefined} onPair={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
+    render(<Projects onOpen={() => undefined} onPair={() => undefined} onPairWith={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
     await settle();
     expect(screen.getByText("The relay had a problem")).toBeTruthy();
     expect(screen.queryByText("The relay answered 503.")).toBeNull();
@@ -370,7 +430,7 @@ describe("Projects and Devices", () => {
 
   it("tells a phone that cannot reach the relay from a relay in trouble", async () => {
     relay.account.mockRejectedValueOnce(new TypeError("Network request failed"));
-    render(<Projects onOpen={() => undefined} onPair={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
+    render(<Projects onOpen={() => undefined} onPair={() => undefined} onPairWith={() => undefined} onSettings={() => undefined} onUnpaired={() => undefined} />);
     await settle();
     expect(screen.getByText("Could not reach the relay")).toBeTruthy();
   });
@@ -392,7 +452,7 @@ describe("Projects and Devices", () => {
 
   it("goes to Devices and to pairing", async () => {
     const seen: string[] = [];
-    render(<Projects onOpen={() => undefined} onPair={() => seen.push("pair")} onSettings={() => seen.push("devices")} onUnpaired={() => undefined} />);
+    render(<Projects onOpen={() => undefined} onPair={() => seen.push("pair")} onPairWith={(d) => seen.push(`with ${d.id}`)} onSettings={() => seen.push("devices")} onUnpaired={() => undefined} />);
     await settle();
     fireEvent.click(screen.getByLabelText("Paired devices"));
     fireEvent.click(screen.getByText("Pair another computer"));
