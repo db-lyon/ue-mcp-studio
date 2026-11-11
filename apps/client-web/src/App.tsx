@@ -66,6 +66,16 @@ function Studio({ daemon }: { daemon: DaemonState }) {
   // null: the section list, which only a narrow panel shows on its own.
   const [section, setSection] = useState<SettingsSection | null>(() => sectionOf(readLocation().section));
   useEffect(() => writeLocation({ tab, section: tab === "Settings" ? section : null }), [tab, section]);
+  // Studio's window moves the panel by its hash when it is asked to open somewhere (the UE-MCP app's Update).
+  useEffect(() => {
+    const follow = () => {
+      const at = readLocation();
+      setTab(at.tab);
+      if (at.tab === "Settings") setSection(sectionOf(at.section));
+    };
+    window.addEventListener("hashchange", follow);
+    return () => window.removeEventListener("hashchange", follow);
+  }, []);
   // The editor's quick ask started a session: show it, from any tab.
   useSessionFocus(daemon.events, (session) => {
     writeLocation({ tab: "Chat", session });

@@ -32,7 +32,7 @@ afterEach(() => cleanup());
 
 describe("links in a reply on the phone", () => {
   it("opens a web link outside the app and draws a link to nothing as text", async () => {
-    const open = vi.spyOn(Linking, "openURL").mockResolvedValue(true);
+    const open = vi.spyOn(Linking, "openURL").mockResolvedValue(undefined);
     show("[docs](https://ue-mcp.com/docs/) and [run](javascript:alert(1)).");
     await press(screen.getByRole("link", { name: "docs" }));
     expect(open).toHaveBeenCalledWith("https://ue-mcp.com/docs/");

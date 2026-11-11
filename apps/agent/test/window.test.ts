@@ -93,6 +93,17 @@ describe("POST /window", () => {
     expect(windowArgs(host, {})).not.toContain("--mode");
   });
 
+  it("passes where the panel opens, and refuses anything but a panel hash", async () => {
+    const { host, spawned, ship } = fakeHost();
+    ship();
+    await routes(host)("POST", "/window", { location: "#/settings/general" });
+    const args = spawned[0].args;
+    expect(args[args.indexOf("--location") + 1]).toBe("#/settings/general");
+    expect(windowArgs(host, {})).not.toContain("--location");
+    expect((await routes(host)("POST", "/window", { location: "javascript:alert(1)" })).status).toBe(400);
+    expect(parseWindowRequest({ location: "#/chat/a b" })).toMatch(/panel hash/);
+  });
+
   it("opens the system browser when the build has no window", async () => {
     const { host, spawned, opened } = fakeHost();
     const res = await routes(host)("POST", "/window", {});
@@ -127,7 +138,7 @@ describe("POST /window", () => {
     expect(parseWindowRequest({ editorPid: -3 })).toMatch(/process id/);
     expect(parseWindowRequest({ fromEditor: "yes" })).toMatch(/boolean/);
     expect(parseWindowRequest({ mode: "floating" })).toMatch(/docked/);
-    expect(parseWindowRequest({ mode: "docked" })).toEqual({ mode: "docked" });
+    expect(parseWindowRequest({ mode: "docked" })).toMatchObject({ mode: "docked" });
     expect(parseWindowRequest(undefined)).toEqual({});
   });
 

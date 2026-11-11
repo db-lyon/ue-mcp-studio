@@ -694,6 +694,8 @@ export interface WindowRequest {
   fromEditor?: boolean;
   /** Switch to this mode and keep it for the project: over the editor's dock tab, or a window of its own. */
   mode?: "docked" | "window";
+  /** Where the panel opens: a hash such as #/settings/general. */
+  location?: string;
 }
 
 /** What POST /v1/ext/studio/window did: Studio's window, the system browser where there is none, or nothing. */

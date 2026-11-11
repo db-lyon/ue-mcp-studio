@@ -9,8 +9,9 @@
  * the UI with the release key from ~/.ue-mcp-studio/keys, adds the third-party
  * notices (scripts/notices.mjs), and writes release/studio-<version>.zip plus
  * release/latest.json, the manifest `ue-mcp install studio` follows and the
- * editor plugin fetches on first start, and release/UE-MCP-Studio-Setup.exe,
- * the Windows installer that runs that command (scripts/build-installer.mjs).
+ * editor plugin fetches on first start, and release/UE-MCP-Setup.exe, the
+ * UE-MCP app, which installs itself when run (apps/window/src/app.cpp).
+ * latest.json names it under `app`, which is how an installed app updates.
  * The editor plugin is its own package, released from
  * db-lyon/ue-mcp-studio-plugin; latest.json names where its manifest is and
  * the oldest plugin this release works with.
@@ -98,7 +99,16 @@ fs.copyFileSync(windowExe, path.join(ext, "bin", "studio-window.exe"));
 fs.writeFileSync(path.join(ext, "THIRD_PARTY_NOTICES.txt"), renderNotices().text);
 const manifest = signBundle(path.join(ext, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(RELEASE_KEY, "utf-8"));
 
-// 3. Package with its manifest.
+// 3. The UE-MCP app, built with the window, under one name so releases/latest/download/<name> always resolves.
+const SETUP = "UE-MCP-Setup.exe";
+const appExe = path.join(ROOT, "apps", "window", "dist", "UE-MCP.exe");
+if (!fs.existsSync(appExe)) throw new Error("no apps/window/dist/UE-MCP.exe: a release is built on Windows, with the C++ tools");
+fs.copyFileSync(appExe, path.join(OUT, SETUP));
+// STUDIO_SIGNTOOL is a sign command with $f where the file goes; unset, the app ships unsigned.
+const sign = process.env.STUDIO_SIGNTOOL;
+if (sign) run(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", sign.replace(/\$f/g, `"${path.join(OUT, SETUP)}"`)]);
+
+// 4. Package with its manifest.
 const zipName = `studio-${version}.zip`;
 zip(stage, "studio", path.join(OUT, zipName));
 fs.rmSync(stage, { recursive: true, force: true });
@@ -113,19 +123,16 @@ const latest = {
   // The editor plugin is released on its own: where its manifest is, and the oldest one this release works with.
   pluginChannel: PLUGIN_CHANNEL,
   pluginMin,
+  // The UE-MCP app: an installed app reads this to update itself.
+  app: { version, url: SETUP, sha256: sha256(path.join(OUT, SETUP)) },
 };
 fs.writeFileSync(path.join(OUT, "latest.json"), JSON.stringify(latest, null, 2) + "\n");
 console.log(`\n${zipName} (${Object.keys(manifest.files).length} UI files) sha256 ${latest.sha256}`);
 
-// 4. The installer, under one name so releases/latest/download/<name> always resolves.
-const INSTALLER = "UE-MCP-Studio-Setup.exe";
-run(process.execPath, [path.join(ROOT, "scripts", "build-installer.mjs")], { cwd: ROOT });
-fs.copyFileSync(path.join(ROOT, "apps", "installer", "dist", INSTALLER), path.join(OUT, INSTALLER));
-
 if (has("--publish")) {
   const tag = `v${version}`;
   // Every release carries everything the install needs.
-  const assets = [zipName, "latest.json", INSTALLER];
+  const assets = [zipName, "latest.json", SETUP];
   for (const f of assets) if (!fs.existsSync(path.join(OUT, f))) throw new Error(`refusing to publish ${tag}: no ${f}`);
   const notes = arg("--notes-file", null);
   const notesArgs = notes ? ["--notes-file", notes] : ["--notes", `UE-MCP Studio ${version}.`];
