@@ -155,11 +155,11 @@ export const APP_SCENARIOS: Record<string, AppScenario> = {
     report: { ...report(states, stateDaemons), ok: false, reason: "failed", error: "npm error code ENOTFOUND", report: undefined, cached: report(states, stateDaemons).report, cachedAt: "2026-11-08T09:41:00Z" },
   },
   "app-updates": {
-    title: "Updates: UE-MCP has an update, one project's Studio has one, one project without Studio has a bridge update, one is up to date, one is not running.",
+    title: "Updates: UE-MCP on Beta has an update, one project's Studio has one, one project without Studio has a bridge update, one is up to date, one is not running.",
     screen: "updates",
     report: report([vale, harbor, bridgeOnly, arena], [daemon(vale), daemon(harbor), daemon(bridgeOnly)]),
     live: [vale.key, harbor.key, bridgeOnly.key],
-    appUpdate: { ok: true, version: "0.1.36", newer: true },
+    appUpdate: { ok: true, channel: "beta", version: "0.1.36-beta.1", newer: true },
     daemon: {
       [`${harbor.key} /v1/ext/studio/updates`]: { status: 200, body: JSON.stringify(studioUpdates) },
       [`${harbor.key} /v1/update`]: { status: 200, body: JSON.stringify(bridgeCheck("1.4.13", null)) },
@@ -174,7 +174,7 @@ export const APP_SCENARIOS: Record<string, AppScenario> = {
     screen: "updates",
     report: report([vale], [daemon(vale)]),
     live: [vale.key],
-    appUpdate: { ok: true, version: "0.1.35", newer: false },
+    appUpdate: { ok: true, channel: "stable", version: "0.1.35", newer: false },
     daemon: {
       [`${vale.key} /v1/ext/studio/updates`]: { status: 200, body: JSON.stringify(studioCurrent) },
       [`${vale.key} /v1/update`]: { status: 200, body: JSON.stringify(bridgeCheck("1.4.13", null)) },

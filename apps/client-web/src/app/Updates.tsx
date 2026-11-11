@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { checkFailure, readUpdatesWith, readyLine, updateRows, updateStatus, updateSteps, type Updates } from "@ue-mcp-studio/client-core";
 import type { Machine } from "./App";
-import { follow, host, type AppUpdate, type JobState } from "./native";
-import { running, studioOf, type MachineProject } from "./model";
+import { follow, host, type AppUpdate, type Channel, type JobState } from "./native";
+import { appUpdateLine, channelLabel, running, studioOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
 
 /** Where a project's Studio opens to run its update: Settings, General, the Updates card. */
@@ -48,12 +48,34 @@ export function UpdatesView({ m }: { m: Machine }) {
   );
 }
 
-/** UE-MCP's own update, from the latest Studio release. */
-function AppUpdateCard({ version }: { version: string }) {
+/** UE-MCP's own update, from the newest Studio release on the chosen channel (Studio's own, one choice for the machine). */
+export function AppUpdateCard({ version }: { version: string }) {
   const [u, setU] = useState<AppUpdate | null>(null);
+  const [channel, setChannelState] = useState<Channel>("stable");
+  const [switching, setSwitching] = useState(false);
   const [installing, setInstalling] = useState(false);
-  const check = () => void host()?.appupdate().then(setU);
-  useEffect(check, []);
+  const check = () => {
+    setU(null);
+    void host()?.appupdate().then((r) => {
+      setU(r);
+      if (r.channel) setChannelState(r.channel);
+    });
+  };
+  useEffect(() => {
+    void host()?.getchannel().then((r) => r?.channel && setChannelState(r.channel));
+    check();
+  }, []);
+  const choose = async (c: Channel) => {
+    setSwitching(true);
+    setChannelState(c);
+    const r = await host()?.setchannel({ channel: c });
+    setSwitching(false);
+    if (!r?.ok) {
+      void host()?.getchannel().then((x) => x?.channel && setChannelState(x.channel));
+      return setU({ ok: false, error: r?.error ?? "The channel could not be saved." });
+    }
+    check();
+  };
   const install = async () => {
     setInstalling(true);
     const r = await host()?.appupdate({ install: "yes" });
@@ -70,8 +92,15 @@ function AppUpdateCard({ version }: { version: string }) {
           <span className="app-row-name">UE-MCP</span>
           <span className={`pill ${u?.ok && !u.newer ? "ok" : "warn"}`}>{pill}</span>
         </div>
-        <div className="muted small">
-          {installing ? "Installing. UE-MCP restarts when it is done." : u?.ok && u.newer ? `UE-MCP ${u.version} is ready to install. You have ${version}.` : u?.ok ? `UE-MCP ${version}.` : u ? `Could not check: ${u.error}` : `UE-MCP ${version}.`}
+        <div className="muted small">{appUpdateLine(version, u, channel, installing)}</div>
+        <div className="row update-channel" role="radiogroup" aria-label="Release channel">
+          <span className="dim small">Channel</span>
+          {(["stable", "beta"] as const).map((c) => (
+            <label key={c} className="small">
+              <input type="radio" name="app-update-channel" checked={channel === c} disabled={installing || switching} onChange={() => void choose(c)} />{" "}
+              {channelLabel(c)}
+            </label>
+          ))}
         </div>
       </div>
       <div className="app-row-actions">

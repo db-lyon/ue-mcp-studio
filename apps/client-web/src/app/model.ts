@@ -2,7 +2,7 @@
  * What the UE-MCP app shows, worked out from ue-mcp's machine report and the
  * host's live daemon reads. Pure: the screens only draw it.
  */
-import type { Live } from "./native";
+import type { AppUpdate, Channel, Live } from "./native";
 
 /** ue-mcp's MachineReport, version 1 (`ue-mcp projects --json`, exported by ue-mcp/daemon). */
 export interface MachineReport {
@@ -144,4 +144,20 @@ export function parseReport(text: string | undefined): MachineReport | null {
 export function readAt(iso: string | undefined): string {
   const t = iso ? new Date(iso) : null;
   return t && Number.isFinite(t.getTime()) ? t.toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }) : "earlier";
+}
+
+/** "Stable" or "Beta", as Studio's Updates card names the channel. */
+export function channelLabel(c: Channel): string {
+  return c === "beta" ? "Beta" : "Stable";
+}
+
+/** The UE-MCP row's line: the version here, the channel and its newest release, or why it was not checked. */
+export function appUpdateLine(version: string, u: AppUpdate | null, channel: Channel, installing: boolean): string {
+  const on = channelLabel(u?.channel ?? channel);
+  if (installing) return "Installing. UE-MCP restarts when it is done.";
+  if (!u) return `UE-MCP ${version}, on ${on}.`;
+  if (!u.ok) return `Could not check ${on}: ${u.error ?? "no answer"}`;
+  if (u.newer) return `UE-MCP ${u.version} is ready to install from ${on}. You have ${version}.`;
+  if (!u.version || u.version === version) return `UE-MCP ${version}, the newest on ${on}.`;
+  return `UE-MCP ${version}. The newest on ${on} is ${u.version}.`;
 }

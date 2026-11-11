@@ -56,8 +56,13 @@ export interface Live {
   version: string;
 }
 
+/** Studio's release channel, one choice for the machine: the app updates from it and runs ue-mcp's matching npm tag. */
+export type Channel = "stable" | "beta";
+
 export interface AppUpdate {
   ok: boolean;
+  /** The channel the check read. */
+  channel?: Channel;
   version?: string;
   newer?: boolean;
   started?: boolean;
@@ -88,6 +93,8 @@ export interface AppHost {
   openlog(arg: { key: string }): Promise<boolean>;
   openfolder(arg: { path: string }): Promise<boolean>;
   openurl(arg: { url: string }): Promise<boolean>;
+  getchannel(): Promise<{ channel: Channel }>;
+  setchannel(arg: { channel: Channel }): Promise<Done & { channel?: Channel }>;
   appupdate(arg?: { install?: "yes" }): Promise<AppUpdate>;
   setup(): Promise<Done>;
   launch(): Promise<boolean>;
