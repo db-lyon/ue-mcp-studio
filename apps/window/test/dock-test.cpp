@@ -579,6 +579,26 @@ int main() {
     CHECK(p.tag == "v0.1.35");
   });
 
+  test("the editor plugin's newest release is read from its own repo, by its plugin.json", [] {
+    const char* body = R"([
+      {"tag_name":"v0.1.9-beta.2","draft":false,"prerelease":true,"assets":[{"name":"plugin.json"}]},
+      {"tag_name":"v0.1.10-beta.1","draft":false,"prerelease":true,"assets":[{"name":"latest.json"}]},
+      {"tag_name":"v0.1.8","draft":false,"prerelease":false,"assets":[{"name":"plugin.json"}]}
+    ])";
+    appchannel::Pick p = appchannel::newest(body, appchannel::kPluginRepo, "plugin.json");
+    CHECK(p.tag == "v0.1.9-beta.2");
+    CHECK(p.url == "https://github.com/db-lyon/ue-mcp-studio-plugin/releases/download/v0.1.9-beta.2/plugin.json");
+    CHECK(appchannel::newest("[]", appchannel::kPluginRepo, "plugin.json").error.find("editor plugin") != std::string::npos);
+  });
+
+  test("latest.json's pluginChannel is followed only into the plugin's own releases", [] {
+    CHECK(appchannel::pluginChannel("https://github.com/db-lyon/ue-mcp-studio-plugin/releases/download/v0.1.8/plugin.json") ==
+          "https://github.com/db-lyon/ue-mcp-studio-plugin/releases/download/v0.1.8/plugin.json");
+    CHECK(appchannel::pluginChannel("https://example.com/plugin.json") == appchannel::kPluginLatest);
+    CHECK(appchannel::pluginChannel("https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest/download/other.zip") == appchannel::kPluginLatest);
+    CHECK(appchannel::pluginChannel("") == appchannel::kPluginLatest);
+  });
+
   test("a release list with nothing to take, or not a list, says why", [] {
     CHECK(!appchannel::newest("[]").error.empty());
     CHECK(appchannel::newest("[]").url.empty());

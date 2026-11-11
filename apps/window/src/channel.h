@@ -18,6 +18,10 @@ namespace appchannel {
 inline const char* kRepo = "db-lyon/ue-mcp-studio";
 inline const char* kLatest = "https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/latest.json";
 inline const char* kReleases = "https://api.github.com/repos/db-lyon/ue-mcp-studio/releases?per_page=30";
+/** The Studio editor plugin, released on its own: its repo, its release list and its latest release's plugin.json. */
+inline const char* kPluginRepo = "db-lyon/ue-mcp-studio-plugin";
+inline const char* kPluginReleases = "https://api.github.com/repos/db-lyon/ue-mcp-studio-plugin/releases?per_page=30";
+inline const char* kPluginLatest = "https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest/download/plugin.json";
 
 /** "beta" when the file says so, else "stable", as the agent's readChannel reads it. */
 inline std::string parse(const std::string& text) {
@@ -108,9 +112,10 @@ struct Pick {
 
 /**
  * The newest release in GitHub's release list that is not a draft and carries
- * latest.json, prereleases included, by semver rather than by list order.
+ * `asset` (latest.json, or plugin.json in the editor plugin's own repo),
+ * prereleases included, by semver rather than by list order.
  */
-inline Pick newest(const std::string& body) {
+inline Pick newest(const std::string& body, const std::string& repo = kRepo, const std::string& asset = "latest.json") {
   Pick r;
   json::Value list;
   if (!json::parse(body, list) || !list.isArray()) {
@@ -125,13 +130,13 @@ inline Pick newest(const std::string& body) {
     bool carries = false;
     for (const json::Value& a : *assets->a) {
       const json::Value* name = a.get("name");
-      if (name && name->isString() && name->s == "latest.json") carries = true;
+      if (name && name->isString() && name->s == asset) carries = true;
     }
     if (!carries) continue;
     if (r.tag.empty() || compareVersions(tag->s, r.tag) > 0) r.tag = tag->s;
   }
-  if (r.tag.empty()) r.error = "No release of UE-MCP carries latest.json yet.";
-  else r.url = "https://github.com/" + std::string(kRepo) + "/releases/download/" + r.tag + "/latest.json";
+  if (r.tag.empty()) r.error = (repo == kRepo ? "No release of UE-MCP carries " : "No release of the editor plugin carries ") + asset + " yet.";
+  else r.url = "https://github.com/" + repo + "/releases/download/" + r.tag + "/" + asset;
   return r;
 }
 
@@ -144,6 +149,18 @@ inline std::string listFailure(bool answered, unsigned long status, const std::s
   if (status == 403 || status == 429)
     return "GitHub's rate limit for release checks was reached (60 an hour from this network). Try again in an hour, or switch to Stable.";
   return "GitHub answered HTTP " + std::to_string(status) + " for the release list.";
+}
+
+/**
+ * The editor plugin's plugin.json as latest.json names it, when that is an
+ * address in the plugin's own GitHub releases; else its latest release's.
+ */
+inline std::string pluginChannel(const std::string& named) {
+  const std::string prefix = "https://github.com/" + std::string(kPluginRepo) + "/releases/";
+  const std::string file = "/plugin.json";
+  if (named.size() < prefix.size() + file.size() || named.rfind(prefix, 0) != 0 || named.compare(named.size() - file.size(), file.size(), file) != 0) return kPluginLatest;
+  for (char c : named) if (std::isspace(static_cast<unsigned char>(c)) || c == '"' || c == '\\') return kPluginLatest;
+  return named;
 }
 
 }  // namespace appchannel
