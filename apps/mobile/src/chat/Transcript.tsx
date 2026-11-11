@@ -50,7 +50,7 @@ import { SessionIdContext, attachmentUrl, formatBytes, isImage, useDaemonImage }
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
 import { LinkedText } from "./AssetLink";
-import { ReplyMarkdown, renderReplyMark } from "./ReplyMarkdown";
+import { ReplyMarkdown, renderReplyImage, renderReplyMark } from "./ReplyMarkdown";
 import { noteError, noteRow, setDiag, useDiag } from "./diag";
 
 /** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
@@ -345,7 +345,7 @@ export const ReplyPiece = memo(function ReplyPiece({ text, at, piece, count }: {
   return (
     <AssetAnchorContext.Provider value={at}>
       <View testID="reply-piece" style={{ alignSelf: "stretch", paddingTop: piece === 0 ? 10 : 0, paddingBottom: piece === count - 1 ? 10 : 0, paddingRight: 13, paddingLeft: 2 }}>
-        <MarkdownPiece text={text} piece={piece} links renderMark={renderReplyMark} renderCode={breakable} />
+        <MarkdownPiece text={text} piece={piece} links renderMark={renderReplyMark} renderCode={breakable} renderImage={renderReplyImage} />
       </View>
     </AssetAnchorContext.Provider>
   );

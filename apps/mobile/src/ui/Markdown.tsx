@@ -36,6 +36,8 @@ export interface MarkdownProps {
   renderMark?: (mark: LinkMark, children: ReactNode, key: number) => ReactNode;
   /** Inline code that names no asset: its text, for a caller that allows breaks inside it. */
   renderCode?: (text: string) => ReactNode;
+  /** An image: the caller loads it (a reply's project images come through Studio). Without it, its alt text. */
+  renderImage?: (src: string, alt: string, key: number) => ReactNode;
   /**
    * A document rather than a chat message (a plugin's readme): the first and
    * last blocks keep their margins, as `.md` outside `.msg` keeps them.
@@ -73,7 +75,7 @@ export function markdownTree(text: string, breaks = true, links = false): HNode 
   return p.runSync(p.parse(text));
 }
 
-export const Markdown = memo(function Markdown({ text, tone, breaks = true, links = false, renderMark, renderCode, page, paragraphMargin = 8 }: MarkdownProps) {
+export const Markdown = memo(function Markdown({ text, tone, breaks = true, links = false, renderMark, renderCode, renderImage, page, paragraphMargin = 8 }: MarkdownProps) {
   const t = useTheme();
   const tree = useMemo(() => {
     try {
@@ -84,7 +86,7 @@ export const Markdown = memo(function Markdown({ text, tone, breaks = true, link
   }, [text, breaks, links]);
   const body: TextStyle = { ...baseFont(t), ...tone };
   if (!tree) return <Text style={body}>{text}</Text>;
-  const ctx: Ctx = { t, body, renderMark, renderCode, depth: 0, paragraphMargin };
+  const ctx: Ctx = { t, body, renderMark, renderCode, renderImage, depth: 0, paragraphMargin };
   const blocks = flow(ctx, tree.children ?? []);
   const edges = page && blocks.length ? { marginTop: blocks[0].mt, marginBottom: blocks[blocks.length - 1].mb } : null;
   return <View style={edges}>{place(blocks, true)}</View>;
@@ -253,12 +255,12 @@ function unitBlock(ctx: Ctx, u: Unit, lists: Map<HNode, Block[]>): Block {
  * the block before it leaves, so the pieces drawn one under another look as
  * the whole reply does.
  */
-export const MarkdownPiece = memo(function MarkdownPiece({ text, piece, tone, breaks = true, links = false, renderMark, renderCode, paragraphMargin = 8 }: MarkdownProps & { piece: number }) {
+export const MarkdownPiece = memo(function MarkdownPiece({ text, piece, tone, breaks = true, links = false, renderMark, renderCode, renderImage, paragraphMargin = 8 }: MarkdownProps & { piece: number }) {
   const t = useTheme();
   const plan = planOf(text, breaks, links);
-  if (!plan?.pieces[piece]) return piece === 0 ? <Markdown text={text} tone={tone} breaks={breaks} links={links} renderMark={renderMark} renderCode={renderCode} paragraphMargin={paragraphMargin} /> : null;
+  if (!plan?.pieces[piece]) return piece === 0 ? <Markdown text={text} tone={tone} breaks={breaks} links={links} renderMark={renderMark} renderCode={renderCode} renderImage={renderImage} paragraphMargin={paragraphMargin} /> : null;
   const body: TextStyle = { ...baseFont(t), ...tone };
-  const ctx: Ctx = { t, body, renderMark, renderCode, depth: 0, paragraphMargin };
+  const ctx: Ctx = { t, body, renderMark, renderCode, renderImage, depth: 0, paragraphMargin };
   const lists = new Map<HNode, Block[]>();
   const [from, to] = plan.pieces[piece];
   const blocks = plan.units.slice(from, to).map((u) => unitBlock(ctx, u, lists));
@@ -271,6 +273,7 @@ interface Ctx {
   body: TextStyle;
   renderMark?: MarkdownProps["renderMark"];
   renderCode?: MarkdownProps["renderCode"];
+  renderImage?: MarkdownProps["renderImage"];
   /** List nesting, for the marker: disc, circle, square. */
   depth: number;
   paragraphMargin?: number;
@@ -589,8 +592,10 @@ function inline(ctx: Ctx, n: HNode, key: number, lineStart: boolean): ReactNode 
           {p.checked ? <Text style={{ color: t.c.onAccent, fontSize: 13, lineHeight: 15, fontWeight: "700" }}>{"✓"}</Text> : null}
         </View>
       );
-    case "img":
-      return <Text key={key} style={{ color: t.c.accentHi }} accessibilityRole="image">{String(p.alt ?? "")}</Text>;
+    case "img": {
+      const drawn = typeof p.src === "string" && ctx.renderImage ? ctx.renderImage(p.src, String(p.alt ?? ""), key) : null;
+      return drawn ?? <Text key={key} style={{ color: t.c.accentHi }} accessibilityRole="image">{String(p.alt ?? "")}</Text>;
+    }
     case "sup":
     case "sub":
       return <Text key={key} style={{ fontSize: ((body.fontSize as number) ?? t.base.size) * 0.83 }}>{inlines(ctx, kids, lineStart)}</Text>;
