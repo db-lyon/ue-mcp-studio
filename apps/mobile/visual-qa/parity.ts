@@ -27,7 +27,7 @@ export interface ParityEntry {
 }
 
 /** The UE-MCP desktop app's screens (apps/client-web/src/app): they manage the computer itself. */
-const DESKTOP_APP = "The UE-MCP desktop app manages this computer's projects, updates, daemons and its own setup; a paired phone reaches one project's Studio, never the computer's app.";
+const DESKTOP_APP = "The UE-MCP desktop app manages this computer's projects (each with its updates and daemon) and its own setup; a paired phone reaches one project's Studio, never the computer's app.";
 
 /** The message box, as the app's page draws it. */
 const BOX = "textarea";
@@ -274,10 +274,13 @@ export const PARITY: Record<string, ParityEntry> = {
   "app-node-old": {notOnPhone: DESKTOP_APP},
   "app-ue-mcp-old": {notOnPhone: DESKTOP_APP},
   "app-report-offline": {notOnPhone: DESKTOP_APP},
-  "app-updates": {notOnPhone: DESKTOP_APP},
-  "app-updates-current": {notOnPhone: DESKTOP_APP},
-  "app-daemons": {notOnPhone: DESKTOP_APP},
-  "app-daemons-none": {notOnPhone: DESKTOP_APP},
+  "app-projects-updates": {notOnPhone: DESKTOP_APP},
+  "app-projects-twins": {notOnPhone: DESKTOP_APP},
+  "app-project-detail": {notOnPhone: DESKTOP_APP},
+  "app-project-detail-bridge": {notOnPhone: DESKTOP_APP},
+  "app-daemon-stop-confirm": {notOnPhone: DESKTOP_APP},
+  "app-settings": {notOnPhone: DESKTOP_APP},
+  "app-settings-current": {notOnPhone: DESKTOP_APP},
   "setup-welcome": {notOnPhone: DESKTOP_APP},
   "setup-node-missing": {notOnPhone: DESKTOP_APP},
   "setup-upgrade": {notOnPhone: DESKTOP_APP},

@@ -13,7 +13,7 @@ import "../app.css";
 import { App } from "../App";
 import { appSlot, type AppHost, type Live } from "../native";
 import { followScheme } from "../scheme";
-import { APP_SCENARIOS, BASE_STATE } from "./fixtures";
+import { APP_SCENARIOS, BASE_STATE, CURRENT } from "./fixtures";
 
 const params = new URLSearchParams(location.search);
 const name = params.get("scenario") ?? "app-projects-states";
@@ -52,6 +52,7 @@ const fake: AppHost = {
   getchannel: async () => ({ channel: s.appUpdate?.channel ?? "stable" }),
   setchannel: async ({ channel }) => ({ ok: true, channel }),
   appupdate: async () => s.appUpdate ?? { ok: true, version: state.version, newer: false },
+  newest: async () => s.newest ?? CURRENT,
   setup: () => (s.setup === "hold" ? never() : Promise.resolve(s.setup === "fail" ? { ok: false, error: "UE-MCP could not be copied to C:\\Users\\dana\\AppData\\Local\\Programs\\UE-MCP (error 5)." } : { ok: true })),
   launch: async () => true,
   close: async () => true,

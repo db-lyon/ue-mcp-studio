@@ -1,32 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import type { Machine } from "./App";
-import { follow, host, type JobState } from "./native";
-import { actionsOf, chipsOf, filterProjects, type MachineProject } from "./model";
+import { host } from "./native";
+import { actionsOf, filterProjects, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
-
-/** An install or a launch in progress or just ended, by project key. */
-interface RowWork {
-  kind: "install" | "launch" | "studio";
-  job?: JobState;
-  error?: string;
-  done?: boolean;
-}
+import { installing, projectActions, useWorks, workTitle, type Work } from "./actions";
 
 /** A filter appears once the list is long enough to need one. */
 const FILTER_FROM = 7;
 
-export function ProjectsView({ m }: { m: Machine }) {
+/** Every project on this computer, one row each, with everything about it; a row opens the project's detail. */
+export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) => void }) {
   const [query, setQuery] = useState("");
-  const [work, setWork] = useState<Record<string, RowWork>>({});
   const [adding, setAdding] = useState<string | null>(null);
+  const works = useWorks();
   const projects = m.report?.projects ?? [];
   const shown = filterProjects(projects, query);
-  const set = (key: string, w: RowWork | null) => setWork((all) => {
-    const next = { ...all };
-    if (w) next[key] = w;
-    else delete next[key];
-    return next;
-  });
+  const waiting = projects.filter((p) => updatesOf(p, m.newest)?.waiting.length).length;
 
   const add = async () => {
     setAdding(null);
@@ -40,7 +29,12 @@ export function ProjectsView({ m }: { m: Machine }) {
       <header className="app-head">
         <div>
           <h1 id="projects-head">Projects</h1>
-          {projects.length > 0 && <p className="dim small">{projects.length === 1 ? "1 project" : `${projects.length} projects`} on this computer</p>}
+          {projects.length > 0 && (
+            <p className="dim small">
+              {projects.length === 1 ? "1 project" : `${projects.length} projects`} on this computer
+              {m.newest ? (waiting ? `, ${waiting === 1 ? "1 with an update" : `${waiting} with updates`}` : "") : ", checking for updates"}
+            </p>
+          )}
         </div>
         <span className="spacer" />
         {projects.length >= FILTER_FROM && (
@@ -61,99 +55,140 @@ export function ProjectsView({ m }: { m: Machine }) {
       {projects.length > 0 && shown.length === 0 && <p className="muted app-none">No project matches "{query}".</p>}
       <ul className="app-list">
         {shown.map((p) => (
-          <ProjectRow key={p.key} p={p} m={m} work={work[p.key] ?? null} busy={Object.values(work).some((w) => w.kind === "install" && w.job?.running)} set={(w) => set(p.key, w)} />
+          <ProjectRow key={p.key} p={p} all={projects} m={m} work={works[p.key] ?? null} busy={installing(works)} onOpen={() => onOpen(p.key)} />
         ))}
       </ul>
     </section>
   );
 }
 
-function ProjectRow({ p, m, work, busy, set }: { p: MachineProject; m: Machine; work: RowWork | null; busy: boolean; set: (w: RowWork | null) => void }) {
-  const chips = chipsOf(p, m.live);
-  const installing = work?.kind === "install" && !!work.job?.running;
-  const a = actionsOf(p, installing, busy && !installing);
-
-  const addStudio = async () => {
-    set({ kind: "install", job: { running: true, ok: false, lines: [] } });
-    const started = await host()?.install({ uproject: p.uproject });
-    if (!started?.ok || !started.job) return set({ kind: "install", error: started?.error ?? "The install did not start." });
-    const end = await follow(started.job, (job) => set({ kind: "install", job }));
-    set({ kind: "install", job: end, done: true });
-    void m.refresh();
-  };
-  const openStudio = async () => {
-    set({ kind: "studio" });
-    const r = await host()?.openstudio({ key: p.key, uproject: p.uproject });
-    set(r?.ok ? null : { kind: "studio", error: r?.error ?? "Studio did not open." });
-    void m.refresh();
-  };
-  const launch = async () => {
-    set({ kind: "launch" });
-    const r = await host()?.launcheditor({ key: p.key, uproject: p.uproject, setUp: p.ueMcp.setUp });
-    set(r?.ok ? null : { kind: "launch", error: r?.error ?? "The editor did not start." });
-    void m.refresh();
-  };
+function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all: MachineProject[]; m: Machine; work: Work | null; busy: boolean; onOpen: () => void }) {
+  const mine = (work?.kind === "install" || work?.kind === "update") && !!work.job?.running;
+  const a = actionsOf(p, mine && work?.kind === "install", busy && !mine);
+  const act = projectActions(p, m, work);
+  const u = updatesOf(p, m.newest);
+  const hint = nameHint(p, all);
+  const versions = versionsOf(p, m.live, m.report?.ueMcp ?? null);
+  const pending = (k: Work["kind"]) => work?.kind === k && !work.error && !work.done;
 
   return (
-    <li className="app-row">
+    <li className="app-row app-project">
       <div className="app-row-main">
         <div className="app-row-title">
-          <span className="app-row-name">{p.name}</span>
+          <button className="app-row-open" onClick={onOpen} title={`Details for ${p.name}`}>
+            <span className="app-row-name">{p.name}</span>
+            {hint && <span className="app-row-hint dim">{hint}</span>}
+          </button>
           {p.engine.version && <span className="app-engine">UE {p.engine.version}</span>}
+          {u?.pill && <span className={`pill ${u.tone}`} title={u.line}>{u.pill}</span>}
         </div>
         <div className="app-row-path dim small" title={p.dir}>{p.dir}</div>
+        {versions.length > 0 && (
+          <div className="app-versions small">
+            {versions.map((v) => (
+              <span key={v.label}><span className="dim">{v.label}</span> {v.version}</span>
+            ))}
+          </div>
+        )}
         <div className="app-chips">
-          {chips.map((c) => (
-            <span key={c.label} className={`app-chip ${c.tone}`} title={c.title}>{c.label}</span>
-          ))}
+          {!p.ueMcp.setUp && <span className="app-chip dim">ue-mcp not set up</span>}
+          {p.ueMcp.setUp && <DaemonChip p={p} m={m} work={work} act={act} />}
+          {p.editor.running && <span className="app-chip warn">Editor open</span>}
         </div>
       </div>
       <div className="app-row-actions">
+        {u?.via && (
+          <button className="primary" disabled={(u.via === "ue-mcp" && (p.editor.running || busy)) || pending("update")} title={u.line} onClick={() => void act.update()}>
+            {pending("update") ? (u.via === "studio" ? "Opening" : "Updating") : "Update"}
+          </button>
+        )}
         {a.openStudio && (
-          <button className="primary" disabled={work?.kind === "studio" && !work.error} onClick={() => void openStudio()}>
-            {work?.kind === "studio" && !work.error ? "Opening" : "Open Studio"}
+          <button className={u?.via ? "" : "primary"} disabled={pending("studio")} onClick={() => void act.openStudio()}>
+            {pending("studio") ? "Opening" : "Open Studio"}
           </button>
         )}
         {a.addStudio && (
-          <button className="primary" disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void addStudio()}>
-            {installing ? "Adding Studio" : "Add Studio"}
+          <button className={u?.via ? "" : "primary"} disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>
+            {pending("install") ? "Adding Studio" : "Add Studio"}
           </button>
         )}
-        <button disabled={!!a.launchBlocked || (work?.kind === "launch" && !work.error)} title={a.launchBlocked ?? undefined} onClick={() => void launch()}>
-          {work?.kind === "launch" && !work.error ? "Starting" : "Launch editor"}
+        <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
+          {pending("launch") ? "Starting" : "Launch editor"}
         </button>
-        <RowMenu p={p} m={m} />
+        <RowMenu p={p} m={m} onOpen={onOpen} />
       </div>
-      {a.addStudio && p.editor.running && !installing && <p className="app-row-note dim small">{a.addBlocked}</p>}
-      {work?.kind === "install" && work.job && (
-        <div className="app-row-work">
-          <JobOutput job={work.job} title={work.job.running ? `Adding Studio to ${p.name}` : work.job.ok ? "Studio was added" : "Studio was not added"} />
-          {work.done && work.job.ok && <p className="muted small">Studio opens from the Studio button on the editor toolbar, or from Open Studio here.</p>}
-          {work.done && (
-            <div className="row">
-              <span className="spacer" />
-              {!work.job.ok && <button onClick={() => void addStudio()}>Try again</button>}
-              <button className="ghost" onClick={() => set(null)}>Dismiss</button>
-            </div>
-          )}
-        </div>
-      )}
-      {work?.error && (
-        <div className="app-row-work">
-          <div className="banner bad small" role="alert">{work.error}</div>
-          <div className="row">
-            <span className="spacer" />
-            {work.kind === "install" && <button onClick={() => void addStudio()}>Try again</button>}
-            <button className="ghost" onClick={() => set(null)}>Dismiss</button>
-          </div>
-        </div>
-      )}
+      {a.addStudio && p.editor.running && !mine && <p className="app-row-note dim small">{a.addBlocked}</p>}
+      <WorkPanel p={p} work={work} act={act} />
     </li>
   );
 }
 
+type Actions = ReturnType<typeof projectActions>;
+
+/** The daemon's state, with Start or Stop beside it. */
+export function DaemonChip({ p, m, work, act }: { p: MachineProject; m: Machine; work: Work | null; act: Actions }) {
+  const d = running(p, m.live);
+  const busy = (work?.kind === "start" || work?.kind === "stop") && !!work.job?.running;
+  return (
+    <span className="app-daemon-chip">
+      {d ? (
+        <span className="app-chip accent" title={`ue-mcp ${d.version}, pid ${d.pid}, port ${d.port}`}>Daemon running</span>
+      ) : (
+        <span className="app-chip dim">Daemon stopped</span>
+      )}
+      <button className="ghost small app-chip-action" disabled={busy || !!work?.confirm} onClick={() => void (d ? act.stop() : act.start())}>
+        {busy ? (work?.kind === "start" ? "Starting" : "Stopping") : d ? "Stop" : "Start"}
+      </button>
+    </span>
+  );
+}
+
+/** A project's work: a job's output, why an action failed, or Stop asking again. */
+export function WorkPanel({ p, work, act }: { p: MachineProject; work: Work | null; act: Actions }) {
+  if (!work) return null;
+  if (work.confirm) {
+    return (
+      <div className="app-row-work">
+        <div className="banner warn small">Stopping ue-mcp disconnects {work.confirm}. Unreal keeps running; ue-mcp starts again when it is next needed.</div>
+        <div className="row">
+          <span className="spacer" />
+          <button className="ghost" onClick={act.cancel}>Cancel</button>
+          <button className="primary" onClick={() => void act.stop()}>Stop anyway</button>
+        </div>
+      </div>
+    );
+  }
+  if (work.error) {
+    return (
+      <div className="app-row-work">
+        <div className="banner bad small" role="alert">{work.error}</div>
+        <div className="row">
+          <span className="spacer" />
+          {work.kind === "install" && <button onClick={() => void act.addStudio()}>Try again</button>}
+          <button className="ghost" onClick={act.cancel}>Dismiss</button>
+        </div>
+      </div>
+    );
+  }
+  if (!work.job) return null;
+  return (
+    <div className="app-row-work">
+      <JobOutput job={work.job} title={workTitle(work.kind, work.job, p.name)} />
+      {work.done && work.job.ok && work.kind === "install" && <p className="muted small">Studio opens from the Studio button on the editor toolbar, or from Open Studio here.</p>}
+      {work.done && (
+        <div className="row">
+          <span className="spacer" />
+          {!work.job.ok && work.kind === "install" && <button onClick={() => void act.addStudio()}>Try again</button>}
+          {!work.job.ok && work.kind === "update" && <button onClick={() => void act.update()}>Try again</button>}
+          <button className="ghost" onClick={act.cancel}>Dismiss</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** The row's quieter actions. */
-function RowMenu({ p, m }: { p: MachineProject; m: Machine }) {
+function RowMenu({ p, m, onOpen }: { p: MachineProject; m: Machine; onOpen: () => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -169,6 +204,7 @@ function RowMenu({ p, m }: { p: MachineProject; m: Machine }) {
       </button>
       {open && (
         <div className="app-menu-list" role="menu">
+          <button role="menuitem" onClick={() => { setOpen(false); onOpen(); }}>Details</button>
           <button role="menuitem" onClick={() => { setOpen(false); void host()?.openfolder({ path: p.dir }); }}>Open folder</button>
           <button role="menuitem" onClick={() => { setOpen(false); void host()?.removeproject({ uproject: p.uproject }).then(() => m.refresh()); }}>Remove from list</button>
         </div>
