@@ -12,6 +12,8 @@ describe("remotePath", () => {
     expect(remotePath("POST", "/v1/editor/restart")).toBe("/v1/editor/restart");
     // The file viewer reads a file; opening one in an app on the computer stays there.
     expect(remotePath("GET", "/v1/ext/studio/files/read?path=.wiki%2FDecisions.md")).toBe("/v1/ext/studio/files/read?path=.wiki%2FDecisions.md");
+    // A reply's images load the same way on a paired phone and browser as on the computer.
+    expect(remotePath("GET", "/v1/ext/studio/files/image?path=Saved%2FShots%2Fstep02.jpg")).toBe("/v1/ext/studio/files/image?path=Saved%2FShots%2Fstep02.jpg");
     for (const [m, p] of [
       ["POST", "/v1/mcp"],
       ["POST", "/v1/shutdown"],
