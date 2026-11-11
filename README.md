@@ -28,6 +28,7 @@ Pick a model in the chat box. Each vendor connects through its own sign-in where
 - **Anthropic:** your Claude subscription through the login you made in Claude Code (`claude /login`), or your API key.
 - **OpenAI:** sign in with ChatGPT, so your ChatGPT plan pays for the calls, or your API key.
 - **Google:** your API key.
+- **Custom endpoints:** any server that speaks OpenAI's Chat Completions, local or hosted. Add one under **Settings > Models & accounts > Custom endpoints** with a name, its base URL and an optional key; its models join the picker under its name.
 
 ## Tools
 
