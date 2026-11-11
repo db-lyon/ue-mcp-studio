@@ -10,6 +10,7 @@ UE-MCP Studio: the free, open-source (MIT) in-editor client for ue-mcp. The open
 - `apps/mobile/` - the Android app (React Native, Expo): the paired browser's Studio drawn natively. Every user-facing change to `apps/client-web` ships with its counterpart here in the same pull request, or a recorded exception; `CONTRIBUTING.md` has the rule and `apps/mobile/test/parity-gate.test.ts` enforces it.
 - `apps/installer/` - `UE-MCP-Studio-Setup.exe`, an Inno Setup wizard over `npx ue-mcp install studio <uproject>` (`setup.iss`, built by `scripts/build-installer.mjs`, published by `scripts/release.mjs`). It installs nothing itself: it checks Node.js, offers Node.js LTS through winget, lists the editor's recent projects and runs the command. Set `STUDIO_SIGNTOOL` to a sign command with `$f` for the file to sign it.
 - `packages/shared/` - types shared by the agent and the UI.
+- `packages/extension-api/` - the contract other daemon extensions build against to extend Studio (MIT, publishable): API versions, UI slots and their contexts, and the card an extension posts. Types and constants only.
 - `packages/client-core/` - what both clients do that is not drawing (transport, event stream, lock, session sync, chat and review models, copy). No React, DOM or React Native. Both clients import it; neither copies it.
 - `packages/remote/` - remote control (MIT, publishable): the relay wire types, end-to-end sealing between a paired browser and this computer, and `remotePath`, the rule for what a remote browser may reach.
 
