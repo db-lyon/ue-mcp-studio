@@ -231,13 +231,10 @@ Captured capture(const std::wstring& line, DWORD timeoutMs) {
 }
 
 /**
- * The exact version the channel's tag names, once a session; the last one
- * known when npm cannot say. UE_MCP_APP_PACKAGE names another spec, such as
- * a local ue-mcp tarball, for development.
+ * The exact ue-mcp version the channel's npm tag names, once a session; the
+ * last one known when npm cannot say; empty when neither is known.
  */
-std::wstring resolvedSpec() {
-  std::wstring dev = env(L"UE_MCP_APP_PACKAGE");
-  if (!dev.empty() && dev.find_first_of(L"\"%^&|<> ") == std::wstring::npos) return dev;
+std::wstring channelUeMcp() {
   std::wstring tag = channelTag();
   bool resolved;
   {
@@ -268,7 +265,18 @@ std::wstring resolvedSpec() {
     gResolved = true;
   }
   std::lock_guard<std::mutex> g(gLock);
-  return job::spec(tag, gExact);
+  return gExact;
+}
+
+/**
+ * The ue-mcp spec to run: the channel's exact version, else its tag.
+ * UE_MCP_APP_PACKAGE names another spec, such as a local ue-mcp tarball, for development.
+ */
+std::wstring resolvedSpec() {
+  std::wstring dev = env(L"UE_MCP_APP_PACKAGE");
+  if (!dev.empty() && dev.find_first_of(L"\"%^&|<> ") == std::wstring::npos) return dev;
+  std::wstring exact = channelUeMcp();
+  return job::spec(channelTag(), exact);
 }
 
 /** A path ue-mcp is handed on a command line: a .uproject that exists, nothing cmd would expand. */
@@ -726,6 +734,34 @@ std::string sha256Hex(const std::string& data) {
 }
 
 /**
+ * The newest release carrying `asset` in a GitHub release list, as its
+ * download address. GitHub allows 60 unsigned calls an hour, so a list read
+ * in the last ten minutes is used again rather than read on every check.
+ */
+std::wstring newestAsset(const char* listUrl, const char* repo, const char* asset, std::string& error) {
+  static std::map<std::string, std::pair<ULONGLONG, std::string>> lists;
+  std::string body;
+  {
+    std::lock_guard<std::mutex> g(gLock);
+    auto it = lists.find(listUrl);
+    if (it != lists.end() && GetTickCount64() - it->second.first < 10 * 60 * 1000) body = it->second.second;
+  }
+  if (body.empty()) {
+    Http list = http(widen(listUrl), L"GET", {}, L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n", 20000, false);
+    if (!list.ok || list.status != 200) {
+      error = appchannel::listFailure(list.ok, list.status, list.error);
+      return {};
+    }
+    body = list.body;
+    std::lock_guard<std::mutex> g(gLock);
+    lists[listUrl] = {GetTickCount64(), body};
+  }
+  appchannel::Pick pick = appchannel::newest(body, repo, asset);
+  error = pick.error;
+  return widen(pick.url);
+}
+
+/**
  * The channel's latest.json: the latest release's on Stable; on Beta the
  * newest release by semver, prereleases included, from GitHub's release list
  * (WinHTTP sends UE-MCP/<version> as the User-Agent GitHub asks for).
@@ -733,14 +769,7 @@ std::string sha256Hex(const std::string& data) {
  */
 std::wstring manifestUrl(const std::string& channel, std::string& error) {
   if (channel != "beta") return widen(appchannel::kLatest);
-  Http list = http(widen(appchannel::kReleases), L"GET", {}, L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n", 20000, false);
-  if (!list.ok || list.status != 200) {
-    error = appchannel::listFailure(list.ok, list.status, list.error);
-    return {};
-  }
-  appchannel::Pick pick = appchannel::newest(list.body);
-  error = pick.error;
-  return widen(pick.url);
+  return newestAsset(appchannel::kReleases, appchannel::kRepo, "latest.json", error);
 }
 
 /** latest.json's app entry on the channel: {channel, version, newer} or why it could not be read. With install, download, check and run the setup. */
@@ -810,6 +839,54 @@ std::string appUpdate(bool installIt) {
 std::string str(const json::Value& v, const char* key) {
   const json::Value* x = v.get(key);
   return x && x->isString() ? x->s : std::string();
+}
+
+/** A release file's "version", or why there is none: an unreachable address, an HTTP status, an answer without a version. */
+std::string releaseVersion(const std::wstring& url, json::Value& out, std::string& why, const std::string& what) {
+  Http r = http(url, L"GET", {}, {}, 20000, false);
+  const json::Value* version = r.ok && r.status == 200 && json::parse(r.body, out) ? out.get("version") : nullptr;
+  if (version && version->isString() && ueupdate::validVersion(version->s)) return version->s;
+  why = !r.ok ? what + " could not be read: " + r.error + "." : r.status == 404 ? what + " is not published yet." : r.status != 200 ? what + " answered HTTP " + std::to_string(r.status) + "." : what + " names no version.";
+  return {};
+}
+
+/**
+ * The newest of each part a project runs, on the channel, read without any
+ * project's daemon: ue-mcp from its npm dist-tag (the bridge plugin follows
+ * it), Studio from the channel's latest.json, and the Studio editor plugin
+ * from the plugin.json latest.json names (on Beta, the plugin's newest
+ * release). {channel, ueMcp?, studio?, plugin?, errors: {part: why}}.
+ */
+std::string newestVersions() {
+  json::Value v = json::Value::object();
+  json::Value errors = json::Value::object();
+  std::string channel = channelName();
+  v.set("channel", json::Value::str(channel));
+  std::wstring ueMcp = channelUeMcp();
+  if (!ueMcp.empty()) v.set("ueMcp", json::Value::str(narrow(ueMcp)));
+  else errors.set("ueMcp", json::Value::str(npxCmd().empty() ? "Node.js was not found, so npm could not be asked." : "npm did not answer for ue-mcp@" + narrow(channelTag()) + "."));
+  std::string why;
+  std::wstring manifest = manifestUrl(channel, why);
+  std::string pluginNamed;
+  if (!manifest.empty()) {
+    json::Value latest;
+    std::string studio = releaseVersion(manifest, latest, why, "Studio's release");
+    if (!studio.empty()) {
+      v.set("studio", json::Value::str(studio));
+      pluginNamed = str(latest, "pluginChannel");
+    }
+  }
+  if (!why.empty()) errors.set("studio", json::Value::str(why));
+  std::string pluginWhy;
+  std::wstring pluginUrl = channel == "beta" ? newestAsset(appchannel::kPluginReleases, appchannel::kPluginRepo, "plugin.json", pluginWhy) : widen(appchannel::pluginChannel(pluginNamed));
+  if (!pluginUrl.empty()) {
+    json::Value plugin;
+    std::string version = releaseVersion(pluginUrl, plugin, pluginWhy, "The editor plugin's release");
+    if (!version.empty()) v.set("plugin", json::Value::str(version));
+  }
+  if (!pluginWhy.empty()) errors.set("plugin", json::Value::str(pluginWhy));
+  v.set("errors", errors);
+  return answer(v);
 }
 
 std::string state() {
@@ -1060,6 +1137,10 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
     v.set("channel", json::Value::str(channel));
     return answer(v);
   }
+  if (method == "newest") {
+    later(id, newestVersions);
+    return {};
+  }
   if (method == "appupdate") {
     bool go = str(in, "install") == "yes";
     later(id, [go] { return appUpdate(go); });
@@ -1097,7 +1178,7 @@ const wchar_t* kShim = LR"JS((function () {
   });
   var names = ["getstate", "refreshnode", "report", "cachedreport", "job", "daemon", "live", "install", "startdaemon", "stopdaemon", "updatebridge",
     "installnode", "openstudio", "launcheditor", "addproject", "removeproject", "readlog", "openlog", "openfolder", "openurl",
-    "getchannel", "setchannel", "appupdate", "setup", "launch", "close"];
+    "getchannel", "setchannel", "appupdate", "newest", "setup", "launch", "close"];
   var app = {};
   names.forEach(function (name) {
     app[name] = function (arg) {

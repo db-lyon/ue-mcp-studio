@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { AppUpdateCard } from "./Updates";
+import { AppUpdateCard } from "./Settings";
 import { appSlot, type AppUpdate, type Channel } from "./native";
 
 /** A stand-in host keeping one channel, as UE-MCP.exe keeps Studio's file, with each channel's newest release. */
@@ -55,6 +55,15 @@ describe("the UE-MCP row: the release channel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Update UE-MCP" }));
     await screen.findByText("Installing. UE-MCP restarts when it is done.");
     expect(h.calls.at(-1)).toBe("install beta");
+  });
+
+  it("reads each project's newest again after the channel changes", async () => {
+    fakeHost("stable", { stable: "0.1.34", beta: "0.1.35-beta.6" });
+    const onChannel = vi.fn();
+    render(<AppUpdateCard version="0.1.35-beta.5" onChannel={onChannel} />);
+    await screen.findByText(/The newest on Stable/);
+    fireEvent.click(screen.getByRole("radio", { name: "Beta" }));
+    await waitFor(() => expect(onChannel).toHaveBeenCalledTimes(1));
   });
 
   it("opens on Beta when Studio chose it", async () => {

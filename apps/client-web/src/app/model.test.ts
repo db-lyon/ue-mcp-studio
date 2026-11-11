@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionsOf, appUpdateLine, channelLabel, chipsOf, daemonRows, filterProjects, parseReport, running, studioOf, uptime, type MachineProject, type MachineReport } from "./model";
+import { actionsOf, appUpdateLine, channelLabel, filterProjects, nameHint, parseReport, running, studioOf, updateHow, updatesOf, uptime, versionsOf, type MachineProject } from "./model";
 
 const project = (o: Partial<MachineProject> = {}): MachineProject => ({
   name: "Vale",
@@ -32,10 +32,24 @@ describe("the UE-MCP app's model", () => {
     expect(running(project(), { "0e9f3c9aae1e89bb": { pid: 9, port: 1, version: "x" } })).toEqual({ pid: 9, port: 1, version: "x" });
   });
 
-  it("says each project's state in chips", () => {
-    expect(chipsOf(project({ ueMcp: { setUp: false, bridge: null, config: false } }), {}).map((c) => c.label)).toEqual(["ue-mcp not set up", "No Studio"]);
-    const open = project({ extensions: { studio: "0.1.35" }, editor: { running: true, pids: [1] } });
-    expect(chipsOf(open, { "0e9f3c9aae1e89bb": { pid: 1, port: 2, version: "1.4.13" } }).map((c) => c.label)).toEqual(["ue-mcp 1.4.13", "Studio 0.1.35", "Running", "Editor open"]);
+  it("lists a project's versions: the daemon's ue-mcp over the app's, the bridge, Studio and its editor plugin", () => {
+    const p = project({ extensions: { studio: "0.1.35" }, plugins: [{ name: "UE_MCP_Studio", version: "0.1.8" }] });
+    expect(versionsOf(p, {}, "1.4.14")).toEqual([
+      { label: "ue-mcp", version: "1.4.14" }, { label: "Bridge", version: "1.4.13" }, { label: "Studio", version: "0.1.35" }, { label: "Editor plugin", version: "0.1.8" },
+    ]);
+    expect(versionsOf(p, { "0e9f3c9aae1e89bb": { pid: 1, port: 2, version: "1.4.12" } }, "1.4.14")[0]).toEqual({ label: "ue-mcp", version: "1.4.12" });
+    expect(versionsOf(project({ ueMcp: { setUp: false, bridge: null, config: false } }), {}, "1.4.14")).toEqual([]);
+  });
+
+  it("tells same-named projects apart by the fewest parent folders that differ", () => {
+    const a = project({ name: "ue_mcp", key: "a", dir: "C:\\work\\ue-mcp\\tests\\ue_mcp" });
+    const b = project({ name: "ue_mcp", key: "b", dir: "C:\\work\\ue-mcp-release\\tests\\ue_mcp" });
+    const c = project({ name: "Vale", key: "c", dir: "C:\\P\\Vale" });
+    expect(nameHint(a, [a, b, c])).toBe("ue-mcp\\tests");
+    expect(nameHint(b, [a, b, c])).toBe("ue-mcp-release\\tests");
+    expect(nameHint(c, [a, b, c])).toBe("");
+    const d = project({ name: "UE_MCP", key: "d", dir: "D:\\games\\ue_mcp" });
+    expect(nameHint(d, [a, d])).toBe("games");
   });
 
   it("waits to add Studio while the editor has the project open or another install runs, and to launch while its own install runs", () => {
@@ -53,23 +67,33 @@ describe("the UE-MCP app's model", () => {
     expect(filterProjects(list, " ")).toHaveLength(2);
   });
 
-  it("lists running daemons by project name, and names an unlisted one by its .uproject", () => {
-    const r: MachineReport = {
-      version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [project()],
-      daemons: [
-        { key: "0e9f3c9aae1e89bb", projectRoot: "c:/p/vale", uproject: "C:\\P\\Vale\\Vale.uproject", pid: 1, port: 2, version: "1", startedAt: "", discovery: "", log: "" },
-        { key: "1111111111111111", projectRoot: "c:/x/tests/.shards/h1/ue_mcp", uproject: "C:\\x\\tests\\.shards\\h1\\ue_mcp\\ue_mcp.uproject", pid: 3, port: 4, version: "1", startedAt: "", discovery: "", log: "" },
-        { key: "2222222222222222", projectRoot: "c:/gone", uproject: null, pid: 5, port: 6, version: "1", startedAt: "", discovery: "", log: "" },
-      ],
-    };
-    expect(daemonRows(r, null).map((d) => [d.name, d.listed])).toEqual([["Vale", true], ["ue_mcp", false], ["gone", false]]);
-    expect(daemonRows(r, { "1111111111111111": { pid: 3, port: 4, version: "1" } }).map((d) => d.name)).toEqual(["ue_mcp"]);
+  it("finds updates from installed versions against the channel's newest, with no daemon", () => {
+    expect(updatesOf(project(), null)).toBeNull();
+    const studio = project({ extensions: { studio: "0.1.34" }, plugins: [{ name: "UE_MCP_Studio", version: "0.1.8" }] });
+    const u = updatesOf(studio, { channel: "beta", ueMcp: "1.4.14", studio: "0.1.35", plugin: "0.1.8" })!;
+    expect(u.parts.map((x) => [x.name, x.installed, x.latest, x.available])).toEqual([
+      ["Bridge plugin", "1.4.13", "1.4.14", true], ["Studio", "0.1.34", "0.1.35", true], ["Editor plugin", "0.1.8", "0.1.8", false],
+    ]);
+    expect(u).toMatchObject({ via: "studio", pill: "Update available", tone: "warn", line: "Ready to install: the bridge plugin 1.4.14 and Studio 0.1.35." });
+    expect(u.waiting[1].installs).toMatch(/^Studio 0\.1\.35/);
+    expect(updateHow(u, studio)).toMatch(/Studio on its Updates card/);
   });
 
-  it("lists a listed project's daemon that started after the report was read", () => {
-    const r: MachineReport = { version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [project()], daemons: [] };
-    expect(daemonRows(r, { "0e9f3c9aae1e89bb": { pid: 12, port: 34, version: "1.4.13" } })).toMatchObject([{ name: "Vale", pid: 12, port: 34, listed: true, startedAt: "" }]);
-    expect(daemonRows(r, {})).toEqual([]);
+  it("updates a project without Studio by ue-mcp update, and waits while its editor is open", () => {
+    const u = updatesOf(project(), { channel: "stable", ueMcp: "1.4.14", studio: "0.1.35", plugin: "0.1.8" })!;
+    expect(u.parts.map((x) => x.name)).toEqual(["Bridge plugin"]);
+    expect(u.via).toBe("ue-mcp");
+    expect(updateHow(u, project())).toBe("Runs ue-mcp update --apply-only for Vale.");
+    expect(updateHow(u, project({ editor: { running: true, pids: [1] } }))).toMatch(/^Close Vale in Unreal first/);
+  });
+
+  it("says up to date on the channel, why a part was not checked, and nothing for a project not set up", () => {
+    expect(updatesOf(project(), { channel: "beta", ueMcp: "1.4.13" })).toMatchObject({ via: null, pill: "Up to date", line: "Up to date on Beta." });
+    const s = project({ extensions: { studio: "0.1.35" } });
+    expect(updatesOf(s, { channel: "beta", ueMcp: "1.4.13", errors: { studio: "GitHub's rate limit for release checks was reached." } })).toMatchObject({
+      pill: "Not checked", line: "Could not check: GitHub's rate limit for release checks was reached.",
+    });
+    expect(updatesOf(project({ ueMcp: { setUp: false, bridge: null, config: false } }), { ueMcp: "1.4.14" })).toMatchObject({ parts: [], pill: "", via: null });
   });
 
   it("reads uptime in minutes, hours and days", () => {
@@ -88,7 +112,7 @@ describe("the UE-MCP app's model", () => {
   });
 });
 
-describe("the UE-MCP row on Updates", () => {
+describe("the UE-MCP row in Settings", () => {
   it("names the channel the way Studio's Updates card does", () => {
     expect(channelLabel("stable")).toBe("Stable");
     expect(channelLabel("beta")).toBe("Beta");

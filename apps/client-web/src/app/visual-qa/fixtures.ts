@@ -4,7 +4,7 @@
  * No ue-mcp, daemon or editor is involved.
  */
 import type { Screen } from "../App";
-import type { AppUpdate, DaemonAnswer, HostState, JobState, Live, ReportAnswer } from "../native";
+import type { AppUpdate, DaemonAnswer, HostState, JobState, Live, Newest, ReportAnswer } from "../native";
 import type { MachineDaemon, MachineProject, MachineReport } from "../model";
 
 export interface AppScenario {
@@ -19,6 +19,8 @@ export interface AppScenario {
   /** A daemon route's answer by path. */
   daemon?: Record<string, DaemonAnswer>;
   appUpdate?: AppUpdate;
+  /** The newest release of each part on the channel; the default has nothing newer than the fixtures. */
+  newest?: Newest;
   log?: string;
   /** setup: hold, or end with this. */
   setup?: "hold" | "ok" | "fail";
@@ -86,15 +88,18 @@ const many = MANY_NAMES.map((name, i) =>
   i === 0 ? vale : i === 1 ? harbor : i === 2 ? arena : i === 3 ? forest : i === 4 ? bridgeOnly : i % 3 === 0 ? notSetUp(10 + i, name, i % 2 ? "5.7" : "5.5") : project(10 + i, name, { studio: i % 2 ? "0.1.35" : undefined, engine: i % 4 ? "5.7" : "5.8" }),
 );
 
-const studioUpdates = {
-  channel: "stable",
-  studio: { installed: "0.1.34", latest: "0.1.35", available: true },
-  plugin: { installed: "0.1.8", latest: "0.1.8", available: false, location: "project", engine: "5.7" },
-  ueMcpMin: "1.4.12",
-};
-const studioCurrent = { ...studioUpdates, studio: { installed: "0.1.35", latest: "0.1.35", available: false } };
-const bridgeCheck = (installed: string, target: string | null, server = installed) =>
-  ({ installed: { version: installed }, server, latest: "1.4.13", target, binaries: null });
+/** The default: nothing newer than the fixtures have, on Stable. */
+export const CURRENT: Newest = { channel: "stable", ueMcp: "1.4.13", studio: "0.1.35", plugin: "0.1.8", errors: {} };
+/** Beta with ue-mcp 1.4.14 and Studio 0.1.36-beta.1: HarborTown's Studio and every bridge are behind. */
+const NEWER: Newest = { channel: "beta", ueMcp: "1.4.14", studio: "0.1.36-beta.1", plugin: "0.1.8", errors: {} };
+const twinA = project(6, "ue_mcp", { studio: "0.1.35", engine: "5.7", dir: "C:\\work\\ue-mcp\\tests\\ue_mcp", uproject: "C:\\work\\ue-mcp\\tests\\ue_mcp\\ue_mcp.uproject" });
+const twinB = project(7, "ue_mcp", { engine: "5.7", dir: "C:\\work\\ue-mcp-release\\tests\\ue_mcp", uproject: "C:\\work\\ue-mcp-release\\tests\\ue_mcp\\ue_mcp.uproject" });
+const LOG = [
+  "2026-11-08T09:12:03.114Z [ue-mcp] info daemon: listening on 127.0.0.1:41001",
+  "2026-11-08T09:12:03.520Z [ue-mcp] info extension: loaded studio 0.1.35",
+  "2026-11-08T09:12:09.002Z [ue-mcp] info bridge: connected to Vale (UE 5.8)",
+  "2026-11-08T09:40:51.877Z [ue-mcp] info session: claude-code connected",
+].join("\n");
 
 export const APP_SCENARIOS: Record<string, AppScenario> = {
   "app-projects-states": {
@@ -154,55 +159,55 @@ export const APP_SCENARIOS: Record<string, AppScenario> = {
     title: "The report could not be read (offline), so the last one is shown, marked with when it was read.",
     report: { ...report(states, stateDaemons), ok: false, reason: "failed", error: "npm error code ENOTFOUND", report: undefined, cached: report(states, stateDaemons).report, cachedAt: "2026-11-08T09:41:00Z" },
   },
-  "app-updates": {
-    title: "Updates: UE-MCP on Beta has an update, one project's Studio has one, one project without Studio has a bridge update, one is up to date, one is not running.",
-    screen: "updates",
-    report: report([vale, harbor, bridgeOnly, arena], [daemon(vale), daemon(harbor), daemon(bridgeOnly)]),
-    live: [vale.key, harbor.key, bridgeOnly.key],
-    appUpdate: { ok: true, channel: "beta", version: "0.1.36-beta.1", newer: true },
-    daemon: {
-      [`${harbor.key} /v1/ext/studio/updates`]: { status: 200, body: JSON.stringify(studioUpdates) },
-      [`${harbor.key} /v1/update`]: { status: 200, body: JSON.stringify(bridgeCheck("1.4.13", null)) },
-      [`${vale.key} /v1/ext/studio/updates`]: { status: 200, body: JSON.stringify(studioCurrent) },
-      [`${vale.key} /v1/update`]: { status: 200, body: JSON.stringify(bridgeCheck("1.4.13", null)) },
-      [`${bridgeOnly.key} /v1/ext/studio/updates`]: { status: 404, body: "" },
-      [`${bridgeOnly.key} /v1/update`]: { status: 200, body: JSON.stringify(bridgeCheck("1.4.11", "1.4.13")) },
-    },
-  },
-  "app-updates-current": {
-    title: "Updates: everything is up to date.",
-    screen: "updates",
-    report: report([vale], [daemon(vale)]),
+  "app-projects-updates": {
+    title: "Projects on Beta with newer releases: update badges from installed versions against the channel's newest, with no daemon asked, including a project whose daemon is stopped.",
+    report: report([vale, harbor, bridgeOnly, arena], [daemon(vale)]),
     live: [vale.key],
-    appUpdate: { ok: true, channel: "stable", version: "0.1.35", newer: false },
-    daemon: {
-      [`${vale.key} /v1/ext/studio/updates`]: { status: 200, body: JSON.stringify(studioCurrent) },
-      [`${vale.key} /v1/update`]: { status: 200, body: JSON.stringify(bridgeCheck("1.4.13", null)) },
-    },
+    newest: NEWER,
   },
-  "app-daemons": {
-    title: "Daemons: three running, one for a copy that is not on the Projects list, with one log open.",
-    screen: "daemons",
-    report: report(states, [...stateDaemons, { ...daemon(project(9, "ue_mcp"), "1.4.13-beta.3", 5), projectRoot: "c:/work/ue-mcp/tests/.shards/h1/ue_mcp", uproject: "C:\\work\\ue-mcp\\tests\\.shards\\h1\\ue_mcp\\ue_mcp.uproject" }]),
-    live: [vale.key, harbor.key, key(9)],
+  "app-projects-twins": {
+    title: "Projects: two projects named ue_mcp, told apart by the folders that differ.",
+    report: report([twinA, twinB, vale], [daemon(twinA)]),
+    live: [twinA.key],
+  },
+  "app-project-detail": {
+    title: "A project's detail: versions against Beta's newest, what Update installs through Studio, the running daemon with what is connected and its log, and the editor.",
+    report: report([vale, harbor, arena], [daemon(vale), daemon(harbor)]),
+    live: [vale.key, harbor.key],
+    newest: NEWER,
+    daemon: {
+      [`${harbor.key} /v1/health`]: { status: 200, body: JSON.stringify({ editors: [], clients: 1 }) },
+    },
+    log: LOG,
+    clicks: [".app-row:nth-child(2) .app-row-open"],
+  },
+  "app-project-detail-bridge": {
+    title: "A project without Studio: its bridge update runs by ue-mcp update, with the daemon stopped and no log yet.",
+    report: report([bridgeOnly, vale], [daemon(vale)]),
+    live: [vale.key],
+    newest: NEWER,
+    clicks: [".app-row:nth-child(1) .app-row-open"],
+  },
+  "app-daemon-stop-confirm": {
+    title: "Stop on a daemon with an editor and clients connected asks again.",
+    report: report(states, stateDaemons),
+    live: [vale.key, harbor.key],
     daemon: {
       [`${vale.key} /v1/health`]: { status: 200, body: JSON.stringify({ editors: [{ name: "Vale", connected: true }], clients: 2 }) },
-      [`${harbor.key} /v1/health`]: { status: 200, body: JSON.stringify({ editors: [], clients: 0 }) },
-      [`${key(9)} /v1/health`]: { status: 200, body: JSON.stringify({ editors: [], clients: 1 }) },
     },
-    log: [
-      "2026-11-08T09:12:03.114Z [ue-mcp] info daemon: listening on 127.0.0.1:41001",
-      "2026-11-08T09:12:03.520Z [ue-mcp] info extension: loaded studio 0.1.35",
-      "2026-11-08T09:12:09.002Z [ue-mcp] info bridge: connected to Vale (UE 5.8)",
-      "2026-11-08T09:40:51.877Z [ue-mcp] info session: claude-code connected",
-    ].join("\n"),
-    clicks: [".app-row:nth-child(1) .app-row-actions button:first-child"],
+    clicks: [".app-row:nth-child(1) .app-chip-action"],
   },
-  "app-daemons-none": {
-    title: "Daemons: nothing is running.",
-    screen: "daemons",
-    report: report(states),
-    live: [],
+  "app-settings": {
+    title: "Settings: UE-MCP on Beta has an update, Node.js, and Add project.",
+    screen: "settings",
+    report: report(states, stateDaemons),
+    appUpdate: { ok: true, channel: "beta", version: "0.1.36-beta.1", newer: true },
+  },
+  "app-settings-current": {
+    title: "Settings: UE-MCP is the newest on Stable.",
+    screen: "settings",
+    report: report(states, stateDaemons),
+    appUpdate: { ok: true, channel: "stable", version: "0.1.35", newer: false },
   },
   "setup-welcome": {
     title: "Setup: the welcome, with Node.js found.",

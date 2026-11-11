@@ -69,6 +69,20 @@ export interface AppUpdate {
   error?: string;
 }
 
+/**
+ * The newest release of each part a project runs, on the channel, read by the
+ * host without any daemon: ue-mcp from npm, Studio from latest.json, the
+ * Studio editor plugin from its plugin.json. A part it could not read is
+ * missing, with why under errors.
+ */
+export interface Newest {
+  channel?: Channel;
+  ueMcp?: string;
+  studio?: string;
+  plugin?: string;
+  errors?: { ueMcp?: string; studio?: string; plugin?: string };
+}
+
 type Call = (arg?: unknown) => Promise<unknown>;
 
 export interface AppHost {
@@ -96,6 +110,7 @@ export interface AppHost {
   getchannel(): Promise<{ channel: Channel }>;
   setchannel(arg: { channel: Channel }): Promise<Done & { channel?: Channel }>;
   appupdate(arg?: { install?: "yes" }): Promise<AppUpdate>;
+  newest(): Promise<Newest>;
   setup(): Promise<Done>;
   launch(): Promise<boolean>;
   close(): Promise<boolean>;
