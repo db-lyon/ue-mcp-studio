@@ -450,7 +450,7 @@ int main() {
     CHECK(job::wrap(L"x", L"o", L"e") == L"x > \"o\" 2>&1 && (echo 0)> \"e\" || (echo 1)> \"e\"");
     CHECK(job::wrap(L"x", L"o", L"e", L"r") == L"x > \"o\" 2> \"r\" && (echo 0)> \"e\" || (echo 1)> \"e\"");
     CHECK(job::npx(L"C:\\n\\npx.cmd", job::spec(L"beta", L""), L"projects --json") ==
-          L"\"C:\\n\\npx.cmd\" -y --prefer-offline --min-release-age=0 --package=ue-mcp@beta ue-mcp projects --json");
+          L"\"C:\\n\\npx.cmd\" -y --min-release-age=0 --package=ue-mcp@beta ue-mcp projects --json");
     CHECK(job::spec(L"beta", L"1.4.13") == L"ue-mcp@1.4.13");
     CHECK((job::lines("\x1b[32mok\x1b[0m a\r\n\n  \nb") == std::vector<std::string>{"ok a", "b"}));
   });
