@@ -36,6 +36,7 @@
 #include <vector>
 
 #include "WebView2.h"
+#include "channel.h"
 #include "host.h"
 #include "job.h"
 #include "json.h"
@@ -58,7 +59,6 @@ const wchar_t* kAumid = L"UE-MCP.App";
 const wchar_t* kMainClass = L"UEMCPApp";
 const wchar_t* kMessageClass = L"UEMCPApp.Message";
 const wchar_t* kUninstallKey = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\UE-MCP";
-const wchar_t* kLatest = L"https://github.com/db-lyon/ue-mcp-studio/releases/latest/download/latest.json";
 const wchar_t* kWebView2Download = L"https://developer.microsoft.com/microsoft-edge/webview2/";
 /** The machine report versions this app reads (ue-mcp's MACHINE_REPORT_VERSION). */
 constexpr int kReportVersion = 1;
@@ -109,15 +109,30 @@ std::map<std::wstring, bool> gCanReport;  // ue-mcp spec -> lists `projects` in 
 std::wstring gDaemonDir;     // from the last report
 int gJobNext = 1;
 
-std::wstring channelTag() {
+/** Studio's channel file, shared with the agent: one Stable or Beta choice for the machine. */
+std::wstring channelFile() {
+  std::wstring dev = env(L"STUDIO_CHANNEL_FILE");
+  return !dev.empty() ? dev : join(join(join(env(L"USERPROFILE"), L".ue-mcp"), L"studio"), L"update-channel.json");
+}
+
+/** "stable" or "beta". */
+std::string channelName() {
   std::string text;
-  json::Value v;
-  std::wstring file = join(join(join(env(L"USERPROFILE"), L".ue-mcp"), L"studio"), L"update-channel.json");
-  if (readFile(file, text) && json::parse(text, v)) {
-    const json::Value* c = v.get("channel");
-    if (c && c->isString() && c->s == "beta") return L"beta";
-  }
-  return L"latest";
+  return readFile(channelFile(), text) ? appchannel::parse(text) : "stable";
+}
+
+/** ue-mcp's npm dist-tag on the channel: latest or beta. */
+std::wstring channelTag() { return widen(appchannel::npmTag(channelName())); }
+
+/** Keep the choice for Studio and the app alike; ue-mcp's version is resolved again on its new tag. */
+bool setChannel(const std::string& channel) {
+  std::wstring file = channelFile();
+  makeDirs(dirOf(file));
+  if (!writeFile(file, appchannel::fileText(channel))) return false;
+  std::lock_guard<std::mutex> g(gLock);
+  gResolved = false;
+  gExact.clear();
+  return true;
 }
 
 std::wstring daemonDir() {
@@ -573,31 +588,8 @@ bool installedRecord(Installed& out) {
   return true;
 }
 
-/** -1, 0 or 1 as a is older than, the same as or newer than b, by major.minor.patch then prerelease. */
-int compareVersions(const std::string& a, const std::string& b) {
-  auto parts = [](const std::string& v, std::string& pre) {
-    std::vector<long> n;
-    size_t dash = v.find('-');
-    pre = dash == std::string::npos ? "" : v.substr(dash + 1);
-    std::string core = v.substr(0, dash);
-    size_t i = 0;
-    while (i <= core.size()) {
-      size_t dot = core.find('.', i);
-      n.push_back(atol(core.substr(i, dot == std::string::npos ? std::string::npos : dot - i).c_str()));
-      if (dot == std::string::npos) break;
-      i = dot + 1;
-    }
-    while (n.size() < 3) n.push_back(0);
-    return n;
-  };
-  std::string pa, pb;
-  std::vector<long> x = parts(a, pa), y = parts(b, pb);
-  for (int i = 0; i < 3; ++i) if (x[i] != y[i]) return x[i] < y[i] ? -1 : 1;
-  if (pa == pb) return 0;
-  if (pa.empty()) return 1;
-  if (pb.empty()) return -1;
-  return pa < pb ? -1 : 1;
-}
+/** By semver, prerelease numbers by value (beta.10 after beta.9). */
+using appchannel::compareVersions;
 
 HWND runningApp() { return FindWindowExW(HWND_MESSAGE, nullptr, kMessageClass, nullptr); }
 
@@ -733,16 +725,46 @@ std::string sha256Hex(const std::string& data) {
   return hex;
 }
 
-/** latest.json's app entry: {version, newer} or why it could not be read. With install, download, check and run the setup. */
+/**
+ * The channel's latest.json: the latest release's on Stable; on Beta the
+ * newest release by semver, prereleases included, from GitHub's release list
+ * (WinHTTP sends UE-MCP/<version> as the User-Agent GitHub asks for).
+ * Empty, with why in `error`, when the list could not be read.
+ */
+std::wstring manifestUrl(const std::string& channel, std::string& error) {
+  if (channel != "beta") return widen(appchannel::kLatest);
+  Http list = http(widen(appchannel::kReleases), L"GET", {}, L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n", 20000, false);
+  if (!list.ok || list.status != 200) {
+    error = appchannel::listFailure(list.ok, list.status, list.error);
+    return {};
+  }
+  appchannel::Pick pick = appchannel::newest(list.body);
+  error = pick.error;
+  return widen(pick.url);
+}
+
+/** latest.json's app entry on the channel: {channel, version, newer} or why it could not be read. With install, download, check and run the setup. */
 std::string appUpdate(bool installIt) {
   json::Value v = json::Value::object();
-  Http m = http(kLatest, L"GET", {}, {}, 20000, false);
+  std::string channel = channelName();
+  v.set("channel", json::Value::str(channel));
+  std::string listError;
+  std::wstring manifest = manifestUrl(channel, listError);
+  if (manifest.empty()) {
+    v.set("ok", json::Value::boolean(false));
+    v.set("error", json::Value::str(listError));
+    return answer(v);
+  }
+  Http m = http(manifest, L"GET", {}, {}, 20000, false);
   json::Value latest;
   bool read = m.ok && m.status == 200 && json::parse(m.body, latest);
   const json::Value* app = read ? latest.get("app") : nullptr;
   if (!app || !app->isObject()) {
     v.set("ok", json::Value::boolean(false));
-    v.set("error", json::Value::str(m.ok ? "The latest release has no UE-MCP app yet." : "The release list could not be read: " + m.error));
+    std::string why = !m.ok ? "The release could not be read: " + m.error
+                      : read ? std::string(channel == "beta" ? "The newest release has no UE-MCP app yet." : "The latest release has no UE-MCP app yet.")
+                             : "The release answered HTTP " + std::to_string(m.status) + ".";
+    v.set("error", json::Value::str(why));
     return answer(v);
   }
   const json::Value* version = app->get("version");
@@ -759,7 +781,7 @@ std::string appUpdate(bool installIt) {
   v.set("newer", json::Value::boolean(newer));
   if (!installIt || !newer) return answer(v);
   // The setup sits beside latest.json in the same release.
-  std::wstring base = kLatest;
+  std::wstring base = manifest;
   std::wstring file = widen(url->s);
   if (file.find_first_of(L"/\\:") != std::wstring::npos) {
     v.set("ok", json::Value::boolean(false));
@@ -1024,6 +1046,20 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
     ShellExecuteW(nullptr, L"open", widen(url).c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     return "true";
   }
+  if (method == "getchannel") {
+    json::Value v = json::Value::object();
+    v.set("channel", json::Value::str(channelName()));
+    return answer(v);
+  }
+  if (method == "setchannel") {
+    std::string channel = str(in, "channel");
+    if (channel != "stable" && channel != "beta") return okError("The channel is Stable or Beta.");
+    if (!setChannel(channel)) return okError("The channel could not be saved.");
+    json::Value v = json::Value::object();
+    v.set("ok", json::Value::boolean(true));
+    v.set("channel", json::Value::str(channel));
+    return answer(v);
+  }
   if (method == "appupdate") {
     bool go = str(in, "install") == "yes";
     later(id, [go] { return appUpdate(go); });
@@ -1061,7 +1097,7 @@ const wchar_t* kShim = LR"JS((function () {
   });
   var names = ["getstate", "refreshnode", "report", "cachedreport", "job", "daemon", "live", "install", "startdaemon", "stopdaemon", "updatebridge",
     "installnode", "openstudio", "launcheditor", "addproject", "removeproject", "readlog", "openlog", "openfolder", "openurl",
-    "appupdate", "setup", "launch", "close"];
+    "getchannel", "setchannel", "appupdate", "setup", "launch", "close"];
   var app = {};
   names.forEach(function (name) {
     app[name] = function (arg) {
