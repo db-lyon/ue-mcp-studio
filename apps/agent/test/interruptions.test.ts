@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { USER_STOP, describeCall, interruptedResult, interruptionNote } from "../src/interruptions.js";
+import { USER_SENT, USER_STOP, describeCall, interruptedResult, interruptionLine, interruptionNote } from "../src/interruptions.js";
 
 const rebuild = { name: "editor_restart", input: { operation: "rebuild", reason: "C++" } };
 const python = { name: "ue_mcp", input: { action: "call", category: "editor", method: "execute_python" } };
@@ -51,5 +51,20 @@ describe("the note for the model's next message", () => {
 describe("a note that starts with a plain call", () => {
   it("starts the sentence with a capital", () => {
     expect(interruptionNote([shell], { by: "studio", why: "the user chose Restart now to install an update" })).toMatch(/update\. A shell command never returned a result\./);
+  });
+});
+
+describe("what the transcript shows when a turn ends", () => {
+  it("shows nothing for the user's own Stop or Send now, and one line for a turn Studio ended", () => {
+    expect(interruptionLine(USER_STOP)).toBeNull();
+    expect(interruptionLine(USER_SENT)).toBeNull();
+    expect(interruptionLine({ by: "studio", why: "Studio's daemon restarted to install an update" })).toBe("Turn ended: Studio's daemon restarted to install an update.");
+  });
+
+  it("tells the model a new message ended the turn, not a Stop", () => {
+    const note = interruptionNote([{ name: "editor_restart", input: { operation: "rebuild" } }], USER_SENT);
+    expect(note.startsWith("The user sent a new message during your last turn, which ended it. editor_restart (rebuild) was running.")).toBe(true);
+    expect(note).not.toMatch(/Stop/);
+    expect(interruptedResult({ name: "shell", input: {} }, USER_SENT)).toMatch(/^Ended by the user's new message while this was running./);
   });
 });

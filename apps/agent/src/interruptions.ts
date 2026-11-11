@@ -5,10 +5,24 @@
  * without the turn, so the model does not blame a dropped connection.
  */
 
-/** Who ended a turn: the user's Stop, or Studio, with why in a phrase ("Studio's daemon restarted to install an update"). */
-export type Interruption = { by: "user" } | { by: "studio"; why: string };
+/**
+ * Who ended a turn: the user (Stop, or Send now with a new message), or
+ * Studio, with why in a phrase ("Studio's daemon restarted to install an update").
+ */
+export type Interruption = { by: "user"; sent?: boolean } | { by: "studio"; why: string };
 
 export const USER_STOP: Interruption = { by: "user" };
+/** Send now: the user's new message ended the turn. */
+export const USER_SENT: Interruption = { by: "user", sent: true };
+
+/**
+ * The line the transcript shows when a turn ends, or null for none. The user
+ * knows they pressed Stop or Send now, so only a turn Studio ended says so,
+ * in a line; the model's fuller note goes with the next message, not on screen.
+ */
+export function interruptionLine(cause: Interruption): string | null {
+  return cause.by === "studio" ? `Turn ended: ${cause.why}.` : null;
+}
 
 interface Call {
   name: string;
@@ -48,8 +62,9 @@ function aftermath(c: Call, cause: Interruption): string {
 
 /** The result a call gets when its turn ends under it. `ran` is false for a call that never started (queued, or waiting for approval). */
 export function interruptedResult(c: Call, cause: Interruption, ran = true): string {
-  if (!ran) return cause.by === "user" ? "Stopped by the user before this ran." : `Not run: ${cause.why} before it started.`;
-  const head = cause.by === "user" ? "Stopped by the user while this was running." : `Interrupted: ${cause.why} while this ran, so its result never came back.`;
+  const byUser = cause.by === "user" ? (cause.sent ? "Ended by the user's new message" : "Stopped by the user") : "";
+  if (!ran) return cause.by === "user" ? `${byUser} before this ran.` : `Not run: ${cause.why} before it started.`;
+  const head = cause.by === "user" ? `${byUser} while this was running.` : `Interrupted: ${cause.why} while this ran, so its result never came back.`;
   return [head, aftermath(c, cause)].filter(Boolean).join(" ");
 }
 
@@ -62,10 +77,10 @@ export function interruptionNote(running: Call[], cause: Interruption): string {
   const restart = running.find((c) => c.name === "editor_restart");
   if (cause.by === "user") {
     return [
-      "The user pressed Stop during your last turn, which ended it.",
+      cause.sent ? "The user sent a new message during your last turn, which ended it." : "The user pressed Stop during your last turn, which ended it.",
       list ? `${list} ${calls.length === 1 ? "was" : "were"} running.` : "",
-      restart ? `The ${opOf(restart)} goes on in the daemon after a Stop, so the editor may be stopping, building or starting now.` : "",
-      "A tool result that says the call was interrupted or rejected means that Stop: nothing refused the call, no connection dropped and nothing restarted. Check the current state before going on.",
+      restart ? `The ${opOf(restart)} goes on in the daemon after ${cause.sent ? "the turn ends" : "a Stop"}, so the editor may be stopping, building or starting now.` : "",
+      `A tool result that says the call was interrupted or rejected means ${cause.sent ? "the turn ended" : "that Stop"}: nothing refused the call, no connection dropped and nothing restarted. Check the current state before going on.`,
     ].filter(Boolean).join(" ");
   }
   return [
