@@ -380,6 +380,12 @@ export interface CardControls {
   runnable: boolean;
   stoppable: boolean;
   canAssign: boolean;
+  /**
+   * Why Assign to subagent cannot be pressed yet, where it would otherwise be
+   * offered: every step needs a person, so a subagent has nothing to run until
+   * one fails. The card shows Assign greyed out with this, instead of no button.
+   */
+  assignWaits: string | null;
   /** Edit and Delete. */
   editable: boolean;
 }
@@ -403,8 +409,12 @@ export function cardControls(run: QaRun, o: { outside?: { start?: boolean; assig
   // A saved script is editable wherever its card is drawn, in a session's chat as on the Playtests page.
   const scripted = o.outside ? !!o.outside.script : !draft && !!run.script;
   const editable = (scripted ? true : draft && owned) && !run.deleted && !assigned;
-  return { draft, ended, owned, assigned, needsYouLoop, runnable, stoppable, canAssign, editable };
+  const placed = (o.outside ? !!o.outside.assign : !!o.assignSession) && !run.deleted && !assigned && !needsYouLoop && assignment?.loop?.state !== "passed";
+  const assignWaits = placed && !qaAssignable(run) ? ASSIGN_WAITS : null;
+  return { draft, ended, owned, assigned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable };
 }
+
+export const ASSIGN_WAITS = "Every step needs a person to judge, so a subagent has nothing to run yet. Fail a step and it can fix the project and run the playtest again.";
 
 /** The Playtests page's filters, in the order its chips show them, each with what an empty list says. */
 export const PLAYTEST_FILTERS: Array<{ id: PlaytestFilter; label: string; empty: string }> = [

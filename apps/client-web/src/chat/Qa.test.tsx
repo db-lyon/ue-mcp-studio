@@ -284,10 +284,12 @@ describe("assigning the playtest to a subagent", () => {
     expect(within(step(0)).getByText("Passed")).toBeTruthy();
   });
 
-  it("offers nothing to assign when every step left is a person's", () => {
+  it("greys Assign out, saying why, when every step left is a person's", () => {
     const steps = [{ ...STEPS[0], status: "passed" }, { ...STEPS[1], status: "passed" }, { ...STEPS[2], agent_judgeable: false, status: "awaiting_verdict" }];
     mount(runOf({ state: "awaiting_verdict", steps }));
-    expect(screen.queryByRole("button", { name: "Assign to subagent" })).toBeNull();
+    const assign = screen.getByRole("button", { name: "Assign to subagent" }) as HTMLButtonElement;
+    expect(assign.disabled).toBe(true);
+    expect(assign.title).toMatch(/Every step needs a person to judge/);
     expect(within(step(2)).getByText("Person only")).toBeTruthy();
   });
 
