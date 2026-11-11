@@ -17,7 +17,7 @@ Close the project in Unreal, then either:
 
 Either way the project gets the Studio editor plugin for its engine, Studio itself, and, if the project is not set up for ue-mcp yet, the bridge plugin and its config. Every download is checked against its SHA-256. Then open the project in Unreal and click **Studio** on the toolbar.
 
-Unreal Engine 5.7 and 5.8 on Windows, with Node.js installed. The **Updates** card under **Settings > General** keeps ue-mcp, the plugin and Studio current with one button. An update that restarts ue-mcp or the editor waits until no turn is running; **Restart now** installs it at once and stops the turn.
+Unreal Engine 5.7, 5.8 and 5.9 on Windows, with Node.js installed. The **Updates** card under **Settings > General** keeps ue-mcp, the plugin and Studio current with one button. An update that restarts ue-mcp or the editor waits until no turn is running; **Restart now** installs it at once and stops the turn.
 
 Studio comes as two packages, each with its own releases: the editor plugin from [db-lyon/ue-mcp-studio-plugin](https://github.com/db-lyon/ue-mcp-studio-plugin/releases/latest), which you can also unzip into your project's `Plugins/` folder by hand, and the agent and UI from [this repository's releases](https://github.com/db-lyon/ue-mcp-studio/releases/latest): `studio-<version>.zip` and `latest.json`, which the plugin and `npx ue-mcp install studio` follow, and `UE-MCP-Setup.exe`, the UE-MCP app.
 
