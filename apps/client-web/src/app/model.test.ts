@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionsOf, chipsOf, daemonRows, filterProjects, parseReport, running, studioOf, uptime, type MachineProject, type MachineReport } from "./model";
+import { actionsOf, appUpdateLine, channelLabel, chipsOf, daemonRows, filterProjects, parseReport, running, studioOf, uptime, type MachineProject, type MachineReport } from "./model";
 
 const project = (o: Partial<MachineProject> = {}): MachineProject => ({
   name: "Vale",
@@ -85,5 +85,25 @@ describe("the UE-MCP app's model", () => {
     expect(parseReport(JSON.stringify({ version: 2, projects: [], daemons: [] }))).toBeNull();
     expect(parseReport("not json")).toBeNull();
     expect(parseReport(undefined)).toBeNull();
+  });
+});
+
+describe("the UE-MCP row on Updates", () => {
+  it("names the channel the way Studio's Updates card does", () => {
+    expect(channelLabel("stable")).toBe("Stable");
+    expect(channelLabel("beta")).toBe("Beta");
+  });
+
+  it("shows the version here, the channel and the channel's newest", () => {
+    expect(appUpdateLine("0.1.35-beta.5", null, "beta", false)).toBe("UE-MCP 0.1.35-beta.5, on Beta.");
+    expect(appUpdateLine("0.1.35-beta.5", { ok: true, channel: "beta", version: "0.1.35-beta.6", newer: true }, "beta", false)).toBe("UE-MCP 0.1.35-beta.6 is ready to install from Beta. You have 0.1.35-beta.5.");
+    expect(appUpdateLine("0.1.35-beta.6", { ok: true, channel: "beta", version: "0.1.35-beta.6", newer: false }, "beta", false)).toBe("UE-MCP 0.1.35-beta.6, the newest on Beta.");
+    expect(appUpdateLine("0.1.35-beta.6", { ok: true, channel: "stable", version: "0.1.34", newer: false }, "stable", false)).toBe("UE-MCP 0.1.35-beta.6. The newest on Stable is 0.1.34.");
+  });
+
+  it("names the channel the check read over the one picked, and says why a check failed", () => {
+    expect(appUpdateLine("0.1.35", { ok: true, channel: "stable", version: "0.1.35", newer: false }, "beta", false)).toBe("UE-MCP 0.1.35, the newest on Stable.");
+    expect(appUpdateLine("0.1.35", { ok: false, channel: "beta", error: "GitHub's rate limit for release checks was reached." }, "beta", false)).toBe("Could not check Beta: GitHub's rate limit for release checks was reached.");
+    expect(appUpdateLine("0.1.35", { ok: true, version: "0.1.36", newer: true }, "beta", true)).toBe("Installing. UE-MCP restarts when it is done.");
   });
 });

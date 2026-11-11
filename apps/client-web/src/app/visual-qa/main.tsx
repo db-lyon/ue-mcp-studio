@@ -49,6 +49,8 @@ const fake: AppHost = {
   openlog: async () => true,
   openfolder: async () => true,
   openurl: async () => true,
+  getchannel: async () => ({ channel: s.appUpdate?.channel ?? "stable" }),
+  setchannel: async ({ channel }) => ({ ok: true, channel }),
   appupdate: async () => s.appUpdate ?? { ok: true, version: state.version, newer: false },
   setup: () => (s.setup === "hold" ? never() : Promise.resolve(s.setup === "fail" ? { ok: false, error: "UE-MCP could not be copied to C:\\Users\\dana\\AppData\\Local\\Programs\\UE-MCP (error 5)." } : { ok: true })),
   launch: async () => true,

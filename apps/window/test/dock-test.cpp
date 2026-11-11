@@ -1,5 +1,5 @@
 // Unit tests for dock.h (the shared-memory protocol and where the window goes),
-// location.h, connection.h, update.h, toast.h and input.h.
+// location.h, connection.h, update.h, toast.h, input.h and channel.h.
 // Built beside studio-window.exe; apps/window/test/dock.test.ts runs it.
 // Prints "ok <name>" or "FAIL <name>: <what>" per case and exits non-zero on a failure.
 
@@ -7,6 +7,7 @@
 #include <map>
 #include <vector>
 
+#include "../src/channel.h"
 #include "../src/connection.h"
 #include "../src/dock.h"
 #include "../src/input.h"
@@ -534,6 +535,62 @@ int main() {
     // Taken just before the wrap, read just after it.
     CHECK(input::widenTick(wrap * 3 + 100, 0xFFFFFF00u) == wrap * 3 - 256);
     CHECK(input::widenTick(500, 900) == 0);
+  });
+
+  test("versions compare by semver, prerelease numbers by value", [] {
+    CHECK(appchannel::compareVersions("0.1.35-beta.10", "0.1.35-beta.9") > 0);
+    CHECK(appchannel::compareVersions("0.1.35", "0.1.35-beta.9") > 0);
+    CHECK(appchannel::compareVersions("0.1.35-beta.6", "0.1.36-beta.1") < 0);
+    CHECK(appchannel::compareVersions("v0.1.35-beta.6", "0.1.35-beta.6") == 0);
+    CHECK(appchannel::compareVersions("1.0.0-alpha", "1.0.0-alpha.1") < 0);
+    CHECK(appchannel::compareVersions("1.0.0-beta", "1.0.0-alpha.9") > 0);
+    CHECK(appchannel::compareVersions("1.0.0-rc.1", "1.0.0-beta.11") > 0);
+  });
+
+  test("the channel file is Studio's: beta when it says so, else stable, written as the agent writes it", [] {
+    CHECK(appchannel::parse("{\n  \"channel\": \"beta\"\n}\n") == "beta");
+    CHECK(appchannel::parse("{\"channel\":\"stable\"}") == "stable");
+    CHECK(appchannel::parse("{\"channel\":\"nightly\"}") == "stable");
+    CHECK(appchannel::parse("not json") == "stable");
+    CHECK(appchannel::fileText("beta") == "{\n  \"channel\": \"beta\"\n}\n");
+    CHECK(appchannel::fileText("anything") == "{\n  \"channel\": \"stable\"\n}\n");
+    CHECK(appchannel::parse(appchannel::fileText("beta")) == "beta");
+    CHECK(appchannel::npmTag("beta") == "beta");
+    CHECK(appchannel::npmTag("stable") == "latest");
+  });
+
+  test("beta takes the newest release carrying latest.json by semver, never a draft", [] {
+    const char* body = R"([
+      {"tag_name":"v0.1.35-beta.9","draft":false,"prerelease":true,"assets":[{"name":"latest.json"}]},
+      {"tag_name":"v0.1.36-beta.1","draft":true,"prerelease":true,"assets":[{"name":"latest.json"}]},
+      {"tag_name":"v0.1.35-beta.10","draft":false,"prerelease":true,"assets":[{"name":"latest.json"},{"name":"UE-MCP-Setup.exe"}]},
+      {"tag_name":"v0.1.35-beta.11","draft":false,"prerelease":true,"assets":[{"name":"notes.md"}]},
+      {"tag_name":"v0.1.34","draft":false,"prerelease":false,"assets":[{"name":"latest.json"}]},
+      {"tag_name":"v0.1.35-beta.12\"&calc","draft":false,"assets":[{"name":"latest.json"}]}
+    ])";
+    appchannel::Pick p = appchannel::newest(body);
+    CHECK(p.tag == "v0.1.35-beta.10");
+    CHECK(p.url == "https://github.com/db-lyon/ue-mcp-studio/releases/download/v0.1.35-beta.10/latest.json");
+    CHECK(p.error.empty());
+  });
+
+  test("beta takes a stable release newer than every prerelease", [] {
+    appchannel::Pick p = appchannel::newest(R"([{"tag_name":"v0.1.35-beta.6","draft":false,"assets":[{"name":"latest.json"}]},{"tag_name":"v0.1.35","draft":false,"assets":[{"name":"latest.json"}]}])");
+    CHECK(p.tag == "v0.1.35");
+  });
+
+  test("a release list with nothing to take, or not a list, says why", [] {
+    CHECK(!appchannel::newest("[]").error.empty());
+    CHECK(appchannel::newest("[]").url.empty());
+    CHECK(!appchannel::newest("{\"message\":\"API rate limit exceeded\"}").error.empty());
+    CHECK(!appchannel::newest("<html>").error.empty());
+  });
+
+  test("a release list GitHub refused names the rate limit", [] {
+    CHECK(appchannel::listFailure(true, 403, "").find("rate limit") != std::string::npos);
+    CHECK(appchannel::listFailure(true, 429, "").find("rate limit") != std::string::npos);
+    CHECK(appchannel::listFailure(true, 500, "") == "GitHub answered HTTP 500 for the release list.");
+    CHECK(appchannel::listFailure(false, 0, "timed out").find("timed out") != std::string::npos);
   });
 
   std::printf(failures ? "%d failed\n" : "all passed\n", failures);
