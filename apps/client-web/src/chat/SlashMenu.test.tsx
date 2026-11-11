@@ -19,17 +19,19 @@ describe("the command registry", () => {
     expect(parseSlashCommand("/playtest the door\nand the key")).toEqual({ name: "playtest", args: "the door\nand the key" });
     expect(parseSlashCommand("/playtesting")).toBeNull();
     expect(parseSlashCommand("/unknown thing")).toBeNull();
-    expect(parseSlashCommand("please /playtest it")).toBeNull();
+    // A command with free text runs from mid-message too; the rest of the message is its text.
+    expect(parseSlashCommand("please /playtest it")).toEqual({ name: "playtest", args: "please it" });
     expect(parseSlashCommand("/Game/Maps/Main is broken")).toBeNull();
     expect(parseSlashCommand("/flow rebuild clean=true")).toEqual({ name: "flow", args: "rebuild clean=true" });
     expect(parseSlashCommand("/action level.place_actor actorClass=PointLight")).toEqual({ name: "action", args: "level.place_actor actorClass=PointLight" });
   });
 
-  it("knows a name is being typed only while the message is the slash and the start of a name", () => {
+  it("knows a name is being typed while the message ends in a slash and the start of a name", () => {
     expect(slashQuery("/")).toBe("");
     expect(slashQuery("/pla")).toBe("pla");
     expect(slashQuery("/playtest ")).toBeNull();
-    expect(slashQuery("hi /pla")).toBeNull();
+    expect(slashQuery("hi /pla")).toBe("pla");
+    expect(slashQuery("and/or")).toBeNull();
     expect(slashQuery("/pla\n")).toBeNull();
     expect(slashQuery("")).toBeNull();
   });
@@ -75,7 +77,7 @@ const box = () => screen.getByPlaceholderText("Ask") as HTMLTextAreaElement;
 const options = () => screen.queryAllByRole("option").map((o) => ({ text: o.querySelector(".slash-name")?.textContent, selected: o.getAttribute("aria-selected") === "true" }));
 
 describe("the slash menu", () => {
-  it("opens on / at the start of the message and narrows as the name is typed", () => {
+  it("opens on / and narrows as the name is typed; mid-message it offers only the commands that run from there", () => {
     render(<Harness onSend={() => {}} commands={COMMANDS} />);
     expect(screen.queryByRole("listbox")).toBeNull();
     fireEvent.change(box(), { target: { value: "/" } });
@@ -85,7 +87,7 @@ describe("the slash menu", () => {
     fireEvent.change(box(), { target: { value: "/zzz" } });
     expect(screen.queryByRole("listbox")).toBeNull();
     fireEvent.change(box(), { target: { value: "say /pla" } });
-    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(options().map((o) => o.text)).toEqual(["/playtest"]);
   });
 
   it("moves with the arrow keys, wrapping, and points the text box at the option in focus", () => {

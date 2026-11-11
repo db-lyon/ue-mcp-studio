@@ -36,21 +36,44 @@ export function isLocalCommand(text: string, command: SlashCommand): boolean {
   return !!m && (m[1] === command.name || (command.aliases ?? []).includes(m[1]));
 }
 
-/** The command a message runs, and the text after its name. Null for an ordinary message. */
+/** Commands whose text is free, so they may be typed anywhere in a message: "okay, time to /playtest". */
+const ANYWHERE = new Set(["playtest", "compact"]);
+
+/** Whether a command runs from the middle of a message, not only from its start. */
+export const slashRunsAnywhere = (name: string): boolean => ANYWHERE.has(name);
+
+/**
+ * The command a message runs, and the text after its name. Null for an
+ * ordinary message. A command that takes free text also runs from the middle
+ * of a message, as a word of its own; the rest of the message is its text.
+ */
 export function parseSlashCommand(text: string): { name: string; args: string } | null {
-  const m = /^\/([a-z][a-z-]*)(?:\s+([\s\S]*))?$/.exec(text.trim());
-  if (!m || !SLASH_COMMANDS.some((c) => c.name === m[1])) return null;
-  return { name: m[1], args: (m[2] ?? "").trim() };
+  const t = text.trim();
+  const m = /^\/([a-z][a-z-]*)(?:\s+([\s\S]*))?$/.exec(t);
+  if (m && SLASH_COMMANDS.some((c) => c.name === m[1])) return { name: m[1], args: (m[2] ?? "").trim() };
+  for (const w of t.matchAll(/(^|\s)\/([a-z][a-z-]*)(?=\s|$)/g)) {
+    if (!ANYWHERE.has(w[2])) continue;
+    const at = w.index! + w[1].length;
+    const args = `${t.slice(0, at)} ${t.slice(at + w[2].length + 1)}`.replace(/\s+/g, " ").trim();
+    return { name: w[2], args };
+  }
+  return null;
 }
 
 /**
- * What the user has typed of a command name, while the draft is only a slash
- * and the start of a name: "/" is "", "/pla" is "pla". Null once anything
- * else is in the draft (a space, a second line, text before the slash).
+ * What the user has typed of a command name, while the draft ends in a slash
+ * and the start of a name, at the start or after a space: "/" is "", "okay
+ * /pla" is "pla". Null once the name is followed by anything.
  */
 export function slashQuery(draft: string): string | null {
-  const m = /^\/([a-z-]*)$/i.exec(draft);
+  const m = /(?:^|\s)\/([a-z-]*)$/i.exec(draft);
   return m ? m[1].toLowerCase() : null;
+}
+
+/** The draft before the command name being typed, which a pick from the menu keeps: "okay " for "okay /pla". */
+export function slashPrefix(draft: string): string {
+  const m = /(?:^|\s)\/[a-z-]*$/i.exec(draft);
+  return m ? draft.slice(0, m.index + (m[0].startsWith("/") ? 0 : 1)) : "";
 }
 
 /** The commands whose names start with what was typed, in the registry's order. */
