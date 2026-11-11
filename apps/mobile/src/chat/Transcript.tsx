@@ -739,13 +739,15 @@ function useUndrawn(count: number, measured: { current: Measured }): void {
  * bottom, with a way back down when they have scrolled up. Memoized: typing in
  * the composer does not render it again.
  */
-export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden, sent, more }: {
+export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, onStop, hidden, sent, more }: {
   transcript: TranscriptEntry[];
   status: TurnStatus;
   streaming: string;
   waitingCause: string | null;
   error: string | null;
   onOpen: (id: string) => void;
+  /** Stop a running subagent, from its row. */
+  onStop?: (id: string) => void;
   hidden: boolean;
   /** Counts the reader's sends; each one snaps the thread to its newest line. */
   sent?: number;
@@ -761,7 +763,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   const follow = useFollow(`${from + transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = askedIds.size;
-  const rows = useMemo(() => itemRows(items, transcript, from, waiting, onOpen), [items, transcript, waiting, onOpen, from]);
+  const rows = useMemo(() => itemRows(items, transcript, from, waiting, onOpen, onStop), [items, transcript, waiting, onOpen, onStop, from]);
   // The streaming reply is the newest line, cut into pieces as it grows.
   const drawn = useMemo(() => (streaming ? [...rows, streamRow(streaming)] : rows), [rows, streaming]);
   const foot =
@@ -784,14 +786,14 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
  * A thread's lines as rows, the main one or a subagent's. An entry is keyed by its place in the
  * transcript and a fold or group by its first call, so a page read in front or a run that grows keeps every row as it was.
  */
-function itemRows(items: ThreadItem[], transcript: TranscriptEntry[], from: number, sessionWaiting: boolean, onOpen?: (id: string) => void): ThreadRow[] {
+function itemRows(items: ThreadItem[], transcript: TranscriptEntry[], from: number, sessionWaiting: boolean, onOpen?: (id: string) => void, onStop?: (id: string) => void): ThreadRow[] {
   return items.map((item, i) => {
     if (item.kind === "entry") {
       const p = positionIn(transcript, item.entry);
       return entryRow(p < 0 ? `i${i}` : `e${from + p}`, item.entry, p < 0 ? undefined : from + p);
     }
     if (item.kind === "steps") return { key: `s${item.calls[0].id}`, render: () => <StepsFold calls={item.calls} /> };
-    return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={sessionWaiting} onOpen={onOpen ?? (() => {})} /> };
+    return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={sessionWaiting} onOpen={onOpen ?? (() => {})} onStop={onStop} /> };
   });
 }
 
@@ -845,11 +847,12 @@ export function StepsFold({ calls }: { calls: Call[] }) {
 export const GROUP_OPEN_MAX = 3;
 
 /** Subagents the main agent started together: one header, and a row per subagent. */
-export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
+export function AgentGroup({ calls, transcript, sessionWaiting, onOpen, onStop }: {
   calls: Call[];
   transcript: TranscriptEntry[];
   sessionWaiting: boolean;
   onOpen: (id: string) => void;
+  onStop?: (id: string) => void;
 }) {
   const t = useTheme();
   const now = useNow(calls.some((c) => c.outcome === "pending"));
@@ -858,7 +861,7 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
   const running = rows.some((r) => isActive(r.state));
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? (running || calls.length <= GROUP_OPEN_MAX);
-  if (calls.length === 1) return <AgentLink row={rows[0]} transcript={transcript} onOpen={onOpen} />;
+  if (calls.length === 1) return <AgentLink row={rows[0]} transcript={transcript} onOpen={onOpen} onStop={onStop} />;
   // .agent-group-head: 12px/1.6 mono with the button's 0.02em; the editor themes' button rule outranks it with 12px/1.2 sans.
   const role = t.editor ? "sans" : "mono";
   const lh = t.editor ? 1.2 : 1.6;
@@ -875,7 +878,7 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
         <Text style={[head, font(t, role, 600, 12, lh), { color: t.c.text }]}>{`${calls.length} subagents`}</Text>
         <Text style={[head, { color: t.c.dim, flexShrink: 1 }]}>{summarize(rows.map((r) => r.state))}</Text>
       </Pressable>
-      {open ? rows.map((r) => <View key={r.call.id} style={{ marginLeft: 16 }}><AgentLink row={r} transcript={transcript} onOpen={onOpen} /></View>) : null}
+      {open ? rows.map((r) => <View key={r.call.id} style={{ marginLeft: 16 }}><AgentLink row={r} transcript={transcript} onOpen={onOpen} onStop={onStop} /></View>) : null}
     </View>
   );
 }
@@ -914,7 +917,7 @@ export function StateDot({ state, size = 6 }: { state: AgentState; size?: number
  * its dot, name, state and Open thread on the first line, its title on its own
  * line under them, and its activity under that.
  */
-function AgentLink({ row, transcript, onOpen }: { row: Row; transcript: TranscriptEntry[]; onOpen: (id: string) => void }) {
+function AgentLink({ row, transcript, onOpen, onStop }: { row: Row; transcript: TranscriptEntry[]; onOpen: (id: string) => void; onStop?: (id: string) => void }) {
   const t = useTheme();
   const calls = callsIn(transcript, row.call.id);
   // .tool's 12px/1.6 mono with the button's 0.02em; the editor themes' button rule outranks it with 12px/1.2 sans.
@@ -934,6 +937,18 @@ function AgentLink({ row, transcript, onOpen }: { row: Row; transcript: Transcri
         <Text style={[text, font(t, role, 600, 12, lh), { color: t.c.text }]}>subagent</Text>
         <Text style={[text, { fontSize: 11, lineHeight: lineBox(11, lh), color: colors.label }]}>{STATE_LABEL[row.state]}</Text>
         <View style={{ flex: 1 }} />
+        {onStop && isActive(row.state) ? (
+          // A running subagent stops from its row, as from its thread's header.
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Stop ${describe(row.call)}`}
+            hitSlop={6}
+            onPress={() => onStop(row.call.id)}
+            style={({ pressed }) => ({ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: pressed ? t.c.bad : t.c.line, borderRadius: t.radius })}
+          >
+            <Text style={[text, { color: t.editor ? t.c.bad : t.c.badText }]}>Stop</Text>
+          </Pressable>
+        ) : null}
         <View style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.accentLine, borderRadius: t.radius }}>
           <Text style={[text, { color: t.c.accentHi }]}>{"Open thread ›"}</Text>
         </View>

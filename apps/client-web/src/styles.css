@@ -658,6 +658,10 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agent-link .agent-open { margin-left: auto; color: var(--accent-hi); white-space: nowrap; flex-shrink: 0; }
 .agent-link .agents-state { white-space: nowrap; flex-shrink: 0; }
 .agent-link:hover { border-color: var(--accent-line); }
+.agent-link-row { display: flex; gap: 6px; align-items: stretch; }
+.agent-link-row .agent-link { flex: 1; min-width: 0; }
+.agent-stop { flex-shrink: 0; height: auto; padding: 0 12px; background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--bad-text, var(--muted)); cursor: pointer; }
+.agent-stop:hover { border-color: var(--bad, var(--line)); }
 
 /* The header of a subagent's thread */
 .thread-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); }

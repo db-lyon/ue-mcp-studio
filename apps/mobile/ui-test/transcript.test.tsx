@@ -181,6 +181,18 @@ describe("MainTranscript", () => {
     expect(onOpen).toHaveBeenCalledWith("ag");
   });
 
+  it("stops a running subagent from its row, and offers no Stop once it has ended", () => {
+    const onStop = vi.fn();
+    const running: TranscriptEntry[] = [{ kind: "tool", call: { id: "ag", name: "agent", input: { description: "Dress the cave", prompt: "Place rocks" }, outcome: "pending", startedAt: at } }];
+    const first = renderInProject(<MainTranscript {...transcriptProps(running, { status: "running", onStop })} />);
+    fireEvent.click(screen.getByLabelText("Stop Dress the cave"));
+    expect(onStop).toHaveBeenCalledWith("ag");
+    first.unmount();
+    const ended: TranscriptEntry[] = [{ kind: "tool", call: { id: "ag", name: "agent", input: { description: "Dress the cave", prompt: "Place rocks" }, outcome: "stopped", result: "x", startedAt: at, endedAt: at } }];
+    renderInProject(<MainTranscript {...transcriptProps(ended, { onStop })} />);
+    expect(screen.queryByLabelText("Stop Dress the cave")).toBeNull();
+  });
+
   it("edits a message: rewinds at once when it is the last, asks rewind or fork otherwise", () => {
     const onEdit = vi.fn();
     const two: TranscriptEntry[] = [{ kind: "user", text: "First", at }, { kind: "assistant", text: "Reply", at }];

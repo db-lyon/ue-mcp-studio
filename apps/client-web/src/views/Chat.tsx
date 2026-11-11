@@ -515,6 +515,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
                 waitingCause={detail.waitingCause}
                 error={detail.error}
                 onOpen={openThreadId}
+                onStop={stopSubagent}
                 hidden={drawerOpen}
                 sent={sent}
               />

@@ -272,13 +272,15 @@ export const Reply = memo(function Reply({ text, at }: { text: string; at?: numb
  * bottom, with a way back down when they have scrolled up.
  */
 /** The conversation. Memoized: typing in the composer does not render it again. */
-export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, hidden, sent }: {
+export const MainTranscript = memo(function MainTranscript({ transcript, status, streaming, waitingCause, error, onOpen, onStop, hidden, sent }: {
   transcript: TranscriptEntry[];
   status: TurnStatus;
   streaming: string;
   waitingCause: string | null;
   error: string | null;
   onOpen: (id: string) => void;
+  /** Stop a running subagent, from its line. */
+  onStop?: (id: string) => void;
   hidden: boolean;
   /** Counts the reader's sends; each one snaps the thread to its newest line. */
   sent?: number;
@@ -292,7 +294,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   return (
     <>
       <div className="transcript" ref={follow.ref} onScroll={follow.onScroll} aria-hidden={hidden || undefined}>
-        <ThreadItems items={items} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} />
+        <ThreadItems items={items} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} onStop={onStop} />
         {streaming && <div className="msg assistant">{streaming}</div>}
         {asked > 0 && <div className="banner warn" role="status">Waiting on you: {asked === 1 ? "a call needs" : `${asked} calls need`} your approval below.</div>}
         {waiting && <div className="banner warn">Waiting for editor: {waitingCause ?? "not connected"}. The turn continues when it is back.</div>}
@@ -304,13 +306,13 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
 });
 
 /** A thread's lines, the main one or a subagent's, keyed by the entry or first call each starts at so a fold keeps its open state while the turn streams. */
-function ThreadItems({ items, transcript, sessionWaiting, onOpen }: { items: ThreadItem[]; transcript: TranscriptEntry[]; sessionWaiting: boolean; onOpen?: (id: string) => void }) {
+function ThreadItems({ items, transcript, sessionWaiting, onOpen, onStop }: { items: ThreadItem[]; transcript: TranscriptEntry[]; sessionWaiting: boolean; onOpen?: (id: string) => void; onStop?: (id: string) => void }) {
   return (
     <>
       {items.map((item, i) => {
         if (item.kind === "entry") return <Entry key={placeKey(transcript, item.entry, i)} entry={item.entry} />;
         if (item.kind === "steps") return <StepsFold key={`s${item.calls[0].id}`} calls={item.calls} />;
-        return <AgentGroup key={item.calls[0].id} calls={item.calls} transcript={transcript} sessionWaiting={sessionWaiting} onOpen={onOpen ?? (() => {})} />;
+        return <AgentGroup key={item.calls[0].id} calls={item.calls} transcript={transcript} sessionWaiting={sessionWaiting} onOpen={onOpen ?? (() => {})} onStop={onStop} />;
       })}
     </>
   );
@@ -340,11 +342,12 @@ export function StepsFold({ calls }: { calls: Call[] }) {
 export const GROUP_OPEN_MAX = 3;
 
 /** Subagents the main agent started together: one header, and a row per subagent. */
-export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
+export function AgentGroup({ calls, transcript, sessionWaiting, onOpen, onStop }: {
   calls: Call[];
   transcript: TranscriptEntry[];
   sessionWaiting: boolean;
   onOpen: (id: string) => void;
+  onStop?: (id: string) => void;
 }) {
   const now = useNow(calls.some((c) => c.outcome === "pending"));
   const asked = useAsked();
@@ -352,7 +355,7 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
   const running = rows.some((r) => isActive(r.state));
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? (running || calls.length <= GROUP_OPEN_MAX);
-  if (calls.length === 1) return <AgentLink row={rows[0]} transcript={transcript} onOpen={onOpen} />;
+  if (calls.length === 1) return <AgentLink row={rows[0]} transcript={transcript} onOpen={onOpen} onStop={onStop} />;
   return (
     <div className="agent-group">
       <button className="agent-group-head" aria-expanded={open} onClick={() => setToggled(!open)}>
@@ -360,17 +363,17 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen }: {
         <span className="tool-name">{calls.length} subagents</span>
         <span className="dim">{summarize(rows.map((r) => r.state))}</span>
       </button>
-      {open && rows.map((r) => <AgentLink key={r.call.id} row={r} transcript={transcript} onOpen={onOpen} />)}
+      {open && rows.map((r) => <AgentLink key={r.call.id} row={r} transcript={transcript} onOpen={onOpen} onStop={onStop} />)}
     </div>
   );
 }
 
 type Row = { call: Call } & ReturnType<typeof agentStatus>;
 
-/** In the main thread, a subagent is one line; its work is in its own thread. */
-function AgentLink({ row, transcript, onOpen }: { row: Row; transcript: TranscriptEntry[]; onOpen: (id: string) => void }) {
+/** In the main thread, a subagent is one line; its work is in its own thread. A running one stops from here too. */
+function AgentLink({ row, transcript, onOpen, onStop }: { row: Row; transcript: TranscriptEntry[]; onOpen: (id: string) => void; onStop?: (id: string) => void }) {
   const calls = callsIn(transcript, row.call.id);
-  return (
+  const link = (
     <button className={`tool agent-link state-${row.state}`} onClick={() => onOpen(row.call.id)}>
       <span className="tool-name">subagent</span>
       <span className="tool-call">{describe(row.call)}</span>
@@ -378,6 +381,13 @@ function AgentLink({ row, transcript, onOpen }: { row: Row; transcript: Transcri
       <span className="dim">{row.activity ? `${row.activity}, ` : ""}{calls} {calls === 1 ? "call" : "calls"}, {formatDuration(row.secs)}</span>
       <span className="agent-open">Open thread {"›"}</span>
     </button>
+  );
+  if (!onStop || !isActive(row.state)) return link;
+  return (
+    <div className="agent-link-row">
+      {link}
+      <button className="agent-stop" aria-label={`Stop ${describe(row.call)}`} onClick={() => onStop(row.call.id)}>Stop</button>
+    </div>
   );
 }
 
