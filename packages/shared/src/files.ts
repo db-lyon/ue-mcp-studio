@@ -36,3 +36,38 @@ export function openableInEditor(path: string): boolean {
 
 /** Whether the viewer renders this file as markdown. */
 export const isMarkdownPath = (path: string): boolean => /\.(md|markdown)$/i.test(path);
+
+// ── Images ──────────────────────────────────────────────────────
+
+/** Image types GET /v1/ext/studio/files/image serves from the project, by extension. */
+export const PROJECT_IMAGE_TYPES: Readonly<Record<string, string>> = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp" };
+
+/** Images larger than this are refused. */
+export const IMAGE_READ_MAX_BYTES = 25 * 1024 * 1024;
+
+/** The image type of a project path by its extension, or null for anything else. */
+export function projectImageType(path: string): string | null {
+  const m = /\.([a-z0-9]+)$/i.exec(path.split(/[?#]/)[0]);
+  return m ? PROJECT_IMAGE_TYPES[m[1].toLowerCase()] ?? null : null;
+}
+
+/**
+ * A markdown image in a reply that names a file on this computer (a project
+ * path, an absolute path or file://), which the chat shows through
+ * /files/image; null for a web image or anything that is not an image file.
+ */
+export function localImagePath(src: string | undefined | null): string | null {
+  if (!src) return null;
+  if (/^(https?|data|blob):/i.test(src)) return null;
+  const p = src.replace(/^file:\/\/\/?/i, "");
+  let decoded = p;
+  try {
+    decoded = decodeURIComponent(p);
+  } catch {
+    // Left as written.
+  }
+  return projectImageType(decoded) ? decoded : null;
+}
+
+/** GET /v1/ext/studio/files/image?path= for a project image. */
+export const projectImageUrl = (path: string): string => `/v1/ext/studio/files/image?path=${encodeURIComponent(path)}`;

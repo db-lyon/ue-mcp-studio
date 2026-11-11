@@ -1,7 +1,8 @@
-import Markdown, { type Components } from "react-markdown";
+import Markdown, { defaultUrlTransform, type Components, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import { classifyLink, remarkReplyLinks } from "@ue-mcp-studio/client-core";
+import { localImagePath, projectImageUrl } from "@ue-mcp-studio/shared";
 import { AssetToken, ExactAssetLink } from "./AssetLink";
 import { FileLink } from "./FileLink";
 import { breakable } from "./breakable";
@@ -26,12 +27,26 @@ const REPLY_COMPONENTS: Components = {
     if (m["data-file-path"]) return <FileLink path={m["data-file-path"]} line={m["data-file-line"] ? Number(m["data-file-line"]) : undefined}>{children}</FileLink>;
     return m["data-asset"] ? <AssetToken token={m["data-asset"]} code={false} /> : <span {...props}>{children}</span>;
   },
+  // An image in the project (a playtest's capture, a screenshot) loads through Studio, full size on a click.
+  img: ({ node: _node, src, alt }) => {
+    const local = localImagePath(typeof src === "string" ? src : null);
+    if (!local) return src ? <img className="md-image" src={String(src)} alt={alt ?? ""} loading="lazy" /> : <>{alt}</>;
+    const url = projectImageUrl(local);
+    return (
+      <a className="md-image-link" href={url} target="_blank" rel="noreferrer" title={local}>
+        <img className="md-image" src={url} alt={alt ?? ""} loading="lazy" />
+      </a>
+    );
+  },
   // Only web links reach here as links; a reference link to anything else is its text.
   a: ({ node: _node, href, children }) => (classifyLink(href).kind === "web" ? <a href={href} target="_blank" rel="noreferrer">{children}</a> : <>{children}</>),
 };
 const REPLY_PLUGINS = [remarkGfm, remarkBreaks, remarkReplyLinks];
 
+/** The default filter blanks a Windows path ("C:/...") as an unknown protocol; an image on this computer keeps its path. */
+const replyUrl: UrlTransform = (url, key) => (key === "src" && localImagePath(url) ? url : defaultUrlTransform(url));
+
 /** Markdown as a reply renders it, without raw HTML; a single line break stays a line break. */
 export function ReplyMarkdown({ text }: { text: string }) {
-  return <Markdown remarkPlugins={REPLY_PLUGINS} components={REPLY_COMPONENTS}>{text}</Markdown>;
+  return <Markdown remarkPlugins={REPLY_PLUGINS} components={REPLY_COMPONENTS} urlTransform={replyUrl}>{text}</Markdown>;
 }

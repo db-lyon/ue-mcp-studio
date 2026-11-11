@@ -102,6 +102,9 @@ const WORK = [
 /** How the user's @-mentions reach the agent (mentionToken in the shared package). */
 export const MENTION_LINE = "The user's messages can mention things as [@Name](target \"Type\"). The target is an asset's object path, actor:<object path> for an actor in the open level, or file:<path from the project folder>. Use the target as it is; it needs no search.";
 
+/** That a reply can show the project's images; the chat loads them through /files/image. */
+export const IMAGES_LINE = "To show the user an image from the project (a playtest capture, a screenshot), put it in your reply as markdown, ![what it shows](its path from the project folder): the chat displays it. png, jpg, gif, webp and bmp, up to 25 MB.";
+
 /** Where the machine tools work, for the prompts. */
 const where = (projectDir: string): string =>
   `The project folder is ${projectDir}: commands run there and relative paths start there. The shell is ${shell().name}.`;
@@ -122,6 +125,7 @@ const system = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings
   "You work inside Unreal Editor for the user, through ue-mcp, and on the project's files on their machine.",
   ...WORK,
   MENTION_LINE,
+  IMAGES_LINE,
   playtestRunsLine(runs),
   where(projectDir),
   subagentLine(usage),

@@ -12,7 +12,7 @@ import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { CONVENTIONS, conventionOf, openableInEditor, type Convention, type NativeOverview, type NativePreview, type NativeView, type WorkerView } from "@ue-mcp-studio/shared";
+import { CONVENTIONS, IMAGE_READ_MAX_BYTES, PROJECT_IMAGE_TYPES, conventionOf, openableInEditor, projectImageType, type Convention, type NativeOverview, type NativePreview, type NativeView, type WorkerView } from "@ue-mcp-studio/shared";
 import { loadout, type Loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor } from "./native-runtime.js";
 import { readProjectFile, resolveProjectFile, type FileScope } from "./project-files.js";
@@ -141,6 +141,18 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
   });
 
   api.route("GET", "/files/read", (req) => readProjectFile(scope(), req.query.path, req.query.from));
+
+  // An image a reply shows with markdown (![caption](Saved/Screenshots/shot.png)): the same files the viewer reaches, images only.
+  api.route("GET", "/files/image", (req) => {
+    const r = resolveProjectFile(scope(), req.query.path, req.query.from);
+    if (!r.ok) return { status: r.status, body: { error: r.error } };
+    const type = projectImageType(r.real) ?? projectImageType(r.abs);
+    if (!type) return { status: 415, body: { error: `${r.shown} is not an image Studio shows (${Object.keys(PROJECT_IMAGE_TYPES).join(", ")}).` } };
+    const stat = fs.statSync(r.real);
+    if (!stat.isFile()) return { status: 400, body: { error: `${r.shown} is not a file.` } };
+    if (stat.size > IMAGE_READ_MAX_BYTES) return { status: 413, body: { error: `${r.shown} is ${(stat.size / 1048576).toFixed(1)} MB; Studio shows images up to ${IMAGE_READ_MAX_BYTES / 1048576} MB.` } };
+    return { headers: { "content-type": type, "cache-control": "no-cache" }, body: fs.readFileSync(r.real) };
+  });
 
   api.route("POST", "/files/open", (req) => {
     const b = req.body as { path?: unknown; from?: unknown } | undefined;

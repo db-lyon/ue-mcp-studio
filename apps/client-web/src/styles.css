@@ -658,6 +658,8 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agent-link .agent-open { margin-left: auto; color: var(--accent-hi); white-space: nowrap; flex-shrink: 0; }
 .agent-link .agents-state { white-space: nowrap; flex-shrink: 0; }
 .agent-link:hover { border-color: var(--accent-line); }
+.md-image-link { display: inline-block; max-width: 100%; }
+.md-image { display: block; max-width: min(100%, 640px); max-height: 480px; height: auto; margin: 6px 0; border: 1px solid var(--line); border-radius: 8px; }
 .agent-link-row { display: flex; gap: 6px; align-items: stretch; }
 .agent-link-row .agent-link { flex: 1; min-width: 0; }
 .agent-stop { flex-shrink: 0; height: auto; padding: 0 12px; background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--bad-text, var(--muted)); cursor: pointer; }
