@@ -40,7 +40,7 @@ import { useDialogs } from "../chat/dialog-model";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
 import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../chat/asset-links";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
-import { ChatHeader } from "../chat/ChatHeader";
+import { AgentsButton, ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../screens/chat/items";
 import { useSessionRuns } from "../chat/sessionRuns";
@@ -580,7 +580,6 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
             }}
             onMain={() => setThread(null)}
             onStop={stopSubagent}
-            onAgents={() => setSheet(true)}
             onReview={() => setReviewOpen(true)}
             onTitleLongPress={() => setDiagOpen((v) => !v)}
           />
@@ -695,6 +694,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                                   ringOnly
                                 />
                               ) : null}
+                              {agentCalls(detail.transcript).length > 0 ? <AgentsButton count={agentCalls(detail.transcript).length} onPress={() => setSheet(true)} /> : null}
                             </>
                           }
                         />

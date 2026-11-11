@@ -61,6 +61,16 @@ export function ChatHeader({ title, thread, transcript, sessionWaiting, agents, 
   );
 }
 
+/** The session's subagents, as a count: opens them in a sheet. It sits in the composer bar beside the context meter. */
+export function AgentsButton({ count, onClick }: { count: number; onClick: () => void }) {
+  return (
+    <button className="ghost chat-agents-button" onClick={onClick} aria-label={`Subagents (${count})`} title="Subagents">
+      <AgentsGlyph />
+      <span>{count}</span>
+    </button>
+  );
+}
+
 function AgentsGlyph() {
   return (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
