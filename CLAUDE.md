@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-UE-MCP Studio: the free, open-source (MIT) in-editor client for ue-mcp. The open server, bridge plugin and daemon live in `db-lyon/ue-mcp` (MIT). Spec: `plans/in-editor-client.md` in the ue-mcp repo.
+UE-MCP Studio: the free, open-source (MIT) in-editor client for ue-mcp. The open server, bridge plugin and daemon live in `db-lyon/ue-mcp` (MIT). User guide: `docs/studio.md` in the ue-mcp repo, published at https://ue-mcp.com/docs/studio.
 
 ## Layout
 
