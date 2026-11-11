@@ -20,7 +20,7 @@ The Unreal editor plugin `UE_MCP_Studio` (menu and toolbar entries that open Stu
 
 Depend on ue-mcp only through `ue-mcp/daemon` (types, discovery helpers, bundle signing) and the daemon's HTTP API. Never import ue-mcp internals, never copy its code, never require a change in ue-mcp that only Studio needs. If Studio needs something the open daemon does not offer, add it to ue-mcp as a general feature first.
 
-The packages depend on a published `ue-mcp` version (the `beta` channel while the daemon is in prerelease).
+The packages pin one exact published `ue-mcp` version, the same in `apps/agent` and `apps/client-web`.
 
 ## Signing
 
