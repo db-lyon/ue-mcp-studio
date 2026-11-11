@@ -91,11 +91,14 @@ inline std::wstring spec(const std::wstring& tag, const std::wstring& exact) {
 }
 
 /**
- * A ue-mcp command through npx, from the npm cache when the version is
- * already there. --package takes a registry spec or a local tarball alike.
+ * A ue-mcp command through npx. --package takes a registry spec or a local
+ * tarball alike. No --prefer-offline: the spec is an exact version npm view
+ * just resolved, and an offline-first npx trusts a cached package list from
+ * before that version was published and fails with ETARGET on its first day.
+ * npm revalidates the cached list (a 304 when nothing changed) instead.
  */
 inline std::wstring npx(const std::wstring& npxCmd, const std::wstring& packageSpec, const std::wstring& args) {
-  return L"\"" + npxCmd + L"\" -y --prefer-offline --min-release-age=0 --package=" + packageSpec + L" ue-mcp " + args;
+  return L"\"" + npxCmd + L"\" -y --min-release-age=0 --package=" + packageSpec + L" ue-mcp " + args;
 }
 
 }  // namespace job
