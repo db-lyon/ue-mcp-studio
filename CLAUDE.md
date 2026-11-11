@@ -52,4 +52,4 @@ npm run dev             # UI with hot reload, proxied to the project's daemon
 - Atomic commits, one logical change each, message says why.
 - No em dashes anywhere. No session or attribution trailers in commits or PRs.
 - No competitor names in commits, docs or code comments.
-- The UI build targets Chrome 90 until UE 5.4 to 5.6's bundled Chromium is checked (5.7 and 5.8 ship 128).
+- The UI build targets Chrome 90 until UE 5.4 to 5.6's bundled Chromium is checked (5.7 and 5.8 ship 128, 5.9 ships 147).

@@ -35,7 +35,7 @@ export default defineConfig({
   base: "/ui/",
   plugins: [react()],
   build: {
-    // UE 5.7 and 5.8 ship Chromium 128; 5.4 to 5.6 are unverified, so stay conservative.
+    // UE 5.7 and 5.8 ship Chromium 128 and 5.9 ships 147; 5.4 to 5.6 are unverified, so stay conservative.
     target: "chrome90",
     outDir: "dist",
     emptyOutDir: true,
