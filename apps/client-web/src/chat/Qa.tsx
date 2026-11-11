@@ -363,7 +363,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   };
 
   const scripted = outside ? outside.script : !qaIsDraft(run) && run.script ? savedScriptActions(run.script) : undefined;
-  const { draft, ended, owned, needsYouLoop, runnable, stoppable, canAssign, editable } = cardControls(run, { outside: outside && { start: !!outside.start, assign: !!outside.assign, script: !!outside.script }, assignSession, open });
+  const { draft, ended, owned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable } = cardControls(run, { outside: outside && { start: !!outside.start, assign: !!outside.assign, script: !!outside.script }, assignSession, open });
   /** Edit, Delete and a draft's early verdicts change the script through the session that has its card. */
   /**
    * Start playtest on the card: a draft's, or the manual run a verdict on the
@@ -404,7 +404,10 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   );
   const stopButton = stoppable && <IconButton label={`Stop playtest ${run.scriptName}`} disabled={working || !!offline} title={offline ?? "Stop: end the run now"} onClick={stop} glyph={GLYPH.stop} />;
   const cancelAssigned = assigned && <IconButton label={assignment?.loop ? "End the loop" : "Cancel the subagent"} disabled={assigning || !!offline} title={offline} onClick={toggleAssign} glyph={GLYPH.cancel} />;
-  const assignButton = canAssign && !assigned && <IconButton label={needsYouLoop ? "Assign again" : "Assign to subagent"} disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "Assign to subagent: it runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"} glyph={GLYPH.assign} />;
+  const assignButton = canAssign && !assigned
+    ? <IconButton label={needsYouLoop ? "Assign again" : "Assign to subagent"} disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "Assign to subagent: it runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"} glyph={GLYPH.assign} />
+    // Greyed out with why, not missing: the span carries the tooltip a disabled button does not show.
+    : assignWaits && <span title={assignWaits}><IconButton label="Assign to subagent" title={assignWaits} disabled onClick={() => {}} glyph={GLYPH.assign} /></span>;
   const endLoop = needsYouLoop && <IconButton label="End loop" disabled={assigning || !!offline} title={offline ?? "End loop: it stops waiting for you, and its attempts stay to review and revert"} onClick={closeLoop} glyph={GLYPH.cancel} />;
   /** Edit and Delete: on a session's own draft, or on any saved script where the card is drawn with `script` actions. */
   // A saved script is editable wherever its card is drawn, in a session's chat as on the Playtests page.

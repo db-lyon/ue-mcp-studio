@@ -9,7 +9,7 @@
  */
 import { lhOf } from "./live";
 import { Fragment, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { Platform, Pressable, ScrollView, View, type ViewStyle, Text } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, View, type ViewStyle, Text } from "react-native";
 import {
   QA_VERDICTS,
   STARTING,
@@ -206,7 +206,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const scripted = outside ? outside.script : null;
   const savedScript = useSavedScript(!outside && !qaIsDraft(run) && run.script ? run.script : undefined);
   const scriptActions = scripted ?? savedScript;
-  const { draft, ended, owned, assigned, needsYouLoop, runnable, stoppable, canAssign, editable } = cardControls(run, {
+  const { draft, ended, owned, assigned, needsYouLoop, runnable, stoppable, canAssign, assignWaits, editable } = cardControls(run, {
     outside: outside && { start: !!outside.start, assign: !!outside.assign, script: !!outside.script },
     assignSession,
     open,
@@ -287,6 +287,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   if (stoppable) ownActions.push(<IconButton key="stop" label={`Stop playtest ${run.scriptName}`} disabled={working || off} onPress={stop} glyph="stop" />);
   if (assigned) ownActions.push(<IconButton key="cancel" label={assignment?.loop ? "End the loop" : "Cancel the subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="cancel" />);
   if (canAssign && !assigned) ownActions.push(<IconButton key="assign" label={needsYouLoop ? "Assign again" : "Assign to subagent"} disabled={assigning || off} onPress={toggleAssign} glyph="assign" />);
+  // Greyed out, not missing: a press says why it waits, as the web's tooltip does.
+  else if (assignWaits) ownActions.push(<IconButton key="assign" label="Assign to subagent" style={{ opacity: 0.45 }} onPress={() => Alert.alert("Assign to subagent", assignWaits)} glyph="assign" />);
   if (needsYouLoop) ownActions.push(<IconButton key="end" label="End loop" disabled={assigning || off} onPress={closeLoop} glyph="cancel" />);
   if (editable) {
     ownActions.push(<IconButton key="edit" label={`Edit ${run.scriptName}`} disabled={working || !!blocked} expanded={panel === "edit"} onPress={toggleEdit} glyph="edit" />);

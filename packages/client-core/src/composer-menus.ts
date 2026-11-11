@@ -9,7 +9,9 @@ import {
   matchActions,
   matchCommands,
   matchFlows,
+  slashPrefix,
   slashQuery,
+  slashRunsAnywhere,
   type ActionListing,
   type FlowListing,
   type MentionKind,
@@ -28,9 +30,11 @@ export interface SlashMenuItem {
 }
 
 /** What the draft asks the slash menu for: a command's name, a flow's after /flow, an action's after /action. Null where it asks nothing. */
-export function slashQueries(draft: string, commands: readonly SlashCommand[] = SLASH_COMMANDS, flows: boolean, actions: boolean): { query: string | null; flowQuery: string | null; actionQuery: string | null } {
+export function slashQueries(draft: string, commands: readonly SlashCommand[] = SLASH_COMMANDS, flows: boolean, actions: boolean): { query: string | null; flowQuery: string | null; actionQuery: string | null; prefix: string } {
   return {
     query: slashQuery(draft),
+    // The text before a command typed mid-message, kept by a pick.
+    prefix: slashPrefix(draft),
     flowQuery: flows && commands.some((c) => c.name === "flow") ? flowNameQuery(draft) : null,
     actionQuery: actions && commands.some((c) => c.name === "action") ? actionNameQuery(draft) : null,
   };
@@ -40,9 +44,12 @@ export const actionMenuItems = (actionQuery: string | null, actions: ActionListi
   actionQuery === null ? [] : matchActions(actionQuery, actions).map((a) => ({ key: a.name, label: a.name, summary: a.summary, insert: `/action ${a.name} ` }));
 
 /** The slash menu's rows for what is typed. */
-export function slashMenuItems(q: { query: string | null; flowQuery: string | null }, commands: readonly SlashCommand[], flows: FlowListing[], actionItems: SlashMenuItem[]): SlashMenuItem[] {
+export function slashMenuItems(q: { query: string | null; flowQuery: string | null; prefix?: string }, commands: readonly SlashCommand[], flows: FlowListing[], actionItems: SlashMenuItem[]): SlashMenuItem[] {
+  const prefix = q.prefix ?? "";
+  // Mid-message, only the commands that run from there are offered.
+  const offered = prefix ? commands.filter((c) => slashRunsAnywhere(c.name)) : commands;
   return q.query !== null
-    ? matchCommands(q.query, commands).map((c) => ({ key: c.name, label: `/${c.name}`, args: c.args, summary: c.summary, insert: `/${c.name} ` }))
+    ? matchCommands(q.query, offered).map((c) => ({ key: c.name, label: `/${c.name}`, args: c.args, summary: c.summary, insert: `${prefix}/${c.name} ` }))
     : q.flowQuery !== null
       ? matchFlows(q.flowQuery, flows).map((f) => ({ key: f.name, label: f.name, summary: f.description, insert: `/flow ${f.name} ` }))
       : actionItems;

@@ -40,7 +40,7 @@ import { useDialogs } from "../chat/dialog-model";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
 import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../chat/asset-links";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
-import { ChatHeader } from "../chat/ChatHeader";
+import { AgentsButton, ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../screens/chat/items";
 import { useSessionRuns } from "../chat/sessionRuns";
@@ -580,7 +580,6 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
             }}
             onMain={() => setThread(null)}
             onStop={stopSubagent}
-            onAgents={() => setSheet(true)}
             onReview={() => setReviewOpen(true)}
             onTitleLongPress={() => setDiagOpen((v) => !v)}
           />
@@ -614,7 +613,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                         {/* The transcript, the cards and the composer: the composer's box is capped by what this column leaves it. */}
                         <View testID="chat-column" style={{ flex: 1, minHeight: 0 }} onLayout={(e) => setColumnH(Math.round(e.nativeEvent.layout.height))}>
                         <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onLayout={(e) => setDiag({ boxH: e.nativeEvent.layout.height })}>
-                          <MainTranscript key={detail.id} more={(detail.from ?? 0) > 0 ? olderEntries : undefined} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} hidden={!!drawerId} sent={sent} />
+                          <MainTranscript key={detail.id} more={(detail.from ?? 0) > 0 ? olderEntries : undefined} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} onStop={stopSubagent} hidden={!!drawerId} sent={sent} />
                           {drawerCall ? (
                             <Animated.View
                               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.c.panel, borderLeftWidth: 1, borderLeftColor: t.c.line, shadowColor: "#000", shadowOpacity: 0.28, shadowRadius: 16, shadowOffset: { width: -16, height: 0 }, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [width, 0] }) }] }}
@@ -695,6 +694,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                                   ringOnly
                                 />
                               ) : null}
+                              {agentCalls(detail.transcript).length > 0 ? <AgentsButton count={agentCalls(detail.transcript).length} onPress={() => setSheet(true)} /> : null}
                             </>
                           }
                         />

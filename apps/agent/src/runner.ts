@@ -38,7 +38,7 @@ declare const __CLAUDE_SIGN_IN__: boolean | undefined;
 import { modelName } from "./models.js";
 import { AttachmentStore, contentFor } from "./attachments.js";
 import { keptName, toolResultContent } from "./images.js";
-import { USER_STOP, interruptedResult, interruptionNote, type Interruption } from "./interruptions.js";
+import { USER_SENT, USER_STOP, interruptedResult, interruptionLine, interruptionNote, type Interruption } from "./interruptions.js";
 import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
@@ -1376,9 +1376,9 @@ ${result}`);
       return interruptedResult(call, cause, ran);
     }, outcome);
     if (running.length > 0 || cause.by === "studio") {
-      const note = interruptionNote(running, cause);
-      s.notes.push(note);
-      this.addEntry(s, { kind: "note", text: note, at: now() });
+      s.notes.push(interruptionNote(running, cause));
+      const line = interruptionLine(cause);
+      if (line) this.addEntry(s, { kind: "note", text: line, at: now() });
     }
     if (cause.by === "user") {
       this.setStatus(s, "stopped", null);
@@ -1690,7 +1690,7 @@ ${result}`);
   /** Stop the running turn, as Stop does, and send this message now, ahead of the queue. */
   async sendNow(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = []): Promise<void> {
     const s = this.require(sessionId);
-    if (this.busy(s)) this.stop(sessionId);
+    if (this.busy(s)) this.interrupt(sessionId, USER_SENT);
     await this.send(sessionId, text, attachments);
   }
 

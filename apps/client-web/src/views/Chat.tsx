@@ -34,7 +34,7 @@ import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
 import { DetailLoader, sessionGone } from "@ue-mcp-studio/client-core";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
-import { ChatHeader } from "../chat/ChatHeader";
+import { AgentsButton, ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../chat/TurnReview";
 import { useSessionRuns } from "../chat/sessionRuns";
@@ -478,7 +478,6 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
             onSessions={() => { setSelected(null); setDetail(null); }}
             onMain={() => setThread(null)}
             onStop={stopSubagent}
-            onAgents={narrow ? () => setSheet(true) : undefined}
             onReview={() => setReviewOpen(true)}
           />
         )}
@@ -515,6 +514,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
                 waitingCause={detail.waitingCause}
                 error={detail.error}
                 onOpen={openThreadId}
+                onStop={stopSubagent}
                 hidden={drawerOpen}
                 sent={sent}
               />
@@ -615,6 +615,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
                     owner={openThread ? "Main" : undefined}
                   />
                 )}
+                {/* Narrow, the subagents open in a sheet from here, beside the context meter. */}
+                {narrow && agentCalls(detail.transcript).length > 0 && <AgentsButton count={agentCalls(detail.transcript).length} onClick={() => setSheet(true)} />}
                 {/* Narrow, Checkpoints is in the header. */}
                 {!narrow && <BarButton className="composer-checkpoints" label="Checkpoints" title="Review this session's changes and its checkpoints" icon={<CheckpointsGlyph />} onClick={() => setReviewOpen(true)} />}
               </>}

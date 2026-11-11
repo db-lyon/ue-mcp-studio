@@ -475,8 +475,8 @@ describe("Stop on the subscription route", () => {
     expect(fin.status).toBe("stopped");
     expect(sdk.interrupts).toBe(1);
     expect(afterStop.every((r) => r.isError)).toBe(true);
-    // Only the Stop's note follows the call: no text, no calls from the binary after the Stop.
-    expect(fin.transcript.slice(before).map((t) => t.kind)).toEqual(["note"]);
+    // Nothing follows the call: no text or calls from the binary after the Stop, and no note on screen for the user's own Stop.
+    expect(fin.transcript.slice(before).map((t) => t.kind)).toEqual([]);
     const restart = fin.transcript.find((t) => t.kind === "tool" && t.call.name === "editor_restart");
     expect(restart).toMatchObject({ call: { outcome: "stopped" } });
     expect(restart?.kind === "tool" && restart.call.result).toMatch(/Stopped by the user while this was running.*the rebuild goes on in the daemon/);

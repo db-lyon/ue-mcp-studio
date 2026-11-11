@@ -36,6 +36,23 @@ export function stateColors(t: Theme, state: AgentState | "main"): { dot: string
 }
 
 /** Two people: the subagents button's glyph, 16 px in currentColor. */
+/** The session's subagents, as a count, in the composer bar beside the context meter: opens them in a sheet. */
+export function AgentsButton({ count, onPress }: { count: number; onPress: () => void }) {
+  const t = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`Subagents (${count})`}
+      hitSlop={6}
+      onPress={onPress}
+      style={({ pressed }) => ({ minHeight: 36, flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 8, borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.line : "transparent", backgroundColor: pressed ? t.c.panel2 : "transparent" })}
+    >
+      <AgentsGlyph color={t.c.muted} />
+      <T style={[buttonText(t), { color: t.c.muted }]}>{count}</T>
+    </Pressable>
+  );
+}
+
 export function AgentsGlyph({ color }: { color: string }) {
   return (
     <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={{ width: 16, height: 16 }}>
