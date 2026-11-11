@@ -47,6 +47,16 @@ npm run dev             # UI with hot reload, proxied to the project's daemon
 - `apps/client-web/src/chat/composer-bar.layout.test.ts` measures the composer bar on the same page in headless Chrome or Edge as part of `npm test`, because jsdom has no layout.
 - `npm run visual-qa:live` drives the same states against the StudioE2E editor through ue-mcp; its header lists the steps. It touches an editor, so run it only when the user has asked for editor runs, and it refuses without `--editor-approved`.
 
+## Releasing
+
+Releases are cut by hand on Windows, with the C++ tools for `studio-window.exe` and the release signing key in place. Keep the version the same in the root `package.json` and in `apps/agent`, `apps/client-web` and `apps/window`; the script refuses a mismatch. `studioPlugin.min` in the root `package.json` is the oldest editor plugin the release works with, and `ueMcpExtension.ueMcp` in `apps/agent/package.json` the oldest ue-mcp.
+
+```bash
+npm run release -- --publish --notes-file notes.md
+```
+
+It builds with only the release key trusted, signs the UI, and writes `release/studio-<version>.zip`, `release/latest.json` and `release/UE-MCP-Studio-Setup.exe`. Without `--publish` it stops there. With it, it creates release `v<version>` on this repo with those three files, marked latest for a stable version and as a prerelease for a version with a `-` suffix.
+
 ## Conventions
 
 - Atomic commits, one logical change each, message says why.
