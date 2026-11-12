@@ -2014,7 +2014,7 @@ button.context-button.compacting .context-pct, button.context-button.compacting 
 .context-ring.over { filter: drop-shadow(0 0 2.5px var(--bad)); }
 .context-ring-tick { stroke: var(--text); stroke-width: 1.25; opacity: 0.75; }
 .context-ring-empty { width: 16px; height: 16px; border-radius: 50%; box-shadow: inset 0 0 0 2.5px var(--muted); opacity: 0.32; flex: none; }
-.context-tip { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 30; display: none; flex-direction: column; gap: 3px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); color: var(--muted); font: 400 12px/1.35 var(--sans); text-align: left; white-space: nowrap; pointer-events: none; }
+.context-tip { position: absolute; bottom: calc(100% + 8px); right: 0; z-index: 30; display: none; flex-direction: column; gap: 3px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--panel-2); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28); color: var(--muted); font: 400 12px/1.35 var(--sans); text-align: left; width: max-content; max-width: calc(100vw - 16px); pointer-events: none; }
 .context-tip-main { color: var(--text); font-weight: 600; }
 @media (hover: hover) {
   button.context-button:hover .context-tip, button.context-button:focus-visible .context-tip { display: flex; }
