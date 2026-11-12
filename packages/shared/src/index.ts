@@ -812,7 +812,7 @@ export type DialogAnswer =
 
 /** One field of a form ue-mcp asks the user to fill in. */
 export type FormField =
-  | { type: "string"; title?: string; description?: string; enum?: string[]; enumNames?: string[]; default?: string }
+  | { type: "string"; title?: string; description?: string; enum?: string[]; enumNames?: string[]; default?: string; /** Several lines, such as JSON: a text box rather than a line. */ multiline?: boolean }
   | { type: "number" | "integer"; title?: string; description?: string; default?: number }
   | { type: "boolean"; title?: string; description?: string; default?: boolean };
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { closestNames, flowCommandText, flowFormFields, flowValue, parseFlowArgs, type FlowInput, type TranscriptEntry } from "@ue-mcp-studio/shared";
 
 /** A daemon: the flows it lists, and the plan each answers with. */
@@ -90,7 +90,8 @@ describe("the /flow form", () => {
     expect(m.planFlow).toHaveBeenCalledWith("rebuild");
     expect(screen.getByText("Close, build and reopen the editor")).toBeTruthy();
     expect((screen.getByLabelText(/^clean/) as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByLabelText(/^config/) as HTMLSelectElement).value).toBe("Development");
+    // A short choice is a strip of buttons, the chosen one checked.
+    expect(within(screen.getByRole("radiogroup", { name: /^config/ })).getByRole("radio", { checked: true }).textContent).toBe("Development");
     expect((screen.getByLabelText(/^jobs/) as HTMLInputElement).value).toBe("8");
     // target is required: Run waits for it.
     const go = screen.getByRole("button", { name: "Run" }) as HTMLButtonElement;

@@ -3,6 +3,8 @@ import {
   actionArgs,
   actionFormFields,
   actionPrefill,
+  actionTyped,
+  actionTypedArgs,
   closestNames,
   flowValue,
   parseActionArgs,
@@ -24,7 +26,9 @@ type Loaded =
 /**
  * What a /action message opens above the composer: the action's parameters as
  * a form, the pairs typed after the name filled in. An action that takes no
- * parameters runs at once. A name that is no action shows the closest ones.
+ * parameters runs at once, and so does a line that already gives every
+ * required parameter, by pairs or by bare words and @-mentions in order
+ * (/action level.load @L_Arena). A name that is no action shows the closest ones.
  * Running it is the user's own call: the agent's approval rules still apply,
  * so a destructive action can stop at an approval card.
  */
@@ -32,6 +36,7 @@ export function ActionLauncher({ text, run, onClose }: { text: string; run: (req
   const parsed = useMemo(() => parseActionArgs(text.replace(/^\s*\/action\b/, "")), [text]);
   const [name, setName] = useState(parsed.name);
   const typed = name === parsed.name ? parsed.values : {};
+  const rest = name === parsed.name ? parsed.rest : [];
   const [loaded, setLoaded] = useState<Loaded>({ kind: "loading" });
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +80,12 @@ export function ActionLauncher({ text, run, onClose }: { text: string; run: (req
       setLoaded({ kind: "ready", listing, description });
       // Nothing to ask: it runs as it is.
       if (description.params.length === 0) start(full, Object.fromEntries(Object.entries(typed).map(([k, v]) => [k, flowValue(v, null)])));
+      else {
+        // The line gives every required parameter: it runs without the form,
+        // unless ue-mcp marks the action as deleting or overwriting.
+        const given = actionTyped(description, typed, rest);
+        if (given.ready && !listing?.destructive) start(full, actionTypedArgs(description, given.values));
+      }
     });
     return stop;
   }, [name]);
@@ -120,9 +131,12 @@ export function ActionLauncher({ text, run, onClose }: { text: string; run: (req
   } else {
     const d = loaded.description;
     const { fields, required } = actionFormFields(d);
-    const prefill = Object.fromEntries(Object.entries(typed).filter(([k]) => k in fields).map(([k, v]) => [k, actionPrefill(v, fields[k])]));
+    const given = actionTyped(d, typed, rest);
+    const prefill = Object.fromEntries(Object.entries(given.values).filter(([k]) => k in fields).map(([k, v]) => [k, actionPrefill(v, fields[k])]));
     const line = loaded.listing?.summary;
-    body = (
+    // Running straight from the line: the form shows only once that fails.
+    if (given.ready && !loaded.listing?.destructive && sent && !error) body = <p className="dim small" role="status">Starting</p>;
+    else body = (
       <>
         {line && <p className="small">{line}</p>}
         {loaded.listing?.destructive && <p className="small dim">ue-mcp marks this action as deleting or overwriting. Your approval settings decide whether it asks first.</p>}

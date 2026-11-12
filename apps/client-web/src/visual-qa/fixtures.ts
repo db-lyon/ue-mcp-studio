@@ -610,6 +610,33 @@ function flowTyped(title: string, typed: string, plans: Record<string, unknown> 
   };
 }
 
+/** level.load as ue-mcp's describe_action reports it. */
+const LOAD_ACTION = {
+  tool: "level",
+  action: "load",
+  class: "mutate",
+  params: [
+    { name: "levelPath", type: "string", required: true, description: "Map package to open" },
+    { name: "saveFirst", type: "boolean", required: false, description: "Save the open map and its dirty external actor packages before switching (default false)", aliases: ["saveCurrent"] },
+    { name: "discardUnsaved", type: "boolean", required: false, description: "Switch even though the open map has unsaved changes, discarding them (default false)" },
+    { name: "select", type: "union", required: false, description: "Keep only these result fields (dotted paths; arrays are traversed).", variants: [{ type: "string" }, { type: "string[]" }] },
+    { name: "omit", type: "union", required: false, description: "Drop these result fields (dotted paths). Runs after select.", variants: [{ type: "string" }, { type: "string[]" }] },
+  ],
+};
+
+/** A session with /action typed into the message box and sent, ue-mcp's catalog and level.load answered. */
+function actionTyped(title: string, typed: string): Scenario {
+  return {
+    ...inSession(title, "Door hinge fix", []),
+    get: (p) => (p === "/v1/ext/studio/actions"
+      ? { actions: [{ name: "level.load", category: "level", method: "load", summary: "Open level or load map: switch the editor to another map as the current editor level.", effect: "mutate" }] }
+      : p === "/v1/ext/studio/actions/level.load" ? LOAD_ACTION : undefined),
+    post: (p) => (p.endsWith("/draft") ? { status: 200, body: {} } : undefined),
+    type: { into: ".composer textarea:not(.composer-mirror)", text: typed },
+    afterType: { clicks: [".composer-send"], wait: 900 },
+  };
+}
+
 type FlowEntry = Extract<TranscriptEntry, { kind: "flow" }>;
 
 /** A /flow's card in the transcript, in one state. */
@@ -652,6 +679,8 @@ export const EDITOR_SCENARIOS: Record<string, Scenario> = {
   "flow-launcher-unknown": flowTyped("/flow with a name that is no flow: the closest names", "/flow bake-lightng "),
   "flow-launcher-error": flowTyped("/flow whose plan cannot be read: the reason and Close", "/flow playtest-smoke "),
   "flow-launcher-form": flowTyped("/flow with inputs: a form with the defaults and the typed pair filled in", "/flow bake-lighting map=/Game/Maps/L_Cave ", { "bake-lighting": FLOW_PLAN }),
+  "action-launcher-form": actionTyped("/action with nothing typed after the name: the required field, the optional ones folded", "/action level.load "),
+  "action-launcher-form-open": actionTyped("/action with an optional pair typed: the optional fields open, short choices as buttons", "/action level.load saveFirst=true "),
   "flow-card-running": flowRan("A /flow running in the transcript: its steps as they run", flowEntry("running")),
   "flow-card-succeeded": flowRan("A /flow that succeeded: its steps, nested ones indented, and its summary", flowEntry("succeeded")),
   "flow-card-failed": flowRan("A /flow that failed: the failed step's error, the step it never ran, and the errors", flowEntry("failed")),
