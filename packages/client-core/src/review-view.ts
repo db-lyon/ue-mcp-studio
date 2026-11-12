@@ -2,9 +2,11 @@
  * The review card's and the asset diff's words and decisions, for the web
  * client and the app alike: item labels, what the native view button says,
  * how a diff record reads, the tier a comparison takes at a width, a colour
- * value's CSS colour, and blueprint(diff)'s answer as nested lines.
+ * value's CSS colour, which pictures an item shows, and blueprint(diff)'s
+ * answer as nested lines.
  */
 import type { AssetDiff, AssetThumbnail, AssetVersion, ReviewItem } from "@ue-mcp-studio/shared";
+import { assetFamily, type AssetFamily } from "./asset-tile.js";
 
 /** How a diff record reads, from the shared diff tree, so client-core keeps no copy of its own. */
 export { CHANGE_KIND, colorOf, coveredFacts, kindOf, nodeOf, nodeSubtitle, numberStruct, withoutVerb } from "@ue-mcp-studio/shared";
@@ -69,6 +71,58 @@ export function pictureWhy(v: AssetVersion | null | undefined, missing: string, 
     : "No picture: the editor kept none for this version.";
 }
 
+export type PictureSide = "before" | "after";
+
+/** A picture the review shows, and the word under it. */
+export interface ShownPicture {
+  side: PictureSide;
+  label: "Before" | "After" | "New" | "Deleted";
+}
+
+/**
+ * The asset kinds whose change a picture shows: materials and their
+ * instances, meshes, textures, levels and effects. A Blueprint's thumbnail, a
+ * data asset's or a sound's says nothing about its components, graphs or
+ * values, so those changes are the diff's rows alone.
+ */
+export const VISUAL_FAMILIES: ReadonlySet<AssetFamily> = new Set<AssetFamily>(["material", "mesh", "texture", "level", "effect"]);
+
+/** Whether an asset of this class (or, with none, this file name) changes in a way a picture shows. */
+export const isVisualAsset = (cls: string | undefined, fileName = ""): boolean => VISUAL_FAMILIES.has(assetFamily(cls, fileName));
+
+/**
+ * Which pictures a review item shows. Only a visual kind shows any; a changed
+ * asset shows Before and After only when both are real pictures, since one
+ * side alone compares nothing; a new asset shows its picture as New, a
+ * deleted one its last picture as Deleted. Anything else shows none, and the
+ * diff carries the change.
+ */
+export function pictureSides(o: { visual: boolean; status: "added" | "modified" | "deleted"; before: boolean; after: boolean }): ShownPicture[] {
+  if (!o.visual) return [];
+  if (o.status === "added") return o.after ? [{ side: "after", label: "New" }] : [];
+  if (o.status === "deleted") return o.before ? [{ side: "before", label: "Deleted" }] : [];
+  return o.before && o.after ? [{ side: "before", label: "Before" }, { side: "after", label: "After" }] : [];
+}
+
+/** The class a diff is of: the engine's, else either version's. */
+export const diffClass = (diff: AssetDiff): string | undefined => diff.assetClass ?? diff.after?.class ?? diff.before?.class;
+
+/**
+ * The pictures an engine diff shows, each with the thumbnail to load: the
+ * rule above, with a side real only when the daemon sent a picture of it and
+ * the client did not find it unreadable or blank.
+ */
+export function diffPictures(
+  diff: AssetDiff,
+  status: "added" | "modified" | "deleted",
+  fileName: string,
+  failed: Partial<Record<PictureSide, PictureFailure>> = {},
+): Array<ShownPicture & { thumbnail: Extract<AssetThumbnail, { id: string }> }> {
+  const real = (side: PictureSide) => !!pictureOf(diff[side]) && !failed[side];
+  return pictureSides({ visual: isVisualAsset(diffClass(diff), fileName), status, before: real("before"), after: real("after") })
+    .map((p) => ({ ...p, thumbnail: pictureOf(diff[p.side])! }));
+}
+
 /** What Revert and Keep do to an asset Unreal could not load. */
 export function diffErrorConsequence(status: "added" | "modified" | "deleted"): string {
   return status === "added"
@@ -104,28 +158,8 @@ export function engineParts(text: string): string[] {
   return text.split(/(?<=\.)(?!\d)|(?<=[/\\_:,\s])|(?<==)(?!\u00a0)/).flatMap((p) => (p.trim().length > 32 ? p.split(/(?<=[a-z0-9])(?=[A-Z])/) : [p]));
 }
 
-/** Most a colour channel may vary across a picture that still counts as one flat colour. */
-export const FLAT_TOLERANCE = 6;
-
-/**
- * Whether RGBA pixels are one flat colour, or fully transparent: what a
- * thumbnail renderer that drew nothing leaves (black, or only its background).
- * A picture of nothing is not a picture of the version.
- */
-export function isFlatPicture(px: ArrayLike<number>): boolean {
-  if (px.length < 4) return true;
-  const min = [255, 255, 255];
-  const max = [0, 0, 0];
-  for (let i = 0; i + 3 < px.length; i += 4) {
-    if (px[i + 3] < 8) continue;
-    for (let c = 0; c < 3; c++) {
-      if (px[i + c] < min[c]) min[c] = px[i + c];
-      if (px[i + c] > max[c]) max[c] = px[i + c];
-    }
-    if (max[0] - min[0] > FLAT_TOLERANCE || max[1] - min[1] > FLAT_TOLERANCE || max[2] - min[2] > FLAT_TOLERANCE) return false;
-  }
-  return true;
-}
+/** Whether a loaded thumbnail shows nothing of the asset, from the shared package, which the agent checks with too. */
+export { FLAT_TOLERANCE, isBlankPicture, isFlatPicture, isPlaceholderPicture } from "@ue-mcp-studio/shared";
 
 /**
  * Whether the tile takes an absent picture's place: a new or deleted asset
