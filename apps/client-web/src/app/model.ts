@@ -2,8 +2,9 @@
  * What the UE-MCP app shows, worked out from ue-mcp's machine report and the
  * host's live daemon reads. Pure: the screens only draw it.
  */
+import { baseName } from "@ue-mcp-studio/client-core";
 import { isNewer } from "@ue-mcp-studio/shared";
-import type { AppUpdate, Channel, Live, Newest } from "./native";
+import type { AppUpdate, Channel, Ide, IdeInfo, IdeKind, Live, Newest } from "./native";
 
 /** ue-mcp's MachineReport, version 1 (`ue-mcp projects --json`, exported by ue-mcp/daemon). */
 export interface MachineReport {
@@ -104,6 +105,15 @@ export function readAt(iso: string | undefined): string {
   return t && Number.isFinite(t.getTime()) ? t.toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }) : "earlier";
 }
 
+/** "Read at 14:05" for when the list was read, with the day once it is not today. */
+export function listReadAt(ms: number | null, now = Date.now()): string {
+  if (ms === null || !Number.isFinite(ms)) return "";
+  const t = new Date(ms);
+  const today = new Date(now).toDateString() === t.toDateString();
+  const time = t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return today ? `Read at ${time}` : `Read ${t.toLocaleDateString(undefined, { day: "numeric", month: "short" })}, ${time}`;
+}
+
 /**
  * What tells a project apart from others of the same name: the fewest parent
  * folders that differ, such as "Work" for C:\Work\ue_mcp beside
@@ -138,6 +148,11 @@ export function versionsOf(p: MachineProject, live: Record<string, Live> | null,
   const plugin = pluginOf(p);
   if (plugin) out.push({ label: "Editor plugin", version: plugin });
   return out;
+}
+
+/** What an update changes in a project, as one string: Studio's version, its editor plugin's and the bridge's. */
+export function installedKey(p: MachineProject): string {
+  return [studioOf(p).version ?? "", pluginOf(p) ?? "", p.ueMcp.bridge?.version ?? ""].join("|");
 }
 
 /** One part of a project against the newest on the channel. */
@@ -214,6 +229,26 @@ export function updateHow(u: ProjectUpdates, p: MachineProject): string {
   if (u.via === "studio") return `Opens ${p.name}'s Studio on its Updates card, which installs each part in turn.`;
   if (u.via === "ue-mcp") return p.editor.running ? `Close ${p.name} in Unreal first: the bridge plugin cannot be replaced while the editor has it loaded.` : `Runs ue-mcp update --apply-only for ${p.name}.`;
   return "";
+}
+
+/** An IDE's short name, for a button. */
+export function ideShort(kind: IdeKind): string {
+  return kind === "vs" ? "Visual Studio" : kind === "vscode" ? "VS Code" : "Rider";
+}
+
+/** What an IDE opens for the project, said in its button's tooltip and the Open with... list. */
+export function ideOpens(ide: Ide, info: IdeInfo, p: MachineProject): string {
+  if (ide.kind === "vs") return info.solution ? `Opens ${baseName(info.solution)}` : "No solution yet: offers to generate the project files";
+  if (ide.kind === "vscode") return info.workspace ? `Opens ${baseName(info.workspace)}` : "Opens the project folder";
+  return `Opens ${baseName(info.solution ?? p.uproject)}`;
+}
+
+/** Open in IDE's label, tooltip and whether it can be pressed, from what the host found. */
+export function ideButton(info: IdeInfo | null, p: MachineProject): { label: string; title: string; ide: Ide | null } {
+  if (!info) return { label: "Open in IDE", title: "Looking for IDEs on this computer", ide: null };
+  const ide = info.ides?.find((x) => x.id === info.chosen) ?? null;
+  if (!ide) return { label: "Open in IDE", title: info.error ?? "No IDE was found. UE-MCP looks for Visual Studio, VS Code and Rider.", ide: null };
+  return { label: `Open in ${ideShort(ide.kind)}`, title: `${ide.name}. ${ideOpens(ide, info, p)}.`, ide };
 }
 
 /** "Stable" or "Beta", as Studio's Updates card names the channel. */

@@ -4,7 +4,7 @@
  * No ue-mcp, daemon or editor is involved.
  */
 import type { Screen } from "../App";
-import type { AppUpdate, DaemonAnswer, HostState, JobState, Live, Newest, ReportAnswer } from "../native";
+import type { AppUpdate, DaemonAnswer, HostState, IdeInfo, JobState, Live, Newest, OpenIde, ReportAnswer } from "../native";
 import type { MachineDaemon, MachineProject, MachineReport } from "../model";
 
 export interface AppScenario {
@@ -22,6 +22,10 @@ export interface AppScenario {
   /** The newest release of each part on the channel; the default has nothing newer than the fixtures. */
   newest?: Newest;
   log?: string;
+  /** The IDEs found and the project's files; the default has Visual Studio and VS Code, and a solution beside each .uproject. */
+  ides?: IdeInfo;
+  /** What Open in IDE answers. */
+  openide?: OpenIde;
   /** setup: hold, or end with this. */
   setup?: "hold" | "ok" | "fail";
   /** Pressed before the shot, by CSS selector, in order. */
@@ -87,6 +91,22 @@ const MANY_NAMES = ["Vale", "HarborTown", "ArenaPrototype", "ForestWalk", "CityB
 const many = MANY_NAMES.map((name, i) =>
   i === 0 ? vale : i === 1 ? harbor : i === 2 ? arena : i === 3 ? forest : i === 4 ? bridgeOnly : i % 3 === 0 ? notSetUp(10 + i, name, i % 2 ? "5.7" : "5.5") : project(10 + i, name, { studio: i % 2 ? "0.1.35" : undefined, engine: i % 4 ? "5.7" : "5.8" }),
 );
+
+/** The default IDEs: Visual Studio 2022 and VS Code, the project opening in Visual Studio. */
+export const IDES: IdeInfo = {
+  ok: true,
+  ides: [
+    { id: "vs:afb8a0c3", kind: "vs", name: "Visual Studio Community 2022" },
+    { id: "vscode", kind: "vscode", name: "Visual Studio Code" },
+  ],
+  chosen: "vs:afb8a0c3",
+  remembered: "",
+  preferred: "",
+  solution: null,
+  workspace: null,
+  source: true,
+  generate: true,
+};
 
 /** The default: nothing newer than the fixtures have, on Stable. */
 export const CURRENT: Newest = { channel: "stable", ueMcp: "1.4.13", studio: "0.1.35", plugin: "0.1.8", errors: {} };
@@ -187,6 +207,21 @@ export const APP_SCENARIOS: Record<string, AppScenario> = {
     live: [vale.key],
     newest: NEWER,
     clicks: [".app-row:nth-child(1) .app-row-open"],
+  },
+  "app-project-open-with": {
+    title: "A project's detail with Open with... open: the IDEs found here, the one the project opens in ticked, beside Show in Explorer.",
+    report: report([vale, harbor], [daemon(vale)]),
+    live: [vale.key],
+    log: LOG,
+    clicks: [".app-row:nth-child(1) .app-row-open", ".app-split-more"],
+  },
+  "app-project-needs-files": {
+    title: "Open in Visual Studio on a C++ project without a solution offers to generate its project files, or to open the folder in VS Code.",
+    report: report([vale, harbor], [daemon(vale)]),
+    live: [vale.key],
+    ides: { ...IDES, solution: null },
+    openide: { ok: false, needsProjectFiles: true, ide: "vs:afb8a0c3", name: "Visual Studio Community 2022", error: "Vale has no Visual Studio solution yet." },
+    clicks: [".app-row:nth-child(1) .app-menu-button", ".app-menu-list button[role=menuitem]"],
   },
   "app-daemon-stop-confirm": {
     title: "Stop on a daemon with an editor and clients connected asks again.",

@@ -10,11 +10,13 @@
 #include "../src/channel.h"
 #include "../src/connection.h"
 #include "../src/dock.h"
+#include "../src/ide.h"
 #include "../src/input.h"
 #include "../src/job.h"
 #include "../src/location.h"
 #include "../src/toast.h"
 #include "../src/update.h"
+#include "../src/watch.h"
 
 namespace {
 
@@ -611,6 +613,105 @@ int main() {
     CHECK(appchannel::listFailure(true, 429, "").find("rate limit") != std::string::npos);
     CHECK(appchannel::listFailure(true, 500, "") == "GitHub answered HTTP 500 for the release list.");
     CHECK(appchannel::listFailure(false, 0, "timed out").find("timed out") != std::string::npos);
+  });
+
+  test("the app reads again for discovery files and state.json, never for daemon logs", [] {
+    CHECK(watch::relevant(watch::Root::Daemons, L"0e9f3c9aae1e89bb.json"));
+    CHECK(watch::relevant(watch::Root::Daemons, L"0E9F3C9AAE1E89BB.JSON"));
+    CHECK(!watch::relevant(watch::Root::Daemons, L"0e9f3c9aae1e89bb.log"));
+    CHECK(!watch::relevant(watch::Root::Daemons, L"sub\\x.json"));
+    CHECK(watch::relevant(watch::Root::Home, L"state.json"));
+    CHECK(!watch::relevant(watch::Root::Home, L"state.json.tmp"));
+    CHECK(!watch::relevant(watch::Root::Home, L"version-check.json"));
+  });
+
+  test("a project reads again for its .uproject, solution files and plugin descriptors, not for build output", [] {
+    CHECK(watch::relevant(watch::Root::Project, L"Vale.uproject"));
+    CHECK(watch::relevant(watch::Root::Project, L"Vale.sln"));
+    CHECK(watch::relevant(watch::Root::Project, L"Vale.slnx"));
+    CHECK(watch::relevant(watch::Root::Project, L"Vale.code-workspace"));
+    CHECK(!watch::relevant(watch::Root::Project, L"Saved\\Logs\\Vale.log"));
+    CHECK(!watch::relevant(watch::Root::Project, L"README.md"));
+    CHECK(watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio\\UE_MCP_Studio.uplugin"));
+    CHECK(watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio"));
+    CHECK(!watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio\\Intermediate\\Build\\x.uplugin"));
+    CHECK(!watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio\\Binaries\\Win64\\UnrealEditor-UE_MCP_Studio.dll"));
+    CHECK(!watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio\\Source\\Private\\StudioDock.cpp"));
+  });
+
+  test("a burst of changes reads once when it settles, and a folder that keeps changing still reads", [] {
+    CHECK(watch::delay(1000, 1000) == 1500);
+    CHECK(watch::delay(1000, 5000) == 1500);
+    CHECK(watch::delay(1000, 8000) == 1000);
+    CHECK(watch::delay(1000, 9000) == 0);
+    CHECK(watch::delay(1000, 20000) == 0);
+  });
+
+  test("vswhere's installs become Visual Studio IDEs, newest first, Build Tools left out", [] {
+    auto w = [](const std::string& s) { return std::wstring(s.begin(), s.end()); };
+    std::vector<ide::Found> v = ide::parseVswhere(R"([
+      {"instanceId":"afb8a0c3","displayName":"Visual Studio Community 2022","productPath":"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe"},
+      {"instanceId":"b1","displayName":"Visual Studio Build Tools 2022","productPath":"C:\\BuildTools\\Common7\\Tools\\LaunchDevCmd.bat"},
+      {"instanceId":"x&y","displayName":"Odd","productPath":"C:\\x\\devenv.exe"},
+      {"instanceId":"c2","productPath":"C:\\VS\\2019\\Common7\\IDE\\DEVENV.EXE"}
+    ])", w);
+    CHECK(v.size() == 2);
+    CHECK(v[0].id == "vs:afb8a0c3" && v[0].kind == "vs" && v[0].name == "Visual Studio Community 2022");
+    CHECK(v[0].exe == L"C:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\Common7\\IDE\\devenv.exe");
+    CHECK(v[1].id == "vs:c2" && v[1].name == "Visual Studio");
+    CHECK(ide::parseVswhere("not json", w).empty());
+  });
+
+  test("the engine's Source Code Access preference is read from its section only", [] {
+    CHECK(ide::accessorKind("[/Script/SourceCodeAccess.SourceCodeAccessSettings]\r\nPreferredAccessor=RiderAccessor\r\n") == "rider");
+    CHECK(ide::accessorKind("[/Script/SourceCodeAccess.SourceCodeAccessSettings]\nPreferredAccessor=VisualStudioCode\n") == "vscode");
+    CHECK(ide::accessorKind("[x]\na=1\n[/Script/SourceCodeAccess.SourceCodeAccessSettings]\n  PreferredAccessor=VisualStudio2022\n") == "vs");
+    CHECK(ide::accessorKind("[Other]\nPreferredAccessor=RiderAccessor\n") == "");
+    CHECK(ide::accessorKind("[/Script/SourceCodeAccess.SourceCodeAccessSettings]\n[Next]\nPreferredAccessor=RiderAccessor\n") == "");
+    CHECK(ide::accessorKind("") == "");
+  });
+
+  test("a project opens in its remembered IDE, else the engine's preference, else what its files suit", [] {
+    std::vector<ide::Found> all = {{"vs:a", "vs", "VS", L"d"}, {"vscode", "vscode", "Code", L"c"}, {"rider", "rider", "Rider", L"r"}};
+    ide::Files none, sln{L"P.sln", L""}, ws{L"", L"P.code-workspace"};
+    CHECK(ide::choose(all, "vscode", "rider", sln) == "vscode");
+    CHECK(ide::choose(all, "vs:gone", "rider", sln) == "rider");
+    CHECK(ide::choose(all, "", "", sln) == "vs:a");
+    CHECK(ide::choose(all, "", "", ws) == "vscode");
+    CHECK(ide::choose(all, "", "", none) == "rider");
+    std::vector<ide::Found> vsOnly = {{"vs:a", "vs", "VS", L"d"}};
+    CHECK(ide::choose(vsOnly, "", "rider", none) == "vs:a");
+    CHECK(ide::choose({}, "", "", sln) == "");
+  });
+
+  test("Visual Studio opens the solution or nothing; VS Code the workspace or folder; Rider the solution or .uproject", [] {
+    ide::Files none, sln{L"C:\\P\\P.sln", L""}, ws{L"", L"C:\\P\\P.code-workspace"};
+    CHECK(ide::target("vs", sln, L"C:\\P", L"C:\\P\\P.uproject") == L"C:\\P\\P.sln");
+    CHECK(ide::target("vs", none, L"C:\\P", L"C:\\P\\P.uproject").empty());
+    CHECK(ide::target("vscode", ws, L"C:\\P", L"C:\\P\\P.uproject") == L"C:\\P\\P.code-workspace");
+    CHECK(ide::target("vscode", none, L"C:\\P", L"C:\\P\\P.uproject") == L"C:\\P");
+    CHECK(ide::target("rider", none, L"C:\\P", L"C:\\P\\P.uproject") == L"C:\\P\\P.uproject");
+    CHECK(ide::target("rider", sln, L"C:\\P", L"C:\\P\\P.uproject") == L"C:\\P\\P.sln");
+  });
+
+  test("of a folder's files, the project's own solution and workspace are picked", [] {
+    ide::Files f = ide::pickFiles({L"Other.sln", L"Vale.slnx", L"Vale.sln", L"Vale.uproject", L"x.code-workspace", L"VALE.code-workspace"}, L"Vale");
+    CHECK(f.solution == L"Vale.sln");
+    CHECK(f.workspace == L"VALE.code-workspace");
+    CHECK(ide::pickFiles({L"Other.sln"}, L"Vale").solution == L"Other.sln");
+    CHECK(ide::pickFiles({L"Vale.slnx"}, L"Vale").solution == L"Vale.slnx");
+    CHECK(ide::pickFiles({L"Vale.uproject", L".sln"}, L"Vale").solution.empty());
+  });
+
+  test("project files come from the project's engine, or the .uproject's own shell verb", [] {
+    CHECK(ide::association(R"({"FileVersion":3,"EngineAssociation":"5.8"})") == "5.8");
+    CHECK(ide::association(R"({"FileVersion":3})") == "");
+    CHECK(ide::launcherInstall(R"({"InstallationList":[{"InstallLocation":"D:\\UE_5.7","AppName":"UE_5.7"},{"InstallLocation":"D:\\UE_5.8","AppName":"UE_5.8"}]})", "5.8") == "D:\\UE_5.8");
+    CHECK(ide::launcherInstall(R"({"InstallationList":[]})", "5.8") == "");
+    CHECK(ide::projectFilesArgs(L"C:\\P\\P.uproject", true) == L"-projectfiles -project=\"C:\\P\\P.uproject\" -game -progress -rocket");
+    CHECK(ide::projectFilesArgs(L"C:\\P\\P.uproject", false).find(L"-engine") != std::wstring::npos);
+    CHECK(ide::fillVerb(L"\"C:\\UVS.exe\" /projectfiles \"%1\"", L"C:\\P\\P.uproject") == L"\"C:\\UVS.exe\" /projectfiles \"C:\\P\\P.uproject\"");
+    CHECK(ide::fillVerb(L"\"C:\\UVS.exe\" /projectfiles", L"C:\\P\\P.uproject").empty());
   });
 
   std::printf(failures ? "%d failed\n" : "all passed\n", failures);

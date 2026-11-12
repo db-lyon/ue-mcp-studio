@@ -68,6 +68,7 @@ body { background: var(--bg); overflow: hidden; }
 .app-head > div { flex: 1 1 320px; min-width: 0; }
 .app-head h1 { font: 700 24px/1.15 var(--sans); letter-spacing: -0.02em; margin: 0 0 4px; color: var(--text); text-transform: none; }
 .app-head p { margin: 0; }
+.app-read-at { align-self: center; white-space: nowrap; }
 .app-filter { width: 180px; }
 .app-banner { display: flex; align-items: center; gap: 12px; max-width: 980px; margin: 0 auto 16px; }
 .app-banner span { flex: 1; }
@@ -113,6 +114,16 @@ body { background: var(--bg); overflow: hidden; }
 }
 .app-menu-list button { border: 0; background: transparent; text-align: left; font: 500 12.5px/1.3 var(--sans); letter-spacing: 0; padding: 8px 10px; }
 .app-menu-list button:hover:not(:disabled) { background: var(--panel-2); }
+.app-menu-list { min-width: 220px; }
+.app-menu-head { padding: 8px 10px 4px; font: 600 11px/1.2 var(--sans); text-transform: uppercase; letter-spacing: 0.04em; color: var(--dim); }
+.app-menu-note { padding: 6px 10px 8px; }
+.app-menu-sep { height: 1px; margin: 4px 2px; background: var(--line); }
+.app-menu-list button.app-menu-ide { display: flex; gap: 8px; align-items: baseline; }
+.app-menu-check { width: 12px; flex: none; color: var(--accent); }
+.app-split { display: inline-flex; }
+.app-split > button:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.app-split > .app-split-more { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; padding: 6px 7px; }
+.app-split-more svg { width: 14px; height: 14px; display: block; fill: none; stroke: currentColor; stroke-width: 1.8; }
 
 .app-job { border: 1px solid var(--line); border-radius: var(--radius); background: var(--code-bg); overflow: hidden; }
 .app-job.bad { border-color: color-mix(in srgb, var(--bad) 35%, transparent); }

@@ -83,6 +83,42 @@ export interface Newest {
   errors?: { ueMcp?: string; studio?: string; plugin?: string };
 }
 
+export type IdeKind = "vs" | "vscode" | "rider";
+
+/** An IDE the host found: each Visual Studio vswhere lists ("vs:<instance>"), VS Code ("vscode") and Rider ("rider"). */
+export interface Ide {
+  id: string;
+  kind: IdeKind;
+  name: string;
+}
+
+/** The IDEs on this computer and how a project opens in them. */
+export interface IdeInfo {
+  ok: boolean;
+  error?: string;
+  ides?: Ide[];
+  /** The IDE Open in IDE uses: the one chosen for the project with Open with..., else the engine's preference, else what its files suit; "" when none was found. */
+  chosen?: string;
+  /** The IDE chosen for this project with Open with..., or "". */
+  remembered?: string;
+  /** The engine's Source Code Access preference for the project, or "". */
+  preferred?: IdeKind | "";
+  /** The project's solution (.sln or .slnx) and VS Code workspace, as full paths. */
+  solution?: string | null;
+  workspace?: string | null;
+  /** The project has C++ source. */
+  source?: boolean;
+  /** Its project files can be generated here (an engine's UnrealBuildTool, or the .uproject's shell verb). */
+  generate?: boolean;
+}
+
+export interface OpenIde extends Done {
+  ide?: string;
+  name?: string;
+  /** Visual Studio has no solution to open: the project's files have to be generated first. */
+  needsProjectFiles?: boolean;
+}
+
 type Call = (arg?: unknown) => Promise<unknown>;
 
 export interface AppHost {
@@ -107,6 +143,13 @@ export interface AppHost {
   openlog(arg: { key: string }): Promise<boolean>;
   openfolder(arg: { path: string }): Promise<boolean>;
   openurl(arg: { url: string }): Promise<boolean>;
+  ides(arg: { key: string; uproject: string }): Promise<IdeInfo>;
+  /** Open the project in an IDE: the one named (kept for the project with remember), else the one it opens in. */
+  openide(arg: { key: string; uproject: string; ide?: string; remember?: "yes" }): Promise<OpenIde>;
+  /** Generate the project's files (UnrealBuildTool -projectfiles), as a job. */
+  projectfiles(arg: { uproject: string }): Promise<Done>;
+  /** Explorer on the project's folder with the .uproject selected. */
+  reveal(arg: { uproject: string }): Promise<boolean>;
   getchannel(): Promise<{ channel: Channel }>;
   setchannel(arg: { channel: Channel }): Promise<Done & { channel?: Channel }>;
   appupdate(arg?: { install?: "yes" }): Promise<AppUpdate>;
@@ -122,6 +165,24 @@ export const appSlot = (): { ue?: { app?: Record<string, Call> } } => window as 
 /** The host's calls, or null outside UE-MCP.exe. */
 export function host(): AppHost | null {
   return (appSlot().ue?.app as unknown as AppHost | undefined) ?? null;
+}
+
+/**
+ * What the host tells the page unasked: `changed` when a file the report
+ * comes from changed (a daemon's discovery file, ~/.ue-mcp/state.json, a
+ * project's .uproject, solution or plugin descriptors), once the burst has
+ * settled; `focus` when the window is activated.
+ */
+export type HostEvent = "changed" | "focus";
+
+/** Hear the host's events; returns the unsubscribe. */
+export function onHostEvent(listener: (e: HostEvent) => void): () => void {
+  const on = (e: Event) => {
+    const d = (e as CustomEvent<unknown>).detail;
+    if (d === "changed" || d === "focus") listener(d);
+  };
+  window.addEventListener("ue-app", on);
+  return () => window.removeEventListener("ue-app", on);
 }
 
 /** Poll a job until it ends, reporting each state. */

@@ -13,7 +13,7 @@ import "../app.css";
 import { App } from "../App";
 import { appSlot, type AppHost, type Live } from "../native";
 import { followScheme } from "../scheme";
-import { APP_SCENARIOS, BASE_STATE, CURRENT } from "./fixtures";
+import { APP_SCENARIOS, BASE_STATE, CURRENT, IDES } from "./fixtures";
 
 const params = new URLSearchParams(location.search);
 const name = params.get("scenario") ?? "app-projects-states";
@@ -49,6 +49,10 @@ const fake: AppHost = {
   openlog: async () => true,
   openfolder: async () => true,
   openurl: async () => true,
+  ides: async ({ uproject }) => ({ ...(s.ides ?? IDES), solution: s.ides ? s.ides.solution : uproject.replace(/\.uproject$/, ".sln") }),
+  openide: async () => s.openide ?? { ok: true },
+  projectfiles: async () => started,
+  reveal: async () => true,
   getchannel: async () => ({ channel: s.appUpdate?.channel ?? "stable" }),
   setchannel: async ({ channel }) => ({ ok: true, channel }),
   appupdate: async () => s.appUpdate ?? { ok: true, version: state.version, newer: false },

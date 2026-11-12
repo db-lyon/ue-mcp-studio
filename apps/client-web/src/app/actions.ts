@@ -4,15 +4,26 @@
  * Work in progress is kept by project key outside either view, so an install
  * started on the list is still shown on the project's detail, and back.
  */
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import type { Machine } from "./App";
-import { follow, host, type JobState } from "./native";
-import { updatesOf, type MachineProject } from "./model";
+import { follow, host, type IdeInfo, type JobState } from "./native";
+import { installedKey, updatesOf, type MachineProject } from "./model";
 
 /** Where a project's Studio opens to run its update: Settings, General, the Updates card. */
 export const UPDATES_LOCATION = "#/settings/general";
 
-export type WorkKind = "install" | "launch" | "studio" | "start" | "stop" | "update";
+export type WorkKind = "install" | "launch" | "studio" | "start" | "stop" | "update" | "ide" | "projectfiles";
+
+/** Open in IDE found no solution for Visual Studio: what the page can offer instead. */
+export interface NeedsFiles {
+  /** The IDE that was asked for, opened once the files are generated. */
+  ide: string;
+  name: string;
+  generate: boolean;
+  source: boolean;
+  /** VS Code is here, to open the folder instead. */
+  code: boolean;
+}
 
 /** An action in progress or just ended, for one project. */
 export interface Work {
@@ -22,7 +33,46 @@ export interface Work {
   done?: boolean;
   /** Stop waits for a second press while the daemon has an editor or a client connected. */
   confirm?: string;
+  /** Update was handed to the project's Studio, and the list is read again until its versions change. */
+  watching?: boolean;
+  needsFiles?: NeedsFiles;
 }
+
+/** The IDEs and project files the host found, by project key, read again whenever a view asks. */
+let ideInfos: Record<string, IdeInfo> = {};
+const ideListeners = new Set<() => void>();
+
+/** Read a project's IDEs again. */
+export async function loadIdes(p: MachineProject): Promise<IdeInfo | null> {
+  const info = await host()?.ides({ key: p.key, uproject: p.uproject });
+  if (!info) return null;
+  ideInfos = { ...ideInfos, [p.key]: info };
+  ideListeners.forEach((l) => l());
+  return info;
+}
+
+/** A project's IDEs: the last read at once, read again when `active` turns on. */
+export function useIdes(p: MachineProject, active: boolean): IdeInfo | null {
+  const info = useSyncExternalStore(
+    (l) => {
+      ideListeners.add(l);
+      return () => ideListeners.delete(l);
+    },
+    () => ideInfos[p.key] ?? null,
+  );
+  useEffect(() => {
+    if (active) void loadIdes(p);
+  }, [active, p.key, p.uproject]);
+  return info;
+}
+
+/** Forget every project's IDEs, for tests. */
+export function resetIdes(): void {
+  ideInfos = {};
+}
+
+/** After handing an update to Studio: how often the report is read again, and for how long at most. */
+export const WATCH_UPDATE = { everyMs: 8_000, forMs: 5 * 60_000 };
 
 let works: Record<string, Work> = {};
 const listeners = new Set<() => void>();
@@ -113,19 +163,67 @@ export function projectActions(p: MachineProject, m: Machine, current: Work | nu
       if (end?.ok) set(null);
     },
     cancel: () => set(null),
+    /**
+     * Open in IDE, or with one IDE from Open with... (kept for the project
+     * unless `remember` is false). Visual Studio without a solution asks to
+     * generate the project files, or to open the folder in VS Code.
+     */
+    openIde: async (ide?: string, remember = true) => {
+      set({ kind: "ide" });
+      const r = await host()?.openide({ key: p.key, uproject: p.uproject, ...(ide ? { ide, ...(remember ? { remember: "yes" as const } : {}) } : {}) });
+      if (ide && remember) void loadIdes(p);
+      if (r?.ok) return set(null);
+      if (r?.needsProjectFiles && r.ide) {
+        const info = await loadIdes(p);
+        return set({ kind: "ide", needsFiles: { ide: r.ide, name: r.name ?? "Visual Studio", generate: !!info?.generate, source: !!info?.source, code: !!info?.ides?.some((x) => x.kind === "vscode") } });
+      }
+      set({ kind: "ide", error: r?.error ?? "The IDE did not open." });
+    },
+    /** Generate the project files, then open the IDE that needed them. */
+    generateFiles: async (then?: string) => {
+      const end = await runJob("projectfiles", host()?.projectfiles({ uproject: p.uproject }), "The project files were not generated.");
+      void loadIdes(p);
+      if (!end?.ok || !then) return;
+      const r = await host()?.openide({ key: p.key, uproject: p.uproject, ide: then });
+      if (!r?.ok) set({ kind: "ide", error: r?.error ?? "The IDE did not open." });
+    },
+    reveal: () => void host()?.reveal({ uproject: p.uproject }),
     update: async () => {
       const u = updatesOf(p, m.newest);
       if (!u?.via) return;
       if (u.via === "studio") {
         set({ kind: "update" });
         const r = await host()?.openstudio({ key: p.key, uproject: p.uproject, location: UPDATES_LOCATION });
-        return set(r?.ok ? null : { kind: "update", error: r?.error ?? "Studio did not open." });
+        if (!r?.ok) return set({ kind: "update", error: r?.error ?? "Studio did not open." });
+        return watchUpdate(p, m);
       }
       const version = m.newest?.ueMcp;
       if (!version) return;
       await runJob("update", host()?.updatebridge({ uproject: p.uproject, version }), "The update did not start.");
     },
   };
+}
+
+/**
+ * Studio runs the update in its own window, out of this app's sight, so the
+ * list is read again every few seconds until the project's versions change
+ * or WATCH_UPDATE.forMs passes. The host's file watching usually sees it
+ * first; this is the fallback. Dismissing the note stops it.
+ */
+async function watchUpdate(p: MachineProject, m: Machine): Promise<void> {
+  const before = installedKey(p);
+  const mine = { kind: "update" as const, watching: true };
+  setWork(p.key, mine);
+  const until = Date.now() + WATCH_UPDATE.forMs;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, WATCH_UPDATE.everyMs));
+    if (works[p.key] !== mine) return;
+    const report = await m.refresh();
+    if (works[p.key] !== mine) return;
+    const now = report?.projects.find((x) => x.key === p.key);
+    if (now && installedKey(now) !== before) return setWork(p.key, null);
+  }
+  if (works[p.key] === mine) setWork(p.key, null);
 }
 
 /** The job box's title for each action. */
@@ -135,8 +233,10 @@ export function workTitle(kind: WorkKind, job: JobState, name: string): string {
     update: ["Updating the bridge plugin", "The bridge plugin is updated", "The bridge plugin was not updated"],
     start: [`Starting ue-mcp for ${name}`, "ue-mcp started", "ue-mcp did not start"],
     stop: [`Stopping ue-mcp for ${name}`, "ue-mcp stopped", "ue-mcp did not stop"],
+    projectfiles: [`Generating project files for ${name}`, "The project files are generated", "The project files were not generated"],
     launch: ["", "", ""],
     studio: ["", "", ""],
+    ide: ["", "", ""],
   };
   return t[kind][job.running ? 0 : job.ok ? 1 : 2];
 }

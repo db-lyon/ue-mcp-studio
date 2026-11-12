@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Machine } from "./App";
 import { host } from "./native";
-import { actionsOf, channelLabel, nameHint, running, updateHow, updatesOf, uptime, type MachineProject } from "./model";
+import { actionsOf, channelLabel, listReadAt, nameHint, running, updateHow, updatesOf, uptime, type MachineProject } from "./model";
 import { connectedTo, installing, projectActions, useWorks } from "./actions";
-import { DaemonChip, WorkPanel } from "./Projects";
+import { DaemonChip, IdeButton, WorkPanel } from "./Projects";
 
 /** One project: its versions and updates, its daemon with the log, and its editor. */
 export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine; onBack: () => void }) {
@@ -42,7 +42,8 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
             <button className="primary" disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>{pending("install") ? "Adding Studio" : "Add Studio"}</button>
           )}
           <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? "Starting" : "Launch editor"}</button>
-          <button className="ghost" onClick={() => void host()?.openfolder({ path: p.dir })}>Open folder</button>
+          <IdeButton p={p} act={act} work={work} />
+          <button className="ghost" title={`Opens ${p.dir} with ${p.name}.uproject selected`} onClick={act.reveal}>Show in Explorer</button>
         </div>
       </header>
       {work && work.kind !== "update" && <div className="app-detail-work"><WorkPanel p={p} work={work} act={act} /></div>}
@@ -52,7 +53,8 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
           <h2>Versions and updates</h2>
           <span className="dim small">Newest on {channel}</span>
           <span className="spacer" />
-          <button className="ghost small" disabled={!m.newest} onClick={m.refreshNewest}>{m.newest ? "Check again" : "Checking"}</button>
+          {m.readAt !== null && <span className="dim small">{listReadAt(m.readAt)}</span>}
+          <button className="ghost small" disabled={!m.newest || m.loading} onClick={() => { m.refreshNewest(); void m.refresh(); }}>{m.newest && !m.loading ? "Check again" : "Checking"}</button>
         </div>
         <table className="app-table">
           <thead>
@@ -84,7 +86,7 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
             <div className="row">
               <span className="spacer" />
               <button className="primary" disabled={(u.via === "ue-mcp" && (p.editor.running || busy)) || pending("update")} onClick={() => void act.update()}>
-                {pending("update") ? (u.via === "studio" ? "Opening Studio" : "Updating") : u.via === "studio" ? "Update in Studio" : "Update"}
+                {work?.watching ? "Updating in Studio" : pending("update") ? (u.via === "studio" ? "Opening Studio" : "Updating") : u.via === "studio" ? "Update in Studio" : "Update"}
               </button>
             </div>
           </div>
