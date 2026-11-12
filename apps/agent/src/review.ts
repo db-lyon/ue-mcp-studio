@@ -29,7 +29,9 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ActionResult, DaemonExtensionApi } from "ue-mcp/daemon";
+import { PNG } from "pngjs";
 import {
+  isBlankPicture,
   refineAssetDiff,
   reviewItemOf,
   reviewOn,
@@ -43,6 +45,9 @@ import {
 } from "@ue-mcp-studio/shared";
 import type { SessionStore, StoredSession } from "./sessions.js";
 import { required } from "./backend.js";
+
+/** Why a version whose capture showed nothing has no picture. */
+export const BLANK_CAPTURE = "Unreal's thumbnail renderer drew nothing for this version.";
 
 /** The daemon's checkpoint shapes (db-lyon/ue-mcp#1482). */
 export interface CheckpointInfo {
@@ -425,6 +430,7 @@ export class ReviewBroker {
         return { error: messageOf(e), status: 409 };
       }
     }
+    if (change.assetDiff) change.assetDiff = this.withoutBlankPictures(change.assetDiff);
     if (change.assetDiff && item.summary !== change.assetDiff.summary) {
       this.applyDiff(item, change.assetDiff);
       this.changed(f.s, f.review);
@@ -456,6 +462,40 @@ export class ReviewBroker {
     } catch (e) {
       return { error: messageOf(e), status: 409 };
     }
+  }
+
+  /** Thumbnails already looked at, by id: whether each shows nothing of its version. */
+  private blankThumbnails = new Map<string, boolean>();
+
+  /** Whether a thumbnail is a PNG of nothing: one flat colour, only transparency, or Unreal's grey checkerboard placeholder. */
+  private isBlankThumbnail(id: string): boolean {
+    let blank = this.blankThumbnails.get(id);
+    if (blank === undefined) {
+      blank = false;
+      const t = this.thumbnail(id);
+      if (t && t.type === "image/png") {
+        try {
+          blank = isBlankPicture(PNG.sync.read(t.bytes).data);
+        } catch {
+          // A PNG this cannot read is left for the client to show or not.
+        }
+      }
+      this.blankThumbnails.set(id, blank);
+    }
+    return blank;
+  }
+
+  /**
+   * The diff with each blank capture turned into the reason there is no
+   * picture, so no client is handed a black square or an empty checkerboard
+   * as a picture of a version (#178).
+   */
+  private withoutBlankPictures(d: AssetDiff): AssetDiff {
+    const side = (v: AssetDiff["before"]): AssetDiff["before"] =>
+      v?.thumbnail && "id" in v.thumbnail && this.isBlankThumbnail(v.thumbnail.id) ? { ...v, thumbnail: { error: BLANK_CAPTURE } } : v;
+    const before = side(d.before);
+    const after = side(d.after);
+    return before === d.before && after === d.after ? d : { ...d, before, after };
   }
 
   /** A version's picture, from the daemon. */
