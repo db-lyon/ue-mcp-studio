@@ -1,7 +1,21 @@
 import { useEffect, useState } from "react";
-import type { DialogAnswer, EditorDialog } from "@ue-mcp-studio/shared";
+import type { DialogAnswer, DialogBlock, EditorDialog } from "@ue-mcp-studio/shared";
 import { api } from "../api";
-import { decider, outcomeLine, readyIn, statusLine, whoLine } from "@ue-mcp-studio/client-core";
+import {
+  decider,
+  dialogBody,
+  isPathCell,
+  itemListShown,
+  outcomeLine,
+  readyIn,
+  rowCheck,
+  statusLine,
+  tableColumns,
+  tableHasChecks,
+  tableWidth,
+  tickableItems,
+  whoLine,
+} from "@ue-mcp-studio/client-core";
 
 /** The open editor dialogs of one session, each a card with the dialog's own buttons. */
 export function DialogCards({ dialogs, now }: { dialogs: EditorDialog[]; now: number }) {
@@ -13,9 +27,72 @@ export function DialogCards({ dialogs, now }: { dialogs: EditorDialog[]; now: nu
   );
 }
 
-/** The rows a person can tick: each unsaved asset of a save prompt. */
-function itemsOf(d: EditorDialog) {
-  return (d.items ?? []).filter((i) => i.cells.some((c) => c.startsWith("/")));
+/** Ticks the person changed on the card, by item index, and whether they may change them now. */
+interface Ticks {
+  ticks: Record<number, boolean>;
+  canTick: boolean;
+  onTick: (index: number, checked: boolean) => void;
+}
+
+/** One of the dialog's tables: its headings, its rows, and each row's checkbox. */
+function DialogTable({ dialog: d, table: t, ticks }: { dialog: EditorDialog; table: Extract<DialogBlock, { type: "table" }>; ticks: Ticks }) {
+  const columns = tableColumns(t);
+  const width = tableWidth(t);
+  const checks = tableHasChecks(t);
+  return (
+    <div className="dialog-table-wrap">
+      <table className="dialog-table">
+        {columns.length > 0 && (
+          <thead>
+            <tr>
+              {checks && <th className="check" aria-label="Selected" />}
+              {Array.from({ length: width }, (_, c) => <th key={c} scope="col">{columns[c] ?? ""}</th>)}
+            </tr>
+          </thead>
+        )}
+        <tbody>
+          {t.rows.map((row, r) => {
+            const check = rowCheck(d, t, r);
+            const item = check?.item ?? null;
+            return (
+              <tr key={r}>
+                {checks && (
+                  <td className="check">
+                    {check && (
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${row[0] ?? `row ${r + 1}`}`}
+                        checked={item !== null ? ticks.ticks[item] ?? check.checked : check.checked}
+                        disabled={item === null || !ticks.canTick}
+                        onChange={(e) => item !== null && ticks.onTick(item, e.target.checked)}
+                      />
+                    )}
+                  </td>
+                )}
+                {Array.from({ length: width }, (_, c) => {
+                  const cell = row[c] ?? "";
+                  return <td key={c} className={isPathCell(cell) ? "mono" : undefined}>{cell}</td>;
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** The dialog's body: ue-mcp's paragraphs and tables, or its flat text from an older ue-mcp. */
+function DialogBody({ dialog: d, ticks }: { dialog: EditorDialog; ticks: Ticks }) {
+  const body = dialogBody(d);
+  if (body.kind === "text") return body.text ? <pre className="output dialog-message">{body.text}</pre> : null;
+  return (
+    <div className="dialog-body">
+      {body.blocks.map((b, i) => b.type === "paragraph"
+        ? <p key={i} className="dialog-paragraph">{b.text}</p>
+        : <DialogTable key={i} dialog={d} table={b} ticks={ticks} />)}
+    </div>
+  );
 }
 
 /** Every transition so far, oldest first. */
@@ -41,7 +118,7 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
   const [sent, setSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ticks, setTicks] = useState<Record<number, boolean>>({});
-  const rows = itemsOf(d);
+  const rows = tickableItems(d);
   const who = decider(d);
   const wait = readyIn(d, now);
 
@@ -64,6 +141,11 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
 
   const meta = whoLine(d);
   const busy = sent !== null;
+  const tickState: Ticks = {
+    ticks,
+    canTick: who === "you" && !busy,
+    onTick: (index, checked) => setTicks({ ...ticks, [index]: checked }),
+  };
   return (
     <div className="approval card dialog-card" role="group" aria-label={`Editor dialog: ${d.title}`}>
       <div className="approval-head">
@@ -71,8 +153,8 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
         {meta && <span className="dim small">met by {meta}</span>}
       </div>
       <strong className="dialog-title">{d.title || "(untitled dialog)"}</strong>
-      {d.message && <pre className="output dialog-message">{d.message}</pre>}
-      {rows.length > 0 && (
+      <DialogBody dialog={d} ticks={tickState} />
+      {rows.length > 0 && itemListShown(d) && (
         <div className="dialog-items" role="group" aria-label="Assets">
           {rows.map((i) => (
             <label key={i.index} className="row toggle small">
