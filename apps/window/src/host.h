@@ -99,13 +99,35 @@ inline DWORD pidOf(HWND w) {
   return pid;
 }
 
-/** node.exe: the hint when it exists, else on PATH, else where its installer puts it. */
+/**
+ * node.exe: the hint when it exists, else on PATH, else where an installer or
+ * a version manager keeps it. fnm and nvm-windows put node on PATH only in a
+ * shell they set up, so an app started from the Start menu or relaunched by
+ * its updater sees none on PATH; their default version lives at a fixed place.
+ * Each place listed holds npx.cmd beside node.exe, which npxCmd relies on.
+ */
 inline std::wstring findNode(const std::wstring& hint = {}) {
   if (!hint.empty() && exists(hint)) return hint;
   wchar_t buf[MAX_PATH];
   if (SearchPathW(nullptr, L"node.exe", nullptr, MAX_PATH, buf, nullptr)) return buf;
-  std::wstring pf = join(join(env(L"ProgramFiles"), L"nodejs"), L"node.exe");
-  return exists(pf) ? pf : std::wstring();
+  auto under = [](const std::wstring& root, const wchar_t* rest) {
+    return root.empty() ? std::wstring() : join(root, rest);
+  };
+  std::wstring fnmDir = env(L"FNM_DIR");
+  if (fnmDir.empty()) fnmDir = under(env(L"APPDATA"), L"fnm");
+  const std::wstring dirs[] = {
+    under(env(L"ProgramFiles"), L"nodejs"),
+    env(L"NVM_SYMLINK"),                              // nvm-windows: the active version
+    under(fnmDir, L"aliases\\default"),               // fnm: the default version
+    under(env(L"USERPROFILE"), L"scoop\\apps\\nodejs-lts\\current"),
+    under(env(L"USERPROFILE"), L"scoop\\apps\\nodejs\\current"),
+  };
+  for (const auto& dir : dirs) {
+    if (dir.empty()) continue;
+    std::wstring node = join(dir, L"node.exe");
+    if (exists(node)) return node;
+  }
+  return std::wstring();
 }
 
 inline bool createDetached(const std::wstring& exe, std::wstring commandLine, const std::wstring& cwd, DWORD flags, DWORD* pidOut = nullptr) {
