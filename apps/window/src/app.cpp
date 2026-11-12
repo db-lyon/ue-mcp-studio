@@ -39,6 +39,7 @@
 #include "WebView2.h"
 #include "channel.h"
 #include "host.h"
+#include "ide.h"
 #include "job.h"
 #include "json.h"
 #include "update.h"
@@ -687,6 +688,214 @@ std::string readReport() {
   return answer(v);
 }
 
+// ---------------------------------------------------------------- opening a project in an IDE
+
+/** The IDE chosen for each project with Open with..., by project key. */
+std::wstring ideChoiceFile() { return join(dataDir(), L"ide.json"); }
+
+std::string rememberedIde(const std::string& key) {
+  std::string text;
+  json::Value v;
+  if (!readFile(ideChoiceFile(), text) || !json::parse(text, v)) return {};
+  const json::Value* id = v.get(key);
+  return id && id->isString() ? id->s : std::string();
+}
+
+void rememberIde(const std::string& key, const std::string& id) {
+  static std::mutex lock;
+  std::lock_guard<std::mutex> g(lock);
+  std::string text;
+  json::Value v;
+  if (!readFile(ideChoiceFile(), text) || !json::parse(text, v) || !v.isObject()) v = json::Value::object();
+  v.set(key, json::Value::str(id));
+  std::string out;
+  json::write(v, out);
+  makeDirs(dataDir());
+  writeFile(ideChoiceFile(), out);
+}
+
+/** The bare names in a folder, not its subfolders. */
+std::vector<std::wstring> namesIn(const std::wstring& dir, const std::wstring& pattern = L"*", bool folders = false) {
+  std::vector<std::wstring> out;
+  WIN32_FIND_DATAW fd;
+  HANDLE h = FindFirstFileW(join(dir, pattern).c_str(), &fd);
+  if (h == INVALID_HANDLE_VALUE) return out;
+  do {
+    std::wstring n = fd.cFileName;
+    if (n == L"." || n == L"..") continue;
+    if (((fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) == folders) out.push_back(n);
+  } while (FindNextFileW(h, &fd));
+  FindClose(h);
+  return out;
+}
+
+/** The newest `tail` under a folder of versioned installs, such as Rider's, by folder name. */
+std::wstring newestUnder(const std::wstring& parent, const std::wstring& pattern, const std::wstring& tail) {
+  std::vector<std::wstring> dirs = namesIn(parent, pattern, true);
+  std::sort(dirs.begin(), dirs.end());
+  for (auto it = dirs.rbegin(); it != dirs.rend(); ++it) {
+    std::wstring exe = join(join(parent, *it), tail);
+    if (exists(exe)) return exe;
+  }
+  return {};
+}
+
+/** The IDEs on this computer: each Visual Studio vswhere lists, VS Code, and Rider. */
+std::vector<ide::Found> detectIdes() {
+  std::vector<ide::Found> out;
+  std::wstring vswhere = join(join(join(env(L"ProgramFiles(x86)"), L"Microsoft Visual Studio"), L"Installer"), L"vswhere.exe");
+  if (exists(vswhere)) {
+    Captured c = capture(L"\"" + vswhere + L"\" -all -prerelease -sort -utf8 -format json -products *", 20000);
+    for (ide::Found& f : ide::parseVswhere(c.out, [](const std::string& s) { return widen(s); })) {
+      if (exists(f.exe)) out.push_back(f);
+    }
+  }
+  std::wstring code;
+  for (const std::wstring& p : {join(localAppData(), L"Programs\\Microsoft VS Code\\Code.exe"), join(env(L"ProgramFiles"), L"Microsoft VS Code\\Code.exe")}) {
+    if (code.empty() && exists(p)) code = p;
+  }
+  if (code.empty()) {
+    // code.cmd sits in the install's bin folder, beside nothing but itself.
+    std::wstring cmd = searchPath(L"code.cmd");
+    std::wstring exe = cmd.empty() ? std::wstring() : join(dirOf(dirOf(cmd)), L"Code.exe");
+    if (!exe.empty() && exists(exe)) code = exe;
+  }
+  if (!code.empty()) out.push_back({"vscode", "vscode", "Visual Studio Code", code});
+  std::wstring rider = join(localAppData(), L"Programs\\Rider\\bin\\rider64.exe");
+  if (!exists(rider)) rider = newestUnder(join(localAppData(), L"JetBrains\\Toolbox\\apps\\Rider\\ch-0"), L"*", L"bin\\rider64.exe");
+  if (rider.empty()) rider = newestUnder(join(env(L"ProgramFiles"), L"JetBrains"), L"JetBrains Rider*", L"bin\\rider64.exe");
+  if (!rider.empty()) out.push_back({"rider", "rider", "Rider", rider});
+  return out;
+}
+
+/** The project name a .uproject gives: its file name without the extension. */
+std::wstring projectName(const std::wstring& uproject) {
+  size_t slash = uproject.find_last_of(L"\\/");
+  std::wstring file = slash == std::wstring::npos ? uproject : uproject.substr(slash + 1);
+  return file.size() > 9 ? file.substr(0, file.size() - 9) : file;
+}
+
+/** The project's solution and workspace, as full paths. */
+ide::Files filesOf(const std::wstring& dir, const std::wstring& uproject) {
+  ide::Files f = ide::pickFiles(namesIn(dir), projectName(uproject));
+  if (!f.solution.empty()) f.solution = join(dir, f.solution);
+  if (!f.workspace.empty()) f.workspace = join(dir, f.workspace);
+  return f;
+}
+
+/** The engine's Source Code Access preference for the project, from its editor settings. */
+std::string enginePreference(const std::wstring& dir) {
+  for (const wchar_t* ini : {L"Saved\\Config\\WindowsEditor\\EditorPerProjectUserSettings.ini", L"Config\\DefaultEditorPerProjectUserSettings.ini"}) {
+    std::string text;
+    if (!readFile(join(dir, ini), text)) continue;
+    std::string kind = ide::accessorKind(text);
+    if (!kind.empty()) return kind;
+  }
+  return {};
+}
+
+/** The engine folder for an EngineAssociation: a registered build, a launcher install, or empty. */
+std::wstring engineRoot(const std::string& assoc) {
+  if (assoc.empty() || assoc.find_first_not_of("0123456789.abcdefABCDEF{}-") != std::string::npos) return {};
+  wchar_t buf[MAX_PATH * 2];
+  DWORD size = sizeof buf;
+  if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\Epic Games\\Unreal Engine\\Builds", widen(assoc).c_str(), RRF_RT_REG_SZ, nullptr, buf, &size) == ERROR_SUCCESS) return buf;
+  size = sizeof buf;
+  if (RegGetValueW(HKEY_LOCAL_MACHINE, (L"SOFTWARE\\EpicGames\\Unreal Engine\\" + widen(assoc)).c_str(), L"InstalledDirectory", RRF_RT_REG_SZ, nullptr, buf, &size) == ERROR_SUCCESS) return buf;
+  std::string dat;
+  if (readFile(join(env(L"ProgramData"), L"Epic\\UnrealEngineLauncher\\LauncherInstalled.dat"), dat)) return widen(ide::launcherInstall(dat, assoc));
+  return {};
+}
+
+/**
+ * The command that generates a project's files: UnrealBuildTool from the
+ * project's engine, so its output shows, else the .uproject's own "Generate
+ * Visual Studio project files" verb. Empty when neither is here.
+ */
+std::wstring projectFilesCommand(const std::wstring& uproject) {
+  std::string text;
+  readFile(uproject, text);
+  std::wstring root = engineRoot(ide::association(text));
+  std::wstring ubt = root.empty() ? std::wstring() : join(root, L"Engine\\Binaries\\DotNET\\UnrealBuildTool\\UnrealBuildTool.exe");
+  if (!ubt.empty() && exists(ubt) && ubt.find_first_of(L"\"%^&|<>") == std::wstring::npos) {
+    return L"\"" + ubt + L"\" " + ide::projectFilesArgs(uproject, exists(join(root, L"Engine\\Build\\InstalledBuild.txt")));
+  }
+  wchar_t buf[2048];
+  DWORD size = sizeof buf;
+  if (RegGetValueW(HKEY_CLASSES_ROOT, L"Unreal.ProjectFile\\shell\\rungenproj\\command", nullptr, RRF_RT_REG_SZ, nullptr, buf, &size) == ERROR_SUCCESS) {
+    // Only a plain command: nothing cmd would expand besides the %1 the project goes in.
+    std::wstring command = buf, rest = buf;
+    size_t at = rest.find(L"%1");
+    if (at != std::wstring::npos) rest.erase(at, 2);
+    if (rest.find_first_of(L"%^&|<>") == std::wstring::npos) return ide::fillVerb(command, uproject);
+  }
+  return {};
+}
+
+json::Value ideList(const std::vector<ide::Found>& found) {
+  json::Value list;
+  list.kind = json::Value::Kind::Array;
+  list.a = std::make_shared<json::Array>();
+  for (const ide::Found& f : found) {
+    json::Value e = json::Value::object();
+    e.set("id", json::Value::str(f.id));
+    e.set("kind", json::Value::str(f.kind));
+    e.set("name", json::Value::str(f.name));
+    list.a->push_back(e);
+  }
+  return list;
+}
+
+/** What the page needs to offer Open in IDE and Open with...: the IDEs here, the one the project opens in, and its project files. */
+std::string idesFor(const std::string& key, const std::wstring& uproject) {
+  std::wstring dir = dirOf(uproject);
+  std::vector<ide::Found> found = detectIdes();
+  ide::Files f = filesOf(dir, uproject);
+  std::string preferred = enginePreference(dir), remembered = rememberedIde(key);
+  json::Value v = json::Value::object();
+  v.set("ok", json::Value::boolean(true));
+  v.set("ides", ideList(found));
+  v.set("chosen", json::Value::str(ide::choose(found, remembered, preferred, f)));
+  v.set("remembered", json::Value::str(remembered));
+  v.set("preferred", json::Value::str(preferred));
+  v.set("solution", f.solution.empty() ? json::Value() : json::Value::str(narrow(f.solution)));
+  v.set("workspace", f.workspace.empty() ? json::Value() : json::Value::str(narrow(f.workspace)));
+  v.set("source", json::Value::boolean(exists(join(dir, L"Source"))));
+  v.set("generate", json::Value::boolean(!projectFilesCommand(uproject).empty()));
+  return answer(v);
+}
+
+/** Open the project in an IDE: the one asked for (kept for the project when `remember`), else the one it opens in. */
+std::string openIde(const std::string& key, const std::wstring& uproject, const std::string& requested, bool remember) {
+  std::wstring dir = dirOf(uproject);
+  std::vector<ide::Found> found = detectIdes();
+  ide::Files f = filesOf(dir, uproject);
+  std::string id = requested.empty() ? ide::choose(found, rememberedIde(key), enginePreference(dir), f) : requested;
+  const ide::Found* pick = nullptr;
+  for (const ide::Found& x : found) if (x.id == id) pick = &x;
+  json::Value v = json::Value::object();
+  if (!pick) {
+    v.set("ok", json::Value::boolean(false));
+    v.set("error", json::Value::str(found.empty() ? "No IDE was found on this computer. UE-MCP looks for Visual Studio, VS Code and Rider." : "That IDE is not on this computer any more."));
+    return answer(v);
+  }
+  if (remember && !requested.empty()) rememberIde(key, id);
+  v.set("ide", json::Value::str(pick->id));
+  v.set("name", json::Value::str(pick->name));
+  std::wstring target = ide::target(pick->kind, f, dir, uproject);
+  if (target.empty()) {
+    v.set("ok", json::Value::boolean(false));
+    v.set("needsProjectFiles", json::Value::boolean(true));
+    v.set("error", json::Value::str(narrow(projectName(uproject)) + " has no Visual Studio solution yet."));
+    return answer(v);
+  }
+  bool started = createDetached(pick->exe, L"\"" + pick->exe + L"\" \"" + target + L"\"", dir, 0);
+  DWORD err = started ? 0 : GetLastError();
+  v.set("ok", json::Value::boolean(started));
+  if (!started) v.set("error", json::Value::str(pick->name + " did not start (error " + std::to_string(err) + ")."));
+  return answer(v);
+}
+
 // ---------------------------------------------------------------- install, upgrade, uninstall
 
 std::wstring startMenuShortcut() {
@@ -1258,6 +1467,29 @@ std::string dispatch(int id, const std::string& method, const std::string& arg) 
     ShellExecuteW(nullptr, L"explore", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     return "true";
   }
+  if (method == "ides" || method == "openide") {
+    if (!job::validKey(key) || !safeUproject(uproject)) return okError("The project file could not be used.");
+    std::string requested = str(in, "ide");
+    bool remember = str(in, "remember") == "yes";
+    if (method == "ides") later(id, [key, uproject] { return idesFor(key, uproject); });
+    else later(id, [key, uproject, requested, remember] { return openIde(key, uproject, requested, remember); });
+    return {};
+  }
+  if (method == "projectfiles") {
+    if (!safeUproject(uproject)) return okError("The project file could not be used.");
+    std::wstring command = projectFilesCommand(uproject);
+    if (command.empty()) return okError("No Unreal Engine was found to generate the project files with.");
+    return jobAnswer(startJob(command), "The project files could not be generated.");
+  }
+  if (method == "reveal") {
+    // Explorer on the project's folder, the .uproject selected.
+    if (!safeUproject(uproject)) return "false";
+    PIDLIST_ABSOLUTE item = ILCreateFromPathW(fullPath(uproject).c_str());
+    if (!item) return "false";
+    HRESULT hr = SHOpenFolderAndSelectItems(item, 0, nullptr, 0);
+    ILFree(item);
+    return SUCCEEDED(hr) ? "true" : "false";
+  }
   if (method == "openurl") {
     std::string url = str(in, "url");
     if (url.rfind("https://", 0) != 0) return "false";
@@ -1324,6 +1556,7 @@ const wchar_t* kShim = LR"JS((function () {
   });
   var names = ["getstate", "refreshnode", "report", "cachedreport", "job", "daemon", "live", "install", "startdaemon", "stopdaemon", "updatebridge",
     "installnode", "openstudio", "launcheditor", "addproject", "removeproject", "readlog", "openlog", "openfolder", "openurl",
+    "ides", "openide", "projectfiles", "reveal",
     "getchannel", "setchannel", "appupdate", "newest", "setup", "launch", "close"];
   var app = {};
   names.forEach(function (name) {
