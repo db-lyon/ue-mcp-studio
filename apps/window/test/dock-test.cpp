@@ -15,6 +15,7 @@
 #include "../src/location.h"
 #include "../src/toast.h"
 #include "../src/update.h"
+#include "../src/watch.h"
 
 namespace {
 
@@ -611,6 +612,38 @@ int main() {
     CHECK(appchannel::listFailure(true, 429, "").find("rate limit") != std::string::npos);
     CHECK(appchannel::listFailure(true, 500, "") == "GitHub answered HTTP 500 for the release list.");
     CHECK(appchannel::listFailure(false, 0, "timed out").find("timed out") != std::string::npos);
+  });
+
+  test("the app reads again for discovery files and state.json, never for daemon logs", [] {
+    CHECK(watch::relevant(watch::Root::Daemons, L"0e9f3c9aae1e89bb.json"));
+    CHECK(watch::relevant(watch::Root::Daemons, L"0E9F3C9AAE1E89BB.JSON"));
+    CHECK(!watch::relevant(watch::Root::Daemons, L"0e9f3c9aae1e89bb.log"));
+    CHECK(!watch::relevant(watch::Root::Daemons, L"sub\\x.json"));
+    CHECK(watch::relevant(watch::Root::Home, L"state.json"));
+    CHECK(!watch::relevant(watch::Root::Home, L"state.json.tmp"));
+    CHECK(!watch::relevant(watch::Root::Home, L"version-check.json"));
+  });
+
+  test("a project reads again for its .uproject, solution files and plugin descriptors, not for build output", [] {
+    CHECK(watch::relevant(watch::Root::Project, L"Vale.uproject"));
+    CHECK(watch::relevant(watch::Root::Project, L"Vale.sln"));
+    CHECK(watch::relevant(watch::Root::Project, L"Vale.slnx"));
+    CHECK(watch::relevant(watch::Root::Project, L"Vale.code-workspace"));
+    CHECK(!watch::relevant(watch::Root::Project, L"Saved\\Logs\\Vale.log"));
+    CHECK(!watch::relevant(watch::Root::Project, L"README.md"));
+    CHECK(watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio\\UE_MCP_Studio.uplugin"));
+    CHECK(watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio"));
+    CHECK(!watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio\\Intermediate\\Build\\x.uplugin"));
+    CHECK(!watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio\\Binaries\\Win64\\UnrealEditor-UE_MCP_Studio.dll"));
+    CHECK(!watch::relevant(watch::Root::Plugins, L"UE_MCP_Studio\\Source\\Private\\StudioDock.cpp"));
+  });
+
+  test("a burst of changes reads once when it settles, and a folder that keeps changing still reads", [] {
+    CHECK(watch::delay(1000, 1000) == 1500);
+    CHECK(watch::delay(1000, 5000) == 1500);
+    CHECK(watch::delay(1000, 8000) == 1000);
+    CHECK(watch::delay(1000, 9000) == 0);
+    CHECK(watch::delay(1000, 20000) == 0);
   });
 
   std::printf(failures ? "%d failed\n" : "all passed\n", failures);

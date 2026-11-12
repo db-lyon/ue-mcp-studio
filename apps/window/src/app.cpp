@@ -30,6 +30,7 @@
 
 #include <atomic>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -41,6 +42,7 @@
 #include "job.h"
 #include "json.h"
 #include "update.h"
+#include "watch.h"
 #include "ui-files.h"
 
 #ifndef STUDIO_WINDOW_VERSION
@@ -64,6 +66,9 @@ const wchar_t* kWebView2Download = L"https://developer.microsoft.com/microsoft-e
 constexpr int kReportVersion = 1;
 constexpr int kNodeMajorMin = 20;
 constexpr UINT kReply = WM_APP + 1;
+/** A watched file changed (watch.h); the page hears of it once the burst settles. */
+constexpr UINT kChanged = WM_APP + 2;
+constexpr UINT_PTR kChangedTimer = 1;
 constexpr ULONG_PTR kCopyArgs = 0x55454D43;  // "UEMC"
 
 // ---------------------------------------------------------------- paths and state
@@ -473,6 +478,141 @@ std::string ensureDaemon(const std::string& key, const std::wstring& uproject) {
   return readDaemon(key, d) ? std::string() : "ue-mcp started but has not published its address yet.";
 }
 
+// ---------------------------------------------------------------- watching
+
+struct Watched {
+  std::wstring dir;
+  watch::Root root;
+  bool operator==(const Watched& o) const { return root == o.root && dir == o.dir; }
+};
+std::vector<Watched> gWatchList;  // under gLock: what the watcher thread watches
+HANDLE gRewatch = nullptr;         // set when gWatchList changes
+ULONGLONG gFirstChange = 0;        // window thread: the first change the page has not heard of
+
+std::wstring ueMcpHome() { return join(env(L"USERPROFILE"), L".ue-mcp"); }
+
+/** Watch the daemons folder, state.json, and these projects' folders and Plugins. */
+void watchProjects(const std::vector<std::wstring>& dirs) {
+  std::vector<Watched> list = {{daemonDir(), watch::Root::Daemons}, {ueMcpHome(), watch::Root::Home}};
+  // WaitForMultipleObjects takes 64 handles, one of them the rewatch event.
+  for (const std::wstring& d : dirs) {
+    if (list.size() + 2 > 63) break;
+    list.push_back({d, watch::Root::Project});
+    list.push_back({join(d, L"Plugins"), watch::Root::Plugins});
+  }
+  {
+    std::lock_guard<std::mutex> g(gLock);
+    if (list == gWatchList) return;
+    gWatchList = list;
+  }
+  if (gRewatch) SetEvent(gRewatch);
+}
+
+/** Watch the projects a report lists. */
+void watchReport(const std::string& text) {
+  json::Value report;
+  std::vector<std::wstring> dirs;
+  if (json::parse(text, report)) {
+    if (const json::Value* projects = report.get("projects"); projects && projects->isArray()) {
+      for (const json::Value& p : *projects->a) {
+        const json::Value* dir = p.get("dir");
+        if (dir && dir->isString() && !dir->s.empty()) dirs.push_back(widen(dir->s));
+      }
+    }
+  }
+  watchProjects(dirs);
+}
+
+struct OpenWatch {
+  Watched w;
+  HANDLE dir = INVALID_HANDLE_VALUE;
+  OVERLAPPED ov = {};
+  DWORD buf[4096];  // FILE_NOTIFY_INFORMATION records are DWORD aligned
+};
+
+bool armWatch(OpenWatch& o) {
+  DWORD filter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE;
+  return ReadDirectoryChangesW(o.dir, o.buf, sizeof o.buf, o.w.root == watch::Root::Plugins, filter, nullptr, &o.ov, nullptr) != 0;
+}
+
+void closeWatch(OpenWatch& o) {
+  if (o.dir != INVALID_HANDLE_VALUE) {
+    // The kernel writes into buf until the read is cancelled and has completed.
+    DWORD got = 0;
+    if (CancelIoEx(o.dir, &o.ov) || GetLastError() != ERROR_NOT_FOUND) GetOverlappedResult(o.dir, &o.ov, &got, TRUE);
+    CloseHandle(o.dir);
+    o.dir = INVALID_HANDLE_VALUE;
+  }
+  if (o.ov.hEvent) CloseHandle(o.ov.hEvent);
+  o.ov.hEvent = nullptr;
+}
+
+/** The watcher thread: tells the window whenever a change could change the report. */
+void watcher() {
+  std::vector<std::unique_ptr<OpenWatch>> open;
+  for (;;) {
+    std::vector<HANDLE> waits = {gRewatch};
+    std::vector<OpenWatch*> who = {nullptr};
+    for (auto& o : open) {
+      if (o->dir == INVALID_HANDLE_VALUE) continue;
+      waits.push_back(o->ov.hEvent);
+      who.push_back(o.get());
+    }
+    DWORD r = WaitForMultipleObjects((DWORD)waits.size(), waits.data(), FALSE, INFINITE);
+    if (r == WAIT_OBJECT_0) {
+      for (auto& o : open) closeWatch(*o);
+      open.clear();
+      std::vector<Watched> list;
+      {
+        std::lock_guard<std::mutex> g(gLock);
+        list = gWatchList;
+      }
+      for (const Watched& w : list) {
+        auto o = std::make_unique<OpenWatch>();
+        o->w = w;
+        o->dir = CreateFileW(w.dir.c_str(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+                             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
+        if (o->dir == INVALID_HANDLE_VALUE) continue;  // not there (yet): read again on the next report
+        o->ov.hEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+        if (!o->ov.hEvent || !armWatch(*o)) {
+          closeWatch(*o);
+          continue;
+        }
+        open.push_back(std::move(o));
+      }
+      continue;
+    }
+    size_t i = r - WAIT_OBJECT_0;
+    if (r < WAIT_OBJECT_0 || i >= who.size()) {
+      Sleep(1000);
+      continue;
+    }
+    OpenWatch& o = *who[i];
+    DWORD got = 0;
+    bool any = false;
+    if (!GetOverlappedResult(o.dir, &o.ov, &got, FALSE)) {
+      closeWatch(o);  // the folder went away
+      if (gMain) PostMessageW(gMain, kChanged, 0, 0);
+      continue;
+    }
+    if (got == 0) {
+      // More changed than the buffer held. Plugins churn under a build; the others are worth a read.
+      any = o.w.root != watch::Root::Plugins && o.w.root != watch::Root::Daemons;
+    } else {
+      const BYTE* p = reinterpret_cast<const BYTE*>(o.buf);
+      for (;;) {
+        auto* fni = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(p);
+        if (watch::relevant(o.w.root, std::wstring(fni->FileName, fni->FileNameLength / sizeof(wchar_t)))) any = true;
+        if (!fni->NextEntryOffset) break;
+        p += fni->NextEntryOffset;
+      }
+    }
+    ResetEvent(o.ov.hEvent);
+    if (any && gMain) PostMessageW(gMain, kChanged, 0, 0);
+    if (!armWatch(o)) closeWatch(o);
+  }
+}
+
 // ---------------------------------------------------------------- the report
 
 std::string answer(json::Value v) {
@@ -541,6 +681,7 @@ std::string readReport() {
   }
   makeDirs(dataDir());
   writeFile(reportCache(), r.out);
+  watchReport(r.out);
   v.set("ok", json::Value::boolean(true));
   v.set("report", json::Value::str(r.out));
   return answer(v);
@@ -1170,6 +1311,11 @@ const wchar_t* kShim = LR"JS((function () {
   var next = 1, waiting = {};
   wv.addEventListener("message", function (e) {
     var d = e.data;
+    // What the host tells the page unasked: a watched file changed, or the window was activated.
+    if (d && typeof d === "object" && typeof d.appEvent === "string") {
+      window.dispatchEvent(new CustomEvent("ue-app", { detail: d.appEvent }));
+      return;
+    }
     if (d && typeof d === "object" && typeof d.appReply === "number" && waiting[d.appReply]) {
       var done = waiting[d.appReply];
       delete waiting[d.appReply];
@@ -1411,6 +1557,24 @@ LRESULT CALLBACK mainProc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
       if (gWeb) gWeb->PostWebMessageAsJson(text->c_str());
       return 0;
     }
+    case kChanged: {
+      ULONGLONG now = GetTickCount64();
+      if (!gFirstChange) gFirstChange = now;
+      SetTimer(w, kChangedTimer, (UINT)std::max<ULONGLONG>(1, watch::delay(gFirstChange, now)), nullptr);
+      return 0;
+    }
+    case WM_TIMER:
+      if (wp == kChangedTimer) {
+        KillTimer(w, kChangedTimer);
+        gFirstChange = 0;
+        if (gWeb) gWeb->PostWebMessageAsJson(L"{\"appEvent\":\"changed\"}");
+        return 0;
+      }
+      break;
+    case WM_ACTIVATE:
+      // Coming back to the window: the page reads the report again. Sent from the window's own activation, so it fires whatever has focus inside the page.
+      if (LOWORD(wp) != WA_INACTIVE && gWeb) gWeb->PostWebMessageAsJson(L"{\"appEvent\":\"focus\"}");
+      break;
     case WM_DESTROY:
       if (gController) gController->Close();
       gController.Reset();
@@ -1480,6 +1644,12 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int) {
       for (int i = 0; i < 60 && exists(old) && !DeleteFileW(old.c_str()); ++i) Sleep(500);
     }).detach();
     cleanJobs();
+    // Watch from the start, the last report's projects until a new one is read.
+    gRewatch = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    std::thread(watcher).detach();
+    std::string cached;
+    if (readFile(reportCache(), cached)) watchReport(cached);
+    else watchProjects({});
   }
   probeNode();
 
