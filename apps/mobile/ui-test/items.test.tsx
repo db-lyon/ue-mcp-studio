@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { PNG } from "pngjs";
-import { isFlatPicture } from "@ue-mcp-studio/client-core";
+import { isBlankPicture, isFlatPicture } from "@ue-mcp-studio/client-core";
 import { diffValue, type ApprovalRequest, type CheckpointChange, type DiffTreeRow, type EditorDialog, type PendingForm, type TranscriptEntry, type TurnReview } from "@ue-mcp-studio/shared";
 import { DiffTreeGrid, rowLayout } from "../src/screens/chat/items/AssetDiff";
 import { REVIEW_SCENARIOS } from "../../client-web/src/visual-qa/review-fixtures";
@@ -213,6 +213,32 @@ describe("AssetDiffView: only what changed", () => {
     expect(screen.getAllByTestId("value-after").length).toBeGreaterThan(0);
   });
 
+  it("a Blueprint that gained a component: no thumbnails though both versions have one, the tree carries the change", () => {
+    view("Content/Enemies/BP_ValeEnemy_Humanoid.uasset");
+    expect(screen.queryByText(/^(Before|After|New)$/)).toBeNull();
+    expect(screen.queryByLabelText(/BP_ValeEnemy_Humanoid\.uasset (before|after)/)).toBeNull();
+    expect(screen.getByText(reads("CombatFeedback"))).toBeTruthy();
+  });
+
+  it("a changed texture: Before and After side by side above its records", () => {
+    view("Content/Environment/Textures/T_RockMoss_D.uasset");
+    expect(screen.getByText(/^Before$/)).toBeTruthy();
+    expect(screen.getByText(/^After$/)).toBeTruthy();
+    expect(screen.getByText(reads("Adjust Brightness"))).toBeTruthy();
+  });
+
+  it("a changed material instance with one side's thumbnail failed: no pictures at all, not a lone side", () => {
+    view("Content/Environment/Materials/MI_RockMossyCliffFace_Variant02.uasset");
+    expect(screen.queryByText(/^(Before|After)$/)).toBeNull();
+    expect(screen.queryByText(/No picture/)).toBeNull();
+  });
+
+  it("a new static mesh: its one picture, labelled New", () => {
+    view("Content/Props/SM_LanternHanging.uasset", "added");
+    expect(screen.getByText(/^New$/)).toBeTruthy();
+    expect(screen.queryByText(/^Before$/)).toBeNull();
+  });
+
   it("an asset Unreal could not load: why, and what Keep and Revert do without it", () => {
     view("Content/Props/SM_CrateWoodenLarge.uasset");
     expect(screen.getByText(/Unreal could not load this asset to diff it/)).toBeTruthy();
@@ -307,6 +333,13 @@ describe("blank pictures", () => {
     expect(black && isFlatPicture(black)).toBe(true);
     expect(sphere && isFlatPicture(sphere)).toBe(false);
     expect(decodePng(new Uint8Array([1, 2, 3]))).toBeNull();
+  });
+
+  it("tells Unreal's grey checkerboard placeholder from a picture", () => {
+    const checker = decodePng(png((x, y) => ((Math.floor(x / 4) + Math.floor(y / 4)) % 2 ? [96, 96, 96] : [160, 160, 160])));
+    const sphere = decodePng(png((x, y) => [x * 16, y * 16, 90]));
+    expect(checker && isBlankPicture(checker)).toBe(true);
+    expect(sphere && isBlankPicture(sphere)).toBe(false);
   });
 });
 
