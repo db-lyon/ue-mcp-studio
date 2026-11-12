@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { host, type HostState, type Live, type Newest, type ReportAnswer } from "./native";
+import { host, onHostEvent, type HostState, type Live, type Newest, type ReportAnswer } from "./native";
 import { parseReport, readAt, type MachineReport } from "./model";
 import { Mark } from "./Mark";
 import { ProjectsView } from "./Projects";
@@ -24,9 +24,16 @@ export interface Machine {
   stale: boolean;
   live: Record<string, Live> | null;
   loading: boolean;
+  /** When the report shown was read (ms), or null before the first read of this session answers. */
+  readAt: number | null;
   /** The newest release of each part on the channel; null while it is read. */
   newest: Newest | null;
-  refresh: () => Promise<void>;
+  /**
+   * Read the report again. A call while a read runs asks for one more read
+   * after it, so a change that lands mid-read is never missed. Resolves with
+   * the newest report read, or null when the read failed.
+   */
+  refresh: () => Promise<MachineReport | null>;
   refreshNode: () => Promise<void>;
   /** Read the newest releases again, as after the channel changed. */
   refreshNewest: () => void;
@@ -39,25 +46,41 @@ function useMachine(): Machine {
   const [cached, setCached] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [newest, setNewest] = useState<Newest | null>(null);
-  const reading = useRef<Promise<void> | null>(null);
+  const [okAt, setOkAt] = useState<number | null>(null);
+  const reading = useRef<Promise<MachineReport | null> | null>(null);
+  const again = useRef(false);
 
   // Until the first read answers, the last report shows, so the list is there at once.
   const report = parseReport(answer ? (answer.ok ? answer.report : answer.cached) : cached ?? undefined);
   const stale = !!answer && !answer.ok && !!report;
+  const cachedAt = answer && !answer.ok && answer.cachedAt ? Date.parse(answer.cachedAt) : NaN;
+  const readAt = stale && Number.isFinite(cachedAt) ? cachedAt : okAt;
 
-  const refresh = useCallback(() => {
+  const refresh = useCallback((): Promise<MachineReport | null> => {
     const h = host();
-    if (!h) return Promise.resolve();
-    reading.current ??= (async () => {
+    if (!h) return Promise.resolve(null);
+    if (reading.current) {
+      again.current = true;
+      return reading.current;
+    }
+    const run = (async () => {
       setLoading(true);
+      let last: ReportAnswer | null = null;
       try {
-        setAnswer(await h.report());
+        do {
+          again.current = false;
+          last = await h.report();
+          setAnswer(last);
+          if (last.ok) setOkAt(Date.now());
+        } while (again.current);
       } finally {
         setLoading(false);
         reading.current = null;
       }
+      return last?.ok ? parseReport(last.report) : null;
     })();
-    return reading.current;
+    reading.current = run;
+    return run;
   }, []);
 
   const refreshNode = useCallback(async () => {
@@ -85,16 +108,28 @@ function useMachine(): Machine {
     });
   }, [refresh, refreshNewest]);
 
-  // Coming back to the window reads the report again; ue-mcp may have changed meanwhile.
+  // The report follows the machine, not only this app's own actions: the host
+  // says when a file it comes from changed (a daemon started or stopped, an
+  // update finished in a project's Studio, plugins swapped), and coming back
+  // to the window reads it again every time, from the host's activation and
+  // the page's own focus alike (a second signal within a moment is the same one).
   useEffect(() => {
-    let last = Date.now();
+    if (state?.mode !== "app") return;
+    let lastFocus = 0;
     const onFocus = () => {
-      if (state?.mode !== "app" || Date.now() - last < 15_000) return;
-      last = Date.now();
+      if (Date.now() - lastFocus < 2_000) return;
+      lastFocus = Date.now();
       void refresh();
     };
+    const onVisible = () => document.visibilityState === "visible" && onFocus();
+    const off = onHostEvent((e) => (e === "focus" ? onFocus() : void refresh()));
     window.addEventListener("focus", onFocus);
-    return () => window.removeEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      off();
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [refresh, state?.mode]);
 
   // Which daemons run now, from their discovery files: cheap, so it is read every few seconds while shown.
@@ -116,7 +151,7 @@ function useMachine(): Machine {
     };
   }, [keyList]);
 
-  return { state, answer, report, stale, live, loading, newest, refresh, refreshNode, refreshNewest };
+  return { state, answer, report, stale, live, loading, readAt, newest, refresh, refreshNode, refreshNewest };
 }
 
 /** The UE-MCP app: its setup when not installed, else the projects on this computer and a small Settings screen. */

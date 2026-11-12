@@ -7,7 +7,7 @@
 import { useSyncExternalStore } from "react";
 import type { Machine } from "./App";
 import { follow, host, type JobState } from "./native";
-import { updatesOf, type MachineProject } from "./model";
+import { installedKey, updatesOf, type MachineProject } from "./model";
 
 /** Where a project's Studio opens to run its update: Settings, General, the Updates card. */
 export const UPDATES_LOCATION = "#/settings/general";
@@ -22,7 +22,12 @@ export interface Work {
   done?: boolean;
   /** Stop waits for a second press while the daemon has an editor or a client connected. */
   confirm?: string;
+  /** Update was handed to the project's Studio, and the list is read again until its versions change. */
+  watching?: boolean;
 }
+
+/** After handing an update to Studio: how often the report is read again, and for how long at most. */
+export const WATCH_UPDATE = { everyMs: 8_000, forMs: 5 * 60_000 };
 
 let works: Record<string, Work> = {};
 const listeners = new Set<() => void>();
@@ -119,13 +124,36 @@ export function projectActions(p: MachineProject, m: Machine, current: Work | nu
       if (u.via === "studio") {
         set({ kind: "update" });
         const r = await host()?.openstudio({ key: p.key, uproject: p.uproject, location: UPDATES_LOCATION });
-        return set(r?.ok ? null : { kind: "update", error: r?.error ?? "Studio did not open." });
+        if (!r?.ok) return set({ kind: "update", error: r?.error ?? "Studio did not open." });
+        return watchUpdate(p, m);
       }
       const version = m.newest?.ueMcp;
       if (!version) return;
       await runJob("update", host()?.updatebridge({ uproject: p.uproject, version }), "The update did not start.");
     },
   };
+}
+
+/**
+ * Studio runs the update in its own window, out of this app's sight, so the
+ * list is read again every few seconds until the project's versions change
+ * or WATCH_UPDATE.forMs passes. The host's file watching usually sees it
+ * first; this is the fallback. Dismissing the note stops it.
+ */
+async function watchUpdate(p: MachineProject, m: Machine): Promise<void> {
+  const before = installedKey(p);
+  const mine = { kind: "update" as const, watching: true };
+  setWork(p.key, mine);
+  const until = Date.now() + WATCH_UPDATE.forMs;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, WATCH_UPDATE.everyMs));
+    if (works[p.key] !== mine) return;
+    const report = await m.refresh();
+    if (works[p.key] !== mine) return;
+    const now = report?.projects.find((x) => x.key === p.key);
+    if (now && installedKey(now) !== before) return setWork(p.key, null);
+  }
+  if (works[p.key] === mine) setWork(p.key, null);
 }
 
 /** The job box's title for each action. */

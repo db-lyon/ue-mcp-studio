@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Machine } from "./App";
 import { host } from "./native";
-import { actionsOf, filterProjects, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
+import { actionsOf, filterProjects, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
 import { installing, projectActions, useWorks, workTitle, type Work } from "./actions";
 
@@ -40,6 +40,7 @@ export function ProjectsView({ m, onOpen }: { m: Machine; onOpen: (key: string) 
         {projects.length >= FILTER_FROM && (
           <input className="app-filter" type="search" placeholder="Filter" aria-label="Filter projects" value={query} onChange={(e) => setQuery(e.target.value)} />
         )}
+        {m.readAt !== null && <span className="dim small app-read-at" title="The list reads again by itself when a project, daemon or Studio changes">{listReadAt(m.readAt)}</span>}
         <button onClick={() => void m.refresh()} disabled={m.loading}>{m.loading ? "Reading" : "Refresh"}</button>
         <button className="primary" onClick={() => void add()}>Add project</button>
       </header>
@@ -99,7 +100,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
       <div className="app-row-actions">
         {u?.via && (
           <button className="primary" disabled={(u.via === "ue-mcp" && (p.editor.running || busy)) || pending("update")} title={u.line} onClick={() => void act.update()}>
-            {pending("update") ? (u.via === "studio" ? "Opening" : "Updating") : "Update"}
+            {work?.watching ? "Updating in Studio" : pending("update") ? (u.via === "studio" ? "Opening" : "Updating") : "Update"}
           </button>
         )}
         {a.openStudio && (
@@ -165,6 +166,17 @@ export function WorkPanel({ p, work, act }: { p: MachineProject; work: Work | nu
         <div className="row">
           <span className="spacer" />
           {work.kind === "install" && <button onClick={() => void act.addStudio()}>Try again</button>}
+          <button className="ghost" onClick={act.cancel}>Dismiss</button>
+        </div>
+      </div>
+    );
+  }
+  if (work.watching) {
+    return (
+      <div className="app-row-work">
+        <div className="banner ok small" role="status">{p.name}'s Studio is running the update. The versions here refresh when it finishes.</div>
+        <div className="row">
+          <span className="spacer" />
           <button className="ghost" onClick={act.cancel}>Dismiss</button>
         </div>
       </div>

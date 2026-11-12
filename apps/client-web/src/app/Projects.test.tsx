@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { App } from "./App";
 import { appSlot, type HostState, type Newest } from "./native";
 import type { MachineProject, MachineReport } from "./model";
-import { resetWork } from "./actions";
+import { resetWork, WATCH_UPDATE } from "./actions";
 
 const STATE: HostState = {
   mode: "app", version: "0.1.35", node: { found: true, version: "v22.11.0", ok: true, min: 20 }, winget: true, channel: "latest",
@@ -24,12 +24,18 @@ function project(n: number, name: string, dir: string, o: Partial<MachineProject
 const withStudio = project(1, "ue_mcp", "C:\\work\\ue-mcp\\tests\\ue_mcp", { extensions: { studio: "0.1.34" }, plugins: [{ name: "UE_MCP_Studio", version: "0.1.8" }] });
 const bare = project(2, "ue_mcp", "C:\\work\\ue-mcp-release\\tests\\ue_mcp");
 
-function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; port: number; version: string }>; health?: string } = {}) {
-  const r: MachineReport = { version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [withStudio, bare], daemons: [] };
+function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; port: number; version: string }>; health?: string; reports?: MachineProject[][] } = {}) {
+  const reports = o.reports ?? [[withStudio, bare]];
+  let read = 0;
   const app = {
     getstate: vi.fn(async () => STATE),
     cachedreport: vi.fn(async () => null),
-    report: vi.fn(async () => ({ ok: true, report: JSON.stringify(r) })),
+    // Each read answers the next report in the list, then the last one again.
+    report: vi.fn(async () => {
+      const projects = reports[Math.min(read++, reports.length - 1)];
+      const r: MachineReport = { version: 1, ueMcp: "1.4.13", daemonDir: "D", projects, daemons: [] };
+      return { ok: true, report: JSON.stringify(r) };
+    }),
     live: vi.fn(async () => o.live ?? {}),
     newest: vi.fn(async () => o.newest ?? { channel: "beta", ueMcp: "1.4.14", studio: "0.1.35", plugin: "0.1.8", errors: {} }),
     daemon: vi.fn(async ({ path }: { path: string }) => (path === "/v1/health" && o.health ? { status: 200, body: o.health } : { error: "not running" })),
@@ -111,6 +117,59 @@ describe("the UE-MCP app's Projects", () => {
     expect(h.stopdaemon).not.toHaveBeenCalled();
     fireEvent.click(within(rows[0]).getByRole("button", { name: "Stop anyway" }));
     await waitFor(() => expect(h.stopdaemon).toHaveBeenCalledWith({ uproject: withStudio.uproject }));
+  });
+
+  it("reads the list again when the host says a watched file changed, and says when it was read", async () => {
+    const updated = { ...withStudio, extensions: { studio: "0.1.35" } };
+    const h = fakeHost({ reports: [[withStudio, bare], [updated, bare]] });
+    render(<App />);
+    const rows = await projectRows();
+    await waitFor(() => expect(rows[0].textContent).toContain("Studio 0.1.34"));
+    expect(await screen.findByText(/^Read at /)).toBeTruthy();
+    window.dispatchEvent(new CustomEvent("ue-app", { detail: "changed" }));
+    await waitFor(() => expect(document.querySelector(".app-list > li.app-project")!.textContent).toContain("Studio 0.1.35"));
+    expect(h.report).toHaveBeenCalledTimes(2);
+  });
+
+  it("reads the list again every time the window is activated", async () => {
+    const h = fakeHost();
+    render(<App />);
+    await projectRows();
+    await waitFor(() => expect(h.report).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new CustomEvent("ue-app", { detail: "focus" }));
+    await waitFor(() => expect(h.report).toHaveBeenCalledTimes(2));
+  });
+
+  it("reads once more when a change lands while a read runs", async () => {
+    const h = fakeHost();
+    render(<App />);
+    await projectRows();
+    await waitFor(() => expect(h.report).toHaveBeenCalledTimes(1));
+    let finish: (v: unknown) => void = () => {};
+    h.report.mockImplementationOnce(() => new Promise((r) => (finish = r)) as never);
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await waitFor(() => expect(h.report).toHaveBeenCalledTimes(2));
+    window.dispatchEvent(new CustomEvent("ue-app", { detail: "changed" }));
+    finish({ ok: true, report: JSON.stringify({ version: 1, ueMcp: "1.4.13", daemonDir: "D", projects: [withStudio, bare], daemons: [] }) });
+    await waitFor(() => expect(h.report).toHaveBeenCalledTimes(3));
+  });
+
+  it("after handing an update to Studio, reads the list again until the project's versions change", async () => {
+    const every = WATCH_UPDATE.everyMs;
+    WATCH_UPDATE.everyMs = 20;
+    try {
+      const updated = { ...withStudio, extensions: { studio: "0.1.35" } };
+      fakeHost({ reports: [[withStudio, bare], [withStudio, bare], [withStudio, bare], [updated, bare]] });
+      render(<App />);
+      const rows = await projectRows();
+      await waitFor(() => expect(within(rows[0]).getByRole("button", { name: "Update" })).toBeTruthy());
+      fireEvent.click(within(rows[0]).getByRole("button", { name: "Update" }));
+      await screen.findByText(/Studio is running the update/);
+      await waitFor(() => expect(document.querySelector(".app-list > li.app-project")!.textContent).toContain("Studio 0.1.35"));
+      await waitFor(() => expect(screen.queryByText(/Studio is running the update/)).toBeNull());
+    } finally {
+      WATCH_UPDATE.everyMs = every;
+    }
   });
 
   it("keeps the channel and UE-MCP's own update in Settings", async () => {

@@ -104,6 +104,15 @@ export function readAt(iso: string | undefined): string {
   return t && Number.isFinite(t.getTime()) ? t.toLocaleString(undefined, { hour: "2-digit", minute: "2-digit", day: "numeric", month: "short" }) : "earlier";
 }
 
+/** "Read at 14:05" for when the list was read, with the day once it is not today. */
+export function listReadAt(ms: number | null, now = Date.now()): string {
+  if (ms === null || !Number.isFinite(ms)) return "";
+  const t = new Date(ms);
+  const today = new Date(now).toDateString() === t.toDateString();
+  const time = t.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  return today ? `Read at ${time}` : `Read ${t.toLocaleDateString(undefined, { day: "numeric", month: "short" })}, ${time}`;
+}
+
 /**
  * What tells a project apart from others of the same name: the fewest parent
  * folders that differ, such as "Work" for C:\Work\ue_mcp beside
@@ -138,6 +147,11 @@ export function versionsOf(p: MachineProject, live: Record<string, Live> | null,
   const plugin = pluginOf(p);
   if (plugin) out.push({ label: "Editor plugin", version: plugin });
   return out;
+}
+
+/** What an update changes in a project, as one string: Studio's version, its editor plugin's and the bridge's. */
+export function installedKey(p: MachineProject): string {
+  return [studioOf(p).version ?? "", pluginOf(p) ?? "", p.ueMcp.bridge?.version ?? ""].join("|");
 }
 
 /** One part of a project against the newest on the channel. */

@@ -68,6 +68,7 @@ body { background: var(--bg); overflow: hidden; }
 .app-head > div { flex: 1 1 320px; min-width: 0; }
 .app-head h1 { font: 700 24px/1.15 var(--sans); letter-spacing: -0.02em; margin: 0 0 4px; color: var(--text); text-transform: none; }
 .app-head p { margin: 0; }
+.app-read-at { align-self: center; white-space: nowrap; }
 .app-filter { width: 180px; }
 .app-banner { display: flex; align-items: center; gap: 12px; max-width: 980px; margin: 0 auto 16px; }
 .app-banner span { flex: 1; }

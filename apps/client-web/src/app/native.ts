@@ -124,6 +124,24 @@ export function host(): AppHost | null {
   return (appSlot().ue?.app as unknown as AppHost | undefined) ?? null;
 }
 
+/**
+ * What the host tells the page unasked: `changed` when a file the report
+ * comes from changed (a daemon's discovery file, ~/.ue-mcp/state.json, a
+ * project's .uproject, solution or plugin descriptors), once the burst has
+ * settled; `focus` when the window is activated.
+ */
+export type HostEvent = "changed" | "focus";
+
+/** Hear the host's events; returns the unsubscribe. */
+export function onHostEvent(listener: (e: HostEvent) => void): () => void {
+  const on = (e: Event) => {
+    const d = (e as CustomEvent<unknown>).detail;
+    if (d === "changed" || d === "focus") listener(d);
+  };
+  window.addEventListener("ue-app", on);
+  return () => window.removeEventListener("ue-app", on);
+}
+
 /** Poll a job until it ends, reporting each state. */
 export async function follow(id: number, onState: (s: JobState) => void, everyMs = 700): Promise<JobState> {
   const h = host();
