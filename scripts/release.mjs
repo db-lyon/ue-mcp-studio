@@ -28,6 +28,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { signBundle } from "ue-mcp/daemon";
 import { renderNotices } from "./notices.mjs";
+import { copyWindowSource } from "./window-source.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(ROOT, "release");
@@ -96,6 +97,8 @@ const windowExe = path.join(ROOT, "apps", "window", "dist", "studio-window.exe")
 if (!fs.existsSync(windowExe)) throw new Error("no apps/window/dist/studio-window.exe: a release is built on Windows, with the C++ tools");
 fs.mkdirSync(path.join(ext, "bin"), { recursive: true });
 fs.copyFileSync(windowExe, path.join(ext, "bin", "studio-window.exe"));
+// Studio's own window on Linux, as source: the agent builds it there for this version (scripts/window-source.mjs).
+copyWindowSource(ROOT, ext);
 fs.writeFileSync(path.join(ext, "THIRD_PARTY_NOTICES.txt"), renderNotices().text);
 const manifest = signBundle(path.join(ext, "ui"), { name: "studio", version, api: { min: 1, max: 1 } }, fs.readFileSync(RELEASE_KEY, "utf-8"));
 
