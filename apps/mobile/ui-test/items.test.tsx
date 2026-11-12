@@ -121,6 +121,52 @@ describe("DialogCard: who decides", () => {
   });
 });
 
+describe("DialogCard: the body as ue-mcp read it (#1891)", () => {
+  const items = [
+    { index: 0, label: "Asset", cells: ["Asset", "File", "Type"], checked: true },
+    { index: 1, label: "L_FightArena", cells: ["L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World"], checked: true },
+  ];
+  const save = {
+    id: "d1", sessionId: "s1", title: "Save Content", editor: "UnrealEditor", openedAt: at, held: null, steps: [],
+    message: ["Select Content to Save", "Asset", "File", "Type", "L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World", "Save Selected", "Don't Save", "Cancel"].join("\n"),
+    buttons: ["Save Selected", "Don't Save", "Cancel"],
+    items,
+    blocks: [
+      { type: "paragraph", text: "Select Content to Save" },
+      { type: "table", columns: ["Asset", "File", "Type"], rows: [["L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World"]], checked: [true], items: [1] },
+    ],
+  } as unknown as EditorDialog;
+  const asking = { since: now, minHumanMs: 0, deadline: null, policy: { kind: "wait" } };
+
+  it("the caption, the headings and the row, each once, and no button label in the body", () => {
+    renderInProject(<DialogCard dialog={{ ...save, mode: "auto" } as unknown as EditorDialog} now={now} />);
+    for (const text of ["Select Content to Save", "Asset", "File", "Type", "L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World", "Don't Save"]) {
+      expect(screen.getAllByText(text)).toHaveLength(1);
+    }
+    // Read-only while the agent decides.
+    const box = screen.getByLabelText("Select L_FightArena");
+    expect(box.querySelector("polyline")).toBeTruthy();
+    expect(box.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("ticks a row in the table and sends it with the press while Studio is asking", async () => {
+    const api = fakeApi();
+    api.answerDialog.mockResolvedValue({});
+    renderInProject(<DialogCard dialog={{ ...save, mode: "interactive", asking } as unknown as EditorDialog} now={now} />, api);
+    fireEvent.click(screen.getByLabelText("Select L_FightArena"));
+    fireEvent.click(screen.getByText("Save Selected"));
+    await settle();
+    expect(api.answerDialog).toHaveBeenCalledWith("d1", { answer: "press", button: "Save Selected", items: [{ index: 1, checked: false }] });
+  });
+
+  it("falls back to the flat text, without the button labels, when there are no blocks", () => {
+    renderInProject(<DialogCard dialog={{ ...save, blocks: undefined, mode: "auto" } as unknown as EditorDialog} now={now} />);
+    const flat = "Select Content to Save\nAsset\nFile\nType\nL_FightArena\n/Game/Maps/Test/L_FightArena\n/Script/Engine.World";
+    expect(screen.getByText((_, el) => !!el && el.children.length === 0 && el.textContent === flat)).toBeTruthy();
+    expect(screen.getAllByText("Don't Save")).toHaveLength(1);
+  });
+});
+
 describe("Forms", () => {
   it("a yes or no, a choice and a number; Decline sends decline", async () => {
     const api = fakeApi();

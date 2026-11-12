@@ -290,6 +290,40 @@ describe("dialogs Studio was not asked about", () => {
   });
 });
 
+describe("a dialog's body as structure (ue-mcp #1891)", () => {
+  const BLOCKS = [
+    { type: "paragraph" as const, text: "Select Content to Save" },
+    { type: "table" as const, columns: ["Asset", "File", "Type"], rows: [["L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World"]], checked: [true], items: [1] },
+  ];
+
+  it("keeps the blocks a prompt carries", () => {
+    const { host, broker, s } = setup();
+    let prompt: CallOptions["dialogPrompt"];
+    broker.wrap({ ...host, callAction: (_c, _a, _args, opts) => ((prompt = opts?.dialogPrompt), new Promise(() => {})) }, s.id).callAction("editor", "stop_editor", {});
+    void prompt!(request({ blocks: BLOCKS }));
+    expect(broker.state().dialogs[0].blocks).toEqual(BLOCKS);
+  });
+
+  it("takes the blocks from dialog.updated, for a dialog first reported without them", () => {
+    const { broker, emit, published } = setup();
+    emit("dialog.opened", { editor: "Scratch", title: "Save Content", message: "flat", buttons: BUTTONS, mode: "auto" });
+    expect(broker.state().dialogs[0].blocks).toBeUndefined();
+    emit("dialog.updated", { editor: "Scratch", title: "Save Content", message: "flat", buttons: BUTTONS, blocks: BLOCKS });
+    const [d] = broker.state().dialogs;
+    expect(d.blocks).toEqual(BLOCKS);
+    // Still the one dialog, with no new step, and the UI told.
+    expect(broker.state().dialogs).toHaveLength(1);
+    expect(d.steps).toHaveLength(1);
+    expect(published.at(-1)?.type).toBe("dialog.changed");
+  });
+
+  it("ignores dialog.updated for a dialog it never saw open", () => {
+    const { broker, emit } = setup();
+    emit("dialog.updated", { editor: "Scratch", title: "Save Content", message: "flat", buttons: BUTTONS, blocks: BLOCKS });
+    expect(broker.state().dialogs).toHaveLength(0);
+  });
+});
+
 describe("answers and buttons", () => {
   it("knows which answers discard work", () => {
     for (const b of ["Don't Save", "Don\u2019t Save", "Dont Save", "Delete", "Force Delete", "Discard", "Revert", "Discard Changes"]) expect(isDestructiveAnswer(b)).toBe(true);

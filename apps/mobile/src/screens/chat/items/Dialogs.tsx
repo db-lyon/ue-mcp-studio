@@ -1,7 +1,21 @@
 import { useEffect, useState } from "react";
 import { Text, View, useWindowDimensions } from "react-native";
-import type { DialogAnswer, EditorDialog } from "@ue-mcp-studio/shared";
-import { decider, outcomeLine, readyIn, statusLine, whoLine } from "@ue-mcp-studio/client-core";
+import type { DialogAnswer, DialogBlock, EditorDialog } from "@ue-mcp-studio/shared";
+import {
+  decider,
+  dialogBody,
+  isPathCell,
+  itemListShown,
+  outcomeLine,
+  readyIn,
+  rowCheck,
+  statusLine,
+  tableColumns,
+  tableHasChecks,
+  tableWidth,
+  tickableItems,
+  whoLine,
+} from "@ue-mcp-studio/client-core";
 import { Banner, baseFont, Check, ContentButton, font, labelFont, Output, useTheme, type Theme } from "../../../ui";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
@@ -19,9 +33,86 @@ export function DialogCards({ dialogs, now }: { dialogs: EditorDialog[]; now: nu
   );
 }
 
-/** The rows a person can tick: each unsaved asset of a save prompt. */
-function itemsOf(d: EditorDialog) {
-  return (d.items ?? []).filter((i) => i.cells.some((c) => c.startsWith("/")));
+/** Ticks the person changed on the card, by item index, and whether they may change them now. */
+interface Ticks {
+  ticks: Record<number, boolean>;
+  canTick: boolean;
+  onTick: (index: number, checked: boolean) => void;
+}
+
+type Table = Extract<DialogBlock, { type: "table" }>;
+
+/** Each column's share of the width: its longest text, within bounds, so a path column gets the room it needs. */
+function columnWeights(t: Table, width: number): number[] {
+  return Array.from({ length: width }, (_, c) =>
+    Math.min(30, Math.max(4, (t.columns[c] ?? "").length, ...t.rows.map((r) => (r[c] ?? "").length))));
+}
+
+/** One of the dialog's tables (table.dialog-table): its headings, its rows, and each row's checkbox. */
+function DialogTable({ dialog: d, table: tb, ticks }: { dialog: EditorDialog; table: Table; ticks: Ticks }) {
+  const t = useTheme();
+  const columns = tableColumns(tb);
+  const width = tableWidth(tb);
+  const checks = tableHasChecks(tb);
+  const weights = columnWeights(tb, width);
+  const cellText = (cell: string) => (isPathCell(cell)
+    ? { ...font(t, "mono", 400, 12), lineHeight: 12 * (t.base.lineHeight / t.base.size), color: t.c.text }
+    : { ...small(t), color: t.c.text });
+  const cell = (c: number) => ({ flexGrow: weights[c], flexShrink: 1, flexBasis: 0, minWidth: 0, paddingVertical: 5, paddingHorizontal: 8 });
+  const checkCell = { width: 40, paddingLeft: 8 };
+  return (
+    <View accessibilityLabel="Table" style={{ borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: 6, overflow: "hidden" }}>
+      {columns.length > 0 ? (
+        <View style={{ flexDirection: "row", backgroundColor: t.c.panel2, borderBottomWidth: 1, borderBottomColor: t.c.lineStrong }}>
+          {checks ? <View style={checkCell} /> : null}
+          {Array.from({ length: width }, (_, c) => (
+            <View key={c} style={cell(c)}>
+              <Text style={{ ...small(t), ...font(t, "sans", 600, 12), color: t.c.muted }}>{columns[c] ?? ""}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {tb.rows.map((row, r) => {
+        const check = rowCheck(d, tb, r);
+        const item = check?.item ?? null;
+        return (
+          <View key={r} style={{ flexDirection: "row", alignItems: "center", borderTopWidth: r > 0 ? 1 : 0, borderTopColor: t.c.line }}>
+            {checks ? (
+              <View style={checkCell}>
+                {check ? (
+                  <Check
+                    label={`Select ${row[0] ?? `row ${r + 1}`}`}
+                    checked={item !== null ? ticks.ticks[item] ?? check.checked : check.checked}
+                    disabled={item === null || !ticks.canTick}
+                    onChange={(v) => item !== null && ticks.onTick(item, v)}
+                  />
+                ) : null}
+              </View>
+            ) : null}
+            {Array.from({ length: width }, (_, c) => (
+              <View key={c} style={cell(c)}>
+                <Text style={cellText(row[c] ?? "")}>{row[c] ?? ""}</Text>
+              </View>
+            ))}
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+/** The dialog's body: ue-mcp's paragraphs and tables, or its flat text from an older ue-mcp. */
+function DialogBody({ dialog: d, ticks, maxHeight }: { dialog: EditorDialog; ticks: Ticks; maxHeight: number }) {
+  const t = useTheme();
+  const body = dialogBody(d);
+  if (body.kind === "text") return body.text ? <Output maxHeight={maxHeight}>{body.text}</Output> : null;
+  return (
+    <View style={{ gap: 8 }}>
+      {body.blocks.map((b, i) => b.type === "paragraph"
+        ? <Text key={i} style={{ ...baseFont(t), color: t.c.text }}>{b.text}</Text>
+        : <DialogTable key={i} dialog={d} table={b} ticks={ticks} />)}
+    </View>
+  );
 }
 
 /** Every transition so far, oldest first: ol.dialog-steps, numbered outside an 18px indent. */
@@ -55,7 +146,7 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
   const [sent, setSent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ticks, setTicks] = useState<Record<number, boolean>>({});
-  const rows = itemsOf(d);
+  const rows = tickableItems(d);
   const who = decider(d);
   const wait = readyIn(d, now);
 
@@ -78,6 +169,11 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
 
   const meta = whoLine(d);
   const busy = sent !== null;
+  const tickState: Ticks = {
+    ticks,
+    canTick: who === "you" && !busy,
+    onTick: (index, checked) => setTicks({ ...ticks, [index]: checked }),
+  };
   const actions = { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginVertical: 6 } as const;
   return (
     <View accessibilityRole="none" accessibilityLabel={`Editor dialog: ${d.title}`} style={approvalCard(t)}>
@@ -86,8 +182,8 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
         {meta ? <Text style={[small(t), { color: t.c.dim, flexShrink: 1 }]}>{`met by ${meta}`}</Text> : null}
       </View>
       <Text style={{ ...baseFont(t), ...font(t, "sans", 700, 14), lineHeight: 14 * (t.base.lineHeight / t.base.size) }}>{d.title || "(untitled dialog)"}</Text>
-      {d.message ? <Output maxHeight={vh * 0.24}>{d.message}</Output> : null}
-      {rows.length > 0 ? (
+      <DialogBody dialog={d} ticks={tickState} maxHeight={vh * 0.24} />
+      {rows.length > 0 && itemListShown(d) ? (
         <View accessibilityLabel="Assets" style={{ gap: 4, maxHeight: vh * 0.2 }}>
           {rows.map((i) => (
             <Check key={i.index} label={i.label} checked={ticks[i.index] ?? i.checked} disabled={who !== "you" || busy} onChange={(v) => setTicks({ ...ticks, [i.index]: v })}>

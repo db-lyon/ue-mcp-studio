@@ -130,6 +130,74 @@ describe("a dialog card", () => {
   });
 });
 
+/** The Save Content prompt as ue-mcp reads it: its flat text, its rows, and the same body as blocks. */
+const SAVE_ITEMS = [
+  { index: 0, label: "Asset", cells: ["Asset", "File", "Type"], checked: true },
+  { index: 1, label: "L_FightArena", cells: ["L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World"], checked: true },
+];
+const saveContent: EditorDialog = {
+  ...base,
+  message: ["Select Content to Save", "Asset", "File", "Type", "L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World", "Save Selected", "Don't Save", "Cancel"].join("\n"),
+  items: SAVE_ITEMS,
+  blocks: [
+    { type: "paragraph", text: "Select Content to Save" },
+    { type: "table", columns: ["Asset", "File", "Type"], rows: [["L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World"]], checked: [true], items: [1] },
+  ],
+};
+
+describe("a dialog's body as ue-mcp read it (#1891)", () => {
+  it("draws the caption as a paragraph and the package list as a table under its headings", () => {
+    render(<DialogCards dialogs={[saveContent]} now={T0 + 2000} />);
+    expect(screen.getByText("Select Content to Save").tagName).toBe("P");
+    const table = screen.getByRole("table");
+    expect([...table.querySelectorAll("th[scope=col]")].map((th) => th.textContent)).toEqual(["Asset", "File", "Type"]);
+    const cells = [...table.querySelectorAll("tbody tr")].map((tr) => [...tr.querySelectorAll("td:not(.check)")].map((td) => td.textContent));
+    expect(cells).toEqual([["L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World"]]);
+    // The buttons are buttons, not body text, and the flat message is not drawn too.
+    expect(screen.getAllByText("Don't Save")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Don't Save" })).toBeTruthy();
+    expect(document.querySelector(".dialog-message")).toBeNull();
+    // One checkbox per asset: in the table, not again in a list below it.
+    expect(screen.getAllByRole("checkbox")).toHaveLength(1);
+  });
+
+  it("ticks a row in the table and sends it with the press while Studio is asking", async () => {
+    render(<DialogCards dialogs={[saveContent]} now={T0 + 2000} />);
+    const box = screen.getByRole("checkbox", { name: "Select L_FightArena" }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(box.disabled).toBe(false);
+    fireEvent.click(box);
+    await act(async () => fireEvent.click(button("Save Selected")));
+    expect(api.answerDialog).toHaveBeenCalledWith("d1", { answer: "press", button: "Save Selected", items: [{ index: 1, checked: false }] });
+  });
+
+  it("shows the ticks read-only when nobody is asking the user", () => {
+    render(<DialogCards dialogs={[{ ...saveContent, mode: "auto", asking: null }]} now={T0} />);
+    const box = screen.getByRole("checkbox", { name: "Select L_FightArena" }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    expect(box.disabled).toBe(true);
+    expect(screen.getByText("Answer it yourself:")).toBeTruthy();
+  });
+
+  it("falls back to the flat text, without the button labels, from a ue-mcp that sends no blocks", () => {
+    render(<DialogCards dialogs={[{ ...saveContent, blocks: undefined }]} now={T0 + 2000} />);
+    const message = document.querySelector(".dialog-message")!;
+    expect(message.textContent).toContain("/Game/Maps/Test/L_FightArena");
+    expect(message.textContent).not.toContain("Don't Save");
+    expect(screen.queryByRole("table")).toBeNull();
+    // The rows are still offered to tick, as before.
+    expect(screen.getByRole("checkbox", { name: /L_FightArena/ })).toBeTruthy();
+  });
+
+  it("draws a table with no checkbox column and no headings", () => {
+    render(<DialogCards dialogs={[{ ...base, blocks: [{ type: "table", columns: ["", ""], rows: [["a", "b"], ["c"]] }] }]} now={T0 + 2000} />);
+    const table = screen.getByRole("table");
+    expect(table.querySelector("thead")).toBeNull();
+    expect([...table.querySelectorAll("tbody tr")].map((tr) => tr.children.length)).toEqual([2, 2]);
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+  });
+});
+
 describe("a dialog in the transcript and the banner", () => {
   it("says how it ended", () => {
     const at = T0;

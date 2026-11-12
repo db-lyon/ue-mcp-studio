@@ -13,6 +13,7 @@ import {
   mentionToken,
   rankMentions,
   type CustomEndpoint,
+  type EditorDialog,
   type MentionMatch,
   type MentionSearchResponse,
   type PlaytestEntry,
@@ -407,6 +408,68 @@ function withApprovals(): SessionDetail {
   };
 }
 
+/**
+ * The Save Content prompt a stop_editor met, as ue-mcp reads it: the caption,
+ * the package list as a table with each row's tick, and the buttons. `blocks`
+ * false is a ue-mcp from before it read the structure, with the flat text only.
+ */
+function saveContentDialog(state: "asking" | "agent", blocks = true): EditorDialog {
+  const now = Date.now();
+  const rows = [
+    ["L_FightArena", "/Game/Maps/Test/L_FightArena", "/Script/Engine.World"],
+    ["BP_DoorHinge", "/Game/Blueprints/Door/BP_DoorHinge", "/Script/Engine.Blueprint"],
+    ["C_DoorHinge", "/Game/Props/Door/Curves/C_DoorHinge", "/Script/Engine.CurveFloat"],
+  ];
+  const items = [
+    { index: 0, label: "Asset", cells: ["Asset", "File", "Type"], checked: true },
+    ...rows.map((cells, i) => ({ index: i + 1, label: cells[0], cells, checked: i !== 2 })),
+  ];
+  return {
+    id: "dlg-save",
+    editor: "StudioE2E",
+    title: "Save Content",
+    message: ["Select Content to Save", "Asset", "File", "Type", ...rows.flat(), "Save Selected", "Don't Save", "Cancel"].join("\n"),
+    buttons: ["Save Selected", "Don't Save", "Cancel"],
+    items,
+    ...(blocks ? {
+      blocks: [
+        { type: "paragraph" as const, text: "Select Content to Save" },
+        { type: "table" as const, columns: ["Asset", "File", "Type"], rows, checked: rows.map((_, i) => i !== 2), items: rows.map((_, i) => i + 1) },
+      ],
+    } : {}),
+    mode: state === "agent" ? "auto" : "interactive",
+    openedAt: now - 20_000,
+    sessionId: SESSION_ID,
+    toolUseId: "a-stop",
+    parent: null,
+    call: "editor.stop_editor",
+    asking: state === "asking" ? { since: now - 20_000, minHumanMs: 0, policy: { kind: "agent", minutes: 5 }, deadline: now + 280_000, safeButton: "Cancel" } : null,
+    held: null,
+    outcome: null,
+    steps: [{ at: now - 20_000, text: state === "asking" ? "Asked you. The agent decides if nobody answers in 5 min." : "Opened. The agent answers dialogs in this project, so the agent is deciding." }],
+  };
+}
+
+function withStopEditor(): SessionDetail {
+  const d = detail("Rebuild with the hinge change", []);
+  return {
+    ...d,
+    status: "running",
+    transcript: [
+      { kind: "user", text: "Close the editor and rebuild with the hinge change.", at: ago(1) },
+      { kind: "tool", call: { id: "a-stop", name: "ue_mcp", input: { action: "call", category: "editor", method: "stop_editor" }, outcome: "pending", startedAt: ago(1) } },
+    ],
+  };
+}
+
+const dialogScene = (title: string, dialog: EditorDialog): Scenario => ({
+  title,
+  hash: `#/chat/${SESSION_ID}`,
+  session: withStopEditor(),
+  index: { playtests: [], listed: true },
+  get: (p) => (p === "/v1/ext/studio/dialogs" ? { dialogs: [dialog], now: Date.now() } : undefined),
+});
+
 /** The project's source control with changed files, for the changes panel. */
 const VCS = { kind: "git", name: "Git", root: "C:/Users/dev/Projects/StudioE2E", branch: "feat/door-hinge-easing", changes: 4, ahead: 2, behind: 0 };
 const VCS_CHANGES = [
@@ -615,6 +678,9 @@ export const SCENARIOS: Record<string, Scenario> = {
   "steps-expanded": { title: "The run of reads opened: every read named by its file, the line range where given", hash: `#/chat/${SESSION_ID}`, session: withSteps("idle"), index: { playtests: [], listed: true }, click: '.thread-stage .steps-head:has-text("Read 8 files")', height: 1100 },
   "steps-running": { title: "A run of tool calls while the turn runs: the step going now on its summary line", hash: `#/chat/${SESSION_ID}`, session: withSteps("running"), index: { playtests: [], listed: true } },
   "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },
+  "dialog-save-content": dialogScene("The Save Content prompt put to you: the caption, the packages as a table you tick, and the dialog's own buttons once", saveContentDialog("asking")),
+  "dialog-save-content-agent": dialogScene("The Save Content prompt while the agent decides: the table's ticks read only, Answer it yourself", saveContentDialog("agent")),
+  "dialog-save-content-flat": dialogScene("The Save Content prompt from a ue-mcp that sends no structure: its text, without the button labels, and the rows to tick", saveContentDialog("asking", false)),
   "queue-running": { title: "Three messages queued behind a running turn: Send now, Edit and Remove on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("running"), index: { playtests: [], listed: true } },
   "queue-stopped": { title: "The queue waiting after a Stop: Send next in its header, Send now on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("stopped"), index: { playtests: [], listed: true } },
   "vcs-changes": { title: "The source control chip opened: the changed files and the picked file's diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-list li button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li button"] },

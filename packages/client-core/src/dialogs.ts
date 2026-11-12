@@ -3,7 +3,80 @@
  * the transcript say about who decides right now, and when the card may be
  * answered.
  */
-import type { EditorDialog } from "@ue-mcp-studio/shared";
+import type { DialogBlock, EditorDialog } from "@ue-mcp-studio/shared";
+
+type Item = NonNullable<EditorDialog["items"]>[number];
+type Table = Extract<DialogBlock, { type: "table" }>;
+
+/** A row a person can tick: one carrying a path, which the header's select-all box does not. */
+function tickable(i: Item): boolean {
+  return i.cells.some((c) => c.startsWith("/"));
+}
+
+/** The rows a person can tick: each unsaved asset of a save prompt. A press sends their ticks. */
+export function tickableItems(d: EditorDialog): Item[] {
+  return (d.items ?? []).filter(tickable);
+}
+
+/**
+ * What a card draws as the dialog's body: ue-mcp's blocks when it read them,
+ * the flat message otherwise, without the lines that only repeat a button
+ * label (the buttons are drawn as buttons).
+ */
+export type DialogBody = { kind: "blocks"; blocks: DialogBlock[] } | { kind: "text"; text: string };
+
+function wellFormed(b: DialogBlock): boolean {
+  if (b.type === "paragraph") return typeof b.text === "string" && b.text.trim() !== "";
+  return b.type === "table" && Array.isArray(b.columns) && Array.isArray(b.rows) && b.rows.every(Array.isArray);
+}
+
+export function dialogBody(d: EditorDialog): DialogBody {
+  const blocks = (d.blocks ?? []).filter(wellFormed);
+  if (blocks.length > 0) return { kind: "blocks", blocks };
+  const buttons = new Set(d.buttons.map((b) => b.trim()));
+  return { kind: "text", text: d.message.split("\n").filter((l) => !buttons.has(l.trim())).join("\n").trim() };
+}
+
+/** A table's column headings, or none when every heading is empty. */
+export function tableColumns(t: Table): string[] {
+  return t.columns.some((c) => c.trim() !== "") ? t.columns : [];
+}
+
+/** How many cells a table's rows are drawn with: its widest row or its headings. */
+export function tableWidth(t: Table): number {
+  return Math.max(t.columns.length, ...t.rows.map((r) => r.length), 0);
+}
+
+/** Whether a table has a checkbox column. */
+export function tableHasChecks(t: Table): boolean {
+  return (t.checked ?? []).some((c) => typeof c === "boolean");
+}
+
+/**
+ * One table row's checkbox: its state, and the item a tick on it changes when
+ * the row is one a person can tick. Null for a row without a checkbox.
+ */
+export function rowCheck(d: EditorDialog, t: Table, row: number): { checked: boolean; item: number | null } | null {
+  const checked = t.checked?.[row];
+  if (typeof checked !== "boolean") return null;
+  const index = t.items?.[row];
+  const item = typeof index === "number" ? d.items?.find((i) => i.index === index) : undefined;
+  return { checked, item: item && tickable(item) ? item.index : null };
+}
+
+/**
+ * Whether the separate list of tickable rows is drawn. Not when the body's
+ * table already shows each row's checkbox: the same rows twice is noise.
+ */
+export function itemListShown(d: EditorDialog): boolean {
+  const body = dialogBody(d);
+  return body.kind === "text" || !body.blocks.some((b) => b.type === "table" && tableHasChecks(b));
+}
+
+/** A cell that holds an object path, drawn in the mono face. */
+export function isPathCell(cell: string): boolean {
+  return cell.startsWith("/");
+}
 
 /** m:ss, for a countdown. */
 export function clock(ms: number): string {

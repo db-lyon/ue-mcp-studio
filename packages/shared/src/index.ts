@@ -734,6 +734,16 @@ export function safeButton(buttons: string[]): string | null {
 }
 
 /**
+ * One block of an editor dialog's body (ue-mcp's DialogBlock, restated so
+ * Studio builds against older releases). A table's `checked` is each row's
+ * checkbox state, null for a row without one, and `items` the row's index in
+ * the dialog's `items`, which a press ticks.
+ */
+export type DialogBlock =
+  | { type: "paragraph"; text: string }
+  | { type: "table"; columns: string[]; rows: string[][]; checked?: Array<boolean | null>; items?: Array<number | null> };
+
+/**
  * A modal dialog in the editor, as Studio shows it: a card in the chat while
  * it is open, and a line in the transcript of the session whose call met it.
  * Times are the daemon's clock, epoch ms.
@@ -747,6 +757,12 @@ export interface EditorDialog {
   buttons: string[];
   /** Rows the dialog asks about one by one, such as each unsaved asset. */
   items?: Array<{ index: number; label: string; cells: string[]; checked: boolean }>;
+  /**
+   * The body as ue-mcp read it off the dialog: paragraphs and tables in
+   * reading order, without the title or the button labels. Absent from a
+   * ue-mcp or plugin that predates it, and then `message` is the body.
+   */
+  blocks?: DialogBlock[];
   /** Who answers: auto the agent, interactive the user here, defer the user in the editor. Null when unknown. */
   mode: "auto" | "interactive" | "defer" | null;
   openedAt: number;

@@ -932,6 +932,17 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .dialog-card .dialog-message { max-height: 24vh; margin: 0; white-space: pre-wrap; }
 .dialog-items { display: flex; flex-direction: column; gap: 4px; max-height: 20vh; overflow: auto; }
 .dialog-items .mono { overflow-wrap: anywhere; }
+/* The body ue-mcp read off the dialog: paragraphs and the dialog's own tables. */
+.dialog-body { display: flex; flex-direction: column; gap: 8px; max-height: 40vh; overflow: auto; }
+.dialog-paragraph { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.dialog-table-wrap { border: 1px solid var(--line-strong); border-radius: 6px; overflow: auto; }
+.dialog-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.dialog-table th { text-align: left; font-weight: 600; color: var(--muted); background: var(--panel-2); padding: 5px 8px; border-bottom: 1px solid var(--line-strong); white-space: nowrap; }
+.dialog-table td { padding: 5px 8px; vertical-align: top; overflow-wrap: anywhere; }
+.dialog-table tbody tr + tr td { border-top: 1px solid var(--line); }
+.dialog-table td.mono { font: 12px var(--mono); }
+.dialog-table .check { width: 1%; padding-right: 0; }
+.dialog-table .check input { margin: 0; }
 .dialog-hold { margin: 0; }
 .dialog-line { border-left: 2px solid var(--accent-line); padding: 4px 10px; margin: 6px 0; }
 .dialog-policy { border: 0; padding: 0; margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px; }
