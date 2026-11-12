@@ -45,6 +45,21 @@ const card = (review = REVIEW) => render(<SessionIdContext.Provider value="s1"><
 const row = (path: string) => document.querySelector(`[data-path="${path}"]`) as HTMLElement;
 
 describe("the turn card", () => {
+  it("says a diff waits on the editor quietly, and a real diff failure in red", () => {
+    const away = "The editor is not connected, so Unreal cannot load the versions to diff them.";
+    card({
+      ...REVIEW,
+      items: [
+        { ...REVIEW.items[1], diffError: away, summary: `Could not diff: ${away}` },
+        { ...REVIEW.items[2], diffError: "the package was saved by a newer engine version", summary: "Could not diff: the package was saved by a newer engine version" },
+      ],
+    });
+    const quiet = row("Content/BP_Door.uasset").querySelector(".review-item-summary") as HTMLElement;
+    expect(quiet.classList.contains("dim")).toBe(true);
+    expect(quiet.classList.contains("bad")).toBe(false);
+    expect((row("Content/SM_Box.uasset").querySelector(".review-item-summary") as HTMLElement).classList.contains("bad")).toBe(true);
+  });
+
   it("lists each change under its group, with Keep and Revert per item and Revert all", () => {
     card();
     expect(screen.getByText("Config")).toBeTruthy();
