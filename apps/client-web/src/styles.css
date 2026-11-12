@@ -1282,7 +1282,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .pill-suggestion:hover { border-color: var(--accent); }
 
 /* Per-turn review: the turn card, an item's diff, and the checkpoint timeline. */
-.review-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; min-width: 0; }
+.review-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; min-width: 0; container: review / inline-size; }
 .review-group { display: flex; flex-direction: column; gap: 4px; }
 .review-group-label { text-transform: uppercase; letter-spacing: 0.06em; font-size: 10px; }
 .review-item.state-pending { border-left-color: var(--accent-line); }
@@ -2121,6 +2121,7 @@ button.review-revert-all:disabled, .review-items button.review-native:disabled {
 }
 .review-item > .review-item-name { grid-area: name; }
 .review-item > .review-item-tags { grid-area: tags; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; min-width: 0; }
+.review-item-tags .pill { white-space: nowrap; }
 .review-item > .review-native { grid-area: native; }
 .review-item > .review-actions { grid-area: actions; display: inline-flex; align-items: center; justify-content: flex-end; gap: 6px; white-space: nowrap; }
 .review-item > .review-item-summary { grid-area: summary; margin-top: 2px; }
@@ -2148,6 +2149,10 @@ button.review-item-name:hover:not(:disabled) { background: none; border: 0; colo
 
 @media (max-width: 760px) {
   .review-card { padding: 10px 12px; }
+}
+/* By the card's own width, not the window's: a docked Studio or a narrow transcript column is as tight as a
+   phone, and the four-column line squeezed the pills into a circle over Open in Unreal diff. */
+@container review (max-width: 620px) {
   .review-item {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas: "name name" "tags actions" "summary summary" "path path" "failed failed" "conflict conflict" "native native" "opened opened" "diff diff";

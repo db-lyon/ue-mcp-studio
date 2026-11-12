@@ -155,7 +155,8 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                         </>
                       )}
                     </span>
-                    {it.summary && <div className={`review-item-summary small${it.diffError ? " bad" : ""}`}><EngineText text={it.summary} /></div>}
+                    {/* The editor being away is a state, not a failure: said quietly, not in red. */}
+                    {it.summary && <div className={`review-item-summary small${it.diffError ? (/editor is not connected/i.test(it.diffError) ? " dim" : " bad") : ""}`}><EngineText text={it.summary} /></div>}
                     <div className="review-item-path dim small mono">{it.path.split("/").map((p, i, all) => (i < all.length - 1 ? [`${p}/`, <wbr key={i} />] : p))}</div>
                     {opened?.path === it.path && <div className={`review-opened small ${opened.bad ? "bad" : "dim"}`} role="status">{opened.text}</div>}
                     {failed && <div className="review-failed banner bad small" role="alert">{failed}</div>}
