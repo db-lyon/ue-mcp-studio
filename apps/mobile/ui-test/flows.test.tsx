@@ -73,16 +73,18 @@ describe("FlowLauncher", () => {
     expect(getComputedStyle(region).overflowY === "auto" || getComputedStyle(region).overflowY === "scroll").toBe(true);
   });
 
-  it("centres a field's name and description over its full-width box, and sets a toggle's description beside its name", async () => {
+  it("sets a field's name, description and box flush left, folds the optional ones, and stacks a toggle's description under its name", async () => {
     const a = api();
     a.planFlow.mockResolvedValue({ inputs: [{ ...PLAN.inputs[0] }, { ...PLAN.inputs[2], description: "Save it." }] });
     renderInProject(<FlowLauncher text="/flow bake-lighting" run={vi.fn()} onClose={vi.fn()} />, a);
     await settle();
-    const field = screen.getByText("map").parentElement!;
-    expect(getComputedStyle(field).alignItems).toBe("center");
-    expect(getComputedStyle(screen.getByLabelText("map")).alignSelf).toBe("stretch");
+    const field = screen.getByText("map").parentElement!.parentElement!;
+    expect(getComputedStyle(field).alignItems).not.toBe("center");
+    expect(screen.getByText(/^The level to open first\./)).toBeTruthy();
+    expect(screen.queryByText("save")).toBeNull();
+    fireEvent.click(screen.getByLabelText("1 optional"));
     const toggle = screen.getByText("save").parentElement!;
-    expect(getComputedStyle(toggle).flexDirection).toBe("row");
+    expect(getComputedStyle(toggle).flexDirection).toBe("column");
     expect(toggle.textContent).toBe("saveSave it.");
   });
 
@@ -112,11 +114,13 @@ describe("FlowLauncher", () => {
     renderInProject(<FlowLauncher text="/flow bake-lighting map=/Game/Maps/L_Cave" run={run} onClose={close} />, a);
     await settle();
     expect(screen.getByText("Build lighting for the open level.")).toBeTruthy();
-    expect((screen.getByLabelText("map") as HTMLTextAreaElement).value).toBe("/Game/Maps/L_Cave");
+    expect((screen.getByLabelText("map") as HTMLInputElement).value).toBe("/Game/Maps/L_Cave");
+    // quality and save are optional: folded until opened.
+    fireEvent.click(screen.getByLabelText("2 optional"));
     expect(screen.getByText("Production")).toBeTruthy();
     expect(disabled("Run")).toBe(false);
     fireEvent.click(screen.getByLabelText("save"));
-    fireEvent.click(screen.getByLabelText("quality"));
+    // A short choice is a strip of buttons.
     fireEvent.click(screen.getByText("Preview"));
     fireEvent.click(screen.getByText("Run"));
     expect(run).toHaveBeenCalledWith({ name: "bake-lighting", params: { map: "/Game/Maps/L_Cave", quality: "Preview", save: false } });

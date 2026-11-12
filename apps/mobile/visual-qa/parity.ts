@@ -265,6 +265,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "flow-launcher-unknown": {owner: "agent-a", type: {into: BOX, text: "/flow bake-lightng \n"}, afterType: {clicks: [], wait: 900}},
   "flow-launcher-error": {owner: "agent-a", type: {into: BOX, text: "/flow playtest-smoke \n"}, afterType: {clicks: [], wait: 900}},
   "flow-launcher-form": {owner: "agent-a", type: {into: BOX, text: "/flow bake-lighting map=/Game/Maps/L_Cave \n"}, afterType: {clicks: [], wait: 900}},
+  "action-launcher-form": {owner: "agent-a", type: {into: BOX, text: "/action level.load "}, afterType: {clicks: ["Send"], wait: 900}},
+  "action-launcher-form-open": {owner: "agent-a", type: {into: BOX, text: "/action level.load saveFirst=true "}, afterType: {clicks: ["Send"], wait: 900}},
   "flow-card-running": {owner: "agent-a"},
   "flow-card-succeeded": {owner: "agent-a"},
   "flow-card-failed": {owner: "agent-a"},

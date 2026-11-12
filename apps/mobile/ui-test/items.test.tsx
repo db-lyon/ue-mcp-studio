@@ -178,7 +178,9 @@ describe("Forms", () => {
     renderInProject(<FormCards forms={[form]} />, api);
     expect(screen.getByText("Attach the log")).toBeTruthy();
     expect(screen.getByText("How many times")).toBeTruthy();
-    expect(screen.getAllByText("(optional)").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("OPTIONAL").length).toBeGreaterThan(0);
+    // Nothing required, so nothing folds; the two-option choice is a strip of buttons.
+    expect(screen.getByRole("radio", { name: "Low" })).toBeTruthy();
     fireEvent.click(screen.getByText("Decline"));
     await settle();
     expect(api.answerForm).toHaveBeenCalledWith("f2", { action: "decline" });

@@ -336,6 +336,7 @@ describe("FormCards", () => {
     expect(screen.getByText("Your answer is needed")).toBeTruthy();
     expect(screen.getByText("Send this report?")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Note"), { target: { value: "door" } });
+    fireEvent.click(screen.getByLabelText("1 optional"));
     fireEvent.change(screen.getByLabelText("Count"), { target: { value: "3" } });
     fireEvent.click(screen.getByText("Submit"));
     await settle();
