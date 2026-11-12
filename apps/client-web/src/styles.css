@@ -300,8 +300,11 @@ main.parked { position: absolute; inset: 0; visibility: hidden; pointer-events: 
 .problem { border-left: 2px solid var(--warn); padding: 2px 12px; margin: 10px 0; }
 .problem p { margin: 2px 0 0; }
 
-.empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 24px; text-align: center; }
+.empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 48px 24px; text-align: center; overflow-y: auto; min-height: 0; }
 .empty > p { margin: 0 auto 26px; max-width: 460px; font-size: 14.5px; }
+/* Centered by auto margins, not justify-content: content taller than a short window scrolls from its top instead of being cut off above and below. */
+.empty > :first-child { margin-top: auto; }
+.empty > :last-child { margin-bottom: auto; }
 .refused { gap: 18px; }
 .refused-head { margin: 0; max-width: 460px; font: 600 18px/1.35 var(--sans); color: var(--text); overflow-wrap: anywhere; }
 .refused-head .version { white-space: nowrap; }
@@ -1107,9 +1110,7 @@ button.drawer-session.active { color: var(--text); }
   .transcript { padding: 14px 12px 10px; }
   .approvals { padding: 8px 10px 0; }
   .conversation > .banner { margin: 10px 10px 0; }
-  .empty { padding: 28px 14px; justify-content: flex-start; overflow-y: auto; min-height: 0; }
-  .empty > :first-child { margin-top: auto; }
-  .empty > :last-child { margin-bottom: auto; }
+  .empty { padding: 28px 14px; }
   .empty > p { font-size: 13.5px; margin-bottom: 20px; }
   .display { font-size: 28px; }
 }
