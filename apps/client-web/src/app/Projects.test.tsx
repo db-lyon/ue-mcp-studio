@@ -86,8 +86,12 @@ describe("the UE-MCP app's Projects", () => {
     expect(within(rows[1]).getByText("ue-mcp-release\\tests")).toBeTruthy();
     await waitFor(() => expect(within(rows[0]).getByText("Update available")).toBeTruthy());
     expect(within(rows[0]).getByText("Daemon stopped")).toBeTruthy();
-    expect(rows[0].textContent).toContain("Studio 0.1.34");
-    expect(rows[0].textContent).toContain("Editor plugin 0.1.8");
+    // The versions are folded away under one Versions toggle, closed by default.
+    const fold = rows[0].querySelector("details.app-versions-fold") as HTMLDetailsElement;
+    expect(fold.open).toBe(false);
+    expect(fold.querySelector("summary")?.textContent).toBe("Versions");
+    expect(fold.textContent).toContain("Studio 0.1.34");
+    expect(fold.textContent).toContain("Editor plugin 0.1.8");
     expect(h.daemon).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Updates" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Daemons" })).toBeNull();

@@ -85,11 +85,14 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
         </div>
         <div className="app-row-path dim small" title={p.dir}>{p.dir}</div>
         {versions.length > 0 && (
-          <div className="app-versions small">
-            {versions.map((v) => (
-              <span key={v.label}><span className="dim">{v.label}</span> {v.version}</span>
-            ))}
-          </div>
+          <details className="app-versions-fold small">
+            <summary className="dim">Versions</summary>
+            <div className="app-versions">
+              {versions.map((v) => (
+                <span key={v.label}><span className="dim">{v.label}</span> {v.version}</span>
+              ))}
+            </div>
+          </details>
         )}
         <div className="app-chips">
           {!p.ueMcp.setUp && <span className="app-chip dim">ue-mcp not set up</span>}
