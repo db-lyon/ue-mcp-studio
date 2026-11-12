@@ -1,12 +1,12 @@
 /**
  * A package's diff in the review: Unreal's own diff records, as ue-mcp
- * serializes them, in one tree with a picture of each version above it. The
- * web client's chat/AssetDiff.tsx at a phone's width: the tree's rows come
+ * serializes them, in one tree with a picture of each version above it where
+ * the asset's change is a visual one. The web client's chat/AssetDiff.tsx at a phone's width: the tree's rows come
  * from diffTree in the shared package, each value under its name.
  */
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Image, Pressable, Text, View, type TextStyle } from "react-native";
-import { diffErrorConsequence, isFlatPicture, pictureOf, pictureWhy, thumbnailErrors, wantsTile, type PictureFailure } from "@ue-mcp-studio/client-core";
+import { diffClass, diffErrorConsequence, diffPictures, isBlankPicture, isVisualAsset, thumbnailErrors, wantsTile, type PictureFailure, type PictureSide } from "@ue-mcp-studio/client-core";
 import {
   diffTree,
   inlineFits,
@@ -35,34 +35,34 @@ import { picturePixels } from "./picture-pixels";
 const lh = (t: Theme): number => (t.editor ? 1.5 : 1.55);
 
 /** Each side whose picture is no picture of it, and why. */
-type PictureFailures = Record<string, PictureFailure>;
+type PictureFailures = Partial<Record<PictureSide, PictureFailure>>;
 
 /**
- * One version's picture, read through the transport. It stays hidden until it
- * has loaded and been looked at, so a blank one (one flat colour, a renderer
- * that drew nothing) never flashes; a blank or unreadable one reports why.
+ * One version's picture, read through the transport. It stays hidden until
+ * every picture beside it has loaded and been looked at, so a blank one (one
+ * flat colour, a renderer that drew nothing, the empty checkerboard) never
+ * flashes; a blank or unreadable one reports why.
  */
-function Picture({ id, label, name, onFail }: { id: string; label: string; name: string; onFail: (why: PictureFailure) => void }) {
+function Picture({ id, label, name, ready, onSeen, onFail }: { id: string; label: string; name: string; ready: boolean; onSeen: () => void; onFail: (why: PictureFailure) => void }) {
   const t = useTheme();
   const { api } = useProjectNav();
   const uri = useDaemonImage(api.reviewThumbnailUrl(id));
-  const [seen, setSeen] = useState(false);
   useEffect(() => {
     if (uri === "failed") return onFail("unreadable");
     if (!uri) return;
     let live = true;
     void picturePixels(uri).then((px) => {
       if (!live) return;
-      if (px && isFlatPicture(px)) onFail("blank");
-      else setSeen(true);
+      if (px && isBlankPicture(px)) onFail("blank");
+      else onSeen();
     });
     return () => {
       live = false;
     };
   }, [uri]);
   return (
-    <View style={{ flex: 1, minWidth: 0, maxWidth: 220, gap: 4 }}>
-      <View style={{ width: "100%", aspectRatio: 1, borderWidth: 1, borderColor: t.c.line, borderRadius: 4, backgroundColor: t.c.panel2, overflow: "hidden", opacity: seen ? 1 : 0 }}>
+    <View style={{ flex: 1, minWidth: 0, maxWidth: 220, gap: 4, opacity: ready ? 1 : 0 }}>
+      <View style={{ width: "100%", aspectRatio: 1, borderWidth: 1, borderColor: t.c.line, borderRadius: 4, backgroundColor: t.c.panel2, overflow: "hidden" }}>
         {uri && uri !== "failed" ? <Image accessibilityLabel={`${name} ${label.toLowerCase()}`} source={{ uri }} style={{ width: "100%", height: "100%" }} /> : null}
       </View>
       <T style={[small(t), { color: t.c.dim }]}>{label}</T>
@@ -71,10 +71,11 @@ function Picture({ id, label, name, onFail }: { id: string; label: string; name:
 }
 
 /**
- * A picture of each version that has one. Where neither has one, a new or
+ * The pictures diffPictures allows: Before and After of a changed visual
+ * asset, or a new or deleted one's single picture; none for a Blueprint or
+ * any other change a picture does not show. Where none is shown, a new or
  * deleted asset with no facts gets its tile in the space; otherwise nothing,
- * its facts being rows of the tree. A version with no picture beside one that
- * has says why in words, its label under them, never in an empty frame.
+ * the tree's rows being the change.
  */
 function Pictures({ diff, name, asset, status, failed, setFailed }: {
   diff: AssetDiff;
@@ -84,32 +85,30 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
   failed: PictureFailures;
   setFailed: (f: (old: PictureFailures) => PictureFailures) => void;
 }) {
-  const t = useTheme();
-  const sides = [
-    { label: "Before", v: diff.before, missing: "Did not exist before this turn" },
-    { label: "After", v: diff.after, missing: "Deleted in this turn" },
-  ];
-  const shown = sides.filter((s) => pictureOf(s.v) && !failed[s.label]);
+  const [seen, setSeen] = useState<Partial<Record<PictureSide, boolean>>>({});
+  const shown = diffPictures(diff, status, name, failed);
   if (shown.length === 0) {
     if (!wantsTile(diff, status)) return null;
-    const errors = thumbnailErrors(diff);
+    const errors = isVisualAsset(diffClass(diff), name) ? thumbnailErrors(diff) : [];
     const tile = tileOf(diff, name, asset, status);
     // The facts are rows of the tree below it.
     tile.facts = [];
-    return <AssetTile {...tile} note={errors.length && status !== "modified" ? `No picture: ${engineText(errors.join("; "))}` : undefined} />;
+    return <AssetTile {...tile} note={errors.length ? `No picture: ${engineText(errors.join("; "))}` : undefined} />;
   }
+  const ready = shown.every((p) => seen[p.side]);
   return (
     <View style={{ flexDirection: "row", gap: 10 }}>
-      {sides.map((s) => {
-        const p = pictureOf(s.v);
-        if (p && !failed[s.label]) return <Picture key={s.label} id={p.id} label={s.label} name={name} onFail={(why) => setFailed((f) => (f[s.label] ? f : { ...f, [s.label]: why }))} />;
-        return (
-          <View key={s.label} style={{ flex: 1, minWidth: 0, maxWidth: 220, paddingTop: 2, gap: 2, justifyContent: "space-between" }}>
-            <T style={[small(t), { color: t.c.dim }]}>{engineText(pictureWhy(s.v, s.missing, failed[s.label]))}</T>
-            <T style={[small(t), { color: t.c.dim }]}>{s.label}</T>
-          </View>
-        );
-      })}
+      {shown.map(({ side, label, thumbnail }) => (
+        <Picture
+          key={side}
+          id={thumbnail.id}
+          label={label}
+          name={name}
+          ready={ready}
+          onSeen={() => setSeen((s) => (s[side] ? s : { ...s, [side]: true }))}
+          onFail={(why) => setFailed((f) => (f[side] ? f : { ...f, [side]: why }))}
+        />
+      ))}
     </View>
   );
 }

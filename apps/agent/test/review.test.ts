@@ -9,7 +9,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import { assetPathOf, readableValue, refineAssetDiff, reviewGroupOf, unifiedLines, WIDGET_TREE_NOT_COMPARED, type AssetDiff, type TurnReview } from "@ue-mcp-studio/shared";
-import { ReviewBroker, type ReviewHost } from "../src/review.js";
+import { PNG } from "pngjs";
+import { BLANK_CAPTURE, ReviewBroker, type ReviewHost } from "../src/review.js";
 import { SessionStore, type StoredSession } from "../src/sessions.js";
 import { AgentRunner } from "../src/runner.js";
 import type { ModelProvider, ModelRequest, ModelTurn } from "../src/providers.js";
@@ -251,6 +252,29 @@ describe("Keep and Revert", () => {
     const d = await broker.diff(s.id, review.id, "Config/DefaultGame.ini");
     expect("change" in d && unifiedLines(d.change.diff!)).toEqual([{ op: "-", text: "Speed=1" }, { op: "+", text: "Speed=2" }]);
     expect(await broker.diff(s.id, review.id, "Nope.txt")).toMatchObject({ status: 404 });
+  });
+
+  it("hands no client a blank capture: a flat render or the grey checkerboard becomes the reason there is no picture", async () => {
+    const png = (name: string, fill: (x: number, y: number) => number[]) => {
+      const p = new PNG({ width: 32, height: 32 });
+      for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) p.data.set([...fill(x, y), 255], (y * 32 + x) * 4);
+      const file = path.join(root, name);
+      fs.writeFileSync(file, PNG.sync.write(p));
+      return file;
+    };
+    const broker = new ReviewBroker({ host: hostOf(), store, defaultOn: () => true });
+    const { s, review } = await reviewedTurn(broker);
+    cp.thumbnails.set("a".repeat(40), png("black.png", () => [0, 0, 0]));
+    cp.thumbnails.set("b".repeat(40), png("shaded.png", (x, y) => [x * 8, y * 8, 90]));
+    const shaded = await broker.diff(s.id, review.id, "Content/Props/SM_Box.uasset");
+    const d = "change" in shaded ? shaded.change.assetDiff! : null;
+    expect(d?.before?.thumbnail).toEqual({ error: BLANK_CAPTURE });
+    expect(d?.after?.thumbnail).toMatchObject({ id: "b".repeat(40) });
+
+    const other = new ReviewBroker({ host: hostOf(), store, defaultOn: () => true });
+    cp.thumbnails.set("b".repeat(40), png("checker.png", (x, y) => ((Math.floor(x / 4) + Math.floor(y / 4)) % 2 ? [96, 96, 96] : [160, 160, 160])));
+    const checker = await other.diff(s.id, review.id, "Content/Props/SM_Box.uasset");
+    expect("change" in checker && checker.change.assetDiff!.after?.thumbnail).toEqual({ error: BLANK_CAPTURE });
   });
 });
 

@@ -11,7 +11,7 @@ import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Animated, Easing, Image, Pressable, View, type TextStyle, type ViewStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { REVIEW_GROUPS, unifiedLines, type CheckpointChange, type RestoreOutcome, type ReviewItem, type ReviewStatus, type TimelineMark, type TurnReview } from "@ue-mcp-studio/shared";
-import { REVIEW_STATUS, blueprintLines, fileName, markKind, markTime, nativeTitle, openedText, outcomeNote } from "@ue-mcp-studio/client-core";
+import { REVIEW_STATUS, blueprintLines, fileName, markKind, markTime, nativeTitle, openedText, outcomeNote, pictureSides, type PictureSide } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
 import { Banner, buttonFont, Check, font, labelFont, Pill, T, useTheme, type Theme } from "../../../ui";
@@ -436,46 +436,37 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
   );
 }
 
-function CapturedSide({ file, label, alt, missing, failed, onFail }: { file?: string; label: string; alt: string; missing: string; failed: boolean; onFail: () => void }) {
+function CapturedSide({ file, label, alt, onFail }: { file: string; label: string; alt: string; onFail: () => void }) {
   const t = useTheme();
   const { api } = useProjectNav();
-  const uri = useDaemonImage(file && !failed ? api.reviewImageUrl(file) : null);
+  const uri = useDaemonImage(api.reviewImageUrl(file));
   useEffect(() => {
     if (uri === "failed") onFail();
   }, [uri, onFail]);
-  if (file && !failed && uri !== "failed") {
-    return (
-      <View style={{ gap: 4 }}>
-        <View style={{ width: 220, maxWidth: "100%", aspectRatio: 1, borderWidth: 1, borderColor: t.c.line, borderRadius: 4, backgroundColor: t.c.panel2, overflow: "hidden" }}>
-          {uri ? <Image accessibilityLabel={alt} source={{ uri }} style={{ width: "100%", height: "100%" }} /> : null}
-        </View>
-        <T style={[small(t), { color: t.c.dim }]}>{label}</T>
-      </View>
-    );
-  }
   return (
-    <View style={{ gap: 2, maxWidth: 220, paddingTop: 2 }}>
+    <View style={{ gap: 4 }}>
+      <View style={{ width: 220, maxWidth: "100%", aspectRatio: 1, borderWidth: 1, borderColor: t.c.line, borderRadius: 4, backgroundColor: t.c.panel2, overflow: "hidden" }}>
+        {uri && uri !== "failed" ? <Image accessibilityLabel={alt} source={{ uri }} style={{ width: "100%", height: "100%" }} /> : null}
+      </View>
       <T style={[small(t), { color: t.c.dim }]}>{label}</T>
-      <T style={[small(t), { color: t.c.dim }]}>{failed ? "The picture could not be read." : missing}</T>
     </View>
   );
 }
 
 /**
- * The pictures a review recorded before engine diffs captured after the turn.
- * A side with none says why in words; with none at all, the asset's tile.
+ * The pictures a review recorded before engine diffs captured after the turn,
+ * by the same rule as an engine diff's (pictureSides): both sides of a change
+ * or none, a new asset's one picture as New. With none, the asset's tile.
  */
 function CapturedPictures({ name, item, before, after }: { name: string; item: ReviewItem; before?: string; after?: string }) {
-  const [failed, setFailed] = useState<Record<string, boolean>>({});
-  const sides = [
-    { label: "Before", file: before, alt: `${name} before the turn`, missing: item.status === "added" ? "Did not exist before this turn" : "No picture was captured before this turn." },
-    { label: "After", file: after, alt: `${name} after the turn`, missing: item.status === "deleted" ? "Deleted in this turn" : "No picture was captured after this turn." },
-  ];
-  if (!sides.some((s) => s.file && !failed[s.label])) return <AssetTile fileName={name} path={item.asset} status={item.status} note="No picture was captured for this asset." />;
+  const [failed, setFailed] = useState<Partial<Record<PictureSide, boolean>>>({});
+  const files: Record<PictureSide, string | undefined> = { before, after };
+  const shown = pictureSides({ visual: true, status: item.status, before: !!before && !failed.before, after: !!after && !failed.after });
+  if (shown.length === 0) return <AssetTile fileName={name} path={item.asset} status={item.status} note="No picture was captured for this asset." />;
   return (
     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
-      {sides.map((s) => (
-        <CapturedSide key={s.label} file={s.file} label={s.label} alt={s.alt} missing={s.missing} failed={!!failed[s.label]} onFail={() => setFailed((f) => (f[s.label] ? f : { ...f, [s.label]: true }))} />
+      {shown.map(({ side, label }) => (
+        <CapturedSide key={side} file={files[side]!} label={label} alt={`${name} ${side} the turn`} onFail={() => setFailed((f) => (f[side] ? f : { ...f, [side]: true }))} />
       ))}
     </View>
   );

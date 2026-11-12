@@ -1,11 +1,11 @@
 /**
  * A package's diff in the review: Unreal's own diff records, as ue-mcp
- * serializes them, in one tree grid (Property, Before, After) with a picture of
- * each version above it. The tree's rows come from diffTree in the shared
- * package, which the app renders too.
+ * serializes them, in one tree grid (Property, Before, After), with a picture of
+ * each version above it where the asset's change is a visual one. The tree's
+ * rows come from diffTree in the shared package, which the app renders too.
  */
 import { Fragment, useRef, useState, type KeyboardEvent } from "react";
-import { diffErrorConsequence, isFlatPicture, pictureOf, pictureWhy, thumbnailErrors, wantsTile, type PictureFailure } from "@ue-mcp-studio/client-core";
+import { diffClass, diffErrorConsequence, diffPictures, isBlankPicture, isFlatPicture, isVisualAsset, thumbnailErrors, wantsTile, type PictureFailure, type PictureSide } from "@ue-mcp-studio/client-core";
 import {
   diffTree,
   inlineFits,
@@ -45,8 +45,15 @@ function pixelsOf(img: HTMLImageElement): Uint8ClampedArray | null {
 }
 
 /** Each side whose picture is no picture of it, and why. */
-type PictureFailures = Record<string, PictureFailure>;
+type PictureFailures = Partial<Record<PictureSide, PictureFailure>>;
 
+/**
+ * The pictures diffPictures allows: Before and After of a changed visual
+ * asset, or a new or deleted one's single picture; none for a Blueprint or
+ * any other change a picture does not show. Where none is shown, a new or
+ * deleted asset with no facts gets its tile in the space; otherwise nothing,
+ * the diff's rows being the change.
+ */
 function Pictures({ diff, name, asset, status, failed, setFailed }: {
   diff: AssetDiff;
   name: string;
@@ -55,53 +62,38 @@ function Pictures({ diff, name, asset, status, failed, setFailed }: {
   failed: PictureFailures;
   setFailed: (f: (old: PictureFailures) => PictureFailures) => void;
 }) {
-  /** Sides whose picture has loaded and been looked at; until then it is not shown, so a blank one never flashes. */
-  const [seen, setSeen] = useState<Record<string, boolean>>({});
-  const sides = [
-    { label: "Before", v: diff.before, missing: "Did not exist before this turn" },
-    { label: "After", v: diff.after, missing: "Deleted in this turn" },
-  ];
-  const loaded = (label: string, img: HTMLImageElement) => {
+  /** Sides whose picture has loaded and been looked at; until every one has, none is shown, so a blank one never flashes. */
+  const [seen, setSeen] = useState<Partial<Record<PictureSide, boolean>>>({});
+  const loaded = (side: PictureSide, img: HTMLImageElement) => {
     const px = pixelsOf(img);
-    if (px && isFlatPicture(px)) setFailed((f) => ({ ...f, [label]: "blank" }));
-    else setSeen((s) => ({ ...s, [label]: true }));
+    if (px && isBlankPicture(px)) setFailed((f) => ({ ...f, [side]: "blank" }));
+    else setSeen((s) => ({ ...s, [side]: true }));
   };
-  const shown = sides.filter((s) => pictureOf(s.v) && !failed[s.label]);
+  const shown = diffPictures(diff, status, name, failed);
   if (shown.length === 0) {
     if (!wantsTile(diff, status)) return null;
-    const errors = thumbnailErrors(diff);
+    const errors = isVisualAsset(diffClass(diff), name) ? thumbnailErrors(diff) : [];
     const tile = tileOf(diff, name, asset, status);
     // The facts are rows of the grid below it.
     tile.facts = [];
-    return <AssetTile {...tile} note={errors.length && status !== "modified" ? <>No picture: <EngineText text={errors.join("; ")} /></> : undefined} />;
+    return <AssetTile {...tile} note={errors.length ? <>No picture: <EngineText text={errors.join("; ")} /></> : undefined} />;
   }
+  const ready = shown.every((p) => seen[p.side]);
   return (
     <div className="review-pictures">
-      {sides.map((s) => {
-        const t = pictureOf(s.v);
-        if (t && !failed[s.label]) {
-          return (
-            <figure key={s.label}>
-              <img
-                src={api.reviewThumbnailUrl(t.id)}
-                alt={`${name} ${s.label.toLowerCase()}`}
-                title={t.source === "saved" ? `The thumbnail saved with this version. ${t.note ?? ""}` : "Rendered from this version"}
-                className={seen[s.label] ? undefined : "picture-pending"}
-                onLoad={(e) => loaded(s.label, e.currentTarget)}
-                onError={() => setFailed((f) => ({ ...f, [s.label]: "unreadable" }))}
-              />
-              <figcaption className="small dim"><span className="picture-label">{s.label}</span></figcaption>
-            </figure>
-          );
-        }
-        const why = pictureWhy(s.v, s.missing, failed[s.label]);
-        return (
-          <div key={s.label} className="review-picture-side small">
-            <span className="dim"><EngineText text={why} /></span>
-            <span className="picture-label dim">{s.label}</span>
-          </div>
-        );
-      })}
+      {shown.map(({ side, label, thumbnail: t }) => (
+        <figure key={side}>
+          <img
+            src={api.reviewThumbnailUrl(t.id)}
+            alt={`${name} ${label.toLowerCase()}`}
+            title={t.source === "saved" ? `The thumbnail saved with this version. ${t.note ?? ""}` : "Rendered from this version"}
+            className={ready ? undefined : "picture-pending"}
+            onLoad={(e) => loaded(side, e.currentTarget)}
+            onError={() => setFailed((f) => ({ ...f, [side]: "unreadable" }))}
+          />
+          <figcaption className="small dim"><span className="picture-label">{label}</span></figcaption>
+        </figure>
+      ))}
     </div>
   );
 }

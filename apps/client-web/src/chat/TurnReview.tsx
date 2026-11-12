@@ -2,8 +2,8 @@
  * Per-turn review in the chat: the turn card listing what a turn changed,
  * grouped by type, each with a one-line summary and Keep or Revert, and Revert
  * all; each item's diff (text for config and source; for a package, Unreal's
- * own diff records with before and after values and a picture of each
- * version; the engine records are the whole diff, so blueprint(diff)'s
+ * own diff records with before and after values and, where the change is a
+ * visual one, a picture of each version; the engine records are the whole diff, so blueprint(diff)'s
  * structural summary is not repeated under them), a button that opens Unreal's own diff in the editor; and the
  * session's checkpoint timeline with Restore to here and Undo.
  */
@@ -18,7 +18,7 @@ import {
   type TimelineMark,
   type TurnReview,
 } from "@ue-mcp-studio/shared";
-import { fileName, outcomeNote } from "@ue-mcp-studio/client-core";
+import { fileName, outcomeNote, pictureSides, type PictureSide } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { AssetDiffView } from "./AssetDiff";
 import { AssetTile } from "./AssetTile";
@@ -233,31 +233,25 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
 }
 
 /**
- * The pictures a review recorded before engine diffs captured after the turn.
- * A side with none says why in words; with none at all, the asset's tile.
+ * The pictures a review recorded before engine diffs captured after the turn,
+ * by the same rule as an engine diff's (pictureSides): both sides of a change
+ * or none, a new asset's one picture as New. With none, the asset's tile.
  */
 function CapturedPictures({ name, item, before, after }: { name: string; item: ReviewItem; before?: string; after?: string }) {
-  const [failed, setFailed] = useState<Record<string, boolean>>({});
-  const sides = [
-    { label: "Before", file: before, alt: `${name} before the turn`, missing: item.status === "added" ? "Did not exist before this turn" : "No picture was captured before this turn." },
-    { label: "After", file: after, alt: `${name} after the turn`, missing: item.status === "deleted" ? "Deleted in this turn" : "No picture was captured after this turn." },
-  ];
-  if (!sides.some((s) => s.file && !failed[s.label])) {
+  const [failed, setFailed] = useState<Partial<Record<PictureSide, boolean>>>({});
+  const files: Record<PictureSide, string | undefined> = { before, after };
+  const shown = pictureSides({ visual: true, status: item.status, before: !!before && !failed.before, after: !!after && !failed.after });
+  if (shown.length === 0) {
     return <AssetTile fileName={name} path={item.asset} status={item.status} note="No picture was captured for this asset." />;
   }
   return (
     <div className="review-pictures">
-      {sides.map((s) => (s.file && !failed[s.label] ? (
-        <figure key={s.label}>
-          <img src={api.reviewImageUrl(s.file)} alt={s.alt} onError={() => setFailed((f) => ({ ...f, [s.label]: true }))} />
-          <figcaption className="small dim">{s.label}</figcaption>
+      {shown.map(({ side, label }) => (
+        <figure key={side}>
+          <img src={api.reviewImageUrl(files[side]!)} alt={`${name} ${side} the turn`} onError={() => setFailed((f) => ({ ...f, [side]: true }))} />
+          <figcaption className="small dim">{label}</figcaption>
         </figure>
-      ) : (
-        <div key={s.label} className="review-picture-side small">
-          <span className="picture-label dim">{s.label}</span>
-          <span className="dim">{failed[s.label] ? "The picture could not be read." : s.missing}</span>
-        </div>
-      )))}
+      ))}
     </div>
   );
 }

@@ -302,11 +302,15 @@ describe("the diff view", () => {
     expect(name.querySelectorAll("wbr").length).toBeGreaterThanOrEqual(4);
   });
 
-  it("shows a package's engine diff: pictures, then one tree of each category's records with before and after, and the facts", async () => {
-    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: material } });
+  /** The material with a picture of both versions. */
+  const pictured: AssetDiff = { ...material, after: { ...material.after!, thumbnail: { id: "b".repeat(40), url: "", source: "rendered" } } };
+
+  it("shows a package's engine diff: a changed material's Before and After pictures, then one tree of each category's records with before and after, and the facts", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: pictured } });
     await diffOf(REVIEW.items[1]);
     expect((screen.getByAltText("BP_Door.uasset before") as HTMLImageElement).src).toContain(`/v1/ext/studio/review/thumbnails/${"a".repeat(40)}`);
-    expect(screen.getByText(/No picture: Unreal has no thumbnail renderer for Material/)).toBeTruthy();
+    expect((screen.getByAltText("BP_Door.uasset after") as HTMLImageElement).src).toContain(`/v1/ext/studio/review/thumbnails/${"b".repeat(40)}`);
+    expect([...document.querySelectorAll(".review-pictures figcaption")].map((c) => c.textContent)).toEqual(["Before", "After"]);
     expect(screen.getAllByRole("treegrid")).toHaveLength(1);
     expect([...screen.getByRole("treegrid").querySelectorAll("[role='columnheader']")].map((c) => c.textContent)).toEqual(["Property", "Before", "After"]);
     expect(treeRow("Material Graph").querySelector(".dt-count")!.textContent).toBe("2");
@@ -377,42 +381,87 @@ describe("the diff view", () => {
     expect(screen.queryByText(/no difference/)).toBeNull();
   });
 
-  it("hides a picture that is one flat colour, so a renderer that drew nothing shows no black panel", async () => {
-    const flat = new Uint8ClampedArray(64 * 64 * 4).map((_, i) => (i % 4 === 3 ? 255 : 0));
-    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: () => undefined, getImageData: () => ({ data: flat }) } as unknown as CanvasRenderingContext2D);
+  it("shows no thumbnails for a Blueprint, though both versions have one: the tree carries the change", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: widgetItem.path, status: "modified", kind: "package", assetDiff: widget } });
+    await diffOf(widgetItem);
+    expect(document.querySelector("img")).toBeNull();
+    expect(document.querySelector(".review-pictures")).toBeNull();
+    expect(document.querySelector(".asset-tile")).toBeNull();
+    expect(screen.queryByText(/No picture/)).toBeNull();
+    expect(treeRow("Widget Blueprint")).toBeTruthy();
+  });
+
+  const canvasReturns = (data: Uint8ClampedArray) => vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: () => undefined, getImageData: () => ({ data }) } as unknown as CanvasRenderingContext2D);
+
+  it("drops both pictures when one is one flat colour, so a renderer that drew nothing shows no black panel and no lone side", async () => {
+    const getContext = canvasReturns(new Uint8ClampedArray(64 * 64 * 4).map((_, i) => (i % 4 === 3 ? 255 : 0)));
     try {
-      m.reviewDiff.mockResolvedValue({ change: { path: widgetItem.path, status: "modified", kind: "package", assetDiff: widget } });
-      await diffOf(widgetItem);
-      const before = screen.getByAltText("WBP_GameHUD.uasset before");
+      m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: pictured } });
+      await diffOf(REVIEW.items[1]);
+      const before = screen.getByAltText("BP_Door.uasset before");
       expect(before.className).toBe("picture-pending");
       fireEvent.load(before);
-      fireEvent.load(screen.getByAltText("WBP_GameHUD.uasset after"));
-      // Neither version has a picture now, and the records are the change: no frame, no tile, no error.
+      // No frame, no tile, no error: the records are the change.
       expect(document.querySelector("img")).toBeNull();
       expect(document.querySelector(".review-pictures")).toBeNull();
       expect(document.querySelector(".asset-tile")).toBeNull();
       expect(screen.queryByText(/No picture/)).toBeNull();
-      expect(treeRow("Widget Blueprint")).toBeTruthy();
+      expect(treeRow("Material Graph")).toBeTruthy();
     } finally {
       getContext.mockRestore();
     }
   });
 
-  it("shows a picture once it is known to show something", async () => {
-    const shaded = new Uint8ClampedArray(64 * 64 * 4).map((_, i) => (i % 4 === 3 ? 255 : (i * 7) % 256));
-    const getContext = vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: () => undefined, getImageData: () => ({ data: shaded }) } as unknown as CanvasRenderingContext2D);
+  it("drops the pictures when one is Unreal's grey checkerboard placeholder", async () => {
+    const checker = new Uint8ClampedArray(64 * 64 * 4).map((_, i) => {
+      const p = i >> 2;
+      return i % 4 === 3 ? 255 : (Math.floor((p % 64) / 8) + Math.floor(p / 64 / 8)) % 2 ? 96 : 160;
+    });
+    const getContext = canvasReturns(checker);
     try {
-      m.reviewDiff.mockResolvedValue({ change: { path: widgetItem.path, status: "modified", kind: "package", assetDiff: widget } });
-      await diffOf(widgetItem);
-      const before = screen.getByAltText("WBP_GameHUD.uasset before");
-      fireEvent.load(before);
-      expect(before.className).toBe("");
+      m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: pictured } });
+      await diffOf(REVIEW.items[1]);
+      fireEvent.load(screen.getByAltText("BP_Door.uasset after"));
+      expect(document.querySelector(".review-pictures")).toBeNull();
     } finally {
       getContext.mockRestore();
     }
   });
 
-  it("says an added asset did not exist before, and a deleted one is gone", async () => {
+  it("shows the pair once both pictures are known to show something, and not one side before", async () => {
+    const getContext = canvasReturns(new Uint8ClampedArray(64 * 64 * 4).map((_, i) => (i % 4 === 3 ? 255 : (i * 7) % 256)));
+    try {
+      m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: pictured } });
+      await diffOf(REVIEW.items[1]);
+      const before = screen.getByAltText("BP_Door.uasset before");
+      const after = screen.getByAltText("BP_Door.uasset after");
+      fireEvent.load(before);
+      expect(before.className).toBe("picture-pending");
+      fireEvent.load(after);
+      expect([before.className, after.className]).toEqual(["", ""]);
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+
+  it("shows no picture of a changed material where only one version has one", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: material } });
+    await diffOf(REVIEW.items[1]);
+    expect(document.querySelector("img")).toBeNull();
+    expect(screen.queryByText(/No picture/)).toBeNull();
+    expect(treeRow("Material Graph")).toBeTruthy();
+  });
+
+  it("shows a new mesh's picture alone, labelled New", async () => {
+    const mesh: AssetDiff = { ...material, status: "added", assetClass: "StaticMesh", before: null, after: { class: "StaticMesh", facts: [{ name: "Triangles", value: "12" }], thumbnail: { id: "e".repeat(40), url: "", source: "rendered" } }, sections: [] };
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package", assetDiff: mesh } });
+    await diffOf(REVIEW.items[2]);
+    expect((screen.getByAltText("SM_Box.uasset new") as HTMLImageElement).src).toContain("e".repeat(40));
+    expect([...document.querySelectorAll(".review-pictures figcaption")].map((c) => c.textContent)).toEqual(["New"]);
+    expect(screen.queryByText("Did not exist before this turn")).toBeNull();
+  });
+
+  it("shows an added asset's facts with no tile, a deleted one's last picture labelled Deleted, and a tile for an asset with neither", async () => {
     const added: AssetDiff = { ...material, status: "added", before: null, sections: [] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package", assetDiff: added } });
     await diffOf(REVIEW.items[2]);
@@ -425,7 +474,8 @@ describe("the diff view", () => {
     const deleted: AssetDiff = { ...material, status: "deleted", after: null, sections: [] };
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "deleted", kind: "package", assetDiff: deleted } });
     await diffOf({ ...REVIEW.items[2], status: "deleted" });
-    expect(screen.getByText("Deleted in this turn")).toBeTruthy();
+    expect((screen.getByAltText("SM_Box.uasset deleted") as HTMLImageElement).src).toContain("a".repeat(40));
+    expect([...document.querySelectorAll(".review-pictures figcaption")].map((c) => c.textContent)).toEqual(["Deleted"]);
     cleanup();
     // An added asset with no facts at all gets its tile, to say what it is.
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package", assetDiff: { ...added, after: { ...added.after!, facts: [] } } } });
@@ -478,14 +528,12 @@ describe("the diff view", () => {
     expect(screen.queryByText(/No picture/)).toBeNull();
   });
 
-  it("says why a side's thumbnail failed to load, and drops the pictures when neither loads", async () => {
-    const both: AssetDiff = { ...material, after: { ...material.after!, thumbnail: { id: "b".repeat(40), url: "", source: "rendered" } } };
-    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: both } });
+  it("drops both pictures when one side's thumbnail fails to load", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/BP_Door.uasset", status: "modified", kind: "package", assetDiff: pictured } });
     await diffOf(REVIEW.items[1]);
     fireEvent.error(screen.getByAltText("BP_Door.uasset after"));
-    expect(screen.getByText("No picture: the file could not be read.")).toBeTruthy();
-    fireEvent.error(screen.getByAltText("BP_Door.uasset before"));
     expect(document.querySelector("img")).toBeNull();
+    expect(screen.queryByText(/No picture/)).toBeNull();
     expect(document.querySelector(".review-pictures")).toBeNull();
     expect(treeRow("Material Graph")).toBeTruthy();
   });
@@ -503,7 +551,15 @@ describe("the diff view", () => {
     m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "added", kind: "package" }, after: "abc-def-1.png" });
     await diffOf({ ...REVIEW.items[2], visual: true });
     expect((screen.getByAltText("SM_Box.uasset after the turn") as HTMLImageElement).src).toContain("/v1/ext/studio/review/images/abc-def-1.png");
-    expect(screen.getByText("Did not exist before this turn")).toBeTruthy();
+    expect([...document.querySelectorAll(".review-pictures figcaption")].map((c) => c.textContent)).toEqual(["New"]);
+    expect(screen.queryByText("Did not exist before this turn")).toBeNull();
+  });
+
+  it("shows an older review's changed asset with one captured picture as its tile, not a lone side", async () => {
+    m.reviewDiff.mockResolvedValue({ change: { path: "Content/SM_Box.uasset", status: "modified", kind: "package" }, after: "abc-def-1.png" });
+    await diffOf({ ...REVIEW.items[2], status: "modified", visual: true });
+    expect(document.querySelector("img")).toBeNull();
+    expect(screen.getByRole("group", { name: "Asset SM_Box.uasset" })).toBeTruthy();
   });
 
   it("shows the tile for an older review that captured no picture", async () => {

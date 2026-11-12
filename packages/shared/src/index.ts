@@ -906,6 +906,7 @@ export * from "./qa.js";
 export * from "./playtests.js";
 export * from "./review.js";
 export * from "./diff-tree.js";
+export * from "./pictures.js";
 export * from "./commands.js";
 export * from "./flows.js";
 export * from "./actions.js";
