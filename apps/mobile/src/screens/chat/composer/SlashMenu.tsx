@@ -66,13 +66,15 @@ export function useSlashMenu(draft: string, onDraft: (text: string) => void, com
   const [active, setActive] = useState(0);
   const [closedAt, setClosedAt] = useState<string | null>(null);
   useEffect(() => setActive(0), [query, flowQuery, actionQuery]);
+  // A name typed out in full stays in the menu, so it is seen to match; Enter on it sends.
   const exact = slashPickedAlready(q, items);
-  const open = items.length > 0 && closedAt !== draft && !exact;
+  const open = items.length > 0 && closedAt !== draft;
   useBack(open ? () => setClosedAt(draft) : null, { overlay: true });
   const index = Math.min(active, Math.max(0, items.length - 1));
   const pick = (item: SlashMenuItem) => onDraft(item.insert);
   const keyDown = (e: MenuKey): boolean => {
     if (!open) return false;
+    if (exact && index === 0 && e.key === "Enter" && !e.shiftKey) return false;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       const step = e.key === "ArrowDown" ? 1 : -1;
       setActive((index + step + items.length) % items.length);

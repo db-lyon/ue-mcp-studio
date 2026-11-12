@@ -178,11 +178,11 @@ describe("/flow's name", () => {
     expect(onSend).toHaveBeenCalledWith("/flow rebuild_lighting ");
   });
 
-  it("stays shut once the name is typed out, so Enter sends", async () => {
+  it("shows the name typed out in full as the first row, and Enter sends", async () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} flows={async () => FLOWS} />);
     await act(async () => fireEvent.change(box(), { target: { value: "/flow playtest" } }));
-    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(options().map((o) => o.text)).toEqual(["playtest"]);
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("/flow playtest");
   });
@@ -256,7 +256,7 @@ describe("/action's name", () => {
     expect(shown.every((n) => n.startsWith("cat7.action_") && n.includes("1"))).toBe(true);
   });
 
-  it("puts the picked name in the message, ready for its pairs, and stays shut once the name is typed out", async () => {
+  it("puts the picked name in the message, ready for its pairs, and once the name is typed out shows it with its neighbours and Enter sends", async () => {
     const onSend = vi.fn();
     render(<Harness onSend={onSend} actions={async () => ACTIONS} />);
     await act(async () => fireEvent.change(box(), { target: { value: "/action level.pl" } }));
@@ -264,8 +264,18 @@ describe("/action's name", () => {
     expect(box().value).toBe("/action level.place_actor ");
     expect(onSend).not.toHaveBeenCalled();
     fireEvent.change(box(), { target: { value: "/action level.place_actor" } });
-    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(options().map((o) => o.text)).toEqual(["level.place_actor", "level.place_actors_batch"]);
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("/action level.place_actor");
+  });
+
+  it("picks a neighbour of a name typed out in full with Down then Enter", async () => {
+    const onSend = vi.fn();
+    render(<Harness onSend={onSend} actions={async () => ACTIONS} />);
+    await act(async () => fireEvent.change(box(), { target: { value: "/action level.place_actor" } }));
+    fireEvent.keyDown(box(), { key: "ArrowDown" });
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(box().value).toBe("/action level.place_actors_batch ");
+    expect(onSend).not.toHaveBeenCalled();
   });
 });

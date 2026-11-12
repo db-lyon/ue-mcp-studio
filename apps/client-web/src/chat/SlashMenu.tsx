@@ -42,13 +42,16 @@ export function useSlashMenu(draft: string, onDraft: (text: string) => void, com
   const [active, setActive] = useState(0);
   const [closedAt, setClosedAt] = useState<string | null>(null);
   useEffect(() => setActive(0), [query, flowQuery, actionQuery]);
-  // A flow or action name typed out in full is picked already: the menu stays out of the way of Enter.
+  // A flow or action name typed out in full is picked already. The menu stays
+  // open, so the name is seen to match and its neighbours stay in reach, but
+  // Enter on that row sends instead of inserting the name again.
   const exact = slashPickedAlready(q, items);
-  const open = items.length > 0 && closedAt !== draft && !exact;
+  const open = items.length > 0 && closedAt !== draft;
   const index = Math.min(active, Math.max(0, items.length - 1));
   const pick = (item: MenuItem) => onDraft(item.insert);
   const keyDown = (e: KeyboardEvent): boolean => {
     if (!open) return false;
+    if (exact && index === 0 && e.key === "Enter" && !e.shiftKey) return false;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const step = e.key === "ArrowDown" ? 1 : -1;
