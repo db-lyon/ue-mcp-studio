@@ -25,6 +25,7 @@ import {
   isDestructiveAnswer,
   safeButton,
   type DialogAnswer,
+  type DialogBlock,
   type DialogPolicy,
   type DialogsState,
   type EditorDialog,
@@ -42,6 +43,8 @@ export interface DialogPromptRequest {
     message: string;
     buttons: string[];
     items?: Array<{ index: number; label: string; cells: string[]; checked: boolean }>;
+    /** The body as paragraphs and tables, from a ue-mcp after 1.4.14-beta.1. */
+    blocks?: DialogBlock[];
     subject: string;
     minHumanMs: number;
   };
@@ -193,7 +196,7 @@ export class DialogBroker {
   /** ue-mcp asks Studio about a dialog one of this session's calls met. */
   prompt(sessionId: string, category: string, action: string, req: DialogPromptRequest): Promise<DialogPromptResult> {
     const d = req.dialog;
-    const l = this.recordFor(d.editor, d.title, d.buttons, { message: d.message, items: d.items, mode: "interactive" });
+    const l = this.recordFor(d.editor, d.title, d.buttons, { message: d.message, items: d.items, blocks: d.blocks, mode: "interactive" });
     this.attribute(l, sessionId, category, action);
     // A prompt replaces any earlier one for the same dialog: ue-mcp asks once per dialog.
     l.resolve?.({ action: "cancel" });
@@ -380,10 +383,21 @@ export class DialogBroker {
     const title = typeof d.title === "string" ? d.title : "";
     const buttons = Array.isArray(d.buttons) ? d.buttons.filter((b): b is string => typeof b === "string") : [];
     const key = keyOf(editor, title, buttons);
+    const items = Array.isArray(d.items) ? (d.items as EditorDialog["items"]) : undefined;
+    const blocks = Array.isArray(d.blocks) ? (d.blocks as DialogBlock[]) : undefined;
+    const message = typeof d.message === "string" ? d.message : "";
+    if (e.type === "dialog.updated") {
+      // The same dialog read again with its rows or blocks, which the first
+      // report (the editor's status file) does not carry.
+      const l = this.live.get(key);
+      if (!l) return;
+      this.recordFor(editor, title, buttons, { message, items, blocks, mode: null });
+      this.changed(l);
+      return;
+    }
     if (e.type === "dialog.opened") {
       const mode = d.mode === "auto" || d.mode === "interactive" || d.mode === "defer" ? d.mode : null;
-      const items = Array.isArray(d.items) ? (d.items as EditorDialog["items"]) : undefined;
-      const l = this.recordFor(editor, title, buttons, { message: typeof d.message === "string" ? d.message : "", items, mode });
+      const l = this.recordFor(editor, title, buttons, { message, items, blocks, mode });
       if (l.view.steps.length === 0) {
         this.step(l, mode === "auto" ? "Opened. The agent answers dialogs in this project, so the agent is deciding."
           : mode === "defer" ? "Opened. Dialogs in this project are answered in the editor."
@@ -446,13 +460,14 @@ export class DialogBroker {
     editor: string,
     title: string,
     buttons: string[],
-    rest: { message: string; items?: EditorDialog["items"]; mode: EditorDialog["mode"] },
+    rest: { message: string; items?: EditorDialog["items"]; blocks?: DialogBlock[]; mode: EditorDialog["mode"] },
   ): Live {
     const key = keyOf(editor, title, buttons);
     const existing = this.live.get(key);
     if (existing) {
       if (rest.message) existing.view.message = rest.message;
       if (rest.items) existing.view.items = rest.items;
+      if (rest.blocks) existing.view.blocks = rest.blocks;
       if (rest.mode && existing.view.mode === null) existing.view.mode = rest.mode;
       return existing;
     }
@@ -466,6 +481,7 @@ export class DialogBroker {
         message: rest.message,
         buttons,
         ...(rest.items ? { items: rest.items } : {}),
+        ...(rest.blocks ? { blocks: rest.blocks } : {}),
         mode: rest.mode,
         openedAt: this.now(),
         sessionId: null,
