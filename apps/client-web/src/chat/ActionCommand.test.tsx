@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { actionArgs, actionCommandText, actionFormFields, parseActionArgs, splitActionName, type ActionDescription, type ActionListing } from "@ue-mcp-studio/shared";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { actionArgs, actionCommandText, actionFormFields, actionTyped, actionTypedArgs, parseActionArgs, splitActionName, type ActionDescription, type ActionListing } from "@ue-mcp-studio/shared";
 
 /** The agent: ue-mcp's catalog, and each action's parameters. */
 const m = vi.hoisted(() => ({
@@ -68,6 +68,38 @@ describe("reading /action's text", () => {
     expect(parseActionArgs("")).toEqual({ name: "", values: {}, rest: [] });
   });
 
+  it("reads an @-mention, bare or as a pair's value, as the path it names", () => {
+    const level = '[@L_FightArena_Group](/Game/Maps/Test/L_FightArena_Group.L_FightArena_Group "World")';
+    const actor = '[@Key Light](actor:/Game/Maps/Main.Main:PersistentLevel.PointLight_2 "PointLight")';
+    expect(parseActionArgs(`level.load ${level}`)).toEqual({ name: "level.load", values: {}, rest: ["/Game/Maps/Test/L_FightArena_Group.L_FightArena_Group"] });
+    expect(parseActionArgs(`level.select actor=${actor} add=true`)).toEqual({
+      name: "level.select",
+      values: { actor: "/Game/Maps/Main.Main:PersistentLevel.PointLight_2", add: "true" },
+      rest: [],
+    });
+    expect(parseActionArgs("asset.list paths=[1,2] [x").values.paths).toBe("[1,2]");
+  });
+
+  it("fills required parameters from bare words in order, and is ready only when nothing required is missing", () => {
+    const LOAD: ActionDescription = {
+      tool: "level",
+      action: "load",
+      params: [
+        { name: "levelPath", type: "string", required: true },
+        { name: "saveFirst", type: "boolean", required: false },
+      ],
+    };
+    expect(actionTyped(LOAD, {}, ["/Game/Maps/A.A"])).toEqual({ values: { levelPath: "/Game/Maps/A.A" }, leftover: [], ready: true });
+    expect(actionTyped(LOAD, { saveFirst: "true" }, ["/Game/Maps/A.A"]).ready).toBe(true);
+    expect(actionTypedArgs(LOAD, { levelPath: "/Game/Maps/A.A", saveFirst: "true" })).toEqual({ levelPath: "/Game/Maps/A.A", saveFirst: true });
+    expect(actionTyped(LOAD, {}, []).ready).toBe(false);
+    expect(actionTyped(LOAD, { saveFirst: "true" }, []).ready).toBe(false);
+    expect(actionTyped(LOAD, {}, ["/Game/A.A", "/Game/B.B"])).toMatchObject({ leftover: ["/Game/B.B"], ready: false });
+    // A required choice takes a bare word in its first single-parameter branch.
+    expect(actionTyped(DELETE, {}, ["/Game/Old"])).toEqual({ values: { assetPath: "/Game/Old" }, leftover: [], ready: true });
+    expect(actionTyped(DELETE, {}, []).ready).toBe(false);
+  });
+
   it("splits category.method, and only that", () => {
     expect(splitActionName("level.place_actor")).toEqual({ category: "level", method: "place_actor" });
     expect(splitActionName("place_actor")).toBeNull();
@@ -122,7 +154,7 @@ describe("the /action form", () => {
     expect(screen.getByText("Place an actor in the level.")).toBeTruthy();
     expect((screen.getByLabelText(/^label/) as HTMLTextAreaElement).value).toBe("Key Light");
     expect((screen.getByLabelText(/^count/) as HTMLInputElement).value).toBe("4");
-    expect((screen.getByLabelText(/^onConflict/) as HTMLSelectElement).value).toBe("");
+    expect(within(screen.getByRole("radiogroup", { name: /^onConflict/ })).getByRole("radio", { checked: true }).textContent).toBe("Not set");
     // actorClass is required: Run waits for it.
     const go = screen.getByRole("button", { name: "Run" }) as HTMLButtonElement;
     expect(go.disabled).toBe(true);
@@ -135,6 +167,43 @@ describe("the /action form", () => {
       args: { extra: 1, label: "Key Light", actorClass: "PointLight", count: 4, location: { x: 0, y: 0, z: 200 } },
     });
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("runs at once when the line gives every required parameter, an @-mention included, with no form", async () => {
+    agent({ "level.place_actor": PLACE });
+    const run = vi.fn(async () => {});
+    const onClose = vi.fn();
+    render(<ActionLauncher text={'/action level.place_actor [@BP_Lamp](/Game/BP/BP_Lamp.BP_Lamp "Blueprint") label="Key Light"'} run={run} onClose={onClose} />);
+    await waitFor(() => expect(run).toHaveBeenCalledWith({ category: "level", method: "place_actor", args: { actorClass: "/Game/BP/BP_Lamp.BP_Lamp", label: "Key Light" } }));
+    expect(screen.queryByRole("button", { name: "Run" })).toBeNull();
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it("opens the form, filled in, when a run straight from the line fails", async () => {
+    agent({ "level.place_actor": PLACE });
+    const run = vi.fn(async () => {
+      throw new Error("a turn is already in progress");
+    });
+    render(<ActionLauncher text="/action level.place_actor PointLight" run={run} onClose={() => {}} />);
+    expect(await screen.findByText("a turn is already in progress")).toBeTruthy();
+    expect((screen.getByLabelText(/^actorClass/) as HTMLInputElement).value).toBe("PointLight");
+  });
+
+  it("keeps the form for a destructive action even when the line gives what it needs", async () => {
+    agent({ "asset.delete": DELETE });
+    const run = vi.fn(async () => {});
+    render(<ActionLauncher text="/action asset.delete /Game/Old" run={run} onClose={() => {}} />);
+    await screen.findByRole("button", { name: "Run" });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("folds optional fields away behind a count while something is required", async () => {
+    agent({ "level.place_actor": PLACE });
+    render(<ActionLauncher text="/action level.place_actor" run={vi.fn(async () => {})} onClose={() => {}} />);
+    const more = await screen.findByRole("button", { name: /5 optional/ });
+    expect(screen.queryByLabelText(/^label/)).toBeNull();
+    fireEvent.click(more);
+    expect(screen.getByLabelText(/^label/)).toBeTruthy();
   });
 
   it("finds the catalog's name whatever case it was typed in", async () => {
