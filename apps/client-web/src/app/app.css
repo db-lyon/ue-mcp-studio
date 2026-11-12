@@ -145,7 +145,12 @@ body { background: var(--bg); overflow: hidden; }
 .app-row-open:hover .app-row-name { color: var(--accent); }
 .app-row-open:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 4px; }
 .app-row-hint { font: 500 11.5px/1.3 var(--mono); }
-.app-versions { display: flex; gap: 4px 14px; flex-wrap: wrap; font: 11.5px/1.5 var(--mono); color: var(--text); }
+.app-versions-fold > summary { cursor: pointer; width: fit-content; list-style: none; font: 500 11.5px/1.5 var(--sans); }
+.app-versions-fold > summary::-webkit-details-marker { display: none; }
+.app-versions-fold > summary::before { content: "\25B8"; display: inline-block; width: 12px; }
+.app-versions-fold[open] > summary::before { content: "\25BE"; }
+.app-versions-fold > summary:hover { color: var(--text); }
+.app-versions { display: flex; gap: 4px 14px; flex-wrap: wrap; margin-top: 2px; font: 11.5px/1.5 var(--mono); color: var(--text); }
 .app-daemon-chip { display: inline-flex; align-items: center; gap: 2px; }
 .app-chip-action { padding: 1px 8px; font-size: 11px; }
 
