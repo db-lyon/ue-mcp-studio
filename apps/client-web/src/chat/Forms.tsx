@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { qaVerdictForm, type FormField, type PendingForm } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import type { DaemonState } from "../state";
@@ -60,43 +60,112 @@ export function FieldsForm({ fields, required, prefill, sent, error, submitLabel
   const [values, setValues] = useState<Record<string, unknown>>(() => ({ ...formInitial(fields), ...prefill }));
   const set = (k: string, v: unknown) => setValues((cur) => ({ ...cur, [k]: v }));
   const missing = requireFilled && required.some((k) => values[k] === "" || values[k] === undefined);
+  const submit = () => {
+    if (!sent && !missing) onSubmit(formContent(fields, values));
+  };
+  const entries = Object.entries(fields);
+  const main = entries.filter(([k]) => required.includes(k));
+  const more = entries.filter(([k]) => !required.includes(k));
+  // With something required, the optional fields fold away unless one was typed already.
+  const fold = main.length > 0 && more.length > 0;
+  const [open, setOpen] = useState(() => !fold || more.some(([k]) => prefill?.[k] !== undefined));
+  const field = ([k, f]: [string, FormField], i: number) => (
+    <FormFieldRow key={k} name={k} field={f} value={values[k]} required={required.includes(k)} autoFocus={i === 0} onChange={(v) => set(k, v)} onEnter={submit} />
+  );
   return (
-    <>
-      {Object.entries(fields).map(([k, f]) => {
-        const label = f.title ?? k;
-        const isRequired = required.includes(k);
-        return (
-          <label key={k} className={f.type === "boolean" ? "row toggle" : "form-field"}>
-            {f.type === "boolean" ? (
-              <>
-                <input type="checkbox" checked={!!values[k]} onChange={(e) => set(k, e.target.checked)} />
-                <span>{label}</span>
-              </>
-            ) : (
-              <>
-                <span>{label}{isRequired ? "" : <span className="dim small"> (optional)</span>}</span>
-                {f.type === "string" && f.enum ? (
-                  <select value={String(values[k] ?? "")} onChange={(e) => set(k, e.target.value)}>
-                    {f.enum.map((v, i) => <option key={v} value={v}>{f.enumNames?.[i] ?? v}</option>)}
-                  </select>
-                ) : f.type === "string" ? (
-                  <textarea rows={3} value={String(values[k] ?? "")} onChange={(e) => set(k, e.target.value)} />
-                ) : (
-                  <input type="number" value={String(values[k] ?? "")} onChange={(e) => set(k, e.target.value)} />
-                )}
-              </>
-            )}
-            {f.description && <span className="dim small">{f.description}</span>}
-          </label>
-        );
-      })}
+    <div className="form-fields">
+      {(fold ? main : entries).map(field)}
+      {fold && (
+        <>
+          <button type="button" className="form-more" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <span className="form-more-mark" aria-hidden>{open ? "▾" : "▸"}</span>
+            {more.length} optional
+          </button>
+          {open && more.map((e) => field(e, -1))}
+        </>
+      )}
       {error && <div className="banner bad small">{error}</div>}
-      <div className="row">
+      <div className="row form-actions">
         <span className="spacer" />
         <button className="ghost" disabled={sent} onClick={onDecline}>{declineLabel}</button>
-        <button className="primary" disabled={sent || missing} onClick={() => onSubmit(formContent(fields, values))}>{submitLabel}</button>
+        <button className="primary" disabled={sent || missing} onClick={submit}>{submitLabel}</button>
       </div>
-    </>
+    </div>
+  );
+}
+
+/** A choice short enough to show every option as a button. */
+const segmented = (f: FormField): f is Extract<FormField, { type: "string" }> & { enum: string[] } =>
+  f.type === "string" && !!f.enum && f.enum.length <= 4 && f.enum.every((v, i) => (f.enumNames?.[i] ?? v).length <= 12);
+
+/** One field: its name (and whether it may be left out), what it is for, and its control. */
+function FormFieldRow({ name, field: f, value, required, autoFocus, onChange, onEnter }: {
+  name: string;
+  field: FormField;
+  value: unknown;
+  required: boolean;
+  autoFocus: boolean;
+  onChange: (v: unknown) => void;
+  onEnter: () => void;
+}) {
+  const label = f.title ?? name;
+  const id = `form-field-${name}`;
+  const enter = (e: KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      onEnter();
+    }
+  };
+  if (f.type === "boolean") {
+    return (
+      <label className="form-field form-check">
+        <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} />
+        <span className="form-label">{label}</span>
+        {f.description && <span className="form-help">{f.description}</span>}
+      </label>
+    );
+  }
+  let control;
+  if (segmented(f)) {
+    control = (
+      <div className="form-seg" role="radiogroup" aria-labelledby={`${id}-label`}>
+        {f.enum.map((v, i) => (
+          <button key={v} type="button" role="radio" aria-checked={String(value ?? "") === v} className={String(value ?? "") === v ? "on" : undefined} onClick={() => onChange(v)}>
+            {f.enumNames?.[i] ?? v}
+          </button>
+        ))}
+      </div>
+    );
+  } else if (f.type === "string" && f.enum) {
+    control = (
+      <select id={id} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+        {f.enum.map((v, i) => <option key={v} value={v}>{f.enumNames?.[i] ?? v}</option>)}
+      </select>
+    );
+  } else if (f.type === "string" && f.multiline) {
+    control = <textarea id={id} rows={2} spellCheck={false} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />;
+  } else {
+    control = (
+      <input
+        id={id}
+        type={f.type === "string" ? "text" : "number"}
+        spellCheck={false}
+        autoFocus={autoFocus}
+        value={String(value ?? "")}
+        onChange={(e) => onChange(e.target.value)}
+        onKeyDown={enter}
+      />
+    );
+  }
+  return (
+    <div className="form-field">
+      <label className="form-label" id={`${id}-label`} htmlFor={id}>
+        {label}
+        {!required && <span className="form-optional">optional</span>}
+      </label>
+      {f.description && <span className="form-help">{f.description}</span>}
+      {control}
+    </div>
   );
 }
 

@@ -8,6 +8,7 @@
  */
 import type { FormField } from "./index.js";
 import { flowValue } from "./flows.js";
+import { MENTION_IN_TEXT, mentionTarget } from "./mentions.js";
 
 /** One action of the catalog: `category.method`, what it does in a line, and what ue-mcp says it does to the editor. */
 export interface ActionListing {
@@ -180,7 +181,7 @@ export function actionFormFields(d: ActionDescription): { fields: Record<string,
         ...(p.default !== undefined ? { default: String(p.default) } : {}),
       };
     } else {
-      fields[p.name] = { type: "string", description, ...(p.default !== undefined ? { default: asText(p.default) } : {}) };
+      fields[p.name] = { type: "string", description, ...(t === null ? { multiline: true } : {}), ...(p.default !== undefined ? { default: asText(p.default) } : {}) };
     }
   }
   return { fields, required: ordered.filter((p) => p.required).map((p) => p.name) };
@@ -209,25 +210,71 @@ export function actionArgs(d: ActionDescription, content: Record<string, unknown
   return out;
 }
 
+const MENTION_WHOLE = new RegExp(`^${MENTION_IN_TEXT.source}$`);
+
+/** A value typed as an @-mention token: the path it names (an asset's object path, an actor's path, a file's). Anything else as typed. */
+export function mentionValue(raw: string): string {
+  const m = MENTION_WHOLE.exec(raw);
+  return m ? mentionTarget(m[2] ?? m[3]).path : raw;
+}
+
+/** One word of an /action line: a mention token whole (its type note has a space), a quoted run, or text up to a space. */
+const ACTION_WORD = new RegExp(`(?:${MENTION_IN_TEXT.source}|[^\\s"'\\[]+|"[^"]*"|'[^']*'|\\[)+`, "g");
+
 /**
  * The text after /action: the action's name, then key=value pairs that
  * prefill its form. A value wrapped whole in quotes loses them, so
  * `label="Key Light"` and `location='{"x": 0}'` keep their spaces; quotes
- * inside a value stay, so `location={"x":0}` is JSON as typed. Words that are
- * not a pair are kept in `rest`.
+ * inside a value stay, so `location={"x":0}` is JSON as typed. A value that is
+ * an @-mention token is the path it names. Words that are not a pair are kept
+ * in `rest`.
  */
 export function parseActionArgs(args: string): { name: string; values: Record<string, string>; rest: string[] } {
-  const words = [...args.trim().matchAll(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g)].map((m) => m[0]);
-  const unquote = (v: string) => (/^"[^"]*"$|^'[^']*'$/.test(v) ? v.slice(1, -1) : v);
+  const words = [...args.trim().matchAll(ACTION_WORD)].map((m) => m[0]);
+  const unquote = (v: string) => mentionValue(/^"[^"]*"$|^'[^']*'$/.test(v) ? v.slice(1, -1) : v);
   const [name = "", ...more] = words;
   const values: Record<string, string> = {};
   const rest: string[] = [];
   for (const w of more) {
-    const eq = w.indexOf("=");
+    const eq = MENTION_WHOLE.test(w) ? -1 : w.indexOf("=");
     if (eq > 0) values[w.slice(0, eq)] = unquote(w.slice(eq + 1));
     else rest.push(unquote(w));
   }
   return { name: unquote(name), values, rest };
+}
+
+/**
+ * What a /action line gives the action as typed: its pairs, then each word
+ * without a name filling the next required parameter not given (then the
+ * first parameter of a required choice none of whose branches is given).
+ * `ready` when every required parameter and required choice has a value, a
+ * value was typed at all, and no word is left over: the line runs without
+ * the form.
+ */
+export function actionTyped(d: ActionDescription, typed: Record<string, string>, rest: string[]): { values: Record<string, string>; leftover: string[]; ready: boolean } {
+  const values = { ...typed };
+  const has = (n: string) => values[n] !== undefined && values[n] !== "";
+  const words = [...rest];
+  for (const p of d.params) {
+    if (!words.length) break;
+    if (p.required && !has(p.name)) values[p.name] = words.shift()!;
+  }
+  const choiceMet = (g: { branches: string[][] }) => g.branches.some((b) => b.length > 0 && b.every(has));
+  for (const g of d.alternatives ?? []) {
+    if (!words.length) break;
+    if (g.required && !choiceMet(g) && g.branches[0]?.length === 1) values[g.branches[0][0]] = words.shift()!;
+  }
+  const ready = Object.keys(values).length > 0
+    && words.length === 0
+    && d.params.every((p) => !p.required || has(p.name))
+    && (d.alternatives ?? []).every((g) => !g.required || choiceMet(g));
+  return { values, leftover: words, ready };
+}
+
+/** The args a /action line runs with when actionTyped says it is ready: each value read as its parameter's type. */
+export function actionTypedArgs(d: ActionDescription, values: Record<string, string>): Record<string, unknown> {
+  const known = new Set(d.params.map((p) => p.name));
+  return actionArgs(d, Object.fromEntries(Object.entries(values).filter(([k]) => known.has(k))), values);
 }
 
 /** The /action message a run shows: the name and the args it was given, as parseActionArgs reads them back. */
