@@ -62,15 +62,6 @@ export const pictureOf = (v: AssetVersion | null | undefined): Extract<AssetThum
 /** A side whose picture file could not be read, or that drew one flat colour: either way, no picture of it. */
 export type PictureFailure = "unreadable" | "blank";
 
-/** Why a version shows no picture, in words. */
-export function pictureWhy(v: AssetVersion | null | undefined, missing: string, failed?: PictureFailure): string {
-  return !v ? missing
-    : v.thumbnail && "error" in v.thumbnail ? `No picture: ${v.thumbnail.error}`
-    : failed === "blank" ? "No picture: Unreal's thumbnail renderer drew nothing for this version."
-    : failed ? "No picture: the file could not be read."
-    : "No picture: the editor kept none for this version.";
-}
-
 export type PictureSide = "before" | "after";
 
 /** A picture the review shows, and the word under it. */
