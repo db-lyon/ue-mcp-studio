@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { Machine } from "./App";
-import { host } from "./native";
-import { actionsOf, filterProjects, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
+import { host, type IdeInfo } from "./native";
+import { actionsOf, filterProjects, ideButton, ideOpens, listReadAt, nameHint, running, updatesOf, versionsOf, type MachineProject } from "./model";
 import { JobOutput } from "./NodeCard";
-import { installing, projectActions, useWorks, workTitle, type Work } from "./actions";
+import { installing, projectActions, useIdes, useWorks, workTitle, type Work } from "./actions";
 
 /** A filter appears once the list is long enough to need one. */
 const FILTER_FROM = 7;
@@ -116,7 +116,7 @@ function ProjectRow({ p, all, m, work, busy, onOpen }: { p: MachineProject; all:
         <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>
           {pending("launch") ? "Starting" : "Launch editor"}
         </button>
-        <RowMenu p={p} m={m} onOpen={onOpen} />
+        <RowMenu p={p} m={m} act={act} onOpen={onOpen} />
       </div>
       {a.addStudio && p.editor.running && !mine && <p className="app-row-note dim small">{a.addBlocked}</p>}
       <WorkPanel p={p} work={work} act={act} />
@@ -171,6 +171,26 @@ export function WorkPanel({ p, work, act }: { p: MachineProject; work: Work | nu
       </div>
     );
   }
+  if (work.needsFiles) {
+    const n = work.needsFiles;
+    return (
+      <div className="app-row-work">
+        <div className="banner warn small" role="status">
+          {p.name} has no Visual Studio solution yet.{" "}
+          {n.source
+            ? "Generating its project files writes one, as Unreal's Generate Visual Studio project files does."
+            : `${p.name} has no C++ source, so its solution would hold only the engine. VS Code can open the folder instead.`}
+          {!n.generate && " No Unreal Engine was found here to generate them with."}
+        </div>
+        <div className="row">
+          <span className="spacer" />
+          <button className="ghost" onClick={act.cancel}>Cancel</button>
+          {n.code && <button onClick={() => void act.openIde("vscode", false)}>Open folder in VS Code</button>}
+          {n.generate && <button className="primary" onClick={() => void act.generateFiles(n.ide)}>Generate project files</button>}
+        </div>
+      </div>
+    );
+  }
   if (work.watching) {
     return (
       <div className="app-row-work">
@@ -192,6 +212,7 @@ export function WorkPanel({ p, work, act }: { p: MachineProject; work: Work | nu
           <span className="spacer" />
           {!work.job.ok && work.kind === "install" && <button onClick={() => void act.addStudio()}>Try again</button>}
           {!work.job.ok && work.kind === "update" && <button onClick={() => void act.update()}>Try again</button>}
+          {!work.job.ok && work.kind === "projectfiles" && <button onClick={() => void act.generateFiles()}>Try again</button>}
           <button className="ghost" onClick={act.cancel}>Dismiss</button>
         </div>
       )}
@@ -199,8 +220,8 @@ export function WorkPanel({ p, work, act }: { p: MachineProject; work: Work | nu
   );
 }
 
-/** The row's quieter actions. */
-function RowMenu({ p, m, onOpen }: { p: MachineProject; m: Machine; onOpen: () => void }) {
+/** A menu's open state, closed by a press outside it. */
+function useMenu() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -209,6 +230,52 @@ function RowMenu({ p, m, onOpen }: { p: MachineProject; m: Machine; onOpen: () =
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
+  return { open, setOpen, ref };
+}
+
+/** Open with...: every IDE found here, the one the project opens in ticked. Picking one opens the project in it and keeps it for the project. */
+function IdeChoices({ p, info, onPick }: { p: MachineProject; info: IdeInfo | null; onPick: (id: string) => void }) {
+  return (
+    <>
+      <div className="app-menu-head">Open with</div>
+      {!info && <div className="app-menu-note dim small">Looking for IDEs</div>}
+      {info && !info.ides?.length && <div className="app-menu-note dim small">No IDE found. UE-MCP looks for Visual Studio, VS Code and Rider.</div>}
+      {info?.ides?.map((ide) => (
+        <button key={ide.id} className="app-menu-ide" role="menuitemradio" aria-checked={ide.id === info.chosen} title={ideOpens(ide, info, p)} onClick={() => onPick(ide.id)}>
+          <span className="app-menu-check" aria-hidden="true">{ide.id === info.chosen ? "✓" : ""}</span>
+          <span>{ide.name}</span>
+        </button>
+      ))}
+    </>
+  );
+}
+
+/** Open in IDE with Open with... beside it, for a project's detail. */
+export function IdeButton({ p, act, work }: { p: MachineProject; act: Actions; work: Work | null }) {
+  const info = useIdes(p, true);
+  const b = ideButton(info, p);
+  const { open, setOpen, ref } = useMenu();
+  const pending = work?.kind === "ide" && !work.error && !work.needsFiles;
+  return (
+    <div className="app-menu app-split" ref={ref}>
+      <button disabled={!b.ide || pending} title={b.title} onClick={() => void act.openIde()}>{pending ? "Opening" : b.label}</button>
+      <button className="app-split-more" aria-label={`Open ${p.name} with`} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5.5 8l4.5 4.5L14.5 8" /></svg>
+      </button>
+      {open && (
+        <div className="app-menu-list" role="menu">
+          <IdeChoices p={p} info={info} onPick={(id) => { setOpen(false); void act.openIde(id); }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The row's quieter actions: Open in IDE and Open with..., Show in Explorer, the detail, and leaving the list. */
+function RowMenu({ p, m, act, onOpen }: { p: MachineProject; m: Machine; act: Actions; onOpen: () => void }) {
+  const { open, setOpen, ref } = useMenu();
+  const info = useIdes(p, open);
+  const b = ideButton(info, p);
   return (
     <div className="app-menu" ref={ref}>
       <button className="ghost app-menu-button" aria-label={`More for ${p.name}`} aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -216,8 +283,12 @@ function RowMenu({ p, m, onOpen }: { p: MachineProject; m: Machine; onOpen: () =
       </button>
       {open && (
         <div className="app-menu-list" role="menu">
+          <button role="menuitem" disabled={!b.ide} title={b.title} onClick={() => { setOpen(false); void act.openIde(); }}>{b.label}</button>
+          <button role="menuitem" onClick={() => { setOpen(false); act.reveal(); }}>Show in Explorer</button>
+          <div className="app-menu-sep" />
+          <IdeChoices p={p} info={info} onPick={(id) => { setOpen(false); void act.openIde(id); }} />
+          <div className="app-menu-sep" />
           <button role="menuitem" onClick={() => { setOpen(false); onOpen(); }}>Details</button>
-          <button role="menuitem" onClick={() => { setOpen(false); void host()?.openfolder({ path: p.dir }); }}>Open folder</button>
           <button role="menuitem" onClick={() => { setOpen(false); void host()?.removeproject({ uproject: p.uproject }).then(() => m.refresh()); }}>Remove from list</button>
         </div>
       )}

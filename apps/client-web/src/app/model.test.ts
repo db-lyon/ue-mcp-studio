@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionsOf, appUpdateLine, channelLabel, filterProjects, nameHint, parseReport, running, studioOf, updateHow, updatesOf, uptime, versionsOf, type MachineProject } from "./model";
+import { actionsOf, appUpdateLine, channelLabel, filterProjects, ideButton, ideOpens, installedKey, nameHint, parseReport, running, studioOf, updateHow, updatesOf, uptime, versionsOf, type MachineProject } from "./model";
 
 const project = (o: Partial<MachineProject> = {}): MachineProject => ({
   name: "Vale",
@@ -123,6 +123,27 @@ describe("the UE-MCP row in Settings", () => {
     expect(appUpdateLine("0.1.35-beta.5", { ok: true, channel: "beta", version: "0.1.35-beta.6", newer: true }, "beta", false)).toBe("UE-MCP 0.1.35-beta.6 is ready to install from Beta. You have 0.1.35-beta.5.");
     expect(appUpdateLine("0.1.35-beta.6", { ok: true, channel: "beta", version: "0.1.35-beta.6", newer: false }, "beta", false)).toBe("UE-MCP 0.1.35-beta.6, the newest on Beta.");
     expect(appUpdateLine("0.1.35-beta.6", { ok: true, channel: "stable", version: "0.1.34", newer: false }, "stable", false)).toBe("UE-MCP 0.1.35-beta.6. The newest on Stable is 0.1.34.");
+  });
+
+  it("names Open in IDE for the project's IDE and says what it opens", () => {
+    const p = project();
+    const info = {
+      ok: true, chosen: "vs:a", solution: null, workspace: null,
+      ides: [{ id: "vs:a", kind: "vs" as const, name: "Visual Studio Community 2022" }, { id: "vscode", kind: "vscode" as const, name: "Visual Studio Code" }, { id: "rider", kind: "rider" as const, name: "Rider" }],
+    };
+    expect(ideButton(null, p)).toMatchObject({ label: "Open in IDE", ide: null });
+    expect(ideButton({ ok: true, ides: [], chosen: "" }, p).ide).toBeNull();
+    expect(ideButton(info, p)).toMatchObject({ label: "Open in Visual Studio", title: "Visual Studio Community 2022. No solution yet: offers to generate the project files." });
+    expect(ideButton({ ...info, solution: "C:\\P\\Vale\\Vale.sln" }, p).title).toBe("Visual Studio Community 2022. Opens Vale.sln.");
+    expect(ideOpens(info.ides[1], info, p)).toBe("Opens the project folder");
+    expect(ideOpens(info.ides[2], info, p)).toBe("Opens Vale.uproject");
+    expect(ideButton({ ...info, chosen: "rider" }, p).label).toBe("Open in Rider");
+  });
+
+  it("keys a project's installed parts so a change made elsewhere is seen", () => {
+    const before = project({ extensions: { studio: "0.1.35-beta.6" }, plugins: [{ name: "UE_MCP_Studio", version: "0.1.9" }] });
+    expect(installedKey(before)).toBe("0.1.35-beta.6|0.1.9|1.4.13");
+    expect(installedKey({ ...before, extensions: { studio: "0.1.35-beta.7" } })).not.toBe(installedKey(before));
   });
 
   it("names the channel the check read over the one picked, and says why a check failed", () => {

@@ -278,6 +278,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "app-projects-twins": {notOnPhone: DESKTOP_APP},
   "app-project-detail": {notOnPhone: DESKTOP_APP},
   "app-project-detail-bridge": {notOnPhone: DESKTOP_APP},
+  "app-project-open-with": {notOnPhone: DESKTOP_APP},
+  "app-project-needs-files": {notOnPhone: DESKTOP_APP},
   "app-daemon-stop-confirm": {notOnPhone: DESKTOP_APP},
   "app-settings": {notOnPhone: DESKTOP_APP},
   "app-settings-current": {notOnPhone: DESKTOP_APP},

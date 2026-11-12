@@ -3,7 +3,7 @@ import type { Machine } from "./App";
 import { host } from "./native";
 import { actionsOf, channelLabel, listReadAt, nameHint, running, updateHow, updatesOf, uptime, type MachineProject } from "./model";
 import { connectedTo, installing, projectActions, useWorks } from "./actions";
-import { DaemonChip, WorkPanel } from "./Projects";
+import { DaemonChip, IdeButton, WorkPanel } from "./Projects";
 
 /** One project: its versions and updates, its daemon with the log, and its editor. */
 export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine; onBack: () => void }) {
@@ -42,7 +42,8 @@ export function ProjectDetail({ p, m, onBack }: { p: MachineProject; m: Machine;
             <button className="primary" disabled={!!a.addBlocked} title={a.addBlocked ?? undefined} onClick={() => void act.addStudio()}>{pending("install") ? "Adding Studio" : "Add Studio"}</button>
           )}
           <button disabled={!!a.launchBlocked || pending("launch")} title={a.launchBlocked ?? undefined} onClick={() => void act.launch()}>{pending("launch") ? "Starting" : "Launch editor"}</button>
-          <button className="ghost" onClick={() => void host()?.openfolder({ path: p.dir })}>Open folder</button>
+          <IdeButton p={p} act={act} work={work} />
+          <button className="ghost" title={`Opens ${p.dir} with ${p.name}.uproject selected`} onClick={act.reveal}>Show in Explorer</button>
         </div>
       </header>
       {work && work.kind !== "update" && <div className="app-detail-work"><WorkPanel p={p} work={work} act={act} /></div>}

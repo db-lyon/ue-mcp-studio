@@ -2,9 +2,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { App } from "./App";
-import { appSlot, type HostState, type Newest } from "./native";
+import { appSlot, type HostState, type IdeInfo, type Newest, type OpenIde } from "./native";
 import type { MachineProject, MachineReport } from "./model";
-import { resetWork, WATCH_UPDATE } from "./actions";
+import { resetIdes, resetWork, WATCH_UPDATE } from "./actions";
 
 const STATE: HostState = {
   mode: "app", version: "0.1.35", node: { found: true, version: "v22.11.0", ok: true, min: 20 }, winget: true, channel: "latest",
@@ -24,7 +24,13 @@ function project(n: number, name: string, dir: string, o: Partial<MachineProject
 const withStudio = project(1, "ue_mcp", "C:\\work\\ue-mcp\\tests\\ue_mcp", { extensions: { studio: "0.1.34" }, plugins: [{ name: "UE_MCP_Studio", version: "0.1.8" }] });
 const bare = project(2, "ue_mcp", "C:\\work\\ue-mcp-release\\tests\\ue_mcp");
 
-function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; port: number; version: string }>; health?: string; reports?: MachineProject[][] } = {}) {
+const IDES: IdeInfo = {
+  ok: true,
+  ides: [{ id: "vs:afb8a0c3", kind: "vs", name: "Visual Studio Community 2022" }, { id: "vscode", kind: "vscode", name: "Visual Studio Code" }],
+  chosen: "vs:afb8a0c3", remembered: "", preferred: "", solution: "C:\\work\\ue-mcp\\tests\\ue_mcp\\ue_mcp.sln", workspace: null, source: true, generate: true,
+};
+
+function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; port: number; version: string }>; health?: string; reports?: MachineProject[][]; ides?: IdeInfo; openide?: OpenIde } = {}) {
   const reports = o.reports ?? [[withStudio, bare]];
   let read = 0;
   const app = {
@@ -45,6 +51,10 @@ function fakeHost(o: { newest?: Newest; live?: Record<string, { pid: number; por
     startdaemon: vi.fn(async () => ({ ok: true, job: 8 })),
     stopdaemon: vi.fn(async () => ({ ok: true, job: 9 })),
     job: vi.fn(async () => ({ running: false, ok: true, lines: ["done"] })),
+    ides: vi.fn(async () => o.ides ?? IDES),
+    openide: vi.fn(async (_: { ide?: string }) => o.openide ?? { ok: true }),
+    projectfiles: vi.fn(async () => ({ ok: true, job: 10 })),
+    reveal: vi.fn(async () => true),
     getchannel: vi.fn(async () => ({ channel: "beta" })),
     appupdate: vi.fn(async () => ({ ok: true, channel: "beta", version: "0.1.35", newer: false })),
   };
@@ -62,6 +72,7 @@ async function projectRows(): Promise<HTMLElement[]> {
 afterEach(() => {
   cleanup();
   resetWork();
+  resetIdes();
   delete appSlot().ue;
 });
 
@@ -170,6 +181,41 @@ describe("the UE-MCP app's Projects", () => {
     } finally {
       WATCH_UPDATE.everyMs = every;
     }
+  });
+
+  it("opens a project in its IDE, or with another from Open with..., and shows it in Explorer", async () => {
+    const h = fakeHost();
+    render(<App />);
+    const rows = await projectRows();
+    fireEvent.click(within(rows[0]).getByTitle("Details for ue_mcp"));
+    const open = await screen.findByRole("button", { name: "Open in Visual Studio" });
+    expect(open.getAttribute("title")).toBe("Visual Studio Community 2022. Opens ue_mcp.sln.");
+    fireEvent.click(open);
+    await waitFor(() => expect(h.openide).toHaveBeenCalledWith({ key: withStudio.key, uproject: withStudio.uproject }));
+    fireEvent.click(screen.getByRole("button", { name: "Open ue_mcp with" }));
+    const code = screen.getByRole("menuitemradio", { name: /Visual Studio Code/ });
+    expect(screen.getByRole("menuitemradio", { name: /Community 2022/ }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(code);
+    await waitFor(() => expect(h.openide).toHaveBeenLastCalledWith({ key: withStudio.key, uproject: withStudio.uproject, ide: "vscode", remember: "yes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show in Explorer" }));
+    expect(h.reveal).toHaveBeenCalledWith({ uproject: withStudio.uproject });
+  });
+
+  it("offers to generate the project files when Visual Studio has no solution, then opens it", async () => {
+    const h = fakeHost({ ides: { ...IDES, solution: null }, openide: { ok: false, needsProjectFiles: true, ide: "vs:afb8a0c3", name: "Visual Studio Community 2022" } });
+    render(<App />);
+    const rows = await projectRows();
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "More for ue_mcp" }));
+    const open = await within(rows[0]).findByRole("menuitem", { name: "Open in Visual Studio" });
+    await waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(open);
+    await within(rows[0]).findByText(/has no Visual Studio solution yet/);
+    expect(within(rows[0]).getByRole("button", { name: "Open folder in VS Code" })).toBeTruthy();
+    h.openide.mockResolvedValue({ ok: true });
+    fireEvent.click(within(rows[0]).getByRole("button", { name: "Generate project files" }));
+    await waitFor(() => expect(h.projectfiles).toHaveBeenCalledWith({ uproject: withStudio.uproject }));
+    await within(rows[0]).findByText("The project files are generated");
+    await waitFor(() => expect(h.openide).toHaveBeenLastCalledWith({ key: withStudio.key, uproject: withStudio.uproject, ide: "vs:afb8a0c3" }));
   });
 
   it("keeps the channel and UE-MCP's own update in Settings", async () => {
