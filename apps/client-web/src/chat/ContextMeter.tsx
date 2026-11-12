@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
 import { compactLine, contextLabel, contextPct, contextRing, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
+import { keepInView } from "./keepInView";
 
 export { dollars, tipLines };
 
@@ -58,9 +59,12 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
+  const tipRef = useRef<HTMLSpanElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
   const tipId = useId();
   useEffect(() => {
     if (!open) return;
+    keepInView(popRef.current);
     const close = (e: MouseEvent) => {
       if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
     };
@@ -86,17 +90,19 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
         aria-label={label}
         aria-describedby={open ? undefined : tipId}
         onClick={() => setOpen(!open)}
+        onMouseEnter={() => keepInView(tipRef.current)}
+        onFocus={() => keepInView(tipRef.current)}
       >
         {view ? <ContextRing view={view} /> : <span className="context-ring-empty" aria-hidden="true" />}
         <span className="context-pct">{contextPct(view)}</span>
         {!open && (
-          <span className="context-tip" role="tooltip" id={tipId}>
+          <span className="context-tip" role="tooltip" id={tipId} ref={tipRef}>
             {tip.map((l, i) => <span key={i} className={i === (owner ? 1 : 0) ? "context-tip-main" : undefined}>{l}</span>)}
           </span>
         )}
       </button>
       {open && (
-        <div className="picker-menu up context-pop" role="dialog" aria-label="Context and session totals">
+        <div className="picker-menu up context-pop" role="dialog" aria-label="Context and session totals" ref={popRef}>
           <div className="context-pop-head">
             <span className="eyebrow">{owner ? `${owner} agent's context` : "Context"}</span>
             <span className="context-pop-actions">
