@@ -26,6 +26,9 @@ const PATHS = {
   sound: "Content/Audio/SW_WardChime.uasset",
   waves: "Content/Data/DA_EnemyWaves_ShrineDefenseEncounter.uasset",
   arena: "Content/Maps/L_ShrineArena.umap",
+  component: "Content/Enemies/BP_ValeEnemy_Humanoid.uasset",
+  texture: "Content/Environment/Textures/T_RockMoss_D.uasset",
+  lantern: "Content/Props/SM_LanternHanging.uasset",
 };
 
 /** A rendered thumbnail; the harness draws one for any id, 404s an id with "unreadable" in it, and draws flat black for one with "blank" in it. */
@@ -230,10 +233,57 @@ const ARENA = ready({
   ] }],
 });
 
+/**
+ * A Blueprint that gained a component, written outside the agent. Its
+ * thumbnails are Unreal's empty checkerboard and a grey close-up, neither of
+ * which shows a component, so the review shows no pictures and the tree
+ * carries the change.
+ */
+const COMPONENT = ready({
+  assetClass: "Blueprint",
+  packageName: "/Game/Enemies/BP_ValeEnemy_Humanoid",
+  engine: { tool: "SBlueprintDiff", note: "Components through DiffUtils::CompareUnrelatedSCS.", native: "window", nativeAvailable: true, blueprintTypeDiff: true },
+  before: { class: "Blueprint", thumbnail: shot("enemy-before-checker"), facts: [{ name: "Parent class", value: "ValeEnemyCharacter" }, { name: "Components", value: "6" }] },
+  after: { class: "Blueprint", thumbnail: shot("enemy-after-closeup"), facts: [{ name: "Parent class", value: "ValeEnemyCharacter" }, { name: "Components", value: "7" }] },
+  summary: "1 difference: Added Node CombatFeedback to BP_ValeEnemy_Humanoid",
+  sections: [{ category: "Components", kind: "components", engineSource: "DiffUtils::CompareUnrelatedSCS", entries: [
+    { group: "CombatFeedback", displayString: "Added Node CombatFeedback to BP_ValeEnemy_Humanoid", diffType: "OBJECT_ADDED", facts: [{ name: "Class", value: "ValeCombatFeedbackComponent" }] },
+  ] }],
+});
+
+/** A texture whose change a picture does show: both versions rendered, side by side above its records. */
+const TEXTURE = ready({
+  assetClass: "Texture2D",
+  packageName: "/Game/Environment/Textures/T_RockMoss_D",
+  engine: { tool: "SDetailsDiff", note: "Its details through DiffUtils::CompareUnrelatedObjects.", native: "details", nativeAvailable: true },
+  before: { class: "Texture2D", thumbnail: shot("rockmoss-before"), facts: [{ name: "Size", value: "2048 x 2048" }, { name: "Compression", value: "TC_Default" }] },
+  after: { class: "Texture2D", thumbnail: shot("rockmoss-after"), facts: [{ name: "Size", value: "2048 x 2048" }, { name: "Compression", value: "TC_Default" }] },
+  summary: "2 differences: Adjust Brightness: 1 to 0.85; Adjust Saturation: 1 to 1.2",
+  sections: [{ category: "Details", kind: "properties", engineSource: "DiffUtils::CompareUnrelatedObjects", entries: [
+    { path: "Adjust Brightness", property: "AdjustBrightness", diffType: "PropertyValueChanged", displayString: "Adjust Brightness", before: "1.000000", after: "0.850000" },
+    { path: "Adjust Saturation", property: "AdjustSaturation", diffType: "PropertyValueChanged", displayString: "Adjust Saturation", before: "1.000000", after: "1.200000" },
+  ] }],
+});
+
+/** A static mesh added in the turn: one picture, labelled New. */
+const LANTERN = ready({
+  status: "added",
+  assetClass: "StaticMesh",
+  packageName: "/Game/Props/SM_LanternHanging",
+  engine: { tool: "SDetailsDiff", note: "Its details through DiffUtils::CompareUnrelatedObjects.", native: "details", nativeAvailable: true },
+  before: null,
+  after: { class: "StaticMesh", thumbnail: shot("lantern-new"), facts: [{ name: "Triangles", value: "1840" }, { name: "Materials", value: "2" }] },
+  summary: "New StaticMesh",
+  sections: [],
+});
+
 /** Assets only their own scenarios open, not on the every-state card. */
 export const EXTRA: CheckpointChange[] = [
   { path: PATHS.waves, status: "modified", kind: "package", assetDiff: WAVES },
   { path: PATHS.arena, status: "modified", kind: "package", assetDiff: ARENA },
+  { path: PATHS.component, status: "modified", kind: "package", untracked: true, assetDiff: COMPONENT },
+  { path: PATHS.texture, status: "modified", kind: "package", assetDiff: TEXTURE },
+  { path: PATHS.lantern, status: "added", kind: "package", assetDiff: LANTERN },
 ];
 
 const CONFIG_DIFF = "--- a/Config/DefaultEngine.ini\n+++ b/Config/DefaultEngine.ini\n@@ -12,3 +12,4 @@\n [/Script/Engine.RendererSettings]\n-r.DefaultFeature.AutoExposure=True\n+r.DefaultFeature.AutoExposure=False\n+r.Lumen.HardwareRayTracing.LightingMode=2\n r.ReflectionMethod=1\n";
@@ -343,5 +393,8 @@ export const REVIEW_SCENARIOS: Record<string, Scenario> = {
   "review-one-deep": one("One file with deep property paths: array entries added and removed, nested structs, long and many-line values", single("waves"), { height: 1300 }),
   "review-one-long-open": one("The same data asset with its many-line Description and its array opened in place", single("waves"), { height: 1300, clicks: ["[data-id='s:Details/p:Description'] .dt-after", "[data-id='s:Details/p:Allowed Biomes'] .dt-after"] }),
   "review-one-collapsed": one("The same data asset with Waves[0] collapsed to its count", single("waves"), { height: 1300, clicks: ["[data-id='s:Details/p:Waves[0]'] .dt-toggle"] }),
+  "review-one-blueprint-component": one("One file: a Blueprint that gained a component outside the agent: no thumbnails, the tree carries the change", single("component")),
+  "review-one-texture": one("One file: a texture changed: Before and After side by side above its records", single("texture")),
+  "review-one-new-mesh": one("One file: a static mesh added in the turn: its one picture, labelled New", single("lantern")),
   "review-card-remote": { ...card("A paired browser: every item state"), remotePage: true },
 };
