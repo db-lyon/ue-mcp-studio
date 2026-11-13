@@ -355,7 +355,9 @@ describe.each(routes)("subagents on $name", (route) => {
     const d1 = route.daemon();
     const s = d1.store.create();
     void d1.runner.send(s.id, "go build");
-    await until(() => world.calls.includes("door"), T);
+    await until(() => world.calls.includes("door") && d1.runner.canMessage(d1.store.get(s.id)!, "door"), T);
+    // Written to it just before the daemon goes down: it still reads it, and its result still names it.
+    expect(await d1.runner.messageSubagent(s.id, "door", "make it red")).toBe(true);
     await sleep(50);
     d1.runner.dispose();
     const d2 = route.daemon();
@@ -365,8 +367,9 @@ describe.each(routes)("subagents on $name", (route) => {
     // The call it was making when the daemon went down is never run again: its outcome is unknown.
     expect(world.calls.filter((c) => c === "door")).toHaveLength(1);
     expect(call(fin, "c-door")!.call.outcome).toBe("unknown");
-    expect(agentCall(fin, "door")!.call).toMatchObject({ outcome: "done", result: "door done" });
-    expect(mainSaid(fin).at(-1)).toBe("Reports: door done");
+    expect(agentCall(fin, "door")!.call.outcome).toBe("done");
+    expect(agentCall(fin, "door")!.call.result).toMatch(/^door done \(heard: make it red\)\n\n\[Studio\] While it worked, the user wrote to this subagent[\s\S]*make it red$/);
+    expect(mainSaid(fin).at(-1)).toMatch(/^Reports: door done \(heard: make it red\)/);
     expect(fin.agentRuns ?? {}).toEqual({});
   }, 30_000);
 });

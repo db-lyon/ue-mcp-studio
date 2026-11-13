@@ -63,7 +63,7 @@ export interface StoredSession {
    * host event applied when its conversation runs in a turn host, and its
    * conversation so far when it runs on Studio's loop, which a restart resumes.
    */
-  agentRuns?: Record<string, { background: boolean; assigned: boolean; seq?: number; messages?: MessageParam[] }>;
+  agentRuns?: Record<string, { background: boolean; assigned: boolean; seq?: number; messages?: MessageParam[]; told?: string[] }>;
   /** The conversation as the model sees it. */
   messages: MessageParam[];
   /** The conversation as the UI shows it. */

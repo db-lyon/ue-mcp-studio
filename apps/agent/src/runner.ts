@@ -2185,7 +2185,7 @@ ${result}`);
     const was = s.agentRuns?.[run.callId];
     const at = seq ?? was?.seq;
     const conv = messages ?? was?.messages;
-    (s.agentRuns ??= {})[run.callId] = { background: run.background, assigned: run.assigned, ...(at !== undefined ? { seq: at } : {}), ...(conv ? { messages: conv } : {}) };
+    (s.agentRuns ??= {})[run.callId] = { background: run.background, assigned: run.assigned, ...(at !== undefined ? { seq: at } : {}), ...(conv ? { messages: conv } : {}), ...(run.told.length ? { told: [...run.told] } : {}) };
     this.o.store.save(s);
   }
 
@@ -2337,9 +2337,13 @@ ${result}`);
   }
 
   /** Resume a subagent of Studio's loop from the conversation the previous daemon saved. */
-  private resumeAgent(s: StoredSession, input: Record<string, unknown>, id: string, saved: { background: boolean; assigned: boolean; messages?: MessageParam[] }): void {
+  private resumeAgent(s: StoredSession, input: Record<string, unknown>, id: string, saved: { background: boolean; assigned: boolean; messages?: MessageParam[]; told?: string[] }): void {
     const run = this.newRun(s, id, input, saved.assigned);
     run.background = saved.background;
+    run.told = [...(saved.told ?? [])];
+    // What the user wrote to it that its saved conversation does not hold yet waits for its next step again.
+    const had = JSON.stringify(saved.messages ?? []);
+    for (const t of run.told) if (!had.includes(JSON.stringify(t).slice(1, -1))) this.inbox.push(id, t);
     this.keepRun(s, run, undefined, saved.messages);
     // It takes a slot again, so the limit holds across the restart.
     void this.slotsFor(s.id).acquire(id);
@@ -2350,10 +2354,11 @@ ${result}`);
   }
 
   /** Take over a subagent whose conversation outlived the previous daemon in a turn host. */
-  private reattachAgent(s: StoredSession, input: Record<string, unknown>, id: string, saved: { background: boolean; assigned: boolean; seq?: number }, record: TurnHostRecord): boolean {
+  private reattachAgent(s: StoredSession, input: Record<string, unknown>, id: string, saved: { background: boolean; assigned: boolean; seq?: number; told?: string[] }, record: TurnHostRecord): boolean {
     if (!this.o.turnHosts) return false;
     const run = this.newRun(s, id, input, saved.assigned);
     run.background = saved.background;
+    run.told = [...(saved.told ?? [])];
     this.keepRun(s, run, saved.seq ?? 0);
     run.done = this.runSubagent(s, { id, name: "agent", input, state: "running" }, null, run, { record, from: saved.seq ?? 0 });
     this.settleRun(s, run);
@@ -2598,6 +2603,8 @@ ${result}`);
       if (!(await run.say(text))) return false;
     } else this.inbox.push(callId, text);
     run.told.push(text);
+    // Kept with the run, so its result still names it after a restart.
+    this.keepRun(s, run);
     this.addEntry(s, { kind: "user", text, at: now(), parent: callId });
     this.o.host.log.info(`session ${s.id}: a message for subagent ${callId}, read at its next step`);
     return true;
