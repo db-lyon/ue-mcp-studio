@@ -147,8 +147,12 @@ export interface SubscriptionTurn {
   onInputClosed?: (why: string) => void;
   /** The main agent finished its reply while background subagents still run (true), or is working again (false). */
   onFree?: (free: boolean) => void;
-  /** Run one tool call the model asked for, by its tool_use id. */
-  runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
+  /**
+   * Run one tool call the model asked for, by its tool_use id. `onStart` is
+   * told when the call gets past its approval and starts running, which a turn
+   * host keeps so a daemon restart never runs it twice.
+   */
+  runTool: (id: string, name: string, input: Record<string, unknown>, onStart?: () => void) => Promise<ToolExecution>;
   /** Tokens the turn spent since the last report, as each model message arrives; `parent` is the agent call of a subagent's message. */
   onTokens?: (tokens: number, parent: string | null) => void;
   /**
@@ -169,7 +173,7 @@ export interface SubscriptionTurn {
    * call to one reads as the ue_mcp call it is. Absent on Micro.
    */
   editor?: {
-    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>;
+    tools: Array<{ name: string; description: string; inputSchema: Record<string, unknown>; category?: string | null }>;
     canon: (name: string, input: Record<string, unknown>) => { name: string; input: Record<string, unknown> };
   };
 }
@@ -270,8 +274,8 @@ export interface LiveTurn {
   free: () => boolean;
   /** The turn still takes messages. */
   open: () => boolean;
-  /** Hand the main agent a message now; false once the input has closed. */
-  say: (blocks: unknown[]) => boolean;
+  /** Hand the main agent a message now; false once the input has closed. A turn in a host answers asynchronously. */
+  say: (blocks: unknown[]) => boolean | Promise<boolean>;
   /** Move every foreground subagent and command to the background, so they outlive an interrupt. */
   keep: () => Promise<boolean>;
   /** Stop only the main agent's current reply. */

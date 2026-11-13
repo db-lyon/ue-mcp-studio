@@ -106,3 +106,46 @@ describe("an update step while a turn is in progress", () => {
     q.stop();
   });
 });
+
+describe("turns that run in host processes", () => {
+  // busy: a turn runs; pinned: one runs inside the daemon, which a restart would end.
+  let pinned: boolean;
+  const hostedQueue = () =>
+    new UpdateQueue({
+      dataDir: dir,
+      busy: () => busy,
+      pinned: () => pinned,
+      run: async (step) => {
+        ran.push(step);
+        return { ok: true, started: step !== "plugin" };
+      },
+      interruptTurns: () => void interrupted++,
+      pollMs: 60_000,
+    });
+
+  it("let Studio and the restart run at once, ending nothing, while the plugin waits for them", async () => {
+    busy = true;
+    pinned = false;
+    const q = hostedQueue();
+    expect(await q.request("studio")).toMatchObject({ ok: true, started: true });
+    expect(await q.request("restart")).toMatchObject({ ok: true, started: true });
+    expect(await q.request("plugin")).toEqual({ ok: true, deferred: ["plugin"] });
+    expect(ran).toEqual(["studio", "restart"]);
+    expect(interrupted).toBe(0);
+    q.stop();
+  });
+
+  it("a waiting Studio step runs once only hosted turns are left", async () => {
+    busy = true;
+    pinned = true;
+    const q = hostedQueue();
+    expect(await q.request("studio")).toEqual({ ok: true, deferred: ["studio"] });
+    await q.tick();
+    expect(ran).toEqual([]);
+    pinned = false;
+    await q.tick();
+    expect(ran).toEqual(["studio"]);
+    expect(interrupted).toBe(0);
+    q.stop();
+  });
+});
