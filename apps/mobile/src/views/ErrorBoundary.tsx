@@ -8,6 +8,7 @@ import { Component, useState, type ErrorInfo, type ReactNode } from "react";
 import { View } from "react-native";
 import { Banner, Button, font, T, useTheme } from "../ui";
 import { FeedbackDialog } from "./Feedback";
+import { noteError } from "../chat/diag";
 
 /** Keep a report inside what the feedback route takes. */
 const MAX_STACK = 12_000;
@@ -64,6 +65,8 @@ export class ErrorBoundary extends Component<
   componentDidCatch(error: unknown, info: ErrorInfo): void {
     this.setState({ componentStack: info.componentStack ?? null });
     console.error(`${this.props.what} could not be shown`, error);
+    // Into the diagnostics too, whether or not a screen has hooked the console yet.
+    noteError(`${this.props.where ?? this.props.what}: ${error instanceof Error ? error.message : String(error)}`);
   }
 
   render(): ReactNode {

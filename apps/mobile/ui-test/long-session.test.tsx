@@ -6,6 +6,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
+import { UNREADABLE_ENTRY } from "@ue-mcp-studio/client-core";
 import { FIRST_ROWS, MainTranscript } from "../src/chat/Transcript";
 import { Chat } from "../src/views/Chat";
 import { HUGE_ID, HUGE_LAST, HUGE_TITLE, hugeSession, hugeTranscript } from "../visual-qa/huge-session";
@@ -57,6 +58,65 @@ describe("a long session", () => {
     await settle();
     expect(screen.getByText(HUGE_TITLE)).toBeTruthy();
     expect(screen.getByText(HUGE_LAST)).toBeTruthy();
+  });
+
+  describe("while background subagents fill the newest page", () => {
+    const at = "2026-11-13T21:19:29.165Z";
+    const sub = (i: number): TranscriptEntry => ({ kind: "tool", parent: "g1", call: { id: `c${i}`, name: "shell", input: { command: `run ${i}` }, outcome: "done", result: "ok", startedAt: at } });
+    const whole: TranscriptEntry[] = [
+      ...Array.from({ length: 24 }, (_, i): TranscriptEntry => ({ kind: i % 2 ? "assistant" : "user", text: `main ${i}`, at })),
+      { kind: "user", text: "get those workers going again", at },
+      { kind: "assistant", text: "Both workers are running again.", at },
+      ...Array.from({ length: 329 }, (_, i) => sub(i)),
+      { kind: "note", text: "The editor disconnected during this turn: the project is rebuilding.", at },
+    ];
+
+    it("offers the earlier messages at the top of a thread too short to scroll", () => {
+      const more = vi.fn();
+      renderInProject(<MainTranscript {...props(whole.slice(-60))} more={more} />);
+      expect(screen.getByText("The editor disconnected during this turn: the project is rebuilding.")).toBeTruthy();
+      fireEvent.click(screen.getByText("Show earlier messages"));
+      expect(more).toHaveBeenCalled();
+    });
+
+    it("opens on the main thread against a daemon that answers only the 60 entries asked for", async () => {
+      const api = fakeApi();
+      const base = { id: "s9", title: "Vale: build the combat features", status: "running", createdAt: at, updatedAt: at, touched: [], draft: "", seen: [], dismissed: [], queue: [], error: null, approvals: [], waitingCause: null };
+      api.sessions.mockResolvedValue({ sessions: [base] });
+      api.settings.mockResolvedValue({ route: "key" });
+      api.sessionSync.mockImplementation(async (_id: string, _have: string | undefined, p?: { tail?: number; before?: number }) => {
+        const end = p?.before ?? whole.length;
+        const from = Math.max(0, end - (p?.tail ?? end));
+        return { ...base, hashes: "", transcript: whole.slice(from, end), from, total: whole.length };
+      });
+      renderInProject(<Chat initialSession="s9" />, api);
+      for (let i = 0; i < 8; i++) await settle();
+      expect(screen.getByText("Both workers are running again.")).toBeTruthy();
+      expect(screen.getByText("get those workers going again")).toBeTruthy();
+    });
+  });
+
+  it("keeps the chat around entries of a shape it does not know: the rest draws, and the composer stays", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const at = "2026-11-13T21:19:29.165Z";
+    const api = fakeApi();
+    const base = { id: "s8", title: "Odd shapes", status: "idle", createdAt: at, updatedAt: at, touched: [], draft: "", seen: [], dismissed: [], queue: [], error: null, approvals: [], waitingCause: null };
+    api.sessions.mockResolvedValue({ sessions: [base] });
+    api.settings.mockResolvedValue({ route: "key" });
+    const odd = [
+      { kind: "user", text: "Before the odd ones", at },
+      { kind: "tool", at },
+      { kind: "a-kind-from-a-later-daemon", payload: { x: 1 }, at },
+      { kind: "assistant", text: "After the odd ones", at },
+    ] as unknown as TranscriptEntry[];
+    api.sessionSync.mockResolvedValue({ ...base, transcript: odd, subagents: "not a list", working: 7 });
+    renderInProject(<Chat initialSession="s8" />, api);
+    await settle();
+    await settle();
+    expect(screen.getByText("Odd shapes")).toBeTruthy();
+    expect(screen.getByText("Before the odd ones")).toBeTruthy();
+    expect(screen.getByText("After the odd ones")).toBeTruthy();
+    expect(screen.getByText(UNREADABLE_ENTRY)).toBeTruthy();
   });
 
   it("says a line could not be shown in its place, and still shows the rest", () => {

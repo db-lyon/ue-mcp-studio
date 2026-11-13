@@ -12,6 +12,87 @@ import type { AgentThreadPage, SessionDetail, SessionSync, TranscriptEntry } fro
 const fromOf = (d: SessionDetail | null): number => d?.from ?? 0;
 
 /**
+ * The fewest main-thread entries (no `parent`) a paged loader holds before it
+ * stops reading older pages on its own. The chat draws only the main thread,
+ * and while background subagents run, the newest page can be all theirs: a
+ * daemon before 0.1.35-beta.28 answers such a page as asked, and the chat
+ * would be empty with nothing to scroll that reads more.
+ */
+export const MIN_MAIN_ENTRIES = 20;
+
+/** In place of an entry this client cannot read, so the rest of the chat still draws. */
+export const UNREADABLE_ENTRY = "An entry here could not be read by this version of Studio.";
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** What an entry of each kind must carry for the chat models to read it; a kind not listed is drawn by its own fallback. */
+const ENTRY_NEEDS: Record<string, (e: Record<string, unknown>) => boolean> = {
+  user: (e) => typeof e.text === "string",
+  assistant: (e) => typeof e.text === "string",
+  note: (e) => typeof e.text === "string",
+  tool: (e) => isObj(e.call) && typeof e.call.id === "string" && typeof e.call.name === "string",
+  dialog: (e) => isObj(e.dialog),
+  qa: (e) => isObj(e.run),
+  review: (e) => isObj(e.review),
+  flow: (e) => Array.isArray(e.steps),
+  playtest: (e) => isObj(e.request),
+};
+
+/**
+ * The detail with every part the chat reads in a shape it can read: a list
+ * that is not one is empty, a derived part of the wrong type is left out (so
+ * the client works it out from the transcript, as for an older daemon), and
+ * an entry it cannot read becomes a note at the same place, so positions and
+ * deltas still line up. `problems` says what was mended, for diagnostics.
+ * One unexpected field never empties the chat.
+ */
+export function readableDetail(d: SessionDetail): { detail: SessionDetail; problems: string[] } {
+  const problems: string[] = [];
+  const raw = d as unknown as Record<string, unknown>;
+  const changes = new Map<string, unknown>();
+  const set = (k: string, v: unknown, why: string): void => {
+    changes.set(k, v);
+    problems.push(why);
+  };
+  const transcript = raw.transcript;
+  if (!Array.isArray(transcript)) set("transcript", [], "transcript is not a list");
+  else {
+    let mended: unknown[] | null = null;
+    for (let i = 0; i < transcript.length; i++) {
+      const e: unknown = transcript[i];
+      if (isObj(e) && typeof e.kind === "string" && (ENTRY_NEEDS[e.kind]?.(e) ?? true)) continue;
+      mended ??= [...transcript];
+      const parent = isObj(e) && typeof e.parent === "string" ? { parent: e.parent } : {};
+      const at = isObj(e) && typeof e.at === "string" ? e.at : new Date(0).toISOString();
+      mended[i] = { kind: "note", text: UNREADABLE_ENTRY, at, ...parent };
+      problems.push(`entry ${(d.from ?? 0) + i} (${isObj(e) ? String(e.kind) : typeof e}) could not be read`);
+    }
+    if (mended) changes.set("transcript", mended);
+  }
+  for (const k of ["touched", "seen", "dismissed", "queue", "approvals", "timeline"]) if (k in raw && raw[k] != null && !Array.isArray(raw[k])) set(k, [], `${k} is not a list`);
+  for (const k of ["subagents", "liveRuns"]) if (k in raw && raw[k] != null && !Array.isArray(raw[k])) set(k, undefined, `${k} is not a list`);
+  if ("working" in raw && raw.working != null && !isObj(raw.working)) set("working", undefined, "working is not an object");
+  if ("compacting" in raw && raw.compacting != null && typeof raw.compacting !== "boolean") set("compacting", undefined, "compacting is not true or false");
+  if ("draft" in raw && typeof raw.draft !== "string") set("draft", "", "draft is not text");
+  if (changes.size === 0) return { detail: d, problems };
+  const out: Record<string, unknown> = { ...raw };
+  for (const [k, v] of changes) {
+    if (v === undefined) delete out[k];
+    else out[k] = v;
+  }
+  return { detail: out as unknown as SessionDetail, problems };
+}
+
+/** The control at the top of a paged chat that reads the entries before the held ones, for a thread too short to scroll. */
+export const EARLIER_ENTRIES = "Show earlier messages";
+
+/** How many main-thread entries the held transcript has. */
+export const mainEntries = (transcript: readonly TranscriptEntry[]): number => transcript.reduce((n, e) => (e.parent ? n : n + 1), 0);
+
+/** Whether a paged detail should read the page before it on its own: older entries left, and too few of the main thread to draw. */
+export const wantsOlder = (d: SessionDetail, min = MIN_MAIN_ENTRIES): boolean => fromOf(d) > 0 && mainEntries(d.transcript) < min;
+
+/**
  * The detail a sync answer leaves: the whole transcript, a page of it, or the
  * one held with the changed entries put in. Null when the answer cut the
  * transcript back past the start of a held page, so the newest page must be
@@ -49,6 +130,8 @@ export interface DetailLoaderOptions {
    * event asked for can land just after the delete.
    */
   gone?: (id: string) => void;
+  /** Parts of an answer this client could not read and mended (readableDetail), for diagnostics. */
+  problem?: (id: string, problems: string[]) => void;
 }
 
 /** The daemon answered that the session does not exist: 404 with "no session <id>". */
@@ -98,6 +181,13 @@ export class DetailLoader {
     return this.running;
   }
 
+  /** The detail in a shape the chat reads, what was mended reported. */
+  private readable(id: string, d: SessionDetail): SessionDetail {
+    const { detail, problems } = readableDetail(d);
+    if (problems.length) this.options.problem?.(id, problems);
+    return detail;
+  }
+
   private async pump(): Promise<void> {
     while (this.wanted !== null || this.wantOlder !== null) {
       if (this.wanted === null) {
@@ -114,7 +204,8 @@ export class DetailLoader {
         const sync = await this.fetchSync(id, have, have === undefined && tail ? { tail } : undefined);
         // A different session asked for meanwhile: this answer is not shown, the loop fetches that one.
         if (this.wanted !== null && this.wanted !== id) continue;
-        const detail = mergeSync(this.held?.id === id ? this.held.detail : null, sync, true);
+        const merged = mergeSync(this.held?.id === id ? this.held.detail : null, sync, true);
+        const detail = merged && this.readable(id, merged);
         if (!detail) {
           // Cut back past the held page (a rewind): read the newest page again.
           this.held = null;
@@ -123,6 +214,8 @@ export class DetailLoader {
         }
         this.held = { id, hashes: "hashes" in sync ? sync.hashes : undefined, detail };
         this.apply(detail);
+        // A page with too little of the main thread to draw reads the one before it.
+        if (tail && wantsOlder(detail, Math.min(tail, MIN_MAIN_ENTRIES))) this.wantOlder ??= id;
       } catch (e) {
         if (this.held?.id === id) this.held = null;
         if (sessionGone(e) && this.options.gone) this.options.gone(id);
@@ -142,10 +235,13 @@ export class DetailLoader {
       if (this.held !== held || !("hashes" in sync) || !sync.transcript) return;
       const from = sync.from ?? 0;
       const transcript = [...sync.transcript.slice(0, before - from), ...held.detail.transcript];
-      const detail: SessionDetail = from ? { ...held.detail, transcript, from } : { ...held.detail, transcript };
+      const detail: SessionDetail = this.readable(id, from ? { ...held.detail, transcript, from } : { ...held.detail, transcript });
       if (!from) delete detail.from;
       this.held = { ...held, detail };
       this.apply(detail);
+      // Still too little of the main thread, and this page got further back: the one before it too.
+      const tail = this.options.tail;
+      if (tail && from < before && wantsOlder(detail, Math.min(tail, MIN_MAIN_ENTRIES))) this.wantOlder ??= id;
     } catch (e) {
       if (sessionGone(e) && this.options.gone) this.options.gone(id);
       else this.fail(e instanceof Error ? e : new Error(String(e)));
