@@ -134,6 +134,17 @@ export interface SubscriptionTurn {
    * user stops it while it waits; null once it starts.
    */
   onQueued?: (toolUseId: string, cancel: (() => void) | null) => void;
+  /**
+   * The main agent and its background subagents, while the turn runs:
+   * `background` is how many background subagents are still working,
+   * `say` hands the main agent the user's next message now (false once the
+   * turn's input has closed), and `interrupt` stops only the main agent's
+   * current reply, leaving the background subagents running. Null once the
+   * turn has ended.
+   */
+  onLive?: (live: { background: () => number; free: () => boolean; say: (blocks: unknown[]) => boolean; interrupt: () => Promise<void> } | null) => void;
+  /** The main agent finished its reply while background subagents still run (true), or is working again (false). */
+  onFree?: (free: boolean) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
   runTool: (id: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
   /** Tokens the turn spent since the last report, as each model message arrives; `parent` is the agent call of a subagent's message. */
@@ -249,14 +260,43 @@ export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem
   };
 }
 
-/** Text alone goes as a string; with an image or a document, as one user message of blocks. */
-function promptOf(blocks: unknown[], resume: string | null): string | AsyncIterable<SDKUserMessage> {
-  const all = blocks as Array<{ type: string; text?: string }>;
-  if (all.every((b) => b.type === "text")) return all.map((b) => b.text).join("\n\n");
-  return (async function* () {
-    yield { type: "user", message: { role: "user", content: blocks }, parent_tool_use_id: null, session_id: resume ?? "" } as unknown as SDKUserMessage;
-  })();
+const userMessage = (blocks: unknown[], session: string): SDKUserMessage =>
+  ({ type: "user", message: { role: "user", content: blocks }, parent_tool_use_id: null, session_id: session }) as unknown as SDKUserMessage;
+
+/**
+ * The turn's input, streamed: its first message, then each message the user
+ * sends while only background subagents run. The binary keeps working while
+ * it is open; closing it lets the binary finish what it has and exit.
+ */
+export function inputChannel(first: SDKUserMessage) {
+  const pending: SDKUserMessage[] = [first];
+  let wake: (() => void) | null = null;
+  let closed = false;
+  return {
+    get closed() { return closed; },
+    push(m: SDKUserMessage): boolean {
+      if (closed) return false;
+      pending.push(m);
+      wake?.();
+      return true;
+    },
+    close(): void {
+      closed = true;
+      wake?.();
+    },
+    messages: (async function* () {
+      for (;;) {
+        while (pending.length) yield pending.shift()!;
+        if (closed) return;
+        await new Promise<void>((r) => { wake = r; });
+        wake = null;
+      }
+    })(),
+  };
 }
+
+/** How long the main agent may sit idle after the last background subagent ends before the input closes. */
+const LAST_TASK_GRACE_MS = 5000;
 
 /** JSON with object keys sorted, so the same input matches whatever order its keys came in. */
 const canonical = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x));
@@ -386,9 +426,29 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   };
   const hooks = { ...("hooks" in sub ? sub.hooks : {}), PostCompact: [{ hooks: [compacted] }] };
 
+  const input = inputChannel(userMessage(t.prompt, t.resume ?? ""));
+  let sessionId = t.resume ?? "";
+  // Background subagents still working, by agent call id.
+  const background = new Set<string>();
+  // The main agent ended its reply and has not started another.
+  let free = false;
+  // A Stop that interrupted only the main agent: the result it ends with is not the turn's error.
+  let interrupted = false;
+  let grace: ReturnType<typeof setTimeout> | null = null;
+  const setFree = (v: boolean) => {
+    if (free === v) return;
+    free = v;
+    t.onFree?.(v);
+  };
+  const closeIfDone = () => {
+    if (grace) { clearTimeout(grace); grace = null; }
+    if (free && background.size === 0) input.close();
+  };
+  t.signal.addEventListener("abort", () => input.close(), { once: true });
+
   try {
     const q = query({
-      prompt: promptOf(t.prompt, t.resume),
+      prompt: input.messages,
       options: {
         model: t.model,
         effort: t.effort,
@@ -420,6 +480,21 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       if (t.signal.aborted) onStop();
       else t.signal.addEventListener("abort", onStop, { once: true });
     });
+    t.onLive?.({
+      background: () => background.size,
+      free: () => free,
+      say: (blocks) => {
+        if (!input.push(userMessage(blocks, sessionId))) return false;
+        if (grace) { clearTimeout(grace); grace = null; }
+        setFree(false);
+        return true;
+      },
+      interrupt: async () => {
+        if (free) return;
+        interrupted = true;
+        await q.interrupt().catch(() => undefined);
+      },
+    });
     const messages = (q as AsyncIterable<SDKMessage>)[Symbol.asyncIterator]();
     let error: string | null = null;
     // The SDK repeats a message per content block with its usage so far: count each message's growth once.
@@ -443,7 +518,12 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       const next = await Promise.race([messages.next(), stopped]);
       if (!next || next.done || t.signal.aborted) break;
       const m = next.value;
-      if (m.type === "system" && "subtype" in m && m.subtype === "init") t.onSession(m.session_id);
+      // The main agent speaking again, after a background subagent's report or the user's message.
+      if (free && (m.type === "assistant" || m.type === "stream_event") && !m.parent_tool_use_id) setFree(false);
+      if (m.type === "system" && "subtype" in m && m.subtype === "init") {
+        sessionId = m.session_id;
+        t.onSession(m.session_id);
+      }
       else if (m.type === "system" && "subtype" in m && m.subtype === "status") {
         if (m.status === "compacting") t.onCompaction?.({ started: true });
         else if (m.compact_result === "failed") t.onCompaction?.({ failed: m.compact_error || "The conversation could not be compacted." });
@@ -454,13 +534,17 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         if (m.tool_use_id) {
           const taskId = m.task_id;
           t.onStopper(m.tool_use_id, () => q.stopTask(taskId));
+          if (m.is_backgrounded) background.add(m.tool_use_id);
           t.onTask(m.tool_use_id, "started", { background: m.is_backgrounded });
         }
       } else if (m.type === "system" && "subtype" in m && m.subtype === "task_notification") {
         if (m.tool_use_id) {
           t.onStopper(m.tool_use_id, null);
           slots.release(m.tool_use_id);
+          background.delete(m.tool_use_id);
           t.onTask(m.tool_use_id, m.status, { summary: m.summary });
+          // The binary usually answers the last report with a main reply; if it stays idle, the turn ends.
+          if (free && background.size === 0 && !grace) grace = setTimeout(closeIfDone, LAST_TASK_GRACE_MS);
         }
       }
       else if (m.type === "stream_event") {
@@ -495,14 +579,25 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       } else if (m.type === "user" && Array.isArray(m.message.content)) {
         t.onToolResults(m.message.content as unknown[], m.parent_tool_use_id);
       } else if (m.type === "result") {
+        sessionId = m.session_id;
         t.onSession(m.session_id);
-        if (m.subtype !== "success") error = error ?? endedText(m.subtype);
+        if (interrupted) interrupted = false;
+        else if (m.subtype !== "success") error = error ?? endedText(m.subtype);
         else if (m.is_error) error = error ?? m.result;
+        // The main agent's reply ended. With background subagents still working, it takes the user's next message now.
+        if (background.size === 0) {
+          free = true;
+          input.close();
+        } else setFree(true);
       }
     }
     return t.signal.aborted ? null : error;
   } catch (e) {
     return t.signal.aborted ? null : e instanceof Error ? e.message : String(e);
+  } finally {
+    if (grace) clearTimeout(grace);
+    input.close();
+    t.onLive?.(null);
   }
 }
 

@@ -33,7 +33,7 @@ import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../cha
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
-import { DetailLoader, sessionGone } from "@ue-mcp-studio/client-core";
+import { DetailLoader, composerBusy, sessionGone } from "@ue-mcp-studio/client-core";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
 import { AgentsButton, ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
@@ -582,8 +582,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
               draft={draft}
               onDraft={setDraft}
               onBlur={() => selected && void api.saveDraft(selected, draft)}
-              placeholder={busy ? "The agent is working. Write the next message to queue it." : openThread ? "Message the main agent" : "Ask for something in the editor, or drop files here"}
-              busy={busy}
+              placeholder={composerBusy(detail) ? "The agent is working. Write the next message to queue it." : detail.mainFree ? "Subagents are working. Message the main agent" : openThread ? "Message the main agent" : "Ask for something in the editor, or drop files here"}
+              busy={composerBusy(detail)}
               canSend={canSend}
               onSend={send}
               commands={commands}

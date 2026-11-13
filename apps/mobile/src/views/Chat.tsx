@@ -9,7 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { DetailLoader, agentCalls, chatPane, sessionGone, unreachable } from "@ue-mcp-studio/client-core";
+import { DetailLoader, agentCalls, chatPane, composerBusy, sessionGone, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { writeLocation } from "../location";
 import { haptic } from "../native/haptics";
@@ -662,8 +662,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           draft={draft}
                           onDraft={setDraft}
                           onBlur={() => selected && void api.saveDraft(selected, draft).catch(() => {})}
-                          placeholder={busy ? "The agent is working. Write the next message to queue it." : openThread ? "Message the main agent" : "Ask for something in the editor, or drop files here"}
-                          busy={busy}
+                          placeholder={composerBusy(detail) ? "The agent is working. Write the next message to queue it." : detail.mainFree ? "Subagents are working. Message the main agent" : openThread ? "Message the main agent" : "Ask for something in the editor, or drop files here"}
+                          busy={composerBusy(detail)}
                           canSend={canSend}
                           onSend={send}
                           commands={remoteCmd.commands}

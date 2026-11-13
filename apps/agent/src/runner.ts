@@ -316,6 +316,8 @@ const MAX_CARD_BYTES = 64 * 1024;
 
 export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
+  /** Turns on the Claude sign-in that are running, by session: their main agent and background subagents. */
+  private readonly live = new Map<string, { background: () => number; free: () => boolean; say: (blocks: unknown[]) => boolean; interrupt: () => Promise<void> }>();
   /** Each running subagent, by its agent call id, so one can be stopped without the turn. */
   private readonly subagents = new Map<string, () => void>();
   /** Agent calls marked waiting to start before their transcript entry arrived. */
@@ -827,6 +829,8 @@ export class AgentRunner {
     }
     const s = this.require(sessionId);
     if (this.active.has(s.id) || s.status === "running" || s.status === "waiting") {
+      // Only background subagents are working: the main agent takes the message now.
+      if (this.mainFree(s.id) && (await this.tell(s, text, attachments))) return;
       throw new Error("a turn is already in progress; stop it or wait for it to finish");
     }
     s.archived = false;
@@ -1221,12 +1225,25 @@ ${result}`);
           this.recordOutcome(s, { id: callId, name: "agent", input: {}, state: "done", result: QUEUED_STOP, isError: true }, "stopped");
         })),
         runTool: (toolId, name, input) => this.subscriptionTool(s, controller, toolId, name, input),
+        onLive: (live) => {
+          if (live) this.live.set(s.id, live);
+          else this.live.delete(s.id);
+        },
+        onFree: (free) => {
+          s.mainFree = free;
+          this.o.store.save(s);
+          this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+          // What the user queued while the main agent worked goes to it now, beside the running subagents.
+          if (free && s.queue?.length) setTimeout(() => this.tellQueued(s.id), 0);
+        },
       });
       if (controller.signal.aborted) return;
       s.error = error;
       this.setStatus(s, error ? "error" : "idle", null);
     } finally {
       if (this.active.get(id) === controller) this.active.delete(id);
+      this.live.delete(id);
+      s.mainFree = false;
       for (const t of s.transcript) if (t.kind === "tool" && t.call.name === "agent") this.subagentStops.delete(t.call.id);
       // A call the turn ended without answering never finishes now. A stop answered its own already.
       if (!controller.signal.aborted) this.endCalls(s, () => "The turn ended before this call returned a result.", "error");
@@ -1337,7 +1354,88 @@ ${result}`);
 
   /** The user's Stop. Unanswered tool calls are answered as stopped so the conversation stays valid. */
   stop(sessionId: string): void {
+    // With background subagents working, Stop ends only the main agent's reply; a second Stop, with it idle, ends them too.
+    const live = this.live.get(sessionId);
+    if (live && live.background() > 0 && !live.free()) {
+      void this.stopMain(sessionId, live).catch((e) => this.o.host.log.warn(`stopping the main agent in session ${sessionId} failed`, e));
+      return;
+    }
     this.interrupt(sessionId, USER_STOP);
+  }
+
+  /** Stop the turn and every subagent in it. */
+  stopAll(sessionId: string): void {
+    this.interrupt(sessionId, USER_STOP);
+  }
+
+  /** Background subagents are running, and a Stop or a sent message leaves them running. */
+  keepsSubagents(sessionId: string): boolean {
+    return (this.live.get(sessionId)?.background() ?? 0) > 0;
+  }
+
+  /** The main agent is idle while background subagents run: a message goes to it now. */
+  mainFree(sessionId: string): boolean {
+    return !!this.live.get(sessionId)?.free();
+  }
+
+  /** Interrupt the main agent's reply only. Its own open calls end as stopped; the subagents' calls go on. */
+  private async stopMain(sessionId: string, live: { interrupt: () => Promise<void> }): Promise<void> {
+    await live.interrupt();
+    const s = this.require(sessionId);
+    for (const t of s.transcript) {
+      if (t.kind !== "tool" || t.parent || t.call.outcome !== "pending" || t.call.queued || this.subagents.has(t.call.id)) continue;
+      this.recordOutcome(s, { id: t.call.id, name: t.call.name, input: (t.call.input ?? {}) as Record<string, unknown>, state: "done", result: "Stopped by the user.", isError: true }, "stopped");
+    }
+    this.o.store.save(s);
+  }
+
+  /**
+   * Hand the user's message to the main agent while background subagents run,
+   * inside the same turn. False when the main agent cannot take one now.
+   */
+  private async tell(s: StoredSession, text: string, attachments: Array<Attachment & { path: string }>): Promise<boolean> {
+    const live = this.live.get(s.id);
+    if (!live) return false;
+    const content: unknown[] = [];
+    for (const note of s.notes) content.push({ type: "text", text: `[Studio] ${note}` });
+    for (const a of attachments) content.push(...(await contentFor(a)));
+    if (text.trim()) content.push({ type: "text", text });
+    if (!live.say(content)) return false;
+    s.notes.splice(0);
+    s.messages.push({ role: "user", content } as MessageParam);
+    s.transcript.push({
+      kind: "user",
+      text,
+      at: now(),
+      ...(attachments.length ? { attachments: attachments.map(({ id, name, type, size }) => ({ id, name, type, size })) } : {}),
+    });
+    s.draft = "";
+    this.o.store.save(s);
+    this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+    return true;
+  }
+
+  /** The first queued message, to a main agent that is free while subagents run. */
+  private tellQueued(sessionId: string): void {
+    const s = this.o.store.get(sessionId);
+    if (!s || !s.queue?.length || !this.mainFree(s.id)) return;
+    const [next, ...rest] = s.queue;
+    s.queue = rest;
+    this.o.store.save(s);
+    void this.tell(s, next.text, this.queuedFiles(s, next)).then((told) => {
+      if (told) return;
+      // The turn ended meanwhile: the message goes back to the front, and the next turn sends it.
+      s.queue = [next, ...(s.queue ?? [])];
+      this.o.store.save(s);
+      if (!this.busy(s)) void this.sendQueued(s.id);
+    }, (e) => this.o.host.log.warn(`a queued message in session ${sessionId} failed`, e));
+  }
+
+  private queuedFiles(s: StoredSession, q: QueuedMessage): Array<Attachment & { path: string }> {
+    return q.attachments.flatMap((a) => {
+      const f = this.files.get(s.id, a.id);
+      return f ? [f] : [];
+    });
   }
 
   /** The sessions with a turn running or waiting. */
@@ -1637,6 +1735,7 @@ ${result}`);
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
     if (!this.busy(s)) void this.sendQueued(s.id);
+    else if (this.mainFree(s.id)) this.tellQueued(s.id);
     return q;
   }
 
@@ -1682,18 +1781,20 @@ ${result}`);
     s.queue = s.queue!.filter((x) => x.id !== id);
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
-    if (this.busy(s)) this.stop(sessionId);
-    const files = q.attachments.flatMap((a) => {
-      const f = this.files.get(s.id, a.id);
-      return f ? [f] : [];
-    });
-    this.send(s.id, q.text, files).catch((e) => this.o.host.log.warn(`a queued message in session ${sessionId} failed`, e));
+    // Background subagents keep working: sendNow stops only the main agent's reply then.
+    this.sendNow(s.id, q.text, this.queuedFiles(s, q)).catch((e) => this.o.host.log.warn(`a queued message in session ${sessionId} failed`, e));
     return true;
   }
 
   /** Stop the running turn, as Stop does, and send this message now, ahead of the queue. */
   async sendNow(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = []): Promise<void> {
     const s = this.require(sessionId);
+    const live = this.live.get(s.id);
+    if (live && live.background() > 0) {
+      // The subagents keep working: only the main agent's reply stops, and it takes this message next.
+      if (!live.free()) await this.stopMain(s.id, live);
+      if (await this.tell(s, text, attachments)) return;
+    }
     if (this.busy(s)) this.interrupt(sessionId, USER_SENT);
     await this.send(sessionId, text, attachments);
   }
@@ -1709,7 +1810,8 @@ ${result}`);
     const entry = s.transcript[index];
     if (!entry || entry.kind !== "user" || entry.parent) return false;
     const notes = s.notes.length;
-    if (this.busy(s)) this.stop(sessionId);
+    // The edit removes the turns the subagents belong to: everything stops.
+    if (this.busy(s)) this.stopAll(sessionId);
     // What the stop would tell the model is about turns the edit removes.
     s.notes = s.notes.slice(0, notes);
     const files = (entry.attachments ?? []).flatMap((a) => {
