@@ -4,8 +4,8 @@
  */
 import { describe, expect, it } from "vitest";
 import { deriveSession, type SessionDetail, type TranscriptEntry } from "@ue-mcp-studio/shared";
-import { agentView, mergeSync, subagentsOf, workingStatus } from "@ue-mcp-studio/client-core";
-import { LAZY_RESULT_CHARS, decodeHashes, leanEntry, resultOf, syncOf, threadOf } from "../src/session-delta.js";
+import { agentView, mainTimeline, mergeSync, subagentsOf, workingStatus } from "@ue-mcp-studio/client-core";
+import { LAZY_RESULT_CHARS, PAGE_MAIN_ENTRIES, PAGE_REACH, decodeHashes, leanEntry, pageStart, resultOf, syncOf, threadOf } from "../src/session-delta.js";
 
 const at = "2026-11-03T12:00:00.000Z";
 const tool = (id: string, result: string, outcome: "done" | "error" | "pending" = "done"): TranscriptEntry => ({
@@ -76,6 +76,79 @@ describe("session delta, a page at a time", () => {
     expect(syncOf(many(5), whole.hashes, { tail: 2 }).changed).toEqual({ length: 5, entries: [[4, { kind: "user", text: "m4", at }]] });
   });
 
+});
+
+/**
+ * The shape of a session whose background subagents ran for an hour while
+ * the main agent waited: its last main-thread entries are hundreds of
+ * entries back, behind the subagents' own lines, and the newest is a note.
+ * The Android app asks for the newest 60 entries and draws only the main
+ * thread (mergeSync and mainTimeline, unchanged since 0.1.35-beta.20), so a
+ * plain 60-entry page drew the note alone: "Chat no longer loads at all".
+ */
+describe("a page for a client that draws only the main thread", () => {
+  const TAIL = 60;
+  const sub = (parent: string, i: number): TranscriptEntry =>
+    i % 9 === 0
+      ? ({ kind: "assistant", text: `${parent} step ${i}`, at, parent } as TranscriptEntry)
+      : ({ kind: "tool", parent, call: { id: `${parent}-${i}`, name: "shell", input: { command: `run ${i}` }, outcome: "done", result: "ok", startedAt: at } } as TranscriptEntry);
+  const agentCall = (id: string): TranscriptEntry => ({ kind: "tool", call: { id, name: "agent", input: { description: id, prompt: id, run_in_background: true }, outcome: "done", result: "started", startedAt: at } });
+  const earlier = Array.from({ length: 40 }, (_, i) => ({ kind: i % 2 ? "assistant" : "user", text: `main ${i}`, at }) as TranscriptEntry);
+  const hour = Array.from({ length: 329 }, (_, i) => sub(i % 2 ? "g1" : "g2", i));
+  const transcript: TranscriptEntry[] = [
+    ...earlier,
+    { kind: "user", text: "get those workers going again", at },
+    agentCall("g1"),
+    agentCall("g2"),
+    { kind: "assistant", text: "Both workers are running again.", at },
+    ...hour,
+    { kind: "note", text: "The editor disconnected during this turn: the project is rebuilding.", at },
+    ...hour.slice(0, 20),
+  ];
+  const texts = (t: TranscriptEntry[]) => mainTimeline(t).flatMap((i) => (i.kind === "entry" && "text" in i.entry ? [i.entry.text] : []));
+
+  it("reaches back past the subagents' lines to the main thread, so the chat is never just the note", () => {
+    // What a page of the newest 60 entries alone holds.
+    expect(transcript.slice(-TAIL).filter((e) => !e.parent)).toHaveLength(1);
+    const page = syncOf(detail(transcript), undefined, { tail: TAIL });
+    const held = mergeSync(null, page);
+    expect(page.total).toBe(transcript.length);
+    expect(held.transcript.filter((e) => !e.parent).length).toBeGreaterThanOrEqual(PAGE_MAIN_ENTRIES);
+    expect(held.from).toBe(pageStart(transcript, transcript.length, TAIL));
+    expect(held.transcript).toEqual(transcript.slice(held.from));
+    expect(texts(held.transcript)).toEqual(expect.arrayContaining(["get those workers going again", "Both workers are running again.", "The editor disconnected during this turn: the project is rebuilding."]));
+  });
+
+  it("keeps the later answers an old client merges: a delta by place in the whole transcript, and the page before by `before`", () => {
+    const page = syncOf(detail(transcript), undefined, { tail: TAIL });
+    let held = mergeSync(null, page);
+    const grown = [...transcript, { kind: "assistant", text: "The tuner is ready.", at } as TranscriptEntry];
+    held = mergeSync(held, syncOf(detail(grown), page.hashes));
+    expect(held.transcript).toEqual(grown.slice(held.from));
+    expect(texts(held.transcript).at(-1)).toBe("The tuner is ready.");
+    // The page before, as DetailLoader reads it, joins in front without a gap or an overlap.
+    const before = held.from!;
+    const older = syncOf(detail(grown), undefined, { tail: TAIL, before });
+    expect(older.from).toBeLessThan(before);
+    expect([...older.transcript!.slice(0, before - older.from!), ...held.transcript]).toEqual(grown.slice(older.from));
+  });
+
+  it("leaves a page with enough of the main thread as it was, and stops at the start and at its reach", () => {
+    const talk = Array.from({ length: 100 }, (_, i) => ({ kind: "assistant", text: `m${i}`, at }) as TranscriptEntry);
+    expect(pageStart(talk, 100, TAIL)).toBe(40);
+    expect(pageStart(hour, hour.length, TAIL)).toBe(0);
+    const far = [...earlier, ...Array.from({ length: PAGE_REACH + 500 }, (_, i) => sub("g1", i))];
+    expect(pageStart(far, far.length, TAIL)).toBe(far.length - TAIL - PAGE_REACH);
+  });
+
+  it("answers every field a client up to 0.1.35-beta.27 reads, with the types it reads them as", () => {
+    const page = syncOf(detail(transcript), undefined, { tail: TAIL }) as unknown as Record<string, unknown>;
+    for (const k of ["id", "title", "status", "createdAt", "updatedAt", "hashes"]) expect(typeof page[k], k).toBe("string");
+    for (const k of ["transcript", "touched", "seen", "dismissed", "queue", "approvals"]) expect(Array.isArray(page[k]), k).toBe(true);
+    expect(typeof page.draft).toBe("string");
+    expect(typeof page.from).toBe("number");
+    expect(typeof page.total).toBe("number");
+  });
 });
 
 describe("the session state the daemon works out for every client", () => {

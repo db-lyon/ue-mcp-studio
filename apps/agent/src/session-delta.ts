@@ -61,6 +61,35 @@ export interface SyncPage {
 }
 
 /**
+ * The fewest main-thread entries (no `parent`) a page holds when the
+ * transcript has them, so a page is never all subagent lines. Clients draw
+ * only the main thread, and while background subagents run for an hour the
+ * newest `tail` entries can all be theirs: every client up to 0.1.35-beta.27
+ * then drew an empty chat.
+ */
+export const PAGE_MAIN_ENTRIES = 20;
+
+/** How far a page reaches back past `tail` for those main-thread entries, in entries. */
+export const PAGE_REACH = 2000;
+
+/**
+ * Where the page that ends at `end` starts: `tail` entries back, or further
+ * back to hold PAGE_MAIN_ENTRIES (at most `tail`) main-thread entries, within PAGE_REACH.
+ */
+export function pageStart(transcript: readonly TranscriptEntry[], end: number, tail: number): number {
+  let from = Math.max(0, end - tail);
+  const want = Math.min(tail, PAGE_MAIN_ENTRIES);
+  let main = 0;
+  for (let i = from; i < end; i++) if (!transcript[i].parent) main++;
+  const floor = Math.max(0, from - PAGE_REACH);
+  while (main < want && from > floor) {
+    from--;
+    if (!transcript[from].parent) main++;
+  }
+  return from;
+}
+
+/**
  * The detail to send: in full when the client has nothing (`have` absent or
  * unreadable), only a page of it when it asks for one, else the entries that
  * differ from what it holds.
@@ -74,7 +103,7 @@ export function syncOf(detail: SessionDetail, have: string | undefined, page: Sy
   const held = have === undefined ? null : decodeHashes(have);
   if (!held && page.tail !== undefined && page.tail > 0) {
     const end = Math.min(lean.length, Math.max(0, page.before ?? lean.length));
-    const from = Math.max(0, end - page.tail);
+    const from = pageStart(transcript, end, page.tail);
     return { ...rest, hashes: encodeHashes(hashes), transcript: lean.slice(from, end), from, total: lean.length };
   }
   if (!held) return { ...rest, hashes: encodeHashes(hashes), transcript: lean };
