@@ -17,15 +17,24 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type * as net from "node:net";
-import type { Effort, SubagentMode } from "@ue-mcp-studio/shared";
+import type { Effort } from "@ue-mcp-studio/shared";
 import type { ToolExecution } from "./tools.js";
 import type { TokenUsage } from "./usage.js";
 import type { ContentBlock } from "./providers.js";
 
-/** Bumped when a message is added. Never reuse or change the meaning of an existing one. */
-export const TURN_HOST_PROTOCOL = 2;
-/** The first protocol whose host takes the user's messages to a running subagent (op tellSubagent, event inboxTaken). */
+/** Bumped when a message is added or a meaning changes. Never reuse or change the meaning of an existing one. */
+export const TURN_HOST_PROTOCOL = 3;
+/** The first protocol whose host takes the user's messages to a running subagent (op tellSubagent, event inboxTaken). Legacy hosts only. */
 export const TELL_SUBAGENT_PROTOCOL = 2;
+/**
+ * The first protocol whose host runs one conversation and no subagents of the
+ * runtime's own: Studio starts and steers subagents, each in a host of its
+ * own. A host below this (Studio 0.1.35-beta.25 and older) runs the runtime's
+ * subagents, and the daemon keeps the compatibility path for it (task, queued,
+ * free and inboxTaken events, stoppers, keep and tellSubagent) until no such
+ * host can still be running. Remove that path with this constant.
+ */
+export const STUDIO_SUBAGENTS_PROTOCOL = 3;
 export const HOSTS_DIR = "turn-hosts";
 
 /** What a host writes once it listens. A daemon trusts it only after the host answers hello with the same token. */
@@ -43,15 +52,18 @@ export interface TurnHostRecord {
   ended?: boolean;
 }
 
-/** The turn as the host runs it: everything in SubscriptionTurn that is data. */
+/** The conversation as the host runs it: everything in SubscriptionTurn that is data. */
 export interface TurnSpec {
   projectDir: string;
   model: string;
   effort: Effort;
   system: string;
-  subagentSystem: string;
-  subagents: { mode: SubagentMode; perTurn: number; model: string; effort: Effort };
-  native?: { settingSources: Array<"user" | "project" | "local">; agents: Record<string, unknown>; skills: boolean };
+  /** Studio's agent tool, for a main agent that may start subagents. */
+  agentTool?: { description: string; inputSchema: Record<string, unknown> };
+  /** Studio's tools by name, when a helper's file narrows them. */
+  allowed?: string[];
+  maxTurns?: number;
+  native?: { settingSources: Array<"user" | "project" | "local">; skills: boolean };
   prompt: unknown[];
   resume: string | null;
   /** The projected editor tools, with their categories so the host reads their calls back as ue_mcp calls. */
@@ -69,7 +81,11 @@ export interface TurnHostLaunch {
   spec: TurnSpec;
 }
 
-/** Turn events, kept in the journal with their sequence number and replayed to a daemon that reattaches. */
+/**
+ * Turn events, kept in the journal with their sequence number and replayed to
+ * a daemon that reattaches. task, queued, free and inboxTaken come only from a
+ * host below STUDIO_SUBAGENTS_PROTOCOL.
+ */
 export type TurnEvent =
   | { t: "session"; id: string }
   | { t: "assistant"; mid: string; content: ContentBlock[]; parent: string | null }

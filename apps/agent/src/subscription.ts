@@ -1,12 +1,17 @@
 /**
- * Run a turn on the user's Claude subscription through the Claude Agent SDK.
- * The SDK's own runtime binary runs it on the user's Claude Code login and
- * home (claude-auth.ts). The SDK owns the model loop; Studio's tools
- * are an in-process MCP server whose handlers run the same executor as the API path.
+ * Run one conversation step on the user's Claude subscription through the
+ * Claude Agent SDK: the main agent's reply, or one subagent Studio started.
+ * The SDK's runtime binary runs it on the user's Claude Code login and home
+ * (claude-auth.ts), the one route whose model is reached through a runtime
+ * rather than a request. Orchestration stays Studio's, as on every route: the
+ * runtime's own subagent tool and background tasks are switched off, and the
+ * main agent gets Studio's agent tool, whose calls Studio runs (runner.ts).
+ * Every tool is an in-process MCP server whose handlers run the same executor
+ * as the other routes.
  */
 import * as fs from "node:fs";
 import { createSdkMcpServer, query, tool, type HookCallback, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import type { Effort, SubagentMode } from "@ue-mcp-studio/shared";
+import type { Effort } from "@ue-mcp-studio/shared";
 import { z } from "zod";
 import type { ContentBlock } from "./providers.js";
 import { OMIT_DESCRIPTION, SELECT_DESCRIPTION, UE_MCP_DESCRIPTION, forModel, type ToolExecution } from "./tools.js";
@@ -14,8 +19,6 @@ import { messagesUsage, usageGrowth, usageTokens, type TokenUsage } from "./usag
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
-import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
-import { SubagentInbox } from "./subagent-inbox.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -49,23 +52,44 @@ export function zodShape(schema: Record<string, unknown>): Record<string, z.ZodT
     return [k, required.has(k) ? t : t.optional()];
   }));
 }
-/** The SDK's subagent tool, and the subagent Studio defines for it. */
-const AGENT = "Agent";
-const WORKER = "editor-worker";
-/** The SDK's web search, which runs on Anthropic's side: the one built-in tool besides Agent. */
+/** The runtime's own subagent tool, under both its names: off on this route, where Studio runs subagents itself. */
+const RUNTIME_AGENT = ["Agent", "Task"];
+/** The SDK's web search, which runs on the vendor's side and touches nothing here: the one built-in tool kept. */
 const SEARCH = "WebSearch";
 /** The SDK's skill tool, which an explicit tool list must name for the project's skills to load. */
 const SKILL = "Skill";
+/** Studio's subagent tool, by its Studio name. */
+export const AGENT_TOOL_NAME = "agent";
 
-/** Claude Code's built-in names a skill or subagent may use, each run by Studio's own tool through the SDK's toolAliases. */
+/** Claude Code's built-in names a skill may use, each run by Studio's own tool through the SDK's toolAliases. */
 export const BUILTIN_TO_STUDIO: Record<string, string> = { Bash: "shell", Read: "read_file", Write: "write_file", Edit: "edit_file", Glob: "glob", Grep: "grep", WebFetch: "web_fetch" };
 
-/** Tool names as Studio's transcript writes them: its own tools unprefixed, aliased built-ins as the tool that runs them, the SDK's subagent tool as agent. */
+/** Tool names as Studio's transcript writes them: its own tools unprefixed, aliased built-ins as the tool that runs them. */
 export const studioName = (name: string): string =>
   name.startsWith(PREFIX) ? name.slice(PREFIX.length)
-    : name === AGENT || name === "Task" ? "agent"
     : name === SEARCH ? "web_search"
     : BUILTIN_TO_STUDIO[name] ?? name;
+
+/**
+ * The SDK's tool options for one conversation: Studio's tools (narrowed to
+ * `allowed`, a project helper's list, in Studio's names), Studio's agent tool
+ * when the conversation may start subagents, web search and skills. The
+ * runtime's own subagent tool is always disallowed, under both names, so
+ * neither it nor a project's .claude/agents file starts a subagent Studio does
+ * not run.
+ */
+export function toolOptions(o: { agent: boolean; allowed?: string[]; editor?: string[]; skills: boolean }) {
+  const may = (name: string) => !o.allowed || o.allowed.includes(name);
+  const studio = withEditor(STUDIO_TOOLS, may("ue_mcp") ? o.editor : undefined).filter((n) => {
+    const base = n.slice(PREFIX.length);
+    // A projected editor tool comes with ue_mcp.
+    return o.editor?.includes(base) ? may("ue_mcp") : may(base);
+  });
+  const search = may("web_search") ? [SEARCH] : [];
+  const skill = o.skills ? [SKILL] : [];
+  const agent = o.agent ? [`${PREFIX}${AGENT_TOOL_NAME}`] : [];
+  return { tools: [...search, ...skill], allowedTools: [...studio, ...agent, ...search, ...skill], disallowedTools: [...RUNTIME_AGENT] };
+}
 
 /** A built-in's arguments in the shape Studio's tool takes: file_path as path, -i as ignore_case. */
 export function studioArgs(args: Record<string, unknown>): Record<string, unknown> {
@@ -102,17 +126,23 @@ export interface SubscriptionTurn {
   /** The SDK lowers a level the model does not have to its nearest one. */
   effort: Effort;
   system: string;
-  /** What each subagent the model starts is told. */
-  subagentSystem: string;
-  /** Whether the model may start subagents, how many run at once, and what they run on. */
-  subagents: { mode: SubagentMode; perTurn: number; model: string; effort: Effort };
+  /**
+   * Studio's agent tool, the definition every route's main agent gets (with
+   * the project's helpers listed); its calls go to runTool like any other.
+   * Absent: this conversation starts no subagents (they are off, or it is one).
+   */
+  agentTool?: { description: string; inputSchema: Record<string, unknown> };
+  /** Studio's tools this conversation may use, by Studio's names; every one when absent. A project helper's file narrows them. */
+  allowed?: string[];
+  /** The most model calls this conversation makes before the runtime ends it, as a helper's file can say. */
+  maxTurns?: number;
   /**
    * The project's own Claude Code files: the setting sources the SDK reads
-   * them from, the project's and the user's subagents (passed programmatically
-   * so their tools map onto Studio's), and whether there are skills. Absent:
-   * the SDK reads no files, as while "Read the project's own files" is off.
+   * instructions and skills from, and whether there are skills. Absent: the
+   * SDK reads no files, as while "Read the project's own files" is off. The
+   * project's subagent files are Studio's helpers, listed in agentTool.
    */
-  native?: { settingSources: Array<"user" | "project" | "local">; agents: Record<string, NativeAgentDefinition>; skills: boolean };
+  native?: { settingSources: Array<"user" | "project" | "local">; skills: boolean };
   /** The user's message as content blocks: text, and any images or documents attached. */
   prompt: unknown[];
   /** The SDK session to continue, from this Studio session's last turn. */
@@ -126,43 +156,21 @@ export interface SubscriptionTurn {
    */
   onAssistant: (messageId: string, content: ContentBlock[], parent: string | null) => void;
   onToolResults: (content: unknown[], parent: string | null) => void;
-  /** A subagent's lifecycle, by the agent call that started it. A background one reports here, not in its tool result. */
-  /** A subagent that can be stopped on its own, by its agent call id; null once it has finished. */
-  onStopper: (callId: string, stop: (() => Promise<void>) | null) => void;
-  onTask: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
   /**
-   * A subagent past the concurrency limit is waiting to start, with how the
-   * user stops it while it waits; null once it starts.
-   */
-  onQueued?: (toolUseId: string, cancel: (() => void) | null) => void;
-  /**
-   * The main agent and its background subagents, while the turn runs:
-   * `background` is how many background subagents are still working,
-   * `say` hands the main agent the user's next message now (false once the
-   * turn's input has closed), and `interrupt` stops only the main agent's
-   * current reply, leaving the background subagents running. Null once the
-   * turn has ended.
+   * The conversation while it runs: `say` hands it the user's next message
+   * now, streamed into its input (false once the input has closed), and
+   * `interrupt` stops its current reply. Null once it has ended.
    */
   onLive?: (live: LiveTurn | null) => void;
-  /** The turn's input closed while it still runs, and why: a message after this can only queue. */
+  /** The conversation's input closed while it still runs, and why: a message after this starts the next step. */
   onInputClosed?: (why: string) => void;
-  /** The main agent finished its reply while background subagents still run (true), or is working again (false). */
-  onFree?: (free: boolean) => void;
   /**
    * Run one tool call the model asked for, by its tool_use id. `onStart` is
    * told when the call gets past its approval and starts running, which a turn
    * host keeps so a daemon restart never runs it twice.
    */
   runTool: (id: string, name: string, input: Record<string, unknown>, onStart?: () => void) => Promise<ToolExecution>;
-  /**
-   * Given, the turn takes the user's messages to a running subagent
-   * (LiveTurn.tell) and hands each over at that subagent's next step; this is
-   * told, by agent call id, when one has read what waited for it (null: this
-   * turn's own main agent, for a subagent the user assigned, which runs as a
-   * turn of its own).
-   */
-  onInboxTaken?: (callId: string | null) => void;
-  /** Tokens the turn spent since the last report, as each model message arrives; `parent` is the agent call of a subagent's message. */
+  /** Tokens the turn spent since the last report, as each model message arrives; `parent` is null on this route, where every conversation is one agent's. */
   onTokens?: (tokens: number, parent: string | null) => void;
   /**
    * A model message's usage as the runtime reports it, again as it grows:
@@ -187,145 +195,24 @@ export interface SubscriptionTurn {
   };
 }
 
-/** A project subagent as the SDK takes it, its tools already in Studio's names. */
-export interface NativeAgentDefinition {
-  description: string;
-  prompt: string;
-  tools?: string[];
-  model?: string;
-  effort?: Effort;
-  maxTurns?: number;
-  skills?: string[];
-  background?: boolean;
-}
-
-/**
- * How the SDK route queues subagents: the slots the turn shares, and what the
- * runner is told while one waits.
- */
-export interface AgentQueue {
-  slots: SubagentSlots;
-  onQueued?: (toolUseId: string, cancel: (() => void) | null) => void;
-}
-
-/** A day, in seconds: a queued agent call waits as long as the running ones take. */
-const QUEUE_HOOK_TIMEOUT = 24 * 60 * 60;
-
-/**
- * The SDK options for subagents: none at all when they are off, the subagent
- * tool disallowed, else the subagent Studio defines, on its own model and
- * effort, with hooks that hold an agent call past the concurrency limit until
- * a running one finishes (never, with no limit).
- */
-export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem: string, native?: SubscriptionTurn["native"], editor?: string[], queue: AgentQueue = { slots: new SubagentSlots(s.perTurn) }) {
-  const studio = withEditor(STUDIO_TOOLS, editor);
-  const projectAgents = Object.fromEntries(Object.entries(native ? native.agents : {}).map(([n, a]) => [n, a.tools ? { ...a, tools: withEditor(a.tools, editor) } : a]));
-  const skill = native?.skills ? [SKILL] : [];
-  // Off, the SDK's subagent tool is withheld under both its names, so the project's .claude/agents files cannot run either.
-  if (s.mode === "off") return { tools: [SEARCH, ...skill], allowedTools: [...studio, SEARCH, ...skill], disallowedTools: [AGENT, "Task"] };
-  const { slots } = queue;
-  const deny = (reason: string) => ({ hookSpecificOutput: { hookEventName: "PreToolUse" as const, permissionDecision: "deny" as const, permissionDecisionReason: reason } });
-  // Before an agent call starts: it waits here while the limit is reached, and starts when a slot frees.
-  const hold: HookCallback = async (input, toolUseId, { signal }) => {
-    if (input.hook_event_name !== "PreToolUse") return {};
-    const id = input.tool_use_id ?? toolUseId ?? "";
-    let stoppedHere = false;
-    const onAbort = () => slots.cancel(id);
-    signal.addEventListener("abort", onAbort, { once: true });
-    const started = await slots.acquire(id, () => queue.onQueued?.(id, () => {
-      stoppedHere = true;
-      slots.cancel(id);
-    }));
-    signal.removeEventListener("abort", onAbort);
-    if (started) {
-      queue.onQueued?.(id, null);
-      return {};
-    }
-    return deny(stoppedHere ? QUEUED_STOP : "Stopped by the user.");
-  };
-  // A foreground agent call returns when its subagent ends; a background one's slot frees on its task notification.
-  const free: HookCallback = async (input, toolUseId) => {
-    if (input.hook_event_name === "PostToolUse") {
-      const r = input.tool_response as { status?: string } | null;
-      if (r?.status !== "async_launched") slots.release(input.tool_use_id ?? toolUseId ?? "");
-    } else if (input.hook_event_name === "PostToolUseFailure") slots.release(input.tool_use_id ?? toolUseId ?? "");
-    return {};
-  };
-  return {
-    // Built-ins: the subagent tool, and web search, which runs on Anthropic's side and touches nothing here.
-    // Everything else goes through Studio's tools, so one approval model and one transcript cover every route.
-    tools: [AGENT, SEARCH, ...skill],
-    agents: {
-      [WORKER]: {
-        description: "Works on one self-contained task in the Unreal Editor through ue-mcp, or on the project's files, and reports what it changed.",
-        prompt: subagentSystem,
-        model: s.model,
-        effort: s.effort,
-        tools: [...studio, SEARCH],
-      },
-      // The project's own subagents, as their files say, each call still through Studio's tools.
-      ...Object.fromEntries(Object.entries(projectAgents).map(([name, a]) => [name, { ...a, prompt: `${subagentSystem}\n\n${a.prompt}` }])),
-    },
-    allowedTools: [...studio, AGENT, SEARCH, ...skill],
-    hooks: {
-      PreToolUse: [{ matcher: AGENT, hooks: [hold], timeout: QUEUE_HOOK_TIMEOUT }],
-      PostToolUse: [{ matcher: AGENT, hooks: [free] }],
-      PostToolUseFailure: [{ matcher: AGENT, hooks: [free] }],
-    },
-  };
-}
-
-type HookMatchers = NonNullable<NonNullable<Parameters<typeof query>[0]["options"]>["hooks"]>;
-
-/**
- * Hooks that hand a running subagent the user's messages to it. The Agent SDK
- * has no call that puts a message into a subagent's conversation (a streamed
- * user message with parent_tool_use_id set reaches the main agent, not the
- * subagent), but a hook's additionalContext goes to the agent whose step
- * fired it: after each tool result (PostToolUse, PostToolUseFailure), and as
- * it tries to end (SubagentStop for a subagent, Stop for the turn's main
- * agent), where it carries on to act on the message. The subagent reads it at
- * its next step; nothing is interrupted. `call` maps a hook's agent_id (the
- * subagent's task id) to its agent call id; `existing` are the subagent
- * options' own hooks, kept beside these.
- */
-export function inboxHooks(inbox: (callId: string | null) => string | null, call: (taskId: string) => string | undefined, existing?: HookMatchers): HookMatchers {
-  const deliver = (event: "PostToolUse" | "PostToolUseFailure" | "SubagentStop" | "Stop"): HookCallback => async (input) => {
-    const id = input.agent_id ? call(input.agent_id) : null;
-    // A subagent whose task_started has not been read yet takes its message at its next step.
-    if (id === undefined) return {};
-    const text = inbox(id);
-    if (!text) return {};
-    return { hookSpecificOutput: { hookEventName: event, additionalContext: text } } as Awaited<ReturnType<HookCallback>>;
-  };
-  return {
-    PostToolUse: [...(existing?.PostToolUse ?? []), { hooks: [deliver("PostToolUse")] }],
-    PostToolUseFailure: [...(existing?.PostToolUseFailure ?? []), { hooks: [deliver("PostToolUseFailure")] }],
-    SubagentStop: [{ hooks: [deliver("SubagentStop")] }],
-    Stop: [{ hooks: [deliver("Stop")] }],
-  };
-}
-
-/** A running Claude sign-in turn, as the runner steers it while subagents work. */
+/** A running conversation on this route, as the runner steers it. */
 export interface LiveTurn {
-  /** Background tasks still working. */
-  background: () => number;
-  /** The main agent ended its reply and has not started another. */
-  free: () => boolean;
-  /** The turn still takes messages. */
+  /** It still takes messages. */
   open: () => boolean;
-  /** Hand the main agent a message now; false once the input has closed. A turn in a host answers asynchronously. */
+  /** Hand it a message now, streamed into its input; false once the input has closed. A conversation in a host answers asynchronously. */
   say: (blocks: unknown[]) => boolean | Promise<boolean>;
-  /** Move every foreground subagent and command to the background, so they outlive an interrupt. */
-  keep: () => Promise<boolean>;
-  /** Stop only the main agent's current reply. */
+  /** Stop its current reply. */
   interrupt: () => Promise<void>;
   /**
-   * Keep the user's message for a running subagent, by its agent call id (null:
-   * the turn's own main agent), to hand over at its next step. Absent where the
-   * turn cannot (subagents off, or a turn host from before this message). A
-   * turn in a host answers asynchronously.
+   * Compatibility, for a turn host from before protocol 3 only: such a host
+   * runs the runtime's own subagents, and these steer them (background tasks
+   * still working, the main agent idle beside them, moving foreground work to
+   * the background, a message held for one subagent). A conversation this
+   * version starts has none of them. Remove with LEGACY_HOST_PROTOCOL.
    */
+  background?: () => number;
+  free?: () => boolean;
+  keep?: () => Promise<boolean>;
   tell?: (callId: string | null, text: string) => boolean | Promise<boolean>;
 }
 
@@ -333,9 +220,10 @@ const userMessage = (blocks: unknown[], session: string): SDKUserMessage =>
   ({ type: "user", message: { role: "user", content: blocks }, parent_tool_use_id: null, session_id: session }) as unknown as SDKUserMessage;
 
 /**
- * The turn's input, streamed: its first message, then each message the user
- * sends while only background subagents run. The binary keeps working while
- * it is open; closing it lets the binary finish what it has and exit.
+ * The conversation's input, streamed: its first message, then each message
+ * handed to it while it runs (the user's, or a background subagent's report).
+ * The binary keeps working while it is open; closing it lets the binary finish
+ * what it has and exit.
  */
 export function inputChannel(first: SDKUserMessage) {
   const pending: SDKUserMessage[] = [first];
@@ -363,12 +251,6 @@ export function inputChannel(first: SDKUserMessage) {
     })(),
   };
 }
-
-/**
- * How long the main agent may sit idle after the last background task ends before the input closes.
- * The binary answers a task's report with a main reply, which cancels this; it is only a backstop.
- */
-const LAST_TASK_GRACE_MS = 120_000;
 
 /** JSON with object keys sorted, so the same input matches whatever order its keys came in. */
 const canonical = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x));
@@ -473,70 +355,34 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         handler("editor_restart"),
       ),
       ...localSdkTools(handler),
+      // Studio's agent tool. Marked read-only so the runtime runs several calls of one message at once,
+      // as it does its own subagents; what a subagent does goes through Studio's tools and approvals.
+      ...(t.agentTool ? [tool(AGENT_TOOL_NAME, t.agentTool.description, zodShape(t.agentTool.inputSchema), handler(AGENT_TOOL_NAME), { annotations: { readOnlyHint: true } })] : []),
     ],
   });
 
   const abort = new AbortController();
   const day = String(24 * 60 * 60 * 1000);
-  // A command or a file change can wait on the user for as long as they take: no MCP call timeout cuts it off.
-  // Background subagents run past the main turn's result. The SDK closes the binary's input, and with it
-  // Studio's tools, once its background ceiling (10 minutes by default) has passed since that result, so a
-  // subagent still working then gets "interrupted before a result was received" on every call (#1384). The
-  // turn ends when the binary reports it idle or on Stop; the ceiling is only a backstop.
-  const env = claudeEnv({ MCP_TOOL_TIMEOUT: day, CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: day });
+  // A command or a file change can wait on the user, and an agent call on its subagent, for as long as they take:
+  // no MCP call timeout cuts either off.
+  const env = claudeEnv({ MCP_TOOL_TIMEOUT: day });
 
-  // The turn's subagents share these slots; Stop cancels the ones still waiting.
-  const slots = new SubagentSlots(t.subagents.perTurn);
-  if (t.signal.aborted) slots.cancelAll();
-  else t.signal.addEventListener("abort", () => slots.cancelAll(), { once: true });
-
-  const sub = subagentOptions(t.subagents, t.subagentSystem, t.native, t.editor?.tools.map((p) => p.name), { slots, onQueued: t.onQueued });
-  // The summary a compaction of the main conversation wrote, which only this hook hands over.
+  const tools = toolOptions({ agent: !!t.agentTool, allowed: t.allowed, editor: t.editor?.tools.map((p) => p.name), skills: !!t.native?.skills });
+  // The summary a compaction of the conversation wrote, which only this hook hands over.
   const compacted: HookCallback = async (input) => {
     if (input.hook_event_name === "PostCompact" && !input.agent_id) t.onCompaction?.({ summary: input.compact_summary });
     return {};
   };
-  // Which agent call each subagent task answers, from task_started: the hooks name a subagent by its task id.
-  const toolOfTask = new Map<string, string>();
-  const hooks = { ...("hooks" in sub ? sub.hooks : {}), PostCompact: [{ hooks: [compacted] }] };
-  // The user's messages to a running subagent, by agent call id ("" for the turn's own main agent), until it reads them.
-  const inbox = t.onInboxTaken ? new SubagentInbox() : null;
-  if (inbox) {
-    const take = (callId: string | null) => {
-      const text = inbox.take(callId ?? "");
-      if (text) t.onInboxTaken?.(callId);
-      return text;
-    };
-    Object.assign(hooks, inboxHooks(take, (taskId) => toolOfTask.get(taskId), "hooks" in sub ? sub.hooks : undefined));
-  }
+  const hooks = { PostCompact: [{ hooks: [compacted] }] };
 
   const input = inputChannel(userMessage(t.prompt, t.resume ?? ""));
   let sessionId = t.resume ?? "";
-  // Background subagents still working, by agent call id, from the task_* edges.
-  const background = new Set<string>();
-  // The binary's own list of live background tasks (background_tasks_changed), by task id: the level, which a missed edge cannot wedge.
-  const level = new Set<string>();
-  const bg = () => Math.max(background.size, level.size);
-  // The main agent ended its reply and has not started another.
-  let free = false;
-  // A Stop that interrupted only the main agent: the result it ends with is not the turn's error.
+  // A Stop that interrupted only the current reply: the result it ends with is not the conversation's error.
   let interrupted = false;
-  let grace: ReturnType<typeof setTimeout> | null = null;
-  const setFree = (v: boolean) => {
-    // The main agent working again: the idle fallback no longer applies.
-    if (!v && grace) { clearTimeout(grace); grace = null; }
-    if (free === v) return;
-    free = v;
-    t.onFree?.(v);
-  };
   const close = (why: string) => {
     if (input.closed) return;
     input.close();
     t.onInputClosed?.(why);
-  };
-  const closeIfDone = () => {
-    if (grace) { clearTimeout(grace); grace = null; }
-    if (free && bg() === 0) close("the main agent stayed idle after its last background task ended");
   };
   t.signal.addEventListener("abort", () => input.close(), { once: true });
 
@@ -547,7 +393,8 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         model: t.model,
         effort: t.effort,
         systemPrompt: t.system,
-        ...sub,
+        ...tools,
+        ...(t.maxTurns ? { maxTurns: t.maxTurns } : {}),
         hooks,
         mcpServers: { [SERVER]: server },
         // Only Studio's server: a project's .mcp.json (often its own ue-mcp) would show tools no call may use.
@@ -575,30 +422,14 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       else t.signal.addEventListener("abort", onStop, { once: true });
     });
     t.onLive?.({
-      background: bg,
-      free: () => free,
       open: () => !input.closed,
-      say: (blocks) => {
-        if (!input.push(userMessage(blocks, sessionId))) return false;
-        setFree(false);
-        return true;
-      },
-      // Ctrl+B: a foreground subagent or command the main agent is waiting on moves to the background and keeps running.
-      keep: async () => {
-        if (typeof q.backgroundTasks !== "function") return false;
-        return q.backgroundTasks().catch(() => false);
-      },
+      // Streamed into the conversation's input: the runtime reads it at its next step, or after the reply it is writing.
+      say: (blocks) => !t.signal.aborted && input.push(userMessage(blocks, sessionId)),
       interrupt: async () => {
-        if (free) return;
+        if (input.closed) return;
         interrupted = true;
         await q.interrupt().catch(() => undefined);
       },
-      // Held until the subagent's next step, where the inbox hooks hand it over: nothing is interrupted.
-      ...(inbox ? { tell: (callId: string | null, text: string) => {
-        if (t.signal.aborted) return false;
-        inbox.push(callId ?? "", text);
-        return true;
-      } } : {}),
     });
     const messages = (q as AsyncIterable<SDKMessage>)[Symbol.asyncIterator]();
     let error: string | null = null;
@@ -623,8 +454,6 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       const next = await Promise.race([messages.next(), stopped]);
       if (!next || next.done || t.signal.aborted) break;
       const m = next.value;
-      // The main agent speaking again, after a background subagent's report or the user's message.
-      if (free && (m.type === "assistant" || m.type === "stream_event") && !m.parent_tool_use_id) setFree(false);
       if (m.type === "system" && "subtype" in m && m.subtype === "init") {
         sessionId = m.session_id;
         t.onSession(m.session_id);
@@ -634,37 +463,6 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         else if (m.compact_result === "failed") t.onCompaction?.({ failed: m.compact_error || "The conversation could not be compacted." });
       } else if (m.type === "system" && "subtype" in m && m.subtype === "compact_boundary") {
         t.onCompaction?.({ trigger: m.compact_metadata.trigger, before: m.compact_metadata.pre_tokens, ...(m.compact_metadata.post_tokens !== undefined ? { after: m.compact_metadata.post_tokens } : {}) });
-      }
-      else if (m.type === "system" && "subtype" in m && m.subtype === "task_started") {
-        if (m.tool_use_id) {
-          const taskId = m.task_id;
-          toolOfTask.set(taskId, m.tool_use_id);
-          t.onStopper(m.tool_use_id, () => q.stopTask(taskId));
-          if (m.is_backgrounded) background.add(m.tool_use_id);
-          t.onTask(m.tool_use_id, "started", { background: m.is_backgrounded });
-        }
-      } else if (m.type === "system" && "subtype" in m && m.subtype === "task_updated") {
-        // A foreground task moved to the background (Ctrl+B, or the binary's own choice).
-        const tool = toolOfTask.get(m.task_id);
-        if (tool && m.patch.is_backgrounded) {
-          background.add(tool);
-          t.onTask(tool, "started", { background: true });
-        }
-      } else if (m.type === "system" && "subtype" in m && m.subtype === "background_tasks_changed") {
-        level.clear();
-        for (const task of m.tasks) if (!task.ambient) level.add(task.task_id);
-        if (free && bg() === 0 && !grace) grace = setTimeout(closeIfDone, LAST_TASK_GRACE_MS);
-      } else if (m.type === "system" && "subtype" in m && m.subtype === "task_notification") {
-        if (m.tool_use_id) {
-          t.onStopper(m.tool_use_id, null);
-          slots.release(m.tool_use_id);
-          background.delete(m.tool_use_id);
-          // An ended subagent reads nothing more: the runner hands what it left unread to the main agent.
-          inbox?.drain(m.tool_use_id);
-          t.onTask(m.tool_use_id, m.status, { summary: m.summary });
-          // The binary answers the last report with a main reply; if it stays idle a long while, the turn ends.
-          if (free && bg() === 0 && !grace) grace = setTimeout(closeIfDone, LAST_TASK_GRACE_MS);
-        }
       }
       else if (m.type === "stream_event") {
         const e = m.event;
@@ -683,7 +481,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         if (u && t.onUsage) {
           const before = reported.get(m.message.id);
           reported.set(m.message.id, u);
-          const model = (m.message as { model?: string }).model || (m.parent_tool_use_id ? t.subagents.model : t.model);
+          const model = (m.message as { model?: string }).model || t.model;
           t.onUsage({ usage: u, growth: usageGrowth(u, before), first: !before, model, parent: m.parent_tool_use_id });
         }
         if (!m.parent_tool_use_id) askWindow();
@@ -703,18 +501,15 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         if (interrupted) interrupted = false;
         else if (m.subtype !== "success") error = error ?? endedText(m.subtype);
         else if (m.is_error) error = error ?? m.result;
-        // The main agent's reply ended. With background subagents still working, it takes the user's next message now.
-        if (bg() === 0) {
-          free = true;
-          close("the main agent finished with no background task running");
-        } else setFree(true);
+        // The reply ended: the runtime finishes what it was handed already and exits. Whatever comes next
+        // (the user's message, a background subagent's report) starts the next step, which resumes this session.
+        close("the reply ended");
       }
     }
     return t.signal.aborted ? null : error;
   } catch (e) {
     return t.signal.aborted ? null : e instanceof Error ? e.message : String(e);
   } finally {
-    if (grace) clearTimeout(grace);
     input.close();
     t.onLive?.(null);
   }

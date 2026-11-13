@@ -209,84 +209,140 @@ describe("a turn in a host process across a daemon restart", () => {
   }, 20_000);
 });
 
-describe("steering a turn in a host process", () => {
-  it("forwards a message, Stop's move to the background and interrupt, and stopping one subagent", async () => {
-    let finish: (() => void) | null = null;
-    sdk.stopTask = (taskId) => {
-      expect(taskId).toBe("task-bg");
-      finish?.();
-    };
-    let binary: FakeBinary | null = null;
+describe("steering on the Claude sign-in through host processes", () => {
+  const sub = (b: FakeBinary) => String(b.options.systemPrompt).includes("You are a subagent");
+
+  it("runs a subagent in a host of its own: the user's message is streamed into its session, and stopping it stops only it", async () => {
+    let subBinary: FakeBinary | null = null;
     sdk.script = async (b) => {
-      binary = b;
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-steer" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build", run_in_background: true } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-bg", is_backgrounded: true });
-      b.emit(results("ag", { text: "Started in the background.", isError: false }));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-steer" });
-      // The user's message reaches the binary's input through the host.
-      await until(() => b.said.length === 1);
-      b.emit(assistant("m_c", [{ type: "text", text: "Working on your message." }]));
-      await new Promise<void>((r) => (finish = r));
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-bg", status: "stopped", summary: "" });
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-steer" });
+      if (sub(b)) {
+        subBinary = b;
+        b.emit({ type: "system", subtype: "init", session_id: "sdk-sub" });
+        // Working until it is stopped, reading what is streamed in.
+        await new Promise<void>((r) => b.signal.addEventListener("abort", () => r(), { once: true }));
+        return;
+      }
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-main" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "mcp__studio__agent", input: { description: "Build", prompt: "build" } }]));
+      const r = await b.call("agent", { description: "Build", prompt: "build" });
+      b.emit(results("ag", r));
+      b.emit(assistant("m_end", [{ type: "text", text: `Agent said: ${r.text.slice(0, 40)}` }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-main" });
     };
     const d = daemon();
     const s = d.store.create();
-    const turn = d.runner.send(s.id, "build in the background");
-    await until(() => d.runner.mainFree(s.id));
-    // tell: the main agent is free beside the background subagent.
-    await d.runner.send(s.id, "how is it going?");
-    await until(() => binary!.said.length === 1);
-    expect(binary!.said).toEqual(["how is it going?"]);
-    await until(() => texts(d.store.get(s.id)!).includes("Working on your message.") && !d.runner.mainFree(s.id));
-    // Stop with the subagent working: foreground work moves to the background (keep), then only the reply stops.
-    expect(d.runner.stopKeepsSubagents(s.id)).toBe(true);
-    d.runner.stop(s.id);
-    await until(() => sdk.backgrounded === 1 && sdk.interrupts === 1);
-    // Stopping the subagent alone reaches the binary's stopTask.
+    const turn = d.runner.send(s.id, "build it");
+    await until(() => hostsStarted === 2 && !!subBinary && d.runner.canMessage(d.store.get(s.id)!, "ag"));
+    // Each conversation in its own host, neither pinning an update.
+    expect(listRecords(host.dataDir).map((r) => r.session).sort()).toEqual([s.id, `${s.id}#ag`].sort());
+    await until(() => d.runner.pinnedSessions().length === 0);
+    expect(await d.runner.messageSubagent(s.id, "ag", "make it oak")).toBe(true);
+    await until(() => subBinary!.said.length === 1);
+    expect(String(subBinary!.said[0])).toMatch(/^The user writes to you from your thread[\s\S]*make it oak$/);
     expect(d.runner.stopSubagent(s.id, "ag")).toBe(true);
     await turn;
     await until(() => d.store.get(s.id)!.status === "idle");
-    expect(outcome(d.store.get(s.id)!, "ag")).toMatchObject({ outcome: "stopped" });
+    const fin = d.store.get(s.id)!;
+    expect(outcome(fin, "ag")).toMatchObject({ outcome: "stopped" });
+    expect(texts(fin).at(-1)).toMatch(/^Agent said: The user stopped this subagent/);
+    expect(sdk.interrupts).toBe(1);
+    await until(() => listRecords(host.dataDir).length === 0);
   }, 20_000);
 
-  it("hands a running subagent the user's message through the host, at its next step, and stops nothing", async () => {
-    let go: (() => void) | null = null;
-    let binary: FakeBinary | null = null;
-    const delivered: string[] = [];
+  it("streams the user's message into the main agent's reply while it waits on a subagent, which goes on in the background", async () => {
+    let release: (() => void) | null = null;
+    let mainBinary: FakeBinary | null = null;
     sdk.script = async (b) => {
-      binary = b;
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-tell" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build the gate", prompt: "build", run_in_background: true } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-g", is_backgrounded: true });
-      b.emit(results("ag", { text: "Started in the background.", isError: false }));
-      // The main agent is still mid-reply when the user writes to the subagent.
-      await new Promise<void>((r) => (go = r));
-      for (const a of await b.hook("PostToolUse", { agent_id: "task-g", tool_name: "mcp__studio__shell", tool_use_id: "s1" })) {
-        const text = (a.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext;
-        if (text) delivered.push(text);
+      if (sub(b)) {
+        await new Promise<void>((r) => (release = r));
+        b.emit(assistant("s_end", [{ type: "text", text: "Gate built." }]));
+        b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-sub" });
+        return;
       }
-      b.emit(assistant("m_b", [{ type: "text", text: "It is building." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-tell" });
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-g", status: "completed", summary: "Gate built in oak." });
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-tell" });
+      const first = await b.first();
+      if (first.includes("has ended")) {
+        b.emit(assistant("m_r", [{ type: "text", text: "The gate is done." }]));
+        b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-main" });
+        return;
+      }
+      mainBinary = b;
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-main" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "mcp__studio__agent", input: { description: "Build the gate", prompt: "gate" } }]));
+      const r = await b.call("agent", { description: "Build the gate", prompt: "gate" });
+      b.emit(results("ag", r));
+      await until(() => b.said.length === 1);
+      b.emit(assistant("m_b", [{ type: "text", text: "Still on it." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-main" });
     };
     const d = daemon();
     const s = d.store.create();
-    const turn = d.runner.send(s.id, "build the gate in the background");
-    await until(() => hostsStarted === 1 && d.runner.canMessage(d.store.get(s.id)!, "ag") && !!go);
-    expect(await d.runner.messageSubagent(s.id, "ag", "make it oak")).toBe(true);
-    expect(d.store.get(s.id)!.transcript.at(-1)).toMatchObject({ kind: "user", text: "make it oak", parent: "ag" });
-    go!();
-    await turn;
+    void d.runner.send(s.id, "build the gate");
+    await until(() => !!release && d.runner.mainFree(s.id));
+    await d.runner.send(s.id, "how is it going?");
+    await until(() => texts(d.store.get(s.id)!).includes("Still on it."));
+    expect(mainBinary!.said).toEqual(["how is it going?"]);
+    expect(outcome(d.store.get(s.id)!, "ag")).toMatchObject({ outcome: "pending" });
+    release!();
     await until(() => d.store.get(s.id)!.status === "idle");
-    expect(delivered).toHaveLength(1);
-    expect(delivered[0]).toMatch(/make it oak/);
-    // Read by the subagent, so nothing went to the main agent, and nothing was stopped.
-    expect(binary!.said).toEqual([]);
-    expect(sdk.interrupts).toBe(0);
-    expect(d.store.get(s.id)!.transcript.some((t) => t.kind === "note" && /ended before it read/.test(t.text))).toBe(false);
+    const fin = d.store.get(s.id)!;
+    expect(outcome(fin, "ag")).toMatchObject({ outcome: "done", result: "Gate built." });
+    expect(texts(fin).at(-1)).toBe("The gate is done.");
+    // The report started a reply of the same runtime session.
+    expect(sdk.resumes.at(-1)).toBe("sdk-main");
+  }, 20_000);
+});
+
+describe("compatibility with a turn host from before protocol 3", () => {
+  it("keeps a turn an older Studio started working through this daemon: its own subagents report, stop and free the main agent as before", async () => {
+    const { STUDIO_SUBAGENTS_PROTOCOL, journalFile, recordFile, onLines, sendLine, socketPathFor, writeJsonAtomic } = await import("../src/turn-host-protocol.js");
+    const net = await import("node:net");
+    const store = new SessionStore(host.dataDir);
+    const s = store.create();
+    // The session as the older daemon left it: a turn in a host, an agent call of the runtime's own in the background.
+    Object.assign(s, { status: "running", hostTurn: { seq: 4, lastId: null, background: ["ag"] }, mainFree: true });
+    s.transcript.push({ kind: "user", text: "go", at: new Date().toISOString() }, { kind: "tool", call: { id: "ag", name: "agent", input: { description: "Old build", prompt: "build" }, outcome: "pending", startedAt: new Date().toISOString() } });
+    store.save(s);
+    const hostId = "00000000-0000-4000-8000-000000000001";
+    const token = "legacy-token";
+    const socket = socketPathFor(hostId);
+    let seq = 4;
+    let daemonSock: import("node:net").Socket | null = null;
+    const ops: string[] = [];
+    const server = net.createServer((sock) => {
+      onLines(sock, (msg) => {
+        if (msg.t === "hello") {
+          daemonSock = sock;
+          sendLine(sock, { t: "hello", protocol: 2, version: "0.1.35-beta.25", pid: process.pid, session: s.id, host: hostId, last: seq });
+          sendLine(sock, { t: "state", live: true, open: true, free: true, background: 1, stoppers: ["ag"] });
+        } else if (msg.t === "op") {
+          ops.push(String(msg.op));
+          sendLine(sock, { t: "ret", id: msg.id, value: true });
+          if (msg.op === "stopTask") {
+            sendLine(sock, { seq: ++seq, t: "task", toolUseId: "ag", status: "stopped", detail: { summary: "" } });
+            sendLine(sock, { t: "state", live: true, open: false, free: true, background: 0, stoppers: [] });
+            sendLine(sock, { seq: ++seq, t: "end", error: null });
+          }
+        }
+      });
+    });
+    await new Promise<void>((r) => server.listen(socket, () => r()));
+    expect(2).toBeLessThan(STUDIO_SUBAGENTS_PROTOCOL);
+    writeJsonAtomic(recordFile(host.dataDir, hostId), { protocol: 2, version: "0.1.35-beta.25", host: hostId, pid: process.pid, session: s.id, socket, token, startedAt: new Date().toISOString() });
+    fs.writeFileSync(journalFile(host.dataDir, hostId), "");
+    try {
+      const d = daemon();
+      d.runner.recover();
+      await until(() => !!daemonSock && d.runner.mainFree(s.id));
+      expect(d.runner.keepsSubagents(s.id)).toBe(true);
+      // The runtime's own subagent cannot take a message from its thread: the route sends it to the main agent instead.
+      expect(d.runner.canMessage(d.store.get(s.id)!, "ag")).toBe(false);
+      expect(d.runner.stopSubagent(s.id, "ag")).toBe(true);
+      await until(() => d.store.get(s.id)!.status === "idle");
+      expect(ops).toContain("stopTask");
+      expect(outcome(d.store.get(s.id)!, "ag")).toMatchObject({ outcome: "stopped" });
+    } finally {
+      server.close();
+    }
   }, 20_000);
 });
 

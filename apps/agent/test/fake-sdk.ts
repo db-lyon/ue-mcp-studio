@@ -23,6 +23,12 @@ export interface FakeBinary {
   said: unknown[];
   /** Fire one hook event the way the binary does, with the matchers' tool filter: each callback's answer. */
   hook(event: string, input: Record<string, unknown>): Promise<Array<Record<string, unknown>>>;
+  /** The options this conversation was started with: a subagent's system prompt says it is one. */
+  options: Record<string, unknown>;
+  /** Studio's tools this conversation was given, by their names on the in-process server. */
+  tools: string[];
+  /** The conversation's first message as text, once the binary has read it from its input. */
+  first: () => Promise<string>;
 }
 
 export const sdk = {
@@ -37,25 +43,29 @@ export const sdk = {
 };
 
 export const fakeSdk = {
-  tool: (name: string, _d: string, _s: unknown, handler: Handler) => ({ name, handler }),
+  tool: (name: string, description: string, _s: unknown, handler: Handler, extras?: { annotations?: Record<string, unknown> }) => ({ name, description, handler, annotations: extras?.annotations }),
   createSdkMcpServer: (o: { tools: Array<{ name: string; handler: Handler }> }) => ({ tools: o.tools }),
   query: ({ prompt, options }: { prompt: unknown; options: { resume?: string; mcpServers: { studio: { tools: Array<{ name: string; handler: Handler }> } }; abortController: AbortController; env: Record<string, string | undefined> } }) => {
     // A streamed input: its first message is the prompt, as text when it is only text; later ones are what the user said mid-turn.
     const slot = sdk.prompts.length;
     sdk.prompts.push(prompt);
     const said: unknown[] = [];
+    let gotFirst!: (text: string) => void;
+    const firstText = new Promise<string>((r) => (gotFirst = r));
     if (prompt && typeof prompt === "object" && Symbol.asyncIterator in prompt) {
       void (async () => {
         let first = true;
         for await (const m of prompt as AsyncIterable<{ message: { content: Array<{ type: string; text?: string }> } }>) {
           const c = m.message.content;
           const value = c.every((b) => b.type === "text") ? c.map((b) => b.text).join("\n\n") : m;
-          if (first) sdk.prompts[slot] = value;
-          else said.push(value);
+          if (first) {
+            sdk.prompts[slot] = value;
+            gotFirst(c.filter((b) => b.type === "text").map((b) => b.text).join("\n\n"));
+          } else said.push(value);
           first = false;
         }
       })();
-    }
+    } else gotFirst(String(prompt));
     sdk.options.push(options as unknown as Record<string, unknown>);
     sdk.envs.push(options.env);
     sdk.resumes.push(options.resume);
@@ -82,6 +92,9 @@ export const fakeSdk = {
       signal: options.abortController.signal,
       prompt,
       said,
+      options: options as unknown as Record<string, unknown>,
+      tools: options.mcpServers.studio.tools.map((t) => t.name),
+      first: () => firstText,
       async hook(event, input) {
         type Matcher = { matcher?: string; hooks: Array<(i: unknown, id: string | undefined, o: { signal: AbortSignal }) => Promise<Record<string, unknown>>> };
         const matchers = ((options as { hooks?: Record<string, Matcher[]> }).hooks ?? {})[event] ?? [];

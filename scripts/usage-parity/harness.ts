@@ -11,7 +11,7 @@ import { runSubscriptionTurn } from "./subscription.js";
 import { executeTool, type AgentHost, type ToolExecution } from "./tools.js";
 import { ContextSurfaces, microSurface, withSurface, type ContextApi, type EditorSurface, type ProjectedTool } from "./context-surface.js";
 // @ts-expect-error exported by measure.mjs's bundler plugin
-import { system, subagentSystem } from "./runner.js";
+import { system } from "./runner.js";
 
 const [, , promptsFile, pid, model, effort, label, uproject, ueMcp, results, dataDir, nonce, strategyArg] = process.argv;
 const strategy = (["lean", "full"].includes(strategyArg) ? strategyArg : "micro") as "micro" | "lean" | "full";
@@ -59,8 +59,8 @@ const host = {
 } as unknown as AgentHost;
 
 const usage = { ...DEFAULT_USAGE };
+// The main agent's reply alone: subagents are Studio's own (runner.ts), outside what this measures.
 const sys = withSurface(system(projectDir, "manual", usage), surface);
-const sub = withSurface(subagentSystem(projectDir, "manual", usage), surface);
 const run = async (name: string, input: Record<string, unknown>): Promise<ToolExecution> => {
   const pass = surface.passthrough(name);
   if (!pass) return executeTool(host, name, input);
@@ -77,14 +77,13 @@ for (const text of turns) {
   const t1 = Date.now();
   final = "";
   errors.push(await runSubscriptionTurn({
-    projectDir, model, effort: effort as never, system: sys, subagentSystem: sub,
-    subagents: { mode: usage.subagents, perTurn: usage.subagentsPerTurn, model, effort: effort as never },
+    projectDir, model, effort: effort as never, system: sys,
     prompt: [{ type: "text", text }], resume: session, signal: new AbortController().signal,
     onSession: (id) => (session = id), onDelta: () => undefined,
     onAssistant: (_id, blocks, parent) => {
       if (!parent) for (const b of blocks as Array<{ type: string; text?: string }>) if (b.type === "text" && b.text) final = b.text;
     },
-    onToolResults: () => undefined, onStopper: () => undefined, onTask: () => undefined,
+    onToolResults: () => undefined,
     ...(strategy === "micro" ? {} : { editor: { tools: surface.projected.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })), canon: surface.canon } }),
     runTool: (_id, name, input) => run(name, input),
   }));

@@ -51,24 +51,6 @@ export function toolsFor(a: Pick<FoundSubagent, "tools" | "noShell">): { allowed
   return { allowed, unknown };
 }
 
-/** Studio's tools for each Claude Code built-in name, for the Agent SDK's toolAliases. */
-export const SDK_TOOL_ALIASES: Record<string, string> = {
-  Bash: "mcp__studio__shell",
-  Read: "mcp__studio__read_file",
-  Write: "mcp__studio__write_file",
-  Edit: "mcp__studio__edit_file",
-  MultiEdit: "mcp__studio__edit_file",
-  Glob: "mcp__studio__glob",
-  Grep: "mcp__studio__grep",
-  WebFetch: "mcp__studio__web_fetch",
-};
-
-/** A subagent's tools in the Agent SDK's names: Studio's tools, and its web search. */
-export function sdkTools(allowed: Set<StudioToolName> | null): string[] | undefined {
-  if (allowed === null) return undefined;
-  return [...allowed].map((t) => (t === "web_search" ? "WebSearch" : `mcp__studio__${t}`));
-}
-
 /** The Anthropic model a Claude Code alias names. */
 const ALIASES: Record<string, string> = { opus: "claude-opus-5-5", sonnet: "claude-sonnet-5-5", haiku: "claude-haiku-5-5", fable: "claude-fable-5-1" };
 
@@ -151,8 +133,14 @@ export interface NativeHelper {
   maxTurns: number | null;
   /** The level as written, sent when the model takes it. */
   effort: string | null;
-  /** The provider and model it runs on; absent: the main agent's. */
+  /**
+   * The model it runs on and how, when not the main agent's: a provider for
+   * Studio's loop, or route "claude" for a session of its own on the Claude
+   * sign-in's runtime (whose provider is not called).
+   */
   run?: { provider: () => import("./providers.js").ModelProvider; model: string; vendor: string; route: string };
+  /** Its file says it runs in the background: its agent call answers at once, and its report comes later as a message. */
+  background?: boolean;
   /** Why it runs on another model than its file names, for the view. */
   note?: string;
 }
@@ -164,26 +152,6 @@ export interface NativeRun {
   composed: Composed;
   helpers: NativeHelper[];
   skills: FoundSkill[];
-  /** On the Claude sign-in the Agent SDK reads the files itself: Studio adds no instruction text. */
+  /** On the Claude sign-in the runtime reads the instruction files itself: Studio adds no instruction text. */
   sdkLoads: boolean;
-}
-
-/** The project's Claude Code subagents as the Agent SDK takes them, their tools in Studio's names. Invalid files are left out. */
-export function sdkAgents(l: Loadout): Record<string, import("./subscription.js").NativeAgentDefinition> {
-  const out: Record<string, import("./subscription.js").NativeAgentDefinition> = {};
-  for (const a of l.subagents) {
-    if (a.problems.some((p) => p.endsWith("is required"))) continue;
-    const tools = sdkTools(toolsFor(a).allowed);
-    out[a.name] = {
-      description: a.description,
-      prompt: a.prompt,
-      ...(tools ? { tools } : {}),
-      ...(a.model ? { model: a.model } : {}),
-      ...(a.effort && ["low", "medium", "high", "xhigh", "max"].includes(a.effort) ? { effort: a.effort as never } : {}),
-      ...(a.maxTurns ? { maxTurns: a.maxTurns } : {}),
-      ...(a.skills.length ? { skills: a.skills } : {}),
-      ...(a.background ? { background: true } : {}),
-    };
-  }
-  return out;
 }

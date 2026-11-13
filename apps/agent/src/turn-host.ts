@@ -1,14 +1,15 @@
 /**
- * A turn host: one Claude sign-in turn, run in a process of its own that
+ * A turn host: one conversation step on the Claude sign-in (the main agent's
+ * reply, or one subagent Studio started), run in a process of its own that
  * outlives the daemon which started it.
  *
  * The host owns the Agent SDK's query() and the runtime it starts. Every turn
  * event goes to the journal with a sequence number and to the daemon when one
  * is connected; a daemon that connects later replays from the last event it
- * applied. Calls into Studio's tools wait for a daemon to run them, so a call
- * made mid-restart is answered by the next daemon. Steering (a message mid-turn,
- * interrupt, stopping one subagent, moving work to the background, Stop) comes
- * from the daemon as ops.
+ * applied. Calls into Studio's tools (Studio's agent tool among them) wait for
+ * a daemon to run them, so a call made mid-restart is answered by the next
+ * daemon. Steering (a message mid-step, interrupt, Stop) comes from the daemon
+ * as ops. The host runs no subagents: Studio does, each in a host of its own.
  *
  * The host runs the Studio version it was started with until its turn ends,
  * then exits. See turn-host-protocol.ts for the wire.
@@ -41,7 +42,7 @@ import {
 export const DAEMON_WAIT_MS = 60 * 60_000;
 /** How long the host waits, after its turn ended, for the daemon to say it applied the end. */
 const END_ACK_MS = 15_000;
-/** How often the live state is looked at, for what changes without a callback (background tasks). */
+/** How often the live state is looked at, for what changes without a callback (the input closing). */
 const STATE_POLL_MS = 500;
 
 export interface TurnHostOptions {
@@ -67,8 +68,6 @@ export class TurnHost {
   private acked = 0;
   private journal: number | null = null;
   private live: LiveTurn | null = null;
-  private readonly stoppers = new Map<string, () => Promise<void>>();
-  private readonly cancels = new Map<string, () => void>();
   private readonly pending = new Map<string, PendingCall>();
   private lastState = "";
   private poll: ReturnType<typeof setInterval> | null = null;
@@ -136,30 +135,16 @@ export class TurnHost {
         onDelta: (text) => sendLine(this.daemon, { t: "delta", text }),
         onAssistant: (mid, content, parent) => this.emit({ t: "assistant", mid, content, parent }),
         onToolResults: (content, parent) => this.emit({ t: "toolResults", content, parent }),
-        onStopper: (callId, stop) => {
-          if (stop) this.stoppers.set(callId, stop);
-          else this.stoppers.delete(callId);
-          this.pushState();
-        },
-        onTask: (toolUseId, status, detail) => this.emit({ t: "task", toolUseId, status, detail }),
-        onQueued: (id, cancel) => {
-          if (cancel) this.cancels.set(id, cancel);
-          else this.cancels.delete(id);
-          this.emit({ t: "queued", id, on: !!cancel });
-        },
         onLive: (live) => {
           this.live = live;
           this.pushState();
         },
         onInputClosed: (why) => this.emit({ t: "inputClosed", why }),
-        onFree: (free) => this.emit({ t: "free", free }),
         runTool: (callId, name, input) => this.call(callId, name, input),
         onTokens: (n, parent) => this.emit({ t: "tokens", n, parent }),
         onUsage: (u) => this.emit({ t: "usage", u }),
         onCompaction: (e) => this.emit({ t: "compaction", e }),
         onContextWindow: (w) => this.emit({ t: "contextWindow", w }),
-        // The turn takes the user's messages to its subagents (op tellSubagent) and says when one read them.
-        ...(spec.subagents.mode !== "off" ? { onInboxTaken: (callId: string | null) => this.emit({ t: "inboxTaken", callId }) } : {}),
       });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -184,7 +169,8 @@ export class TurnHost {
 
   private state(): TurnState {
     const l = this.live;
-    return { t: "state", live: !!l, open: l?.open() ?? false, free: l?.free() ?? false, background: l?.background() ?? 0, stoppers: [...this.stoppers.keys()] };
+    // free, background and stoppers describe the runtime's own subagents, which a host of this protocol never runs.
+    return { t: "state", live: !!l, open: l?.open() ?? false, free: false, background: 0, stoppers: [] };
   }
 
   private pushState(force = false): void {
@@ -290,23 +276,9 @@ export class TurnHost {
     switch (op) {
       case "say":
         return live ? live.say(args.blocks as unknown[]) : false;
-      case "keep":
-        return live ? live.keep() : false;
       case "interrupt":
         if (live) await live.interrupt();
         return true;
-      case "stopTask": {
-        const stop = this.stoppers.get(String(args.callId));
-        if (stop) await stop();
-        return !!stop;
-      }
-      case "tellSubagent":
-        return live?.tell && typeof args.text === "string" ? live.tell(typeof args.callId === "string" ? args.callId : null, args.text) : false;
-      case "cancelQueued": {
-        const cancel = this.cancels.get(String(args.id));
-        cancel?.();
-        return !!cancel;
-      }
       case "abort":
         // Stop: the daemon has ended the turn already; nothing of this host is to be reattached.
         this.aborted = true;

@@ -47,13 +47,23 @@ export interface StoredSession {
   dismissed?: string[];
   /** Messages written while a turn ran, sent in order as each turn ends. */
   queue?: QueuedMessage[];
-  /** The main agent finished its reply while background subagents still run, so it takes the user's message now. */
+  /**
+   * The main agent takes the user's message now: its subagents are working
+   * and it waits only on them, or its reply ended while they work on, on any route.
+   */
   mainFree?: boolean;
   /**
-   * A Claude sign-in turn running in a host process: the last host event
-   * applied and the turn's own bookkeeping, so the next daemon replays from there.
+   * A Claude sign-in reply running in a host process: the last host event
+   * applied and the reply's own bookkeeping, so the next daemon replays from there.
    */
   hostTurn?: { seq: number; lastId: string | null; background: string[] };
+  /**
+   * Each subagent still running, by agent call id, as a restart needs it: in
+   * the background (its call answered already), started by the user, the last
+   * host event applied when its conversation runs in a turn host, and its
+   * conversation so far when it runs on Studio's loop, which a restart resumes.
+   */
+  agentRuns?: Record<string, { background: boolean; assigned: boolean; seq?: number; messages?: MessageParam[] }>;
   /** The conversation as the model sees it. */
   messages: MessageParam[];
   /** The conversation as the UI shows it. */

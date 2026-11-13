@@ -17,7 +17,7 @@ export interface WorkingStatus {
 
 type Detail = Pick<SessionDetail, "status" | "waitingCause" | "transcript"> & Partial<Pick<SessionDetail, "working" | "subagents">> & { mainFree?: boolean };
 
-/** The composer queues behind the turn: the main agent is working. False while only background subagents run. */
+/** The composer queues behind the turn: the main agent is working. False while it waits only on its subagents, or they run on after its reply. */
 export const composerBusy = (detail: Pick<Detail, "status" | "mainFree"> | null | undefined): boolean =>
   !!detail && (detail.status === "running" || detail.status === "waiting") && !detail.mainFree;
 

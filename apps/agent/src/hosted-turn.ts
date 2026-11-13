@@ -1,6 +1,7 @@
 /**
- * The daemon's side of turn hosts (turn-host.ts): start a Claude sign-in turn
- * in a host process of its own, and attach to one an earlier daemon started.
+ * The daemon's side of turn hosts (turn-host.ts): start a Claude sign-in
+ * conversation step (a main agent's reply, or one subagent) in a host process
+ * of its own, and attach to one an earlier daemon started.
  *
  * A hosted turn looks to the runner like runSubscriptionTurn: the same
  * callbacks, and a promise of the turn's error. The host's events are applied
@@ -19,6 +20,7 @@ import * as net from "node:net";
 import type { LiveTurn, SubscriptionTurn } from "./subscription.js";
 import type { ToolExecution } from "./tools.js";
 import {
+  STUDIO_SUBAGENTS_PROTOCOL,
   TELL_SUBAGENT_PROTOCOL,
   TURN_HOST_PROTOCOL,
   journalFile,
@@ -45,10 +47,23 @@ import {
 export const DETACHED = Symbol("detached");
 export type HostedResult = string | null | typeof DETACHED;
 
-type SpecKeys = "projectDir" | "model" | "effort" | "system" | "subagentSystem" | "subagents" | "native" | "prompt" | "resume" | "editor";
+type SpecKeys = "projectDir" | "model" | "effort" | "system" | "agentTool" | "allowed" | "maxTurns" | "native" | "prompt" | "resume" | "editor";
+
+/**
+ * What a turn host from before STUDIO_SUBAGENTS_PROTOCOL reports about the
+ * runtime's own subagents it runs. Only the runner's compatibility path for
+ * such a host gives these; remove them with that protocol constant.
+ */
+export interface LegacyHostCallbacks {
+  onStopper?: (callId: string, stop: (() => Promise<void>) | null) => void;
+  onTask?: (toolUseId: string, status: "started" | "completed" | "failed" | "stopped", detail: { background?: boolean; summary?: string }) => void;
+  onQueued?: (toolUseId: string, cancel: (() => void) | null) => void;
+  onFree?: (free: boolean) => void;
+  onInboxTaken?: (callId: string | null) => void;
+}
 
 /** The runner's side of a turn: SubscriptionTurn's callbacks, and what only a hosted turn needs. */
-export type HostedCallbacks = Omit<SubscriptionTurn, SpecKeys> & {
+export type HostedCallbacks = Omit<SubscriptionTurn, SpecKeys> & LegacyHostCallbacks & {
   /** A call an earlier daemon was running when it went down: its outcome is unknown, and it is not run again. */
   lostTool: (callId: string, name: string, input: Record<string, unknown>) => Promise<ToolExecution>;
   /** The sequence number of the event about to be applied, kept with the session so a reattach replays from there. */
@@ -314,34 +329,40 @@ class HostLink {
       this.liveShown = false;
       this.cb.onLive?.(null);
     }
-    const now = new Set(this.state.stoppers);
+    // A legacy host's own subagents, which can be stopped one by one; a current host lists none.
+    const now = new Set(this.state.stoppers ?? []);
     for (const id of now) {
       if (this.stoppersShown.has(id)) continue;
       this.stoppersShown.add(id);
-      this.cb.onStopper(id, async () => void (await this.op("stopTask", { callId: id })));
+      this.cb.onStopper?.(id, async () => void (await this.op("stopTask", { callId: id })));
     }
     for (const id of [...this.stoppersShown]) {
       if (now.has(id)) continue;
       this.stoppersShown.delete(id);
-      this.cb.onStopper(id, null);
+      this.cb.onStopper?.(id, null);
     }
   }
 
   private hideLive(): void {
-    for (const id of this.stoppersShown) this.cb.onStopper(id, null);
+    for (const id of this.stoppersShown) this.cb.onStopper?.(id, null);
     this.stoppersShown.clear();
     if (this.liveShown) this.cb.onLive?.(null);
     this.liveShown = false;
   }
 
   private proxy(): LiveTurn {
-    return {
-      background: () => this.state.background,
-      free: () => this.state.free,
+    const base: LiveTurn = {
       open: () => this.state.open,
       say: async (blocks) => (await this.op("say", { blocks })) === true,
-      keep: async () => (await this.op("keep")) === true,
       interrupt: async () => void (await this.op("interrupt")),
+    };
+    if (this.protocol >= STUDIO_SUBAGENTS_PROTOCOL) return base;
+    // Compatibility: a host from before protocol 3 runs the runtime's own subagents, steered through these.
+    return {
+      ...base,
+      background: () => this.state.background,
+      free: () => this.state.free,
+      keep: async () => (await this.op("keep")) === true,
       // A host from before protocol 2 cannot take a message for a subagent.
       ...(this.protocol >= TELL_SUBAGENT_PROTOCOL ? { tell: async (callId: string | null, text: string) => (await this.op("tellSubagent", { callId, text })) === true } : {}),
     };
@@ -386,7 +407,8 @@ class HostLink {
       case "session": return cb.onSession(ev.id);
       case "assistant": return cb.onAssistant(ev.mid, ev.content, ev.parent);
       case "toolResults": return cb.onToolResults(ev.content, ev.parent);
-      case "task": return cb.onTask(ev.toolUseId, ev.status, ev.detail);
+      // task, queued, free and inboxTaken: a legacy host's own subagents.
+      case "task": return cb.onTask?.(ev.toolUseId, ev.status, ev.detail);
       case "queued": return cb.onQueued?.(ev.id, ev.on && this.sock ? () => void this.op("cancelQueued", { id: ev.id }) : null);
       case "free": return cb.onFree?.(ev.free);
       case "tokens": return cb.onTokens?.(ev.n, ev.parent);
