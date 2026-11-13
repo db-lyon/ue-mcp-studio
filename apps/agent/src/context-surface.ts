@@ -15,6 +15,7 @@ import type { ActionResult } from "ue-mcp/daemon";
 import type { ContextStrategy } from "@ue-mcp-studio/shared";
 import { EDITOR_TOOLS } from "./tools.js";
 import { required } from "./backend.js";
+import { canonCategoryCall, canonFor } from "./canon.js";
 
 export interface ProjectedTool {
   name: string;
@@ -67,20 +68,7 @@ const RESTART = EDITOR_TOOLS.filter((t) => (t as { name: string }).name !== "ue_
 /** Studio's own tools, which a projected tool of the same name must never shadow. */
 const RESERVED = new Set(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "web_search", "agent", "skill"]);
 
-const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
-
-/**
- * A category tool's call read as ue_mcp's: `action` names the method; the
- * parameters are `args` when every other key is one the tool advertises
- * (routing such as an editor target, merged in), else the call is flat.
- */
-export function canonCategoryCall(tool: ProjectedTool, input: Record<string, unknown>): Record<string, unknown> {
-  const { action, args, ...rest } = input;
-  const advertised = new Set(Object.keys((tool.inputSchema.properties as Record<string, unknown> | undefined) ?? {}));
-  const envelope = isObj(args) && Object.keys(rest).every((k) => advertised.has(k));
-  const params = envelope ? { ...(args as Record<string, unknown>), ...rest } : { ...rest, ...(args !== undefined ? { args } : {}) };
-  return { action: "call", category: tool.category, method: typeof action === "string" ? action : "", args: params };
-}
+export { canonCategoryCall };
 
 export function microSurface(): EditorSurface {
   return {
@@ -109,10 +97,7 @@ function projectedSurface(api: ContextApi, p: Projection): EditorSurface {
     line,
     instructions: p.instructions.trim() || null,
     seedTokens: p.seedTokens,
-    canon: (name, input) => {
-      const t = byName.get(name);
-      return t?.category ? { name: "ue_mcp", input: canonCategoryCall(t, input) } : { name, input };
-    },
+    canon: canonFor(tools),
     passthrough: (name) => {
       const t = byName.get(name);
       return t && !t.category ? (input) => api.call(name, input, { strategy: p.strategy }) : null;
