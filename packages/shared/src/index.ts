@@ -344,7 +344,7 @@ export interface AttachmentUpload {
 }
 
 export type TranscriptEntry = (
-  /** source: a /playtest made from an agent message, by that message's transcript index. */
+  /** source: a /playtest made from an agent message, by that message's transcript index. With a parent: a message the user sent that subagent from its thread. */
   | { kind: "user"; text: string; at: string; attachments?: Attachment[]; source?: number }
   | { kind: "assistant"; text: string; at: string }
   | { kind: "tool"; call: ToolCallRecord }
@@ -403,6 +403,8 @@ export interface QueuedMessage {
   /** The session's files it carries, as on a sent message. */
   attachments: Attachment[];
   at: string;
+  /** Written in the thread of this agent call's subagent after it had finished: the main agent is told so. */
+  about?: string;
 }
 
 /** PUT /v1/ext/studio/sessions/:id: rename, archive or restore. */

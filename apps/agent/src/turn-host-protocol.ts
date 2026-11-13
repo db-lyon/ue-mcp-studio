@@ -23,7 +23,9 @@ import type { TokenUsage } from "./usage.js";
 import type { ContentBlock } from "./providers.js";
 
 /** Bumped when a message is added. Never reuse or change the meaning of an existing one. */
-export const TURN_HOST_PROTOCOL = 1;
+export const TURN_HOST_PROTOCOL = 2;
+/** The first protocol whose host takes the user's messages to a running subagent (op tellSubagent, event inboxTaken). */
+export const TELL_SUBAGENT_PROTOCOL = 2;
 export const HOSTS_DIR = "turn-hosts";
 
 /** What a host writes once it listens. A daemon trusts it only after the host answers hello with the same token. */
@@ -80,6 +82,8 @@ export type TurnEvent =
   | { t: "compaction"; e: { started?: boolean; trigger?: "auto" | "manual"; before?: number; after?: number; summary?: string; failed?: string } }
   | { t: "contextWindow"; w: { window: number; compactAt?: number } }
   | { t: "inputClosed"; why: string }
+  /** A subagent read the user's messages to it (callId null: the turn's own main agent). Protocol 2. */
+  | { t: "inboxTaken"; callId: string | null }
   | { t: "end"; error: string | null };
 
 export type JournalEvent = TurnEvent & { seq: number };
@@ -108,7 +112,7 @@ export type HostMessage =
   | JournalEvent;
 
 /** What the daemon asks of the host's turn. */
-export type HostOp = "say" | "keep" | "interrupt" | "stopTask" | "cancelQueued" | "abort";
+export type HostOp = "say" | "keep" | "interrupt" | "stopTask" | "cancelQueued" | "abort" | "tellSubagent";
 
 /** Daemon to host. */
 export type DaemonMessage =

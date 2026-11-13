@@ -19,6 +19,7 @@ import { composeNative, type NativeRun } from "../src/native-runtime.js";
 import { setRipgrep } from "../src/local-tools.js";
 import { registerQueueRoutes } from "../src/queue-routes.js";
 import { AttachmentStore } from "../src/attachments.js";
+import { relayKey } from "../src/subagent-inbox.js";
 
 class FakeHost implements AgentHost {
   connected = true;
@@ -256,6 +257,106 @@ describe("subagents", () => {
     expect(fin.transcript.filter((t) => t.parent === "a1").map((t) => t.kind)).toEqual(["tool", "assistant"]);
     expect(fin.transcript.filter((t) => t.parent === "a2").map((t) => t.kind)).toEqual(["tool", "assistant"]);
     expect(fin.transcript.filter((t) => !t.parent).map((t) => t.kind)).toEqual(["user", "tool", "tool", "assistant"]);
+  });
+});
+
+describe("messaging a running subagent from its thread on Studio's own loop", () => {
+  const sub = (req: ModelRequest) => req.system.some((b) => b.text.includes("You are a subagent"));
+  const said = (req: ModelRequest) => JSON.stringify(req.messages);
+
+  it("adds the message to that subagent's conversation before its next model call, and to no one else's", async () => {
+    const requests: ModelRequest[] = [];
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((r) => (release = r));
+    let mainCalls = 0;
+    const model: ModelProvider = {
+      async run(req) {
+        requests.push(JSON.parse(JSON.stringify(req)));
+        if (!sub(req)) {
+          mainCalls++;
+          if (mainCalls === 1) {
+            return {
+              content: [
+                { type: "tool_use", id: "door", name: "agent", input: { description: "Build the door", prompt: "door" } },
+                { type: "tool_use", id: "hall", name: "agent", input: { description: "Light the hall", prompt: "hall" } },
+              ] as never,
+              stopReason: "tool_use",
+            };
+          }
+          return text("Both done.");
+        }
+        const task = req.messages[0].content as string;
+        if (req.messages.length === 1) {
+          // The door subagent is mid-step when the user writes to it.
+          if (task === "door") await gate;
+          return call(`c-${task}`, "asset", "create", { name: task });
+        }
+        return text(said(req).includes("make it red") ? "Door built, red as you asked." : `${task} done.`);
+      },
+    };
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5" });
+    const s = store.create();
+    const turn = runner.send(s.id, "door and hall");
+    await until(() => runner.canMessage(store.get(s.id)!, "door"));
+    expect(await runner.messageSubagent(s.id, "door", "make it red")).toBe(true);
+    expect(store.get(s.id)!.transcript.at(-1)).toMatchObject({ kind: "user", text: "make it red", parent: "door" });
+    release!();
+    await turn;
+
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    // The door subagent's second request carries it after its tool result, framed as the user's.
+    const door = requests.filter((r) => sub(r) && r.messages[0].content === "door");
+    expect(said(door[0])).not.toMatch(/make it red/);
+    const last = door[1].messages.at(-1)!.content as Array<{ type: string; text?: string }>;
+    expect(last.map((b) => b.type)).toEqual(["tool_result", "text"]);
+    // Under the session's mark, which the subagent's system prompt names, so it reads it as the user's.
+    const key = relayKey(s.id);
+    expect(last[1].text.startsWith(`[Studio relays a message from the user, key ${key}]`)).toBe(true);
+    expect(door[0].system[0].text).toContain(`[Studio relays a message from the user, key ${key}]`);
+    expect(last[1].text).toMatch(/make it red/);
+    // The hall subagent and the main agent never see it.
+    expect(requests.filter((r) => sub(r) && r.messages[0].content === "hall").some((r) => said(r).includes("make it red"))).toBe(false);
+    expect(requests.filter((r) => !sub(r)).some((r) => said(r).includes("make it red"))).toBe(false);
+    const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string }>;
+    expect(results.find((r) => r.tool_use_id === "door")!.content).toBe("Door built, red as you asked.");
+    expect(fin.transcript.filter((t) => t.kind === "tool" && t.call.name === "agent").map((t) => (t as { call: { outcome: string } }).call.outcome)).toEqual(["done", "done"]);
+  });
+
+  it("keeps a subagent going when the message comes as it writes its report", async () => {
+    const requests: ModelRequest[] = [];
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((r) => (release = r));
+    let mainCalls = 0;
+    const model: ModelProvider = {
+      async run(req) {
+        requests.push(JSON.parse(JSON.stringify(req)));
+        if (!sub(req)) {
+          mainCalls++;
+          return mainCalls === 1
+            ? { content: [{ type: "tool_use", id: "rep", name: "agent", input: { description: "Write the report", prompt: "report" } }] as never, stopReason: "tool_use" }
+            : text("Done.");
+        }
+        if (req.messages.length === 1) {
+          await gate;
+          return text("Report in English.");
+        }
+        return text(said(req).includes("in French") ? "Rapport en francais." : "unexpected");
+      },
+    };
+    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5" });
+    const s = store.create();
+    const turn = runner.send(s.id, "report");
+    await until(() => runner.canMessage(store.get(s.id)!, "rep"));
+    expect(await runner.messageSubagent(s.id, "rep", "write it in French")).toBe(true);
+    release!();
+    await turn;
+    const fin = store.get(s.id)!;
+    const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string }>;
+    expect(results[0].content).toBe("Rapport en francais.");
+    // A finished subagent takes no more messages.
+    expect(runner.canMessage(fin, "rep")).toBe(false);
+    expect(await runner.messageSubagent(s.id, "rep", "again")).toBe(false);
   });
 });
 

@@ -17,7 +17,7 @@ const NAMES: Array<keyof StudioApi> = [
   "health", "sessions", "newSession", "sessionSync", "callResult", "send", "queue", "removeQueued", "sendQueued", "sendQueuedNow", "stop", "saveDraft", "approve", "dialogs", "answerDialog",
   "settings", "saveSettings", "models", "reviewStatus", "setSessionReview", "reviewDiff", "reviewKeep", "reviewRevert", "reviewUndo", "timelineRestore", "timelineUndo", "vcs", "vcsChanges", "vcsDiff",
   "versionNotice", "keepStudio", "useInstalledStudio", "busy", "stopBusy", "editor", "refusal", "saveUpdateRun", "updatesDeferredNow",
-  "editQueued", "updateSession", "deleteSession", "markSeen", "dismissAgents", "editMessage", "uploadAttachment", "stopSubagent", "compact", "flow", "action", "playtest",
+  "editQueued", "updateSession", "deleteSession", "markSeen", "dismissAgents", "editMessage", "uploadAttachment", "stopSubagent", "messageSubagent", "compact", "flow", "action", "playtest",
   "flows", "actions", "searchMentions", "forms", "answerForm", "bytes", "reviewNativeDiff",
   "resolveAssets", "reportAssetMiss", "openAsset", "readFile",
 ];

@@ -38,3 +38,4 @@ export * from "./forms.js";
 export * from "./asset-tile.js";
 export * from "./project-switch.js";
 export * from "./working.js";
+export * from "./composer-target.js";

@@ -248,7 +248,10 @@ export const api = {
     call<Attachment>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/attachments`, upload),
   stopSubagent: (id: string, callId: string) =>
     call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/stop`),
-  stop: (id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/stop`),
+  /** A message written in a subagent's thread: to it while it runs, else to the main agent, naming it (queued behind its reply unless now). */
+  messageSubagent: (id: string, callId: string, text: string, attachments: string[] = [], now = false) =>
+    call<{ sessionId: string; to: "subagent" | "queue" | "main" }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}/messages`, now ? { text, attachments, now } : { text, attachments }),
+  stop:(id: string) => call<void>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/stop`),
   /** Summarise the conversation to free context; the transcript stays whole. */
   compact: (id: string, instructions?: string) => call<{ sessionId: string }>("POST", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/compact`, instructions ? { instructions } : {}),
   approve: (id: string, approvalId: string, decision: ApprovalDecision) =>

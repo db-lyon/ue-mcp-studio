@@ -250,6 +250,44 @@ describe("steering a turn in a host process", () => {
     await until(() => d.store.get(s.id)!.status === "idle");
     expect(outcome(d.store.get(s.id)!, "ag")).toMatchObject({ outcome: "stopped" });
   }, 20_000);
+
+  it("hands a running subagent the user's message through the host, at its next step, and stops nothing", async () => {
+    let go: (() => void) | null = null;
+    let binary: FakeBinary | null = null;
+    const delivered: string[] = [];
+    sdk.script = async (b) => {
+      binary = b;
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-tell" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build the gate", prompt: "build", run_in_background: true } }]));
+      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-g", is_backgrounded: true });
+      b.emit(results("ag", { text: "Started in the background.", isError: false }));
+      // The main agent is still mid-reply when the user writes to the subagent.
+      await new Promise<void>((r) => (go = r));
+      for (const a of await b.hook("PostToolUse", { agent_id: "task-g", tool_name: "mcp__studio__shell", tool_use_id: "s1" })) {
+        const text = (a.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext;
+        if (text) delivered.push(text);
+      }
+      b.emit(assistant("m_b", [{ type: "text", text: "It is building." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-tell" });
+      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-g", status: "completed", summary: "Gate built in oak." });
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-tell" });
+    };
+    const d = daemon();
+    const s = d.store.create();
+    const turn = d.runner.send(s.id, "build the gate in the background");
+    await until(() => hostsStarted === 1 && d.runner.canMessage(d.store.get(s.id)!, "ag") && !!go);
+    expect(await d.runner.messageSubagent(s.id, "ag", "make it oak")).toBe(true);
+    expect(d.store.get(s.id)!.transcript.at(-1)).toMatchObject({ kind: "user", text: "make it oak", parent: "ag" });
+    go!();
+    await turn;
+    await until(() => d.store.get(s.id)!.status === "idle");
+    expect(delivered).toHaveLength(1);
+    expect(delivered[0]).toMatch(/make it oak/);
+    // Read by the subagent, so nothing went to the main agent, and nothing was stopped.
+    expect(binary!.said).toEqual([]);
+    expect(sdk.interrupts).toBe(0);
+    expect(d.store.get(s.id)!.transcript.some((t) => t.kind === "note" && /ended before it read/.test(t.text))).toBe(false);
+  }, 20_000);
 });
 
 describe("updates while a turn runs in a host process", () => {

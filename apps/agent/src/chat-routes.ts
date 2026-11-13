@@ -23,6 +23,7 @@
  *   POST /sessions/:id/action       a /action: { category, method, args?, text? }, run as a ue_mcp call under the approval rules
  *   POST /sessions/:id/compact      summarise the conversation to free context: { instructions? }; the transcript stays whole
  *   POST /sessions/:id/stop         stop the turn
+ *   POST /sessions/:id/agents/:callId/messages  a message written in a subagent's thread: to it while it runs, else to the main agent
  *   POST /sessions/:id/approvals/:approvalId   allow or deny a command or file change
  *   POST /quick                     the editor's quick ask: a new session with its first message (quick.ts)
  *   PUT  /updates/channel           stable or beta, for every project
@@ -791,6 +792,31 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/sessions/:id/agents/:callId/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
     return runner.stopSubagent(req.params.id, req.params.callId) ? { status: 204 } : { status: 404, body: { error: `no running subagent ${req.params.callId}` } };
+  });
+  // A message written in a subagent's thread. A running subagent reads it at its next step, and nothing
+  // stops: not it, not the main agent, not the other subagents. One that has finished cannot read it: it
+  // goes to the main agent instead (queued behind a running reply unless now: true), saying whose thread it came from.
+  api.route("POST", "/sessions/:id/agents/:callId/messages", async (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    const m = messageBody(s.id, req.body);
+    if ("error" in m) return bad(m.error);
+    const callId = req.params.callId;
+    if (!s.transcript.some((t) => t.kind === "tool" && t.call.id === callId && t.call.name === "agent")) return { status: 404, body: { error: `no subagent ${callId}` } };
+    if (runner.canMessage(s, callId)) {
+      if (m.files.length) return bad("a subagent takes text only; send files to the main agent from the main thread");
+      if (await runner.messageSubagent(s.id, callId, m.text)) return { status: 202, body: { sessionId: s.id, to: "subagent" } };
+      // Its turn could not take it after all (it ended meanwhile, or runs in a host from an older Studio): the main agent has it.
+    }
+    const now = (req.body as { now?: unknown } | undefined)?.now === true;
+    const running = s.status === "running" || s.status === "waiting";
+    if (running && !now && !runner.mainFree(s.id)) {
+      runner.enqueue(s.id, m.text, m.files.map(({ path: _p, ...a }) => a), callId);
+      return { status: 202, body: { sessionId: s.id, to: "queue" } };
+    }
+    if (running && !runner.keepsSubagents(s.id)) stopSide(s.id);
+    runner.sendNow(s.id, m.text, m.files, callId).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
+    return { status: 202, body: { sessionId: s.id, to: "main" } };
   });
   // The user's answer to a command or file change the agent asked to make.
   api.route("POST", "/sessions/:id/approvals/:approvalId", (req) => {
