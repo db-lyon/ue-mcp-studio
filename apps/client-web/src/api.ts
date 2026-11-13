@@ -138,7 +138,7 @@ export interface StudioVersionNotice {
 export const api = {
   notifications: () => call<unknown>("GET", "/v1/ext/studio/notifications").then(notificationsOf),
   saveNotifications: (u: ProjectNotifyUpdate) => call<unknown>("PUT", "/v1/ext/studio/notifications", u).then(notificationsOf),
-  notifyPresence: (body: { id: string; device: NotifyDevice; active: boolean; inputAgeMs?: number }) => call<void>("POST", "/v1/ext/studio/notifications/presence", body),
+  notifyPresence: (body: { id: string; device: NotifyDevice; active: boolean; inputAgeMs?: number; viewing?: string }) => call<void>("POST", "/v1/ext/studio/notifications/presence", body),
   testNotification: (body: { id: string }) => call<{ notice: Notice }>("POST", "/v1/ext/studio/notifications/test", body),
   notifyDelivery: (report: NotifyDelivery) => call<void>("POST", "/v1/ext/studio/notifications/delivery", report),
   /** The computer's own device settings, kept by the agent: the window's page storage goes with each daemon port. */

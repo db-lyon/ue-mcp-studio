@@ -38,13 +38,42 @@ describe("Notifier", () => {
     expect(published).toHaveLength(0);
   });
 
-  it("error and stopped are turn.failed", () => {
+  it("an error is turn.failed; the owner's own stop notifies nothing", () => {
     const { ev, published } = setup({ s1: session({ error: "rate limited" }) });
     ev("session.changed", { sessionId: "s1", status: "running" });
     ev("session.changed", { sessionId: "s1", status: "error" });
     ev("session.changed", { sessionId: "s1", status: "waiting" });
     ev("session.changed", { sessionId: "s1", status: "stopped" });
-    expect(published.map((p) => [p.kind, p.title, p.text])).toEqual([["turn.failed", "Fix the door", "Stopped on an error"], ["turn.failed", "Fix the door", "Stopped"]]);
+    expect(published.map((p) => [p.kind, p.title, p.text])).toEqual([["turn.failed", "Fix the door", "Stopped on an error"]]);
+  });
+
+  it("a subagent the owner stopped notifies nothing", () => {
+    const sessions = { s1: session({ transcript: [{ kind: "tool", call: { id: "c1", name: "agent", input: { description: "Audit" }, outcome: "stopped" } } as never] }) };
+    const { ev, published } = setup(sessions, applyProjectNotify(DEFAULT_PROJECT_NOTIFY, { events: { "subagent.finished": true } }));
+    ev("tool.finished", { sessionId: "s1", toolUseId: "c1", outcome: "stopped" });
+    expect(published).toHaveLength(0);
+  });
+
+  it("sends nothing about a session the owner has open on a device in use, but still the editor's dialogs", () => {
+    const { n, ev, published, tick } = setup({ s1: session(), s2: session({ title: "Other" }) });
+    n.presence.report("win", "desktop", true, 1_000, "s1");
+    ev("session.changed", { sessionId: "s1", status: "running" });
+    ev("session.changed", { sessionId: "s1", status: "idle" });
+    ev("approval.requested", { sessionId: "s1", approvalId: "a1", tool: "shell" });
+    ev("dialog.changed", { now: 1, dialogs: [{ id: "d1", title: "Save Content", message: "Save?", asking: { since: 1 }, outcome: null, sessionId: "s1" }] });
+    // Another session still notifies.
+    ev("session.changed", { sessionId: "s2", status: "running" });
+    ev("session.changed", { sessionId: "s2", status: "idle" });
+    expect(published.map((p) => [p.kind, p.sessionId])).toEqual([["dialog.waiting", "s1"], ["turn.finished", "s2"]]);
+    // Open but not in use (idle or unfocused), or the report gone stale: it notifies again.
+    n.presence.report("win", "desktop", false, 600_000, "s1");
+    ev("session.changed", { sessionId: "s1", status: "running" });
+    ev("session.changed", { sessionId: "s1", status: "idle" });
+    n.presence.report("win", "desktop", true, 1_000, "s1");
+    tick(PRESENCE_TTL_MS + 1);
+    ev("session.changed", { sessionId: "s1", status: "running" });
+    ev("session.changed", { sessionId: "s1", status: "idle" });
+    expect(published.slice(2).map((p) => [p.kind, p.sessionId])).toEqual([["turn.finished", "s1"], ["turn.finished", "s1"]]);
   });
 
   it("approval and dialog waiting, each dialog once", () => {

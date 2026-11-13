@@ -17,5 +17,11 @@ export function readLocation(): PanelLocation {
 export function writeLocation(change: Partial<PanelLocation>): void {
   if (typeof window === "undefined") return;
   const next = formatLocation({ ...readLocation(), ...change });
-  if (next !== window.location.hash) window.history.replaceState(window.history.state, "", next);
+  if (next === window.location.hash) return;
+  window.history.replaceState(window.history.state, "", next);
+  // replaceState fires no hashchange; presence listens for this to report the open session at once.
+  window.dispatchEvent(new Event(LOCATION_EVENT));
 }
+
+/** Fired on window when writeLocation changes the hash. */
+export const LOCATION_EVENT = "studio:location";

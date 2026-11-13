@@ -11,6 +11,7 @@ import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDim
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
 import { DetailLoader, agentCalls, chatPane, sessionGone, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
+import { writeLocation } from "../location";
 import { haptic } from "../native/haptics";
 import { KeyboardAvoidingView } from "../native/keyboard";
 import { useSharedFiles } from "../native/share";
@@ -193,6 +194,10 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
       setDetail(null);
     }
   }, [nav?.n]);
+  // Where the panel is names the open session, as the web's hash does: presence reports it, so no notice comes for a chat on screen.
+  useEffect(() => {
+    if (active) writeLocation({ tab: "Chat", session: selected });
+  }, [selected, active]);
 
   const loadSettings = useCallback(() => api.settings().then(setSettings, () => setSettings(null)), [api]);
   useEffect(() => {

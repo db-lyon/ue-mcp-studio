@@ -54,7 +54,7 @@ export function settingsApi(t: Transport) {
     settings: () => get<unknown>(`${S}/settings`).then(settingsOf) as Promise<StudioSettings>,
     notifications: () => get<unknown>(`${S}/notifications`).then(notificationsOf) as Promise<NotificationsState>,
     saveNotifications: (u: ProjectNotifyUpdate) => send<unknown>("PUT", `${S}/notifications`, u).then(notificationsOf) as Promise<NotificationsState>,
-    notifyPresence: (body: { id: string; device: NotifyDevice; active: boolean; inputAgeMs?: number }) => send<void>("POST", `${S}/notifications/presence`, body),
+    notifyPresence: (body: { id: string; device: NotifyDevice; active: boolean; inputAgeMs?: number; viewing?: string }) => send<void>("POST", `${S}/notifications/presence`, body),
     /** A test notice only the device with this presence id shows. */
     testNotification: (body: { id: string }) => send<{ notice: Notice }>("POST", `${S}/notifications/test`, body),
     /** What this device did with a notice, for the daemon's log and Diagnostics. */
