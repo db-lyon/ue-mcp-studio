@@ -632,6 +632,12 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .composer-bar[data-tier="narrowest"] > .picker { position: static; }
 .composer-bar[data-tier="narrowest"] .picker-menu { left: 0; right: 0; width: auto; }
 .queue { display: flex; flex-direction: column; gap: 2px; padding: 6px 16px; border-top: 1px solid var(--line); background: var(--composer-bg); max-height: 28vh; overflow: auto; }
+/* While a turn runs: spinner, what the agent is doing, elapsed time. */
+.working-line { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 6px 16px; border-top: 1px solid var(--line); background: var(--composer-bg); color: var(--text); font: 500 13px/1.3 var(--sans); }
+.working-line .spinner.small { width: 14px; height: 14px; }
+.working-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.working-time { flex-shrink: 0; color: var(--muted); font-variant-numeric: tabular-nums; }
+.working-line.waiting .spinner { border-top-color: var(--warn, var(--accent)); }
 .queue-head { display: flex; align-items: center; gap: 8px; padding: 2px 0 4px; }
 .queue-row { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border: 1px dashed var(--accent-line); border-radius: 6px; background: var(--accent-wash); font-size: 13px; }
 .queue-row.editing { flex-direction: column; align-items: stretch; border-style: solid; }

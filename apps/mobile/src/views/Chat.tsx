@@ -21,6 +21,7 @@ import { ConnectModel, ModelAndEffort, ModelPicker, useCatalog } from "./ModelPi
 import { useDaemonState, useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, EntryBoundary, MainTranscript, TranscriptFromContext, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
+import { WorkingLine } from "../chat/Working";
 import { pillsFor } from "../chat/pill-providers";
 import { PillRow } from "../chat/Pills";
 import { Threads } from "../chat/Threads";
@@ -656,6 +657,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                         {playtest ? <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} /> : null}
                         </View>
                         <View onLayout={(e) => setDiag({ composerH: e.nativeEvent.layout.height })}>
+                        <WorkingLine detail={detail} />
                         <Composer
                           draft={draft}
                           onDraft={setDraft}
