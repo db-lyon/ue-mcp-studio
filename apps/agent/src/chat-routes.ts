@@ -53,11 +53,11 @@ import type { ActionRunRequest, ApprovalDecision, FlowRunRequest, PlaytestReques
 import { MENTION_KINDS, splitActionName, type MentionKind } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
-import { DEFAULT_MODEL, SettingsStore } from "./settings.js";
+import { SettingsStore } from "./settings.js";
 import { fetchAccountUsage } from "./account-usage.js";
 import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
 import { providerFor } from "./providers.js";
-import { DEFAULT_PLAN_MODELS, ModelCatalogSource, pickRoute, type SignInCoverage } from "./models.js";
+import { DEFAULT_PLAN_MODELS, ModelCatalogSource, firstRunnable, pickRoute, type SignInCoverage } from "./models.js";
 import { knownWindow } from "./context-windows.js";
 import { registerNotifications, type NotifySession } from "./notify.js";
 import { StudioSignInFlow } from "./signin.js";
@@ -161,6 +161,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       hasEndpoint: (id) => endpoints.get(id) !== null,
       order: settings.routeOrder(),
     });
+  // Until the user picks a model, the first one something on this machine runs, of whichever vendor.
+  settings.setFallback(() => firstRunnable(settings.storedChoice(), {
+    signedIn: signedIn(),
+    coverage: coverage(),
+    hasKey: (v) => settings.key(v) !== null,
+    hasEndpoint: (id) => endpoints.get(id) !== null,
+    order: settings.routeOrder(),
+  }, endpoints.list()));
   const route = (): ModelRoute => routeOf(settings.provider(), settings.model());
   const endpointName = (vendor: string): string | null => {
     const id = endpointIdOf(vendor);
@@ -400,9 +408,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       nativeCache = null;
       api.events.publish("settings.changed", {});
     },
-    // A model selected on a removed endpoint has nothing to run it: go back to the default model.
+    // A model selected on a removed endpoint has nothing to run it: the model follows what is connected again.
     removed: (id) => {
-      if (settings.provider() === endpointVendor(id)) settings.update({ provider: "anthropic", model: DEFAULT_MODEL });
+      if (settings.provider() === endpointVendor(id)) settings.forgetModel();
     },
   });
   registerNativeRoutes(api, {

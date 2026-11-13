@@ -49,6 +49,11 @@ export interface AccountProfile {
   github: string | null;
 }
 
+/**
+ * The model a new install names before the user picks one. Only a placeholder:
+ * until the user chooses, Studio runs the first model something on this
+ * machine can run (SettingsStore.setFallback), whichever vendor that is.
+ */
 export const DEFAULT_MODEL = "claude-opus-5-5";
 export const DEFAULT_EFFORT: Effort = "high";
 export const DEFAULT_GATEWAY_URL = "https://api.ue-mcp.com";
@@ -70,7 +75,16 @@ interface StoredSettings {
   usage: UsageSettings;
   /** What each kind of action does first: ask, or go ahead. Replaces askBeforeChanges, which is still written for an older Studio. */
   approvals: Approvals;
+  /**
+   * The user picked provider and model. False on a new install until they do,
+   * and after the endpoint their model ran on is removed: the model then
+   * follows what is connected. A file from before this field counts as picked.
+   */
+  modelChosen: boolean;
 }
+
+/** A model to run in place of an unpicked one: its vendor and id. */
+export type ModelChoice = { provider: VendorId; model: string };
 
 export { usageOf, dialogPolicyOf, approvalsOf };
 
@@ -190,11 +204,44 @@ export class SettingsStore {
         dialogPolicy: dialogPolicyOf(raw.dialogPolicy) ?? DEFAULT_DIALOG_POLICY,
         usage: usageOf(raw.usage),
         approvals: approvalsOf(raw),
+        // Written before the field: the provider and model in it were the user's.
+        modelChosen: raw.modelChosen !== false,
       };
     } catch {
-      // No settings yet: a new install, which asks before every kind of change.
-      return { provider: "anthropic", model: DEFAULT_MODEL, routeOrder: DEFAULT_ROUTE_ORDER, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS } };
+      // No settings yet: a new install, which asks before every kind of change and has picked no model.
+      return { provider: "anthropic", model: DEFAULT_MODEL, routeOrder: DEFAULT_ROUTE_ORDER, effort: DEFAULT_EFFORT, gatewayUrl: DEFAULT_GATEWAY_URL, theme: "ue-mcp", askBeforeChanges: true, reviewTurns: true, composerHeight: null, dialogPolicy: DEFAULT_DIALOG_POLICY, usage: { ...DEFAULT_USAGE }, approvals: { ...DEFAULT_APPROVALS }, modelChosen: false };
     }
+  }
+
+  /** What runs a model the user has not picked; null keeps the stored one. */
+  private fallback: (() => ModelChoice | null) | null = null;
+
+  /**
+   * How an unpicked model is chosen: the caller knows what is connected. The
+   * stored provider and model stand while the user has picked them.
+   */
+  setFallback(f: () => ModelChoice | null): void {
+    this.fallback = f;
+  }
+
+  /** The stored settings with the model that runs now: the user's pick, else what the fallback finds. */
+  private current(): StoredSettings {
+    const s = this.stored();
+    if (s.modelChosen || !this.fallback) return s;
+    const f = this.fallback();
+    return f ? { ...s, provider: f.provider, model: f.model } : s;
+  }
+
+  /** The stored provider and model, before any fallback: what an unpicked install names. */
+  storedChoice(): ModelChoice & { chosen: boolean } {
+    const s = this.stored();
+    return { provider: s.provider, model: s.model, chosen: s.modelChosen };
+  }
+
+  /** Forget the model pick (its endpoint was removed): the model follows what is connected again. */
+  forgetModel(): void {
+    const s = this.stored();
+    this.write({ ...s, provider: "anthropic", model: DEFAULT_MODEL, modelChosen: false });
   }
 
   private readSecret(name: string): string | null {
@@ -216,7 +263,7 @@ export class SettingsStore {
   /** The stored choices, without secrets. The route adds which providers are connected. */
   view(): StoredSettings & { keys: Record<KeyProviderId, boolean> } {
     const keys = Object.fromEntries(KEY_PROVIDER_IDS.map((p) => [p, this.readKey(p) !== null])) as Record<KeyProviderId, boolean>;
-    return { ...this.stored(), keys };
+    return { ...this.current(), keys };
   }
 
   update(u: StudioSettingsUpdate): void {
@@ -232,6 +279,11 @@ export class SettingsStore {
     if (u.model !== undefined) {
       if (typeof u.model !== "string" || !u.model.trim()) throw new Error("model must be a non-empty string");
       s.model = u.model.trim();
+    }
+    if (u.provider !== undefined || u.model !== undefined) {
+      // A model picked alone, while nothing was picked yet, is of the vendor that ran until now.
+      if (u.provider === undefined && !s.modelChosen) s.provider = this.current().provider;
+      s.modelChosen = true;
     }
     if (u.effort !== undefined) {
       if (!EFFORTS.includes(u.effort)) throw new Error(`effort must be one of ${EFFORTS.join(", ")}`);
@@ -351,11 +403,11 @@ export class SettingsStore {
   }
 
   model(): string {
-    return this.stored().model;
+    return this.current().model;
   }
 
   provider(): VendorId {
-    return this.stored().provider;
+    return this.current().provider;
   }
 
   /** Which route runs a model a sign-in and a key can both run. */
@@ -397,7 +449,7 @@ export class SettingsStore {
    * model's vendor, so the same sign-in or key runs both; otherwise the main model.
    */
   subagentModel(): string {
-    const s = this.stored();
+    const s = this.current();
     return s.usage.subagentModel?.provider === s.provider ? s.usage.subagentModel.model : s.model;
   }
 

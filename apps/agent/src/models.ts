@@ -113,6 +113,26 @@ export function pickRoute(vendor: VendorId, model: string, c: RouteContext): Mod
   return routesInOrder(signInsFor(v, model, c.coverage), c.order).find((r) => (r === "key" ? c.hasKey(v) : c.signedIn[r])) ?? null;
 }
 
+/**
+ * The model to run while the user has picked none: the stored one when
+ * something runs it, else the first model of the first vendor something on
+ * this machine runs (a sign-in, a key, or a custom endpoint), else null. No
+ * vendor is preferred: the user's connections decide.
+ */
+export function firstRunnable(stored: { provider: VendorId; model: string }, c: RouteContext, endpoints: ReadonlyArray<Pick<CustomEndpoint, "id" | "models">> = []): { provider: VendorId; model: string } | null {
+  if (pickRoute(stored.provider, stored.model, c)) return null;
+  for (const v of KEY_PROVIDER_IDS) {
+    // A ChatGPT sign-in names the models it runs; any other route runs the vendor's list.
+    const list = v === "openai" && c.coverage.chatgptModels?.length ? c.coverage.chatgptModels : DEFAULT_MODELS[v];
+    const m = list.find((x) => pickRoute(v, x.id, c));
+    if (m) return { provider: v, model: m.id };
+  }
+  for (const e of endpoints) {
+    if (e.models.length && c.hasEndpoint(e.id)) return { provider: endpointVendor(e.id), model: e.models[0].id };
+  }
+  return null;
+}
+
 /** A custom endpoint as the picker lists it: its models, run by the endpoint itself. */
 export function endpointCatalog(e: CustomEndpoint): ModelCatalog["providers"][number] {
   return {
