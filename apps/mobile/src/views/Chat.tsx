@@ -723,6 +723,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                                   busy={busy}
                                   compacting={compacting}
                                   runtime={runtimeCompacts}
+                                  route={settings.route}
                                   onCompact={() => compactNow()}
                                   owner={openThread ? "Main" : undefined}
                                 />
