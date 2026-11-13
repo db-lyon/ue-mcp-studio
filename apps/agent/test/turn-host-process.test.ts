@@ -37,6 +37,12 @@ const until = async (cond: () => boolean, ms = 10_000) => {
   }
 };
 
+/** What the hosts under a data folder logged, for a failure's message. */
+const hostLog = (dataDir: string) => {
+  const dir = path.join(dataDir, "turn-hosts");
+  return fs.existsSync(dir) ? fs.readdirSync(dir).filter((n) => n.endsWith(".log")).map((n) => fs.readFileSync(path.join(dir, n), "utf-8")).join("\n") : "";
+};
+
 /** A daemon's side, recorded: what it was told, and the calls it was asked to run. */
 function daemon(answer: ((callId: string) => Promise<ToolExecution>) | null) {
   const seen: string[] = [];
@@ -76,7 +82,8 @@ const spec: TurnSpec = {
 describe("a turn host process", () => {
   it("outlives the daemon that started it, and the next daemon picks the turn up where it was", async () => {
     const dataDir = path.join(root, "data");
-    const log = { info() {}, warn() {} };
+    const said: string[] = [];
+    const log = { info: (m: string) => void said.push(m), warn: (m: string, e?: unknown) => void said.push(`${m}: ${e instanceof Error ? e.message : String(e)}`) };
     // The first daemon starts the host, sees its first events and the call it waits on, then goes away without answering.
     const first = daemon(null);
     const run1 = await new TurnHosts({ dataDir, projectDir: os.tmpdir(), version: "1.0.0", script, log }).start("s1", spec, first.cb);
@@ -98,12 +105,13 @@ describe("a turn host process", () => {
     const found = hosts2.recordFor("s1")!;
     expect(found.host).toBe(record.host);
     const run2 = await hosts2.attach(found, second.cb, first.seq());
-    expect(await run2.done).toBeNull();
+    const result = await run2.done;
+    expect(result, `${said.join("\n")}\nalive ${pidAlive(record.pid)}\n${hostLog(dataDir)}`).toBeNull();
     expect(second.asked).toEqual(["c1"]);
     // Nothing the first daemon applied comes again; only what followed.
     expect(second.seen).toEqual(["tool result", "the daemon answered: hi from the new daemon"]);
     // Its end applied, the host exits and leaves nothing behind.
-    await until(() => !pidAlive(record.pid));
+    await until(() => !pidAlive(record.pid), 30_000);
     expect(listRecords(dataDir)).toEqual([]);
   }, 60_000);
 
@@ -127,9 +135,12 @@ describe("a turn host process", () => {
 
     // The next daemon finds it, replays everything and answers the call it still waits on.
     const next = daemon(async () => ({ text: "answered after the kill", isError: false, outcome: "done", touched: [], saved: [] }));
-    const run = await new TurnHosts({ dataDir, projectDir: os.tmpdir(), version: "2.0.0", script, log: { info() {}, warn() {} } }).attach(record, next.cb, 0);
-    expect(await run.done).toBeNull();
+    const said: string[] = [];
+    const log = { info: (m: string) => void said.push(m), warn: (m: string, e?: unknown) => void said.push(`${m}: ${e instanceof Error ? e.message : String(e)}`) };
+    const run = await new TurnHosts({ dataDir, projectDir: os.tmpdir(), version: "2.0.0", script, log }).attach(record, next.cb, 0);
+    expect(await run.done, `${said.join("\n")}\nalive ${pidAlive(record.pid)}\n${hostLog(dataDir)}`).toBeNull();
     expect(next.seen).toEqual(["session proc-session", expect.stringMatching(/^running in process \d+$/), "tool_use c1", "tool result", "the daemon answered: answered after the kill"]);
-    await until(() => !pidAlive(record.pid));
+    // A loaded machine can take a while to let the process go.
+    await until(() => !pidAlive(record.pid), 30_000);
   }, 60_000);
 });

@@ -76,6 +76,8 @@ export interface TurnHostsOptions {
   readyMs?: number;
   /** How long a dropped connection to a live host is retried before the host counts as gone. */
   reconnectMs?: number;
+  /** How long a daemon that starts keeps trying to reach a live host before it gives up on the turn. */
+  attachMs?: number;
 }
 
 const HELLO_MS = 10_000;
@@ -163,13 +165,27 @@ export class TurnHosts {
    */
   async attach(record: TurnHostRecord, cb: HostedCallbacks, from: number): Promise<HostedRun> {
     const link = new HostLink(this.o, record, cb, from);
-    if (!record.ended && pidAlive(record.pid)) {
+    // A busy machine can refuse a connection for a moment: a host that is alive is tried again before it counts as gone.
+    const until = Date.now() + (this.o.attachMs ?? 30_000);
+    let last: unknown = null;
+    for (let tries = 0; ; tries++) {
+      const r = readRecord(recordFile(this.o.dataDir, record.host)) ?? record;
+      if (r.ended || !pidAlive(r.pid)) {
+        this.o.log.info(`the turn host of session ${record.session} ${r.ended ? "has ended" : "is no longer running"}: its journal is applied`);
+        break;
+      }
       try {
         await link.connect();
+        if (tries > 0) this.o.log.info(`reached the turn host of session ${record.session} after ${tries + 1} tries`);
         return link.run();
       } catch (e) {
-        this.o.log.warn(`could not reach the turn host of session ${record.session}`, e);
+        last = e;
       }
+      if (Date.now() > until) {
+        this.o.log.warn(`could not reach the turn host of session ${record.session}, which is still running`, last);
+        break;
+      }
+      await new Promise((res) => setTimeout(res, 250));
     }
     link.fromJournal();
     return link.run();
@@ -405,12 +421,20 @@ class HostLink {
     })();
   }
 
-  /** The host is gone: apply what its journal holds, then end the turn with its end, or as cut off. */
+  /**
+   * The host is gone, or cannot be reached: apply what its journal holds, then
+   * end the turn with its end, or as cut off. The files of a host that is still
+   * running are left, so a later daemon can still reach it.
+   */
   fromJournal(): void {
     this.hideLive();
     for (const ev of readJournal(journalFile(this.o.dataDir, this.record.host), this.applied)) this.apply(ev);
     if (this.settled) return;
-    removeHostFiles(this.o.dataDir, this.record.host);
-    this.settle("The process the turn ran in ended before the turn did. Send a message to continue.");
+    const r = readRecord(recordFile(this.o.dataDir, this.record.host));
+    const running = !!r && !r.ended && pidAlive(r.pid);
+    if (!running) removeHostFiles(this.o.dataDir, this.record.host);
+    this.settle(running
+      ? "Studio could not reach the process the turn runs in. Send a message to continue."
+      : "The process the turn ran in ended before the turn did. Send a message to continue.");
   }
 }

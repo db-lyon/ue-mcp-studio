@@ -235,6 +235,7 @@ export class TurnHost {
     sock.on("close", () => {
       if (this.daemon !== sock) return;
       this.daemon = null;
+      this.log(`the daemon disconnected at event ${this.seq}`);
       for (const p of this.pending.values()) this.waitForDaemon(p);
       this.endWaiter?.();
     });
@@ -244,6 +245,7 @@ export class TurnHost {
   private attach(sock: net.Socket, from: number): void {
     const prior = this.daemon;
     this.daemon = sock;
+    this.log(`a daemon attached from event ${from} of ${this.seq}, ${this.pending.size} call(s) waiting`);
     // The newer daemon wins: an older connection is from a daemon that is going away.
     if (prior && prior !== sock) prior.destroy();
     sendLine(sock, { t: "hello", protocol: TURN_HOST_PROTOCOL, version: this.l.version, pid: process.pid, session: this.l.session, host: this.l.host, last: this.seq });

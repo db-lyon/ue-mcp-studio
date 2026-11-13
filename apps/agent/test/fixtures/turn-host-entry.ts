@@ -24,6 +24,10 @@ async function run(t: SubscriptionTurn): Promise<string | null> {
 }
 
 const host = new TurnHost({ launch, run, endAckMs: 5000 });
+process.on("uncaughtException", (e) => host.log(`uncaught: ${e instanceof Error ? e.stack ?? e.message : String(e)}`));
+process.on("unhandledRejection", (e) => host.log(`unhandled rejection: ${String(e)}`));
+process.on("exit", (code) => host.log(`exit ${code}`));
+for (const sig of ["SIGTERM", "SIGINT", "SIGHUP", "SIGBREAK"] as const) process.on(sig, () => host.log(`signal ${sig}`));
 await host.start();
 await host.done;
 process.exit(0);
