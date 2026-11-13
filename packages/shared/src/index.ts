@@ -444,8 +444,9 @@ export interface SessionDetail extends SessionSummary {
   /** Messages written while a turn ran, sent one by one, in order, as each turn ends. */
   queue: QueuedMessage[];
   /**
-   * The main agent finished its reply while background subagents still run:
-   * a message sent now goes to it at once, and the subagents keep working.
+   * The main agent takes a message now, on any route: its subagents are
+   * working and it waits only on them, or its reply ended while they work on.
+   * A message sent now goes to it at once, and the subagents keep working.
    */
   mainFree?: boolean;
   error: string | null;

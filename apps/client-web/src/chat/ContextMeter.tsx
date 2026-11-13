@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
-import { compactLine, contextLabel, contextRing, contextWarningText, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
+import { compactLine, contextLabel, contextRing, contextWarningText, dollars, pct, planCoversLine, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
 import { keepInView } from "./keepInView";
 
 export { dollars, tipLines };
@@ -39,7 +39,7 @@ export function ContextRing({ view, className = "" }: { view: ContextView; class
  * on a touch screen), it has the numbers behind it, Compact now, and the
  * session's totals, which are spend, not context.
  */
-export function ContextMeter({ context, totals, model, modelName, nameOf = (id) => id, listedWindow, busy, compacting, runtime, onCompact, owner }: {
+export function ContextMeter({ context, totals, model, modelName, nameOf = (id) => id, listedWindow, busy, compacting, runtime, route = null, onCompact, owner }: {
   context: ContextUsage | undefined;
   totals: SessionSpend | undefined;
   /** The model the next turn runs on, by id, and as the picker names it. */
@@ -53,11 +53,14 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   compacting: boolean;
   /** The Claude sign-in: its runtime compacts on its own. */
   runtime: boolean;
+  /** The route the model runs on now: a sign-in's plan pays for it. */
+  route?: string | null;
   onCompact: () => void;
   /** Whose context it is, shown before the bar when that is not obvious (a subagent's thread is open). */
   owner?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const plan = planCoversLine(route);
   const box = useRef<HTMLDivElement>(null);
   const tipRef = useRef<HTMLSpanElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
@@ -142,7 +145,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
                 <dt>Requests</dt><dd>{totals.requests.toLocaleString("en-US")}</dd>
                 {totals.costUsd !== undefined && <><dt>Cost</dt><dd>{dollars(totals.costUsd)} <span className="dim">at API prices</span></dd></>}
               </dl>
-              {totals.costUsd !== undefined && runtime && <p className="dim small">Your Claude plan covers it; the cost is what the same requests would cost on a key.</p>}
+              {totals.costUsd !== undefined && plan && <p className="dim small">{plan}</p>}
               <p className="dim small">Spend adds up every request. Context is only what the next request starts from.</p>
             </>
           )}

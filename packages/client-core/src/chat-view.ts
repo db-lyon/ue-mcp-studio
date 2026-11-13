@@ -65,6 +65,19 @@ export function dollars(n: number): string {
   return n < 100 ? `$${n.toFixed(2)}` : `$${Math.round(n).toLocaleString("en-US")}`;
 }
 
+/** The plan a sign-in route charges, by route. */
+const PLAN_OF: Record<string, string> = { chatgpt: "ChatGPT", claude: "Claude", studio: "Studio" };
+
+/**
+ * Under the session's cost, on a route a plan pays for (any sign-in): that the
+ * plan covers it and what the figure means. Null on a key or an endpoint, where
+ * the cost is what is charged.
+ */
+export function planCoversLine(route: string | null | undefined): string | null {
+  const plan = route ? PLAN_OF[route] : undefined;
+  return plan ? `Your ${plan} plan covers it; the cost is what the same requests would cost on a key.` : null;
+}
+
 /** Where the runtime or Studio compacts, in words. */
 export function compactLine(view: ContextView, runtime: boolean): string {
   const at = tokenCount(Math.round(view.window * view.compactAt));

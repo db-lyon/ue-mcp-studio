@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { contextView, type ContextUsage } from "@ue-mcp-studio/shared";
-import { contextLabel, contextPct, contextRing, tipLines } from "../src/chat-view.js";
+import { contextLabel, contextPct, contextRing, planCoversLine, tipLines } from "../src/chat-view.js";
 
 const usage = (input: number, extra: Partial<ContextUsage> = {}): ContextUsage => ({ input, cached: 0, output: 0, model: "claude-sonnet-5-5", at: "2026-11-04T12:00:00Z", ...extra }) as ContextUsage;
 const view = (input: number, extra: Partial<ContextUsage> = {}) => contextView(usage(input, extra), "claude-sonnet-5-5", 1_000_000)!;
@@ -38,5 +38,14 @@ describe("the meter's words", () => {
     const at = Math.round(v.window * v.compactAt / 1000);
     expect(tipLines(v, usage(213_000), names)).toEqual(["213k of 1M tokens", "Measured on Sonnet 5.5", `Studio compacts at ${at}k (${Math.round(v.compactAt * 100)}%)`]);
     expect(tipLines(v, usage(213_000), { ...names, compacting: true, owner: "Scout" })).toEqual(["Scout agent's context", "213k of 1M tokens", "Measured on Sonnet 5.5", "Compacting now"]);
+  });
+});
+
+describe("the cost under a plan", () => {
+  it("names the plan of every sign-in route alike, and none on a key or an endpoint", () => {
+    expect(planCoversLine("chatgpt")).toMatch(/^Your ChatGPT plan covers it/);
+    expect(planCoversLine("claude")).toMatch(/^Your Claude plan covers it/);
+    expect(planCoversLine("studio")).toMatch(/^Your Studio plan covers it/);
+    for (const r of ["key", "endpoint", null, undefined]) expect(planCoversLine(r)).toBeNull();
   });
 });

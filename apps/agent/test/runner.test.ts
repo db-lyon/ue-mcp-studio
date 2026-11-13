@@ -19,7 +19,6 @@ import { composeNative, type NativeRun } from "../src/native-runtime.js";
 import { setRipgrep } from "../src/local-tools.js";
 import { registerQueueRoutes } from "../src/queue-routes.js";
 import { AttachmentStore } from "../src/attachments.js";
-import { relayKey } from "../src/subagent-inbox.js";
 
 class FakeHost implements AgentHost {
   connected = true;
@@ -310,16 +309,16 @@ describe("messaging a running subagent from its thread on Studio's own loop", ()
     expect(said(door[0])).not.toMatch(/make it red/);
     const last = door[1].messages.at(-1)!.content as Array<{ type: string; text?: string }>;
     expect(last.map((b) => b.type)).toEqual(["tool_result", "text"]);
-    // Under the session's mark, which the subagent's system prompt names, so it reads it as the user's.
-    const key = relayKey(s.id);
-    expect(last[1].text.startsWith(`[Studio relays a message from the user, key ${key}]`)).toBe(true);
-    expect(door[0].system[0].text).toContain(`[Studio relays a message from the user, key ${key}]`);
+    // A user message in its own conversation, framed as the system prompt says: no relay key or trust mark.
+    expect(last[1].text.startsWith("The user writes to you from your thread")).toBe(true);
+    expect(door[0].system[0].text).toContain("The user writes to you from your thread");
+    expect(door[0].system[0].text).not.toMatch(/key [0-9a-f]{10}/);
     expect(last[1].text).toMatch(/make it red/);
-    // The hall subagent and the main agent never see it.
+    // The hall subagent never sees it; the main agent only with the door's report, named as the user's.
     expect(requests.filter((r) => sub(r) && r.messages[0].content === "hall").some((r) => said(r).includes("make it red"))).toBe(false);
-    expect(requests.filter((r) => !sub(r)).some((r) => said(r).includes("make it red"))).toBe(false);
+    expect(requests.filter((r) => !sub(r)).some((r) => said(r).includes("make it red") && !said(r).includes("Door built"))).toBe(false);
     const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string }>;
-    expect(results.find((r) => r.tool_use_id === "door")!.content).toBe("Door built, red as you asked.");
+    expect(results.find((r) => r.tool_use_id === "door")!.content).toMatch(/^Door built, red as you asked\.\n\n\[Studio\] While it worked, the user wrote to this subagent from its thread[\s\S]*make it red$/);
     expect(fin.transcript.filter((t) => t.kind === "tool" && t.call.name === "agent").map((t) => (t as { call: { outcome: string } }).call.outcome)).toEqual(["done", "done"]);
   });
 
@@ -353,7 +352,7 @@ describe("messaging a running subagent from its thread on Studio's own loop", ()
     await turn;
     const fin = store.get(s.id)!;
     const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string }>;
-    expect(results[0].content).toBe("Rapport en francais.");
+    expect(results[0].content).toMatch(/^Rapport en francais\.\n\n\[Studio\] While it worked, the user wrote to this subagent/);
     // A finished subagent takes no more messages.
     expect(runner.canMessage(fin, "rep")).toBe(false);
     expect(await runner.messageSubagent(s.id, "rep", "again")).toBe(false);
@@ -419,10 +418,15 @@ describe("stopping one subagent", () => {
     const s = store.create();
     void runner.send(s.id, "go");
     await until(() => store.get(s.id)!.transcript.some((t) => t.kind === "tool" && t.call.id === "a"));
+    // A first Stop ends only the main agent's reply, its subagent going on in the background; a second ends it too.
+    runner.stop(s.id);
+    expect(store.get(s.id)!.status).toBe("running");
+    expect(store.get(s.id)!.mainFree).toBe(true);
     runner.stop(s.id);
     const fin = store.get(s.id)!;
     expect(fin.status).toBe("stopped");
     expect(fin.transcript.filter((t) => t.kind === "tool").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["stopped"]);
+    await until(() => !runner.keepsSubagents(s.id));
   });
 });
 
@@ -1500,7 +1504,8 @@ describe("Settings > Agent > Usage", () => {
     const s = store.create();
     const turn = runner.send(s.id, "five parts");
     await until(() => h.track.started.length === 2 && queuedIds(s.id).length === 3);
-    runner.stop(s.id);
+    // Stop everything: the main agent's reply and every subagent, running or waiting.
+    runner.stopAll(s.id);
     await turn;
     // Nothing waiting starts after the stop.
     await new Promise((r) => setTimeout(r, 30));

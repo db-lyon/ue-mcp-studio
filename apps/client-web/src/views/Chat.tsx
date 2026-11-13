@@ -639,6 +639,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
                     busy={busy}
                     compacting={compacting}
                     runtime={runtimeCompacts}
+                    route={settings.route}
                     onCompact={() => compactNow()}
                     owner={openThread ? "Main" : undefined}
                   />

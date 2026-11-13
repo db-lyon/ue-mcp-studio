@@ -53,11 +53,11 @@ import type { ActionRunRequest, ApprovalDecision, FlowRunRequest, PlaytestReques
 import { MENTION_KINDS, splitActionName, type MentionKind } from "@ue-mcp-studio/shared";
 import { AgentRunner, RESTART_CAUSE_FILE } from "./runner.js";
 import { SessionStore } from "./sessions.js";
-import { DEFAULT_MODEL, SettingsStore } from "./settings.js";
+import { SettingsStore } from "./settings.js";
 import { fetchAccountUsage } from "./account-usage.js";
 import { EndpointStore, registerEndpointRoutes } from "./endpoints.js";
 import { providerFor } from "./providers.js";
-import { DEFAULT_PLAN_MODELS, ModelCatalogSource, pickRoute, type SignInCoverage } from "./models.js";
+import { DEFAULT_PLAN_MODELS, ModelCatalogSource, firstRunnable, pickRoute, type SignInCoverage } from "./models.js";
 import { knownWindow } from "./context-windows.js";
 import { registerNotifications, type NotifySession } from "./notify.js";
 import { StudioSignInFlow } from "./signin.js";
@@ -161,6 +161,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       hasEndpoint: (id) => endpoints.get(id) !== null,
       order: settings.routeOrder(),
     });
+  // Until the user picks a model, the first one something on this machine runs, of whichever vendor.
+  settings.setFallback(() => firstRunnable(settings.storedChoice(), {
+    signedIn: signedIn(),
+    coverage: coverage(),
+    hasKey: (v) => settings.key(v) !== null,
+    hasEndpoint: (id) => endpoints.get(id) !== null,
+    order: settings.routeOrder(),
+  }, endpoints.list()));
   const route = (): ModelRoute => routeOf(settings.provider(), settings.model());
   const endpointName = (vendor: string): string | null => {
     const id = endpointIdOf(vendor);
@@ -261,13 +269,12 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const helpers: NativeHelper[] = l.subagents.filter((a) => !a.problems.some((p) => p.endsWith("is required"))).map((a) => {
       const { allowed } = toolsFor(a);
       const wants = modelOf(convention, a.model);
-      const base = { name: a.name, description: a.description, prompt: a.prompt, allowed, maxTurns: a.maxTurns, effort: a.effort };
+      const base = { name: a.name, description: a.description, prompt: a.prompt, allowed, maxTurns: a.maxTurns, effort: a.effort, ...(a.background ? { background: true } : {}) };
       if (!wants || (wants.vendor === vendor && wants.model === settings.model())) return base;
       const r = KEY_PROVIDER_IDS.includes(wants.vendor as KeyProviderId) ? routeOf(wants.vendor as KeyProviderId, wants.model) : null;
-      // Studio's loop runs a model over the API; the Claude sign-in runs whole conversations, so it needs a key here.
-      const viaKey = r === "claude" && settings.key(wants.vendor as KeyProviderId) ? "key" : r;
-      if (!viaKey || viaKey === "claude") return { ...base, note: `Its file names ${a.model}, which nothing on this machine runs over the API; it runs on the main agent's model.` };
-      return { ...base, run: { model: wants.model, vendor: wants.vendor, route: viaKey, provider: () => providerFor(settings, viaKey, providerContext(), wants.vendor as KeyProviderId) } };
+      if (!r) return { ...base, note: `Its file names ${a.model}, which nothing on this machine runs; it runs on the main agent's model.` };
+      // A model only the Claude sign-in reaches runs as a session of its own in that runtime, as any subagent there does.
+      return { ...base, run: { model: wants.model, vendor: wants.vendor, route: r, provider: () => providerFor(settings, r, providerContext(), wants.vendor as KeyProviderId) } };
     });
     const run: NativeRun = { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills, sdkLoads: route() === "claude" };
     nativeCache = { at: Date.now(), key, run };
@@ -401,9 +408,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       nativeCache = null;
       api.events.publish("settings.changed", {});
     },
-    // A model selected on a removed endpoint has nothing to run it: go back to the default model.
+    // A model selected on a removed endpoint has nothing to run it: the model follows what is connected again.
     removed: (id) => {
-      if (settings.provider() === endpointVendor(id)) settings.update({ provider: "anthropic", model: DEFAULT_MODEL });
+      if (settings.provider() === endpointVendor(id)) settings.forgetModel();
     },
   });
   registerNativeRoutes(api, {
@@ -711,7 +718,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if ("error" in m) return bad(m.error);
     const now = (req.body as { now?: unknown } | undefined)?.now === true;
     const running = s.status === "running" || s.status === "waiting";
-    // While only background subagents run, the main agent takes the message at once and they keep working.
+    // While the main agent waits only on its subagents, or they run on after its reply, it takes the message at once and they keep working.
     if (running && !now && !runner.mainFree(s.id)) return { status: 409, body: { error: "a turn is already in progress; queue the message or send it with now: true" } };
     if (running && !runner.keepsSubagents(s.id)) stopSide(s.id);
     // The turn runs past this response; its progress is on the event stream.
@@ -848,7 +855,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
   api.route("POST", "/sessions/:id/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
-    // With background subagents working, Stop ends only the main agent's reply: their forms stay open.
+    // With subagents working, Stop ends only the main agent's reply: their forms stay open.
     if (!runner.stopKeepsSubagents(req.params.id)) forms.cancelSession(req.params.id);
     runner.stop(req.params.id);
     // Nothing waits on the editor attaching after a Stop, so the banner stops saying it does.

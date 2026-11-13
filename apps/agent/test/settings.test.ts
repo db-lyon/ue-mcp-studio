@@ -37,8 +37,42 @@ describe("asking before changes", () => {
 });
 
 describe("providers", () => {
-  it("starts on a Claude model", () => {
-    expect(store().view()).toMatchObject({ provider: "anthropic", model: "claude-opus-5-5" });
+  it("names a placeholder model on a new install, marked as not picked", () => {
+    expect(store().storedChoice()).toMatchObject({ provider: "anthropic", model: "claude-opus-5-5", chosen: false });
+  });
+
+  it("runs what the connections find until the user picks, then the pick", () => {
+    const s = store();
+    s.setFallback(() => ({ provider: "openai", model: "gpt-6-astra" }));
+    expect(s.view()).toMatchObject({ provider: "openai", model: "gpt-6-astra" });
+    // Another setting saved meanwhile picks no model.
+    s.update({ theme: "editor" });
+    expect(s.provider()).toBe("openai");
+    s.update({ provider: "google", model: "gemini-3.8-flash" });
+    expect(s.view()).toMatchObject({ provider: "google", model: "gemini-3.8-flash" });
+  });
+
+  it("takes a model picked alone, while nothing was picked, as of the vendor that ran", () => {
+    const s = store();
+    s.setFallback(() => ({ provider: "openai", model: "gpt-6-astra" }));
+    s.update({ model: "gpt-6-sol" });
+    expect(s.storedChoice()).toMatchObject({ provider: "openai", model: "gpt-6-sol", chosen: true });
+  });
+
+  it("keeps a file from before the pick was recorded as the user's own choice", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "studio-settings-"));
+    fs.writeFileSync(path.join(dir, "settings.json"), JSON.stringify({ provider: "anthropic", model: "claude-sonnet-5-5" }));
+    const s = new SettingsStore(dir, path.join(dir, "keys"));
+    s.setFallback(() => ({ provider: "openai", model: "gpt-6-astra" }));
+    expect(s.view()).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5-5" });
+  });
+
+  it("follows the connections again once the pick is forgotten", () => {
+    const s = store();
+    s.update({ provider: "endpoint:local", model: "qwen" });
+    s.forgetModel();
+    s.setFallback(() => ({ provider: "google", model: "gemini-3.8-flash" }));
+    expect(s.view()).toMatchObject({ provider: "google", model: "gemini-3.8-flash" });
   });
 
   it("reads settings written before vendors were named as Claude, which is all they ran", () => {

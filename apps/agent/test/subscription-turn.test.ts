@@ -1,8 +1,10 @@
 /**
- * The Claude subscription route end to end through the runner, with the Agent
- * SDK replaced by a scripted binary (fake-sdk.ts): it sends messages, calls
+ * The Claude sign-in route end to end through the runner, with the Agent SDK
+ * replaced by a scripted binary (fake-sdk.ts): it sends messages, calls
  * Studio's tools through the in-process server, and keeps going after an abort
- * the way the real binary does on Windows until it is killed.
+ * the way the real binary does on Windows until it is killed. What subagents
+ * do on this route is in subagent-parity.test.ts, beside Studio's loop: here
+ * is what only this route has.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
@@ -23,7 +25,7 @@ const { AgentRunner } = await import("../src/runner.js");
 const { SessionStore } = await import("../src/sessions.js");
 const { loadout } = await import("../src/native.js");
 const { composeNative, toolsFor } = await import("../src/native-runtime.js");
-const { relayKey } = await import("../src/subagent-inbox.js");
+const { AGENT_TOOL } = await import("../src/tools.js");
 
 let root: string;
 let host: Host;
@@ -38,6 +40,7 @@ beforeEach(() => {
   host = new Host(path.join(root, "project"), path.join(root, "data"));
   store = new SessionStore(host.dataDir);
   sdk.prompts = [];
+  sdk.options = [];
   sdk.interrupts = 0;
   sdk.backgrounded = 0;
 });
@@ -49,6 +52,9 @@ afterEach(() => {
 
 const runnerOn = (s = store) =>
   new AgentRunner({ host, store: s, provider: () => { throw new Error("the API route is not used"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false });
+
+/** Whether a conversation the binary runs is a subagent's, by what its system prompt says. */
+const isSubagent = (b: FakeBinary) => String(b.options.systemPrompt).includes("You are a subagent");
 
 describe("editor_restart on the subscription route", () => {
   // Real time: the editor reconnects 1.2 s in, polled each second, then a shell runs. A loaded run takes longer than the 5 s default.
@@ -119,483 +125,58 @@ describe("editing a message on the subscription route", () => {
   });
 });
 
-describe("stopping one subagent on the subscription route", () => {
-  it("answers its call in flight as stopped at once, and the main turn carries on", async () => {
-    let release: (() => void) | null = null;
-    const slow = host.callAction.bind(host);
-    host.callAction = async (category: string, action: string) => {
-      if (action === "slow_build") await new Promise<void>((r) => (release = r));
-      return slow(category, action);
-    };
-    let inFlight: Promise<{ text: string; isError: boolean }> | null = null;
-    let stopTask: (() => void) | null = null;
-    sdk.stopTask = () => stopTask?.();
+describe("orchestration on the Claude sign-in is Studio's", () => {
+  it("switches the runtime's own subagent tool off and gives the main agent Studio's agent tool, the same definition as every route", async () => {
     sdk.script = async (b) => {
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-stop" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Busy", prompt: "busy" } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-1", is_backgrounded: false });
-      b.emit({ type: "assistant", parent_tool_use_id: "ag", message: { id: "m_s", content: [toolUse("c1", "ue_mcp", { action: "call", category: "asset", method: "slow_build", args: {} })] } });
-      await sleep(30);
-      inFlight = b.call("ue_mcp", { action: "call", category: "asset", method: "slow_build", args: {} });
-      await new Promise<void>((r) => (stopTask = r));
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-1", status: "stopped", summary: "" });
-      b.emit(results("ag", { text: "The user stopped this agent.", isError: true }));
-      b.emit(assistant("m_end", [{ type: "text", text: "Going on without it." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-stop" });
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-o" });
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-o" });
+    };
+    const runner = new AgentRunner({ host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, usage: () => ({ ...DEFAULT_USAGE, subagents: "automatic" }) });
+    const s = store.create();
+    await runner.send(s.id, "hi");
+    const o = sdk.options.at(-1)!;
+    expect(o.disallowedTools).toEqual(expect.arrayContaining(["Agent", "Task"]));
+    expect(o.tools).not.toContain("Agent");
+    expect(o).not.toHaveProperty("agents");
+    expect(o.allowedTools).toContain("mcp__studio__agent");
+    const tools = (o.mcpServers as { studio: { tools: Array<{ name: string; description: string; annotations?: { readOnlyHint?: boolean } }> } }).studio.tools;
+    const agent = tools.find((t) => t.name === "agent")!;
+    expect(agent.description).toBe((AGENT_TOOL as { description: string }).description);
+    // Several agent calls of one message run at once, as on Studio's loop.
+    expect(agent.annotations?.readOnlyHint).toBe(true);
+    // No background ceiling: nothing of the runtime runs past a reply's end.
+    expect(sdk.envs.at(-1)).not.toHaveProperty("CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS");
+  });
+
+  it("runs each subagent as a session of its own, with Studio's tools and no agent tool", async () => {
+    sdk.script = async (b) => {
+      if (isSubagent(b)) {
+        b.emit({ type: "system", subtype: "init", session_id: "sdk-sub" });
+        b.emit(assistant("s_end", [{ type: "text", text: "Built it." }]));
+        b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-sub" });
+        return;
+      }
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-main" });
+      b.emit(assistant("m_a", [toolUse("ag", "agent", { description: "Build", prompt: "build the door" })]));
+      const r = await b.call("agent", { description: "Build", prompt: "build the door" });
+      b.emit(results("ag", r));
+      b.emit(assistant("m_end", [{ type: "text", text: `It said: ${r.text}` }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-main" });
     };
     const runner = runnerOn();
     const s = store.create();
-    const turn = runner.send(s.id, "start one");
-    await until(() => release !== null);
-    expect(runner.stopSubagent(s.id, "ag")).toBe(true);
-    const r = await inFlight!;
-    expect(r.isError).toBe(true);
-    expect(r.text).toMatch(/Stopped by the user while this was running/);
-    await turn;
+    await runner.send(s.id, "build it");
+    await until(() => store.get(s.id)!.status === "idle");
+    expect(sdk.options).toHaveLength(2);
+    const sub = sdk.options.find((o) => String(o.systemPrompt).includes("You are a subagent"))!;
+    expect(sub.resume).toBeUndefined();
+    expect(sub.allowedTools).not.toContain("mcp__studio__agent");
+    expect(sub.disallowedTools).toEqual(expect.arrayContaining(["Agent", "Task"]));
+    expect(sdk.prompts).toContainEqual("build the door");
     const fin = store.get(s.id)!;
-    const outcome = (id: string) => fin.transcript.find((t) => t.kind === "tool" && t.call.id === id);
-    expect((outcome("c1") as { call: { outcome: string } }).call.outcome).toBe("stopped");
-    expect((outcome("ag") as { call: { outcome: string } }).call.outcome).toBe("stopped");
-    expect(fin.status).toBe("idle");
-    expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "Going on without it." });
-    release!();
-    sdk.stopTask = null;
-  });
-});
-
-describe("messaging a running subagent from its thread on the subscription route", () => {
-  const context = (answers: Array<Record<string, unknown>>) =>
-    answers.map((a) => (a.hookSpecificOutput as { additionalContext?: string } | undefined)?.additionalContext).filter(Boolean) as string[];
-
-  it("reaches that subagent at its next tool result, while the main agent is mid-reply, and stops nothing", async () => {
-    let binary: FakeBinary | null = null;
-    let go: (() => void) | null = null;
-    const delivered: string[][] = [];
-    sdk.script = async (b) => {
-      binary = b;
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-msg" });
-      b.emit(assistant("m_a", [
-        { type: "tool_use", id: "ag1", name: "Agent", input: { description: "Build the door", prompt: "door", run_in_background: true } },
-        { type: "tool_use", id: "ag2", name: "Agent", input: { description: "Light the hall", prompt: "hall", run_in_background: true } },
-      ]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag1", task_id: "task-1", is_backgrounded: true });
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag2", task_id: "task-2", is_backgrounded: true });
-      b.emit(results("ag1", { text: "Async agent launched.", isError: false }));
-      b.emit(results("ag2", { text: "Async agent launched.", isError: false }));
-      // The main agent is still replying (no result yet) when the user writes to the first subagent.
-      b.emit({ type: "stream_event", parent_tool_use_id: null, event: { type: "content_block_delta", delta: { type: "text_delta", text: "Both are" } } });
-      await new Promise<void>((r) => (go = r));
-      // The other subagent's step: nothing for it.
-      delivered.push(context(await b.hook("PostToolUse", { agent_id: "task-2", tool_name: "mcp__studio__shell", tool_use_id: "s2" })));
-      // The first subagent's next tool result carries the message, once.
-      delivered.push(context(await b.hook("PostToolUse", { agent_id: "task-1", tool_name: "mcp__studio__shell", tool_use_id: "s1" })));
-      delivered.push(context(await b.hook("PostToolUse", { agent_id: "task-1", tool_name: "mcp__studio__shell", tool_use_id: "s3" })));
-      // The main agent's own steps never take a subagent's message.
-      delivered.push(context(await b.hook("PostToolUse", { tool_name: "mcp__studio__shell", tool_use_id: "s4" })));
-      b.emit(assistant("m_b", [{ type: "text", text: "Both are working." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-msg" });
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag1", task_id: "task-1", status: "completed", summary: "Door built, and made it red as asked." });
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag2", task_id: "task-2", status: "completed", summary: "Hall lit." });
-      b.emit(assistant("m_c", [{ type: "text", text: "All done." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-msg" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    const turn = runner.send(s.id, "build the door and light the hall");
-    await until(() => store.get(s.id)!.transcript.some((t) => t.kind === "tool" && t.call.id === "ag2") && runner.canMessage(store.get(s.id)!, "ag1"));
-    expect(await runner.messageSubagent(s.id, "ag1", "make the door red")).toBe(true);
-    const mid = store.get(s.id)!;
-    // It shows in that subagent's thread, not the main one, and the main agent was handed nothing.
-    expect(mid.transcript.at(-1)).toMatchObject({ kind: "user", text: "make the door red", parent: "ag1" });
-    expect(binary!.said).toEqual([]);
-    expect(sdk.interrupts).toBe(0);
-    expect(sdk.backgrounded).toBe(0);
-    go!();
-    await turn;
-    expect(delivered[0]).toEqual([]);
-    expect(delivered[1]).toHaveLength(1);
-    expect(delivered[1][0]).toMatch(/make the door red/);
-    // Under the session's mark, which the subagents' system prompt names, so the subagent reads it as the user's.
-    const mark = `[Studio relays a message from the user, key ${relayKey(s.id)}]`;
-    expect(delivered[1][0].startsWith(mark)).toBe(true);
-    expect(String((sdk.options.at(-1) as { agents: Record<string, { prompt: string }> }).agents["editor-worker"].prompt)).toContain(mark);
-    expect(delivered[2]).toEqual([]);
-    expect(delivered[3]).toEqual([]);
-    expect(binary!.said).toEqual([]);
-    expect(sdk.interrupts).toBe(0);
-    const fin = store.get(s.id)!;
-    expect(fin.status).toBe("idle");
-    // The main agent's conversation never had it.
-    expect(JSON.stringify(fin.messages)).not.toMatch(/make the door red/);
-    expect(fin.transcript.filter((t) => t.kind === "tool" && (t.call.id === "ag1" || t.call.id === "ag2")).map((t) => (t as { call: { outcome: string } }).call.outcome)).toEqual(["done", "done"]);
-  });
-
-  it("reaches a subagent that tries to end before another tool call, through SubagentStop", async () => {
-    let go: (() => void) | null = null;
-    let answers: string[] = [];
-    sdk.script = async (b) => {
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-stop-hook" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Write the report", prompt: "report", run_in_background: true } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-r", is_backgrounded: true });
-      b.emit(results("ag", { text: "Async agent launched.", isError: false }));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-stop-hook" });
-      await new Promise<void>((r) => (go = r));
-      answers = context(await b.hook("SubagentStop", { agent_id: "task-r", agent_type: "editor-worker", stop_hook_active: false }));
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-r", status: "completed", summary: "Report written, in French." });
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-stop-hook" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    const turn = runner.send(s.id, "write the report");
-    await until(() => !!store.get(s.id)!.mainFree);
-    expect(await runner.messageSubagent(s.id, "ag", "write it in French")).toBe(true);
-    go!();
-    await turn;
-    expect(answers).toHaveLength(1);
-    expect(answers[0]).toMatch(/write it in French/);
-  });
-
-  it("hands the main agent a message the subagent ended before reading, naming the subagent", async () => {
-    let binary: FakeBinary | null = null;
-    let go: (() => void) | null = null;
-    sdk.script = async (b) => {
-      binary = b;
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-unread" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Count assets", prompt: "count", run_in_background: true } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-u", is_backgrounded: true });
-      b.emit(results("ag", { text: "Async agent launched.", isError: false }));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-unread" });
-      await new Promise<void>((r) => (go = r));
-      // It ends with no step in between: the message is still waiting.
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-u", status: "completed", summary: "42 assets." });
-      await until(() => b.said.length === 1);
-      b.emit(assistant("m_b", [{ type: "text", text: "It counted 42; textures are 30 of them." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-unread" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    const turn = runner.send(s.id, "count the assets");
-    await until(() => !!store.get(s.id)!.mainFree);
-    expect(await runner.messageSubagent(s.id, "ag", "count only textures")).toBe(true);
-    go!();
-    await turn;
-    expect(binary!.said).toHaveLength(1);
-    expect(String(binary!.said[0])).toMatch(/subagent "Count assets", which ended before it read it/);
-    expect(String(binary!.said[0])).toMatch(/count only textures/);
-    const fin = store.get(s.id)!;
-    expect(fin.transcript.some((t) => t.kind === "note" && /"Count assets" ended before it read your message/.test(t.text))).toBe(true);
-    // Finished, it takes no more messages.
-    expect(runner.canMessage(fin, "ag")).toBe(false);
-    expect(await runner.messageSubagent(s.id, "ag", "again")).toBe(false);
-  });
-
-  it("tells the main agent which finished subagent's thread a message was written in", async () => {
-    sdk.script = async (b) => {
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-about" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Fix the lights", prompt: "lights" } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-a", is_backgrounded: false });
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-a", status: "completed", summary: "Fixed." });
-      b.emit(results("ag", { text: "Fixed.", isError: false }));
-      b.emit(assistant("m_b", [{ type: "text", text: "Done." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-about" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    await runner.send(s.id, "fix the lights");
-    sdk.script = async (b) => {
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-about" });
-      b.emit(assistant("m_c", [{ type: "text", text: "Made them warmer." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-about" });
-    };
-    expect(runner.canMessage(store.get(s.id)!, "ag")).toBe(false);
-    await runner.sendNow(s.id, "make them warmer", [], "ag");
-    expect(String(sdk.prompts.at(-1))).toMatch(/thread of the subagent "Fix the lights", which could no longer take a message/);
-    expect(String(sdk.prompts.at(-1))).toMatch(/make them warmer/);
-    expect(store.get(s.id)!.transcript.filter((t) => t.kind === "user").at(-1)).toMatchObject({ text: "make them warmer" });
-    expect(store.get(s.id)!.transcript.filter((t) => t.kind === "user").at(-1)?.parent).toBeUndefined();
-  });
-});
-
-describe("chatting while background subagents run (#1931)", () => {
-  it("hands a message to the main agent at once, and the subagent keeps working", async () => {
-    let finish: (() => void) | null = null;
-    let binary: FakeBinary | null = null;
-    sdk.script = async (b) => {
-      binary = b;
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-bg" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build", run_in_background: true } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-bg", is_backgrounded: true });
-      b.emit(results("ag", { text: "Started in the background.", isError: false }));
-      b.emit(assistant("m_b", [{ type: "text", text: "It is building." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-bg" });
-      // The user's message arrives on the input; the main agent answers it.
-      await until(() => b.said.length === 1);
-      b.emit(assistant("m_c", [{ type: "text", text: "Here is the answer." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-bg" });
-      await new Promise<void>((r) => (finish = r));
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-bg", status: "completed", summary: "Built it." });
-      b.emit(assistant("m_d", [{ type: "text", text: "The build finished." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-bg" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    const turn = runner.send(s.id, "build it in the background");
-    await until(() => !!store.get(s.id)!.mainFree);
-    expect(SessionStore.detail(store.get(s.id)!).mainFree).toBe(true);
-    await runner.send(s.id, "what is the door's pivot?");
-    await until(() => binary!.said.length === 1);
-    expect(binary!.said).toEqual(["what is the door's pivot?"]);
-    await until(() => store.get(s.id)!.transcript.some((t) => t.kind === "assistant" && t.text === "Here is the answer."));
-    const mid = store.get(s.id)!;
-    expect(mid.status).toBe("running");
-    expect((mid.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("pending");
-    finish!();
-    await turn;
-    const fin = store.get(s.id)!;
-    expect(fin.status).toBe("idle");
-    expect((fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("done");
-    expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "The build finished." });
-  });
-
-  it("sends a queued message to the main agent as soon as it is free", async () => {
-    let binary: FakeBinary | null = null;
-    let reply: (() => void) | null = null;
-    sdk.script = async (b) => {
-      binary = b;
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-q" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build", run_in_background: true } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-q", is_backgrounded: true });
-      await new Promise<void>((r) => (reply = r));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-q" });
-      await until(() => b.said.length === 1);
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-q", status: "completed", summary: "Done." });
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-q" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    const turn = runner.send(s.id, "start");
-    await until(() => reply !== null);
-    runner.enqueue(s.id, "and then this", []);
-    expect(store.get(s.id)!.queue).toHaveLength(1);
-    reply!();
-    await until(() => binary!.said.length === 1);
-    expect(binary!.said).toEqual(["and then this"]);
-    expect(store.get(s.id)!.queue).toHaveLength(0);
-    await turn;
-  });
-
-  it("Send now beside a foreground subagent moves it to the background, and it keeps working", async () => {
-    let binary: FakeBinary | null = null;
-    sdk.script = async (b) => {
-      binary = b;
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-fg" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build" } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-fg", is_backgrounded: false });
-      await until(() => b.said.length === 1);
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-fg", status: "completed", summary: "Built." });
-      b.emit(results("ag", { text: "Built.", isError: false }));
-      b.emit(assistant("m_b", [{ type: "text", text: "Built it, and about your question: yes." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-fg" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    const turn = runner.send(s.id, "build it");
-    await until(() => store.get(s.id)!.transcript.some((t) => t.kind === "tool" && t.call.id === "ag"));
-    await sleep(10);
-    expect(runner.keepsSubagents(s.id)).toBe(true);
-    await runner.sendNow(s.id, "does it have a door?");
-    await until(() => binary!.said.length === 1);
-    expect(binary!.said).toEqual(["does it have a door?"]);
-    await turn;
-    const fin = store.get(s.id)!;
-    expect(sdk.backgrounded).toBe(1);
-    expect(fin.status).toBe("idle");
-    expect((fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("done");
-  });
-
-  it("counts a worker the binary lists only in background_tasks_changed", async () => {
-    let binary: FakeBinary | null = null;
-    sdk.script = async (b) => {
-      binary = b;
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-lv" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build", run_in_background: true } }]));
-      b.emit({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "task-lv", task_type: "local_agent", description: "Build" }] });
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-lv" });
-      b.emit(results("ag", { text: "Async agent launched and running in the background.", isError: false }));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-lv" });
-      await until(() => b.said.length === 1);
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-lv", status: "completed", summary: "Built." });
-      b.emit({ type: "system", subtype: "background_tasks_changed", tasks: [] });
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-lv" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    const turn = runner.send(s.id, "build in the background");
-    await until(() => !!store.get(s.id)!.mainFree);
-    await runner.sendNow(s.id, "how is it going?");
-    await until(() => binary!.said.length === 1);
-    await turn;
-    const fin = store.get(s.id)!;
-    expect(sdk.interrupts).toBe(0);
-    expect((fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string; result: string } }).call).toMatchObject({ outcome: "done", result: "Built." });
-  });
-
-  it("queues a message instead of ending a subagent when the turn takes no more input", async () => {
-    let finish: (() => void) | null = null;
-    sdk.script = async (b) => {
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-cl" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build" } }]));
-      // No background flag and no level: the turn's input closes at the main agent's result.
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-cl" });
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-cl" });
-      await new Promise<void>((r) => (finish = r));
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-cl", status: "completed", summary: "Built." });
-      b.emit(results("ag", { text: "Built.", isError: false }));
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    const turn = runner.send(s.id, "build");
-    await until(() => finish !== null);
-    await sleep(10);
-    await runner.sendNow(s.id, "and then the door");
-    const mid = store.get(s.id)!;
-    expect(mid.queue?.map((q) => q.text)).toEqual(["and then the door"]);
-    expect((mid.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("pending");
-    finish!();
-    await turn;
-    expect((store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("done");
-  });
-
-  it("Stop ends only the main agent's reply while a background subagent works", async () => {
-    let finish: (() => void) | null = null;
-    let replying: (() => void) | null = null;
-    sdk.script = async (b) => {
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-ms" });
-      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build", run_in_background: true } }]));
-      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-ms", is_backgrounded: true });
-      b.emit(assistant("m_b", [{ type: "text", text: "Writing a long answer" }]));
-      replying?.();
-      await until(() => sdk.interrupts === 1);
-      b.emit({ type: "result", subtype: "error_during_execution", is_error: true, session_id: "sdk-ms" });
-      await new Promise<void>((r) => (finish = r));
-      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-ms", status: "completed", summary: "Built." });
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-ms" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    const ready = new Promise<void>((r) => (replying = r));
-    const turn = runner.send(s.id, "start");
-    await ready;
-    await sleep(10);
-    expect(runner.keepsSubagents(s.id)).toBe(true);
-    runner.stop(s.id);
-    await until(() => !!store.get(s.id)!.mainFree);
-    expect(store.get(s.id)!.status).toBe("running");
-    finish!();
-    await turn;
-    const fin = store.get(s.id)!;
-    expect(fin.status).toBe("idle");
-    expect(fin.error).toBeNull();
-    expect((fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("done");
-  });
-});
-
-describe("subagents past the limit on the subscription route (#164)", () => {
-  type Hook = (input: unknown, id: string, o: { signal: AbortSignal }) => Promise<unknown>;
-  const hooks = () => (sdk.options.at(-1) as { hooks: Record<string, Array<{ hooks: Hook[] }>> }).hooks;
-  const queuedIn = (id: string) => store.get(id)!.transcript.flatMap((t) => (t.kind === "tool" && t.call.queued ? [t.call.id] : []));
-
-  /** Five Agent calls the way the binary makes them: each passes the PreToolUse hook, runs, then the PostToolUse hook. */
-  function fiveAgents(gates: Map<string, () => void>, started: string[], answers: Map<string, unknown>) {
-    return async (b: FakeBinary) => {
-      const ids = ["g0", "g1", "g2", "g3", "g4"];
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-q" });
-      b.emit(assistant("m_a", ids.map((id) => ({ type: "tool_use", id, name: "Agent", input: { description: id, prompt: id } }))));
-      await Promise.all(ids.map(async (id) => {
-        const pre = { hook_event_name: "PreToolUse", tool_name: "Agent", tool_input: {}, tool_use_id: id };
-        const answer = await hooks().PreToolUse[0].hooks[0](pre, id, { signal: b.signal });
-        answers.set(id, answer);
-        if (JSON.stringify(answer) !== "{}") {
-          b.emit(results(id, { text: "denied", isError: true }));
-          return;
-        }
-        started.push(id);
-        b.emit({ type: "system", subtype: "task_started", tool_use_id: id, task_id: `task-${id}`, is_backgrounded: false });
-        await new Promise<void>((r) => gates.set(id, r));
-        b.emit({ type: "system", subtype: "task_notification", tool_use_id: id, task_id: `task-${id}`, status: "completed", summary: `Report ${id}` });
-        await hooks().PostToolUse[0].hooks[0]({ hook_event_name: "PostToolUse", tool_name: "Agent", tool_input: {}, tool_response: { agentId: id, content: [] }, tool_use_id: id }, id, { signal: b.signal });
-        b.emit(results(id, { text: `Report ${id}`, isError: false }));
-      }));
-      b.emit(assistant("m_end", [{ type: "text", text: "All five reported." }]));
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-q" });
-    };
-  }
-  const runnerAt = (n: number) =>
-    new AgentRunner({ host, store, provider: () => { throw new Error("the API route is not used"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false, usage: () => ({ ...DEFAULT_USAGE, subagents: "automatic", subagentsPerTurn: n }) });
-
-  it("runs 2 at once, shows the other 3 waiting to start, and all 5 return their reports", async () => {
-    const gates = new Map<string, () => void>();
-    const started: string[] = [];
-    const answers = new Map<string, unknown>();
-    sdk.script = fiveAgents(gates, started, answers);
-    const s = store.create();
-    const turn = runnerAt(2).send(s.id, "five parts");
-    await until(() => started.length === 2 && queuedIn(s.id).length === 3);
-    expect(started).toEqual(["g0", "g1"]);
-    expect(queuedIn(s.id)).toEqual(["g2", "g3", "g4"]);
-    gates.get("g1")!();
-    await until(() => started.length === 3);
-    expect(started[2]).toBe("g2");
-    expect(queuedIn(s.id)).toEqual(["g3", "g4"]);
-    for (const id of ["g0", "g2", "g3", "g4"]) {
-      await until(() => gates.has(id));
-      gates.get(id)!();
-    }
-    await turn;
-    const fin = store.get(s.id)!;
-    expect(fin.status).toBe("idle");
-    expect([...answers.values()].every((a) => JSON.stringify(a) === "{}")).toBe(true);
-    const agentCalls = fin.transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call] : []));
-    expect(agentCalls.map((c) => [c.id, c.outcome, c.result, !!c.queued])).toEqual(["g0", "g1", "g2", "g3", "g4"].map((id) => [id, "done", `Report ${id}`, false]));
-  });
-
-  it("with no limit (-1), starts all 5 at once and queues none (#173)", async () => {
-    const gates = new Map<string, () => void>();
-    const started: string[] = [];
-    const answers = new Map<string, unknown>();
-    sdk.script = fiveAgents(gates, started, answers);
-    const s = store.create();
-    const turn = runnerAt(-1).send(s.id, "five parts");
-    await until(() => started.length === 5);
-    expect(started).toEqual(["g0", "g1", "g2", "g3", "g4"]);
-    expect(queuedIn(s.id)).toEqual([]);
-    for (const id of started) gates.get(id)!();
-    await turn;
-    const fin = store.get(s.id)!;
-    expect(fin.status).toBe("idle");
-    expect([...answers.values()].every((a) => JSON.stringify(a) === "{}")).toBe(true);
-    expect(fin.transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call.outcome] : []))).toEqual(["done", "done", "done", "done", "done"]);
-  });
-
-  it("cancels the 3 waiting ones when the whole turn is stopped, and starts none of them", async () => {
-    const gates = new Map<string, () => void>();
-    const started: string[] = [];
-    const answers = new Map<string, unknown>();
-    sdk.script = fiveAgents(gates, started, answers);
-    const s = store.create();
-    const runner = runnerAt(2);
-    const turn = runner.send(s.id, "five parts");
-    await until(() => started.length === 2 && queuedIn(s.id).length === 3);
-    // The first Stop spares running subagents; this is the Stop that ends them all.
-    runner.stopAll(s.id);
-    await turn;
-    await until(() => answers.size === 5);
-    expect(started).toEqual(["g0", "g1"]);
-    for (const id of ["g2", "g3", "g4"]) expect(JSON.stringify(answers.get(id))).toContain("Stopped by the user.");
-    const fin = store.get(s.id)!;
-    expect(fin.status).toBe("stopped");
-    expect(fin.transcript.filter((t) => t.kind === "tool" && t.call.name === "agent").map((t) => t.kind === "tool" && t.call.outcome)).toEqual(["stopped", "stopped", "stopped", "stopped", "stopped"]);
-    for (const g of gates.values()) g();
+    expect(fin.transcript.find((t) => t.kind === "assistant" && t.parent === "ag")).toMatchObject({ text: "Built it." });
+    expect(fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag")).toMatchObject({ call: { outcome: "done", result: "Built it." } });
+    expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "It said: Built it." });
   });
 });
 
@@ -639,21 +220,6 @@ describe("images on the subscription route", () => {
     expect(got!.content![1].mimeType).toBe("image/png");
     const call = store.get(s.id)!.transcript.find((t) => t.kind === "tool");
     expect(call?.kind === "tool" && call.call.images?.map((i) => i.name)).toEqual(["shot.png"]);
-  });
-});
-
-describe("background subagents on the subscription route (#1384)", () => {
-  it("keep Studio's tools past the SDK's default ten minute ceiling after the main turn's result", async () => {
-    sdk.script = async (b) => {
-      b.emit({ type: "system", subtype: "init", session_id: "sdk-1" });
-      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-1" });
-    };
-    const runner = runnerOn();
-    const s = store.create();
-    await runner.send(s.id, "go");
-    const ceiling = Number(sdk.envs.at(-1)?.CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS);
-    expect(ceiling).toBeGreaterThanOrEqual(24 * 60 * 60 * 1000);
-    expect(ceiling).toBeLessThanOrEqual(2147483647);
   });
 });
 
@@ -748,17 +314,24 @@ describe("a daemon restart on the subscription route", () => {
 });
 
 describe("what a turn spends on the subscription route", () => {
-  const spending = (id: string, input: number, parent: string | null = null, text = "...") =>
-    ({ type: "assistant", parent_tool_use_id: parent, message: { id, content: [{ type: "text", text }], usage: { input_tokens: input, output_tokens: 0 } } });
+  const spending = (id: string, input: number, text = "...") =>
+    ({ type: "assistant", parent_tool_use_id: null, message: { id, content: [{ type: "text", text }], usage: { input_tokens: input, output_tokens: 0 } } });
 
   it("keeps the main agent's and each subagent's tokens in the session, each message's growth once", async () => {
     sdk.script = async (b) => {
+      if (isSubagent(b)) {
+        b.emit({ type: "system", subtype: "init", session_id: "sdk-s" });
+        b.emit(spending("s1", 5000, "Sub done."));
+        b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-s" });
+        return;
+      }
       b.emit({ type: "system", subtype: "init", session_id: "sdk-u" });
       b.emit(spending("m1", 3000));
       // The same message reported again with more: only the new tokens count.
       b.emit(spending("m1", 3500));
-      b.emit(spending("s1", 5000, "agent-call"));
-      b.emit(spending("m2", 1000, null, "Done."));
+      b.emit(assistant("m_a", [toolUse("agent-call", "agent", { description: "Sub", prompt: "sub" })]));
+      b.emit(results("agent-call", await b.call("agent", { description: "Sub", prompt: "sub" })));
+      b.emit(spending("m2", 1000, "Done."));
       b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-u" });
     };
     const s = store.create();
@@ -854,18 +427,17 @@ describe("context and compaction on the subscription route", () => {
 });
 
 describe("the project's own Claude Code files on the Claude sign-in", () => {
-  const native = () => {
+  const nativeWith = (helpers: Array<{ name: string; description: string; prompt: string; allowed: Set<never> | null; maxTurns: number | null; effort: string | null }> = []) => () => {
     const l = loadout("claude", host.projectDir, path.join(root, "home"), new Map(), root);
-    return { convention: "claude" as const, loadout: l, composed: composeNative(l), helpers: [], skills: l.skills, sdkLoads: true };
+    return { convention: "claude" as const, loadout: l, composed: composeNative(l), helpers, skills: l.skills, sdkLoads: true };
   };
   const write = (rel: string, text: string) => {
     fs.mkdirSync(path.dirname(path.join(host.projectDir, rel)), { recursive: true });
     fs.writeFileSync(path.join(host.projectDir, rel), text);
   };
 
-  it("load through the SDK's own setting sources, with subagents' tools mapped onto Studio's and built-in names aliased", async () => {
+  it("load instructions and skills through the SDK's setting sources, built-in names aliased onto Studio's tools", async () => {
     write("CLAUDE.md", "Project rule only the SDK should read.");
-    write(".claude/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews changes\ntools: Read, Grep\nmodel: haiku\n---\nReview carefully.");
     write(".claude/skills/naming/SKILL.md", "---\nname: naming\ndescription: Asset naming\n---\nPrefix with the zone.");
     write("Source/a.txt", "hello");
     sdk.script = async (b) => {
@@ -875,7 +447,7 @@ describe("the project's own Claude Code files on the Claude sign-in", () => {
       b.emit(results("r1", r));
       b.emit({ type: "result", subtype: "success", is_error: false, result: "done", session_id: "x" });
     };
-    const runner = new AgentRunner({ host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false, native });
+    const runner = new AgentRunner({ host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false, native: nativeWith() });
     const s = store.create();
     await runner.send(s.id, "check the naming");
     await until(() => store.get(s.id)!.status === "idle");
@@ -885,30 +457,55 @@ describe("the project's own Claude Code files on the Claude sign-in", () => {
     expect(o.strictMcpConfig).toBe(true);
     expect(Object.keys(o.mcpServers as Record<string, unknown>)).toEqual(["studio"]);
     expect(o.toolAliases).toMatchObject({ Read: "mcp__studio__read_file", Bash: "mcp__studio__shell", Edit: "mcp__studio__edit_file" });
-    expect(o.tools).toEqual(expect.arrayContaining(["Agent", "WebSearch", "Skill"]));
-    expect((o.agents as Record<string, { tools: string[]; model: string; prompt: string }>).reviewer).toMatchObject({ tools: ["mcp__studio__read_file", "mcp__studio__grep"], model: "haiku" });
-    expect((o.agents as Record<string, { prompt: string }>).reviewer.prompt).toContain("Review carefully.");
+    expect(o.tools).toEqual(expect.arrayContaining(["WebSearch", "Skill"]));
     // The SDK reads CLAUDE.md itself, so Studio's prompt does not carry it as well.
     expect(String(o.systemPrompt)).not.toContain("Project rule only the SDK should read.");
     const call = store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "r1");
     expect(call?.kind === "tool" && call.call).toMatchObject({ name: "read_file", outcome: "done" });
     expect(call?.kind === "tool" && call.call.result).toContain("hello");
-    expect(toolsFor({ tools: ["Read", "Grep"], noShell: false }).allowed).toEqual(new Set(["read_file", "grep"]));
   });
 
-  it("withhold the subagent tool while workers are Off, so the project's .claude/agents files cannot run (#173)", async () => {
+  it("run the project's subagent files as Studio's helpers: listed in the agent tool, each a session of its own with the tools its file allows", async () => {
+    const allowed = toolsFor({ tools: ["Read", "Grep"], noShell: false }).allowed as Set<never>;
+    sdk.script = async (b) => {
+      if (isSubagent(b)) {
+        b.emit(assistant("s1", [{ type: "text", text: "Reviewed." }]));
+        b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sub" });
+        return;
+      }
+      b.emit(assistant("m_a", [toolUse("h", "agent", { description: "Review", prompt: "review the diff", helper: "reviewer" })]));
+      b.emit(results("h", await b.call("agent", { description: "Review", prompt: "review the diff", helper: "reviewer" })));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "main" });
+    };
+    const runner = new AgentRunner({ host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => false, native: nativeWith([{ name: "reviewer", description: "Reviews changes", prompt: "Review carefully.", allowed, maxTurns: 5, effort: null }]) });
+    const s = store.create();
+    await runner.send(s.id, "review it");
+    await until(() => store.get(s.id)!.status === "idle");
+    const main = sdk.options.find((o) => !String(o.systemPrompt).includes("You are a subagent"))!;
+    expect(main).not.toHaveProperty("agents");
+    const agentTool = (main.mcpServers as { studio: { tools: Array<{ name: string; description: string }> } }).studio.tools.find((t) => t.name === "agent")!;
+    expect(agentTool.description).toContain("- reviewer: Reviews changes");
+    const sub = sdk.options.find((o) => String(o.systemPrompt).includes("You are a subagent"))!;
+    expect(String(sub.systemPrompt)).toContain("Review carefully.");
+    expect(sub.allowedTools).toEqual(["mcp__studio__read_file", "mcp__studio__grep"]);
+    expect(sub.maxTurns).toBe(5);
+    expect(store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "h")).toMatchObject({ call: { outcome: "done", result: "Reviewed." } });
+  });
+
+  it("withhold every subagent tool while workers are Off, so neither Studio's nor the project's .claude/agents files run (#173)", async () => {
     write(".claude/agents/reviewer.md", "---\nname: reviewer\ndescription: Reviews changes\n---\nReview carefully.");
     sdk.script = async (b) => b.emit({ type: "result", subtype: "success", is_error: false, result: "ok", session_id: "x" });
-    const runner = new AgentRunner({ host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, native, usage: () => ({ ...DEFAULT_USAGE, subagents: "off" }) });
+    const runner = new AgentRunner({ host, store, provider: () => { throw new Error("unused"); }, model: () => "claude-opus-5-5", subscription: () => true, native: nativeWith(), usage: () => ({ ...DEFAULT_USAGE, subagents: "off" }) });
     const s = store.create();
     await runner.send(s.id, "hi");
     await until(() => store.get(s.id)!.status === "idle");
     const o = sdk.options.at(-1)!;
     expect(o.disallowedTools).toEqual(expect.arrayContaining(["Agent", "Task"]));
     expect(o.tools).not.toContain("Agent");
-    expect(o.allowedTools).not.toContain("Agent");
+    expect(o.allowedTools).not.toContain("mcp__studio__agent");
+    expect((o.mcpServers as { studio: { tools: Array<{ name: string }> } }).studio.tools.map((t) => t.name)).not.toContain("agent");
     expect(o).not.toHaveProperty("agents");
-    // Only the hook that hands over a compaction's summary: none holds or frees an agent call.
+    // Only the hook that hands over a compaction's summary.
     expect(Object.keys(o.hooks as object)).toEqual(["PostCompact"]);
     expect(String(o.systemPrompt)).not.toMatch(/agent tool|subagents? runs? at once|no limit/i);
   });
