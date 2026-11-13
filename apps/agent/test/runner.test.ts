@@ -314,11 +314,11 @@ describe("messaging a running subagent from its thread on Studio's own loop", ()
     expect(door[0].system[0].text).toContain("The user writes to you from your thread");
     expect(door[0].system[0].text).not.toMatch(/key [0-9a-f]{10}/);
     expect(last[1].text).toMatch(/make it red/);
-    // The hall subagent and the main agent never see it.
+    // The hall subagent never sees it; the main agent only with the door's report, named as the user's.
     expect(requests.filter((r) => sub(r) && r.messages[0].content === "hall").some((r) => said(r).includes("make it red"))).toBe(false);
-    expect(requests.filter((r) => !sub(r)).some((r) => said(r).includes("make it red"))).toBe(false);
+    expect(requests.filter((r) => !sub(r)).some((r) => said(r).includes("make it red") && !said(r).includes("Door built"))).toBe(false);
     const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string }>;
-    expect(results.find((r) => r.tool_use_id === "door")!.content).toBe("Door built, red as you asked.");
+    expect(results.find((r) => r.tool_use_id === "door")!.content).toMatch(/^Door built, red as you asked\.\n\n\[Studio\] While it worked, the user wrote to this subagent from its thread[\s\S]*make it red$/);
     expect(fin.transcript.filter((t) => t.kind === "tool" && t.call.name === "agent").map((t) => (t as { call: { outcome: string } }).call.outcome)).toEqual(["done", "done"]);
   });
 
@@ -352,7 +352,7 @@ describe("messaging a running subagent from its thread on Studio's own loop", ()
     await turn;
     const fin = store.get(s.id)!;
     const results = fin.messages[2].content as Array<{ tool_use_id: string; content: string }>;
-    expect(results[0].content).toBe("Rapport en francais.");
+    expect(results[0].content).toMatch(/^Rapport en francais\.\n\n\[Studio\] While it worked, the user wrote to this subagent/);
     // A finished subagent takes no more messages.
     expect(runner.canMessage(fin, "rep")).toBe(false);
     expect(await runner.messageSubagent(s.id, "rep", "again")).toBe(false);

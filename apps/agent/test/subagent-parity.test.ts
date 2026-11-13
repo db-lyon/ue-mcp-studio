@@ -309,8 +309,9 @@ describe.each(routes)("subagents on $name", (route) => {
     open();
     await until(() => store.get(s.id)!.status === "idle", T);
     const fin = store.get(s.id)!;
-    expect(agentCall(fin, "door")!.call.result).toBe("door done (heard: make it red)");
-    // Nothing stopped, and the main agent never saw the message itself.
+    // Its report, and what the user wrote to it, so the main agent knows the instruction was the user's.
+    expect(agentCall(fin, "door")!.call.result).toMatch(/^door done \(heard: make it red\)\n\n\[Studio\] While it worked, the user wrote to this subagent from its thread[\s\S]*make it red$/);
+    // Nothing stopped, and the main agent saw the message only with that report.
     expect(world.mainSaw.some((m) => m.includes("make it red") && !m.includes("door done"))).toBe(false);
     expect(fin.transcript.some((t) => t.kind === "note" && /ended before it read/.test((t as { text: string }).text))).toBe(false);
   }, 30_000);

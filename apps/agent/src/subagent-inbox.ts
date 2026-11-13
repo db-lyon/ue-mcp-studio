@@ -17,6 +17,11 @@ export function toSubagent(texts: string[]): string {
   return `The user writes to you from your thread (the agent that gave you your task does not see this):\n\n${texts.map((t) => t.trim()).filter(Boolean).join("\n\n")}`;
 }
 
+/** What the main agent is told, with a subagent's result, of what the user wrote to that subagent from its thread. */
+export function heardNote(texts: string[]): string {
+  return `While it worked, the user wrote to this subagent from its thread in Studio, so these are the user's own instructions:\n\n${texts.join("\n\n")}`;
+}
+
 /** What the main agent is told when a subagent ended before it read the user's message to it. */
 export function unreadNote(description: string, texts: string[]): string {
   return `The user sent a message to the subagent "${description}", which ended before it read it, so it comes to you instead. The user's message:\n\n${texts.join("\n\n")}`;

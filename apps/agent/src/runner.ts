@@ -42,7 +42,7 @@ import { USER_SENT, USER_STOP, interruptedResult, interruptionLine, interruption
 import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
-import { SUBAGENT_MESSAGES_LINE, SubagentInbox, aboutNote, toSubagent, unreadNote } from "./subagent-inbox.js";
+import { SUBAGENT_MESSAGES_LINE, SubagentInbox, aboutNote, heardNote, toSubagent, unreadNote } from "./subagent-inbox.js";
 import type { LiveTurn } from "./subscription.js";
 import { DETACHED, type HostedCallbacks, type HostedResult, type HostedRun, type TurnHosts } from "./hosted-turn.js";
 import { STUDIO_SUBAGENTS_PROTOCOL, type TurnHostRecord, type TurnSpec } from "./turn-host-protocol.js";
@@ -190,6 +190,8 @@ interface AgentRun {
   say: ((text: string) => Promise<boolean>) | null;
   /** The turn host its conversation runs in, when it runs in one. */
   hosted: HostedRun | null;
+  /** What the user wrote to it from its thread, which its result names so the main agent knows where an instruction came from. */
+  told: string[];
 }
 
 /** Turn host session key of a subagent's conversation. */
@@ -2170,6 +2172,7 @@ ${result}`);
       detach: [],
       say: null,
       hosted: null,
+      told: [],
     };
     this.runs.set(callId, run);
     this.keepRun(s, run);
@@ -2206,6 +2209,9 @@ ${result}`);
       }
       const unread = this.inbox.drain(run.callId);
       let result: AgentResult = { text: r.text, isError: r.isError, ...(r.stopped ? { stopped: true } : {}) };
+      // What it read from the user goes with its result: the main agent never saw it, and would otherwise distrust a report that acts on it.
+      const read = run.told.filter((t) => !unread.includes(t));
+      if (read.length) result = { ...result, text: `${result.text}\n\n[Studio] ${heardNote(read)}` };
       if (unread.length) {
         this.addEntry(s, { kind: "note", text: `"${run.description}" ended before it read your message, so it went to the main agent.`, at: now() });
         result = { ...result, text: `${result.text}\n\n[Studio] ${unreadNote(run.description, unread)}` };
@@ -2591,6 +2597,7 @@ ${result}`);
     if (run.say) {
       if (!(await run.say(text))) return false;
     } else this.inbox.push(callId, text);
+    run.told.push(text);
     this.addEntry(s, { kind: "user", text, at: now(), parent: callId });
     this.o.host.log.info(`session ${s.id}: a message for subagent ${callId}, read at its next step`);
     return true;
