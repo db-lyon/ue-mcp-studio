@@ -370,6 +370,35 @@ describe("chatting while background subagents run (#1931)", () => {
     await turn;
   });
 
+  it("Send now beside a foreground subagent hands the message in and stops nothing", async () => {
+    let binary: FakeBinary | null = null;
+    sdk.script = async (b) => {
+      binary = b;
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-fg" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build" } }]));
+      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-fg", is_backgrounded: false });
+      await until(() => b.said.length === 1);
+      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-fg", status: "completed", summary: "Built." });
+      b.emit(results("ag", { text: "Built.", isError: false }));
+      b.emit(assistant("m_b", [{ type: "text", text: "Built it, and about your question: yes." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-fg" });
+    };
+    const runner = runnerOn();
+    const s = store.create();
+    const turn = runner.send(s.id, "build it");
+    await until(() => store.get(s.id)!.transcript.some((t) => t.kind === "tool" && t.call.id === "ag"));
+    await sleep(10);
+    expect(runner.keepsSubagents(s.id)).toBe(true);
+    await runner.sendNow(s.id, "does it have a door?");
+    await until(() => binary!.said.length === 1);
+    expect(binary!.said).toEqual(["does it have a door?"]);
+    await turn;
+    const fin = store.get(s.id)!;
+    expect(sdk.interrupts).toBe(0);
+    expect(fin.status).toBe("idle");
+    expect((fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("done");
+  });
+
   it("Stop ends only the main agent's reply while a background subagent works", async () => {
     let finish: (() => void) | null = null;
     let replying: (() => void) | null = null;
