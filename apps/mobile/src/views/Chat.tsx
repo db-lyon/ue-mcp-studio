@@ -9,7 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { DetailLoader, agentCalls, chatPane, composerBusy, sessionGone, unreachable } from "@ue-mcp-studio/client-core";
+import { DetailLoader, agentCalls, chatPane, composerPlaceholder, composerQueues, composerTarget, sessionGone, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { writeLocation } from "../location";
 import { haptic } from "../native/haptics";
@@ -353,9 +353,24 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
       void api.saveDraft(selected, "").catch(() => {});
       return;
     }
+    if (target.to !== "main") return toThread(false);
     dispatch((id, text, files) => api.send(id, text, files), true);
   };
-  const runFlow = (request: FlowRunRequest) => {
+  /**
+   * A message written in a subagent's thread. A running subagent takes it at its next step and the
+   * thread stays open, where it shows; a finished one hands it to the main agent, naming the subagent,
+   * and the main thread opens for the reply.
+   */
+  const toThread = (now: boolean) => {
+    if (target.to === "main") return;
+    if (target.to === "subagent" && attach.ready.length > 0) {
+      fail(new Error("A subagent takes text only. Remove the files, or send them to the main agent from the main thread."));
+      return;
+    }
+    const callId = target.call.id;
+    dispatch((id, text, files) => api.messageSubagent(id, callId, text, files, now), target.to === "finished");
+  };
+  const runFlow =(request: FlowRunRequest) => {
     if (!selected) return Promise.reject(new Error("Open a session first."));
     const id = selected;
     setThread(null);
@@ -389,8 +404,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   // Dismissed per session, until it reaches the next level.
   const [warnDismissed, setWarnDismissed] = useState<string | null>(null);
   const warnKey = detail && meterView ? `${detail.id}:${meterView.level}` : null;
-  const sendNow = () => remoteCmd.runRemoteCommand() || dispatch((id, text, files) => api.send(id, text, files, true), true);
-  const queue = () => remoteCmd.runRemoteCommand() || dispatch((id, text, files) => api.queue(id, text, files), false);
+  const sendNow = () => remoteCmd.runRemoteCommand() || (target.to !== "main" ? toThread(true) : dispatch((id, text, files) => api.send(id, text, files, true), true));
+  const queue = () => remoteCmd.runRemoteCommand() || (target.to !== "main" ? toThread(false) : dispatch((id, text, files) => api.queue(id, text, files), false));
   const editMessage = useCallback(
     (index: number, text: string, mode: EditMode) => {
       if (!selected) return;
@@ -475,6 +490,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     void loadList();
   };
   const openThread = (thread && detail && agentCalls(detail.transcript).find((c) => c.id === thread)) || null;
+  // Who a message written now goes to: the open subagent while it runs, else the main agent.
+  const target = composerTarget(openThread);
   const drawerCall = (drawerId && detail && agentCalls(detail.transcript).find((c) => c.id === drawerId)) || null;
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
@@ -662,8 +679,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           draft={draft}
                           onDraft={setDraft}
                           onBlur={() => selected && void api.saveDraft(selected, draft).catch(() => {})}
-                          placeholder={composerBusy(detail) ? "The agent is working. Write the next message to queue it." : detail.mainFree ? "Subagents are working. Message the main agent" : openThread ? "Message the main agent" : "Ask for something in the editor, or drop files here"}
-                          busy={composerBusy(detail)}
+                          placeholder={composerPlaceholder(detail, target)}
+                          busy={composerQueues(detail, target)}
                           canSend={canSend}
                           onSend={send}
                           commands={remoteCmd.commands}

@@ -33,7 +33,7 @@ import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../cha
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
-import { DetailLoader, composerBusy, sessionGone } from "@ue-mcp-studio/client-core";
+import { DetailLoader, composerPlaceholder, composerQueues, composerTarget, sessionGone } from "@ue-mcp-studio/client-core";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
 import { AgentsButton, ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
@@ -277,9 +277,24 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
       void api.saveDraft(selected, "").catch(() => {});
       return;
     }
+    if (target.to !== "main") return toThread(false);
     dispatch((id, text, files) => api.send(id, text, files), true);
   };
-  const runFlow = (request: FlowRunRequest) => {
+  /**
+   * A message written in a subagent's thread. A running subagent takes it at its next step and the
+   * thread stays open, where it shows; a finished one hands it to the main agent, naming the subagent,
+   * and the main thread opens for the reply.
+   */
+  const toThread = (now: boolean) => {
+    if (target.to === "main") return;
+    if (target.to === "subagent" && attach.ready.length > 0) {
+      setError("A subagent takes text only. Remove the files, or send them to the main agent from the main thread.");
+      return;
+    }
+    const callId = target.call.id;
+    dispatch((id, text, files) => api.messageSubagent(id, callId, text, files, now), target.to === "finished");
+  };
+  const runFlow =(request: FlowRunRequest) => {
     if (!selected) return Promise.reject(new Error("Open a session first."));
     const id = selected;
     setThread(null);
@@ -313,8 +328,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   // Dismissed per session, until it reaches the next level.
   const [warnDismissed, setWarnDismissed] = useState<string | null>(null);
   const warnKey = detail && meterView ? `${detail.id}:${meterView.level}` : null;
-  const sendNow = () => runRemoteCommand() || dispatch((id, text, files) => api.send(id, text, files, true), true);
-  const queue = () => runRemoteCommand() || dispatch((id, text, files) => api.queue(id, text, files), false);
+  const sendNow = () => runRemoteCommand() || (target.to !== "main" ? toThread(true) : dispatch((id, text, files) => api.send(id, text, files, true), true));
+  const queue = () => runRemoteCommand() || (target.to !== "main" ? toThread(false) : dispatch((id, text, files) => api.queue(id, text, files), false));
   const editMessage = useCallback((index: number, text: string, mode: EditMode) => {
     if (!selected) return;
     setThread(null);
@@ -408,6 +423,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     void loadList();
   };
   const openThread = (thread && detail && agentCalls(detail.transcript).find((c) => c.id === thread)) || null;
+  // Who a message written now goes to: the open subagent while it runs, else the main agent.
+  const target = composerTarget(openThread);
   const drawerCall = (drawerId && detail && agentCalls(detail.transcript).find((c) => c.id === drawerId)) || null;
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
@@ -582,8 +599,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
               draft={draft}
               onDraft={setDraft}
               onBlur={() => selected && void api.saveDraft(selected, draft)}
-              placeholder={composerBusy(detail) ? "The agent is working. Write the next message to queue it." : detail.mainFree ? "Subagents are working. Message the main agent" : openThread ? "Message the main agent" : "Ask for something in the editor, or drop files here"}
-              busy={composerBusy(detail)}
+              placeholder={composerPlaceholder(detail, target)}
+              busy={composerQueues(detail, target)}
               canSend={canSend}
               onSend={send}
               commands={commands}
