@@ -142,7 +142,9 @@ export interface SubscriptionTurn {
    * current reply, leaving the background subagents running. Null once the
    * turn has ended.
    */
-  onLive?: (live: { background: () => number; free: () => boolean; say: (blocks: unknown[]) => boolean; interrupt: () => Promise<void> } | null) => void;
+  onLive?: (live: LiveTurn | null) => void;
+  /** The turn's input closed while it still runs, and why: a message after this can only queue. */
+  onInputClosed?: (why: string) => void;
   /** The main agent finished its reply while background subagents still run (true), or is working again (false). */
   onFree?: (free: boolean) => void;
   /** Run one tool call the model asked for, by its tool_use id. */
@@ -260,6 +262,22 @@ export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem
   };
 }
 
+/** A running Claude sign-in turn, as the runner steers it while subagents work. */
+export interface LiveTurn {
+  /** Background tasks still working. */
+  background: () => number;
+  /** The main agent ended its reply and has not started another. */
+  free: () => boolean;
+  /** The turn still takes messages. */
+  open: () => boolean;
+  /** Hand the main agent a message now; false once the input has closed. */
+  say: (blocks: unknown[]) => boolean;
+  /** Move every foreground subagent and command to the background, so they outlive an interrupt. */
+  keep: () => Promise<boolean>;
+  /** Stop only the main agent's current reply. */
+  interrupt: () => Promise<void>;
+}
+
 const userMessage = (blocks: unknown[], session: string): SDKUserMessage =>
   ({ type: "user", message: { role: "user", content: blocks }, parent_tool_use_id: null, session_id: session }) as unknown as SDKUserMessage;
 
@@ -295,8 +313,11 @@ export function inputChannel(first: SDKUserMessage) {
   };
 }
 
-/** How long the main agent may sit idle after the last background subagent ends before the input closes. */
-const LAST_TASK_GRACE_MS = 5000;
+/**
+ * How long the main agent may sit idle after the last background task ends before the input closes.
+ * The binary answers a task's report with a main reply, which cancels this; it is only a backstop.
+ */
+const LAST_TASK_GRACE_MS = 120_000;
 
 /** JSON with object keys sorted, so the same input matches whatever order its keys came in. */
 const canonical = (v: unknown): string => JSON.stringify(v, (_k, x) => (x && typeof x === "object" && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => a.localeCompare(b))) : x));
@@ -428,21 +449,32 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
 
   const input = inputChannel(userMessage(t.prompt, t.resume ?? ""));
   let sessionId = t.resume ?? "";
-  // Background subagents still working, by agent call id.
+  // Background subagents still working, by agent call id, from the task_* edges.
   const background = new Set<string>();
+  // The binary's own list of live background tasks (background_tasks_changed), by task id: the level, which a missed edge cannot wedge.
+  const level = new Set<string>();
+  const toolOfTask = new Map<string, string>();
+  const bg = () => Math.max(background.size, level.size);
   // The main agent ended its reply and has not started another.
   let free = false;
   // A Stop that interrupted only the main agent: the result it ends with is not the turn's error.
   let interrupted = false;
   let grace: ReturnType<typeof setTimeout> | null = null;
   const setFree = (v: boolean) => {
+    // The main agent working again: the idle fallback no longer applies.
+    if (!v && grace) { clearTimeout(grace); grace = null; }
     if (free === v) return;
     free = v;
     t.onFree?.(v);
   };
+  const close = (why: string) => {
+    if (input.closed) return;
+    input.close();
+    t.onInputClosed?.(why);
+  };
   const closeIfDone = () => {
     if (grace) { clearTimeout(grace); grace = null; }
-    if (free && background.size === 0) input.close();
+    if (free && bg() === 0) close("the main agent stayed idle after its last background task ended");
   };
   t.signal.addEventListener("abort", () => input.close(), { once: true });
 
@@ -481,13 +513,18 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       else t.signal.addEventListener("abort", onStop, { once: true });
     });
     t.onLive?.({
-      background: () => background.size,
+      background: bg,
       free: () => free,
+      open: () => !input.closed,
       say: (blocks) => {
         if (!input.push(userMessage(blocks, sessionId))) return false;
-        if (grace) { clearTimeout(grace); grace = null; }
         setFree(false);
         return true;
+      },
+      // Ctrl+B: a foreground subagent or command the main agent is waiting on moves to the background and keeps running.
+      keep: async () => {
+        if (typeof q.backgroundTasks !== "function") return false;
+        return q.backgroundTasks().catch(() => false);
       },
       interrupt: async () => {
         if (free) return;
@@ -533,18 +570,30 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       else if (m.type === "system" && "subtype" in m && m.subtype === "task_started") {
         if (m.tool_use_id) {
           const taskId = m.task_id;
+          toolOfTask.set(taskId, m.tool_use_id);
           t.onStopper(m.tool_use_id, () => q.stopTask(taskId));
           if (m.is_backgrounded) background.add(m.tool_use_id);
           t.onTask(m.tool_use_id, "started", { background: m.is_backgrounded });
         }
+      } else if (m.type === "system" && "subtype" in m && m.subtype === "task_updated") {
+        // A foreground task moved to the background (Ctrl+B, or the binary's own choice).
+        const tool = toolOfTask.get(m.task_id);
+        if (tool && m.patch.is_backgrounded) {
+          background.add(tool);
+          t.onTask(tool, "started", { background: true });
+        }
+      } else if (m.type === "system" && "subtype" in m && m.subtype === "background_tasks_changed") {
+        level.clear();
+        for (const task of m.tasks) if (!task.ambient) level.add(task.task_id);
+        if (free && bg() === 0 && !grace) grace = setTimeout(closeIfDone, LAST_TASK_GRACE_MS);
       } else if (m.type === "system" && "subtype" in m && m.subtype === "task_notification") {
         if (m.tool_use_id) {
           t.onStopper(m.tool_use_id, null);
           slots.release(m.tool_use_id);
           background.delete(m.tool_use_id);
           t.onTask(m.tool_use_id, m.status, { summary: m.summary });
-          // The binary usually answers the last report with a main reply; if it stays idle, the turn ends.
-          if (free && background.size === 0 && !grace) grace = setTimeout(closeIfDone, LAST_TASK_GRACE_MS);
+          // The binary answers the last report with a main reply; if it stays idle a long while, the turn ends.
+          if (free && bg() === 0 && !grace) grace = setTimeout(closeIfDone, LAST_TASK_GRACE_MS);
         }
       }
       else if (m.type === "stream_event") {
@@ -585,9 +634,9 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         else if (m.subtype !== "success") error = error ?? endedText(m.subtype);
         else if (m.is_error) error = error ?? m.result;
         // The main agent's reply ended. With background subagents still working, it takes the user's next message now.
-        if (background.size === 0) {
+        if (bg() === 0) {
           free = true;
-          input.close();
+          close("the main agent finished with no background task running");
         } else setFree(true);
       }
     }

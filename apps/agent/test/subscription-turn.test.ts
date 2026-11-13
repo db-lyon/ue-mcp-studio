@@ -28,6 +28,7 @@ const sdk = vi.hoisted(() => ({
   envs: [] as Array<Record<string, string | undefined>>,
   resumes: [] as Array<string | undefined>,
   interrupts: 0,
+  backgrounded: 0,
   stopTask: null as null | ((taskId: string) => void),
   options: [] as Array<Record<string, unknown>>,
 }));
@@ -89,6 +90,10 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
     return {
       async interrupt() {
         sdk.interrupts++;
+      },
+      async backgroundTasks() {
+        sdk.backgrounded++;
+        return true;
       },
       stopTask: async (taskId: string) => sdk.stopTask?.(taskId),
       [Symbol.asyncIterator]() {
@@ -179,6 +184,7 @@ beforeEach(() => {
   store = new SessionStore(host.dataDir);
   sdk.prompts = [];
   sdk.interrupts = 0;
+  sdk.backgrounded = 0;
 });
 
 afterEach(() => {
@@ -370,7 +376,7 @@ describe("chatting while background subagents run (#1931)", () => {
     await turn;
   });
 
-  it("Send now beside a foreground subagent hands the message in and stops nothing", async () => {
+  it("Send now beside a foreground subagent moves it to the background, and it keeps working", async () => {
     let binary: FakeBinary | null = null;
     sdk.script = async (b) => {
       binary = b;
@@ -394,9 +400,62 @@ describe("chatting while background subagents run (#1931)", () => {
     expect(binary!.said).toEqual(["does it have a door?"]);
     await turn;
     const fin = store.get(s.id)!;
-    expect(sdk.interrupts).toBe(0);
+    expect(sdk.backgrounded).toBe(1);
     expect(fin.status).toBe("idle");
     expect((fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("done");
+  });
+
+  it("counts a worker the binary lists only in background_tasks_changed", async () => {
+    let binary: FakeBinary | null = null;
+    sdk.script = async (b) => {
+      binary = b;
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-lv" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build", run_in_background: true } }]));
+      b.emit({ type: "system", subtype: "background_tasks_changed", tasks: [{ task_id: "task-lv", task_type: "local_agent", description: "Build" }] });
+      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-lv" });
+      b.emit(results("ag", { text: "Async agent launched and running in the background.", isError: false }));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-lv" });
+      await until(() => b.said.length === 1);
+      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-lv", status: "completed", summary: "Built." });
+      b.emit({ type: "system", subtype: "background_tasks_changed", tasks: [] });
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-lv" });
+    };
+    const runner = runnerOn();
+    const s = store.create();
+    const turn = runner.send(s.id, "build in the background");
+    await until(() => !!store.get(s.id)!.mainFree);
+    await runner.sendNow(s.id, "how is it going?");
+    await until(() => binary!.said.length === 1);
+    await turn;
+    const fin = store.get(s.id)!;
+    expect(sdk.interrupts).toBe(0);
+    expect((fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string; result: string } }).call).toMatchObject({ outcome: "done", result: "Built." });
+  });
+
+  it("queues a message instead of ending a subagent when the turn takes no more input", async () => {
+    let finish: (() => void) | null = null;
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-cl" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build" } }]));
+      // No background flag and no level: the turn's input closes at the main agent's result.
+      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-cl" });
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-cl" });
+      await new Promise<void>((r) => (finish = r));
+      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-cl", status: "completed", summary: "Built." });
+      b.emit(results("ag", { text: "Built.", isError: false }));
+    };
+    const runner = runnerOn();
+    const s = store.create();
+    const turn = runner.send(s.id, "build");
+    await until(() => finish !== null);
+    await sleep(10);
+    await runner.sendNow(s.id, "and then the door");
+    const mid = store.get(s.id)!;
+    expect(mid.queue?.map((q) => q.text)).toEqual(["and then the door"]);
+    expect((mid.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("pending");
+    finish!();
+    await turn;
+    expect((store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("done");
   });
 
   it("Stop ends only the main agent's reply while a background subagent works", async () => {
@@ -510,7 +569,7 @@ describe("subagents past the limit on the subscription route (#164)", () => {
     expect(fin.transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call.outcome] : []))).toEqual(["done", "done", "done", "done", "done"]);
   });
 
-  it("cancels the 3 waiting ones when the turn is stopped, and starts none of them", async () => {
+  it("cancels the 3 waiting ones when the whole turn is stopped, and starts none of them", async () => {
     const gates = new Map<string, () => void>();
     const started: string[] = [];
     const answers = new Map<string, unknown>();
@@ -519,7 +578,8 @@ describe("subagents past the limit on the subscription route (#164)", () => {
     const runner = runnerAt(2);
     const turn = runner.send(s.id, "five parts");
     await until(() => started.length === 2 && queuedIn(s.id).length === 3);
-    runner.stop(s.id);
+    // The first Stop spares running subagents; this is the Stop that ends them all.
+    runner.stopAll(s.id);
     await turn;
     await until(() => answers.size === 5);
     expect(started).toEqual(["g0", "g1"]);
