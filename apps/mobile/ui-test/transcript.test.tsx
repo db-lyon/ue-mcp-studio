@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, renderHook, screen } from "@testing-library/react";
 import { BOTTOM_SLACK, useFollow } from "../src/chat/hooks";
-import type { ApprovalRequest, EditorDialog, PendingForm, TranscriptEntry } from "@ue-mcp-studio/shared";
+import { sessionAgents, type ApprovalRequest, type EditorDialog, type PendingForm, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { AssetLinks } from "@ue-mcp-studio/client-core";
 import { Markdown } from "../src/ui";
 import { DiffView } from "../src/chat/Diff";
@@ -230,7 +230,7 @@ describe("SubagentThread", () => {
   it("draws the task, its steps and how it ended", () => {
     const call = { id: "ag", name: "agent", input: { description: "Dress the cave", prompt: "Place rocks" }, outcome: "done" as const, startedAt: at, endedAt: at };
     const steps: TranscriptEntry[] = [{ kind: "tool", call }, { kind: "assistant", text: "Placed 14 rocks.", at, parent: "ag" }];
-    renderInProject(<SubagentThread call={call} transcript={steps} sessionWaiting={false} onBack={vi.fn()} onStop={vi.fn()} />);
+    renderInProject(<SubagentThread agent={sessionAgents(steps, { status: "idle", asked: new Set() })[0]} entries={steps.filter((e) => e.parent === "ag")} onBack={vi.fn()} onStop={vi.fn()} />);
     expect(screen.getByText("Task from the main agent")).toBeTruthy();
     expect(screen.getByText("Place rocks")).toBeTruthy();
     expect(screen.getByText("Placed 14 rocks.")).toBeTruthy();

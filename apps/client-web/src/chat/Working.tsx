@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import type { SessionDetail } from "@ue-mcp-studio/shared";
 import { turnElapsed as formatElapsed, workingStatus } from "@ue-mcp-studio/client-core";
 
-export function WorkingLine({ detail }: { detail: Pick<SessionDetail, "status" | "waitingCause" | "transcript"> | null | undefined }) {
+export function WorkingLine({ detail }: { detail: (Pick<SessionDetail, "status" | "waitingCause" | "transcript"> & Partial<Pick<SessionDetail, "working" | "mainFree">>) | null | undefined }) {
   const status = workingStatus(detail);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {

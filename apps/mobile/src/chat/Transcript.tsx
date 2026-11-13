@@ -8,15 +8,15 @@
 import { Component, createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { FlatList, Image, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle } from "react-native";
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
-import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
+import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type SessionAgent, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
   OUTCOME_LABEL,
   RESULT_PREVIEW_LINES,
   TOOL_TAG,
   STATE_LABEL,
-  agentStatus,
+  agentFor,
+  agentView,
   callPath,
-  callsIn,
   describe,
   formatDuration,
   formatResult,
@@ -39,7 +39,7 @@ import { useProjectNav } from "../nav";
 import { copyText } from "../native/clipboard";
 import { MentionText } from "./MentionMenu";
 import { DiffView } from "./Diff";
-import { useAsked } from "./asked";
+import { useAgents, useAsked } from "./asked";
 import { breakable } from "./breakable";
 import { DialogLine } from "../screens/chat/items";
 import { QaCard } from "./Qa";
@@ -763,7 +763,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   const follow = useFollow(`${from + transcript.length}:${streaming.length}:${status}`, sent);
   const waiting = status === "waiting";
   const asked = askedIds.size;
-  const rows = useMemo(() => itemRows(items, transcript, from, waiting, onOpen, onStop), [items, transcript, waiting, onOpen, onStop, from]);
+  const rows = useMemo(() => itemRows(items, transcript, from, onOpen, onStop), [items, transcript, onOpen, onStop, from]);
   // The streaming reply is the newest line, cut into pieces as it grows.
   const drawn = useMemo(() => (streaming ? [...rows, streamRow(streaming)] : rows), [rows, streaming]);
   const foot =
@@ -786,14 +786,14 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
  * A thread's lines as rows, the main one or a subagent's. An entry is keyed by its place in the
  * transcript and a fold or group by its first call, so a page read in front or a run that grows keeps every row as it was.
  */
-function itemRows(items: ThreadItem[], transcript: TranscriptEntry[], from: number, sessionWaiting: boolean, onOpen?: (id: string) => void, onStop?: (id: string) => void): ThreadRow[] {
+function itemRows(items: ThreadItem[], transcript: TranscriptEntry[], from: number, onOpen?: (id: string) => void, onStop?: (id: string) => void): ThreadRow[] {
   return items.map((item, i) => {
     if (item.kind === "entry") {
       const p = positionIn(transcript, item.entry);
       return entryRow(p < 0 ? `i${i}` : `e${from + p}`, item.entry, p < 0 ? undefined : from + p);
     }
     if (item.kind === "steps") return { key: `s${item.calls[0].id}`, render: () => <StepsFold calls={item.calls} /> };
-    return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} transcript={transcript} sessionWaiting={sessionWaiting} onOpen={onOpen ?? (() => {})} onStop={onStop} /> };
+    return { key: `a${item.calls[0].id}`, render: () => <AgentGroup calls={item.calls} onOpen={onOpen ?? (() => {})} onStop={onStop} /> };
   });
 }
 
@@ -846,22 +846,23 @@ export function StepsFold({ calls }: { calls: Call[] }) {
 /** Groups larger than this start collapsed once every subagent in them has finished. */
 export const GROUP_OPEN_MAX = 3;
 
-/** Subagents the main agent started together: one header, and a row per subagent. */
-export function AgentGroup({ calls, transcript, sessionWaiting, onOpen, onStop }: {
+/** Subagents the main agent started together: one header, and a row per subagent, each as the daemon's list says it is. */
+export function AgentGroup({ calls, onOpen, onStop }: {
   calls: Call[];
-  transcript: TranscriptEntry[];
-  sessionWaiting: boolean;
   onOpen: (id: string) => void;
   onStop?: (id: string) => void;
 }) {
   const t = useTheme();
   const now = useNow(calls.some((c) => c.outcome === "pending"));
-  const asked = useAsked();
-  const rows = calls.map((c) => ({ call: c, ...agentStatus(c, transcript, sessionWaiting, now, asked) }));
+  const agents = useAgents();
+  const rows = calls.map((c) => {
+    const agent = agentFor(agents, c);
+    return { call: agent.call, steps: agent.steps, ...agentView(agent, now) };
+  });
   const running = rows.some((r) => isActive(r.state));
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? (running || calls.length <= GROUP_OPEN_MAX);
-  if (calls.length === 1) return <AgentLink row={rows[0]} transcript={transcript} onOpen={onOpen} onStop={onStop} />;
+  if (calls.length === 1) return <AgentLink row={rows[0]} onOpen={onOpen} onStop={onStop} />;
   // .agent-group-head: 12px/1.6 mono with the button's 0.02em; the editor themes' button rule outranks it with 12px/1.2 sans.
   const role = t.editor ? "sans" : "mono";
   const lh = t.editor ? 1.2 : 1.6;
@@ -878,12 +879,12 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen, onStop }
         <Text style={[head, font(t, role, 600, 12, lh), { color: t.c.text }]}>{`${calls.length} subagents`}</Text>
         <Text style={[head, { color: t.c.dim, flexShrink: 1 }]}>{summarize(rows.map((r) => r.state))}</Text>
       </Pressable>
-      {open ? rows.map((r) => <View key={r.call.id} style={{ marginLeft: 16 }}><AgentLink row={r} transcript={transcript} onOpen={onOpen} onStop={onStop} /></View>) : null}
+      {open ? rows.map((r) => <View key={r.call.id} style={{ marginLeft: 16 }}><AgentLink row={r} onOpen={onOpen} onStop={onStop} /></View>) : null}
     </View>
   );
 }
 
-type Row = { call: Call } & ReturnType<typeof agentStatus>;
+type Row = { call: Call; steps: number } & ReturnType<typeof agentView>;
 
 /** A subagent state's dot and label colours (.state-* .agents-dot and .agents-state). */
 export function stateColors(t: Theme, state: AgentState): { dot: string; label: string } {
@@ -917,9 +918,9 @@ export function StateDot({ state, size = 6 }: { state: AgentState; size?: number
  * its dot, name, state and Open thread on the first line, its title on its own
  * line under them, and its activity under that.
  */
-function AgentLink({ row, transcript, onOpen, onStop }: { row: Row; transcript: TranscriptEntry[]; onOpen: (id: string) => void; onStop?: (id: string) => void }) {
+function AgentLink({ row, onOpen, onStop }: { row: Row; onOpen: (id: string) => void; onStop?: (id: string) => void }) {
   const t = useTheme();
-  const calls = callsIn(transcript, row.call.id);
+  const calls = row.steps;
   // .tool's 12px/1.6 mono with the button's 0.02em; the editor themes' button rule outranks it with 12px/1.2 sans.
   const lh = t.editor ? 1.2 : 1.6;
   const role = t.editor ? "sans" : "mono";
@@ -962,22 +963,27 @@ function AgentLink({ row, transcript, onOpen, onStop }: { row: Row; transcript: 
 /**
  * A subagent's own thread: the task it was given, its steps, and what it
  * reported back. On a phone the header (back, name, state, Stop) is the
- * conversation's own, so the thread is the column alone.
+ * conversation's own, so the thread is the column alone. `entries` is its
+ * thread as read by its id (ThreadLoader), whatever part of the main
+ * transcript the phone holds; `more` reads the page before, as the reader
+ * reaches the top.
  */
-export function SubagentThread({ call, transcript, sessionWaiting, onBack: _onBack, onStop: _onStop }: {
-  call: Call;
-  transcript: TranscriptEntry[];
-  sessionWaiting: boolean;
+export function SubagentThread({ agent, entries, from = 0, more, onBack: _onBack, onStop: _onStop }: {
+  agent: SessionAgent;
+  entries: TranscriptEntry[];
+  /** The index of `entries[0]` in the subagent's thread, so a page read in front keeps every row's key. */
+  from?: number;
+  more?: () => void;
   onBack: () => void;
   onStop: (id: string) => void;
 }) {
   const t = useTheme();
+  const call = agent.call;
   const prompt = (call.input as { prompt?: string }).prompt;
-  const steps = useMemo(() => transcript.filter((e) => e.parent === call.id), [transcript, call.id]);
   const asked = useAsked();
-  const follow = useFollow(`${steps.length}:${call.outcome}`);
-  const from = useContext(TranscriptFromContext);
-  const rows = useMemo(() => itemRows(subagentTimeline(transcript, call.id, asked), transcript, from, sessionWaiting), [transcript, call.id, asked, from, sessionWaiting]);
+  // A page read in front of the held lines is not a new line below.
+  const follow = useFollow(`${agent.entries}:${call.outcome}`);
+  const rows = useMemo(() => itemRows(subagentTimeline(entries, call.id, asked), entries, from), [entries, call.id, asked, from]);
   const ended =
     call.outcome === "done" ? <Text style={small(t, t.c.dim)}>Reported back to the main agent.</Text>
       : call.outcome === "stopped" ? <Text style={small(t, t.c.dim)}>Stopped. The main agent was told.</Text>
@@ -985,7 +991,7 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack: _onBa
       : null;
   return (
     <>
-      <Column key={call.id} follow={follow} rows={rows} head={prompt ? <TaskMessage prompt={prompt} /> : null} foot={ended} />
+      <Column key={call.id} follow={follow} rows={rows} head={prompt && !more ? <TaskMessage prompt={prompt} /> : null} foot={ended} more={more} />
       {follow.behind ? <JumpLatest onPress={follow.jump} /> : null}
     </>
   );

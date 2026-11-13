@@ -7,7 +7,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { COMPACTED_PREFIX, type ContextUsage, type SessionSpend } from "@ue-mcp-studio/shared";
+import { COMPACTED_PREFIX, deriveSession, type ContextUsage, type SessionSpend } from "@ue-mcp-studio/shared";
 import type { TurnFacts, ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TimelineMark, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
 import { modelName } from "./models.js";
@@ -293,7 +293,9 @@ ${text}` }] } as MessageParam,
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], ...(s.mainFree && (s.status === "running" || s.status === "waiting") ? { mainFree: true } : {}), error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [], tokens: s.tokens ?? {}, context: publicContext(s), ...(s.totals ? { totals: s.totals } : {}) };
+    // What a client must not work out from the page of the transcript it holds: from the whole one, here.
+    const derived = deriveSession(s.transcript, { status: s.status, asked: new Set((s.approvals ?? []).map((a) => a.toolUseId)), seen: s.seen, dismissed: s.dismissed, tokens: s.tokens, context: publicContext(s) });
+    return { ...SessionStore.summary(s), ...derived, transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], ...(s.mainFree && (s.status === "running" || s.status === "waiting") ? { mainFree: true } : {}), error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [], tokens: s.tokens ?? {}, context: publicContext(s), ...(s.totals ? { totals: s.totals } : {}) };
   }
 }
 

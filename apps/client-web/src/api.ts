@@ -68,8 +68,8 @@ import type {
   RemoteStatus,
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
-import { notificationsOf } from "@ue-mcp-studio/client-core";
-import type { Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
+import { notificationsOf, threadQuery } from "@ue-mcp-studio/client-core";
+import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
 import type { CatalogPlugin, InstalledPlugin, PluginCommandResult } from "@ue-mcp-studio/client-core";
@@ -217,6 +217,9 @@ export const api = {
   /** The session as what changed since the hashes held (see SessionSync); whole without them. */
   sessionSync: (id: string, have?: string) =>
     call<SessionSync | SessionDetail>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}?sync=1${have !== undefined ? `&have=${have}` : ""}`),
+  /** One subagent's own entries, a page at a time, whatever part of the main transcript is held. */
+  agentThread: (id: string, callId: string, page?: { tail?: number; before?: number }) =>
+    call<AgentThreadPage>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/agents/${encodeURIComponent(callId)}${threadQuery(page)}`),
   /** A tool call's full result, when the session left a long one out. */
   callResult: (id: string, callId: string) =>
     call<{ result: string }>("GET", `/v1/ext/studio/sessions/${encodeURIComponent(id)}/calls/${encodeURIComponent(callId)}/result`),

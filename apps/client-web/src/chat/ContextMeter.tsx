@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
-import { compactLine, contextLabel, contextPct, contextRing, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
+import { compactLine, contextLabel, contextRing, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
 import { keepInView } from "./keepInView";
 
 export { dollars, tipLines };
@@ -33,8 +33,8 @@ export function ContextRing({ view, className = "" }: { view: ContextView; class
 
 /**
  * The composer's context meter: how much of the model's window the
- * conversation takes now, as a small ring and a percentage that turn amber and
- * then red near the point it compacts. Hovered, a card says the tokens, the
+ * conversation takes now, as a small ring alone that turns amber and then red
+ * near the point it compacts; its label says the percentage. Hovered, a card says the tokens, the
  * model they were measured on and where it compacts. Opened (a click, or a tap
  * on a touch screen), it has the numbers behind it, Compact now, and the
  * session's totals, which are spend, not context.
@@ -93,8 +93,8 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
         onMouseEnter={() => keepInView(tipRef.current)}
         onFocus={() => keepInView(tipRef.current)}
       >
+        {/* The ring alone at every width: the percentage is in its label, its tooltip and its details. */}
         {view ? <ContextRing view={view} /> : <span className="context-ring-empty" aria-hidden="true" />}
-        <span className="context-pct">{contextPct(view)}</span>
         {!open && (
           <span className="context-tip" role="tooltip" id={tipId} ref={tipRef}>
             {tip.map((l, i) => <span key={i} className={i === (owner ? 1 : 0) ? "context-tip-main" : undefined}>{l}</span>)}

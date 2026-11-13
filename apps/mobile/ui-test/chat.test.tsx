@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import type { ContextUsage, QueuedMessage, SessionSummary, TimelineMark, TranscriptEntry, TurnReview } from "@ue-mcp-studio/shared";
-import { contextView } from "@ue-mcp-studio/shared";
+import { contextView, sessionAgents } from "@ue-mcp-studio/shared";
 import { SessionRow } from "../src/chat/SessionRow";
 import { ChatHeader } from "../src/chat/ChatHeader";
 import { Threads } from "../src/chat/Threads";
@@ -63,30 +63,28 @@ describe("SessionRow", () => {
 });
 
 describe("ChatHeader", () => {
-  it("goes back to the sessions, opens Checkpoints and the subagents", () => {
+  it("goes back to the sessions, and holds no Checkpoints or subagents button: they are in the composer bar", () => {
     const onSessions = vi.fn();
-    const onReview = vi.fn();
-    const onAgents = vi.fn();
-    renderInProject(<ChatHeader title="Cave door" thread={null} transcript={[]} sessionWaiting={false} agents={3} onSessions={onSessions} onMain={() => undefined} onStop={() => undefined} onAgents={onAgents} onReview={onReview} />);
+    renderInProject(<ChatHeader title="Cave door" thread={null} onSessions={onSessions} onMain={() => undefined} onStop={() => undefined} />);
     expect(screen.getByText("Cave door")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Back to sessions"));
-    fireEvent.click(screen.getByLabelText("Checkpoints"));
-    fireEvent.click(screen.getByLabelText("Subagents (3)"));
-    expect([onSessions, onReview, onAgents].every((f) => f.mock.calls.length === 1)).toBe(true);
+    expect(onSessions).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Checkpoints")).toBeNull();
+    expect(screen.queryByLabelText(/Checkpoints|Subagents/)).toBeNull();
   });
 
   it("is the touch-screen .chat-back: 44 px of buttons with no padding above or below, the label spaced as its 16 px button", () => {
-    renderInProject(<ChatHeader title="Cave door" thread={null} transcript={[]} sessionWaiting={false} agents={0} onSessions={() => undefined} onMain={() => undefined} onStop={() => undefined} onReview={() => undefined} />);
+    renderInProject(<ChatHeader title="Cave door" thread={null} onSessions={() => undefined} onMain={() => undefined} onStop={() => undefined} />);
     const row = getComputedStyle(screen.getByLabelText("Back to sessions").parentElement!);
     expect([row.minHeight, row.paddingTop, row.paddingBottom, row.paddingLeft, row.paddingRight]).toEqual(["44px", "0px", "0px", "4px", "8px"]);
     expect(getComputedStyle(screen.getByText("Sessions")).letterSpacing).toBe("0.32px");
   });
 
   it("over a subagent's thread: its name, the session above it, its state and Stop", () => {
-    const call = (agent("a1", "Dress the floor") as Extract<TranscriptEntry, { kind: "tool" }>).call;
+    const thread = sessionAgents([agent("a1", "Dress the floor")], { status: "running", asked: new Set() })[0];
     const onMain = vi.fn();
     const onStop = vi.fn();
-    renderInProject(<ChatHeader title="Cave door" thread={call} transcript={[agent("a1", "Dress the floor")]} sessionWaiting={false} agents={1} onSessions={() => undefined} onMain={onMain} onStop={onStop} onReview={() => undefined} />);
+    renderInProject(<ChatHeader title="Cave door" thread={thread} onSessions={() => undefined} onMain={onMain} onStop={onStop} />);
     expect(screen.getByText("Dress the floor")).toBeTruthy();
     expect(screen.getByText("Cave door")).toBeTruthy();
     expect(screen.queryByLabelText("Checkpoints")).toBeNull();
@@ -104,7 +102,7 @@ describe("Threads", () => {
     const onDismiss = vi.fn();
     const transcript = [agent("a1", "Rocks"), agent("a2", "Fog", "done"), agent("a3", "Lights", "error")];
     renderInProject(
-      <Threads transcript={transcript} thread={null} onThread={onThread} onStop={onStop} sessionWaiting={false} seen={new Set(["a2"])} onDismiss={onDismiss} tokens={{ main: 12_000, a1: 3000 }} context={{ main: { input: 41_000, cached: 0, output: 900, model: "m", at: "2026-11-04T12:00:00Z" } as ContextUsage }} />,
+      <Threads agents={sessionAgents(transcript, { status: "running", asked: new Set(), tokens: { a1: 3000 } })} thread={null} onThread={onThread} onStop={onStop} seen={new Set(["a2"])} onDismiss={onDismiss} tokens={{ main: 12_000 }} context={{ main: { input: 41_000, cached: 0, output: 900, model: "m", at: "2026-11-04T12:00:00Z" } as ContextUsage }} />,
     );
     expect(screen.getByText(/^context 4\d/)).toBeTruthy();
     expect(screen.getByText("3.0k spent")).toBeTruthy();
@@ -131,7 +129,7 @@ describe("Threads", () => {
   });
 
   it("draws nothing with no subagents", () => {
-    const { container } = renderInProject(<Threads transcript={[]} thread={null} onThread={() => undefined} onStop={() => undefined} sessionWaiting={false} seen={new Set()} />);
+    const { container } = renderInProject(<Threads agents={[]} thread={null} onThread={() => undefined} onStop={() => undefined} seen={new Set()} />);
     expect(container.textContent).toBe("");
   });
 });
@@ -184,7 +182,8 @@ describe("ContextMeter", () => {
   it("shows how full the context is and opens its numbers and the session totals", () => {
     const onCompact = vi.fn();
     renderInProject(<ContextMeter context={usage(698_000)} totals={totals} model="claude-sonnet-5-5" listedWindow={1_000_000} busy={false} compacting={false} runtime={false} onCompact={onCompact} />);
-    expect(screen.getByText("70%")).toBeTruthy();
+    // The ring alone: the percentage is in its label, not in words beside it.
+    expect(screen.queryByText("70%")).toBeNull();
     fireEvent.click(screen.getByLabelText(/^Context 70% full/));
     expect(screen.getByText("Session totals")).toBeTruthy();
     expect(screen.getByText("$12.37")).toBeTruthy();
@@ -193,7 +192,7 @@ describe("ContextMeter", () => {
     expect(onCompact).toHaveBeenCalled();
   });
 
-  it("draws the ring: the fill as an arc of the circle, a tick where it compacts, and only the percentage beside it", () => {
+  it("draws the ring: the fill as an arc of the circle, a tick where it compacts, and nothing beside it", () => {
     const { container } = renderInProject(<ContextMeter context={usage(698_000)} totals={totals} model="claude-sonnet-5-5" listedWindow={1_000_000} busy={false} compacting={false} runtime={false} onCompact={() => undefined} />);
     const circles = [...container.querySelectorAll("circle")];
     expect(circles).toHaveLength(2);
@@ -203,30 +202,32 @@ describe("ContextMeter", () => {
     expect(gap).toBeCloseTo(c, 3);
     expect(container.querySelectorAll("line")).toHaveLength(1);
     expect(screen.queryByText(/\d+k\/1M/)).toBeNull();
+    expect(container.textContent).toBe("");
   });
 
-  it("keeps the percentage while compacting and says so to a screen reader", () => {
+  it("says the percentage and the compaction to a screen reader while it compacts", () => {
     renderInProject(<ContextMeter context={usage(862_000)} totals={totals} model="claude-sonnet-5-5" listedWindow={1_000_000} busy compacting runtime={false} onCompact={() => undefined} />);
-    expect(screen.getByText("86%")).toBeTruthy();
+    expect(screen.queryByText("86%")).toBeNull();
     expect(screen.queryByText("Compacting")).toBeNull();
     expect(screen.getByLabelText(/^Context 86% full: .* of 1M tokens, compacting$/)).toBeTruthy();
   });
 
-  it("marks an estimate with ~ and has nothing to show before any measurement", () => {
+  it("says an estimate in its label and has nothing to show before any measurement", () => {
     renderInProject(<ContextMeter context={{ ...usage(41_000), estimated: true }} totals={undefined} model="claude-sonnet-5-5" listedWindow={1_000_000} busy={false} compacting={false} runtime={false} onCompact={() => undefined} />);
-    expect(screen.getByText("~4%")).toBeTruthy();
+    expect(screen.getByLabelText(/^Context 4% full: .*, estimated$/)).toBeTruthy();
     const { container } = renderInProject(<ContextMeter context={undefined} totals={undefined} model="m" busy={false} compacting={false} runtime={false} onCompact={() => undefined} />);
     expect(container.textContent).toBe("");
   });
 
-  it("draws the percentage in the editor themes' button font, sans 12px/1.2, as their button rule outranks the meter's mono", () => {
+  it("is the ring alone in a round 44 dp target in every theme", () => {
     renderInProject(
       <ThemeProvider name="editor">
         <ContextMeter context={usage(68_000)} totals={undefined} model="claude-sonnet-5-5" listedWindow={1_000_000} busy={false} compacting={false} runtime={false} onCompact={() => undefined} />
       </ThemeProvider>,
     );
-    const style = getComputedStyle(screen.getByText("7%"));
-    expect(style.fontFamily).toContain("Roboto");
+    const b = screen.getByLabelText(/^Context 7% full/);
+    expect([getComputedStyle(b).width, getComputedStyle(b).height]).toEqual(["44px", "44px"]);
+    expect(screen.queryByText("7%")).toBeNull();
   });
 
   it("warns near the compaction point, with Compact now and Dismiss", () => {

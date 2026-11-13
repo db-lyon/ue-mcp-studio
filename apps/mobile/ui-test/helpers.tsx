@@ -14,7 +14,7 @@ import { ProjectContext, type ProjectNav, type Route } from "../src/nav";
 export type FakeApi = { [K in keyof StudioApi]: ReturnType<typeof vi.fn> };
 
 const NAMES: Array<keyof StudioApi> = [
-  "health", "sessions", "newSession", "sessionSync", "callResult", "send", "queue", "removeQueued", "sendQueued", "sendQueuedNow", "stop", "saveDraft", "approve", "dialogs", "answerDialog",
+  "health", "sessions", "newSession", "sessionSync", "agentThread", "callResult", "send", "queue", "removeQueued", "sendQueued", "sendQueuedNow", "stop", "saveDraft", "approve", "dialogs", "answerDialog",
   "settings", "saveSettings", "models", "reviewStatus", "setSessionReview", "reviewDiff", "reviewKeep", "reviewRevert", "reviewUndo", "timelineRestore", "timelineUndo", "vcs", "vcsChanges", "vcsDiff",
   "versionNotice", "keepStudio", "useInstalledStudio", "busy", "stopBusy", "editor", "refusal", "saveUpdateRun", "updatesDeferredNow",
   "editQueued", "updateSession", "deleteSession", "markSeen", "dismissAgents", "editMessage", "uploadAttachment", "stopSubagent", "messageSubagent", "compact", "flow", "action", "playtest",

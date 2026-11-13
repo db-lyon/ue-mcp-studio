@@ -606,20 +606,44 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .empty > .picker { margin-bottom: 14px; }
 .composer { flex-direction: column; align-items: stretch; }
 .composer-bar { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; min-width: 0; position: relative; }
-.composer-hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 /* The bar's tiers (chat/barTier.ts) step down by its own width. Send, Stop and Queue never
    shrink; the model and effort shrink before anything moves, so nothing is pushed past the edge. */
 .composer-bar > .composer-send, .composer-bar > .composer-queue { flex: none; }
 .composer-bar > .spacer { min-width: 0; }
-.composer-bar > .composer-hint { flex: 1000 1 0; text-align: right; }
 .composer-bar > .picker { flex: 0 1 auto; min-width: 0; }
 .composer-bar .picker-button { max-width: 100%; min-width: 0; }
 .composer-bar .picker-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .composer-bar .picker-via, .composer-bar .picker-caret { flex: none; }
 .composer-bar > .effort { flex: 0 1 auto; min-width: 0; overflow: hidden; }
 .composer-bar > .effort select { min-width: 0; }
-.composer-bar > .bar-button { flex: none; }
-.composer-bar > .bar-button.icon-only { width: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+/* Send and Stop: round icon buttons, named by aria-label, the keys in their tooltip. */
+.composer-bar > button.composer-send { width: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border-radius: 999px; }
+.composer-bar > button.composer-send.stop { color: var(--bad); border-color: var(--bad); }
+/* The utilities (Checkpoints, Subagents, Attach): icon buttons after the context meter. Their slot is the
+   first thing in the bar to shrink, and a slot narrower than the row folds them into one overflow button
+   (client-core foldUtilities). The measured copy is the same row out of the flow, unseen. */
+.composer-utilities, .composer-utilities-row { display: flex; align-items: center; gap: 2px; }
+.composer-bar > .composer-utilities { flex: 0 1000 auto; min-width: 0; }
+/* Folded, the overflow button keeps its size: the model gives way instead. */
+.composer-bar[data-folded] > .composer-utilities { flex-shrink: 0; }
+.composer-utilities-measure { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
+.composer-utilities-row { width: max-content; }
+.composer-bar .bar-button.icon-only { position: relative; flex: none; width: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+/* The subagents' count: a badge on the icon. */
+.utility-count { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--accent); color: var(--on-accent); font: 600 10px/15px var(--sans); letter-spacing: 0; text-align: center; pointer-events: none; }
+.composer-more { position: static; }
+.composer-more-menu {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 20; min-width: 190px; padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius-lg); box-shadow: var(--shadow);
+}
+.composer .composer-more-menu button.composer-more-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; height: auto; min-height: 36px; padding: 6px 10px;
+  background: transparent; border-color: transparent; color: var(--text); font: var(--base-font); letter-spacing: 0; text-transform: none; text-align: left;
+}
+.composer .composer-more-menu button.composer-more-item:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; }
+.composer .composer-more-menu button.composer-more-item:disabled { color: var(--dim); }
+.composer-more-item svg { flex: none; color: var(--muted); }
 .composer-bar:not([data-tier="full"]) .picker-button .picker-via,
 .composer-bar:not([data-tier="full"]) .effort-label { display: none; }
 .composer-bar:not([data-tier="full"]) > .effort { padding-left: 4px; }
@@ -1127,7 +1151,6 @@ button.drawer-session.active { color: var(--text); }
   .chat-back-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
   .chat-back-state { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 11px; }
   .chat-back .thread-stop { flex-shrink: 0; }
-  .chat-agents-button { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; padding: 6px 8px; }
   /* The conversation's header carries the subagent thread's back, name and state. */
   .thread-head { display: none; }
   .transcript { padding: 14px 12px 10px; }
@@ -1534,9 +1557,6 @@ button.qa-compact-open:hover:not(:disabled) { background: none; border: 0; }
 
 
 
-/* Checkpoints in the composer's bar, where it never covers the conversation. */
-button.composer-checkpoints { flex-shrink: 0; }
-
 /* The Playtests page. */
 .playtests-page { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
 .playtests-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -1808,7 +1828,8 @@ button.icon-button[aria-expanded="true"] { color: var(--accent-hi); border-color
   button.icon-button { width: 44px; height: 44px; }
   button.filter-chip { min-height: 44px; }
   .msg.assistant.local-reply .reply-close { width: 44px; height: 44px; }
-  .composer-bar > .bar-button.icon-only { width: 44px; }
+  .composer-bar .bar-button.icon-only, .composer-bar > button.composer-send { width: 44px; }
+  .composer .composer-more-menu button.composer-more-item { min-height: 44px; }
   .effort select { min-height: 44px; }
   button.chip.editor-chip { min-height: 44px; }
   button.qa-meta-session.link { padding-block: 13px; margin-block: -13px; }
@@ -1898,9 +1919,6 @@ pre.diff > .meta { color: var(--dim); }
   /* The account: the name on its own line, the buttons under it. */
   .account-row { flex-wrap: wrap; }
   .account-row > .grow { flex: 1 1 calc(100% - 24px); }
-
-  /* The phone has no keyboard shortcuts to hint at. */
-  .composer-hint { display: none; }
 
   /* Tighter header rows, so an approval card or a reply gets the height. */
   .chat-back { min-height: 44px; padding-top: 0; padding-bottom: 0; }
@@ -2039,9 +2057,7 @@ fieldset.remote-readonly[disabled] > :not(.remote-readonly-note) { opacity: 0.7;
 .context-meter { position: relative; flex: none; }
 button.context-button { position: relative; display: inline-flex; align-items: center; gap: 5px; height: 30px; padding: 0 7px; font: 500 12px/1 var(--mono); letter-spacing: 0; text-transform: none; white-space: nowrap; color: var(--muted); }
 button.context-button:hover:not(:disabled) { color: var(--text); }
-button.context-button.level-warn .context-pct { color: var(--warn); }
-button.context-button.level-high .context-pct { color: var(--bad); }
-button.context-button.compacting .context-pct, button.context-button.compacting .context-ring-fill { animation: pulse 1.6s ease-in-out infinite; }
+button.context-button.compacting .context-ring-fill { animation: pulse 1.6s ease-in-out infinite; }
 .context-ring { flex: none; display: block; overflow: visible; }
 .context-ring circle { fill: none; stroke-width: 2.5; }
 .context-ring-track { stroke: var(--muted); opacity: 0.32; }

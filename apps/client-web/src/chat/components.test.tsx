@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { SessionSummary, ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
+import { sessionAgents, type SessionSummary, type ToolCallRecord, type TranscriptEntry } from "@ue-mcp-studio/shared";
 
 vi.mock("../api", () => ({
   api: {
@@ -44,8 +44,10 @@ afterEach(() => {
 
 describe("the thread list", () => {
   const transcript = [agent("a"), step("a", "s1", "pending"), agent("b", "done", 4), agent("c", "error", 3), agent("d", "stopped", 2)];
-  const renderThreads = (over: Partial<Parameters<typeof Threads>[0]> = {}) => {
-    const props = { transcript, thread: null, onThread: vi.fn(), onStop: vi.fn(), sessionWaiting: false, seen: new Set<string>(["d"]), ...over };
+  // The list is the daemon's: worked out here by the same shared rule from the transcript given.
+  const renderThreads = ({ transcript: t = transcript, ...over }: Partial<Parameters<typeof Threads>[0]> & { transcript?: TranscriptEntry[] } = {}) => {
+    const agents = sessionAgents(t, { status: "running", asked: new Set(), tokens: over.tokens, context: over.context });
+    const props = { agents, thread: null, onThread: vi.fn(), onStop: vi.fn(), seen: new Set<string>(["d"]), ...over };
     render(<Threads {...props} />);
     return props;
   };
@@ -212,7 +214,7 @@ describe("the main thread", () => {
     expect(card.textContent).toContain("Waiting to start");
     cleanup();
     const onStop = vi.fn();
-    render(<SubagentThread call={(t[1] as Extract<TranscriptEntry, { kind: "tool" }>).call} transcript={t} sessionWaiting={false} onBack={vi.fn()} onStop={onStop} />);
+    render(<SubagentThread agent={sessionAgents(t, { status: "running", asked: new Set() })[0]} entries={[]} onBack={vi.fn()} onStop={onStop} />);
     expect(screen.getByText("Waiting to start")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     expect(onStop).toHaveBeenCalledWith("w");

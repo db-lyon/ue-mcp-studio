@@ -13,6 +13,7 @@ import type { FlowRunState, FlowStepProgress } from "./flows.js";
 import type { Approvals } from "./composer.js";
 import type { CardEntry } from "@ue-mcp-studio/extension-api";
 import type { CompactionRecord, ContextUsage, SessionSpend } from "./context.js";
+import type { SessionAgent, WorkingFacts } from "./agents.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -420,6 +421,20 @@ export interface SessionDetail extends SessionSummary {
    * holds only its newest entries (asked for with `tail`). Absent or 0: whole.
    */
   from?: number;
+  /**
+   * Worked out by the daemon from the whole transcript and sent with every
+   * answer (whole, page or delta), so a client holding a page shows what one
+   * holding everything shows; the only source clients use for these. Absent
+   * from a daemon older than 0.1.35-beta.24.
+   */
+  /** Every subagent of the session, in the order they started, with its state and current step. */
+  subagents?: SessionAgent[];
+  /** The working line's facts: when the turn started and the main agent's running call. */
+  working?: WorkingFacts;
+  /** The main conversation is being compacted now. */
+  compacting?: boolean;
+  /** The playtests that are live or need the user, wherever their card is in the transcript. */
+  liveRuns?: QaRun[];
   touched: TouchedItem[];
   draft: string;
   /** The subagent threads the user has opened. */
@@ -927,6 +942,7 @@ export interface StudioPluginUpdate {
 }
 export * from "./qa.js";
 export * from "./playtests.js";
+export * from "./agents.js";
 export * from "./review.js";
 export * from "./diff-tree.js";
 export * from "./pictures.js";

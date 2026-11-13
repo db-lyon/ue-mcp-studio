@@ -47,6 +47,10 @@ afterAll(async () => {
 
 interface Measure {
   tier: string | undefined;
+  folded: boolean;
+  words: string;
+  overlaps: string[];
+  utilities: string[];
   bar: { left: number; right: number; top: number; bottom: number };
   send: { left: number; right: number; top: number; bottom: number; text: string } | null;
   scrollWidth: number;
@@ -56,15 +60,16 @@ interface Measure {
 }
 
 describe("the composer bar in a browser", () => {
-  for (const [scenario, label] of [["composer-idle", "Send"], ["composer-running", "Stop"]] as const) {
+  for (const [scenario, label] of [["composer-idle", "Send"], ["composer-running", "Stop"], ["agents-tokens", "Stop"]] as const) {
     for (const theme of THEMES) {
-      it(`keeps ${label} inside the bar at every width, ${theme}`, async () => {
+      it(`keeps ${label} inside the bar at every width, ${scenario}, ${theme}`, async () => {
         const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
         try {
           await page.goto(`${base}/visual-qa.html?scenario=${scenario}&theme=${theme}`);
           await page.waitForSelector(".composer-bar .composer-send", { timeout: 30_000 });
           await page.evaluate(() => document.fonts.ready);
           const failures: string[] = [];
+          const folds: string[] = [];
           for (const width of WIDTHS) {
             await page.setViewportSize({ width, height: 860 });
             // Two frames: the bar's ResizeObserver sets its tier, then the new tier lays out.
@@ -77,7 +82,19 @@ describe("the composer bar in a browser", () => {
               return {
                 tier: bar.dataset.tier,
                 bar: { left: b.left, right: b.right, top: b.top, bottom: b.bottom },
-                send: s && s.width > 0 ? { left: s.left, right: s.right, top: s.top, bottom: s.bottom, text: send!.textContent ?? "" } : null,
+                send: s && s.width > 0 ? { left: s.left, right: s.right, top: s.top, bottom: s.bottom, text: send!.getAttribute("aria-label") ?? "" } : null,
+                folded: bar.dataset.folded !== undefined,
+                words: bar.querySelector(".composer-utilities")!.textContent!.replace(/\d+/g, "").trim(),
+                // Every shown control, the utilities one by one: none may overlap the next.
+                overlaps: (() => {
+                  const shown = [...bar.children].flatMap((c) => (c.classList.contains("composer-utilities") ? [...c.children] : [c]))
+                    .map((c) => ({ name: c.className || c.tagName, r: c.getBoundingClientRect() }))
+                    .filter((c) => c.r.width > 0);
+                  const out: string[] = [];
+                  for (let i = 1; i < shown.length; i++) if (shown[i].r.left < shown[i - 1].r.right - 0.5) out.push(`${shown[i - 1].name} / ${shown[i].name}`);
+                  return out;
+                })(),
+                utilities: [...bar.querySelectorAll<HTMLElement>(".composer-utilities > button, .composer-utilities .composer-more-button")].map((b) => b.getAttribute("aria-label") ?? ""),
                 scrollWidth: bar.scrollWidth,
                 clientWidth: bar.clientWidth,
                 pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -99,8 +116,21 @@ describe("the composer bar in a browser", () => {
             if (m.scrollWidth > m.clientWidth) failures.push(`${at}: the bar overflows, ${m.scrollWidth} in ${m.clientWidth}`);
             if (m.pageOverflow > 0) failures.push(`${at}: the page scrolls sideways by ${m.pageOverflow}`);
             if (m.wrapped.length) failures.push(`${at}: wrapped onto another row: ${m.wrapped.join(", ")}`);
+            if (m.overlaps.length) failures.push(`${at}: controls overlap: ${m.overlaps.join(", ")}`);
+            // Icons only: no words on the utilities, folded or not.
+            if (m.words) failures.push(`${at}: the utilities show words: ${m.words}`);
+            const agents = scenario === "agents-tokens";
+            const all = ["Checkpoints", ...(agents ? ["Subagents (2)"] : []), "Attach"];
+            const expected = m.folded ? [agents ? "More controls, 2 subagents" : "More controls"] : all;
+            if (JSON.stringify(m.utilities) !== JSON.stringify(expected)) failures.push(`${at}: the utilities are ${JSON.stringify(m.utilities)}, not ${JSON.stringify(expected)}`);
+            // A wide bar has the room for the whole row; a narrow one shows it when it fits, measured, not by width.
+            if (width >= 1000 && m.folded) failures.push(`${at}: folded with room for the row`);
+            folds.push(`${width}:${m.folded ? "folded" : "row"}`);
           }
           expect(failures).toEqual([]);
+          // Below 760 the conversation takes the window: a narrower window never shows the row where a wider one folded it.
+          const phone = folds.filter((f) => Number(f.split(":")[0]) < 760).map((f) => f.endsWith("folded"));
+          expect(phone.some((f, i) => !f && phone.slice(i + 1).some(Boolean))).toBe(false);
         } finally {
           await page.close();
         }

@@ -70,7 +70,7 @@ import { DEFERRED_STEPS, UpdateQueue, type DeferredStep } from "./update-queue.j
 import { issueBody, submitFeedback, validate, type Environment } from "./feedback.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { resultOf, syncOf } from "./session-delta.js";
+import { resultOf, syncOf, threadOf } from "./session-delta.js";
 import { ClaudeLoginCheck, claudeHome, claudeLogin, refreshClaudeLogin, studioClaudeHome } from "./claude-auth.js";
 import { deleteTranscripts, restoreTranscripts } from "./claude-sessions.js";
 import { ChatGptAuth, ChatGptSignInFlow, chatgptModels } from "./chatgpt.js";
@@ -603,6 +603,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (req.query.sync === undefined) return { body: detail };
     const count = (v: unknown) => (typeof v === "string" && /^\d+$/.test(v) ? Number(v) : undefined);
     return { body: syncOf(detail, typeof req.query.have === "string" ? req.query.have : undefined, { tail: count(req.query.tail), before: count(req.query.before) }) };
+  });
+  // One subagent's own entries, a page at a time, whatever part of the main transcript the client holds.
+  api.route("GET", "/sessions/:id/agents/:callId", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    if (!s.transcript.some((t) => t.kind === "tool" && t.call.name === "agent" && t.call.id === req.params.callId)) return { status: 404, body: { error: `no subagent ${req.params.callId}` } };
+    const count = (v: unknown) => (typeof v === "string" && /^\d+$/.test(v) ? Number(v) : undefined);
+    return { body: threadOf(s.transcript, req.params.callId, { tail: count(req.query.tail), before: count(req.query.before) }) };
   });
   api.route("GET", "/sessions/:id/calls/:callId/result", (req) => {
     const s = store.get(req.params.id);

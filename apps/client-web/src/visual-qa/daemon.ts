@@ -4,7 +4,7 @@
  * scenario shares. The web client's harness (main.tsx) and the mobile app's
  * (apps/mobile/visual-qa) both draw from it, so the two render the same state.
  */
-import { DEFAULT_USAGE, type NativeOverview, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
+import { DEFAULT_USAGE, agentThreadPage, deriveSession, type NativeOverview, type StudioSettings, type StudioTheme } from "@ue-mcp-studio/shared";
 import { SCENARIOS as PLAYTESTS, type Scenario } from "./fixtures";
 import { CONTEXT, INSTALL, QA_DAEMON_START, SETTINGS_SCENARIOS } from "./settings-fixtures";
 import { REVIEW_SCENARIOS } from "./review-fixtures";
@@ -74,7 +74,13 @@ export function daemonFor(scenario: Scenario, theme: StudioTheme, arrived: () =>
       // The name a paired device's drawer shows: the relay's "<project> on <computer>".
       [/^\/v1\/ext\/studio\/about$/, () => ({ agentVersion: "0.1.25-beta.43", daemonVersion: "1.4.12", uiVersion: "0.1.25-beta.43", projectDir: "C:/Users/dev/Projects/StudioE2E", name: "StudioE2E on DEV-PC" })],
       [/^\/v1\/ext\/studio\/sessions$/, () => ({ sessions: s ? [s] : [] })],
-      [/^\/v1\/ext\/studio\/sessions\/[^/]+$/, () => s],
+      // As the agent answers: with what it works out from the whole transcript (the subagents, the working line).
+      [/^\/v1\/ext\/studio\/sessions\/[^/]+$/, () => s && { ...s, ...deriveSession(s.transcript, { status: s.status, asked: new Set((s.approvals ?? []).map((a) => a.toolUseId)), seen: s.seen, dismissed: s.dismissed, tokens: s.tokens, context: s.context }) }],
+      [/^\/v1\/ext\/studio\/sessions\/[^/]+\/agents\/[^/]+$/, () => {
+        const id = decodeURIComponent(p.split("/").pop()!);
+        const n = (k: string) => (url.searchParams.has(k) ? Number(url.searchParams.get(k)) : undefined);
+        return s && agentThreadPage(s.transcript, id, { tail: n("tail"), before: n("before") });
+      }],
       [/^\/v1\/ext\/studio\/qa\/playtests$/, () => scenario.index],
       [/^\/v1\/ext\/studio\/qa\/playtests\/script$/, () => {
         const e = scenario.index.playtests.find((x) => x.script === url.searchParams.get("script"));

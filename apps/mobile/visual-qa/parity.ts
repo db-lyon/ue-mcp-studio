@@ -12,7 +12,11 @@ export interface ParityEntry {
   owner?: Owner;
   /** Not reachable from a paired phone, and why. */
   notOnPhone?: string;
-  /** Pressed in the app before the shot, by accessibility label (or text), in order: the app's form of the web scenario's clicks. A label ending in * matches by its start. */
+  /**
+   * Pressed in the app before the shot, by accessibility label (or text), in order: the app's form of the web scenario's clicks.
+   * A label ending in * matches by its start, "a|b" presses the first of them shown, "menuitem:label" an open menu's item,
+   * and a press starting with ? is skipped when nothing matches.
+   */
   clicks?: string[];
   /** Focused from the keyboard after the clicks, by accessibility label: the app's form of the web scenario's focus. */
   focus?: string;
@@ -55,7 +59,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "vcs-changes-truncated": {owner: "agent-a", clicks: ["Open navigation", "Git feat/door-hinge-easing, 4 changed, 2 ahead. Show the changes."]},
   "vcs-changes-tree-collapsed": {owner: "agent-a", clicks: ["Open navigation", "Git feat/door-hinge-easing, 4 changed, 2 ahead. Show the changes.", "Tree", "Collapse all"]},
   "vcs-changes-no-diff": {owner: "agent-a", clicks: ["Open navigation", "Git feat/door-hinge-easing, 4 changed, 2 ahead. Show the changes.", "added Content/Props/Door/Curves/C_DoorHinge.uasset"]},
-  "checkpoints": {owner: "chat", clicks: ["Checkpoints"]},
+  "checkpoints": {owner: "chat", clicks: ["Checkpoints|More controls*", "?menuitem:Checkpoints"]},
   "remote-lock-screen": {owner: "shell"},
   "remote-lock-screen-typing": {owner: "shell", clicks: ["1", "5", "9"]},
   "remote-lock-screen-wrong": {owner: "shell"},
@@ -64,7 +68,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "agents-long": {owner: "chat"},
   "agents-tokens": {owner: "chat"},
   "subagent-message": {owner: "chat", clicks: ["Open thread ›"]},
-  "agents-sheet": {owner: "chat", clicks: ["Subagents (2)"]},
+  "agents-sheet": {owner: "chat", clicks: ["Subagents (2)|More controls*", "?menuitem:Subagents (2)"]},
+  "utilities-folded": {owner: "chat", clicks: ["?More controls*"]},
   "endpoints-empty": {owner: "agent-b"},
   "endpoints-populated": {owner: "agent-b"},
   "endpoints-error": {owner: "agent-b"},

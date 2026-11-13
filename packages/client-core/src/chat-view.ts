@@ -138,10 +138,14 @@ export interface SessionRuns {
   alias: ReadonlyMap<string, string>;
 }
 
-/** The runs of a session from its transcript and the studio.qa.changed events after `after` (the last event id the transcript already holds). */
-export function sessionRunsOf(sessionId: string | null, transcript: TranscriptEntry[] | undefined, events: ReadonlyArray<{ id: number; type: string; data: Record<string, unknown> }>, after: number): SessionRuns {
+/**
+ * The runs of a session from its transcript and the studio.qa.changed events after `after` (the last event id the transcript already holds).
+ * `live`: the daemon's live runs (SessionDetail.liveRuns), so a run whose card is before the page a client holds is still pinned.
+ */
+export function sessionRunsOf(sessionId: string | null, transcript: TranscriptEntry[] | undefined, events: ReadonlyArray<{ id: number; type: string; data: Record<string, unknown> }>, after: number, live: readonly QaRun[] = []): SessionRuns {
   const byId = new Map<string, QaRun>();
   const alias = new Map<string, string>();
+  for (const r of live) byId.set(r.runId, r);
   for (const t of transcript ?? []) if (t.kind === "qa") byId.set(t.run.runId, t.run);
   for (const e of events) {
     if (e.id <= after || e.type !== "studio.qa.changed") continue;

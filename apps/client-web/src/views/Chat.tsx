@@ -7,7 +7,8 @@ import { RemoteChatCard } from "./remote/RemoteChatCard";
 import type { SettingsSection } from "./settings/sections";
 import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
-import { agentCalls } from "@ue-mcp-studio/client-core";
+import { subagentsOf } from "@ue-mcp-studio/client-core";
+import { useAgentThread } from "../chat/agent-thread";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
 import { QueuedMessages } from "../chat/Queue";
@@ -18,10 +19,10 @@ import { Threads } from "../chat/Threads";
 import { ContextMeter, ContextWarning } from "../chat/ContextMeter";
 import { CompactContext } from "../chat/Compaction";
 import { SessionRow } from "../chat/SessionRow";
-import { BarButton, CheckpointsGlyph, Composer } from "../chat/Composer";
+import { AgentsGlyph, CheckpointsGlyph, Composer, type BarUtility } from "../chat/Composer";
 import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../chat/Approvals";
-import { AskedContext } from "../chat/asked";
+import { AgentsContext, AskedContext } from "../chat/asked";
 import { FormCards, useForms } from "../chat/Forms";
 import { FlowLauncher } from "../chat/FlowCommand";
 import { ActionLauncher } from "../chat/ActionCommand";
@@ -35,7 +36,7 @@ import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
 import { DetailLoader, composerPlaceholder, composerQueues, composerTarget, sessionGone } from "@ue-mcp-studio/client-core";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
-import { AgentsButton, ChatHeader } from "../chat/ChatHeader";
+import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../chat/TurnReview";
 import { useSessionRuns } from "../chat/sessionRuns";
@@ -322,7 +323,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   };
   const listedWindow = settings ? catalog?.providers.find((p) => p.id === settings.provider)?.models.find((m) => m.id === settings.model)?.contextWindow : undefined;
   const mainContext = detail?.context?.main;
-  const compacting = !!detail?.transcript.some((t) => t.kind === "compaction" && !t.parent && t.state === "running");
+  // The daemon's, from the whole transcript; worked out here only for a daemon that sends none.
+  const compacting = detail?.compacting ?? !!detail?.transcript.some((t) => t.kind === "compaction" && !t.parent && t.state === "running");
   const runtimeCompacts = settings?.route === "claude";
   const meterView = settings ? contextView(mainContext, settings.model, listedWindow) : null;
   // Dismissed per session, until it reaches the next level.
@@ -403,7 +405,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const forms = useForms(daemon, detail?.id ?? null);
   const outside = useOutsideRuns(daemon.events, daemon.streaming);
   // The session's live playtests, pinned under its header while they run or wait for the user.
-  const sessionRuns = useSessionRuns(detail?.id ?? null, detail?.transcript, daemon.events);
+  const sessionRuns = useSessionRuns(detail?.id ?? null, detail?.transcript, daemon.events, detail?.liveRuns);
   const qaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms, sessionId: detail?.id ?? null, onThread: openThreadId }), [daemon.events, daemon.streaming, forms, detail?.id, openThreadId]);
   /** The runs with a card on screen, so their verdict forms are answered there. */
   const qaRuns = useMemo(() => new Set([
@@ -422,10 +424,20 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     }
     void loadList();
   };
-  const openThread = (thread && detail && agentCalls(detail.transcript).find((c) => c.id === thread)) || null;
+  // The session's subagents as the daemon worked them out from the whole transcript: the one source of their state.
+  const agents = useMemo(() => (detail ? subagentsOf(detail) : []), [detail]);
+  const agentMap = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
+  const openThread = (thread && agentMap.get(thread)) || null;
   // Who a message written now goes to: the open subagent while it runs, else the main agent.
-  const target = composerTarget(openThread);
-  const drawerCall = (drawerId && detail && agentCalls(detail.transcript).find((c) => c.id === drawerId)) || null;
+  const target = composerTarget(openThread?.call);
+  const drawerAgent = (drawerId && agentMap.get(drawerId)) || null;
+  // The open thread, read by its id: its own entries, whatever part of the session is held.
+  const drawerThread = useAgentThread(api.agentThread, detail?.id ?? null, drawerAgent ? drawerAgent.id : null, detail, detail?.transcript ?? []);
+  // The bar's utilities after the context meter, at every width: Checkpoints, and the subagents while there are some.
+  const utilities: BarUtility[] = [
+    { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
+    ...(agents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: agents.length, onClick: () => setSheet(true) }] : []),
+  ];
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
   // slid out, then unmounted once the slide has finished.
@@ -440,18 +452,16 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     return () => clearTimeout(t);
   }, [thread]);
 
-  // The session's threads: under the composer when wide; in a sheet from the header when narrow,
-  // so the composer stays at the bottom of the screen.
+  // The session's threads: under the composer when wide, and at every width in a sheet from the bar's Subagents button.
   const threads = detail && (
     <Threads
-      transcript={detail.transcript}
+      agents={agents}
       thread={openThread ? thread : null}
       onThread={(id) => {
         setSheet(false);
         openThreadId(id);
       }}
       onStop={stopSubagent}
-      sessionWaiting={detail.status === "waiting"}
       seen={seen}
       dismissed={dismissed}
       onDismiss={dismiss}
@@ -462,6 +472,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
 
   return (
     <AskedContext.Provider value={asked}>
+    <AgentsContext.Provider value={agentMap}>
     <div className="chat" data-pane={chatPane(selected, listed, sessions.length)}>
       <aside className="card sessions">
         <div className="row">
@@ -490,13 +501,9 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
           <ChatHeader
             title={detail.title}
             thread={openThread}
-            transcript={detail.transcript}
-            sessionWaiting={detail.status === "waiting"}
-            agents={agentCalls(detail.transcript).length}
             onSessions={() => { setSelected(null); setDetail(null); }}
             onMain={() => setThread(null)}
             onStop={stopSubagent}
-            onReview={() => setReviewOpen(true)}
           />
         )}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
@@ -536,12 +543,12 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
                 hidden={drawerOpen}
                 sent={sent}
               />
-              {drawerCall && (
+              {drawerAgent && (
                 <div className={`thread-drawer ${drawerOpen ? "open" : ""}`}>
                   <SubagentThread
-                    call={drawerCall}
-                    transcript={detail.transcript}
-                    sessionWaiting={detail.status === "waiting"}
+                    agent={drawerAgent}
+                    entries={drawerThread.entries}
+                    more={drawerThread.more}
                     onBack={() => setThread(null)}
                     onStop={stopSubagent}
                   />
@@ -634,15 +641,12 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
                     owner={openThread ? "Main" : undefined}
                   />
                 )}
-                {/* Narrow, the subagents open in a sheet from here, beside the context meter. */}
-                {narrow && agentCalls(detail.transcript).length > 0 && <AgentsButton count={agentCalls(detail.transcript).length} onClick={() => setSheet(true)} />}
-                {/* Narrow, Checkpoints is in the header. */}
-                {!narrow && <BarButton className="composer-checkpoints" label="Checkpoints" title="Review this session's changes and its checkpoints" icon={<CheckpointsGlyph />} onClick={() => setReviewOpen(true)} />}
               </>}
+              utilities={utilities}
             >
               {!narrow && threads}
             </Composer>
-            {narrow && <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{threads}</Sheet>}
+            <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{(narrow || sheet) && threads}</Sheet>
             <Sheet open={reviewOpen} title="Checkpoints" onClose={() => setReviewOpen(false)}>
               {reviewOpen && <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />}
             </Sheet>
@@ -656,6 +660,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
         )}
       </section>
     </div>
+    </AgentsContext.Provider>
     </AskedContext.Provider>
   );
 }

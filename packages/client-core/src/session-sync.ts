@@ -6,7 +6,7 @@
  * `tail` holds only the newest entries at first and reads older ones a page at
  * a time on `older`.
  */
-import type { SessionDetail, SessionSync } from "@ue-mcp-studio/shared";
+import type { AgentThreadPage, SessionDetail, SessionSync, TranscriptEntry } from "@ue-mcp-studio/shared";
 
 /** The held transcript's offset: the index of its first entry in the session's transcript. */
 const fromOf = (d: SessionDetail | null): number => d?.from ?? 0;
@@ -149,6 +149,99 @@ export class DetailLoader {
     } catch (e) {
       if (sessionGone(e) && this.options.gone) this.options.gone(id);
       else this.fail(e instanceof Error ? e : new Error(String(e)));
+    }
+  }
+}
+
+/** How many of a subagent's newest entries a thread reads at first, and per page after. */
+export const THREAD_PAGE = 200;
+
+/** A subagent's thread as held: its entries from `from` to its end, of `total`. */
+export interface HeldThread {
+  sessionId: string;
+  callId: string;
+  entries: TranscriptEntry[];
+  from: number;
+  total: number;
+}
+
+export type FetchThread = (sessionId: string, callId: string, page: { tail?: number; before?: number }) => Promise<AgentThreadPage>;
+
+/**
+ * A subagent's thread, read by its id (GET .../agents/:callId) whatever part
+ * of the main transcript the client holds: its newest page first, the pages
+ * before it on `older`. `load` again (an event changed the session) reads
+ * the held span again from where it starts, so a step that finished or a new
+ * line comes in. One request at a time, as DetailLoader.
+ */
+export class ThreadLoader {
+  private held: HeldThread | null = null;
+  private running: Promise<void> | null = null;
+  private wanted: { sessionId: string; callId: string } | null = null;
+  private wantOlder = false;
+
+  constructor(
+    private readonly fetchThread: FetchThread,
+    private readonly apply: (t: HeldThread | null) => void,
+    private readonly fail: (e: Error) => void,
+    private readonly page = THREAD_PAGE,
+  ) {}
+
+  /** Read (or read again) the thread of `callId`. */
+  load(sessionId: string, callId: string): Promise<void> {
+    this.wanted = { sessionId, callId };
+    return this.run();
+  }
+
+  /** Read the page before the held entries, if any are left. */
+  older(): Promise<void> {
+    if (!this.held || this.held.from === 0) return Promise.resolve();
+    this.wantOlder = true;
+    return this.run();
+  }
+
+  hasOlder(): boolean {
+    return !!this.held && this.held.from > 0;
+  }
+
+  /** Forget the held thread (it was closed). */
+  reset(): void {
+    this.held = null;
+    this.wanted = null;
+    this.wantOlder = false;
+  }
+
+  private run(): Promise<void> {
+    if (!this.running) this.running = this.pump().finally(() => (this.running = null));
+    return this.running;
+  }
+
+  private async pump(): Promise<void> {
+    while (this.wanted || this.wantOlder) {
+      try {
+        if (this.wanted) {
+          const { sessionId, callId } = this.wanted;
+          this.wanted = null;
+          const mine = this.held && this.held.sessionId === sessionId && this.held.callId === callId ? this.held : null;
+          // The held span again with room for what came since (a page more), or the newest page.
+          const p = await this.fetchThread(sessionId, callId, { tail: mine ? mine.total - mine.from + this.page : this.page });
+          // Another thread asked for meanwhile: this answer is not shown, the loop reads that one.
+          const next = this.wanted as { sessionId: string; callId: string } | null;
+          if (next && (next.sessionId !== sessionId || next.callId !== callId)) continue;
+          this.held = { sessionId, callId, entries: p.entries, from: p.from, total: p.total };
+          this.apply(this.held);
+        } else {
+          this.wantOlder = false;
+          const held = this.held;
+          if (!held || held.from === 0) continue;
+          const p = await this.fetchThread(held.sessionId, held.callId, { tail: this.page, before: held.from });
+          if (this.held !== held) continue;
+          this.held = { ...held, entries: [...p.entries, ...held.entries], from: p.from };
+          this.apply(this.held);
+        }
+      } catch (e) {
+        this.fail(e instanceof Error ? e : new Error(String(e)));
+      }
     }
   }
 }

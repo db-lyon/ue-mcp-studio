@@ -179,7 +179,7 @@ export interface Scenario {
   focus?: string;
   /** A line that arrives after the reader has scrolled the conversation up: the session is read again with it. */
   arrives?: TranscriptEntry;
-  /** Clicked one after another after the page settles, each a CSS selector; after click, when both are given. */
+  /** Clicked one after another after the page settles, each a CSS selector; after click, when both are given. A selector starting with ? is skipped when nothing matches it. */
   clicks?: string[];
   /** Clicked instead of `clicks` at 760 pixels and below, where some controls sit in the menu drawer. */
   narrowClicks?: string[];
@@ -700,6 +700,9 @@ export const EDITOR_SCENARIOS: Record<string, Scenario> = {
   "flow-card-failed": flowRan("A /flow that failed: the failed step's error, the step it never ran, and the errors", flowEntry("failed")),
 };
 
+/** A bar utility's button, or the overflow button it folded into when the bar is too narrow for the row. */
+const UTILITY_OR_MORE = (cls: string) => `.composer-utilities > .${cls}, .composer-more-button`;
+
 export const SCENARIOS: Record<string, Scenario> = {
   "version-notice": {
     title: "Another project installed a newer Studio: Update this project and Keep (ue-mcp#1619)",
@@ -735,7 +738,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   "vcs-changes-truncated": { title: "More files changed than the list holds: the note under the list", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsTruncatedGet, clicks: ["button.chip.vcs"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs"] },
   "vcs-changes-tree-collapsed": { title: "The changes tree with every folder collapsed", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-view button:last-child", ".changes-toolbar > button:last-child"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-view button:last-child", ".changes-toolbar > button:last-child"] },
   "vcs-changes-no-diff": { title: "A changed file with no text diff opened: the reason in place of the diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsNoDiffGet, clicks: ["button.chip.vcs", ".changes-list li:nth-child(3) button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li:nth-child(3) button"] },
-  "checkpoints": { title: "Checkpoints opened from the session header: the review switch and the timeline", hash: `#/chat/${SESSION_ID}`, session: withTimeline(), index: { playtests: [], listed: true }, clicks: [".composer-checkpoints"], narrowClicks: [".chat-review-button"] },
+  "checkpoints": { title: "Checkpoints opened from the composer bar's flag (or its overflow menu, folded): the review switch and the timeline", hash: `#/chat/${SESSION_ID}`, session: withTimeline(), index: { playtests: [], listed: true }, clicks: [UTILITY_OR_MORE("composer-checkpoints"), `?.composer-more-item.composer-checkpoints`] },
   "remote-lock-screen": {
     title: "A paired browser with the whole-client PIN lock on: Studio locked until the PIN set on the computer is entered",
     hash: "#/chat",
@@ -819,7 +822,14 @@ export const SCENARIOS: Record<string, Scenario> = {
   },
   "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
   "subagent-message": { title: "A running subagent's thread: the composer messages that subagent, and the message the user sent it shows in its thread", hash: `#/chat/${SESSION_ID}`, session: withSubagentMessage(), index: { playtests: [], listed: true }, click: '.thread-stage .tool-call:has-text("Place rocks along the cave floor")' },
-  "agents-sheet": { title: "A narrow conversation's subagents opened from its header: the thread list in a sheet", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true }, narrowClicks: [".chat-agents-button"] },
+  "agents-sheet": { title: "The subagents opened from the composer bar's Subagents button (or its overflow menu, folded): the thread list in a sheet, at every width", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true }, clicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`] },
+  "utilities-folded": {
+    title: "Running subagents in a bar too narrow for its utilities: they fold into one overflow button with the subagents' count, its menu open (wide, the whole row shows)",
+    hash: `#/chat/${SESSION_ID}`,
+    session: { ...withAgents(), draft: "Then check the fog density" },
+    index: { playtests: [], listed: true },
+    clicks: ["?.composer-more-button"],
+  },
   "endpoints-empty": { title: "Models & accounts with no custom endpoint yet, and the route order", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: [], fullPage: true },
   "endpoints-populated": { title: "Models & accounts with two custom endpoints, one whose model list failed", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: ENDPOINTS, fullPage: true },
   "endpoints-error": { title: "Models & accounts when the endpoints cannot be read", hash: "#/settings/models", index: { playtests: [], listed: true }, endpoints: "error", fullPage: true },

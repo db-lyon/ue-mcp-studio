@@ -3,7 +3,7 @@
  * doing right now and how long the turn has run. Web and phone draw it from
  * this one function, beside a spinner.
  */
-import type { SessionDetail, ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
+import { workingFacts, type SessionDetail, type ToolCallRecord } from "@ue-mcp-studio/shared";
 
 export interface WorkingStatus {
   /** What the agent is doing, in a few words. */
@@ -14,7 +14,7 @@ export interface WorkingStatus {
   waiting: boolean;
 }
 
-type Detail = Pick<SessionDetail, "status" | "waitingCause" | "transcript"> & { mainFree?: boolean };
+type Detail = Pick<SessionDetail, "status" | "waitingCause" | "transcript"> & Partial<Pick<SessionDetail, "working">> & { mainFree?: boolean };
 
 /** The composer queues behind the turn: the main agent is working. False while only background subagents run. */
 export const composerBusy = (detail: Pick<Detail, "status" | "mainFree"> | null | undefined): boolean =>
@@ -36,28 +36,21 @@ export function toolPhrase(call: Pick<ToolCallRecord, "name" | "input">): string
   return `Running ${action ? `${name}(${action})` : name}`;
 }
 
-const main = (e: TranscriptEntry) => !e.parent;
-
+/**
+ * The working line, from the daemon's facts (SessionDetail.working), worked
+ * out from the whole transcript so a client holding a page shows the same
+ * start time and call. A daemon older than 0.1.35-beta.24 sends none; then
+ * the same shared rule runs over the transcript the client holds.
+ */
 export function workingStatus(detail: Detail | null | undefined): WorkingStatus | null {
   if (!detail || (detail.status !== "running" && detail.status !== "waiting")) return null;
-  const t = detail.transcript ?? [];
-  let since: number | null = null;
-  for (let i = t.length - 1; i >= 0; i--) {
-    const e = t[i];
-    if (e.kind === "user" && main(e)) { since = time(e.at); break; }
-  }
+  const facts = detail.working ?? workingFacts(detail.transcript ?? []);
+  const since = time(facts.since ?? undefined);
   if (detail.status === "waiting") {
     return { label: detail.waitingCause ? `Waiting: ${detail.waitingCause}` : "Waiting for you", since, waiting: true };
   }
   if (detail.mainFree) return { label: "Subagents are working. The main agent takes your messages now", since, waiting: false };
-  let label = "Thinking";
-  for (let i = t.length - 1; i >= 0; i--) {
-    const e = t[i];
-    if (!main(e)) continue;
-    if (e.kind === "tool" && e.call.outcome === "pending") label = toolPhrase(e.call);
-    break;
-  }
-  return { label: capital(label), since, waiting: false };
+  return { label: capital(facts.step ? toolPhrase(facts.step) : "Thinking"), since, waiting: false };
 }
 
 /** 7s, 1m 05s, 1h 02m. */

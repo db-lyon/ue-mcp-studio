@@ -1,7 +1,7 @@
 /**
  * The composer's context meter: how much of the model's window the
- * conversation takes now, as a small ring and a percentage that turn amber and
- * then red near the point it compacts. A phone has no hover, so the web's
+ * conversation takes now, as a small ring alone that turns amber and then red
+ * near the point it compacts; the percentage is in its label and its details. A phone has no hover, so the web's
  * hover card is the meter's accessibility hint here; a tap opens the numbers
  * behind it, Compact now, and the session's totals, which are spend, not
  * context, across the whole composer bar.
@@ -12,8 +12,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type HostInstance } from "react-native";
 import Svg, { Circle, Line } from "react-native-svg";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
-import { compactLine, contextLabel, contextPct, contextRing, contextWarningText, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
-import { atMost, useBarTier } from "./barTier";
+import { compactLine, contextLabel, contextRing, contextWarningText, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
 import { Button, Pulse, font, labelFont, lineBox, T, useInsets, useTheme, type Theme } from "../../../ui";
 import { buttonText, small } from "../../../chat/styles";
 
@@ -83,7 +82,7 @@ export function IconButton({ label, glyph, onPress }: { label: string; glyph: st
   );
 }
 
-export function ContextMeter({ context, totals, model, modelName, nameOf = (id) => id, listedWindow, busy, compacting, runtime, onCompact, owner, ringOnly = false }: {
+export function ContextMeter({ context, totals, model, modelName, nameOf = (id) => id, listedWindow, busy, compacting, runtime, onCompact, owner }: {
   context: ContextUsage | undefined;
   totals: SessionSpend | undefined;
   /** The model the next turn runs on, by id, and as the picker names it. */
@@ -100,8 +99,6 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   onCompact: () => void;
   /** Whose context it is, shown before the bar when that is not obvious (a subagent's thread is open). */
   owner?: string;
-  /** Only the ring, in a round 44 dp target: the phone composer's row. */
-  ringOnly?: boolean;
 }) {
   const t = useTheme();
   const win = useWindowDimensions();
@@ -114,14 +111,12 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   useBack(open ? () => setOpen(false) : null, { overlay: true });
   // The details open over the conversation, 6 px above the composer bar, across its width.
   const bottom = anchored.anchor ? win.height - anchored.anchor.y + 6 : 0;
-  const tight = atMost("merged", useBarTier());
   const view = contextView(context, model, listedWindow);
   if (!view && !totals?.requests) return null;
   const runtimeNow = runtime && !view?.measuredOn && !!context?.window;
   const label = contextLabel(view, owner, compacting);
   // The web's hover card, which describes the button (aria-describedby) while the details are closed.
   const tip = view ? tipLines(view, context, { nameOf, modelName: modelName ?? model, runtime: runtimeNow, compacting, owner }) : ["Context is measured after the next reply"];
-  const pctColor = view?.level === "warn" ? t.c.warn : view?.level === "high" ? t.c.bad : t.c.muted;
   const toggle = () => {
     setOpen(!open);
   };
@@ -136,20 +131,10 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
         accessibilityState={{ expanded: open }}
         accessibilityHint={open ? undefined : tip.join(". ")}
         onPress={toggle}
-        style={({ pressed }) =>
-          ringOnly
-            ? { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: pressed ? t.c.panel3 : "transparent" }
-            : { flexDirection: "row", alignItems: "center", gap: tight ? 4 : 5, minHeight: 44, paddingHorizontal: tight ? 5 : 7, borderRadius: t.radius, borderWidth: 1, borderColor: pressed ? t.c.line : "transparent", backgroundColor: pressed ? t.c.panel2 : "transparent" }
-        }
+        style={({ pressed }) => ({ width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: pressed ? t.c.panel3 : "transparent" })}
       >
+        {/* The ring alone at every width: the percentage is in its label and its details. The fill pulses while compacting. */}
         {view ? <ContextRing view={view} pulsing={compacting} /> : <EmptyRing />}
-        {/* .compacting: the ring's fill and the percentage pulse while the conversation is compacted. */}
-        {ringOnly ? null : (
-          <Pulse on={compacting} period={1600}>
-            {/* The editor themes' button rule (400 12px/1.2 sans) outranks button.context-button's mono. */}
-            <T style={[t.editor ? font(t, "sans", 400, 12, 1.2) : font(t, "mono", 500, 12, 1), { color: pctColor }]}>{contextPct(view)}</T>
-          </Pulse>
-        )}
       </Pressable>
       {/* Edge to edge as the app is, so the button's window position is the popover's and the bars' insets apply. */}
       <Modal visible={open} transparent animationType="none" onRequestClose={() => setOpen(false)} statusBarTranslucent navigationBarTranslucent>

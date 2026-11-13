@@ -68,12 +68,14 @@ describe("ContextMeter", () => {
     return onCompact;
   };
 
-  it("shows the current context as a ring and a percentage, not the session's spend", () => {
+  it("shows the current context as a ring alone, its percentage in its name, not the session's spend", () => {
     meter();
     const b = screen.getByRole("button", { name: /Context 70% full: 699k of 1M tokens/ });
     expect(b.className).toContain("level-warn");
     expect(b.querySelector("svg.context-ring.level-warn")).not.toBeNull();
-    expect(b.querySelector(".context-pct")!.textContent).toBe("70%");
+    // No words beside the ring: the percentage is in the label, the tokens in the hover card.
+    expect(b.querySelector(".context-pct")).toBeNull();
+    expect(screen.getByRole("tooltip", { hidden: true }).textContent).toContain("699k of 1M tokens");
     // Nothing else is drawn in the bar: the tokens are in the hover card only.
     expect(b.querySelector(".context-of, .context-bar")).toBeNull();
     expect(b.textContent).not.toContain("1.3M");
@@ -138,7 +140,7 @@ describe("ContextMeter", () => {
     meter({ busy: true, compacting: true });
     const b = screen.getByRole("button", { name: /Context 70% full: .*, compacting/ });
     expect(b.className).toContain("compacting");
-    expect(b.querySelector(".context-pct")!.textContent).toBe("70%");
+    expect(b.querySelector(".context-ring-fill")).not.toBeNull();
     expect(screen.getByRole("tooltip", { hidden: true }).textContent).toContain("Compacting now");
     fireEvent.click(b);
     expect((screen.getByRole("button", { name: "Compact now" }) as HTMLButtonElement).disabled).toBe(true);
@@ -146,8 +148,7 @@ describe("ContextMeter", () => {
 
   it("marks an estimate, and says so inside", () => {
     meter({ context: ctx(40_000, "", { estimated: true, cached: 0, output: 0 }), totals: undefined });
-    const b = screen.getByRole("button", { name: /estimated/ });
-    expect(b.querySelector(".context-pct")!.textContent).toBe("~4%");
+    const b = screen.getByRole("button", { name: /Context 4% full: 40k of 1M tokens, estimated/ });
     expect(screen.getByRole("tooltip", { hidden: true }).textContent).toBe("About 40k of 1M tokens, estimatedEstimated from the conversation's textStudio compacts at 850k (85%)");
     fireEvent.click(b);
     expect(screen.getByRole("dialog").textContent).toContain("The next reply measures it");

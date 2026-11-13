@@ -98,13 +98,14 @@ describe("mount points with nothing registered", () => {
     expect(regions().toolbar).toBe(before);
   });
 
-  it("composer.action: the composer bar is as it was, and a contribution sits right after Attach with the composer's context", async () => {
+  it("composer.action: the composer bar is as it was, and a contribution sits right after the utilities (Attach last) with the composer's context", async () => {
     await openChat();
     const before = regions().composer;
     const seen: Array<Record<string, unknown>> = [];
     const remove = reg("composer.action", contribution("enhance", seen), "pro");
     const slot = document.querySelector('.composer-bar .ext-slot[data-slot="composer.action"]')!;
-    expect(slot.previousElementSibling?.classList.contains("attach-button")).toBe(true);
+    expect(slot.previousElementSibling?.classList.contains("composer-utilities")).toBe(true);
+    expect(slot.previousElementSibling?.lastElementChild?.classList.contains("attach-button")).toBe(true);
     expect(seen[0]).toMatchObject({ sessionId: "s1", draft: "", busy: false });
     act(() => (seen[0].setDraft as (t: string) => void)("from the extension"));
     expect((screen.getByPlaceholderText(COMPOSER) as HTMLTextAreaElement).value).toBe("from the extension");
