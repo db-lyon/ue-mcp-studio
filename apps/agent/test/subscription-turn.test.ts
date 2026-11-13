@@ -1,37 +1,15 @@
 /**
  * The Claude subscription route end to end through the runner, with the Agent
- * SDK replaced by a scripted binary: it sends messages, calls Studio's tools
- * through the in-process server, and keeps going after an abort the way the
- * real binary does on Windows until it is killed.
+ * SDK replaced by a scripted binary (fake-sdk.ts): it sends messages, calls
+ * Studio's tools through the in-process server, and keeps going after an abort
+ * the way the real binary does on Windows until it is killed.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import { DEFAULT_USAGE } from "@ue-mcp-studio/shared";
-
-type Handler = (args: Record<string, unknown>) => Promise<{ content: Array<{ type?: string; text?: string; data?: string; mimeType?: string }>; isError: boolean }>;
-interface FakeBinary {
-  /** Call one of Studio's tools the way the binary does, by its SDK name. */
-  call(name: string, args: Record<string, unknown>): Promise<{ text: string; isError: boolean; content?: Array<{ type?: string; mimeType?: string }> }>;
-  emit(m: unknown): void;
-  end(): void;
-  signal: AbortSignal;
-  prompt: unknown;
-  /** What the user said while the turn ran, streamed into the binary's input after the first message. */
-  said: unknown[];
-}
-const sdk = vi.hoisted(() => ({
-  script: null as null | ((b: FakeBinary) => Promise<void>),
-  prompts: [] as unknown[],
-  envs: [] as Array<Record<string, string | undefined>>,
-  resumes: [] as Array<string | undefined>,
-  interrupts: 0,
-  backgrounded: 0,
-  stopTask: null as null | ((taskId: string) => void),
-  options: [] as Array<Record<string, unknown>>,
-}));
+import { Host, assistant, results, sdk, sleep, toolUse, until, use, type FakeBinary } from "./fake-sdk.js";
 
 vi.mock("../src/runtime.js", () => ({ ensureRuntime: async () => "claude.exe", installedRuntime: () => "claude.exe" }));
 // Signed in, as the runtime's `auth status` would say (claude-auth.test.ts covers asking it).
@@ -39,136 +17,12 @@ vi.mock("../src/claude-auth.js", async (actual) => {
   const login = { method: "claude.ai", subscription: "max", keySource: null };
   return { ...(await actual<typeof import("../src/claude-auth.js")>()), claudeLogin: () => login, refreshClaudeLogin: async () => login };
 });
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
-  tool: (name: string, _d: string, _s: unknown, handler: Handler) => ({ name, handler }),
-  createSdkMcpServer: (o: { tools: Array<{ name: string; handler: Handler }> }) => ({ tools: o.tools }),
-  query: ({ prompt, options }: { prompt: unknown; options: { resume?: string; mcpServers: { studio: { tools: Array<{ name: string; handler: Handler }> } }; abortController: AbortController; env: Record<string, string | undefined> } }) => {
-    // A streamed input: its first message is the prompt, as text when it is only text; later ones are what the user said mid-turn.
-    const slot = sdk.prompts.length;
-    sdk.prompts.push(prompt);
-    const said: unknown[] = [];
-    if (prompt && typeof prompt === "object" && Symbol.asyncIterator in prompt) {
-      void (async () => {
-        let first = true;
-        for await (const m of prompt as AsyncIterable<{ message: { content: Array<{ type: string; text?: string }> } }>) {
-          const c = m.message.content;
-          const value = c.every((b) => b.type === "text") ? c.map((b) => b.text).join("\n\n") : m;
-          if (first) sdk.prompts[slot] = value;
-          else said.push(value);
-          first = false;
-        }
-      })();
-    }
-    sdk.options.push(options as unknown as Record<string, unknown>);
-    sdk.envs.push(options.env);
-    sdk.resumes.push(options.resume);
-    const queue: unknown[] = [];
-    let wake: (() => void) | null = null;
-    let done = false;
-    const push = (m: unknown) => {
-      queue.push(m);
-      wake?.();
-    };
-    const binary: FakeBinary = {
-      async call(name, args) {
-        const t = options.mcpServers.studio.tools.find((x) => x.name === name)!;
-        // The binary cannot reach the in-process server once its input is closed.
-        if (options.abortController.signal.aborted) return { text: "The tool call was interrupted before a result was received.", isError: true };
-        const r = await t.handler(args);
-        return { text: r.content.map((c) => c.text ?? "").join(""), isError: r.isError, content: r.content };
-      },
-      emit: push,
-      end() {
-        done = true;
-        wake?.();
-      },
-      signal: options.abortController.signal,
-      prompt,
-      said,
-    };
-    void sdk.script!(binary).finally(() => binary.end());
-    return {
-      async interrupt() {
-        sdk.interrupts++;
-      },
-      async backgroundTasks() {
-        sdk.backgrounded++;
-        return true;
-      },
-      stopTask: async (taskId: string) => sdk.stopTask?.(taskId),
-      [Symbol.asyncIterator]() {
-        return {
-          async next(): Promise<IteratorResult<unknown>> {
-            for (;;) {
-              if (queue.length) return { value: queue.shift(), done: false };
-              if (done) return { value: undefined, done: true };
-              await new Promise<void>((r) => (wake = r));
-              wake = null;
-            }
-          },
-        };
-      },
-    };
-  },
-}));
+vi.mock("@anthropic-ai/claude-agent-sdk", async () => (await import("./fake-sdk.js")).fakeSdk);
 
 const { AgentRunner } = await import("../src/runner.js");
 const { SessionStore } = await import("../src/sessions.js");
 const { loadout } = await import("../src/native.js");
 const { composeNative, toolsFor } = await import("../src/native-runtime.js");
-
-class Host {
-  connected = true;
-  private listeners: Array<(e: { type: string; data: Record<string, unknown> }) => void> = [];
-  log = { info() {}, warn() {} };
-  events = {
-    publish: () => undefined,
-    subscribe: (l: (e: { type: string; data: Record<string, unknown> }) => void) => {
-      this.listeners.push(l);
-      return () => void (this.listeners = this.listeners.filter((x) => x !== l));
-    },
-  };
-  operation: (op: string) => Promise<Record<string, unknown>> = async (op) => ({ op, steps: [] });
-  constructor(public projectDir: string, public dataDir: string) {}
-  async callAction(category: string, action: string): Promise<ActionResult> {
-    return { isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, category, action }) }] };
-  }
-  editors(): EditorStatus[] {
-    return [{ name: "P", connected: this.connected, port: 1, pid: 1, lastDisconnect: null }];
-  }
-  editorOperation(op: "start" | "stop" | "restart" | "rebuild") {
-    return this.operation(op);
-  }
-  setBusy(): void {}
-  emit(type: string, data: Record<string, unknown> = {}): void {
-    for (const l of this.listeners) l({ type, data });
-  }
-}
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-async function until(cond: () => boolean, ms = 5000): Promise<void> {
-  const end = Date.now() + ms;
-  while (!cond()) {
-    if (Date.now() > end) throw new Error("condition not met");
-    await sleep(5);
-  }
-}
-
-const assistant = (id: string, content: unknown[]) => ({ type: "assistant", parent_tool_use_id: null, message: { id, content } });
-const toolUse = (id: string, name: string, input: Record<string, unknown>) => ({ type: "tool_use", id, name: `mcp__studio__${name}`, input });
-const results = (id: string, r: { text: string; isError: boolean }) => ({
-  type: "user",
-  parent_tool_use_id: null,
-  message: { content: [{ type: "tool_result", tool_use_id: id, content: [{ type: "text", text: r.text }], is_error: r.isError }] },
-});
-
-/** One tool call the way the binary makes it: the block, the call, the result. */
-async function use(b: FakeBinary, id: string, name: string, input: Record<string, unknown>) {
-  b.emit(assistant(`m_${id}`, [toolUse(id, name, input)]));
-  const r = await b.call(name, input);
-  b.emit(results(id, r));
-  return r;
-}
 
 let root: string;
 let host: Host;
