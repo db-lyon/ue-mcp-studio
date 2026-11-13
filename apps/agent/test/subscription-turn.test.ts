@@ -23,6 +23,7 @@ const { AgentRunner } = await import("../src/runner.js");
 const { SessionStore } = await import("../src/sessions.js");
 const { loadout } = await import("../src/native.js");
 const { composeNative, toolsFor } = await import("../src/native-runtime.js");
+const { relayKey } = await import("../src/subagent-inbox.js");
 
 let root: string;
 let host: Host;
@@ -214,7 +215,10 @@ describe("messaging a running subagent from its thread on the subscription route
     expect(delivered[0]).toEqual([]);
     expect(delivered[1]).toHaveLength(1);
     expect(delivered[1][0]).toMatch(/make the door red/);
-    expect(delivered[1][0]).toMatch(/comes from the user/);
+    // Under the session's mark, which the subagents' system prompt names, so the subagent reads it as the user's.
+    const mark = `[Studio relays a message from the user, key ${relayKey(s.id)}]`;
+    expect(delivered[1][0].startsWith(mark)).toBe(true);
+    expect(String((sdk.options.at(-1) as { agents: Record<string, { prompt: string }> }).agents["editor-worker"].prompt)).toContain(mark);
     expect(delivered[2]).toEqual([]);
     expect(delivered[3]).toEqual([]);
     expect(binary!.said).toEqual([]);

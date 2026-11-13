@@ -19,6 +19,7 @@ import { composeNative, type NativeRun } from "../src/native-runtime.js";
 import { setRipgrep } from "../src/local-tools.js";
 import { registerQueueRoutes } from "../src/queue-routes.js";
 import { AttachmentStore } from "../src/attachments.js";
+import { relayKey } from "../src/subagent-inbox.js";
 
 class FakeHost implements AgentHost {
   connected = true;
@@ -309,7 +310,10 @@ describe("messaging a running subagent from its thread on Studio's own loop", ()
     expect(said(door[0])).not.toMatch(/make it red/);
     const last = door[1].messages.at(-1)!.content as Array<{ type: string; text?: string }>;
     expect(last.map((b) => b.type)).toEqual(["tool_result", "text"]);
-    expect(last[1].text).toMatch(/comes from the user/);
+    // Under the session's mark, which the subagent's system prompt names, so it reads it as the user's.
+    const key = relayKey(s.id);
+    expect(last[1].text.startsWith(`[Studio relays a message from the user, key ${key}]`)).toBe(true);
+    expect(door[0].system[0].text).toContain(`[Studio relays a message from the user, key ${key}]`);
     expect(last[1].text).toMatch(/make it red/);
     // The hall subagent and the main agent never see it.
     expect(requests.filter((r) => sub(r) && r.messages[0].content === "hall").some((r) => said(r).includes("make it red"))).toBe(false);

@@ -42,7 +42,7 @@ import { USER_SENT, USER_STOP, interruptedResult, interruptionLine, interruption
 import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
-import { SubagentInbox, aboutNote, unreadNote } from "./subagent-inbox.js";
+import { SubagentInbox, aboutNote, forSubagent, relayKey, relayLine, unreadNote } from "./subagent-inbox.js";
 import type { LiveTurn } from "./subscription.js";
 import { DETACHED, type HostedCallbacks, type HostedResult, type HostedRun, type TurnHosts } from "./hosted-turn.js";
 import type { TurnSpec } from "./turn-host-protocol.js";
@@ -145,8 +145,9 @@ export const SUBAGENT_SYSTEM = [
   "Finish with a short report: what you created or changed (asset paths and files), what you saved, and anything that failed.",
 ].join("\n");
 
-const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING): string =>
-  [SUBAGENT_SYSTEM, playtestRunsLine(runs), where(projectDir), instructions.text]
+/** `sessionId`: how the session marks the user's messages to a subagent (relayLine). */
+const subagentSystem = (projectDir: string, runs: PlaytestRunsMode, usage: UsageSettings = DEFAULT_USAGE, instructions: Composed = NOTHING, sessionId?: string): string =>
+  [SUBAGENT_SYSTEM, playtestRunsLine(runs), where(projectDir), sessionId ? relayLine(relayKey(sessionId)) : null, instructions.text]
     .filter((l): l is string => !!l).join("\n");
 
 /** What the model is told when the user declines a call. */
@@ -1203,7 +1204,7 @@ ${result}`);
         effort: this.o.effort?.() ?? "high",
         // The SDK reads the project's own files itself: Studio adds none of their text.
         system: withSurface(system(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()), surface),
-        subagentSystem: withSurface(subagentSystem(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed()), surface),
+        subagentSystem: withSurface(subagentSystem(this.o.host.projectDir, this.runsMode(), usage, this.sdkComposed(), s.id), surface),
         ...this.sdkNative(),
         ...sdkEditor(surface),
         subagents: { mode: usage.subagents, perTurn: usage.subagentsPerTurn, model: this.subagentModel(), effort: this.subagentEffort() },
@@ -1738,7 +1739,7 @@ ${result}`);
       model: this.subagentModel(),
       effort: this.subagentEffort(),
       // Its runs are the user's, from the card: the brief says to start one.
-      system: withSurface(subagentSystem(this.o.host.projectDir, "automatic", usage, this.sdkComposed()), surface),
+      system: withSurface(subagentSystem(this.o.host.projectDir, "automatic", usage, this.sdkComposed(), s.id), surface),
       subagentSystem: withSurface(subagentSystem(this.o.host.projectDir, "automatic", usage, this.sdkComposed()), surface),
       ...this.sdkNative(),
       ...sdkEditor(surface),
@@ -2025,7 +2026,7 @@ ${result}`);
     const live = assigned ?? (this.assigned.has(callId) ? undefined : this.live.get(s.id));
     this.inbox.push(callId, text);
     if (live) {
-      const held = live.tell ? await Promise.resolve(live.tell(assigned ? null : callId, text)).catch(() => false) : false;
+      const held = live.tell ? await Promise.resolve(live.tell(assigned ? null : callId, forSubagent([text], relayKey(s.id)))).catch(() => false) : false;
       if (!held) {
         // A turn that cannot take one (a host from an older Studio, or it just ended).
         this.inbox.unpush(callId);
@@ -2393,7 +2394,7 @@ ${result}`);
     const tools = helper?.allowed ? this.workTools(surf).filter((t) => allows((t as { name: string }).name)) : this.workTools(surf);
     if (n?.skills.length) tools.push(SKILL_TOOL);
     const steps = helper?.maxTurns ?? SUBAGENT_STEPS;
-    const base = withSurface(subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.usage(), this.composed()), surf);
+    const base = withSurface(subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.usage(), this.composed(), s.id), surf);
     const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
     const provider = helper?.run ? helper.run.provider : this.o.provider;
     const model = helper?.run?.model ?? this.subagentModel();
@@ -2430,8 +2431,8 @@ ${result}`);
         await this.autoCompact(s, conv, signal);
         if (signal.aborted) return stopped();
         // What the user sent it from its thread joins its conversation before its next model call.
-        const told = this.inbox.take(parent);
-        if (told) addUserText(messages, told);
+        const told = this.inbox.drain(parent);
+        if (told.length) addUserText(messages, forSubagent(told, relayKey(s.id)));
         let turn: ModelTurn;
         try {
           turn = await provider().run({ sessionId: s.id, model, effort, system: sys, tools, messages }, () => {}, signal);
