@@ -9,7 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { DetailLoader, chatPane, composerPlaceholder, composerQueues, composerTarget, sessionGone, subagentsOf, unreachable } from "@ue-mcp-studio/client-core";
+import { DetailLoader, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsOf, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { writeLocation } from "../location";
 import { haptic } from "../native/haptics";
@@ -497,13 +497,15 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const openThread = (thread && agentMap.get(thread)) || null;
   // Who a message written now goes to: the open subagent while it runs, else the main agent.
   const target = composerTarget(openThread?.call);
+  // What the Subagents list shows, and so what the bar's badge counts: dismissed finished ones are gone from both.
+  const listed = listedSubagents(agents, dismissed, openThread?.id ?? null);
   const drawerAgent = (drawerId && agentMap.get(drawerId)) || null;
   // The open thread, read by its id: its own entries, also those before the page of the session the phone holds.
   const drawerThread = useAgentThread(api.agentThread, detail?.id ?? null, drawerAgent ? drawerAgent.id : null, detail, detail?.transcript ?? []);
   // The bar's utilities after the context ring, as on the web: Checkpoints, and the subagents while there are some.
   const utilities: BarUtility[] = [
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
-    ...(agents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: agents.length, onClick: () => setSheet(true) }] : []),
+    ...(listed.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listed.length, onClick: () => setSheet(true) }] : []),
   ];
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;

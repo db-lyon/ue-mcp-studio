@@ -30,13 +30,10 @@ export const composerQueues = (detail: Detail | null | undefined, target: Compos
 
 /** What the empty message box says: who the message goes to, and whether it queues. */
 export function composerPlaceholder(detail: Detail, target: ComposerTarget): string {
-  if (target.to === "subagent") return `Message the subagent "${describe(target.call)}". It reads it at its next step`;
+  if (target.to === "subagent") return `Message "${describe(target.call)}"`;
   const busy = composerBusy(detail);
-  if (target.to === "finished") {
-    const done = `"${describe(target.call)}" has finished.`;
-    return busy ? `${done} Write a message for the main agent to queue it` : `${done} Message the main agent about it`;
-  }
-  if (busy) return "The agent is working. Write the next message to queue it.";
-  if (detail.mainFree) return "Subagents are working. Message the main agent";
-  return "Ask for something in the editor, or drop files here";
+  if (target.to === "finished") return `"${describe(target.call)}" finished. ${busy ? "Queue a message for the main agent" : "Message the main agent"}`;
+  if (busy) return "Queue a message";
+  if (detail.mainFree) return "Message the main agent";
+  return "Ask for something";
 }

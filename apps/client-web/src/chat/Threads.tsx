@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ContextUsage, SessionAgent } from "@ue-mcp-studio/shared";
-import { STATE_LABEL, agentView, describe, formatDuration, isActive, summarize, tokenCount } from "@ue-mcp-studio/client-core";
+import { STATE_LABEL, agentView, describe, formatDuration, isActive, listedSubagents, summarize, tokenCount } from "@ue-mcp-studio/client-core";
 import { useNow } from "./hooks";
 
 const EMPTY: ReadonlySet<string> = new Set();
@@ -32,7 +32,7 @@ export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EM
   const now = useNow(agents.some((a) => isActive(a.state)));
   const [showFinished, setShowFinished] = useState(false);
   // The open thread keeps its row until it is closed, so a dismissal never pulls the list out from under it.
-  const listed = agents.filter((a) => !dismissed.has(a.id) || isActive(a.state) || a.id === thread);
+  const listed = listedSubagents(agents, dismissed, thread);
   // With no subagents there is no list: the composer's context meter has the main agent's numbers.
   if (listed.length === 0) return null;
   const byId = new Map(agents.map((a) => [a.id, a]));

@@ -4,6 +4,7 @@
  * this one function, beside a spinner.
  */
 import { workingFacts, type SessionDetail, type ToolCallRecord } from "@ue-mcp-studio/shared";
+import { isActive } from "./chat-model.js";
 
 export interface WorkingStatus {
   /** What the agent is doing, in a few words. */
@@ -14,7 +15,7 @@ export interface WorkingStatus {
   waiting: boolean;
 }
 
-type Detail = Pick<SessionDetail, "status" | "waitingCause" | "transcript"> & Partial<Pick<SessionDetail, "working">> & { mainFree?: boolean };
+type Detail = Pick<SessionDetail, "status" | "waitingCause" | "transcript"> & Partial<Pick<SessionDetail, "working" | "subagents">> & { mainFree?: boolean };
 
 /** The composer queues behind the turn: the main agent is working. False while only background subagents run. */
 export const composerBusy = (detail: Pick<Detail, "status" | "mainFree"> | null | undefined): boolean =>
@@ -49,7 +50,10 @@ export function workingStatus(detail: Detail | null | undefined): WorkingStatus 
   if (detail.status === "waiting") {
     return { label: detail.waitingCause ? `Waiting: ${detail.waitingCause}` : "Waiting for you", since, waiting: true };
   }
-  if (detail.mainFree) return { label: "Subagents are working. The main agent takes your messages now", since, waiting: false };
+  if (detail.mainFree) {
+    const n = detail.subagents?.filter((a) => isActive(a.state)).length ?? 0;
+    return { label: n > 0 ? `${n} ${n === 1 ? "subagent" : "subagents"} working` : "Subagents working", since, waiting: false };
+  }
   return { label: capital(facts.step ? toolPhrase(facts.step) : "Thinking"), since, waiting: false };
 }
 

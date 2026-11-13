@@ -26,6 +26,15 @@ export const ACTIVE: readonly AgentState[] = ["queued", "working", "approval", "
 export const isActive = (state: AgentState): boolean => ACTIVE.includes(state);
 
 /**
+ * The subagents the session lists: every running one, the open thread, and the
+ * finished ones not dismissed. The Subagents list and the bar's badge both
+ * count this, so the badge always says what the list shows.
+ */
+export function listedSubagents<A extends { id: string; state: AgentState }>(agents: readonly A[], dismissed: ReadonlySet<string>, open: string | null = null): A[] {
+  return agents.filter((a) => isActive(a.state) || !dismissed.has(a.id) || a.id === open);
+}
+
+/**
  * A running subagent quiet for this long says how long. Quiet is not stuck: a
  * model thinking through a long answer writes nothing until it is done, so the
  * time is shown and no verdict is drawn from it.

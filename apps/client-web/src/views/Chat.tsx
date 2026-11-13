@@ -7,7 +7,7 @@ import { RemoteChatCard } from "./remote/RemoteChatCard";
 import type { SettingsSection } from "./settings/sections";
 import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
-import { subagentsOf } from "@ue-mcp-studio/client-core";
+import { listedSubagents, subagentsOf } from "@ue-mcp-studio/client-core";
 import { useAgentThread } from "../chat/agent-thread";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
@@ -430,13 +430,15 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const openThread = (thread && agentMap.get(thread)) || null;
   // Who a message written now goes to: the open subagent while it runs, else the main agent.
   const target = composerTarget(openThread?.call);
+  // What the Subagents list shows, and so what the bar's badge counts: dismissed finished ones are gone from both.
+  const listed = listedSubagents(agents, dismissed, openThread?.id ?? null);
   const drawerAgent = (drawerId && agentMap.get(drawerId)) || null;
   // The open thread, read by its id: its own entries, whatever part of the session is held.
   const drawerThread = useAgentThread(api.agentThread, detail?.id ?? null, drawerAgent ? drawerAgent.id : null, detail, detail?.transcript ?? []);
   // The bar's utilities after the context meter, at every width: Checkpoints, and the subagents while there are some.
   const utilities: BarUtility[] = [
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
-    ...(agents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: agents.length, onClick: () => setSheet(true) }] : []),
+    ...(listed.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listed.length, onClick: () => setSheet(true) }] : []),
   ];
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
