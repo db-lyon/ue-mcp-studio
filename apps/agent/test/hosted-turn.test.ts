@@ -285,6 +285,8 @@ describe("steering on the Claude sign-in through host processes", () => {
     release!();
     await until(() => d.store.get(s.id)!.status === "idle");
     const fin = d.store.get(s.id)!;
+    // Its host ran it to the end, possibly before this daemon reached it: it ran once, never again in the daemon.
+    expect(sdk.prompts.filter((p) => p === "gate")).toHaveLength(1);
     expect(outcome(fin, "ag")).toMatchObject({ outcome: "done", result: "Gate built." });
     expect(texts(fin).at(-1)).toBe("The gate is done.");
     // The report started a reply of the same runtime session.

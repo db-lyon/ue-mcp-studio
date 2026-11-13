@@ -167,6 +167,13 @@ export class TurnHosts {
     try {
       await link.connect();
     } catch (e) {
+      // A short conversation (one that calls no tool) can run to its end before this daemon reaches the host:
+      // its journal holds all of it, and running it again here would do the work twice.
+      const r = readRecord(recordFile(this.o.dataDir, host));
+      if (r?.ended || readJournal(journalFile(this.o.dataDir, host), 0).some((ev) => ev.t === "end")) {
+        link.fromJournal();
+        return link.run();
+      }
       proc.kill();
       removeHostFiles(this.o.dataDir, host);
       throw e;
