@@ -14,7 +14,11 @@ export interface WorkingStatus {
   waiting: boolean;
 }
 
-type Detail = Pick<SessionDetail, "status" | "waitingCause" | "transcript">;
+type Detail = Pick<SessionDetail, "status" | "waitingCause" | "transcript"> & { mainFree?: boolean };
+
+/** The composer queues behind the turn: the main agent is working. False while only background subagents run. */
+export const composerBusy = (detail: Pick<Detail, "status" | "mainFree"> | null | undefined): boolean =>
+  !!detail && (detail.status === "running" || detail.status === "waiting") && !detail.mainFree;
 
 const time = (at: string | undefined): number | null => {
   const t = at ? Date.parse(at) : NaN;
@@ -45,6 +49,7 @@ export function workingStatus(detail: Detail | null | undefined): WorkingStatus 
   if (detail.status === "waiting") {
     return { label: detail.waitingCause ? `Waiting: ${detail.waitingCause}` : "Waiting for you", since, waiting: true };
   }
+  if (detail.mainFree) return { label: "Subagents are working. The main agent takes your messages now", since, waiting: false };
   let label = "Thinking";
   for (let i = t.length - 1; i >= 0; i--) {
     const e = t[i];

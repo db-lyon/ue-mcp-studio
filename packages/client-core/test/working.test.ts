@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { turnElapsed as formatElapsed, toolPhrase, workingStatus } from "../src/working.js";
+import { composerBusy, turnElapsed as formatElapsed, toolPhrase, workingStatus } from "../src/working.js";
 
 const at = "2026-11-12T10:00:00.000Z";
 const call = (name: string, input: unknown, outcome: "pending" | "done" = "pending") => ({ kind: "tool" as const, call: { id: "c", name, input, outcome, startedAt: at } });
@@ -18,6 +18,13 @@ describe("workingStatus", () => {
   it("reads Thinking between tools, and ignores a subagent's calls", () => {
     const s = workingStatus({ status: "running", waitingCause: null, transcript: [{ kind: "user", text: "go", at }, call("Read", {}, "done"), { ...call("Bash", {}), parent: "a1" }] });
     expect(s?.label).toBe("Thinking");
+  });
+
+  it("lets the composer send while only background subagents run", () => {
+    const d = { status: "running" as const, waitingCause: null, transcript: [], mainFree: true };
+    expect(composerBusy(d)).toBe(false);
+    expect(composerBusy({ ...d, mainFree: false })).toBe(true);
+    expect(workingStatus(d)?.label).toMatch(/^Subagents are working/);
   });
 
   it("says why a turn waits", () => {

@@ -603,7 +603,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
     forms.cancelSession(s.id);
-    runner.stop(s.id);
+    runner.stopAll(s.id);
     deleteTranscripts([s.sdkSession ?? "", ...(s.sdkPast ?? [])], claudeHome(), api.projectDir);
     store.delete(s.id);
     attachments.removeSession(s.id);
@@ -692,8 +692,9 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if ("error" in m) return bad(m.error);
     const now = (req.body as { now?: unknown } | undefined)?.now === true;
     const running = s.status === "running" || s.status === "waiting";
-    if (running && !now) return { status: 409, body: { error: "a turn is already in progress; queue the message or send it with now: true" } };
-    if (running) stopSide(s.id);
+    // While only background subagents run, the main agent takes the message at once and they keep working.
+    if (running && !now && !runner.mainFree(s.id)) return { status: 409, body: { error: "a turn is already in progress; queue the message or send it with now: true" } };
+    if (running && !runner.keepsSubagents(s.id)) stopSide(s.id);
     // The turn runs past this response; its progress is on the event stream.
     runner.sendNow(s.id, m.text, m.files).catch((e) => api.log.warn(`turn in session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
@@ -803,7 +804,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   });
   api.route("POST", "/sessions/:id/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
-    forms.cancelSession(req.params.id);
+    // With background subagents working, Stop ends only the main agent's reply: their forms stay open.
+    if (!runner.keepsSubagents(req.params.id)) forms.cancelSession(req.params.id);
     runner.stop(req.params.id);
     // Nothing waits on the editor attaching after a Stop, so the banner stops saying it does.
     busy.endWait();

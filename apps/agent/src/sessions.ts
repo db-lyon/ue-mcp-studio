@@ -47,6 +47,8 @@ export interface StoredSession {
   dismissed?: string[];
   /** Messages written while a turn ran, sent in order as each turn ends. */
   queue?: QueuedMessage[];
+  /** The main agent finished its reply while background subagents still run, so it takes the user's message now. */
+  mainFree?: boolean;
   /** The conversation as the model sees it. */
   messages: MessageParam[];
   /** The conversation as the UI shows it. */
@@ -286,7 +288,7 @@ ${text}` }] } as MessageParam,
   }
 
   static detail(s: StoredSession): SessionDetail {
-    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [], tokens: s.tokens ?? {}, context: publicContext(s), ...(s.totals ? { totals: s.totals } : {}) };
+    return { ...SessionStore.summary(s), transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], ...(s.mainFree && (s.status === "running" || s.status === "waiting") ? { mainFree: true } : {}), error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [], tokens: s.tokens ?? {}, context: publicContext(s), ...(s.totals ? { totals: s.totals } : {}) };
   }
 }
 

@@ -19,6 +19,8 @@ interface FakeBinary {
   end(): void;
   signal: AbortSignal;
   prompt: unknown;
+  /** What the user said while the turn ran, streamed into the binary's input after the first message. */
+  said: unknown[];
 }
 const sdk = vi.hoisted(() => ({
   script: null as null | ((b: FakeBinary) => Promise<void>),
@@ -40,7 +42,22 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   tool: (name: string, _d: string, _s: unknown, handler: Handler) => ({ name, handler }),
   createSdkMcpServer: (o: { tools: Array<{ name: string; handler: Handler }> }) => ({ tools: o.tools }),
   query: ({ prompt, options }: { prompt: unknown; options: { resume?: string; mcpServers: { studio: { tools: Array<{ name: string; handler: Handler }> } }; abortController: AbortController; env: Record<string, string | undefined> } }) => {
+    // A streamed input: its first message is the prompt, as text when it is only text; later ones are what the user said mid-turn.
+    const slot = sdk.prompts.length;
     sdk.prompts.push(prompt);
+    const said: unknown[] = [];
+    if (prompt && typeof prompt === "object" && Symbol.asyncIterator in prompt) {
+      void (async () => {
+        let first = true;
+        for await (const m of prompt as AsyncIterable<{ message: { content: Array<{ type: string; text?: string }> } }>) {
+          const c = m.message.content;
+          const value = c.every((b) => b.type === "text") ? c.map((b) => b.text).join("\n\n") : m;
+          if (first) sdk.prompts[slot] = value;
+          else said.push(value);
+          first = false;
+        }
+      })();
+    }
     sdk.options.push(options as unknown as Record<string, unknown>);
     sdk.envs.push(options.env);
     sdk.resumes.push(options.resume);
@@ -66,6 +83,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
       },
       signal: options.abortController.signal,
       prompt,
+      said,
     };
     void sdk.script!(binary).finally(() => binary.end());
     return {
@@ -281,6 +299,108 @@ describe("stopping one subagent on the subscription route", () => {
     expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "Going on without it." });
     release!();
     sdk.stopTask = null;
+  });
+});
+
+describe("chatting while background subagents run (#1931)", () => {
+  it("hands a message to the main agent at once, and the subagent keeps working", async () => {
+    let finish: (() => void) | null = null;
+    let binary: FakeBinary | null = null;
+    sdk.script = async (b) => {
+      binary = b;
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-bg" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build", run_in_background: true } }]));
+      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-bg", is_backgrounded: true });
+      b.emit(results("ag", { text: "Started in the background.", isError: false }));
+      b.emit(assistant("m_b", [{ type: "text", text: "It is building." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-bg" });
+      // The user's message arrives on the input; the main agent answers it.
+      await until(() => b.said.length === 1);
+      b.emit(assistant("m_c", [{ type: "text", text: "Here is the answer." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-bg" });
+      await new Promise<void>((r) => (finish = r));
+      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-bg", status: "completed", summary: "Built it." });
+      b.emit(assistant("m_d", [{ type: "text", text: "The build finished." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-bg" });
+    };
+    const runner = runnerOn();
+    const s = store.create();
+    const turn = runner.send(s.id, "build it in the background");
+    await until(() => !!store.get(s.id)!.mainFree);
+    expect(SessionStore.detail(store.get(s.id)!).mainFree).toBe(true);
+    await runner.send(s.id, "what is the door's pivot?");
+    await until(() => binary!.said.length === 1);
+    expect(binary!.said).toEqual(["what is the door's pivot?"]);
+    await until(() => store.get(s.id)!.transcript.some((t) => t.kind === "assistant" && t.text === "Here is the answer."));
+    const mid = store.get(s.id)!;
+    expect(mid.status).toBe("running");
+    expect((mid.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("pending");
+    finish!();
+    await turn;
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    expect((fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("done");
+    expect(fin.transcript.at(-1)).toMatchObject({ kind: "assistant", text: "The build finished." });
+  });
+
+  it("sends a queued message to the main agent as soon as it is free", async () => {
+    let binary: FakeBinary | null = null;
+    let reply: (() => void) | null = null;
+    sdk.script = async (b) => {
+      binary = b;
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-q" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build", run_in_background: true } }]));
+      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-q", is_backgrounded: true });
+      await new Promise<void>((r) => (reply = r));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-q" });
+      await until(() => b.said.length === 1);
+      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-q", status: "completed", summary: "Done." });
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-q" });
+    };
+    const runner = runnerOn();
+    const s = store.create();
+    const turn = runner.send(s.id, "start");
+    await until(() => reply !== null);
+    runner.enqueue(s.id, "and then this", []);
+    expect(store.get(s.id)!.queue).toHaveLength(1);
+    reply!();
+    await until(() => binary!.said.length === 1);
+    expect(binary!.said).toEqual(["and then this"]);
+    expect(store.get(s.id)!.queue).toHaveLength(0);
+    await turn;
+  });
+
+  it("Stop ends only the main agent's reply while a background subagent works", async () => {
+    let finish: (() => void) | null = null;
+    let replying: (() => void) | null = null;
+    sdk.script = async (b) => {
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-ms" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "Agent", input: { description: "Build", prompt: "build", run_in_background: true } }]));
+      b.emit({ type: "system", subtype: "task_started", tool_use_id: "ag", task_id: "task-ms", is_backgrounded: true });
+      b.emit(assistant("m_b", [{ type: "text", text: "Writing a long answer" }]));
+      replying?.();
+      await until(() => sdk.interrupts === 1);
+      b.emit({ type: "result", subtype: "error_during_execution", is_error: true, session_id: "sdk-ms" });
+      await new Promise<void>((r) => (finish = r));
+      b.emit({ type: "system", subtype: "task_notification", tool_use_id: "ag", task_id: "task-ms", status: "completed", summary: "Built." });
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-ms" });
+    };
+    const runner = runnerOn();
+    const s = store.create();
+    const ready = new Promise<void>((r) => (replying = r));
+    const turn = runner.send(s.id, "start");
+    await ready;
+    await sleep(10);
+    expect(runner.keepsSubagents(s.id)).toBe(true);
+    runner.stop(s.id);
+    await until(() => !!store.get(s.id)!.mainFree);
+    expect(store.get(s.id)!.status).toBe("running");
+    finish!();
+    await turn;
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    expect(fin.error).toBeNull();
+    expect((fin.transcript.find((t) => t.kind === "tool" && t.call.id === "ag") as { call: { outcome: string } }).call.outcome).toBe("done");
   });
 });
 

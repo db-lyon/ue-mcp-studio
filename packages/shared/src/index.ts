@@ -426,6 +426,11 @@ export interface SessionDetail extends SessionSummary {
   dismissed: string[];
   /** Messages written while a turn ran, sent one by one, in order, as each turn ends. */
   queue: QueuedMessage[];
+  /**
+   * The main agent finished its reply while background subagents still run:
+   * a message sent now goes to it at once, and the subagents keep working.
+   */
+  mainFree?: boolean;
   error: string | null;
   /** Tool calls waiting for the user, oldest first. */
   approvals: ApprovalRequest[];
