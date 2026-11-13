@@ -21,6 +21,8 @@ export interface FakeBinary {
   prompt: unknown;
   /** What the user said while the turn ran, streamed into the binary's input after the first message. */
   said: unknown[];
+  /** Fire one hook event the way the binary does, with the matchers' tool filter: each callback's answer. */
+  hook(event: string, input: Record<string, unknown>): Promise<Array<Record<string, unknown>>>;
 }
 
 export const sdk = {
@@ -80,6 +82,16 @@ export const fakeSdk = {
       signal: options.abortController.signal,
       prompt,
       said,
+      async hook(event, input) {
+        type Matcher = { matcher?: string; hooks: Array<(i: unknown, id: string | undefined, o: { signal: AbortSignal }) => Promise<Record<string, unknown>>> };
+        const matchers = ((options as { hooks?: Record<string, Matcher[]> }).hooks ?? {})[event] ?? [];
+        const out: Array<Record<string, unknown>> = [];
+        for (const m of matchers) {
+          if (m.matcher && m.matcher !== input.tool_name) continue;
+          for (const h of m.hooks) out.push(await h({ hook_event_name: event, ...input }, input.tool_use_id as string | undefined, { signal: new AbortController().signal }));
+        }
+        return out;
+      },
     };
     void sdk.script!(binary).finally(() => binary.end());
     return {

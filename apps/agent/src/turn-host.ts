@@ -158,6 +158,8 @@ export class TurnHost {
         onUsage: (u) => this.emit({ t: "usage", u }),
         onCompaction: (e) => this.emit({ t: "compaction", e }),
         onContextWindow: (w) => this.emit({ t: "contextWindow", w }),
+        // The turn takes the user's messages to its subagents (op tellSubagent) and says when one read them.
+        ...(spec.subagents.mode !== "off" ? { onInboxTaken: (callId: string | null) => this.emit({ t: "inboxTaken", callId }) } : {}),
       });
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
@@ -298,6 +300,8 @@ export class TurnHost {
         if (stop) await stop();
         return !!stop;
       }
+      case "tellSubagent":
+        return live?.tell && typeof args.text === "string" ? live.tell(typeof args.callId === "string" ? args.callId : null, args.text) : false;
       case "cancelQueued": {
         const cancel = this.cancels.get(String(args.id));
         cancel?.();

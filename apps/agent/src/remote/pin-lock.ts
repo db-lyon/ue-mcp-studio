@@ -72,6 +72,8 @@ const STUDIO = "/v1/ext/studio";
 /** Studio routes that start the agent on a turn: sensitive only while shell commands or file changes run without asking. */
 const TURN_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/messages$/,
+  // A message in a subagent's thread: to it while it runs, else to the main agent.
+  /^\/sessions\/[^/]+\/agents\/[^/]+\/messages$/,
   /^\/sessions\/[^/]+\/queue(\/next|\/[^/]+)?$/,
   /^\/sessions\/[^/]+\/transcript\/[^/]+\/edit$/,
   /^\/sessions\/[^/]+\/action$/,
@@ -81,6 +83,7 @@ const TURN_ROUTES: RegExp[] = [
 /** Turn routes whose body text is a message: a /flow or /playtest there runs a flow, which is always sensitive. */
 const TEXT_ROUTES: RegExp[] = [
   /^\/sessions\/[^/]+\/messages$/,
+  /^\/sessions\/[^/]+\/agents\/[^/]+\/messages$/,
   /^\/sessions\/[^/]+\/queue(\/[^/]+)?$/,
   /^\/sessions\/[^/]+\/transcript\/[^/]+\/edit$/,
   /^\/quick$/,

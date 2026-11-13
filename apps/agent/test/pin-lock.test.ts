@@ -62,6 +62,10 @@ describe("which requests the PIN guards", () => {
   it("a message starts a turn: guarded only while shell commands or file changes run without asking", () => {
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/messages", false)).toBe(false);
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/messages", true)).toBe(true);
+    // A message in a subagent's thread goes to the main agent once that subagent has finished.
+    expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/agents/a1/messages", false, JSON.stringify({ text: "hi" }))).toBe(false);
+    expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/agents/a1/messages", true)).toBe(true);
+    expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/agents/a1/messages", false, JSON.stringify({ text: "/flow beacon" }))).toBe(true);
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/queue", true)).toBe(true);
     // The next queued item may be a /flow queued on the computer: running it always asks.
     expect(sensitiveRequest("POST", "/v1/ext/studio/sessions/s1/queue/next", false)).toBe(true);

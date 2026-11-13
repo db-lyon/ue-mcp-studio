@@ -42,6 +42,7 @@ import { USER_SENT, USER_STOP, interruptedResult, interruptionLine, interruption
 import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
+import { SubagentInbox, aboutNote, unreadNote } from "./subagent-inbox.js";
 import type { LiveTurn } from "./subscription.js";
 import { DETACHED, type HostedCallbacks, type HostedResult, type HostedRun, type TurnHosts } from "./hosted-turn.js";
 import type { TurnSpec } from "./turn-host-protocol.js";
@@ -328,6 +329,23 @@ export function carryOver(messages: MessageParam[], max = 60_000): string {
   return `[Studio] This session continues a conversation that ran on other models. Here it is so far:\n\n${text}\n\n[Studio] End of the earlier conversation. The user's new message follows.`;
 }
 
+/** An agent call's description, as its thread is titled. */
+const describeCall = (input: unknown): string => {
+  const d = (input as { description?: unknown } | null)?.description;
+  return typeof d === "string" && d.trim() ? d.trim() : "Subagent";
+};
+
+/** Add text to a conversation as the user's: into its last user message (after tool results), or as a new one after the model's. */
+export function addUserText(messages: MessageParam[], text: string): void {
+  const last = messages[messages.length - 1];
+  if (last?.role !== "user") {
+    messages.push({ role: "user", content: [{ type: "text", text }] } as MessageParam);
+    return;
+  }
+  const blocks = typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...(last.content as unknown[])];
+  last.content = [...blocks, { type: "text", text }] as MessageParam["content"];
+}
+
 /** Card extension names and types: the same rule the client's slot registry applies. */
 const CARD_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 /** A card is a summary for the panel; anything bigger belongs behind the extension's own route. */
@@ -341,6 +359,10 @@ export class AgentRunner {
   private readonly hosted = new Map<string, HostedRun>();
   /** Each running subagent, by its agent call id, so one can be stopped without the turn. */
   private readonly subagents = new Map<string, () => void>();
+  /** What the user sent running subagents from their threads, until each reads it at its next step. */
+  private readonly inbox = new SubagentInbox();
+  /** The live turn of each subagent the user assigned on the Claude sign-in, which runs as a turn of its own. */
+  private readonly assignedLive = new Map<string, LiveTurn>();
   /** Agent calls marked waiting to start before their transcript entry arrived. */
   private readonly queuedEarly = new Set<string>();
   /** Subagents the user started from the chat rather than the agent, by their agent call id. */
@@ -839,8 +861,11 @@ export class AgentRunner {
     }
   }
 
-  /** Add the user's message and run the turn. Resolves when the turn ends, pauses or fails. */
-  async send(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = []): Promise<void> {
+  /**
+   * Add the user's message and run the turn. Resolves when the turn ends, pauses or fails.
+   * `about`: the agent call of a finished subagent whose thread the user wrote it in.
+   */
+  async send(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = [], about?: string): Promise<void> {
     // A /playtest message runs the playtest flow, not a turn.
     const command = attachments.length ? null : parseSlashCommand(text);
     if (command?.name === "playtest") return this.playtest(sessionId, { text: command.args }, text);
@@ -863,14 +888,14 @@ export class AgentRunner {
     const s = this.require(sessionId);
     if (this.active.has(s.id) || s.status === "running" || s.status === "waiting") {
       // Only background subagents are working: the main agent takes the message now.
-      if (this.mainFree(s.id) && (await this.tell(s, text, attachments))) return;
+      if (this.mainFree(s.id) && (await this.tell(s, text, attachments, about))) return;
       throw new Error("a turn is already in progress; stop it or wait for it to finish");
     }
     s.archived = false;
     if (s.messages.length === 0 && s.title === DEFAULT_SESSION_TITLE) s.title = text.trim().split("\n")[0].slice(0, 60) || attachments[0]?.name || s.title;
     if (s.crashed) this.reconcileCrash(s);
     const content: unknown[] = [];
-    for (const note of s.notes.splice(0)) content.push({ type: "text", text: `[Studio] ${note}` });
+    for (const note of [...s.notes.splice(0), ...this.aboutNotes(s, about)]) content.push({ type: "text", text: `[Studio] ${note}` });
     for (const a of attachments) content.push(...(await contentFor(a)));
     if (text.trim()) content.push({ type: "text", text });
     s.messages.push({ role: "user", content } as MessageParam);
@@ -1341,8 +1366,9 @@ ${result}`);
             if (detail.background && !track.background.includes(toolUseId)) track.background.push(toolUseId);
             return;
           }
-          // A subagent that ended cannot be waiting on the user any more.
+          // A subagent that ended cannot be waiting on the user any more, nor read what the user sent it.
           this.dropApprovals(s.id, toolUseId);
+          this.unread(s, toolUseId);
           const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId);
           if (entry?.kind !== "tool" || entry.call.outcome !== "pending") return;
           const failed = status !== "completed";
@@ -1361,6 +1387,8 @@ ${result}`);
         lostTool: (toolId, name, input) => this.lostCall(s, toolId, name, input),
         // Kept before the event is applied, so the save it makes holds both.
         onSeq: (seq) => void (track.seq = seq),
+        // A subagent read what the user sent it: nothing of it is left to hand the main agent. With subagents off there is none to message.
+        ...(this.usage().subagents !== "off" ? { onInboxTaken: (callId: string | null) => void (callId && this.inbox.drain(callId)) } : {}),
         onLive: (live) => {
           if (live) this.live.set(s.id, live);
           else this.live.delete(s.id);
@@ -1488,8 +1516,8 @@ ${result}`);
   }
 
   /** Put a message first in the queue, for the next turn, with the files it carries. */
-  private queueFirst(s: StoredSession, text: string, attachments: Array<Attachment & { path: string }>): void {
-    const q: QueuedMessage = { id: crypto.randomUUID(), text, attachments: attachments.map(({ id, name, type, size }) => ({ id, name, type, size })), at: now() };
+  private queueFirst(s: StoredSession, text: string, attachments: Array<Attachment & { path: string }>, about?: string): void {
+    const q: QueuedMessage = { id: crypto.randomUUID(), text, attachments: attachments.map(({ id, name, type, size }) => ({ id, name, type, size })), at: now(), ...(about ? { about } : {}) };
     s.queue = [q, ...(s.queue ?? [])];
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
@@ -1545,11 +1573,11 @@ ${result}`);
    * Hand the user's message to the main agent while background subagents run,
    * inside the same turn. False when the main agent cannot take one now.
    */
-  private async tell(s: StoredSession, text: string, attachments: Array<Attachment & { path: string }>): Promise<boolean> {
+  private async tell(s: StoredSession, text: string, attachments: Array<Attachment & { path: string }>, about?: string): Promise<boolean> {
     const live = this.live.get(s.id);
     if (!live) return false;
     const content: unknown[] = [];
-    for (const note of s.notes) content.push({ type: "text", text: `[Studio] ${note}` });
+    for (const note of [...s.notes, ...this.aboutNotes(s, about)]) content.push({ type: "text", text: `[Studio] ${note}` });
     for (const a of attachments) content.push(...(await contentFor(a)));
     if (text.trim()) content.push({ type: "text", text });
     if (!(await live.say(content))) return false;
@@ -1574,7 +1602,7 @@ ${result}`);
     const [next, ...rest] = s.queue;
     s.queue = rest;
     this.o.store.save(s);
-    void this.tell(s, next.text, this.queuedFiles(s, next)).then((told) => {
+    void this.tell(s, next.text, this.queuedFiles(s, next), next.about).then((told) => {
       if (told) return;
       // The turn ended meanwhile: the message goes back to the front, and the next turn sends it.
       s.queue = [next, ...(s.queue ?? [])];
@@ -1685,6 +1713,7 @@ ${result}`);
       this.subagents.delete(callId);
       this.subagentStops.delete(callId);
       this.dropApprovals(s.id, callId);
+      this.unread(s, callId);
       // Calls the subagent left running are answered, as a stop answers a turn's.
       this.endCalls(s, () => "The subagent ended before this call returned a result.", "error", callId);
       this.recordOutcome(s, { id: callId, name: "agent", input, state: "done", result: r.text, isError: r.isError }, r.stopped ? "stopped" : r.isError ? "error" : "done");
@@ -1748,7 +1777,14 @@ ${result}`);
       onTask: () => {},
       onStopper: () => {},
       runTool: (toolId, name, input) => this.subscriptionTool(s, own, toolId, name, input, true),
+      // Its own conversation's main agent is the subagent: the user's messages to it go to that turn's main agent.
+      onLive: (live) => {
+        if (live) this.assignedLive.set(callId, live);
+        else this.assignedLive.delete(callId);
+      },
+      onInboxTaken: (c) => void (c === null && this.inbox.drain(callId)),
     });
+    this.assignedLive.delete(callId);
     if (own.signal.aborted) return { text: "The user stopped this subagent before it finished.", isError: true, stopped: true };
     if (error) return { text: `The subagent failed: ${error}`, isError: true };
     return { text: report || "The subagent finished without a report.", isError: false };
@@ -1885,9 +1921,9 @@ ${result}`);
   }
 
   /** Queue a message behind the running turn. With no turn running it is sent at once. */
-  enqueue(sessionId: string, text: string, attachments: Attachment[]): QueuedMessage {
+  enqueue(sessionId: string, text: string, attachments: Attachment[], about?: string): QueuedMessage {
     const s = this.require(sessionId);
-    const q: QueuedMessage = { id: crypto.randomUUID(), text, attachments, at: now() };
+    const q: QueuedMessage = { id: crypto.randomUUID(), text, attachments, at: now(), ...(about ? { about } : {}) };
     s.queue = [...(s.queue ?? []), q];
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
@@ -1921,7 +1957,7 @@ ${result}`);
         const f = this.files.get(s.id, a.id);
         return f ? [f] : [];
       });
-      await this.send(s.id, next.text, files);
+      await this.send(s.id, next.text, files, next.about);
     } catch (e) {
       this.o.host.log.warn(`a queued message in session ${sessionId} failed`, e);
     }
@@ -1939,12 +1975,12 @@ ${result}`);
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
     // Background subagents keep working: sendNow stops only the main agent's reply then.
-    this.sendNow(s.id, q.text, this.queuedFiles(s, q)).catch((e) => this.o.host.log.warn(`a queued message in session ${sessionId} failed`, e));
+    this.sendNow(s.id, q.text, this.queuedFiles(s, q), q.about).catch((e) => this.o.host.log.warn(`a queued message in session ${sessionId} failed`, e));
     return true;
   }
 
   /** Stop the running turn, as Stop does, and send this message now, ahead of the queue. */
-  async sendNow(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = []): Promise<void> {
+  async sendNow(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = [], about?: string): Promise<void> {
     const s = this.require(sessionId);
     const live = this.live.get(s.id);
     const subagents = this.runningSubagents(s);
@@ -1953,22 +1989,83 @@ ${result}`);
       // main agent's reply stops, and it takes this message next.
       const free = live.free();
       if (!free) await this.stopMain(s.id, live);
-      if (await this.tell(s, text, attachments)) {
+      if (await this.tell(s, text, attachments, about)) {
         this.o.host.log.info(`session ${s.id}: message handed to the main agent beside ${Math.max(subagents, live.background())} subagent(s)${free ? "" : ", after stopping its reply"}`);
         return;
       }
       // The turn takes no more messages: this one goes first in the queue, for the next turn.
-      this.queueFirst(s, text, attachments);
+      this.queueFirst(s, text, attachments, about);
       this.o.host.log.warn(`session ${s.id}: the turn's input had closed, so a message beside running subagents was queued instead of ending them`);
       return;
     }
     if (subagents > 0 && this.busy(s)) {
       // Not a Claude sign-in turn: nothing can reach the main agent mid-turn, and stopping would end the subagents.
-      this.queueFirst(s, text, attachments);
+      this.queueFirst(s, text, attachments, about);
       return;
     }
     if (this.busy(s)) this.interrupt(sessionId, USER_SENT);
-    await this.send(sessionId, text, attachments);
+    await this.send(sessionId, text, attachments, about);
+  }
+
+  /**
+   * The user's message to a running subagent, written in its thread. It shows
+   * in that thread now and waits until the subagent's next step, when the
+   * subagent reads it: on Studio's own loop before its next model call, on
+   * the Claude sign-in through the turn's hooks. Nothing is stopped, the main
+   * agent never sees it, and other subagents go on. False when that subagent
+   * is not running (it finished, was stopped, or there is none).
+   */
+  async messageSubagent(sessionId: string, callId: string, text: string): Promise<boolean> {
+    const s = this.require(sessionId);
+    if (!text.trim() || !this.canMessage(s, callId)) return false;
+    // On the Claude sign-in the turn holds it (in the daemon or in its host) and says when it was read;
+    // here it is kept as well, so what the subagent never read can go to the main agent.
+    // On Studio's own loop this is where the subagent reads it from.
+    const assigned = this.assignedLive.get(callId);
+    const live = assigned ?? (this.assigned.has(callId) ? undefined : this.live.get(s.id));
+    this.inbox.push(callId, text);
+    if (live) {
+      const held = live.tell ? await Promise.resolve(live.tell(assigned ? null : callId, text)).catch(() => false) : false;
+      if (!held) {
+        // A turn that cannot take one (a host from an older Studio, or it just ended).
+        this.inbox.unpush(callId);
+        return false;
+      }
+    }
+    this.addEntry(s, { kind: "user", text, at: now(), parent: callId });
+    this.o.host.log.info(`session ${s.id}: a message for subagent ${callId}, read at its next step`);
+    return true;
+  }
+
+  /** The subagent of this agent call is running, or waiting to start, and so can still read a message. */
+  canMessage(s: StoredSession, callId: string): boolean {
+    const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === callId);
+    if (entry?.kind !== "tool" || entry.call.name !== "agent" || entry.call.outcome !== "pending") return false;
+    return this.subagents.has(callId) || this.active.has(s.id);
+  }
+
+  /** What the main agent is told with a message written in a finished subagent's thread. */
+  private aboutNotes(s: StoredSession, about: string | undefined): string[] {
+    if (!about) return [];
+    const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === about);
+    return [aboutNote(describeCall(entry?.kind === "tool" ? entry.call.input : null))];
+  }
+
+  /** Messages a subagent ended before reading go to the main agent, saying whose they were. */
+  private unread(s: StoredSession, callId: string): void {
+    const texts = this.inbox.drain(callId);
+    if (!texts.length) return;
+    const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === callId);
+    const description = describeCall(entry?.kind === "tool" ? entry.call.input : null);
+    const note = unreadNote(description, texts);
+    this.addEntry(s, { kind: "note", text: `"${description}" ended before it read your message, so it went to the main agent.`, at: now() });
+    const content = [{ type: "text", text: `[Studio] ${note}` }];
+    const live = this.live.get(s.id);
+    void Promise.resolve(live ? live.say(content) : false).catch(() => false).then((said) => {
+      if (said) s.messages.push({ role: "user", content } as MessageParam);
+      else s.notes.push(note);
+      this.o.store.save(s);
+    });
   }
 
   /**
@@ -2185,6 +2282,9 @@ ${result}`);
           slots.release(p.id);
         }
         if (signal.aborted) return;
+        // A message the user sent it that it never read reaches the main agent with its result.
+        const unread = this.inbox.drain(p.id);
+        if (unread.length) r = { ...r, text: `${r.text}\n\n[Studio] ${unreadNote(describeCall(p.input), unread)}` };
         p.state = "done";
         p.result = r.text;
         p.isError = r.isError;
@@ -2329,6 +2429,9 @@ ${result}`);
         // A subagent's own conversation compacts the same way as the main one.
         await this.autoCompact(s, conv, signal);
         if (signal.aborted) return stopped();
+        // What the user sent it from its thread joins its conversation before its next model call.
+        const told = this.inbox.take(parent);
+        if (told) addUserText(messages, told);
         let turn: ModelTurn;
         try {
           turn = await provider().run({ sessionId: s.id, model, effort, system: sys, tools, messages }, () => {}, signal);
@@ -2351,7 +2454,11 @@ ${result}`);
         if (turn.stopReason === "refusal") return { text: `The subagent's model declined: ${turn.refusal ?? "no reason given"}`, isError: true };
         if (turn.stopReason === "pause_turn") continue;
         const uses = turn.content.filter((b): b is Extract<ContentBlock, { type: "tool_use" }> => b.type === "tool_use");
-        if (turn.stopReason !== "tool_use" || uses.length === 0) return { text: report || "The subagent finished without a report.", isError: false };
+        if (turn.stopReason !== "tool_use" || uses.length === 0) {
+          // A message the user sent while it wrote its report: it carries on to act on it rather than end.
+          if (this.inbox.has(parent)) continue;
+          return { text: report || "The subagent finished without a report.", isError: false };
+        }
         const results: Array<{ type: "tool_result"; tool_use_id: string; content: ReturnType<typeof toolResultContent>; is_error?: boolean }> = [];
         for (const raw of uses) {
           const c = surf.canon(raw.name, (raw.input ?? {}) as Record<string, unknown>);

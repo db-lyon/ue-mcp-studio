@@ -15,6 +15,7 @@ import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
+import { SubagentInbox } from "./subagent-inbox.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -153,6 +154,14 @@ export interface SubscriptionTurn {
    * host keeps so a daemon restart never runs it twice.
    */
   runTool: (id: string, name: string, input: Record<string, unknown>, onStart?: () => void) => Promise<ToolExecution>;
+  /**
+   * Given, the turn takes the user's messages to a running subagent
+   * (LiveTurn.tell) and hands each over at that subagent's next step; this is
+   * told, by agent call id, when one has read what waited for it (null: this
+   * turn's own main agent, for a subagent the user assigned, which runs as a
+   * turn of its own).
+   */
+  onInboxTaken?: (callId: string | null) => void;
   /** Tokens the turn spent since the last report, as each model message arrives; `parent` is the agent call of a subagent's message. */
   onTokens?: (tokens: number, parent: string | null) => void;
   /**
@@ -266,6 +275,37 @@ export function subagentOptions(s: SubscriptionTurn["subagents"], subagentSystem
   };
 }
 
+type HookMatchers = NonNullable<NonNullable<Parameters<typeof query>[0]["options"]>["hooks"]>;
+
+/**
+ * Hooks that hand a running subagent the user's messages to it. The Agent SDK
+ * has no call that puts a message into a subagent's conversation (a streamed
+ * user message with parent_tool_use_id set reaches the main agent, not the
+ * subagent), but a hook's additionalContext goes to the agent whose step
+ * fired it: after each tool result (PostToolUse, PostToolUseFailure), and as
+ * it tries to end (SubagentStop for a subagent, Stop for the turn's main
+ * agent), where it carries on to act on the message. The subagent reads it at
+ * its next step; nothing is interrupted. `call` maps a hook's agent_id (the
+ * subagent's task id) to its agent call id; `existing` are the subagent
+ * options' own hooks, kept beside these.
+ */
+export function inboxHooks(inbox: (callId: string | null) => string | null, call: (taskId: string) => string | undefined, existing?: HookMatchers): HookMatchers {
+  const deliver = (event: "PostToolUse" | "PostToolUseFailure" | "SubagentStop" | "Stop"): HookCallback => async (input) => {
+    const id = input.agent_id ? call(input.agent_id) : null;
+    // A subagent whose task_started has not been read yet takes its message at its next step.
+    if (id === undefined) return {};
+    const text = inbox(id);
+    if (!text) return {};
+    return { hookSpecificOutput: { hookEventName: event, additionalContext: text } } as Awaited<ReturnType<HookCallback>>;
+  };
+  return {
+    PostToolUse: [...(existing?.PostToolUse ?? []), { hooks: [deliver("PostToolUse")] }],
+    PostToolUseFailure: [...(existing?.PostToolUseFailure ?? []), { hooks: [deliver("PostToolUseFailure")] }],
+    SubagentStop: [{ hooks: [deliver("SubagentStop")] }],
+    Stop: [{ hooks: [deliver("Stop")] }],
+  };
+}
+
 /** A running Claude sign-in turn, as the runner steers it while subagents work. */
 export interface LiveTurn {
   /** Background tasks still working. */
@@ -280,6 +320,13 @@ export interface LiveTurn {
   keep: () => Promise<boolean>;
   /** Stop only the main agent's current reply. */
   interrupt: () => Promise<void>;
+  /**
+   * Keep the user's message for a running subagent, by its agent call id (null:
+   * the turn's own main agent), to hand over at its next step. Absent where the
+   * turn cannot (subagents off, or a turn host from before this message). A
+   * turn in a host answers asynchronously.
+   */
+  tell?: (callId: string | null, text: string) => boolean | Promise<boolean>;
 }
 
 const userMessage = (blocks: unknown[], session: string): SDKUserMessage =>
@@ -449,7 +496,19 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
     if (input.hook_event_name === "PostCompact" && !input.agent_id) t.onCompaction?.({ summary: input.compact_summary });
     return {};
   };
+  // Which agent call each subagent task answers, from task_started: the hooks name a subagent by its task id.
+  const toolOfTask = new Map<string, string>();
   const hooks = { ...("hooks" in sub ? sub.hooks : {}), PostCompact: [{ hooks: [compacted] }] };
+  // The user's messages to a running subagent, by agent call id ("" for the turn's own main agent), until it reads them.
+  const inbox = t.onInboxTaken ? new SubagentInbox() : null;
+  if (inbox) {
+    const take = (callId: string | null) => {
+      const text = inbox.take(callId ?? "");
+      if (text) t.onInboxTaken?.(callId);
+      return text;
+    };
+    Object.assign(hooks, inboxHooks(take, (taskId) => toolOfTask.get(taskId), "hooks" in sub ? sub.hooks : undefined));
+  }
 
   const input = inputChannel(userMessage(t.prompt, t.resume ?? ""));
   let sessionId = t.resume ?? "";
@@ -457,7 +516,6 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   const background = new Set<string>();
   // The binary's own list of live background tasks (background_tasks_changed), by task id: the level, which a missed edge cannot wedge.
   const level = new Set<string>();
-  const toolOfTask = new Map<string, string>();
   const bg = () => Math.max(background.size, level.size);
   // The main agent ended its reply and has not started another.
   let free = false;
@@ -535,6 +593,12 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
         interrupted = true;
         await q.interrupt().catch(() => undefined);
       },
+      // Held until the subagent's next step, where the inbox hooks hand it over: nothing is interrupted.
+      ...(inbox ? { tell: (callId: string | null, text: string) => {
+        if (t.signal.aborted) return false;
+        inbox.push(callId ?? "", text);
+        return true;
+      } } : {}),
     });
     const messages = (q as AsyncIterable<SDKMessage>)[Symbol.asyncIterator]();
     let error: string | null = null;
@@ -595,6 +659,8 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
           t.onStopper(m.tool_use_id, null);
           slots.release(m.tool_use_id);
           background.delete(m.tool_use_id);
+          // An ended subagent reads nothing more: the runner hands what it left unread to the main agent.
+          inbox?.drain(m.tool_use_id);
           t.onTask(m.tool_use_id, m.status, { summary: m.summary });
           // The binary answers the last report with a main reply; if it stays idle a long while, the turn ends.
           if (free && bg() === 0 && !grace) grace = setTimeout(closeIfDone, LAST_TASK_GRACE_MS);

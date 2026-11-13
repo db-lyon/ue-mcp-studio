@@ -19,6 +19,7 @@ import * as net from "node:net";
 import type { LiveTurn, SubscriptionTurn } from "./subscription.js";
 import type { ToolExecution } from "./tools.js";
 import {
+  TELL_SUBAGENT_PROTOCOL,
   TURN_HOST_PROTOCOL,
   journalFile,
   launchFile,
@@ -198,6 +199,8 @@ class HostLink {
   private applied: number;
   private state: TurnState = { t: "state", live: false, open: false, free: false, background: 0, stoppers: [] };
   private liveShown = false;
+  /** The protocol the host said in its hello: what it can be asked. */
+  private protocol = 1;
   private readonly stoppersShown = new Set<string>();
   private readonly ops = new Map<string, (v: unknown) => void>();
   private readonly inflight = new Set<string>();
@@ -273,6 +276,7 @@ class HostLink {
         if (msg.t === "hello") {
           // The pid and the record could belong to another process by now: the host proves itself by its session and id.
           const ours = msg.session === this.record.session && msg.host === this.record.host;
+          if (ours) this.protocol = typeof msg.protocol === "number" ? msg.protocol : 1;
           done(ours, ours ? undefined : "the socket is not this session's turn host");
         } else if (msg.t === "refused") done(false, String(msg.why ?? "refused"));
         else this.handle(sock, msg);
@@ -338,6 +342,8 @@ class HostLink {
       say: async (blocks) => (await this.op("say", { blocks })) === true,
       keep: async () => (await this.op("keep")) === true,
       interrupt: async () => void (await this.op("interrupt")),
+      // A host from before protocol 2 cannot take a message for a subagent.
+      ...(this.protocol >= TELL_SUBAGENT_PROTOCOL ? { tell: async (callId: string | null, text: string) => (await this.op("tellSubagent", { callId, text })) === true } : {}),
     };
   }
 
@@ -388,6 +394,7 @@ class HostLink {
       case "compaction": return cb.onCompaction?.(ev.e);
       case "contextWindow": return cb.onContextWindow?.(ev.w);
       case "inputClosed": return cb.onInputClosed?.(ev.why);
+      case "inboxTaken": return cb.onInboxTaken?.(ev.callId);
       case "end": {
         sendLine(this.sock, { t: "ack", seq: ev.seq });
         removeHostFiles(this.o.dataDir, this.record.host);
