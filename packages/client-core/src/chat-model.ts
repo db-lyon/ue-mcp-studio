@@ -27,11 +27,13 @@ export const isActive = (state: AgentState): boolean => ACTIVE.includes(state);
 
 /**
  * The subagents the session lists: every running one, the open thread, and the
- * finished ones not dismissed. The Subagents list and the bar's badge both
- * count this, so the badge always says what the list shows.
+ * finished ones not dismissed. Dismissal is the daemon's (each agent's
+ * `dismissed`); `pending` holds the viewer's dismissals not saved yet. The
+ * Subagents list and the bar's badge both count this, so the badge always says
+ * what the list shows.
  */
-export function listedSubagents<A extends { id: string; state: AgentState }>(agents: readonly A[], dismissed: ReadonlySet<string>, open: string | null = null): A[] {
-  return agents.filter((a) => isActive(a.state) || !dismissed.has(a.id) || a.id === open);
+export function listedSubagents<A extends { id: string; state: AgentState; dismissed?: boolean }>(agents: readonly A[], pending: ReadonlySet<string> = new Set(), open: string | null = null): A[] {
+  return agents.filter((a) => isActive(a.state) || a.id === open || !(a.dismissed || pending.has(a.id)));
 }
 
 /**

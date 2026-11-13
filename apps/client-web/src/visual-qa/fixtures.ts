@@ -316,6 +316,24 @@ function withSubagentMessage(): SessionDetail {
   };
 }
 
+/**
+ * The two subagents still running beside twelve finished ones the user
+ * cleared, while the main agent is free: the badge and the list say 2, and the
+ * working line counts the running ones.
+ */
+function withClearedAgents(): SessionDetail {
+  const d = withAgents();
+  const done = Array.from({ length: 12 }, (_, i): TranscriptEntry =>
+    ({ kind: "tool", call: { id: `agent-done-${i}`, name: "agent", input: { description: `Earlier pass ${i + 1}`, prompt: "x" }, outcome: "done", startedAt: ago(20), endedAt: ago(15), result: "Done." } }));
+  return {
+    ...d,
+    mainFree: true,
+    transcript: [d.transcript[0], ...done, ...d.transcript.slice(1)],
+    dismissed: done.map((t) => (t.kind === "tool" ? t.call.id : "")),
+    agents: { total: 14, running: 2 },
+  };
+}
+
 /** A turn of ordinary tool calls, folded into one line: a command and its output, an edit, a new file, an editor call and a failed one. */
 function withTools(): SessionDetail {
   const d = detail("Door hinge fix", []);
@@ -823,6 +841,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
   "subagent-message": { title: "A running subagent's thread: the composer messages that subagent, and the message the user sent it shows in its thread", hash: `#/chat/${SESSION_ID}`, session: withSubagentMessage(), index: { playtests: [], listed: true }, click: '.thread-stage .tool-call:has-text("Place rocks along the cave floor")' },
   "agents-sheet": { title: "The subagents opened from the composer bar's Subagents button (or its overflow menu, folded): the thread list in a sheet, at every width", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true }, clicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`] },
+  "agents-cleared": { title: "Two subagents running after twelve finished ones were cleared, the main agent free: the badge and the opened list both say 2, the working line reads 2 subagents working", hash: `#/chat/${SESSION_ID}`, session: withClearedAgents(), index: { playtests: [], listed: true }, clicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`] },
   "utilities-folded": {
     title: "Running subagents in a bar too narrow for its utilities: they fold into one overflow button with the subagents' count, its menu open (wide, the whole row shows)",
     hash: `#/chat/${SESSION_ID}`,

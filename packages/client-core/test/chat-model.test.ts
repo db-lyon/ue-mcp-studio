@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
 import { sessionAgents, type ToolCallRecord as Rec, type TranscriptEntry as Entry } from "@ue-mcp-studio/shared";
-import { QUIET_MS, agentView, finishedTurns, formatDuration, formatResult, mainTimeline, summarize, toolLabel } from "../src/chat-model.js";
+import { QUIET_MS, agentView, finishedTurns, formatDuration, formatResult, listedSubagents, mainTimeline, summarize, toolLabel } from "../src/chat-model.js";
 
 /** A subagent's status as a client shows it: the daemon's state for it (shared sessionAgents), formatted by agentView. */
 function agentStatus(call: Rec, transcript: Entry[], waiting: boolean, now: number) {
@@ -78,6 +78,28 @@ describe("a subagent's state", () => {
       const a = agent("a", outcome, 42);
       expect(agentStatus(callOf(a), [a], false, T0 + 999_000)).toEqual({ state, activity: null, secs: 42 });
     }
+  });
+});
+
+describe("the listed subagents", () => {
+  const agent = (id: string, outcome: Rec["outcome"]): Entry => ({ kind: "tool", call: { id, name: "agent", input: { description: id }, outcome, startedAt: at(0) } });
+  const transcript = [agent("run", "pending"), ...Array.from({ length: 13 }, (_, i) => agent(`done${i}`, "done"))];
+  const finished = Array.from({ length: 13 }, (_, i) => `done${i}`);
+
+  it("drops finished subagents the daemon has dismissed, and keeps the running one", () => {
+    const agents = sessionAgents(transcript, { status: "running", asked: new Set(), dismissed: finished.slice(0, 12) });
+    expect(agents).toHaveLength(14);
+    expect(listedSubagents(agents).map((a) => a.id)).toEqual(["run", "done12"]);
+  });
+
+  it("drops the viewer's dismissals before the daemon has saved them", () => {
+    const agents = sessionAgents(transcript, { status: "running", asked: new Set() });
+    expect(listedSubagents(agents, new Set(finished)).map((a) => a.id)).toEqual(["run"]);
+  });
+
+  it("keeps the open thread, even dismissed, and never drops a running one", () => {
+    const agents = sessionAgents(transcript, { status: "running", asked: new Set(), dismissed: ["run", ...finished] });
+    expect(listedSubagents(agents, new Set(), "done3").map((a) => a.id)).toEqual(["run", "done3"]);
   });
 });
 
