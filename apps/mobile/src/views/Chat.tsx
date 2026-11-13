@@ -48,7 +48,8 @@ import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../screens/chat/items";
 import { useSessionRuns } from "../chat/sessionRuns";
 import { buttonText, small } from "../chat/styles";
-import { DiagStrip, resetDiag, setDiag } from "../chat/diag";
+import { DiagStrip, noteError, resetDiag, setDiag } from "../chat/diag";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -174,7 +175,12 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
         (e) => (unreachable(e) ? setMissed((n) => n + 1) : setDetailError(e.message)),
         // The newest entries first; older ones a page at a time as the reader scrolls up.
         // A session deleted meanwhile closes quietly instead of showing an error.
-        { tail: TAIL_ENTRIES, gone: (id) => (setSelected((cur) => (cur === id ? null : cur)), setDetail((d) => (d?.id === id ? null : d)), setDetailError(null)) },
+        // What of an answer could not be read was mended in place; the diagnostics say what.
+        {
+          tail: TAIL_ENTRIES,
+          gone: (id) => (setSelected((cur) => (cur === id ? null : cur)), setDetail((d) => (d?.id === id ? null : d)), setDetailError(null)),
+          problem: (_id, problems) => noteError(`Session answer mended: ${problems.join("; ")}`),
+        },
       ),
     [api],
   );
@@ -646,7 +652,10 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                         {/* The transcript, the cards and the composer: the composer's box is capped by what this column leaves it. */}
                         <View testID="chat-column" style={{ flex: 1, minHeight: 0 }} onLayout={(e) => setColumnH(Math.round(e.nativeEvent.layout.height))}>
                         <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onLayout={(e) => setDiag({ boxH: e.nativeEvent.layout.height })}>
-                          <MainTranscript key={detail.id} more={(detail.from ?? 0) > 0 ? olderEntries : undefined} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} onStop={stopSubagent} hidden={!!drawerId} sent={sent} />
+                          {/* A part that cannot draw says so in its place; the header, cards and composer stay. */}
+                          <ErrorBoundary what="The conversation" where="Chat > Conversation" resetKey={detail.id}>
+                            <MainTranscript key={detail.id} more={(detail.from ?? 0) > 0 ? olderEntries : undefined} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} onStop={stopSubagent} hidden={!!drawerId} sent={sent} />
+                          </ErrorBoundary>
                           {drawerAgent ? (
                             <Animated.View
                               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.c.panel, borderLeftWidth: 1, borderLeftColor: t.c.line, shadowColor: "#000", shadowOpacity: 0.28, shadowRadius: 16, shadowOffset: { width: -16, height: 0 }, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [width, 0] }) }] }}
@@ -684,7 +693,9 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                         {playtest ? <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} /> : null}
                         </View>
                         <View onLayout={(e) => setDiag({ composerH: e.nativeEvent.layout.height })}>
-                        <WorkingLine detail={detail} />
+                        <ErrorBoundary what="The working line" where="Chat > Working line" resetKey={detail.id}>
+                          <WorkingLine detail={detail} />
+                        </ErrorBoundary>
                         <Composer
                           draft={draft}
                           onDraft={setDraft}

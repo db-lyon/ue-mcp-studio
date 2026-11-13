@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.uemcp.studio.remote",
-      "versionCode": 42,
+      "versionCode": 43,
       "adaptiveIcon": {
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png",

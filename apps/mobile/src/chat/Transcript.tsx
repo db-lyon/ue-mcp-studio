@@ -10,6 +10,7 @@ import { FlatList, Image, Platform, Pressable, ScrollView, Text, TextInput, View
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type SessionAgent, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
+  EARLIER_ENTRIES,
   OUTCOME_LABEL,
   RESULT_PREVIEW_LINES,
   TOOL_TAG,
@@ -34,7 +35,7 @@ import {
   type Call,
   type ThreadItem,
 } from "@ue-mcp-studio/client-core";
-import { Banner, baseFont, ContentButton, buttonFont, font, labelFont, lineBox, MarkdownPiece, markdownPieces, Output, PIECE_CHARS, Pulse, stopOf, useTheme, type Theme } from "../ui";
+import { Banner, baseFont, Button, ContentButton, buttonFont, font, labelFont, lineBox, MarkdownPiece, markdownPieces, Output, PIECE_CHARS, Pulse, stopOf, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import { copyText } from "../native/clipboard";
 import { MentionText } from "./MentionMenu";
@@ -774,9 +775,11 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
         {status === "error" && error ? <Banner kind="bad">{error}</Banner> : null}
       </>
     ) : null;
+  // A thread too short to scroll never reaches its top, so reading the entries before it is a button there.
+  const head = more && drawn.length < FIRST_ROWS ? <Button testID="earlier-entries" title={EARLIER_ENTRIES} variant="ghost" size="small" style={{ alignSelf: "center" }} onPress={more} /> : undefined;
   return (
     <>
-      <Column follow={follow} hidden={hidden} rows={drawn} foot={foot} more={more} />
+      <Column follow={follow} hidden={hidden} rows={drawn} head={head} foot={foot} more={more} />
       {follow.behind ? <JumpLatest onPress={follow.jump} /> : null}
     </>
   );

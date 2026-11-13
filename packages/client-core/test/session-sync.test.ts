@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { agentThreadPage, deriveSession, type SessionDetail, type SessionSync, type TranscriptEntry } from "@ue-mcp-studio/shared";
-import { DetailLoader, ThreadLoader, mergeSync, sessionGone, type HeldThread } from "../src/session-sync.js";
+import { DetailLoader, MIN_MAIN_ENTRIES, ThreadLoader, UNREADABLE_ENTRY, mainEntries, mergeSync, readableDetail, sessionGone, wantsOlder, type HeldThread } from "../src/session-sync.js";
 import { HttpError } from "../src/transport.js";
 import { subagentsOf } from "../src/chat-model.js";
 import { workingStatus } from "../src/working.js";
@@ -51,6 +51,30 @@ describe("mergeSync", () => {
     await loader.load("s1");
     await loader.load("s1");
     expect(shown.map((d) => subagentsOf(d).map((a) => `${a.id}:${a.state}`))).toEqual([["g1:working"], ["g1:done", "g2:working"]]);
+  });
+});
+
+describe("readableDetail", () => {
+  it("mends what the chat cannot read in place and says what, leaving a sound answer as the same object", () => {
+    const sound = mergeSync(null, full("s1", [user("a")]));
+    expect(readableDetail(sound)).toEqual({ detail: sound, problems: [] });
+    const odd = { ...base, id: "s1", from: 10, transcript: [user("a"), { kind: "tool", at, parent: "g1" }, null, { kind: "later-kind", at }], subagents: {}, working: "x", seen: "y", draft: 3 } as unknown as SessionDetail;
+    const { detail, problems } = readableDetail(odd);
+    expect(detail.transcript).toEqual([user("a"), { kind: "note", text: UNREADABLE_ENTRY, at, parent: "g1" }, { kind: "note", text: UNREADABLE_ENTRY, at: new Date(0).toISOString() }, { kind: "later-kind", at }]);
+    expect(detail.subagents).toBeUndefined();
+    expect(detail.working).toBeUndefined();
+    expect(detail.seen).toEqual([]);
+    expect(detail.draft).toBe("");
+    expect(problems).toEqual(expect.arrayContaining(["entry 11 (tool) could not be read", "entry 12 (object) could not be read", "subagents is not a list", "working is not an object"]));
+    // The client works the subagents out from the transcript instead, as for an older daemon.
+    expect(subagentsOf(detail)).toEqual([]);
+  });
+
+  it("reports through the loader what it mended", async () => {
+    const seen: string[][] = [];
+    const loader = new DetailLoader(async () => ({ ...full("s1", [user("a")]), queue: "no" }) as unknown as SessionSync, () => {}, () => {}, { problem: (_id, p) => seen.push(p) });
+    await loader.load("s1");
+    expect(seen).toEqual([["queue is not a list"]]);
   });
 });
 
@@ -205,6 +229,61 @@ describe("a loader holding only the newest entries", () => {
     expect(asks).toEqual([{ have: undefined, tail: 2 }, { have: "H1" }, { have: undefined, tail: 2 }]);
     expect(texts(shown.at(-1)!)).toEqual(["m3", "m4"]);
     expect(shown.at(-1)!.from).toBe(3);
+  });
+
+  describe("when the newest page is all subagent lines", () => {
+    const sub = (i: number): TranscriptEntry => ({ kind: "assistant", text: `s${i}`, at, parent: "g1" });
+    const transcript: TranscriptEntry[] = [...Array.from({ length: 30 }, (_, i) => user(`m${i}`)), ...Array.from({ length: 300 }, (_, i) => sub(i)), { kind: "note", text: "rebuilding", at }];
+    /** A daemon before 0.1.35-beta.28: the `tail` entries before `before`, as asked, whatever they are. */
+    const plainPage = (_id: string, _have: string | undefined, p?: { tail?: number; before?: number }): SessionSync => {
+      const end = p?.before ?? transcript.length;
+      const from = Math.max(0, end - (p?.tail ?? end));
+      return page("s1", transcript.slice(from, end), from, transcript.length);
+    };
+
+    it("against an older daemon, reads the pages before it on its own until the main thread has enough to draw", async () => {
+      const asks: unknown[] = [];
+      const shown: SessionDetail[] = [];
+      const loader = new DetailLoader(async (id, have, p) => (asks.push(p), plainPage(id, have, p)), (d) => shown.push(d), () => {}, { tail: 60 });
+      await loader.load("s1");
+      const held = shown.at(-1)!;
+      expect(mainEntries(held.transcript)).toBeGreaterThanOrEqual(MIN_MAIN_ENTRIES);
+      expect(held.transcript).toEqual(transcript.slice(held.from));
+      expect(texts(held).filter((t) => t.startsWith("m")).at(-1)).toBe("m29");
+      // The newest page, then the pages before it until the main thread was reached, and no more.
+      expect(asks[0]).toEqual({ tail: 60 });
+      expect(asks.slice(1).every((a) => (a as { tail: number }).tail === 60 && typeof (a as { before: number }).before === "number")).toBe(true);
+      expect(asks).toHaveLength(6);
+    });
+
+    it("against a daemon that reaches back itself, asks once", async () => {
+      let n = 0;
+      const shown: SessionDetail[] = [];
+      const reached = page("s1", transcript.slice(10), 10, transcript.length);
+      const loader = new DetailLoader(async () => (n++, reached), (d) => shown.push(d), () => {}, { tail: 60 });
+      await loader.load("s1");
+      expect(n).toBe(1);
+      expect(wantsOlder(shown.at(-1)!)).toBe(false);
+    });
+
+    it("stops at the start of a session with too little of the main thread", async () => {
+      const subOnly = transcript.slice(30);
+      let n = 0;
+      const loader = new DetailLoader(
+        async (_id, _have, p) => {
+          n++;
+          const end = p?.before ?? subOnly.length;
+          const from = Math.max(0, end - (p?.tail ?? end));
+          return page("s1", subOnly.slice(from, end), from, subOnly.length);
+        },
+        () => {},
+        () => {},
+        { tail: 60 },
+      );
+      await loader.load("s1");
+      expect(n).toBe(Math.ceil(subOnly.length / 60));
+      expect(loader.hasOlder("s1")).toBe(false);
+    });
   });
 
   it("without a tail, asks as before and holds the session whole", async () => {

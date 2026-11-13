@@ -42,6 +42,7 @@ import { ReviewPanel } from "../chat/TurnReview";
 import { useSessionRuns } from "../chat/sessionRuns";
 import { NARROW, useMedia } from "../layout";
 import { Slot } from "../extensions/Slot";
+import { ErrorBoundary } from "./ErrorBoundary";
 
 /** How long a subagent thread takes to slide in or out; matches .thread-drawer's transition. */
 export const DRAWER_MS = 260;
@@ -129,7 +130,11 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     },
     (e) => setError(e.message),
     // A session deleted meanwhile closes quietly instead of showing an error.
-    { gone: (id) => (setSelected((cur) => (cur === id ? null : cur)), setDetail((d) => (d?.id === id ? null : d))) },
+    {
+      gone: (id) => (setSelected((cur) => (cur === id ? null : cur)), setDetail((d) => (d?.id === id ? null : d))),
+      // What of an answer could not be read was mended in place; the console says what.
+      problem: (id, problems) => console.warn(`Session ${id}: answer mended: ${problems.join("; ")}`),
+    },
   ), []);
   const loadDetail = (id: string) => detailLoader.load(id);
 
@@ -534,17 +539,20 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
           <CompactContext.Provider value={disconnected ? null : () => compactNow()}>
             <div className="session-stage">
             <div className="thread-stage" ref={stage}>
-              <MainTranscript
-                transcript={detail.transcript}
-                status={detail.status}
-                streaming={streaming}
-                waitingCause={detail.waitingCause}
-                error={detail.error}
-                onOpen={openThreadId}
-                onStop={stopSubagent}
-                hidden={drawerOpen}
-                sent={sent}
-              />
+              {/* A part that cannot draw says so in its place; the header, cards and composer stay. */}
+              <ErrorBoundary what="The conversation" where="Chat > Conversation" resetKey={detail.id}>
+                <MainTranscript
+                  transcript={detail.transcript}
+                  status={detail.status}
+                  streaming={streaming}
+                  waitingCause={detail.waitingCause}
+                  error={detail.error}
+                  onOpen={openThreadId}
+                  onStop={stopSubagent}
+                  hidden={drawerOpen}
+                  sent={sent}
+                />
+              </ErrorBoundary>
               {drawerAgent && (
                 <div className={`thread-drawer ${drawerOpen ? "open" : ""}`}>
                   <SubagentThread
@@ -603,7 +611,9 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
               <ContextWarning view={meterView} runtime={runtimeCompacts} busy={busy} onCompact={() => compactNow()} onDismiss={() => setWarnDismissed(warnKey)} />
             )}
             {playtest && <PillRow pills={pills} actions={{ playtest: playtest.run }} onClear={clearPills} />}
-            <WorkingLine detail={detail} />
+            <ErrorBoundary what="The working line" where="Chat > Working line" resetKey={detail.id}>
+              <WorkingLine detail={detail} />
+            </ErrorBoundary>
             <Composer
               draft={draft}
               onDraft={setDraft}
