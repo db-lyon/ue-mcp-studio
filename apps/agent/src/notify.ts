@@ -7,7 +7,7 @@
  *
  *   GET  /notifications            { project, prefs, recent }
  *   PUT  /notifications            a ProjectNotifyUpdate: events, mute, unmute
- *   POST /notifications/presence   { id, device, active, inputAgeMs? }: whether the owner is using a device (inUse), for "only when I'm away"
+ *   POST /notifications/presence   { id, device, active, inputAgeMs?, viewing? }: whether the owner is using a device (inUse), for "only when I'm away", and the session it has open: none is sent for a session the owner is looking at
  *   GET  /notifications/desktop    { prefs }: the computer's own device settings, null before any
  *   PUT  /notifications/desktop    the computer's own device settings
  *   POST /notifications/test       { id }: a test notice only the device with that presence id shows, or every device of a class (desktop, browser, phone)
@@ -92,12 +92,20 @@ export const plainLine = (s: string, n = 60): string =>
 const subject = (title: string | undefined, fallback: string): string => (title && plainLine(title)) || fallback;
 
 export class Presence {
-  private readonly seen = new Map<string, { device: NotifyDevice; active: boolean; at: number; inputAgeMs?: number }>();
+  private readonly seen = new Map<string, { device: NotifyDevice; active: boolean; at: number; inputAgeMs?: number; viewing?: string }>();
   constructor(private readonly now: () => number = Date.now) {}
 
-  report(id: string, device: NotifyDevice, active: boolean, inputAgeMs?: number): void {
+  /** `viewing`: the session the device has open on screen, if any. */
+  report(id: string, device: NotifyDevice, active: boolean, inputAgeMs?: number, viewing?: string): void {
     if (this.seen.size > 200) this.seen.clear();
-    this.seen.set(id, { device, active, at: this.now(), ...(typeof inputAgeMs === "number" ? { inputAgeMs } : {}) });
+    this.seen.set(id, { device, active, at: this.now(), ...(typeof inputAgeMs === "number" ? { inputAgeMs } : {}), ...(viewing ? { viewing } : {}) });
+  }
+
+  /** Whether the owner is looking at this session now: a device in use with it open. */
+  watching(sessionId: string): boolean {
+    const cutoff = this.now() - PRESENCE_TTL_MS;
+    for (const p of this.seen.values()) if (p.active && p.at >= cutoff && p.viewing === sessionId) return true;
+    return false;
   }
 
   /** Each device class reported lately, active or idle, with its input age now: "desktop idle input=1h03m, phone active input=20s". */
@@ -175,9 +183,9 @@ export class Notifier {
     if (was !== "running" && was !== "waiting") return;
     const s = this.o.session(id);
     const title = subject(s?.title, "A session");
+    // "stopped" is only ever the owner's own stop or interruption: nothing to tell them.
     if (status === "idle") this.emit("turn.finished", id, title, "Ready for your review", { sessionId: id });
     else if (status === "error") this.emit("turn.failed", id, title, "Stopped on an error", { sessionId: id });
-    else if (status === "stopped") this.emit("turn.failed", id, title, "Stopped", { sessionId: id });
   }
 
   private dialogs(state: DialogsState): void {
@@ -209,9 +217,11 @@ export class Notifier {
     const s = this.o.session(sessionId);
     const entry = s?.transcript.find((t) => t.kind === "tool" && t.call.id === toolUseId);
     if (entry?.kind !== "tool" || !/^(agent|task)$/i.test(entry.call.name) || entry.parent) return;
+    // A subagent stopped is the owner's own stop.
+    if (outcome === "stopped") return;
     const input = entry.call.input as { description?: unknown; name?: unknown };
     const task = typeof input.description === "string" ? input.description : typeof input.name === "string" ? input.name : undefined;
-    const how = outcome === "done" ? "Subagent finished" : outcome === "stopped" ? "Subagent stopped" : "Subagent stopped on an error";
+    const how = outcome === "done" ? "Subagent finished" : "Subagent stopped on an error";
     this.emit("subagent.finished", sessionId, subject(s?.title, "A session"), task ? `${how}: ${plainLine(task, 40)}` : how, { sessionId });
   }
 
@@ -240,7 +250,11 @@ export class Notifier {
   /** Publish a notice unless the project's settings turn its event or its session off. */
   emit(kind: NotifyKind, sessionId: string | undefined, title: string, text: string, target: NotifyTarget): Notice | null {
     const prefs = this.o.prefs();
-    const rule = !prefs.events[kind] ? "event" : sessionId && prefs.mutedSessions.includes(sessionId) ? "session-muted" : null;
+    // A session the owner has open in front of them shows its own state; an editor dialog is not in the chat, so it still notifies.
+    const rule = !prefs.events[kind] ? "event"
+      : sessionId && prefs.mutedSessions.includes(sessionId) ? "session-muted"
+      : sessionId && kind !== "dialog.waiting" && this.presence.watching(sessionId) ? "viewing"
+      : null;
     if (rule) {
       this.trace(`notify ${kind} project=${this.o.project}${sessionId ? ` session=${sessionId}` : ""} suppressed rule=${rule}`, { stage: "agent", kind, ...(sessionId ? { sessionId } : {}), decision: "suppressed", rule });
       return null;
@@ -341,12 +355,13 @@ export function registerNotifications(api: DaemonExtensionApi, o: Omit<NotifierO
     return { body: state(prefs) };
   });
   api.route("POST", "/notifications/presence", (req) => {
-    const b = (req.body ?? {}) as { id?: unknown; device?: unknown; active?: unknown; inputAgeMs?: unknown };
+    const b = (req.body ?? {}) as { id?: unknown; device?: unknown; active?: unknown; inputAgeMs?: unknown; viewing?: unknown };
     if (typeof b.id !== "string" || !b.id || b.id.length > 100 || !DEVICES.includes(b.device as NotifyDevice) || typeof b.active !== "boolean") {
-      return { status: 400, body: { error: "body must be { id, device: desktop | browser | phone, active, inputAgeMs? }" } };
+      return { status: 400, body: { error: "body must be { id, device: desktop | browser | phone, active, inputAgeMs?, viewing? }" } };
     }
     const age = typeof b.inputAgeMs === "number" && Number.isFinite(b.inputAgeMs) && b.inputAgeMs >= 0 ? b.inputAgeMs : undefined;
-    notifier.presence.report(b.id, b.device as NotifyDevice, b.active, age);
+    const viewing = typeof b.viewing === "string" && b.viewing.length > 0 && b.viewing.length <= 100 ? b.viewing : undefined;
+    notifier.presence.report(b.id, b.device as NotifyDevice, b.active, age, viewing);
     return { status: 204 };
   });
   // The computer's own device settings: the window's page storage belongs to the daemon's port, which changes on every restart.

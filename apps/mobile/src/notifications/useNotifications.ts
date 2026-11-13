@@ -16,6 +16,7 @@ import { DEFAULT_PROJECT_NOTIFY, NOTIFY_EVENT, decideNotice, inUse, noticeConten
 import type { Device } from "../relay";
 import { registerPush } from "../relay";
 import { askPermission, present, prepareChannel, pushToken, permission } from "../native/notify";
+import { onLocation, viewingSession } from "../location";
 import { devicePrefsNow, loadProjectNotify, pendingLatest, projectNotifyNow, readDevicePrefs, useDevicePrefs, useProjectNotify } from "./state";
 
 const SETTINGS_EVENT = "studio.notify.settings";
@@ -192,19 +193,24 @@ export function useNotifications({ events, device, api, streaming, onOpen }: { e
   useEffect(() => {
     const id = phoneIdFor(device.id);
     let last: boolean | null = null;
+    let lastViewing: string | null = null;
     let sentAt = 0;
     const report = (force = false) => {
       const use = phoneInUse();
-      if (!force && !presenceDue(use.active, last, sentAt, Date.now())) return;
+      const viewing = viewingSession();
+      if (!force && viewing === lastViewing && !presenceDue(use.active, last, sentAt, Date.now())) return;
       last = use.active;
+      lastViewing = viewing;
       sentAt = Date.now();
-      api.notifyPresence({ id, device: "phone", ...use }).catch(() => undefined);
+      api.notifyPresence({ id, device: "phone", ...use, ...(viewing ? { viewing } : {}) }).catch(() => undefined);
     };
     report(true);
     const sub = AppState.addEventListener("change", () => report());
+    const moved = onLocation(() => report());
     const timer = setInterval(() => report(), PRESENCE_CHECK_MS);
     return () => {
       sub.remove();
+      moved();
       clearInterval(timer);
     };
   }, [api, device.id]);

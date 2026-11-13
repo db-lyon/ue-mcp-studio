@@ -32,6 +32,7 @@ import { createNoticeGate, latestTarget, newestEventId, noticeTag, presenceDue }
 import { native } from "./native";
 import { onRemotePage } from "./connection";
 import { syncWebPush } from "./web-push";
+import { LOCATION_EVENT, readLocation } from "./location";
 
 /** The DOM event Studio's window dispatches when its notification is clicked. */
 export const NOTIFICATION_CLICK = "studio-notification";
@@ -409,31 +410,44 @@ export const PRESENCE_CHECK_MS = 10_000;
 export function usePresence(): void {
   useEffect(() => {
     let last: boolean | null = null;
+    let lastViewing: string | null = null;
     let sentAt = 0;
     let gone = false;
     const report = async (force = false) => {
       const use = await pageInUse();
       if (gone) return;
-      if (!force && !presenceDue(use.active, last, sentAt, Date.now())) return;
+      const viewing = viewingSession();
+      if (!force && viewing === lastViewing && !presenceDue(use.active, last, sentAt, Date.now())) return;
       last = use.active;
+      lastViewing = viewing;
       sentAt = Date.now();
-      api.notifyPresence({ id: presenceId, device: deviceKind(), ...use }).catch(() => undefined);
+      api.notifyPresence({ id: presenceId, device: deviceKind(), ...use, ...(viewing ? { viewing } : {}) }).catch(() => undefined);
     };
     const change = () => void report();
     void report(true);
     const timer = setInterval(change, PRESENCE_CHECK_MS);
     window.addEventListener("focus", change);
     window.addEventListener("blur", change);
+    window.addEventListener("hashchange", change);
+    window.addEventListener(LOCATION_EVENT, change);
     document.addEventListener("visibilitychange", change);
     return () => {
       gone = true;
       clearInterval(timer);
       window.removeEventListener("focus", change);
       window.removeEventListener("blur", change);
+      window.removeEventListener("hashchange", change);
+      window.removeEventListener(LOCATION_EVENT, change);
       document.removeEventListener("visibilitychange", change);
     };
   }, []);
 }
+
+/** The session this page has open on screen, so the agent sends no notice about a chat the owner is looking at. */
+export const viewingSession = (): string | null => {
+  const loc = readLocation();
+  return loc.tab === "Chat" ? loc.session : null;
+};
 
 /** Keep this browser's push registration in step with its settings and the project's. */
 export function useWebPush(): void {
