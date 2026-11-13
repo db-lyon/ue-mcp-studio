@@ -4,6 +4,7 @@
  * routes over fetch and moves onto this as its views move.
  */
 import type {
+  AgentThreadPage,
   ActionDescription,
   ActionListing,
   ActionRunRequest,
@@ -54,6 +55,11 @@ import { projectApi } from "./project-api.js";
 const enc = encodeURIComponent;
 const S = "/v1/ext/studio";
 const session = (id: string) => `${S}/sessions/${enc(id)}`;
+/** ?tail=&before= for a page of a subagent's thread; nothing for the whole of it. */
+export const threadQuery = (page?: { tail?: number; before?: number }): string => {
+  const q = [page?.tail !== undefined ? `tail=${page.tail}` : "", page?.before !== undefined ? `before=${page.before}` : ""].filter(Boolean).join("&");
+  return q ? `?${q}` : "";
+};
 const review = (sessionId: string, reviewId: string) => `${session(sessionId)}/reviews/${enc(reviewId)}`;
 
 export interface ReviewDiff {
@@ -81,6 +87,9 @@ export function studioApi(t: Transport) {
         `${session(id)}?sync=1${have !== undefined ? `&have=${have}` : ""}${page?.tail !== undefined ? `&tail=${page.tail}` : ""}${page?.before !== undefined ? `&before=${page.before}` : ""}`,
       ),
     callResult: (id: string, callId: string) => get<{ result: string }>(`${session(id)}/calls/${enc(callId)}/result`),
+    /** One subagent's own entries, a page at a time: whatever part of the main transcript is held. */
+    agentThread: (id: string, callId: string, page?: { tail?: number; before?: number }) =>
+      get<AgentThreadPage>(`${session(id)}/agents/${enc(callId)}${threadQuery(page)}`),
     send: (id: string, text: string, attachments: string[] = [], now = false) =>
       send<{ sessionId: string }>("POST", `${session(id)}/messages`, now ? { text, attachments, now } : { text, attachments }),
     queue: (id: string, text: string, attachments: string[] = []) => send<QueuedMessage>("POST", `${session(id)}/queue`, { text, attachments }),

@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
-import type { SessionDetail, SessionSync, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { DetailLoader, mergeSync, sessionGone } from "../src/session-sync.js";
+import { agentThreadPage, deriveSession, type SessionDetail, type SessionSync, type TranscriptEntry } from "@ue-mcp-studio/shared";
+import { DetailLoader, ThreadLoader, mergeSync, sessionGone, type HeldThread } from "../src/session-sync.js";
 import { HttpError } from "../src/transport.js";
+import { subagentsOf } from "../src/chat-model.js";
+import { workingStatus } from "../src/working.js";
 
 const at = "2026-11-03T12:00:00.000Z";
 const user = (text: string): TranscriptEntry => ({ kind: "user", text, at });
@@ -24,6 +26,67 @@ describe("mergeSync", () => {
     expect(mergeSync(held, delta("s1", 1, [])).transcript).toHaveLength(1);
     const plain = { ...base, id: "s1", transcript: [user("x")] } as unknown as SessionDetail;
     expect(mergeSync(held, plain)).toBe(plain);
+  });
+
+  it("takes the daemon's subagents and working line from every answer, page or delta, over what the held page could say", async () => {
+    const call = (id: string, outcome: "pending" | "done" = "pending") => ({ id, name: "agent", input: { description: id, prompt: id }, outcome, startedAt: at });
+    const whole: TranscriptEntry[] = [user("go"), { kind: "tool", call: call("g1") } as TranscriptEntry, user("a"), user("b"), user("c"), user("d")];
+    const derived = (t: TranscriptEntry[]) => deriveSession(t, { status: "running", asked: new Set() });
+    const page = { ...base, status: "running", id: "s1", hashes: "h0", transcript: whole.slice(4), from: 4, total: 6, ...derived(whole) } as unknown as SessionSync;
+    const held = mergeSync(null, page);
+    expect(held.from).toBe(4);
+    // The page holds neither the subagent nor the turn's start; the daemon's facts do.
+    expect(subagentsOf(held).map((a) => [a.id, a.state])).toEqual([["g1", "working"]]);
+    expect(workingStatus(held)?.since).toBe(Date.parse(at));
+    // A delta in which the subagent finished, though its entry is before the page.
+    const done = [...whole];
+    done[1] = { kind: "tool", call: { ...call("g1", "done"), endedAt: at } } as TranscriptEntry;
+    const next = mergeSync(held, { ...delta("s1", 6, []), status: "running", ...derived(done) } as unknown as SessionSync);
+    expect(subagentsOf(next).map((a) => [a.id, a.state])).toEqual([["g1", "done"]]);
+
+    // Through the loader, as the phone reads a session: the tail page, then a delta that adds a subagent.
+    const more = [...done, { kind: "tool", call: call("g2") } as TranscriptEntry];
+    const shown: SessionDetail[] = [];
+    const loader = new DetailLoader(async (_id, have) => (have === undefined ? page : { ...delta("s1", 7, [[6, more[6]]]), status: "running", ...derived(more) } as unknown as SessionSync), (d) => shown.push(d), () => {}, { tail: 2 });
+    await loader.load("s1");
+    await loader.load("s1");
+    expect(shown.map((d) => subagentsOf(d).map((a) => `${a.id}:${a.state}`))).toEqual([["g1:working"], ["g1:done", "g2:working"]]);
+  });
+});
+
+describe("ThreadLoader", () => {
+  const steps = Array.from({ length: 12 }, (_, i): TranscriptEntry => ({ kind: "assistant", text: `s${i}`, at, parent: "g1" }));
+  const transcript: TranscriptEntry[] = [user("go"), ...steps.slice(0, 6), user("between"), ...steps.slice(6)];
+  const texts = (t: HeldThread | null) => t?.entries.map((e) => (e as { text: string }).text);
+
+  it("reads a subagent's thread by its id, newest page first, then the pages before it", async () => {
+    const asked: Array<{ tail?: number; before?: number }> = [];
+    let held: HeldThread | null = null;
+    const loader = new ThreadLoader(async (_s, id, page) => (asked.push(page), agentThreadPage(transcript, id, page)), (t) => (held = t), (e) => { throw e; }, 5);
+    await loader.load("s1", "g1");
+    expect(texts(held)).toEqual(["s7", "s8", "s9", "s10", "s11"]);
+    expect(loader.hasOlder()).toBe(true);
+    await loader.older();
+    await loader.older();
+    expect(texts(held)).toEqual(steps.map((e) => (e as { text: string }).text));
+    expect(held!.from).toBe(0);
+    expect(loader.hasOlder()).toBe(false);
+    expect(asked).toEqual([{ tail: 5 }, { tail: 5, before: 7 }, { tail: 5, before: 2 }]);
+  });
+
+  it("reads the held span again with what came since, when the session changed", async () => {
+    let t = transcript;
+    let held: HeldThread | null = null;
+    const loader = new ThreadLoader(async (_s, id, page) => agentThreadPage(t, id, page), (x) => (held = x), (e) => { throw e; }, 5);
+    await loader.load("s1", "g1");
+    await loader.older();
+    t = [...transcript, { kind: "assistant", text: "s12", at, parent: "g1" }];
+    await loader.load("s1", "g1");
+    // The span held (s2 on) and room for a page more: nothing held is lost, the new line is in.
+    expect(texts(held)?.slice(-11)).toEqual(["s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12"]);
+    // Another subagent's thread starts from its own newest page.
+    await loader.load("s1", "nope");
+    expect(held!.entries).toEqual([]);
   });
 });
 

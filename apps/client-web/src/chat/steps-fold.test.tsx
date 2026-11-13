@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
+import { sessionAgents, type ToolCallRecord, type TranscriptEntry } from "@ue-mcp-studio/shared";
 
 vi.mock("../api", () => ({ api: {} }));
 import { MainTranscript, SubagentThread } from "./Transcript";
@@ -107,7 +107,7 @@ describe("a run of steps in the transcript", () => {
   it("folds a subagent's own steps the same way, a failure included", () => {
     const agent: ToolCallRecord = { id: "ag", name: "agent", input: { description: "Read the wiki", prompt: "read it" }, outcome: "done", startedAt: at(0), endedAt: at(9) };
     const t: TranscriptEntry[] = [{ kind: "tool", call: agent }, tool("read_file", { path: "w/A.md" }, "done", "ag"), tool("shell", { command: "x" }, "error", "ag"), tool("read_file", { path: "w/B.md" }, "done", "ag")];
-    render(<SubagentThread call={agent} transcript={t} sessionWaiting={false} onBack={vi.fn()} onStop={vi.fn()} />);
+    render(<SubagentThread agent={sessionAgents(t, { status: "idle", asked: new Set() })[0]} entries={t.filter((e) => e.parent === "ag")} onBack={vi.fn()} onStop={vi.fn()} />);
     expect(screen.getByRole("button", { name: /Read 2 files, ran 1 command, 1 failed/ })).toBeTruthy();
   });
 });

@@ -15,8 +15,13 @@ import { NavDrawer } from "../views/NavDrawer";
 import { SessionRow, sessionLine } from "./SessionRow";
 import { MainTranscript, SubagentThread } from "./Transcript";
 import { Threads } from "./Threads";
-import { AskedContext } from "./asked";
-import { agentStatus, summarize } from "@ue-mcp-studio/client-core";
+import { AgentsContext, AskedContext } from "./asked";
+import { agentView, summarize } from "@ue-mcp-studio/client-core";
+import { sessionAgents } from "@ue-mcp-studio/shared";
+
+/** The subagents as the daemon sends them for this transcript. */
+const agentsOf = (t: TranscriptEntry[], asked: Set<string>, status: SessionSummary["status"] = "idle") => sessionAgents(t, { status, asked });
+const mapOf = (t: TranscriptEntry[], asked: Set<string>) => new Map(agentsOf(t, asked).map((a) => [a.id, a]));
 
 afterEach(() => {
   cleanup();
@@ -48,16 +53,17 @@ describe("a subagent waiting for approval", () => {
   const t = [a, shell("a", "c1")];
 
   it("waits on the user, not working, naming the call", () => {
-    const st = agentStatus(callOf(a), t, false, T0 + 30_000, new Set(["c1"]));
+    const st = agentView(agentsOf(t, new Set(["c1"]))[0], T0 + 30_000);
     expect(st).toEqual({ state: "approval", activity: "approve npm run build", secs: 30 });
+    expect(callOf(a).id).toBe("a");
   });
 
   it("waits on the user even while the editor is away", () => {
-    expect(agentStatus(callOf(a), t, true, T0 + 30_000, new Set(["c1"])).state).toBe("approval");
+    expect(agentsOf(t, new Set(["c1"]), "waiting")[0].state).toBe("approval");
   });
 
   it("works again once the call is answered", () => {
-    expect(agentStatus(callOf(a), t, false, T0 + 30_000, new Set()).state).toBe("working");
+    expect(agentsOf(t, new Set())[0].state).toBe("working");
   });
 
   it("counts as waiting on you in a group's summary", () => {
@@ -92,14 +98,14 @@ describe("the chat", () => {
   const t = [{ kind: "user", text: "go", at: at(0) } as TranscriptEntry, agent("a"), shell("a", "c1")];
 
   it("says the idle session waits on the user, and the subagent's line says so", () => {
-    render(<AskedContext.Provider value={new Set(["c1"])}><MainTranscript transcript={t} {...props} /></AskedContext.Provider>);
+    render(<AskedContext.Provider value={new Set(["c1"])}><AgentsContext.Provider value={mapOf(t, new Set(["c1"]))}><MainTranscript transcript={t} {...props} /></AgentsContext.Provider></AskedContext.Provider>);
     expect(screen.getByRole("status").textContent).toBe("Waiting on you: a call needs your approval below.");
     expect(document.querySelector(".agent-link")?.classList.contains("state-approval")).toBe(true);
     expect(document.querySelector(".agent-link .agents-state")?.textContent).toBe("waiting on you");
   });
 
   it("says nothing once no call waits", () => {
-    render(<MainTranscript transcript={t} {...props} />);
+    render(<AgentsContext.Provider value={mapOf(t, new Set())}><MainTranscript transcript={t} {...props} /></AgentsContext.Provider>);
     expect(screen.queryByRole("status")).toBeNull();
     expect(document.querySelector(".agent-link .agents-state")?.textContent).toBe("working");
   });
@@ -107,8 +113,8 @@ describe("the chat", () => {
   it("shows the subagent's thread and its row in the list as waiting on the user", () => {
     render(
       <AskedContext.Provider value={new Set(["c1"])}>
-        <SubagentThread call={callOf(t[1])} transcript={t} sessionWaiting={false} onBack={vi.fn()} onStop={vi.fn()} />
-        <Threads transcript={t} thread={null} sessionWaiting={false} seen={new Set()} onThread={vi.fn()} onStop={vi.fn()} />
+        <SubagentThread agent={agentsOf(t, new Set(["c1"]))[0]} entries={t.filter((e) => e.parent === "a")} onBack={vi.fn()} onStop={vi.fn()} />
+        <Threads agents={agentsOf(t, new Set(["c1"]))} thread={null} seen={new Set()} onThread={vi.fn()} onStop={vi.fn()} />
       </AskedContext.Provider>,
     );
     expect(document.querySelector(".thread-head")?.classList.contains("state-approval")).toBe(true);

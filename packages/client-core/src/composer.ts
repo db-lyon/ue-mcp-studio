@@ -8,16 +8,18 @@
  * How much of the composer bar fits, widest first. Send and Stop never change;
  * the rest gives way in this order as the bar narrows:
  *
- * - full: every control with its words, the model's route badge and the key hint.
- * - compact: the route badge, the "Effort" word and the key hint go.
- * - icons: Checkpoints and Attach become icon buttons.
+ * - full: the model with its route badge, and the effort with its word.
+ * - compact: the route badge and the "Effort" word go.
  * - merged: the model and the effort become one chip with one menu.
  * - narrowest: that menu opens across the whole bar.
+ *
+ * The utility buttons (Checkpoints, Subagents, Attach) are icons at every
+ * tier, and fold into one overflow button by measured fit (`foldUtilities`).
  */
-export type BarTier = "full" | "compact" | "icons" | "merged" | "narrowest";
+export type BarTier = "full" | "compact" | "merged" | "narrowest";
 
 /** Each tier's least bar width, in ems of the bar's font, so a larger UI font steps down sooner. */
-export const BAR_TIERS: readonly [BarTier, number][] = [["full", 54], ["compact", 44], ["icons", 34], ["merged", 26]];
+export const BAR_TIERS: readonly [BarTier, number][] = [["full", 54], ["compact", 34], ["merged", 26]];
 
 /** The tier for a bar this wide. An unmeasured bar (no layout yet) is full. */
 export function barTier(width: number, em: number): BarTier {
@@ -26,10 +28,56 @@ export function barTier(width: number, em: number): BarTier {
   return BAR_TIERS.find(([, min]) => ems >= min)?.[0] ?? "narrowest";
 }
 
-/** At or below a tier: `atMost("icons", t)` is true for icons, merged and narrowest. */
+/** At or below a tier: `atMost("merged", t)` is true for merged and narrowest. */
 export function atMost(tier: BarTier, t: BarTier): boolean {
-  const order: BarTier[] = ["full", "compact", "icons", "merged", "narrowest"];
+  const order: BarTier[] = ["full", "compact", "merged", "narrowest"];
   return order.indexOf(t) >= order.indexOf(tier);
+}
+
+/**
+ * The composer bar's utility buttons, after the model and the context meter,
+ * in this order on every client. Each is an icon with its name for a screen
+ * reader; Subagents shows only while the session has subagents.
+ */
+export type BarUtilityId = "checkpoints" | "subagents" | "attach";
+export const BAR_UTILITIES: readonly BarUtilityId[] = ["checkpoints", "subagents", "attach"];
+
+/** A utility's name: its accessibility label and its overflow menu item. */
+export function utilityLabel(id: BarUtilityId, count = 0): string {
+  return id === "checkpoints" ? "Checkpoints" : id === "subagents" ? `Subagents (${count})` : "Attach";
+}
+
+/** A utility's longer description: its tooltip, or its accessibility hint. */
+export const UTILITY_TITLE: Record<BarUtilityId, string> = {
+  checkpoints: "Review this session's changes and its checkpoints",
+  subagents: "This session's subagents",
+  attach: "Attach files (or drop or paste them)",
+};
+
+/** Send's and Stop's tooltips, where the keyboard's keys are told: the bar shows no words. */
+export const SEND_KEYS = "Send (Enter). Shift+Enter for a new line";
+export const STOP_KEYS = "Stop the turn. Enter queues the message, Ctrl+Enter stops the turn and sends it now";
+
+/** The overflow button the utilities fold into. */
+export const UTILITY_MORE_LABEL = "More controls";
+
+/** The overflow button's accessibility label: with the subagents' count while there are some, as its badge shows. */
+export function moreLabel(subagents = 0): string {
+  return subagents > 0 ? `${UTILITY_MORE_LABEL}, ${subagents} ${subagents === 1 ? "subagent" : "subagents"}` : UTILITY_MORE_LABEL;
+}
+
+/**
+ * Whether the utility buttons fold into the one overflow button, from measured
+ * widths: `row` is the buttons laid out side by side at their natural width,
+ * `room` what the bar gives them now: the width of their slot (the row, or the
+ * overflow button when folded) plus the bar's free space (its spacer). The
+ * slot is the first thing in the bar to shrink, so a row that does not fit
+ * shows as a slot narrower than the row. Both states measure the same room,
+ * so the answer does not flip back and forth. Unmeasured (null) does not fold.
+ */
+export function foldUtilities(row: number | null, room: number | null): boolean {
+  if (row === null || room === null || !(row > 0) || !(room >= 0)) return false;
+  return row > room + 0.5;
 }
 
 /** The text box grows with what is written up to this many lines, then scrolls. */

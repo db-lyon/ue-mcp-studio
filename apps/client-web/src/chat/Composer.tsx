@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, extOf, fitHeight, formatBytes } from "@ue-mcp-studio/client-core";
+import { BAR_UTILITIES, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
 import type { PendingFile } from "./attachments";
 import { useSlashMenu } from "./SlashMenu";
 import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
-import { BarTierContext, atMost, barTier, useBarTier, type BarTier } from "./barTier";
+import { BarTierContext, barTier, type BarTier } from "./barTier";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 
 // The box's sizing rules are client-core's, shared with the mobile app's composer.
@@ -20,7 +20,7 @@ export { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeigh
  * the dragged height is a minimum the content can still grow past. A double
  * click on the divider forgets it. `height` is the saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, extras, stage, height, onHeight, commands, flows, actions, mentions, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, utilities = [], extras, stage, height, onHeight, commands, flows, actions, mentions, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -36,8 +36,11 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   files: PendingFile[];
   onAddFiles: (files: FileList | File[]) => void;
   onRemoveFile: (key: string) => void;
+  /** The model and the context meter: the bar's start. */
   picker: ReactNode;
-  /** More bar controls, after Attach: the composer.action slot. */
+  /** The session's utility buttons (Checkpoints, Subagents); the composer adds Attach and orders them. */
+  utilities?: BarUtility[];
+  /** More bar controls, after the utilities: the composer.action slot. */
   extras?: ReactNode;
   stage?: RefObject<HTMLElement>;
   height?: number | null;
@@ -146,6 +149,31 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     if (typeof ResizeObserver === "undefined") return;
     const o = new ResizeObserver(measure);
     o.observe(el);
+    return () => o.disconnect();
+  }, []);
+
+  /**
+   * The utility buttons, in their order, and whether they fold into one
+   * overflow button: from the row's natural width against the room its slot
+   * and the bar's free space give it (client-core's foldUtilities).
+   */
+  const all: BarUtility[] = [
+    ...utilities,
+    { id: "attach" as const, icon: <AttachGlyph />, disabled: busy && !onQueue, onClick: () => input.current?.click() },
+  ].sort((a, b) => BAR_UTILITIES.indexOf(a.id) - BAR_UTILITIES.indexOf(b.id));
+  const slot = useRef<HTMLDivElement>(null);
+  const spacer = useRef<HTMLSpanElement>(null);
+  const row = useRef<HTMLDivElement>(null);
+  const [folded, setFolded] = useState(false);
+  useLayoutEffect(() => {
+    const parts = [bar.current, slot.current, spacer.current, row.current];
+    if (parts.some((p) => !p)) return;
+    const width = (el: Element | null) => (el ? el.getBoundingClientRect().width : 0);
+    const measure = () => setFolded(foldUtilities(width(row.current), width(slot.current) + width(spacer.current)));
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const o = new ResizeObserver(measure);
+    for (const el of parts) o.observe(el!);
     return () => o.disconnect();
   }, []);
 
@@ -277,13 +305,21 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           }
         }}
       />
-      {/* Send or Stop is last and never shrinks; the rest gives way by tier (barTier.ts). */}
-      <div className="composer-bar" ref={bar} data-tier={tier}>
+      {/* Send or Stop is last and never shrinks; the model gives way by tier (barTier.ts), the utilities fold by measured fit. */}
+      <div className="composer-bar" ref={bar} data-tier={tier} data-folded={folded ? "" : undefined}>
         <BarTierContext.Provider value={tier}>
           {picker}
-          <BarButton className="attach-button" label="Attach" title="Attach files (or drop or paste them)" icon={<AttachGlyph />} disabled={busy && !onQueue} onClick={() => input.current?.click()} />
+          <div className="composer-utilities" ref={slot}>
+            {folded ? <UtilityMenu items={all} /> : all.map((u) => <UtilityButton key={u.id} u={u} />)}
+          </div>
           {extras}
         </BarTierContext.Provider>
+        {/* The row at its natural width, out of the flow and unseen, measured for the fold. */}
+        <div className="composer-utilities-measure" aria-hidden="true">
+          <div className="composer-utilities-row" ref={row}>
+            {all.map((u) => <UtilityButton key={u.id} u={u} hidden />)}
+          </div>
+        </div>
         <input
           ref={input}
           type="file"
@@ -295,39 +331,167 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
             e.target.value = "";
           }}
         />
-        <span className="spacer" />
-        {onQueue && tier === "full" && <span className="composer-hint dim small">{busy ? "Enter to queue, Ctrl+Enter to stop and send now" : "Enter to send, Shift+Enter for a new line"}</span>}
+        <span className="spacer" ref={spacer} />
         {busy && onQueue && <button className="composer-queue" disabled={!canSend} onClick={onQueue} title="Send after the running turn completes. A stopped or failed turn holds the queue.">Queue</button>}
-        {busy ? <button className="composer-send" onClick={onStop}>Stop</button> : <button className="composer-send primary" disabled={!canSend} onClick={onSend}>Send</button>}
+        {/* Icons, named for a screen reader; the keys are in the tooltip. */}
+        {busy
+          ? <button className="composer-send stop" aria-label="Stop" title={onQueue ? STOP_KEYS : "Stop"} onClick={onStop}><StopGlyph /></button>
+          : <button className="composer-send primary" aria-label="Send" title={SEND_KEYS} disabled={!canSend} onClick={onSend}><SendGlyph /></button>}
       </div>
       {children}
     </div>
   );
 }
 
-/**
- * A bar button that keeps its words while there is room and becomes an icon
- * when the bar narrows, still named by `label` for the keyboard and a screen reader.
- */
-export function BarButton({ label, title, icon, className = "", disabled, onClick }: {
-  label: string;
-  title: string;
+/** One of the bar's utility buttons: an icon, with a count for Subagents. */
+export interface BarUtility {
+  id: BarUtilityId;
   icon: ReactNode;
-  className?: string;
-  disabled?: boolean;
   onClick: () => void;
-}) {
-  const iconOnly = atMost("icons", useBarTier());
+  /** Subagents: how many the session has started. */
+  count?: number;
+  disabled?: boolean;
+}
+
+/** Each utility's class, for styles and for the visual QA's clicks. */
+const UTILITY_CLASS: Record<BarUtilityId, string> = { checkpoints: "composer-checkpoints", subagents: "composer-agents", attach: "attach-button" };
+
+/** A utility as an icon button, named for the keyboard and a screen reader; `hidden` is the measured copy, out of reach. */
+function UtilityButton({ u, hidden }: { u: BarUtility; hidden?: boolean }) {
   return (
     <button
-      className={`ghost bar-button ${iconOnly ? "icon-only" : ""} ${className}`}
-      aria-label={iconOnly ? label : undefined}
-      title={title}
-      disabled={disabled}
-      onClick={onClick}
+      className={`ghost bar-button icon-only ${UTILITY_CLASS[u.id]}`}
+      aria-label={utilityLabel(u.id, u.count)}
+      title={UTILITY_TITLE[u.id]}
+      disabled={u.disabled}
+      tabIndex={hidden ? -1 : undefined}
+      onClick={hidden ? undefined : u.onClick}
     >
-      {iconOnly ? icon : label}
+      {u.icon}
+      {u.count ? <span className="utility-count">{u.count}</span> : null}
     </button>
+  );
+}
+
+/**
+ * The utilities folded into one button, for a bar too narrow for their row:
+ * a menu of each with its icon and name. Escape or a click outside closes it,
+ * the arrow keys move between its items.
+ */
+function UtilityMenu({ items }: { items: BarUtility[] }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
+  const agents = items.find((u) => u.id === "subagents")?.count ?? 0;
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (box.current && !box.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
+  // Opened over the button, kept inside the bar; the first item takes the focus.
+  useLayoutEffect(() => {
+    const m = menu.current;
+    const b = button.current;
+    const barEl = b?.closest(".composer-bar");
+    if (!open || !m || !b || !barEl) return;
+    const bar = barEl.getBoundingClientRect();
+    const at = b.getBoundingClientRect().left - bar.left;
+    m.style.left = `${Math.max(0, Math.min(at, bar.width - m.offsetWidth))}px`;
+    m.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+  }, [open]);
+  const keyDown = (e: React.KeyboardEvent) => {
+    if (!open) return;
+    if (e.key === "Escape" || e.key === "Tab") {
+      if (e.key === "Escape") e.preventDefault();
+      e.stopPropagation();
+      setOpen(false);
+      if (e.key === "Escape") button.current?.focus();
+      return;
+    }
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const list = [...(menu.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
+    if (!list.length) return;
+    e.preventDefault();
+    const i = list.indexOf(document.activeElement as HTMLButtonElement);
+    list[(i + (e.key === "ArrowDown" ? 1 : -1) + list.length) % list.length].focus();
+  };
+  return (
+    <div className="composer-more" ref={box} onKeyDown={keyDown}>
+      <button
+        ref={button}
+        className="ghost bar-button icon-only composer-more-button"
+        aria-label={moreLabel(agents)}
+        title={UTILITY_MORE_LABEL}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        <MoreGlyph />
+        {agents > 0 ? <span className="utility-count">{agents}</span> : null}
+      </button>
+      {open && (
+        <div className="composer-more-menu" role="menu" aria-label={UTILITY_MORE_LABEL} ref={menu}>
+          {items.map((u) => (
+            <button
+              key={u.id}
+              role="menuitem"
+              className={`composer-more-item ${UTILITY_CLASS[u.id]}`}
+              title={UTILITY_TITLE[u.id]}
+              disabled={u.disabled}
+              onClick={() => {
+                setOpen(false);
+                u.onClick();
+              }}
+            >
+              {u.icon}
+              <span>{utilityLabel(u.id, u.count)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Send's arrow and Stop's square, as the phone draws them. */
+function SendGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M9 15V3M4 8l5-5 5 5" />
+    </svg>
+  );
+}
+function StopGlyph() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+      <rect width="12" height="12" rx="2" />
+    </svg>
+  );
+}
+
+/** The overflow button: three dots. */
+function MoreGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+      <circle cx="3" cy="8" r="1.4" />
+      <circle cx="8" cy="8" r="1.4" />
+      <circle cx="13" cy="8" r="1.4" />
+    </svg>
+  );
+}
+
+/** Subagents: two people. */
+export function AgentsGlyph() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+      <circle cx="5" cy="5" r="2" />
+      <circle cx="11" cy="5" r="2" />
+      <path d="M1.5 13c0-2 1.6-3.5 3.5-3.5S8.5 11 8.5 13M7.5 13c0-2 1.6-3.5 3.5-3.5s3.5 1.5 3.5 3.5" />
+    </svg>
   );
 }
 

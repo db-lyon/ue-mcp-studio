@@ -259,10 +259,14 @@ async function shootStudio() {
       }
       const { click, clicks: wide, narrowClicks } = await page.evaluate(() => ({ click: window.__visualQa.click, clicks: window.__visualQa.clicks ?? [], narrowClicks: window.__visualQa.narrowClicks }));
       const clicks = width <= 760 && narrowClicks ? narrowClicks : wide;
-      for (const sel of [click, ...clicks].filter(Boolean)) {
+      for (const step of [click, ...clicks].filter(Boolean)) {
+        // "?selector" is skipped when nothing matches: the overflow menu's item, when the bar had room and nothing folded.
+        const optional = step.startsWith("?");
+        const sel = optional ? step.slice(1) : step;
         // The first visible match: a narrow layout keeps some controls in a drawer, hidden until opened.
         let el = null;
         for (const h of await page.$$(sel)) if (await h.isVisible()) { el = h; break; }
+        if (!el && optional) continue;
         if (!el) errors.push(`nothing visible matched ${sel}`);
         else {
           // A drawer still sliding in can sit over its own controls for a moment; then the click goes in regardless.

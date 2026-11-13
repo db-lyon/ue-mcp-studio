@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
+import { sessionAgents, type ToolCallRecord, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { ChatHeader } from "./ChatHeader";
 import { Sheet } from "./Sheet";
 
@@ -12,10 +12,12 @@ const call = (outcome: ToolCallRecord["outcome"]): ToolCallRecord => ({
   id: "a1", name: "agent", input: { description: "Slow fetches", prompt: "fetch" }, outcome, startedAt: at(0), endedAt: outcome === "pending" ? undefined : at(11),
 });
 
-function setup(thread: ToolCallRecord | null, agents = 2, withAgents = true) {
-  const props = { onSessions: vi.fn(), onMain: vi.fn(), onStop: vi.fn(), onAgents: withAgents ? vi.fn() : undefined };
+function setup(thread: ToolCallRecord | null) {
+  const props = { onSessions: vi.fn(), onMain: vi.fn(), onStop: vi.fn() };
   const transcript: TranscriptEntry[] = thread ? [{ kind: "tool", call: thread }] : [];
-  render(<ChatHeader title="Start two subagents" thread={thread} transcript={transcript} sessionWaiting={false} agents={agents} {...props} />);
+  // The subagent as the daemon's list has it.
+  const agent = sessionAgents(transcript, { status: "idle", asked: new Set() })[0] ?? null;
+  render(<ChatHeader title="Start two subagents" thread={agent} {...props} />);
   return props;
 }
 
@@ -45,16 +47,11 @@ describe("the narrow conversation's header", () => {
     expect(p.onStop).toHaveBeenCalledWith("a1");
   });
 
-  it("opens the subagents only when there are some and the layout asks for it", () => {
-    const p = setup(null, 2);
-    fireEvent.click(screen.getByLabelText("Subagents (2)"));
-    expect(p.onAgents).toHaveBeenCalledOnce();
-    cleanup();
-    setup(null, 0);
-    expect(screen.queryByLabelText(/Subagents/)).toBeNull();
-    cleanup();
-    setup(null, 2, false);
-    expect(screen.queryByLabelText(/Subagents/)).toBeNull();
+  it("holds no Checkpoints or subagents button: they are in the composer bar", () => {
+    setup(null);
+    expect(screen.queryByText("Checkpoints")).toBeNull();
+    expect(screen.queryByLabelText(/Checkpoints|Subagents/)).toBeNull();
+    expect(screen.getAllByRole("button")).toHaveLength(1);
   });
 });
 

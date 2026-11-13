@@ -1,22 +1,26 @@
 /**
  * The web client's chat/Composer.tsx as native views: the message box with its
  * resize handle, the files and mentions it carries, the slash and @-mention
- * menus over it, and the bar with the model, Attach, and Send, Queue or Stop.
+ * menus over it, and the bar with the model, the context ring, the utilities
+ * (Checkpoints, Subagents, Attach, folded into one menu when they do not fit),
+ * and Send, Queue or Stop.
  * styles.css: .composer, .composer-divider, .composer-grip, .attach-*,
  * .composer-bar, at a phone's width and coarse pointer.
  */
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Image, PanResponder, Platform, Pressable, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
-import Svg, { Path } from "react-native-svg";
-import { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, extOf, fitHeight, formatBytes } from "@ue-mcp-studio/client-core";
+import { Image, Modal, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
+import Svg, { Circle, Path } from "react-native-svg";
+import { BAR_UTILITIES, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
-import { Button, font, RemoveButton, Sheet, useAvoidedInsets, useStyles, useTheme, type Theme } from "../../../ui";
+import { Button, font, RemoveButton, Sheet, useAvoidedInsets, useInsets, useStyles, useTheme, type Theme } from "../../../ui";
+import { useAnchor } from "../../../ui/anchor";
+import { useBack } from "../../../back";
 import { haptic } from "../../../native/haptics";
 import { useKeyboardHeight } from "../../../native/keyboard";
 import { clipboardHasImage, pastedImage, pickFiles, type PendingFile, type PickSource, type PickedFile } from "./attachments";
 import { useSlashMenu, type MenuKey } from "./SlashMenu";
 import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
-import { BarTierContext, atMost, barTier, useBarTier, type BarTier } from "./barTier";
+import { BarTierContext, barTier, type BarTier } from "./barTier";
 
 export { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, fitHeight };
 
@@ -56,7 +60,7 @@ export function composerRoom({ space, chrome }: { space: number | null | undefin
  * can still grow past. A double tap on the handle forgets it. `height` is the
  * saved one, `onHeight` saves.
  */
-export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, extras, space, height, onHeight, commands, flows, actions, mentions, children }: {
+export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, onSend, onQueue, onSendNow, onStop, files, onAddFiles, onRemoveFile, picker, utilities = [], extras, space, height, onHeight, commands, flows, actions, mentions, children }: {
   draft: string;
   onDraft: (text: string) => void;
   onBlur: () => void;
@@ -73,8 +77,11 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   /** Files picked with Attach, or handed in from outside (a share to the app). */
   onAddFiles: (files: PickedFile[]) => void;
   onRemoveFile: (key: string) => void;
+  /** The model and the context meter: the bar's start. */
   picker: ReactNode;
-  /** More bar controls, after Attach: the composer.action slot. */
+  /** The session's utility buttons (Checkpoints, Subagents); the composer adds Attach and orders them. */
+  utilities?: BarUtility[];
+  /** More bar controls, after the utilities: the composer.action slot. */
   extras?: ReactNode;
   /**
    * The height the transcript and the composer share: below the header, above
@@ -161,6 +168,20 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
   /** The bar's tier, from its own width, in ems of its font. */
   const [tier, setTier] = useState<BarTier>("full");
   const onBar = (e: LayoutChangeEvent) => setTier(barTier(e.nativeEvent.layout.width, t.base.size));
+
+  /**
+   * The utility buttons, in their order, and whether they fold into one
+   * overflow button: the row's natural width (an unseen copy out of the flow)
+   * against its slot's laid-out width plus the spacer's (client-core's foldUtilities).
+   */
+  const all: BarUtility[] = [
+    ...utilities,
+    { id: "attach" as const, icon: <PlusGlyph />, disabled: busy && !onQueue, onClick: () => openAttach() },
+  ].sort((a, b) => BAR_UTILITIES.indexOf(a.id) - BAR_UTILITIES.indexOf(b.id));
+  const [rowW, setRowW] = useState<number | null>(null);
+  const [slotW, setSlotW] = useState<number | null>(null);
+  const [spacerW, setSpacerW] = useState<number | null>(null);
+  const folded = foldUtilities(rowW, slotW === null || spacerW === null ? null : slotW + spacerW);
 
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -324,28 +345,34 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           onLayout={(e) => setLaidBox(e.nativeEvent.layout.height)}
           style={[s.box, textFont, { height: fit.height }, closed && { color: t.c.dim }]}
         />
-        {/* One row: attach, the model and effort, the context ring; Send or Stop last, never shrinking. */}
+        {/* One row: the model and effort, the context ring, the utilities; Send or Stop last, never shrinking. No words: icons named for a screen reader. */}
         <View style={s.bar} onLayout={onBar}>
-          <RoundButton label="Attach" hint="Attach files" disabled={closed} onPress={openAttach}>
-            <PlusGlyph color={closed ? t.c.dim : t.c.text} />
-          </RoundButton>
           <BarTierContext.Provider value={tier}>
             {picker}
+            {/* The slot shrinks first, so a row that does not fit shows as a slot narrower than the row: then it folds. */}
+            <View testID="composer-utilities" style={[s.utilities, folded && { flexShrink: 0 }]} onLayout={(e) => setSlotW(e.nativeEvent.layout.width)}>
+              {folded ? <UtilityMenu items={all} /> : all.map((u) => <UtilityButton key={u.id} u={u} />)}
+            </View>
             {extras}
           </BarTierContext.Provider>
-          <View style={s.spacer} />
-          {/* A phone has no keyboard shortcuts to hint at: the hint is for a tablet's width, with a hardware keyboard. */}
-          {onQueue && tier === "full" && window.width > 760 && <Text style={s.hint} numberOfLines={1}>{busy ? "Enter to queue, Ctrl+Enter to stop and send now" : "Enter to send, Shift+Enter for a new line"}</Text>}
+          <View testID="composer-spacer" style={s.spacer} onLayout={(e) => setSpacerW(e.nativeEvent.layout.width)} />
           {busy && onQueue && <Button title="Queue" label="Queue" hint="Send after the running turn completes. A stopped or failed turn holds the queue." disabled={!canSend} onPress={queue} style={{ borderRadius: 22 }} />}
+          {/* The keys are told in the hint, for a tablet with a hardware keyboard: a phone's Return is a new line. */}
           {busy ? (
-            <RoundButton label="Stop" kind="stop" onPress={stop}>
+            <RoundButton label="Stop" hint={onQueue && window.width > 760 ? STOP_KEYS : undefined} kind="stop" onPress={stop}>
               <View style={{ width: 12, height: 12, borderRadius: 2, backgroundColor: t.c.bad }} />
             </RoundButton>
           ) : (
-            <RoundButton label="Send" kind="send" disabled={!canSend} onPress={send}>
+            <RoundButton label="Send" hint={window.width > 760 ? SEND_KEYS : undefined} kind="send" disabled={!canSend} onPress={send}>
               <ArrowUpGlyph color={canSend ? t.c.onAccent : t.c.dim} />
             </RoundButton>
           )}
+          {/* The row at its natural width, out of the flow and unseen, measured for the fold. */}
+          <View pointerEvents="none" style={s.measure} accessibilityElementsHidden importantForAccessibility="no-hide-descendants" aria-hidden>
+            <View testID="composer-utilities-measure" style={s.utilityRow} onLayout={(e) => setRowW(e.nativeEvent.layout.width)}>
+              {all.map((u) => <UtilitySpace key={u.id} u={u} />)}
+            </View>
+          </View>
         </View>
         </View>
         {children}
@@ -385,7 +412,8 @@ function RoundButton({ label, hint, kind = "plain", disabled, onPress, children 
   );
 }
 
-function PlusGlyph({ color }: { color: string }) {
+function PlusGlyph() {
+  const color = useGlyphColor();
   return (
     <Svg width={18} height={18} viewBox="0 0 18 18" fill="none">
       <Path d="M9 3v12M3 9h12" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
@@ -401,24 +429,139 @@ function ArrowUpGlyph({ color }: { color: string }) {
   );
 }
 
-/**
- * A bar button that keeps its words while there is room and becomes an icon
- * when the bar narrows, still named by `label` for a screen reader.
- */
-export function BarButton({ label, title, icon, disabled, onClick }: {
-  label: string;
-  title: string;
+/** One of the bar's utility buttons: an icon, with a count for Subagents. */
+export interface BarUtility {
+  id: BarUtilityId;
   icon: ReactNode;
-  className?: string;
-  disabled?: boolean;
   onClick: () => void;
-}) {
+  /** Subagents: how many the session has started. */
+  count?: number;
+  disabled?: boolean;
+}
+
+/** A utility button's size: a 44 dp target. */
+const UTILITY = 44;
+
+/** The subagents' count, as a badge on the icon's corner. */
+function CountBadge({ count }: { count: number }) {
   const t = useTheme();
-  const iconOnly = atMost("icons", useBarTier());
   return (
-    <Button variant="ghost" label={label} disabled={disabled} onPress={onClick} style={[{ borderColor: "transparent", backgroundColor: "transparent" }, iconOnly && { width: 44, paddingHorizontal: 0, paddingVertical: 0 }]}>
-      {iconOnly ? <GlyphColor color={disabled ? t.c.dim : t.c.muted}>{icon}</GlyphColor> : <Text accessibilityHint={title} style={[t.editor ? font(t, "sans", 400, 12, 1.2) : { ...font(t, "mono", 500, 11.5, 1.2), letterSpacing: 0.23 }, { color: disabled ? t.c.dim : t.c.muted }]}>{label}</Text>}
-    </Button>
+    <View pointerEvents="none" style={{ position: "absolute", top: 5, right: 3, minWidth: 16, height: 16, paddingHorizontal: 3, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: t.c.accent }}>
+      <Text style={{ ...font(t, "sans", 600, 10, 1.2), color: t.c.onAccent }}>{count}</Text>
+    </View>
+  );
+}
+
+/** A utility as an icon button, named for a screen reader, its longer description its hint. */
+function UtilityButton({ u }: { u: BarUtility }) {
+  const t = useTheme();
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={utilityLabel(u.id, u.count)}
+      accessibilityHint={UTILITY_TITLE[u.id]}
+      accessibilityState={{ disabled: !!u.disabled }}
+      disabled={u.disabled}
+      onPress={u.onClick}
+      style={({ pressed }) => ({ width: UTILITY, height: UTILITY, borderRadius: UTILITY / 2, alignItems: "center", justifyContent: "center", flexShrink: 0, backgroundColor: pressed ? t.c.panel3 : "transparent" })}
+    >
+      <GlyphColor color={u.disabled ? t.c.dim : t.c.muted}>{u.icon}</GlyphColor>
+      {u.count ? <CountBadge count={u.count} /> : null}
+    </Pressable>
+  );
+}
+
+/** The room one utility takes in the measured row: the button's size, nothing to press. */
+function UtilitySpace(_: { u: BarUtility }) {
+  return <View style={{ width: UTILITY, height: UTILITY, flexShrink: 0 }} />;
+}
+
+/**
+ * The utilities folded into one button, for a bar too narrow for their row:
+ * a small menu over the bar of each with its icon and name. A tap outside or
+ * Back closes it.
+ */
+function UtilityMenu({ items }: { items: BarUtility[] }) {
+  const t = useTheme();
+  const win = useWindowDimensions();
+  const insets = useInsets();
+  const button = useRef<HostInstance>(null);
+  const anchored = useAnchor(button);
+  const open = anchored.shown;
+  useBack(open ? anchored.close : null, { overlay: true });
+  const agents = items.find((u) => u.id === "subagents")?.count ?? 0;
+  const width = 220;
+  const a = anchored.anchor;
+  const left = a ? Math.max(10 + insets.left, Math.min(a.x, win.width - width - 10 - insets.right)) : 0;
+  const bottom = a ? win.height - a.y + 6 : 0;
+  return (
+    <>
+      <Pressable
+        ref={button}
+        accessibilityRole="button"
+        accessibilityLabel={moreLabel(agents)}
+        accessibilityHint={UTILITY_MORE_LABEL}
+        accessibilityState={{ expanded: open }}
+        onPress={() => (open ? anchored.close() : anchored.open())}
+        style={({ pressed }) => ({ width: UTILITY, height: UTILITY, borderRadius: UTILITY / 2, alignItems: "center", justifyContent: "center", flexShrink: 0, backgroundColor: pressed || open ? t.c.panel3 : "transparent" })}
+      >
+        <MoreGlyph color={t.c.muted} />
+        {agents > 0 ? <CountBadge count={agents} /> : null}
+      </Pressable>
+      <Modal visible={open} transparent animationType="none" onRequestClose={anchored.close} statusBarTranslucent navigationBarTranslucent>
+        <Pressable accessibilityLabel="Close" style={StyleSheet.absoluteFill} onPress={anchored.close} />
+        {a ? (
+          <View
+            accessibilityRole="menu"
+            accessibilityLabel={UTILITY_MORE_LABEL}
+            accessibilityViewIsModal
+            style={{ position: "absolute", left, bottom, width, padding: 6, gap: 2, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radiusLg, ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}) }}
+          >
+            {items.map((u) => (
+              <Pressable
+                key={u.id}
+                accessibilityRole="menuitem"
+                accessibilityLabel={utilityLabel(u.id, u.count)}
+                accessibilityHint={UTILITY_TITLE[u.id]}
+                accessibilityState={{ disabled: !!u.disabled }}
+                disabled={u.disabled}
+                onPress={() => {
+                  anchored.close();
+                  u.onClick();
+                }}
+                style={({ pressed }) => ({ minHeight: 44, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 10, borderRadius: t.radius, backgroundColor: pressed ? t.c.panel2 : "transparent" })}
+              >
+                <GlyphColor color={u.disabled ? t.c.dim : t.c.muted}>{u.icon}</GlyphColor>
+                <Text style={{ ...font(t, "sans", 400, t.base.size, t.base.lineHeight / t.base.size), color: u.disabled ? t.c.dim : t.c.text }}>{utilityLabel(u.id, u.count)}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
+      </Modal>
+    </>
+  );
+}
+
+/** The overflow button: three dots. */
+function MoreGlyph({ color }: { color: string }) {
+  return (
+    <Svg width={16} height={16} viewBox="0 0 16 16" fill={color}>
+      <Circle cx={3} cy={8} r={1.4} />
+      <Circle cx={8} cy={8} r={1.4} />
+      <Circle cx={13} cy={8} r={1.4} />
+    </Svg>
+  );
+}
+
+/** Subagents: two people, in the colour the button gives it. */
+export function AgentsGlyph() {
+  const color = useGlyphColor();
+  return (
+    <Svg width={16} height={16} viewBox="0 0 16 16" fill="none" stroke={color} strokeWidth={1.4} strokeLinecap="round">
+      <Circle cx={5} cy={5} r={2} />
+      <Circle cx={11} cy={5} r={2} />
+      <Path d="M1.5 13c0-2 1.6-3.5 3.5-3.5S8.5 11 8.5 13M7.5 13c0-2 1.6-3.5 3.5-3.5s3.5 1.5 3.5 3.5" />
+    </Svg>
   );
 }
 
@@ -462,6 +605,9 @@ const styles = (t: Theme) => ({
   box: { width: "100%" as const, backgroundColor: "transparent", color: t.c.text, paddingVertical: 8, paddingHorizontal: 10, textAlignVertical: "top" as const, outlineStyle: "none" as never },
   bar: { flexDirection: "row" as const, flexWrap: "nowrap" as const, alignItems: "center" as const, gap: 6, minWidth: 0, position: "relative" as const },
   spacer: { flex: 1, minWidth: 0 },
-  hint: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.dim, flexShrink: 1000, minWidth: 0, textAlign: "right" as const },
+  // The utilities' slot gives way first, ahead of the model (folded, the overflow button keeps its size); its row and the measured copy share a gap.
+  utilities: { flexDirection: "row" as const, alignItems: "center" as const, gap: 2, flexShrink: 1000, minWidth: 0 },
+  utilityRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 2, alignSelf: "flex-start" as const },
+  measure: { position: "absolute" as const, left: 0, top: 0, opacity: 0, flexDirection: "row" as const },
   attachError: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.badText },
 });

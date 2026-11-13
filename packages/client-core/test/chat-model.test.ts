@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { QUIET_MS, agentStatus, finishedTurns, formatDuration, formatResult, mainTimeline, summarize, toolLabel } from "../src/chat-model.js";
+import { sessionAgents, type ToolCallRecord as Rec, type TranscriptEntry as Entry } from "@ue-mcp-studio/shared";
+import { QUIET_MS, agentView, finishedTurns, formatDuration, formatResult, mainTimeline, summarize, toolLabel } from "../src/chat-model.js";
+
+/** A subagent's status as a client shows it: the daemon's state for it (shared sessionAgents), formatted by agentView. */
+function agentStatus(call: Rec, transcript: Entry[], waiting: boolean, now: number) {
+  const held = transcript.some((e) => e.kind === "tool" && e.call.id === call.id);
+  const t: Entry[] = held ? transcript.map((e) => (e.kind === "tool" && e.call.id === call.id ? { ...e, call } : e)) : [{ kind: "tool", call }, ...transcript];
+  return agentView(sessionAgents(t, { status: waiting ? "waiting" : "running", asked: new Set() }).find((x) => x.id === call.id)!, now);
+}
 
 const T0 = Date.parse("2026-10-11T12:00:00Z");
 const at = (secs: number) => new Date(T0 + secs * 1000).toISOString();

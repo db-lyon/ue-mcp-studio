@@ -156,7 +156,20 @@ fs.mkdirSync(out, { recursive: true });
 const picked = Object.keys(scenarios).filter((n) => webDir && parity[n]?.owner && (!owners || owners.includes(parity[n].owner)) && (!only || only.some((o) => (o.endsWith("*") ? n.startsWith(o.slice(0, -1)) : n === o))));
 
 /** The app's form of a click: an element whose accessibility label or text is `what`, the first visible. A `what` ending in * matches a label by its start. */
+// A press is a label, "a|b" for the first of several that is shown (a bar's button or the overflow
+// menu it folded into), "menuitem:label" for an item of an open menu, and "?press" for one skipped
+// when nothing matches (the menu item, when the bar had room and nothing folded).
 async function press(page, what) {
+  if (what.startsWith("?")) return press(page, what.slice(1)).catch(() => undefined);
+  if (what.includes("|")) {
+    for (const each of what.split("|")) if (await press(page, each).then(() => true, () => false)) return;
+    throw new Error(`nothing visible to press: ${what}`);
+  }
+  if (what.startsWith("menuitem:")) {
+    const label = what.slice("menuitem:".length).replace(/"/g, '\\"');
+    for (const h of await page.locator(`[role="menuitem"][aria-label="${label}"]`).all()) if (await h.isVisible()) return h.click();
+    throw new Error(`nothing visible to press: ${what}`);
+  }
   const prefix = what.endsWith("*");
   const label = (prefix ? what.slice(0, -1) : what).replace(/"/g, '\\"');
   const byLabel = page.locator(prefix ? `[aria-label^="${label}"]` : `[aria-label="${label}"]`);

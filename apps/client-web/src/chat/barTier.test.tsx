@@ -5,8 +5,8 @@ import type { StudioSettings } from "@ue-mcp-studio/shared";
 
 const m = vi.hoisted(() => ({ saveSettings: vi.fn(), models: vi.fn() }));
 vi.mock("../api", () => ({ api: m }));
+import { BAR_UTILITIES, foldUtilities, moreLabel, utilityLabel } from "@ue-mcp-studio/client-core";
 import { BAR_TIERS, BarTierContext, atMost, barTier, type BarTier } from "./barTier";
-import { BarButton } from "./Composer";
 import { ModelAndEffort } from "../views/ModelPicker";
 
 afterEach(() => {
@@ -25,42 +25,48 @@ describe("the composer bar's tiers", () => {
   it("steps down by the bar's width in ems, and an unmeasured bar is full", () => {
     expect(barTier(0, 13.5)).toBe("full");
     expect(barTier(916, 13.5)).toBe("full");
-    expect(barTier(570, 13.5)).toBe("icons");
-    expect(barTier(570, 12.5)).toBe("compact");
+    expect(barTier(570, 13.5)).toBe("compact");
+    expect(barTier(400, 13.5)).toBe("merged");
     expect(barTier(360, 13.5)).toBe("merged");
     expect(barTier(300, 13.5)).toBe("narrowest");
     // A larger font steps down sooner at the same pixel width.
-    expect(barTier(600, 12)).toBe("compact");
-    expect(barTier(600, 16)).toBe("icons");
+    expect(barTier(500, 12)).toBe("compact");
+    expect(barTier(500, 16)).toBe("merged");
     for (const [tier, min] of BAR_TIERS) expect(barTier(min * 10, 10)).toBe(tier);
   });
 
   it("orders the tiers widest first", () => {
-    expect(atMost("icons", "full")).toBe(false);
-    expect(atMost("icons", "compact")).toBe(false);
-    expect(atMost("icons", "icons")).toBe(true);
-    expect(atMost("icons", "narrowest")).toBe(true);
+    const order: BarTier[] = ["full", "compact", "merged", "narrowest"];
+    expect(order.map((t) => atMost("merged", t))).toEqual([false, false, true, true]);
+  });
+});
+
+describe("the utilities' fold", () => {
+  it("folds only when the measured row is wider than the room its slot and the free space give it", () => {
+    expect(foldUtilities(136, 200)).toBe(false);
+    expect(foldUtilities(136, 136)).toBe(false);
+    expect(foldUtilities(136, 135)).toBe(true);
+    // A slot squeezed to nothing with no free space is a row that does not fit.
+    expect(foldUtilities(136, 0)).toBe(true);
+    // Unmeasured: nothing folds.
+    expect(foldUtilities(null, 10)).toBe(false);
+    expect(foldUtilities(136, null)).toBe(false);
+    expect(foldUtilities(0, 0)).toBe(false);
   });
 
-  it("keeps a bar button's name when it becomes an icon", () => {
-    const onClick = vi.fn();
-    const at = (tier: BarTier) => render(<BarTierContext.Provider value={tier}><BarButton label="Checkpoints" title="Review" icon={<svg />} onClick={onClick} /></BarTierContext.Provider>);
-    at("compact");
-    expect(screen.getByRole("button", { name: "Checkpoints" }).textContent).toBe("Checkpoints");
-    cleanup();
-    at("icons");
-    const b = screen.getByRole("button", { name: "Checkpoints" });
-    expect(b.textContent).toBe("");
-    expect(b.getAttribute("title")).toBe("Review");
-    fireEvent.click(b);
-    expect(onClick).toHaveBeenCalledTimes(1);
+  it("names every utility and the overflow button for a screen reader", () => {
+    expect(BAR_UTILITIES).toEqual(["checkpoints", "subagents", "attach"]);
+    expect(BAR_UTILITIES.map((id) => utilityLabel(id, 2))).toEqual(["Checkpoints", "Subagents (2)", "Attach"]);
+    expect(moreLabel(0)).toBe("More controls");
+    expect(moreLabel(1)).toBe("More controls, 1 subagent");
+    expect(moreLabel(3)).toBe("More controls, 3 subagents");
   });
 });
 
 describe("the model and effort in the bar", () => {
   it("are two controls while there is room", () => {
     m.models.mockResolvedValue(catalog);
-    render(<BarTierContext.Provider value="icons"><ModelAndEffort settings={settings} onSettings={vi.fn()} /></BarTierContext.Provider>);
+    render(<BarTierContext.Provider value="compact"><ModelAndEffort settings={settings} onSettings={vi.fn()} /></BarTierContext.Provider>);
     expect(screen.getByLabelText("Effort")).toBeTruthy();
   });
 

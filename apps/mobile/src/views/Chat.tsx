@@ -9,7 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { DetailLoader, agentCalls, chatPane, composerPlaceholder, composerQueues, composerTarget, sessionGone, unreachable } from "@ue-mcp-studio/client-core";
+import { DetailLoader, chatPane, composerPlaceholder, composerQueues, composerTarget, sessionGone, subagentsOf, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { writeLocation } from "../location";
 import { haptic } from "../native/haptics";
@@ -28,11 +28,12 @@ import { Threads } from "../chat/Threads";
 import { ContextMeter, ContextWarning } from "../chat/ContextMeter";
 import { CompactContext } from "../screens/chat/items";
 import { SessionRow } from "../chat/SessionRow";
-import { Composer } from "../chat/Composer";
+import { AgentsGlyph, CheckpointsGlyph, Composer, type BarUtility } from "../chat/Composer";
 import { RemoteReply, useRemoteCommand } from "../screens/chat/composer/RemoteReply";
 import type { MentionSearchFn } from "../chat/MentionMenu";
 import { Approvals } from "../screens/chat/items";
-import { AskedContext } from "../chat/asked";
+import { AgentsContext, AskedContext } from "../chat/asked";
+import { useAgentThread } from "../chat/agent-thread";
 import { FormCards, useForms } from "../screens/chat/items";
 import { FlowLauncher } from "../chat/FlowCommand";
 import { ActionLauncher } from "../chat/ActionCommand";
@@ -42,7 +43,7 @@ import { useDialogs } from "../chat/dialog-model";
 import { SessionIdContext, useAttachments } from "../chat/attachments";
 import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../chat/asset-links";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
-import { AgentsButton, ChatHeader } from "../chat/ChatHeader";
+import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
 import { ReviewPanel } from "../screens/chat/items";
 import { useSessionRuns } from "../chat/sessionRuns";
@@ -398,7 +399,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   };
   const listedWindow = settings ? catalog?.providers.find((p) => p.id === settings.provider)?.models.find((m) => m.id === settings.model)?.contextWindow : undefined;
   const mainContext = detail?.context?.main;
-  const compacting = !!detail?.transcript.some((x) => x.kind === "compaction" && !x.parent && x.state === "running");
+  // The daemon's, from the whole transcript; worked out here only for a daemon that sends none.
+  const compacting = detail?.compacting ?? !!detail?.transcript.some((x) => x.kind === "compaction" && !x.parent && x.state === "running");
   const runtimeCompacts = settings?.route === "claude";
   const meterView = settings ? contextView(mainContext, settings.model, listedWindow) : null;
   // Dismissed per session, until it reaches the next level.
@@ -471,7 +473,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const forms = useForms(daemon, detail?.id ?? null);
   const outside = useOutsideRuns(daemon.events, daemon.streaming);
   // The session's live playtests, pinned under its header while they run or wait for the user.
-  const sessionRuns = useSessionRuns(detail?.id ?? null, detail?.transcript, daemon.events);
+  const sessionRuns = useSessionRuns(detail?.id ?? null, detail?.transcript, daemon.events, detail?.liveRuns);
   const qaLive = useMemo(() => ({ events: daemon.events, streaming: daemon.streaming, forms, sessionId: detail?.id ?? null, onThread: openThreadId }), [daemon.events, daemon.streaming, forms, detail?.id, openThreadId]);
   /** The runs with a card on screen, so their verdict forms are answered there. */
   const qaRuns = useMemo(
@@ -489,10 +491,20 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     }
     void loadList();
   };
-  const openThread = (thread && detail && agentCalls(detail.transcript).find((c) => c.id === thread)) || null;
+  // Every subagent of the session: the phone holds only the newest page, so the daemon's list counts those before it.
+  const agents = useMemo(() => (detail ? subagentsOf(detail) : []), [detail]);
+  const agentMap = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
+  const openThread = (thread && agentMap.get(thread)) || null;
   // Who a message written now goes to: the open subagent while it runs, else the main agent.
-  const target = composerTarget(openThread);
-  const drawerCall = (drawerId && detail && agentCalls(detail.transcript).find((c) => c.id === drawerId)) || null;
+  const target = composerTarget(openThread?.call);
+  const drawerAgent = (drawerId && agentMap.get(drawerId)) || null;
+  // The open thread, read by its id: its own entries, also those before the page of the session the phone holds.
+  const drawerThread = useAgentThread(api.agentThread, detail?.id ?? null, drawerAgent ? drawerAgent.id : null, detail, detail?.transcript ?? []);
+  // The bar's utilities after the context ring, as on the web: Checkpoints, and the subagents while there are some.
+  const utilities: BarUtility[] = [
+    { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
+    ...(agents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: agents.length, onClick: () => setSheet(true) }] : []),
+  ];
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
   // slid out, then unmounted once the slide has finished.
@@ -505,17 +517,16 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
     Animated.timing(slide, { toValue: 0, duration: DRAWER_MS, useNativeDriver: true }).start(({ finished }) => finished && setDrawerId(null));
   }, [thread]);
 
-  // The session's threads, in a sheet from the header, so the composer stays at the bottom of the screen.
+  // The session's threads, in a sheet from the bar's Subagents button, so the composer stays at the bottom of the screen.
   const threads = detail && (
     <Threads
-      transcript={detail.transcript}
+      agents={agents}
       thread={openThread ? thread : null}
       onThread={(id) => {
         setSheet(false);
         openThreadId(id);
       }}
       onStop={stopSubagent}
-      sessionWaiting={detail.status === "waiting"}
       seen={seen}
       dismissed={dismissed}
       onDismiss={dismiss}
@@ -588,22 +599,19 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
 
   return (
     <AskedContext.Provider value={asked}>
+    <AgentsContext.Provider value={agentMap}>
       {/* automaticOffset: the chat sits under the app's header, so the keyboard's reach is measured from where it is on screen. */}
       <KeyboardAvoidingView behavior="padding" automaticOffset style={{ flex: 1, backgroundColor: t.c.panel }}>
         {detail ? (
           <ChatHeader
             title={detail.title}
             thread={openThread}
-            transcript={detail.transcript}
-            sessionWaiting={detail.status === "waiting"}
-            agents={agentCalls(detail.transcript).length}
             onSessions={() => {
               setSelected(null);
               setDetail(null);
             }}
             onMain={() => setThread(null)}
             onStop={stopSubagent}
-            onReview={() => setReviewOpen(true)}
             onTitleLongPress={() => setDiagOpen((v) => !v)}
           />
         ) : null}
@@ -637,11 +645,11 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                         <View testID="chat-column" style={{ flex: 1, minHeight: 0 }} onLayout={(e) => setColumnH(Math.round(e.nativeEvent.layout.height))}>
                         <View style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onLayout={(e) => setDiag({ boxH: e.nativeEvent.layout.height })}>
                           <MainTranscript key={detail.id} more={(detail.from ?? 0) > 0 ? olderEntries : undefined} transcript={detail.transcript} status={detail.status} streaming={streaming} waitingCause={detail.waitingCause} error={detail.error} onOpen={openThreadId} onStop={stopSubagent} hidden={!!drawerId} sent={sent} />
-                          {drawerCall ? (
+                          {drawerAgent ? (
                             <Animated.View
                               style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: t.c.panel, borderLeftWidth: 1, borderLeftColor: t.c.line, shadowColor: "#000", shadowOpacity: 0.28, shadowRadius: 16, shadowOffset: { width: -16, height: 0 }, transform: [{ translateX: slide.interpolate({ inputRange: [0, 1], outputRange: [width, 0] }) }] }}
                             >
-                              <SubagentThread call={drawerCall} transcript={detail.transcript} sessionWaiting={detail.status === "waiting"} onBack={() => setThread(null)} onStop={stopSubagent} />
+                              <SubagentThread agent={drawerAgent} entries={drawerThread.entries} from={drawerThread.from} more={drawerThread.more} onBack={() => setThread(null)} onStop={stopSubagent} />
                             </Animated.View>
                           ) : null}
                         </View>
@@ -715,12 +723,11 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                                   runtime={runtimeCompacts}
                                   onCompact={() => compactNow()}
                                   owner={openThread ? "Main" : undefined}
-                                  ringOnly
                                 />
                               ) : null}
-                              {agentCalls(detail.transcript).length > 0 ? <AgentsButton count={agentCalls(detail.transcript).length} onPress={() => setSheet(true)} /> : null}
                             </>
                           }
+                          utilities={utilities}
                         />
                         </View>
                         </View>
@@ -744,6 +751,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
           </QaContext.Provider>
         ) : null}
       </KeyboardAvoidingView>
+    </AgentsContext.Provider>
     </AskedContext.Provider>
   );
 }

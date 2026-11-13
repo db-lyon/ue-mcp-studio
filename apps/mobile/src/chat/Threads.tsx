@@ -5,53 +5,54 @@
  * has not opened are marked new. A row switches the conversation to that
  * thread. A finished row can be dismissed, one at a time or all at once; the
  * session keeps the dismissals, and the subagent's line in the conversation
- * stays. Each row shows that agent's context now, or what it spent.
+ * stays. Each row shows that agent's context now, or what it spent. The rows
+ * are the daemon's subagent list (SessionDetail.subagents), never worked out
+ * from the page of the transcript the phone holds.
  */
 import { useState } from "react";
 import { Pressable, View } from "react-native";
-import type { ContextUsage, TranscriptEntry } from "@ue-mcp-studio/shared";
-import { STATE_LABEL, agentCalls, agentStatus, callsIn, describe, formatDuration, isActive, summarize, tokenCount, type AgentState, type Call } from "@ue-mcp-studio/client-core";
+import type { ContextUsage, SessionAgent } from "@ue-mcp-studio/shared";
+import { STATE_LABEL, agentView, describe, formatDuration, isActive, summarize, tokenCount, type AgentState } from "@ue-mcp-studio/client-core";
 import { font, T, useTheme } from "../ui";
 import { useNow } from "./hooks";
-import { useAsked } from "./asked";
 import { stateColors } from "./ChatHeader";
 import { buttonText, small } from "./styles";
 
 const EMPTY: ReadonlySet<string> = new Set();
 
-export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {} }: {
-  transcript: TranscriptEntry[];
+export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {} }: {
+  agents: SessionAgent[];
   thread: string | null;
   onThread: (id: string | null) => void;
   onStop: (id: string) => void;
-  sessionWaiting: boolean;
   seen: ReadonlySet<string>;
   dismissed?: ReadonlySet<string>;
   onDismiss?: (ids: string[]) => void;
-  /** Tokens each agent spent this session: "main", or a subagent's agent call id. */
+  /** Tokens the main agent spent this session, under "main". */
   tokens?: Record<string, number>;
-  /** Each agent's current context, by the same keys. */
+  /** The main agent's current context, under "main". */
   context?: Record<string, ContextUsage>;
 }) {
   const t = useTheme();
-  const agents = agentCalls(transcript);
-  const now = useNow(agents.some((a) => a.outcome === "pending"));
-  const asked = useAsked();
+  const now = useNow(agents.some((a) => isActive(a.state)));
   const [showFinished, setShowFinished] = useState(false);
   // The open thread keeps its row until it is closed, so a dismissal never pulls the list out from under it.
-  const listed = agents.filter((a) => !dismissed.has(a.id) || a.outcome === "pending" || a.id === thread);
+  const listed = agents.filter((a) => !dismissed.has(a.id) || isActive(a.state) || a.id === thread);
   // With no subagents there is no list: the composer's context meter has the main agent's numbers.
   if (listed.length === 0) return null;
+  const byId = new Map(agents.map((a) => [a.id, a]));
 
   const dimSmall = [small(t), { color: t.c.dim }];
   // .agents-meta and .agents-tokens: `.dim.small` inside .agents-open, so the row's mono at 12 px, never wrapped.
   const rowMeta = [font(t, "mono", 400, 12, 1.5), { color: t.c.dim, flexShrink: 0 }];
   /** An agent's line: its context now when measured, else what it spent this session. */
   const usage = (key: string) => {
-    const c = context[key];
-    return <T numberOfLines={1} style={rowMeta} accessibilityHint={`${(tokens[key] ?? 0).toLocaleString("en-US")} input and output tokens spent this session`}>{c ? `context ${tokenCount(c.input + c.output)}` : `${tokenCount(tokens[key] ?? 0)} spent`}</T>;
+    const a = byId.get(key);
+    const c = a ? a.context : context[key];
+    const spent = (a ? a.tokens : tokens[key]) ?? 0;
+    return <T numberOfLines={1} style={rowMeta} accessibilityHint={`${spent.toLocaleString("en-US")} input and output tokens spent this session`}>{c ? `context ${tokenCount(c.input + c.output)}` : `${tokenCount(spent)} spent`}</T>;
   };
-  const rows = listed.map((a) => ({ call: a, ...agentStatus(a, transcript, sessionWaiting, now, asked) }));
+  const rows = listed.map((a) => ({ call: a.call, steps: a.steps, ...agentView(a, now) }));
   const active = rows.filter((r) => isActive(r.state));
   const finished = rows.filter((r) => !isActive(r.state));
   const failed = finished.filter((r) => r.state === "failed" || r.state === "unknown").length;
@@ -73,7 +74,7 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
   );
 
   const row = (r: (typeof rows)[number]) => {
-    const calls = callsIn(transcript, r.call.id);
+    const calls = r.steps;
     const isNew = !isActive(r.state) && !seen.has(r.call.id);
     const colors = stateColors(t, r.state as AgentState);
     return rowBox(
@@ -135,5 +136,3 @@ export function Threads({ transcript, thread, onThread, onStop, sessionWaiting, 
     </View>
   );
 }
-
-export type { Call };

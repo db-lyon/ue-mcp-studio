@@ -7,7 +7,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { View } from "react-native";
-import type { ToolCallRecord, TranscriptEntry } from "@ue-mcp-studio/shared";
+import { agentThreadPage, deriveSession, sessionAgents, type ToolCallRecord, type TranscriptEntry } from "@ue-mcp-studio/shared";
+import { THREAD_PAGE } from "@ue-mcp-studio/client-core";
 import { FIRST_ROWS, FOLD_FADE, FOLD_MAX, MainTranscript, PAGE_ROWS, SubagentThread, UNFOLDED_MAX, streamPieces } from "../src/chat/Transcript";
 import { Markdown, MarkdownPiece, PIECE_CHARS, THEMES, ThemeProvider, markdownPieces } from "../src/ui";
 import { longReply } from "../visual-qa/long-reply";
@@ -172,7 +173,7 @@ describe("a thread on a phone", () => {
   it("draws the newest reply of a subagent's own thread as pieces too, never folded", () => {
     const agent: ToolCallRecord = { id: "ag", name: "agent", input: { description: "Plan the save system", prompt: "plan it" }, outcome: "pending", startedAt: at };
     const t: TranscriptEntry[] = [{ kind: "tool", call: agent }, { kind: "assistant", text: longReply(), at, parent: "ag" }];
-    renderInProject(<SubagentThread call={agent} transcript={t} sessionWaiting={false} onBack={vi.fn()} onStop={vi.fn()} />);
+    renderInProject(<SubagentThread agent={sessionAgents(t, { status: "running", asked: new Set() })[0]} entries={t.filter((e) => e.parent === "ag")} onBack={vi.fn()} onStop={vi.fn()} />);
     const pieces = screen.getAllByTestId("reply-piece");
     expect(pieces.length).toBeGreaterThan(3);
     expect(within(pieces[0]).getByText("The last paragraph.")).toBeTruthy();
@@ -265,5 +266,43 @@ describe("a session opened in the chat", () => {
       await settle();
     }
     expect(api.sessionSync).toHaveBeenCalledWith(HUGE_ID, undefined, { tail: TAIL_ENTRIES, before: n - TAIL_ENTRIES });
+  }, 60_000);
+
+  it("counts, lists and opens the subagents started before the newest page, from the daemon's list and their threads by id", async () => {
+    const api = fakeApi();
+    const agent = (id: string, description: string): TranscriptEntry => ({ kind: "tool", call: { id, name: "agent", input: { description, prompt: description }, outcome: "pending", startedAt: at } });
+    // The first subagent's thread is longer than a page of it.
+    const rockSteps: TranscriptEntry[] = Array.from({ length: THREAD_PAGE + 5 }, (_, i) => ({ kind: "assistant", text: `Rock ${i}`, at, parent: "g1" }));
+    const talk: TranscriptEntry[] = Array.from({ length: TAIL_ENTRIES + 20 }, (_, i) => ({ kind: "assistant", text: `Line ${i}`, at }));
+    // Two subagents started first, then a long conversation: the newest page holds neither.
+    const transcript = [{ kind: "user", text: "Dress the cave", at } as TranscriptEntry, agent("g1", "Place rocks"), agent("g2", "Check the light"), ...rockSteps, ...talk];
+    const whole = { ...hugeSession(1), status: "running" as const, transcript, agents: { total: 2, running: 2 } };
+    // What the agent sends with every answer: worked out from the whole transcript.
+    const derived = deriveSession(transcript, { status: "running", asked: new Set() });
+    const n = transcript.length;
+    api.sessions.mockResolvedValue({ sessions: [{ ...whole, transcript: undefined }] });
+    api.settings.mockResolvedValue({ route: "key" });
+    api.sessionSync.mockImplementation(async (_id: string, have?: string, page?: { tail?: number }) => {
+      if (have !== undefined) return { ...whole, ...derived, transcript: undefined, hashes: "H", changed: { length: n, entries: [] } };
+      const from = Math.max(0, n - (page?.tail ?? n));
+      return { ...whole, ...derived, hashes: "H", transcript: transcript.slice(from), from, total: n };
+    });
+    api.agentThread.mockImplementation(async (_id: string, callId: string, page?: { tail?: number; before?: number }) => agentThreadPage(transcript, callId, page));
+    renderInProject(<Chat initialSession={HUGE_ID} />, api);
+    for (let i = 0; i < 50 && !screen.queryByTestId("composer-utilities"); i++) await settle();
+    await settle();
+    // The page holds none of them, and still the bar offers both.
+    expect(screen.queryByText("Place rocks")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Subagents (2)" }));
+    await settle();
+    const sheet = screen.getByLabelText("Subagents");
+    expect(within(sheet).getByLabelText("Place rocks")).toBeTruthy();
+    expect(within(sheet).getByLabelText("Check the light")).toBeTruthy();
+    // Opened, its thread is read by its id, its newest page first, whatever the phone holds of the session.
+    fireEvent.click(within(sheet).getByLabelText("Place rocks"));
+    for (let i = 0; i < 20 && !api.agentThread.mock.calls.length; i++) await settle();
+    expect(api.agentThread).toHaveBeenCalledWith(HUGE_ID, "g1", { tail: THREAD_PAGE });
+    for (let i = 0; i < 20 && !screen.queryByText(`Rock ${THREAD_PAGE + 4}`); i++) await settle();
+    expect(screen.getByText(`Rock ${THREAD_PAGE + 4}`)).toBeTruthy();
   }, 60_000);
 });

@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ActionListing, FlowListing, MentionMatch, MentionSearchResponse, ModelCatalog, StudioSettings } from "@ue-mcp-studio/shared";
 import { mentionToken } from "@ue-mcp-studio/shared";
-import { BarButton, Composer, CheckpointsGlyph } from "../src/chat/Composer";
+import { Platform } from "react-native";
+import { AgentsGlyph, Composer, CheckpointsGlyph } from "../src/chat/Composer";
 import { BarTierContext } from "../src/chat/barTier";
 import { MentionText, type MentionSearchFn } from "../src/chat/MentionMenu";
 import { PillRow } from "../src/chat/Pills";
@@ -173,9 +174,9 @@ describe("Composer", () => {
     }
   });
 
-  it("hints at the keys only at a tablet's width: a phone has no shortcuts to hint at", () => {
+  it("shows no words for the keys: a phone has no shortcuts to hint at, a tablet hears them in Send's hint", () => {
     render(<Box onQueue={() => undefined} />);
-    expect(screen.queryByText("Enter to send, Shift+Enter for a new line")).toBeNull();
+    expect(screen.queryByText(/Enter to send/)).toBeNull();
   });
 
   it("the resize handle: steps with the screen reader's adjust actions, and a double tap forgets the height", () => {
@@ -196,15 +197,72 @@ describe("Composer", () => {
   });
 });
 
-describe("BarButton and the bar's tiers", () => {
-  it("keeps its word while the bar is full, and becomes an icon named by its label when it narrows", () => {
-    const { unmount } = render(<BarTierContext.Provider value="full"><BarButton label="Checkpoints" title="Review" icon={<CheckpointsGlyph />} onClick={() => undefined} /></BarTierContext.Provider>);
-    expect(screen.getByText("Checkpoints")).toBeTruthy();
-    unmount();
-    render(<BarTierContext.Provider value="icons"><BarButton label="Checkpoints" title="Review" icon={<CheckpointsGlyph />} onClick={() => undefined} /></BarTierContext.Provider>);
-    expect(screen.queryByText("Checkpoints")).toBeNull();
+/** What the platform reports when it lays an element out `width` dp wide. */
+function layOut(el: Element, width: number) {
+  const handler = (el as unknown as { __reactLayoutHandler?: (e: unknown) => void }).__reactLayoutHandler;
+  if (!handler) throw new Error("no layout handler on the element");
+  act(() => handler({ nativeEvent: { layout: { x: 0, y: 0, width, height: 44 } } }));
+}
+
+// The same React Native code draws the bar on Android and iOS: nothing here branches on the platform.
+describe.each(["android", "ios"] as const)("the bar's utilities, on %s", (os) => {
+  const withOs = async (f: () => void | Promise<void>) => {
+    const was = Platform.OS;
+    Object.defineProperty(Platform, "OS", { value: os, configurable: true });
+    try {
+      await f();
+    } finally {
+      Object.defineProperty(Platform, "OS", { value: was, configurable: true });
+    }
+  };
+  const utilities = (review: () => void, agents: () => void) => [
+    { id: "subagents" as const, icon: <AgentsGlyph />, count: 2, onClick: agents },
+    { id: "checkpoints" as const, icon: <CheckpointsGlyph />, onClick: review },
+  ];
+
+  it("are icons after the model and the ring, in order, named for a screen reader, with Subagents' count as a badge", () => withOs(() => {
+    const review = vi.fn();
+    const agents = vi.fn();
+    render(<Box utilities={utilities(review, agents)} />);
+    const slot = screen.getByTestId("composer-utilities");
+    const names = within(slot).getAllByRole("button").map((b) => b.getAttribute("aria-label"));
+    expect(names).toEqual(["Checkpoints", "Subagents (2)", "Attach"]);
+    // No words on the bar: only the badge's count.
+    expect(slot.textContent).toBe("2");
+    fireEvent.click(button("Checkpoints"));
+    fireEvent.click(button("Subagents (2)"));
+    expect([review, agents].every((f) => f.mock.calls.length === 1)).toBe(true);
+    // The keys' words are gone from the bar.
+    expect(screen.queryByText(/Enter to send/)).toBeNull();
+  }));
+
+  it("fold into one menu when the measured row does not fit, and unfold when it does", () => withOs(async () => {
+    const review = vi.fn();
+    const agents = vi.fn();
+    render(<Box utilities={utilities(review, agents)} />);
+    const row = screen.getByTestId("composer-utilities-measure");
+    layOut(row, 136);
+    layOut(screen.getByTestId("composer-utilities"), 136);
+    layOut(screen.getByTestId("composer-spacer"), 0);
+    expect(screen.queryByLabelText(/More controls/)).toBeNull();
+    // Squeezed: the slot is narrower than the row and nothing is free.
+    layOut(screen.getByTestId("composer-utilities"), 90);
+    expect(screen.queryByRole("button", { name: "Checkpoints" })).toBeNull();
+    fireEvent.click(button("More controls, 2 subagents"));
+    // The menu opens over the button once its place on screen is measured.
+    const menu = await screen.findByRole("menu", { name: "More controls" });
+    const items = within(menu).getAllByRole("menuitem");
+    expect(items.map((i) => i.getAttribute("aria-label"))).toEqual(["Checkpoints", "Subagents (2)", "Attach"]);
+    expect(within(menu).getByText("Subagents (2)")).toBeTruthy();
+    fireEvent.click(items[0]);
+    expect(review).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menu")).toBeNull();
+    // Room again: the overflow button and the free space are wider than the row.
+    layOut(screen.getByTestId("composer-utilities"), 44);
+    layOut(screen.getByTestId("composer-spacer"), 120);
     expect(button("Checkpoints")).toBeTruthy();
-  });
+    expect(screen.queryByLabelText(/More controls/)).toBeNull();
+  }));
 });
 
 describe("the slash menu", () => {

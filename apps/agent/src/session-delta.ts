@@ -6,7 +6,7 @@
  * catches both. Long tool results are left out (`resultSize`) and fetched when
  * the call is opened.
  */
-import type { SessionDetail, SessionSync, TranscriptEntry } from "@ue-mcp-studio/shared";
+import { agentThreadPage, type AgentThreadPage, type SessionDetail, type SessionSync, type ToolCallRecord, type TranscriptEntry } from "@ue-mcp-studio/shared";
 
 /** A tool result longer than this is fetched on open instead of sent with the session. */
 export const LAZY_RESULT_CHARS = 8 * 1024;
@@ -14,10 +14,15 @@ export const LAZY_RESULT_CHARS = 8 * 1024;
 /** The entry as sent: a long result of a finished call replaced by its size. Errors stay, the thread banner shows them. */
 export function leanEntry(e: TranscriptEntry): TranscriptEntry {
   if (e.kind !== "tool") return e;
-  const c = e.call;
-  if (!c.result || c.result.length <= LAZY_RESULT_CHARS || c.outcome === "error" || c.outcome === "unknown") return e;
+  const call = leanCall(e.call);
+  return call === e.call ? e : { ...e, call };
+}
+
+/** A call as sent: a long result of a finished call replaced by its size. */
+export function leanCall(c: ToolCallRecord): ToolCallRecord {
+  if (!c.result || c.result.length <= LAZY_RESULT_CHARS || c.outcome === "error" || c.outcome === "unknown") return c;
   const { result, ...rest } = c;
-  return { ...e, call: { ...rest, resultSize: result.length } };
+  return { ...rest, resultSize: result.length };
 }
 
 /** FNV-1a over the entry's JSON: four bytes, enough to tell an entry changed. */
@@ -61,7 +66,9 @@ export interface SyncPage {
  * differ from what it holds.
  */
 export function syncOf(detail: SessionDetail, have: string | undefined, page: SyncPage = {}): SessionSync {
-  const { transcript, ...rest } = detail;
+  const { transcript, subagents, ...whole } = detail;
+  // The derived state (subagents, working line, compacting, live playtests) goes with every answer, whole, page or delta.
+  const rest = subagents ? { ...whole, subagents: subagents.map((a) => ({ ...a, call: leanCall(a.call), ...(a.step ? { step: leanCall(a.step) } : {}) })) } : whole;
   const lean = transcript.map(leanEntry);
   const hashes = lean.map((e) => hash(JSON.stringify(e)));
   const held = have === undefined ? null : decodeHashes(have);
@@ -74,6 +81,12 @@ export function syncOf(detail: SessionDetail, have: string | undefined, page: Sy
   const entries: Array<[number, TranscriptEntry]> = [];
   for (let i = 0; i < lean.length; i++) if (held[i] !== hashes[i]) entries.push([i, lean[i]]);
   return { ...rest, hashes: encodeHashes(hashes), changed: { length: lean.length, entries } };
+}
+
+/** A subagent's thread a page at a time, lean as the session's entries are. */
+export function threadOf(transcript: TranscriptEntry[], callId: string, page: SyncPage = {}): AgentThreadPage {
+  const p = agentThreadPage(transcript, callId, page);
+  return { ...p, entries: p.entries.map(leanEntry) };
 }
 
 /** A call's full result, for a call opened whose result was left out. */

@@ -9,6 +9,7 @@ import { api } from "../api";
 import { useRef } from "react";
 import { Composer, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeight, fitHeight } from "./Composer";
 import { useAttachments, type PendingFile } from "./attachments";
+import { SEND_KEYS, STOP_KEYS } from "@ue-mcp-studio/client-core";
 
 afterEach(() => {
   cleanup();
@@ -53,7 +54,9 @@ describe("the composer", () => {
     render(<Composer {...base} busy onSend={onSend} onQueue={onQueue} onSendNow={onSendNow} />);
     const box = screen.getByPlaceholderText("Ask") as HTMLTextAreaElement;
     expect(box.disabled).toBe(false);
-    expect(screen.getByText("Enter to queue, Ctrl+Enter to stop and send now")).toBeTruthy();
+    // The keys are told in Stop's tooltip, not in words on the bar.
+    expect(screen.queryByText(/Enter to queue/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop" }).getAttribute("title")).toBe(STOP_KEYS);
     fireEvent.keyDown(box, { key: "Enter" });
     expect(onQueue).toHaveBeenCalledTimes(1);
     fireEvent.keyDown(box, { key: "Enter", ctrlKey: true });
@@ -71,7 +74,81 @@ describe("the composer", () => {
     fireEvent.keyDown(screen.getByPlaceholderText("Ask"), { key: "Enter", ctrlKey: true });
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onSendNow).not.toHaveBeenCalled();
-    expect(screen.getByText("Enter to send, Shift+Enter for a new line")).toBeTruthy();
+    expect(screen.queryByText(/Enter to send/)).toBeNull();
+    const send = screen.getByRole("button", { name: "Send" });
+    expect(send.getAttribute("title")).toBe(SEND_KEYS);
+    expect(send.textContent).toBe("");
+  });
+
+  it("puts the utilities in the bar as icons, in order, with Subagents' count as a badge", () => {
+    const review = vi.fn();
+    const agents = vi.fn();
+    render(<Composer {...base} utilities={[
+      { id: "subagents", icon: <svg />, count: 2, onClick: agents },
+      { id: "checkpoints", icon: <svg />, onClick: review },
+    ]} />);
+    const slot = document.querySelector(".composer-utilities")!;
+    const buttons = [...slot.querySelectorAll("button")];
+    expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual(["Checkpoints", "Subagents (2)", "Attach"]);
+    // Icons: no words on the bar, the badge holds only the count.
+    expect(buttons[0].textContent).toBe("");
+    expect(buttons[1].querySelector(".utility-count")?.textContent).toBe("2");
+    expect(buttons[2].getAttribute("title")).toBe("Attach files (or drop or paste them)");
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+    expect([review, agents].every((f) => f.mock.calls.length === 1)).toBe(true);
+    // The measured copy is out of reach of the keyboard and a screen reader.
+    const copy = document.querySelector(".composer-utilities-measure")!;
+    expect(copy.getAttribute("aria-hidden")).toBe("true");
+    expect([...copy.querySelectorAll("button")].every((b) => b.tabIndex === -1)).toBe(true);
+  });
+
+  it("folds the utilities into one menu when the measured row does not fit, and unfolds when it does", () => {
+    const widths: Record<string, number> = { row: 120, slot: 120, spacer: 0 };
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const w = this.classList.contains("composer-utilities-row") ? widths.row
+        : this.classList.contains("composer-utilities") ? widths.slot
+        : this.classList.contains("spacer") ? widths.spacer : 0;
+      return { width: w, height: 36, left: 0, right: w, top: 0, bottom: 36, x: 0, y: 0, toJSON: () => ({}) } as DOMRect;
+    });
+    const observers: Array<() => void> = [];
+    const RO = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class { constructor(cb: () => void) { observers.push(cb); } observe() {} unobserve() {} disconnect() {} } as unknown as typeof ResizeObserver;
+    try {
+      const review = vi.fn();
+      const agents = vi.fn();
+      render(<Composer {...base} utilities={[{ id: "checkpoints", icon: <svg />, onClick: review }, { id: "subagents", icon: <svg />, count: 2, onClick: agents }]} />);
+      expect(screen.getByRole("button", { name: "Checkpoints" })).toBeTruthy();
+      // Squeezed: the slot is narrower than the row and nothing is free.
+      widths.slot = 80;
+      act(() => observers.forEach((o) => o()));
+      expect(document.querySelector(".composer-utilities button[aria-label='Checkpoints']")).toBeNull();
+      const more = screen.getByRole("button", { name: "More controls, 2 subagents" });
+      expect(more.getAttribute("aria-haspopup")).toBe("menu");
+      fireEvent.click(more);
+      const items = screen.getAllByRole("menuitem");
+      expect(items.map((i) => i.textContent)).toEqual(["Checkpoints", "Subagents (2)", "Attach"]);
+      expect(document.activeElement).toBe(items[0]);
+      fireEvent.keyDown(items[0], { key: "ArrowDown" });
+      expect(document.activeElement).toBe(items[1]);
+      fireEvent.click(items[1]);
+      expect(agents).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("menu")).toBeNull();
+      // Escape closes the menu and gives the focus back to its button.
+      fireEvent.click(more);
+      fireEvent.keyDown(screen.getAllByRole("menuitem")[0], { key: "Escape" });
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(document.activeElement).toBe(more);
+      // Room again: the overflow button and the free space are wider than the row.
+      widths.slot = 44;
+      widths.spacer = 200;
+      act(() => observers.forEach((o) => o()));
+      expect(screen.getByRole("button", { name: "Checkpoints" })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /More controls/ })).toBeNull();
+    } finally {
+      rect.mockRestore();
+      globalThis.ResizeObserver = RO;
+    }
   });
 
   it("shows each file with its state, and removes one", () => {

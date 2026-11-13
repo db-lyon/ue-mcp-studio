@@ -3,7 +3,8 @@ import { api } from "../api";
 import { MentionText } from "./MentionMenu";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
-import { useAsked } from "./asked";
+import { useAgents, useAsked } from "./asked";
+import type { SessionAgent } from "@ue-mcp-studio/shared";
 import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
 import { TurnReviewCard } from "./TurnReview";
@@ -15,9 +16,9 @@ import {
   RESULT_PREVIEW_LINES,
   TOOL_TAG,
   STATE_LABEL,
-  agentStatus,
+  agentFor,
+  agentView,
   callPath,
-  callsIn,
   describe,
   formatDuration,
   formatResult,
@@ -294,7 +295,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
   return (
     <>
       <div className="transcript" ref={follow.ref} onScroll={follow.onScroll} aria-hidden={hidden || undefined}>
-        <ThreadItems items={items} transcript={transcript} sessionWaiting={waiting} onOpen={onOpen} onStop={onStop} />
+        <ThreadItems items={items} transcript={transcript} onOpen={onOpen} onStop={onStop} />
         {streaming && <div className="msg assistant">{streaming}</div>}
         {asked > 0 && <div className="banner warn" role="status">Waiting on you: {asked === 1 ? "a call needs" : `${asked} calls need`} your approval below.</div>}
         {waiting && <div className="banner warn">Waiting for editor: {waitingCause ?? "not connected"}. The turn continues when it is back.</div>}
@@ -306,13 +307,13 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
 });
 
 /** A thread's lines, the main one or a subagent's, keyed by the entry or first call each starts at so a fold keeps its open state while the turn streams. */
-function ThreadItems({ items, transcript, sessionWaiting, onOpen, onStop }: { items: ThreadItem[]; transcript: TranscriptEntry[]; sessionWaiting: boolean; onOpen?: (id: string) => void; onStop?: (id: string) => void }) {
+function ThreadItems({ items, transcript, onOpen, onStop }: { items: ThreadItem[]; transcript: TranscriptEntry[]; onOpen?: (id: string) => void; onStop?: (id: string) => void }) {
   return (
     <>
       {items.map((item, i) => {
         if (item.kind === "entry") return <Entry key={placeKey(transcript, item.entry, i)} entry={item.entry} />;
         if (item.kind === "steps") return <StepsFold key={`s${item.calls[0].id}`} calls={item.calls} />;
-        return <AgentGroup key={item.calls[0].id} calls={item.calls} transcript={transcript} sessionWaiting={sessionWaiting} onOpen={onOpen ?? (() => {})} onStop={onStop} />;
+        return <AgentGroup key={item.calls[0].id} calls={item.calls} onOpen={onOpen ?? (() => {})} onStop={onStop} />;
       })}
     </>
   );
@@ -341,21 +342,22 @@ export function StepsFold({ calls }: { calls: Call[] }) {
 /** Groups larger than this start collapsed once every subagent in them has finished. */
 export const GROUP_OPEN_MAX = 3;
 
-/** Subagents the main agent started together: one header, and a row per subagent. */
-export function AgentGroup({ calls, transcript, sessionWaiting, onOpen, onStop }: {
+/** Subagents the main agent started together: one header, and a row per subagent, each as the daemon's list says it is. */
+export function AgentGroup({ calls, onOpen, onStop }: {
   calls: Call[];
-  transcript: TranscriptEntry[];
-  sessionWaiting: boolean;
   onOpen: (id: string) => void;
   onStop?: (id: string) => void;
 }) {
   const now = useNow(calls.some((c) => c.outcome === "pending"));
-  const asked = useAsked();
-  const rows = calls.map((c) => ({ call: c, ...agentStatus(c, transcript, sessionWaiting, now, asked) }));
+  const agents = useAgents();
+  const rows = calls.map((c) => {
+    const agent = agentFor(agents, c);
+    return { call: agent.call, steps: agent.steps, ...agentView(agent, now) };
+  });
   const running = rows.some((r) => isActive(r.state));
   const [toggled, setToggled] = useState<boolean | null>(null);
   const open = toggled ?? (running || calls.length <= GROUP_OPEN_MAX);
-  if (calls.length === 1) return <AgentLink row={rows[0]} transcript={transcript} onOpen={onOpen} onStop={onStop} />;
+  if (calls.length === 1) return <AgentLink row={rows[0]} onOpen={onOpen} onStop={onStop} />;
   return (
     <div className="agent-group">
       <button className="agent-group-head" aria-expanded={open} onClick={() => setToggled(!open)}>
@@ -363,16 +365,16 @@ export function AgentGroup({ calls, transcript, sessionWaiting, onOpen, onStop }
         <span className="tool-name">{calls.length} subagents</span>
         <span className="dim">{summarize(rows.map((r) => r.state))}</span>
       </button>
-      {open && rows.map((r) => <AgentLink key={r.call.id} row={r} transcript={transcript} onOpen={onOpen} onStop={onStop} />)}
+      {open && rows.map((r) => <AgentLink key={r.call.id} row={r} onOpen={onOpen} onStop={onStop} />)}
     </div>
   );
 }
 
-type Row = { call: Call } & ReturnType<typeof agentStatus>;
+type Row = { call: Call; steps: number } & ReturnType<typeof agentView>;
 
 /** In the main thread, a subagent is one line; its work is in its own thread. A running one stops from here too. */
-function AgentLink({ row, transcript, onOpen, onStop }: { row: Row; transcript: TranscriptEntry[]; onOpen: (id: string) => void; onStop?: (id: string) => void }) {
-  const calls = callsIn(transcript, row.call.id);
+function AgentLink({ row, onOpen, onStop }: { row: Row; onOpen: (id: string) => void; onStop?: (id: string) => void }) {
+  const calls = row.steps;
   const link = (
     <button className={`tool agent-link state-${row.state}`} onClick={() => onOpen(row.call.id)}>
       <span className="tool-name">subagent</span>
@@ -391,21 +393,25 @@ function AgentLink({ row, transcript, onOpen, onStop }: { row: Row; transcript: 
   );
 }
 
-/** A subagent's own thread: the task it was given, its steps, and what it reported back. */
-export function SubagentThread({ call, transcript, sessionWaiting, onBack, onStop }: {
-  call: Call;
-  transcript: TranscriptEntry[];
-  sessionWaiting: boolean;
+/**
+ * A subagent's own thread: the task it was given, its steps, and what it
+ * reported back. `entries` is its thread as read by its id (ThreadLoader),
+ * whatever part of the main transcript is held; `more` reads the page before.
+ */
+export function SubagentThread({ agent, entries, more, onBack, onStop }: {
+  agent: SessionAgent;
+  entries: TranscriptEntry[];
+  more?: () => void;
   onBack: () => void;
   onStop: (id: string) => void;
 }) {
+  const call = agent.call;
   const now = useNow(call.outcome === "pending");
-  const st = agentStatus(call, transcript, sessionWaiting, now, useAsked());
+  const st = agentView(agent, now);
   const prompt = (call.input as { prompt?: string }).prompt;
-  const steps = transcript.filter((t) => t.parent === call.id);
   const asked = useAsked();
-  const items = useMemo(() => subagentTimeline(transcript, call.id, asked), [transcript, call.id, asked]);
-  const follow = useFollow<HTMLDivElement>(`${steps.length}:${call.outcome}`);
+  const items = useMemo(() => subagentTimeline(entries, call.id, asked), [entries, call.id, asked]);
+  const follow = useFollow<HTMLDivElement>(`${entries.length}:${call.outcome}`);
   return (
     <>
       <div className={`thread-head state-${st.state}`}>
@@ -418,13 +424,15 @@ export function SubagentThread({ call, transcript, sessionWaiting, onBack, onSto
         {isActive(st.state) && <button className="thread-stop" onClick={() => onStop(call.id)}>Stop</button>}
       </div>
       <div className="transcript" ref={follow.ref} onScroll={follow.onScroll}>
-        {prompt && (
+        {more ? (
+          <button className="ghost thread-older" onClick={more}>Show earlier steps</button>
+        ) : prompt && (
           <div className="msg user">
             <div className="eyebrow">Task from the main agent</div>
             {prompt}
           </div>
         )}
-        <ThreadItems items={items} transcript={transcript} sessionWaiting={sessionWaiting} />
+        <ThreadItems items={items} transcript={entries} />
         {call.outcome === "done" && <div className="dim small">Reported back to the main agent.</div>}
         {call.outcome === "stopped" && <div className="dim small">Stopped. The main agent was told.</div>}
         {(call.outcome === "error" || call.outcome === "unknown") && call.result && <div className="banner bad">{call.result}</div>}

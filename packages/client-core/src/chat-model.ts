@@ -2,13 +2,13 @@
  * What the chat view shows, worked out from a session's transcript: no React,
  * no DOM, so every rule here is unit tested on its own.
  */
-import type { ToolCallRecord, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
+import { sessionAgents, type AgentState, type SessionAgent, type SessionDetail, type ToolCallRecord, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { baseName } from "./vcs.js";
 
 export type Call = ToolCallRecord;
 
-/** What a subagent is doing now. */
-export type AgentState = "queued" | "working" | "approval" | "waiting" | "done" | "failed" | "unknown" | "stopped";
+/** What a subagent is doing now: the daemon's SessionAgent state. */
+export type { AgentState };
 
 export const STATE_LABEL: Record<AgentState, string> = {
   queued: "Waiting to start",
@@ -43,12 +43,24 @@ export const OUTCOME_LABEL: Record<ToolCallRecord["outcome"], string> = {
 
 export const describe = (c: Call): string => (c.input as { description?: string }).description ?? "Subagent";
 
-export const callsIn = (transcript: TranscriptEntry[], id: string): number =>
-  transcript.filter((t) => t.parent === id && t.kind === "tool").length;
+/**
+ * The session's subagents, as the daemon worked them out from the whole
+ * transcript (SessionDetail.subagents): the only source both clients use for
+ * the Subagents button, the thread list, a thread's header and the subagent
+ * rows in the conversation. A daemon older than 0.1.35-beta.24 sends none;
+ * then the same shared rule runs over the transcript the client holds.
+ */
+export function subagentsOf(detail: Pick<SessionDetail, "transcript" | "status" | "approvals" | "seen" | "dismissed" | "tokens" | "context" | "subagents">): SessionAgent[] {
+  if (detail.subagents) return detail.subagents;
+  return sessionAgents(detail.transcript, { status: detail.status, asked: new Set((detail.approvals ?? []).map((a) => a.toolUseId)), seen: detail.seen, dismissed: detail.dismissed, tokens: detail.tokens, context: detail.context });
+}
 
-/** Every agent call in the session, in the order they started. */
-export function agentCalls(transcript: TranscriptEntry[]): Call[] {
-  return transcript.flatMap((t) => (t.kind === "tool" && t.call.name === "agent" ? [t.call] : []));
+/**
+ * A subagent for a call the daemon's list does not have yet (its row drawn
+ * from an entry newer than the list): its state from the call's outcome alone.
+ */
+export function agentFor(agents: ReadonlyMap<string, SessionAgent>, call: Call): SessionAgent {
+  return agents.get(call.id) ?? sessionAgents([{ kind: "tool", call }], { status: "running", asked: NONE })[0];
 }
 
 /** The short name a call shows under: ue-mcp for the editor, the tool for the machine. */
@@ -144,9 +156,6 @@ export function tokenCount(n: number): string {
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
 }
 
-const timeOf = (t: TranscriptEntry): number =>
-  t.kind === "dialog" ? t.dialog.openedAt : t.kind === "qa" ? Date.parse(t.run.seenAt) : t.kind === "review" ? Date.parse(t.review.at) : Date.parse(t.kind === "tool" ? t.call.endedAt ?? t.call.startedAt : t.at);
-
 export interface AgentStatus {
   state: AgentState;
   /** For a running subagent: the call it is running, "thinking", or how long it has been quiet. */
@@ -157,28 +166,20 @@ export interface AgentStatus {
 const NONE: ReadonlySet<string> = new Set();
 
 /**
- * A subagent's state, from its call and its own transcript entries. `asked`:
- * the tool call ids waiting for the user's approval, which make a subagent
- * that runs one wait on the user rather than work (#149).
+ * A subagent as its row and header say it now: the daemon's state, its step
+ * in a few words (or the call waiting for approval, #149), and how long it
+ * has run. Only the time is the client's: how long ago `now` its last step was.
  */
-export function agentStatus(call: Call, transcript: TranscriptEntry[], sessionWaiting: boolean, now: number, asked: ReadonlySet<string> = NONE): AgentStatus {
+export function agentView(agent: SessionAgent, now: number): AgentStatus {
+  const { call, state, step } = agent;
   const end = call.endedAt ? Date.parse(call.endedAt) : now;
   const secs = Math.max(1, Math.round((end - Date.parse(call.startedAt)) / 1000));
-  if (call.outcome === "done") return { state: "done", activity: null, secs };
-  if (call.outcome === "error") return { state: "failed", activity: null, secs };
-  if (call.outcome === "unknown") return { state: "unknown", activity: null, secs };
-  if (call.outcome === "stopped") return { state: "stopped", activity: null, secs };
-  // Past the limit of subagents at once: it starts when a running one finishes.
-  if (call.queued) return { state: "queued", activity: null, secs };
-  const steps = transcript.filter((t) => t.parent === call.id);
-  const held = steps.find((t) => t.kind === "tool" && t.call.outcome === "pending" && asked.has(t.call.id));
-  if (held?.kind === "tool") return { state: "approval", activity: `approve ${toolLabel(held.call)}`, secs };
-  if (sessionWaiting) return { state: "waiting", activity: null, secs };
-  const running = [...steps].reverse().find((t) => t.kind === "tool" && t.call.outcome === "pending");
-  if (running?.kind === "tool") return { state: "working", activity: stepActivity(running.call), secs };
-  const last = Math.max(Date.parse(call.startedAt), ...steps.map(timeOf));
-  if (now - last > QUIET_MS) return { state: "working", activity: `thinking, ${formatDuration((now - last) / 1000)} since its last step`, secs };
-  return { state: "working", activity: "thinking", secs };
+  if (state === "approval" && step) return { state, activity: `approve ${toolLabel(step)}`, secs };
+  if (state !== "working") return { state, activity: null, secs };
+  if (step) return { state, activity: stepActivity(step), secs };
+  const last = Date.parse(agent.lastStepAt);
+  if (now - last > QUIET_MS) return { state, activity: `thinking, ${formatDuration((now - last) / 1000)} since its last step`, secs };
+  return { state, activity: "thinking", secs };
 }
 
 /** "3 working, 12 done, 1 failed": the states present, in a fixed order. */
