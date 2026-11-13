@@ -1353,10 +1353,16 @@ ${result}`);
   }
 
   /** The user's Stop. Unanswered tool calls are answered as stopped so the conversation stays valid. */
+  /** A Stop now ends only the main agent's reply: background subagents are working and it is still replying. */
+  stopKeepsSubagents(sessionId: string): boolean {
+    const live = this.live.get(sessionId);
+    return !!live && live.background() > 0 && !live.free();
+  }
+
   stop(sessionId: string): void {
     // With background subagents working, Stop ends only the main agent's reply; a second Stop, with it idle, ends them too.
     const live = this.live.get(sessionId);
-    if (live && live.background() > 0 && !live.free()) {
+    if (live && this.stopKeepsSubagents(sessionId)) {
       void this.stopMain(sessionId, live).catch((e) => this.o.host.log.warn(`stopping the main agent in session ${sessionId} failed`, e));
       return;
     }
@@ -1368,9 +1374,16 @@ ${result}`);
     this.interrupt(sessionId, USER_STOP);
   }
 
+  /** The main agent's subagents still working, foreground or background. */
+  private runningSubagents(s: StoredSession): number {
+    return s.transcript.filter((t) => t.kind === "tool" && !t.parent && t.call.outcome === "pending" && this.subagents.has(t.call.id)).length;
+  }
+
   /** Background subagents are running, and a Stop or a sent message leaves them running. */
   keepsSubagents(sessionId: string): boolean {
-    return (this.live.get(sessionId)?.background() ?? 0) > 0;
+    const live = this.live.get(sessionId);
+    const s = this.o.store.get(sessionId);
+    return !!live && !!s && (live.background() > 0 || this.runningSubagents(s) > 0);
   }
 
   /** The main agent is idle while background subagents run: a message goes to it now. */
@@ -1793,6 +1806,10 @@ ${result}`);
     if (live && live.background() > 0) {
       // The subagents keep working: only the main agent's reply stops, and it takes this message next.
       if (!live.free()) await this.stopMain(s.id, live);
+      if (await this.tell(s, text, attachments)) return;
+    } else if (live && this.runningSubagents(s) > 0) {
+      // The main agent is waiting on its subagents: stopping it would end them. The message goes in
+      // beside them instead, and the main agent reads it as soon as it can take input.
       if (await this.tell(s, text, attachments)) return;
     }
     if (this.busy(s)) this.interrupt(sessionId, USER_SENT);

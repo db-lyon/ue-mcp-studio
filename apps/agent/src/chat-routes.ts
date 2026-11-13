@@ -805,7 +805,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("POST", "/sessions/:id/stop", (req) => {
     if (!store.get(req.params.id)) return missing(req.params.id);
     // With background subagents working, Stop ends only the main agent's reply: their forms stay open.
-    if (!runner.keepsSubagents(req.params.id)) forms.cancelSession(req.params.id);
+    if (!runner.stopKeepsSubagents(req.params.id)) forms.cancelSession(req.params.id);
     runner.stop(req.params.id);
     // Nothing waits on the editor attaching after a Stop, so the banner stops saying it does.
     busy.endWait();
