@@ -104,8 +104,23 @@ export const contextTokens = (c: Pick<ContextUsage, "input" | "output">): number
 /** A rough token count for text Studio has not had measured: four characters a token. */
 export const estimateTokens = (text: string): number => Math.ceil(text.length / 4);
 
-/** API prices, US dollars per million tokens. Cache writes are 1.25 times input. */
-const PRICES: Array<{ match: RegExp; input: number; output: number; cacheRead: number }> = [
+/**
+ * API prices, US dollars per million tokens, from each vendor's published
+ * price page, at the standard tier for prompts under the vendor's long-context
+ * threshold. `cacheWrite` is what writing the cache costs as a multiple of
+ * input (Anthropic charges 1.25; OpenAI and Google charge input). `from`: the
+ * date a price starts, with the earlier price listed after it.
+ */
+const PRICES: Array<{ match: RegExp; input: number; output: number; cacheRead: number; cacheWrite?: number; from?: string }> = [
+  // OpenAI (developers.openai.com/api/docs/pricing, November 2026).
+  { match: /^gpt-6-astra/, input: 10, output: 50, cacheRead: 1, cacheWrite: 1 },
+  { match: /^gpt-6-sol/, input: 2, output: 10, cacheRead: 0.2, cacheWrite: 1 },
+  { match: /^gpt-6-luna/, input: 0.1, output: 0.5, cacheRead: 0.01, cacheWrite: 1 },
+  // Google (aistudio.google.com/docs/pricing, November 2026). Output includes thinking tokens.
+  { match: /^gemini-3\.1-pro/, input: 2, output: 12, cacheRead: 0.2, cacheWrite: 1 },
+  { match: /^gemini-3\.8-flash/, input: 1.5, output: 7.5, cacheRead: 0.15, cacheWrite: 1, from: "2027-01-01" },
+  { match: /^gemini-3\.8-flash/, input: 0.75, output: 3.75, cacheRead: 0.075, cacheWrite: 1 },
+  // Anthropic.
   { match: /^claude-fable-5/, input: 10, output: 50, cacheRead: 0.25 },
   { match: /^claude-mythos-5/, input: 10, output: 50, cacheRead: 0.25 },
   { match: /^claude-opus-5-5/, input: 4, output: 20, cacheRead: 0.2 },
@@ -118,11 +133,12 @@ const PRICES: Array<{ match: RegExp; input: number; output: number; cacheRead: n
 ];
 
 /** What one request cost at the vendor's API prices, or null for a model Studio has no prices for. */
-export function requestCost(model: string, u: { input: number; output: number; cacheRead?: number; cacheWrite?: number }): number | null {
-  const p = PRICES.find((x) => x.match.test(model.toLowerCase()));
+export function requestCost(model: string, u: { input: number; output: number; cacheRead?: number; cacheWrite?: number }, at: number = Date.now()): number | null {
+  const id = model.toLowerCase().replace(/^models\//, "");
+  const p = PRICES.find((x) => x.match.test(id) && (!x.from || at >= Date.parse(x.from)));
   if (!p) return null;
   const write = u.cacheWrite ?? 0;
-  return ((u.input - write) * p.input + write * p.input * 1.25 + (u.cacheRead ?? 0) * p.cacheRead + u.output * p.output) / 1_000_000;
+  return ((u.input - write) * p.input + write * p.input * (p.cacheWrite ?? 1.25) + (u.cacheRead ?? 0) * p.cacheRead + u.output * p.output) / 1_000_000;
 }
 
 /** One model under two spellings: a dated snapshot, a provider prefix or a window tag such as [1m]. */

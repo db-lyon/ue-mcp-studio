@@ -30,7 +30,18 @@ describe("context windows", () => {
     expect(requestCost("claude-opus-5-5", { input: 1_000_000, output: 0 })).toBeCloseTo(4);
     expect(requestCost("claude-opus-5-5", { input: 1_000_000, cacheWrite: 1_000_000, output: 0 })).toBeCloseTo(5);
     expect(requestCost("claude-opus-5-5", { input: 0, cacheRead: 1_000_000, output: 1_000_000 })).toBeCloseTo(20.2);
-    expect(requestCost("gpt-6-astra", { input: 1, output: 1 })).toBeNull();
+    expect(requestCost("some-local-model", { input: 1, output: 1 })).toBeNull();
+  });
+
+  it("prices every vendor in the model list, each with its own cache rules (#424)", () => {
+    // GPT-6 Sol: $2 in, $10 out, $0.20 cached; a cache write costs input.
+    expect(requestCost("gpt-6-sol", { input: 1_000_000, cacheWrite: 1_000_000, output: 1_000_000 })).toBeCloseTo(12);
+    expect(requestCost("gpt-6-luna", { input: 0, cacheRead: 1_000_000, output: 0 })).toBeCloseTo(0.01);
+    // Gemini 3.1 Pro under its long-prompt threshold, by either spelling.
+    expect(requestCost("models/gemini-3.1-pro-preview", { input: 1_000_000, output: 1_000_000 })).toBeCloseTo(14);
+    // Gemini 3.8 Flash doubles on January 1, 2027.
+    expect(requestCost("gemini-3.8-flash", { input: 1_000_000, output: 0 }, Date.parse("2026-11-13"))).toBeCloseTo(0.75);
+    expect(requestCost("gemini-3.8-flash", { input: 1_000_000, output: 0 }, Date.parse("2027-01-02"))).toBeCloseTo(1.5);
   });
 });
 
