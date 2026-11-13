@@ -9,7 +9,7 @@ import type { SessionDetail } from "@ue-mcp-studio/shared";
 import { turnElapsed as formatElapsed, workingStatus } from "@ue-mcp-studio/client-core";
 import { font, Spinner, T, useTheme } from "../ui";
 
-export function WorkingLine({ detail }: { detail: (Pick<SessionDetail, "status" | "waitingCause" | "transcript"> & Partial<Pick<SessionDetail, "working" | "mainFree">>) | null | undefined }) {
+export function WorkingLine({ detail }: { detail: (Pick<SessionDetail, "status" | "waitingCause" | "transcript"> & Partial<Pick<SessionDetail, "working" | "mainFree" | "subagents">>) | null | undefined }) {
   const t = useTheme();
   const status = workingStatus(detail);
   const [now, setNow] = useState(() => Date.now());

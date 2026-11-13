@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
-import { compactLine, contextLabel, contextRing, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
+import { compactLine, contextLabel, contextRing, contextWarningText, dollars, pct, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
 import { keepInView } from "./keepInView";
 
 export { dollars, tipLines };
@@ -162,9 +162,7 @@ export function ContextWarning({ view, runtime, busy, onCompact, onDismiss }: { 
     <div className={`context-warning level-${view.level}`} role="status">
       <ContextRing view={view} />
       <span className="context-warning-text">
-        {view.fraction >= 1
-          ? <>Context is past this model's window: {tokenCount(view.used)} of {tokenCount(view.window)}. {runtime ? "Claude's runtime compacts it" : "Studio compacts it before the next request"}, or compact now.</>
-          : <>Context is {pct(view.fraction)} full. {runtime ? "Claude's runtime" : "Studio"} compacts it at {pct(view.compactAt)}; compact now to choose the moment.</>}
+        {contextWarningText(view, runtime)}
       </span>
       <button className="primary" disabled={busy} onClick={onCompact} title={busy ? "Available when the turn ends" : undefined}>Compact now</button>
       <button className="icon-button" aria-label="Dismiss" title="Dismiss" onClick={onDismiss}>{"×"}</button>

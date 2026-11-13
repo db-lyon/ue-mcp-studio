@@ -30,7 +30,7 @@ const capital = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 /** "mcp__ue-mcp__blueprint" with action "create" reads "blueprint(create)". */
 export function toolPhrase(call: Pick<ToolCallRecord, "name" | "input">): string {
-  if (call.name === "Agent" || call.name === "Task") return "Running a subagent";
+  if (call.name === "agent" || call.name === "Agent" || call.name === "Task") return "Running a subagent";
   const name = call.name.replace(/^mcp__[^_]+(?:_[^_]+)*?__/, "");
   const input = call.input as { action?: unknown } | null;
   const action = input && typeof input.action === "string" ? input.action : null;

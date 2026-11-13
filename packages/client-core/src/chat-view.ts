@@ -22,12 +22,20 @@ const STATUS_LABEL: Record<string, string> = {
  */
 export const listState = (s: Pick<SessionSummary, "status" | "awaiting">): string => (s.awaiting ? "needs-you" : s.status);
 
-/** The line under a session's title: what it is doing, its subagents, or when it last changed. */
+/** The empty chat's line under Start a session. */
+export const CHAT_INTRO = "Builds Blueprints, materials, levels, Niagara and more through ue-mcp. Also runs commands, edits files and reads the web. Approvals in Settings set what it asks first.";
+/** The session list while the daemon has not answered for a while. */
+export const SESSIONS_SLOW = "Studio is not answering yet. Your sessions are safe.";
+/** The Queue button's tooltip or hint. */
+export const QUEUE_HINT = "Send when the turn ends";
+
+/** The line under a session's title: what it is doing, its running subagents, or when it last changed. */
 export function sessionLine(s: SessionSummary): string {
   const status = s.awaiting
     ? s.awaiting === 1 ? "Waiting on your approval" : `Waiting on your approval of ${s.awaiting} calls`
     : STATUS_LABEL[s.status] ?? "";
-  const agents = s.agents?.running ? `${s.agents.running} of ${s.agents.total} subagents running` : "";
+  const n = s.agents?.running ?? 0;
+  const agents = n ? `${n} ${n === 1 ? "subagent" : "subagents"} running` : "";
   const line = [status, agents].filter(Boolean).join(", ") || new Date(s.updatedAt).toLocaleString();
   // The model of its last turn, and how it was reached.
   const where = s.model ? `${s.model}${s.route ? ` via ${s.route}` : ""}` : "";
@@ -113,11 +121,11 @@ export function contextRing(view: ContextView): { r: number; circumference: numb
   return { r, circumference, dash, tick: { x1: tx(4), y1: ty(4), x2: tx(8), y2: ty(8) } };
 }
 
-/** The context warning's sentence. */
+/** The context warning's sentence, beside its Compact now button. */
 export function contextWarningText(view: ContextView, runtime: boolean): string {
   return view.fraction >= 1
-    ? `Context is past this model's window: ${tokenCount(view.used)} of ${tokenCount(view.window)}. ${runtime ? "Claude's runtime compacts it" : "Studio compacts it before the next request"}, or compact now.`
-    : `Context is ${pct(view.fraction)} full. ${runtime ? "Claude's runtime" : "Studio"} compacts it at ${pct(view.compactAt)}; compact now to choose the moment.`;
+    ? `Context is over the window (${tokenCount(view.used)} of ${tokenCount(view.window)}). It compacts ${runtime ? "next turn" : "before the next request"}.`
+    : `Context is ${pct(view.fraction)} full. It compacts at ${pct(view.compactAt)}.`;
 }
 
 // attachmentUrl, isImage, formatBytes and MAX_BYTES are in composer.ts.

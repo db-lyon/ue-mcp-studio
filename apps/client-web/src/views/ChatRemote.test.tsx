@@ -43,7 +43,7 @@ import { CHECKOUT_OPENED, REMOTE_NOW_ON } from "./Upgrade";
 import { REMOTE_SIGN_IN } from "@ue-mcp-studio/shared";
 import { CHECKOUT_POLL_MS, CHECKOUT_WATCH_MS, stopCheckoutWatch } from "./settings/remote-available";
 
-const COMPOSER = "Ask for something in the editor, or drop files here";
+const COMPOSER = "Ask for something";
 const PAIRING = { url: "https://remote.test/pair#CODE", expiresAt: new Date(Date.now() + 600_000).toISOString(), svg: "<svg></svg>" };
 const STATUS = { enabled: true, relay: "https://remote.test", state: "online", login: "dev", since: "2026-01-01T00:00:00Z" };
 /** Remote control on and connected, and a pairing code to hand out. */

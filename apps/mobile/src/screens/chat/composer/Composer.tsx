@@ -10,7 +10,7 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Image, Modal, PanResponder, Platform, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions, type HostInstance, type LayoutChangeEvent, type TextInputInstance, type TextInputKeyPressEvent, type TextStyle } from "react-native";
 import Svg, { Circle, Path } from "react-native-svg";
-import { BAR_UTILITIES, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
+import { BAR_UTILITIES, QUEUE_HINT, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
 import type { ActionListing, FlowListing, SlashCommand } from "@ue-mcp-studio/shared";
 import { Button, font, RemoveButton, Sheet, useAvoidedInsets, useInsets, useStyles, useTheme, type Theme } from "../../../ui";
 import { useAnchor } from "../../../ui/anchor";
@@ -356,7 +356,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
             {extras}
           </BarTierContext.Provider>
           <View testID="composer-spacer" style={s.spacer} onLayout={(e) => setSpacerW(e.nativeEvent.layout.width)} />
-          {busy && onQueue && <Button title="Queue" label="Queue" hint="Send after the running turn completes. A stopped or failed turn holds the queue." disabled={!canSend} onPress={queue} style={{ borderRadius: 22 }} />}
+          {busy && onQueue && <Button title="Queue" label="Queue" hint={QUEUE_HINT} disabled={!canSend} onPress={queue} style={{ borderRadius: 22 }} />}
           {/* The keys are told in the hint, for a tablet with a hardware keyboard: a phone's Return is a new line. */}
           {busy ? (
             <RoundButton label="Stop" hint={onQueue && window.width > 760 ? STOP_KEYS : undefined} kind="stop" onPress={stop}>
@@ -434,7 +434,7 @@ export interface BarUtility {
   id: BarUtilityId;
   icon: ReactNode;
   onClick: () => void;
-  /** Subagents: how many the session has started. */
+  /** Subagents: how many the Subagents list shows (listedSubagents). */
   count?: number;
   disabled?: boolean;
 }

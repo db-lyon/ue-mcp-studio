@@ -46,7 +46,7 @@ async function openThread(outcome: "pending" | "done", status = "running") {
 describe("the composer in a subagent's thread", () => {
   it("messages the running subagent while the main agent works: it sends rather than queues, and the thread stays open", async () => {
     const box = await openThread("pending");
-    expect(box.placeholder).toBe('Message the subagent "Dress the floor". It reads it at its next step');
+    expect(box.placeholder).toBe('Message "Dress the floor"');
     fireEvent.change(box, { target: { value: "use the wet stone" } });
     fireEvent.keyDown(box, { key: "Enter" });
     await waitFor(() => expect(m.messageSubagent).toHaveBeenCalledWith("s1", "a1", "use the wet stone", [], false));
@@ -54,12 +54,12 @@ describe("the composer in a subagent's thread", () => {
     expect(m.queue).not.toHaveBeenCalled();
     expect(m.stop).not.toHaveBeenCalled();
     // Still in the subagent's thread.
-    expect(screen.getByPlaceholderText(/Message the subagent/)).toBeTruthy();
+    expect(screen.getByPlaceholderText('Message "Dress the floor"')).toBeTruthy();
   });
 
   it("says a finished subagent has finished, and sends to the main agent through its route, naming it", async () => {
     const box = await openThread("done", "idle");
-    expect(box.placeholder).toBe('"Dress the floor" has finished. Message the main agent about it');
+    expect(box.placeholder).toBe('"Dress the floor" finished. Message the main agent');
     fireEvent.change(box, { target: { value: "redo it darker" } });
     fireEvent.keyDown(box, { key: "Enter" });
     await waitFor(() => expect(m.messageSubagent).toHaveBeenCalledWith("s1", "a1", "redo it darker", [], false));

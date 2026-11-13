@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { BAR_UTILITIES, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
+import { BAR_UTILITIES, QUEUE_HINT, MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, SEND_KEYS, STOP_KEYS, UTILITY_MORE_LABEL, UTILITY_TITLE, clampHeight, extOf, fitHeight, foldUtilities, formatBytes, moreLabel, utilityLabel, type BarUtilityId } from "@ue-mcp-studio/client-core";
 import type { PendingFile } from "./attachments";
 import { useSlashMenu } from "./SlashMenu";
 import { MentionChips, useMentionMenu, type MentionSearchFn } from "./MentionMenu";
@@ -332,7 +332,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           }}
         />
         <span className="spacer" ref={spacer} />
-        {busy && onQueue && <button className="composer-queue" disabled={!canSend} onClick={onQueue} title="Send after the running turn completes. A stopped or failed turn holds the queue.">Queue</button>}
+        {busy && onQueue && <button className="composer-queue" disabled={!canSend} onClick={onQueue} title={QUEUE_HINT}>Queue</button>}
         {/* Icons, named for a screen reader; the keys are in the tooltip. */}
         {busy
           ? <button className="composer-send stop" aria-label="Stop" title={onQueue ? STOP_KEYS : "Stop"} onClick={onStop}><StopGlyph /></button>
@@ -348,7 +348,7 @@ export interface BarUtility {
   id: BarUtilityId;
   icon: ReactNode;
   onClick: () => void;
-  /** Subagents: how many the session has started. */
+  /** Subagents: how many the Subagents list shows (listedSubagents). */
   count?: number;
   disabled?: boolean;
 }

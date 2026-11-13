@@ -29,7 +29,7 @@ function Box(props: Props & { initial?: string }) {
       draft={draft}
       onDraft={setDraft}
       onBlur={() => undefined}
-      placeholder="Ask for something in the editor, or drop files here"
+      placeholder="Ask for something"
       busy={false}
       canSend={!!draft.trim()}
       onSend={() => undefined}
@@ -74,7 +74,7 @@ describe("Composer", () => {
   it("sends with Send, which waits for text", () => {
     const onSend = vi.fn();
     render(<Box onSend={onSend} />);
-    expect(screen.getByPlaceholderText("Ask for something in the editor, or drop files here")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Ask for something")).toBeTruthy();
     expect(button("Send").getAttribute("aria-disabled")).toBe("true");
     type("Add a second door trigger by the ledge");
     fireEvent.click(button("Send"));
@@ -84,7 +84,7 @@ describe("Composer", () => {
   it("while a turn runs: Queue and Stop, and the box stays open for the next message", () => {
     const onQueue = vi.fn();
     const onStop = vi.fn();
-    render(<Box busy initial="Then check the sprint speed" onQueue={onQueue} onStop={onStop} placeholder="The agent is working. Write the next message to queue it." />);
+    render(<Box busy initial="Then check the sprint speed" onQueue={onQueue} onStop={onStop} placeholder="Queue a message" />);
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     fireEvent.click(button("Queue"));
     fireEvent.click(button("Stop"));

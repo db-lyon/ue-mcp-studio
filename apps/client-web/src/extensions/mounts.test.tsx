@@ -17,7 +17,7 @@ vi.mock("../views/UpdateOverlay", () => ({ UpdateRunner: () => null }));
 import { App } from "../App";
 import { clearSlots, register } from "./registry";
 
-const COMPOSER = "Ask for something in the editor, or drop files here";
+const COMPOSER = "Ask for something";
 const s1 = { id: "s1", title: "First", status: "idle", createdAt: 1, updatedAt: 1, archived: false, agents: { total: 1, running: 0 }, awaiting: 0 };
 const agentCall = { kind: "tool", call: { id: "a1", name: "agent", input: { description: "look" }, outcome: "done", startedAt: "2026-11-02T10:00:01Z", endedAt: "2026-11-02T10:00:02Z" } };
 const reply = (text: string, s: number) => ({ kind: "assistant", text, at: `2026-11-02T10:00:0${s}Z` });

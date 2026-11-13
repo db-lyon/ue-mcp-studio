@@ -73,7 +73,7 @@ describe("a subagent waiting for approval", () => {
 
 describe("the session list", () => {
   it("says an idle session is waiting on the user's approval", () => {
-    expect(sessionLine(idleAsking)).toBe("Waiting on your approval, 1 of 1 subagents running");
+    expect(sessionLine(idleAsking)).toBe("Waiting on your approval, 1 subagent running");
     expect(sessionLine({ ...idleAsking, agents: { total: 0, running: 0 }, awaiting: 2 })).toBe("Waiting on your approval of 2 calls");
   });
 

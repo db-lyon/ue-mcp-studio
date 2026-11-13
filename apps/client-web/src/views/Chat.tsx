@@ -7,7 +7,7 @@ import { RemoteChatCard } from "./remote/RemoteChatCard";
 import type { SettingsSection } from "./settings/sections";
 import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
-import { listedSubagents, subagentsOf } from "@ue-mcp-studio/client-core";
+import { CHAT_INTRO, SESSIONS_SLOW, SUBAGENT_TEXT_ONLY, listedSubagents, subagentsOf } from "@ue-mcp-studio/client-core";
 import { useAgentThread } from "../chat/agent-thread";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
@@ -289,7 +289,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const toThread = (now: boolean) => {
     if (target.to === "main") return;
     if (target.to === "subagent" && attach.ready.length > 0) {
-      setError("A subagent takes text only. Remove the files, or send them to the main agent from the main thread.");
+      setError(SUBAGENT_TEXT_ONLY);
       return;
     }
     const callId = target.call.id;
@@ -431,14 +431,14 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   // Who a message written now goes to: the open subagent while it runs, else the main agent.
   const target = composerTarget(openThread?.call);
   // What the Subagents list shows, and so what the bar's badge counts: dismissed finished ones are gone from both.
-  const listed = listedSubagents(agents, dismissed, openThread?.id ?? null);
+  const listedAgents = listedSubagents(agents, dismissed, openThread?.id ?? null);
   const drawerAgent = (drawerId && agentMap.get(drawerId)) || null;
   // The open thread, read by its id: its own entries, whatever part of the session is held.
   const drawerThread = useAgentThread(api.agentThread, detail?.id ?? null, drawerAgent ? drawerAgent.id : null, detail, detail?.transcript ?? []);
   // The bar's utilities after the context meter, at every width: Checkpoints, and the subagents while there are some.
   const utilities: BarUtility[] = [
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
-    ...(listed.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listed.length, onClick: () => setSheet(true) }] : []),
+    ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: () => setSheet(true) }] : []),
   ];
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
@@ -483,7 +483,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
           <button className="primary" onClick={() => void create()}>New</button>
         </div>
         {!listed && (slow
-          ? <p className="dim small">Studio is not answering yet. Your sessions are kept and show here when it does.</p>
+          ? <p className="dim small">{SESSIONS_SLOW}</p>
           : <SessionRowsLoading />)}
         {listed && sessions.length === 0 && <p className="dim small">No sessions yet.</p>}
         {live.map((s) => <SessionRow key={s.id} s={s} selected={s.id === selected} onOpen={() => setSelected(s.id)} onChanged={changed} />)}
@@ -498,7 +498,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
         )}
       </aside>
       <section className={`card conversation ${dragging ? "dragging" : ""}`} {...drop}>
-        {dragging && <div className="drop-overlay">Drop files to attach them to your message</div>}
+        {dragging && <div className="drop-overlay">Drop to attach</div>}
         {detail && (
           <ChatHeader
             title={detail.title}
@@ -513,7 +513,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
         {!detail && !selected && (
           <div className="empty">
             <h1 className="display"><em>Start</em> a session.</h1>
-            <p className="muted">The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project's files, and read the web. Approvals in Settings set what it asks you first.</p>
+            <p className="muted">{CHAT_INTRO}</p>
             {settings && disconnected && <ConnectCard settings={settings} onSettings={setSettings} />}
             {settings && !disconnected && <ModelPicker settings={settings} onSettings={setSettings} />}
             <button className="primary large" onClick={() => void create()}>New session</button>

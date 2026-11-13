@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { SessionAgent } from "@ue-mcp-studio/shared";
 import { composerBusy, turnElapsed as formatElapsed, toolPhrase, workingStatus } from "../src/working.js";
 
 const at = "2026-11-12T10:00:00.000Z";
@@ -24,7 +25,14 @@ describe("workingStatus", () => {
     const d = { status: "running" as const, waitingCause: null, transcript: [], mainFree: true };
     expect(composerBusy(d)).toBe(false);
     expect(composerBusy({ ...d, mainFree: false })).toBe(true);
-    expect(workingStatus(d)?.label).toMatch(/^Subagents are working/);
+    expect(workingStatus(d)?.label).toBe("Subagents working");
+  });
+
+  it("counts the subagents still running while the main agent is free", () => {
+    const sub = (id: string, state: "working" | "queued" | "done") => ({ id, state }) as SessionAgent;
+    const d = { status: "running" as const, waitingCause: null, transcript: [], mainFree: true };
+    expect(workingStatus({ ...d, subagents: [sub("a", "working")] })?.label).toBe("1 subagent working");
+    expect(workingStatus({ ...d, subagents: [sub("a", "working"), sub("b", "queued"), sub("c", "done")] })?.label).toBe("2 subagents working");
   });
 
   it("says why a turn waits", () => {

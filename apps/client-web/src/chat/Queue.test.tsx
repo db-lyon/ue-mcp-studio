@@ -14,7 +14,7 @@ describe("the queue", () => {
   it("lists queued messages in order and removes one", () => {
     const p = props();
     render(<QueuedMessages {...p} />);
-    expect(screen.getByText("Queued (2), sent one by one as each turn completes")).toBeTruthy();
+    expect(screen.getByText("Queued (2)")).toBeTruthy();
     expect(screen.getAllByText(/first|second/).map((e) => e.textContent)).toEqual(["first", "second"]);
     fireEvent.click(screen.getByRole("button", { name: "Remove queued message 2" }));
     expect(p.onRemove).toHaveBeenCalledWith("b");
