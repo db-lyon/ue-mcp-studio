@@ -1,9 +1,11 @@
 /**
  * Updates that wait for the turns to finish. Updating Studio or restarting
- * ue-mcp restarts the daemon every turn runs in, and updating the editor
- * plugin closes the editor, so while any session is running or waiting the
- * step is kept here and runs once every session is idle. Restart now runs it
- * at once, ending the turns first with that said in each.
+ * ue-mcp restarts the daemon. A turn running in its own host process outlives
+ * that, so those two steps wait only for turns that run inside the daemon
+ * (pinned). Updating the editor plugin closes the editor, so it waits while
+ * any session is running or waiting. A waiting step is kept here and runs once
+ * nothing holds it. Restart now runs it at once, ending the turns first with
+ * that said in each.
  *
  * The queue is kept in the data folder, and the panel's update run (the run
  * file) is told when a step starts, so the page that loads after a restart
@@ -25,8 +27,14 @@ export interface StepResult {
 
 export interface UpdateQueueOptions {
   dataDir: string;
-  /** True while any session is running or waiting. */
+  /** True while any session is running or waiting. The plugin step waits on this. */
   busy: () => boolean;
+  /**
+   * True while a turn runs that a daemon restart would end: one inside the
+   * daemon rather than in a host process. The studio and restart steps wait on
+   * this; busy when not given.
+   */
+  pinned?: () => boolean;
   /** Run one step now. */
   run: (step: DeferredStep) => Promise<StepResult>;
   /** End every turn in progress before a Restart now. */
@@ -73,14 +81,20 @@ export class UpdateQueue {
    * to the next itself. `now` runs it regardless, ending the turns first.
    */
   async request(step: DeferredStep, opts: { now?: boolean; then?: DeferredStep[] } = {}): Promise<StepResult & { deferred?: DeferredStep[] }> {
-    if (!opts.now && this.o.busy()) {
+    if (!opts.now && this.held(step)) {
       const steps = [...new Set([...this.steps(), step, ...(opts.then ?? [])])].filter((s) => (DEFERRED_STEPS as readonly string[]).includes(s));
       this.save(steps);
       this.watch();
       return { ok: true, deferred: steps };
     }
-    if (this.o.busy()) this.o.interruptTurns();
+    // Only Restart now ends turns: a step that runs because nothing holds it leaves hosted turns running.
+    if (opts.now && this.o.busy()) this.o.interruptTurns();
     return this.o.run(step);
+  }
+
+  /** Whether a step has to wait: the plugin for every turn, Studio and the restart only for turns a daemon restart would end. */
+  private held(step: DeferredStep): boolean {
+    return step === "plugin" ? this.o.busy() : (this.o.pinned ?? this.o.busy)();
   }
 
   /** Restart now: end the turns in progress and run every waiting step. */
@@ -98,11 +112,13 @@ export class UpdateQueue {
 
   /** Run what waits once nothing is in progress. */
   async tick(): Promise<void> {
-    if (this.draining || this.o.busy()) return;
-    if (this.steps().length === 0) {
+    if (this.draining) return;
+    const [first] = this.steps();
+    if (!first) {
       this.stop();
       return;
     }
+    if (this.held(first)) return;
     await this.drain();
   }
 
@@ -118,9 +134,9 @@ export class UpdateQueue {
     let ran = false;
     try {
       for (let steps = this.steps(); steps.length; steps = this.steps()) {
-        // A turn that started while the plugin updated: the rest waits for it.
-        if (!force && this.o.busy()) return last;
         const [step, ...rest] = steps;
+        // A turn that started while the plugin updated: the rest waits for it.
+        if (!force && this.held(step)) return last;
         this.save(rest);
         this.markRun(step, "active");
         ran = true;

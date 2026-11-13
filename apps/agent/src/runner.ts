@@ -43,6 +43,8 @@ import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFl
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
 import type { LiveTurn } from "./subscription.js";
+import { DETACHED, type HostedCallbacks, type HostedResult, type HostedRun, type TurnHosts } from "./hosted-turn.js";
+import type { TurnSpec } from "./turn-host-protocol.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flowStepKind, type ActionEffects } from "./approval-kind.js";
@@ -86,7 +88,7 @@ export function playtestRunsLine(mode: PlaytestRunsMode): string {
 
 /** The SDK's options for the surface: ue-mcp's projected tools in place of ue_mcp, on Lean and Full. */
 const sdkEditor = (s: EditorSurface) =>
-  s.strategy === "micro" ? {} : { editor: { tools: s.projected.map(({ name, description, inputSchema }) => ({ name, description, inputSchema })), canon: s.canon } };
+  s.strategy === "micro" ? {} : { editor: { tools: s.projected.map(({ name, description, inputSchema, category }) => ({ name, description, inputSchema, category })), canon: s.canon } };
 
 const WORK = [
   MICRO_LINE,
@@ -221,6 +223,22 @@ export interface RunnerOptions {
   flowStepApproval?: () => boolean;
   /** A model's context window as the vendor's model list gave it, when it did. */
   contextWindow?: (model: string) => number | undefined;
+  /**
+   * Runs Claude sign-in turns in host processes that outlive this daemon, so
+   * an update or a daemon restart does not end them. Without it, or when a
+   * host cannot start, a turn runs in the daemon.
+   */
+  turnHosts?: TurnHosts;
+}
+
+/** Where a Claude sign-in turn's own bookkeeping stands; kept with the session while the turn runs in a host. */
+interface TurnTrack {
+  /** The last host event applied. */
+  seq: number;
+  /** The main agent's message the next block of the same id merges into. */
+  lastId: string | null;
+  /** Agent calls running in the background, whose tool result only says they started. */
+  background: string[];
 }
 
 /** A conversation compaction can rewrite: the main agent's, or one subagent's. */
@@ -319,6 +337,8 @@ export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
   /** Turns on the Claude sign-in that are running, by session: their main agent and background subagents. */
   private readonly live = new Map<string, LiveTurn>();
+  /** Turns running in a host process, by session: a daemon restart leaves them running. */
+  private readonly hosted = new Map<string, HostedRun>();
   /** Each running subagent, by its agent call id, so one can be stopped without the turn. */
   private readonly subagents = new Map<string, () => void>();
   /** Agent calls marked waiting to start before their transcript entry arrived. */
@@ -719,9 +739,19 @@ export class AgentRunner {
     this.changed(s, null);
   }
 
-  /** The daemon is going down: every turn on the SDK route ends here, saying so. An API turn resumes in the next daemon. */
+  /**
+   * The daemon is going down. A turn running in a host goes on there, and the
+   * next daemon reattaches to it. Every other turn on the SDK route ends here,
+   * saying so. An API turn resumes in the next daemon.
+   */
   dispose(): void {
     this.unsubscribe();
+    for (const [id, run] of [...this.hosted]) {
+      run.detach();
+      this.active.delete(id);
+      this.o.host.log.info(`session ${id}: the turn goes on in its host process ${run.host}`);
+    }
+    this.hosted.clear();
     const cause: Interruption = { by: "studio", why: this.restartCause(false) ?? "Studio's daemon shut down" };
     for (const [id, c] of [...this.active]) {
       if (this.o.subscription?.()) this.interrupt(id, cause);
@@ -752,6 +782,8 @@ export class AgentRunner {
         this.endCalls(s, () => cut, "unknown", t.call.id);
         this.recordOutcome(s, { id: t.call.id, name: "agent", input: {}, state: "done", result: cut, isError: true }, "unknown");
       }
+      // A turn running in its own process outlived the previous daemon: this one takes it over.
+      if (this.reattach(s)) continue;
       // A /playtest's flow answered the previous daemon, if anyone: its card says it was cut off, and Retry runs it again.
       const flow = this.runningPlaytest(s);
       if (flow) {
@@ -1132,16 +1164,15 @@ ${result}`);
     const controller = new AbortController();
     this.active.set(id, controller);
     const s = this.require(id);
-    let lastId: string | null = null;
-    // Agent calls the SDK runs in the background: their tool result only says they started.
-    const background = new Set<string>();
+    const track: TurnTrack = { seq: 0, lastId: null, background: [] };
+    let result: HostedResult = null;
     try {
       // A dynamic import the bundler drops when the sign-in is off, and the Agent SDK with it.
       const sdk = typeof __CLAUDE_SIGN_IN__ === "undefined" || __CLAUDE_SIGN_IN__ ? await import("./subscription.js") : null;
       if (!sdk) throw new Error("This Studio build does not include the Claude sign-in.");
       const usage = this.usage();
       const surface = this.surface();
-      const error = await sdk.runSubscriptionTurn({
+      const spec = {
         projectDir: this.o.host.projectDir,
         model: this.o.model(),
         effort: this.o.effort?.() ?? "high",
@@ -1153,6 +1184,102 @@ ${result}`);
         subagents: { mode: usage.subagents, perTurn: usage.subagentsPerTurn, model: this.subagentModel(), effort: this.subagentEffort() },
         prompt,
         resume: s.sdkSession ?? null,
+      };
+      const cb = this.turnCallbacks(s, controller, track);
+      // In a host process the turn outlives this daemon; where none can start, it runs here, as before.
+      const run = await this.startHosted(s, spec, cb, track);
+      result = run ? await run.done : await sdk.runSubscriptionTurn({ ...spec, ...cb });
+      this.settleSubscription(s, controller, result);
+    } finally {
+      this.releaseSubscription(s, controller, result === DETACHED);
+    }
+  }
+
+  /** Start the turn in a host process; null when there is none to start, and the turn runs in the daemon. */
+  private async startHosted(s: StoredSession, spec: TurnSpec, cb: HostedCallbacks, track: TurnTrack): Promise<HostedRun | null> {
+    const hosts = this.o.turnHosts;
+    if (!hosts?.available() || cb.signal.aborted) return null;
+    try {
+      const run = await hosts.start(s.id, spec, cb);
+      this.hosted.set(s.id, run);
+      s.hostTurn = track;
+      this.o.store.save(s);
+      this.o.host.log.info(`session ${s.id}: the turn runs in host process ${run.host}`);
+      return run;
+    } catch (e) {
+      this.o.host.log.warn(`session ${s.id}: no turn host could start, so the turn runs in the daemon and updates wait for it`, e);
+      return null;
+    }
+  }
+
+  /**
+   * Take over a turn a host process ran through the previous daemon's restart:
+   * what it did meanwhile is applied from its journal, calls still waiting are
+   * run here (one that had started is reported with an unknown outcome), and
+   * the turn carries on. False when the session has no host.
+   */
+  private reattach(s: StoredSession): boolean {
+    const hosts = this.o.turnHosts;
+    const record = hosts?.recordFor(s.id);
+    if (!hosts || !record) return false;
+    // An approval only the previous daemon could show: its call is sent again by the host, and asks again here.
+    if (s.approvals?.length) s.approvals = [];
+    const controller = new AbortController();
+    this.active.set(s.id, controller);
+    const track: TurnTrack = { seq: s.hostTurn?.seq ?? 0, lastId: s.hostTurn?.lastId ?? null, background: [...(s.hostTurn?.background ?? [])] };
+    s.hostTurn = track;
+    this.o.store.save(s);
+    const cb = this.turnCallbacks(s, controller, track);
+    let result: HostedResult = null;
+    void (async () => {
+      try {
+        const run = await hosts.attach(record, cb, track.seq);
+        this.hosted.set(s.id, run);
+        this.o.host.log.info(`session ${s.id}: reattached to the turn in host process ${run.host} (Studio ${record.version})`);
+        result = await run.done;
+        this.settleSubscription(s, controller, result);
+      } finally {
+        this.releaseSubscription(s, controller, result === DETACHED);
+      }
+    })().catch((e) => this.o.host.log.warn(`session ${s.id}: reattaching to its turn host failed`, e));
+    return true;
+  }
+
+  /** The turn ended: its error, if any, and the session's state. Nothing when it was stopped or this daemon let go of it. */
+  private settleSubscription(s: StoredSession, controller: AbortController, result: HostedResult): void {
+    if (result === DETACHED || controller.signal.aborted) return;
+    s.error = result;
+    this.setStatus(s, result ? "error" : "idle", null);
+  }
+
+  /** What a turn leaves behind once it ended, or once this daemon let go of a hosted one. */
+  private releaseSubscription(s: StoredSession, controller: AbortController, detached: boolean): void {
+    const id = s.id;
+    if (this.active.get(id) === controller) this.active.delete(id);
+    this.hosted.delete(id);
+    this.live.delete(id);
+    // Detached: the turn goes on in its host, and the next daemon takes it over from what is saved.
+    if (detached) return;
+    s.mainFree = false;
+    if (s.hostTurn) {
+      delete s.hostTurn;
+      this.o.store.save(s);
+    }
+    for (const t of s.transcript) if (t.kind === "tool" && t.call.name === "agent") this.subagentStops.delete(t.call.id);
+    // A call the turn ended without answering never finishes now. A stop answered its own already.
+    if (!controller.signal.aborted) this.endCalls(s, () => "The turn ended before this call returned a result.", "error");
+  }
+
+  /** A call an earlier daemon was running when it went down: never run again, its outcome unknown. */
+  private async lostCall(s: StoredSession, toolId: string, name: string, input: Record<string, unknown>): Promise<ToolExecution> {
+    const text = "Studio's daemon restarted while this call was running, so whether it took effect is unknown. Read the current state back before repeating it.";
+    this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "unknown");
+    return { text, isError: true, outcome: "unknown", touched: [], saved: [] };
+  }
+
+  /** How a Claude sign-in turn reports to this session, in the daemon or from a host. */
+  private turnCallbacks(s: StoredSession, controller: AbortController, track: TurnTrack): HostedCallbacks {
+    return {
         signal: controller.signal,
         onTokens: (n, parent) => this.count(s, n, parent),
         onUsage: ({ usage: u, growth, first, model, parent }) => {
@@ -1175,9 +1302,9 @@ ${result}`);
           // A subagent's messages are its own conversation: only the main agent's mirror into the session's.
           if (!parent) {
             const last = s.messages[s.messages.length - 1];
-            if (mid === lastId && last?.role === "assistant" && Array.isArray(last.content)) (last.content as ContentBlock[]).push(...blocks);
+            if (mid === track.lastId && last?.role === "assistant" && Array.isArray(last.content)) (last.content as ContentBlock[]).push(...blocks);
             else s.messages.push({ role: "assistant", content: blocks } as MessageParam);
-            lastId = mid;
+            track.lastId = mid;
           }
           const tag = parent ? { parent } : {};
           for (const b of blocks) {
@@ -1191,18 +1318,18 @@ ${result}`);
         onToolResults: (content, parent) => {
           if (!parent) {
             s.messages.push({ role: "user", content } as MessageParam);
-            lastId = null;
+            track.lastId = null;
           }
           // Studio's own tools record their outcome as they run; an agent call's result arrives only here.
           for (const b of content as Array<{ type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
             if (b.type !== "tool_result" || !b.tool_use_id) continue;
             const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === b.tool_use_id);
-            if (entry?.kind !== "tool" || entry.call.outcome !== "pending" || background.has(b.tool_use_id)) continue;
+            if (entry?.kind !== "tool" || entry.call.outcome !== "pending" || track.background.includes(b.tool_use_id)) continue;
             const text = typeof b.content === "string" ? b.content
               : Array.isArray(b.content) ? b.content.map((c: { text?: string }) => c.text ?? "").join("") : "";
             // A subagent moved to the background answers its call with a placeholder; its real result is its task report.
             if (this.subagents.has(b.tool_use_id) && /in the background/i.test(text)) {
-              background.add(b.tool_use_id);
+              track.background.push(b.tool_use_id);
               continue;
             }
             this.recordOutcome(s, { id: b.tool_use_id, name: entry.call.name, input: {}, state: "done", result: text, isError: !!b.is_error }, b.is_error ? "error" : "done");
@@ -1211,7 +1338,7 @@ ${result}`);
         },
         onTask: (toolUseId, status, detail) => {
           if (status === "started") {
-            if (detail.background) background.add(toolUseId);
+            if (detail.background && !track.background.includes(toolUseId)) track.background.push(toolUseId);
             return;
           }
           // A subagent that ended cannot be waiting on the user any more.
@@ -1230,7 +1357,10 @@ ${result}`);
           cancel();
           this.recordOutcome(s, { id: callId, name: "agent", input: {}, state: "done", result: QUEUED_STOP, isError: true }, "stopped");
         })),
-        runTool: (toolId, name, input) => this.subscriptionTool(s, controller, toolId, name, input),
+        runTool: (toolId, name, input, onStart) => this.subscriptionTool(s, controller, toolId, name, input, false, onStart),
+        lostTool: (toolId, name, input) => this.lostCall(s, toolId, name, input),
+        // Kept before the event is applied, so the save it makes holds both.
+        onSeq: (seq) => void (track.seq = seq),
         onLive: (live) => {
           if (live) this.live.set(s.id, live);
           else this.live.delete(s.id);
@@ -1243,22 +1373,11 @@ ${result}`);
           // What the user queued while the main agent worked goes to it now, beside the running subagents.
           if (free && s.queue?.length) setTimeout(() => this.tellQueued(s.id), 0);
         },
-      });
-      if (controller.signal.aborted) return;
-      s.error = error;
-      this.setStatus(s, error ? "error" : "idle", null);
-    } finally {
-      if (this.active.get(id) === controller) this.active.delete(id);
-      this.live.delete(id);
-      s.mainFree = false;
-      for (const t of s.transcript) if (t.kind === "tool" && t.call.name === "agent") this.subagentStops.delete(t.call.id);
-      // A call the turn ended without answering never finishes now. A stop answered its own already.
-      if (!controller.signal.aborted) this.endCalls(s, () => "The turn ended before this call returned a result.", "error");
-    }
+    };
   }
 
-  /** One call into Studio's tools from a turn or subagent the Agent SDK runs. */
-  private async subscriptionTool(s: StoredSession, controller: AbortController, toolId: string, name: string, input: Record<string, unknown>, detached = false): Promise<ToolExecution> {
+  /** One call into Studio's tools from a turn or subagent the Agent SDK runs. `onStart`: it got past its approval and runs now. */
+  private async subscriptionTool(s: StoredSession, controller: AbortController, toolId: string, name: string, input: Record<string, unknown>, detached = false, onStart?: () => void): Promise<ToolExecution> {
     // The turn ended while the binary was still asking: nothing runs after a stop.
     if (controller.signal.aborted) return { text: interruptedResult({ name, input }, this.causeOf(controller), false), isError: true, outcome: "error", touched: [], saved: [] };
     // A subagent's call also ends when the user stops that subagent.
@@ -1276,6 +1395,7 @@ ${result}`);
       this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
       return { text, isError: true, outcome: "error", touched: [], saved: [] };
     }
+    onStart?.();
     const running = this.execute(this.hostFor(s.id, detached), name, input, signal);
     // What a call does after its subagent was stopped is still tracked for the crash report.
     if (sub) void running.then((e) => sub.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
@@ -1432,7 +1552,7 @@ ${result}`);
     for (const note of s.notes) content.push({ type: "text", text: `[Studio] ${note}` });
     for (const a of attachments) content.push(...(await contentFor(a)));
     if (text.trim()) content.push({ type: "text", text });
-    if (!live.say(content)) return false;
+    if (!(await live.say(content))) return false;
     s.notes.splice(0);
     s.messages.push({ role: "user", content } as MessageParam);
     s.transcript.push({
@@ -1473,6 +1593,11 @@ ${result}`);
   /** The sessions with a turn running or waiting. */
   activeSessions(): string[] {
     return this.o.store.all().filter((s) => s.status === "running" || s.status === "waiting").map((s) => s.id);
+  }
+
+  /** The sessions whose turn a daemon restart would end: every active one except those running in a host process. */
+  pinnedSessions(): string[] {
+    return this.activeSessions().filter((id) => !this.hosted.has(id));
   }
 
   /**

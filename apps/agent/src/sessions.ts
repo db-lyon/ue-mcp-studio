@@ -49,6 +49,11 @@ export interface StoredSession {
   queue?: QueuedMessage[];
   /** The main agent finished its reply while background subagents still run, so it takes the user's message now. */
   mainFree?: boolean;
+  /**
+   * A Claude sign-in turn running in a host process: the last host event
+   * applied and the turn's own bookkeeping, so the next daemon replays from there.
+   */
+  hostTurn?: { seq: number; lastId: string | null; background: string[] };
   /** The conversation as the model sees it. */
   messages: MessageParam[];
   /** The conversation as the UI shows it. */

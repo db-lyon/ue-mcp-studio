@@ -93,6 +93,7 @@ import { projectStrategy, registerComposerRoutes } from "./composer-routes.js";
 import { registerNativeRoutes } from "./native-routes.js";
 import { ContextSurfaces, contextApiOf } from "./context-surface.js";
 import { fullModelName, modelName } from "./models.js";
+import { TurnHosts } from "./hosted-turn.js";
 import { userHome } from "./instructions.js";
 import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
@@ -303,6 +304,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     flows: new FlowCaller({ endpoint, subscribe: (listener) => api.events.subscribe((e) => listener(e)) }),
     flowStepApproval: () => offersStepApproval(stepHost),
     contextWindow: knownWindow,
+    // Claude sign-in turns run in host processes beside the bundle, so an update installs while they run.
+    turnHosts: new TurnHosts({
+      dataDir: api.dataDir,
+      projectDir: api.projectDir,
+      version: agentVersion,
+      script: packageDir ? path.join(packageDir, "dist", "turn-host.js") : null,
+      log: api.log,
+    }),
   });
   const unregisterSteps = offersStepApproval(stepHost) ? stepHost.flows!.approveSteps((r) => runner.approveFlowStep(r)) : () => {};
   // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
@@ -359,7 +368,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   // Studio's own updates: the extension and the editor plugin, against the release channel.
   // A Studio update or restart that fails in the background stops the panel's run with what npm said.
   const updater = new Updater(api, agentVersion, (type, data) => api.events.publish(type, data), fetch, () => readChannel(), (step, error) => updates.fail(step, error));
-  // A step that restarts the daemon or closes the editor waits while any turn is in progress.
+  // Closing the editor waits while any turn is in progress; restarting the daemon only while a turn runs inside it.
   const writeRestartCause = (cause: string) => {
     fs.mkdirSync(api.dataDir, { recursive: true });
     fs.writeFileSync(path.join(api.dataDir, RESTART_CAUSE_FILE), JSON.stringify({ cause, at: Date.now() }));
@@ -367,6 +376,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const updates = new UpdateQueue({
     dataDir: api.dataDir,
     busy: () => runner.activeSessions().length > 0,
+    pinned: () => runner.pinnedSessions().length > 0,
     interruptTurns: () => {
       for (const id of runner.activeSessions()) runner.interrupt(id, { by: "studio", why: "the user chose Restart now to install an update" });
     },

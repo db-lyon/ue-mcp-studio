@@ -88,6 +88,8 @@ fs.writeFileSync(path.join(ext, "package.json"), JSON.stringify({
   ueMcpExtension: agentPkg.ueMcpExtension,
 }, null, 2) + "\n");
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "index.js"), path.join(ext, "dist", "index.js"));
+// The process a Claude sign-in turn runs in, which the extension starts beside itself.
+fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "turn-host.js"), path.join(ext, "dist", "turn-host.js"));
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "keys.json"), path.join(ext, "dist", "keys.json"));
 fs.copyFileSync(path.join(ROOT, "apps", "agent", "dist", "webp_dec.wasm"), path.join(ext, "dist", "webp_dec.wasm"));
 fs.cpSync(path.join(ROOT, "apps", "client-web", "dist"), path.join(ext, "ui"), { recursive: true });

@@ -10,8 +10,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const sdkVersion = JSON.parse(fs.readFileSync(path.join(root, "apps", "agent", "node_modules", "@anthropic-ai", "claude-agent-sdk", "package.json"), "utf-8")).version;
 fs.rmSync(path.join(root, "apps", "agent", "dist"), { recursive: true, force: true });
 const result = await build({
-  entryPoints: [path.join(root, "apps", "agent", "src", "index.ts")],
-  outfile: path.join(root, "apps", "agent", "dist", "index.js"),
+  // The extension, and the turn host: the process a Claude sign-in turn runs in, so it outlives a daemon restart.
+  entryPoints: {
+    index: path.join(root, "apps", "agent", "src", "index.ts"),
+    "turn-host": path.join(root, "apps", "agent", "src", "turn-host-main.ts"),
+  },
+  outdir: path.join(root, "apps", "agent", "dist"),
   bundle: true,
   platform: "node",
   format: "esm",
@@ -31,4 +35,4 @@ const result = await build({
 fs.copyFileSync(path.join(root, "node_modules", "@jsquash", "webp", "codec", "dec", "webp_dec.wasm"), path.join(root, "apps", "agent", "dist", "webp_dec.wasm"));
 // Which packages went into the bundle, for the third-party notices.
 fs.writeFileSync(path.join(root, "apps", "agent", "dist", "meta.json"), JSON.stringify(result.metafile));
-console.log("bundled the agent into apps/agent/dist/index.js");
+console.log("bundled the agent into apps/agent/dist/index.js and dist/turn-host.js");
