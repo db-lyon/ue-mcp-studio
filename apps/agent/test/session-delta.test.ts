@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { deriveSession, type SessionDetail, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { agentView, mainTimeline, mergeSync, subagentsOf, workingStatus } from "@ue-mcp-studio/client-core";
+import { DetailLoader as Build40Loader } from "./fixtures/build40-session-sync.js";
 import { LAZY_RESULT_CHARS, PAGE_MAIN_ENTRIES, PAGE_REACH, decodeHashes, leanEntry, pageStart, resultOf, syncOf, threadOf } from "../src/session-delta.js";
 
 const at = "2026-11-03T12:00:00.000Z";
@@ -139,6 +140,25 @@ describe("a page for a client that draws only the main thread", () => {
     expect(pageStart(hour, hour.length, TAIL)).toBe(0);
     const far = [...earlier, ...Array.from({ length: PAGE_REACH + 500 }, (_, i) => sub("g1", i))];
     expect(pageStart(far, far.length, TAIL)).toBe(far.length - TAIL - PAGE_REACH);
+  });
+
+  it("gives Android build 40's own loader a chat, through the newest page, a delta and the page before", async () => {
+    // The daemon's answer as it is now: the derived subagents, working line and the rest included.
+    const now = (t: TranscriptEntry[]): SessionDetail => ({ ...detail(t), status: "running", mainFree: true, ...deriveSession(t, { status: "running", asked: new Set() }) }) as SessionDetail;
+    let current = transcript;
+    const shown: SessionDetail[] = [];
+    const failed: Error[] = [];
+    const loader = new Build40Loader(async (_id, have, page) => syncOf(now(current), have, page), (d) => shown.push(d), (e) => failed.push(e), { tail: TAIL });
+    await loader.load("s1");
+    expect(failed).toEqual([]);
+    expect(texts(shown.at(-1)!.transcript)).toEqual(expect.arrayContaining(["get those workers going again", "Both workers are running again."]));
+    expect(shown.at(-1)!.transcript.filter((e) => !e.parent).length).toBeGreaterThanOrEqual(PAGE_MAIN_ENTRIES);
+    current = [...transcript, { kind: "assistant", text: "The tuner is ready.", at } as TranscriptEntry];
+    await loader.load("s1");
+    expect(shown.at(-1)!.transcript).toEqual(current.slice(shown.at(-1)!.from));
+    await loader.older("s1");
+    expect(shown.at(-1)!.transcript).toEqual(current.slice(shown.at(-1)!.from ?? 0));
+    expect(failed).toEqual([]);
   });
 
   it("answers every field a client up to 0.1.35-beta.27 reads, with the types it reads them as", () => {
