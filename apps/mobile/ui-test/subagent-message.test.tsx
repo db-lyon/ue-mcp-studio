@@ -32,7 +32,7 @@ async function openThread(outcome: "pending" | "done", status: "running" | "idle
 describe("the composer in a subagent's thread on a phone", () => {
   it("messages the running subagent while the main agent works, and stays in its thread", async () => {
     const api = await openThread("pending", "running");
-    const box = screen.getByPlaceholderText('Message the subagent "Find the hinge". It reads it at its next step');
+    const box = screen.getByPlaceholderText('Message "Find the hinge"');
     fireEvent.change(box, { target: { value: "check the left hinge too" } });
     await settle();
     // It sends, rather than offering Queue behind the main agent.
@@ -47,7 +47,7 @@ describe("the composer in a subagent's thread on a phone", () => {
 
   it("says a finished subagent has finished, and sends to the main agent through its route", async () => {
     const api = await openThread("done", "idle");
-    const box = screen.getByPlaceholderText('"Find the hinge" has finished. Message the main agent about it');
+    const box = screen.getByPlaceholderText('"Find the hinge" finished. Message the main agent');
     fireEvent.change(box, { target: { value: "do the other door the same way" } });
     await settle();
     fireEvent.click(screen.getByRole("button", { name: "Send" }));

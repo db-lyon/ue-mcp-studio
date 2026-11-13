@@ -24,7 +24,7 @@ vi.mock("./views/DialogBanner", () => ({ DialogBanner: () => null }));
 vi.mock("./views/UpdateOverlay", () => ({ UpdateRunner: () => null }));
 import { App } from "./App";
 
-const COMPOSER = "Ask for something in the editor, or drop files here";
+const COMPOSER = "Ask for something";
 
 function layout(narrow: boolean) {
   window.matchMedia = ((query: string) => ({

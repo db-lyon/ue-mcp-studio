@@ -170,12 +170,12 @@ describe("ContextWarning", () => {
   it("offers Compact now and says where it compacts, or that it is past the window", () => {
     const onCompact = vi.fn();
     const { rerender } = render(<ContextWarning view={contextView(ctx(830_000), "claude-sonnet-5-5")!} runtime={false} busy={false} onCompact={onCompact} onDismiss={() => {}} />);
-    expect(screen.getByRole("status").textContent).toContain("Context is 83% full. Studio compacts it at 85%");
+    expect(screen.getByRole("status").textContent).toContain("Context is 83% full. It compacts at 85%.");
     expect(screen.getByRole("status").querySelector("svg.context-ring.level-high")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Compact now" }));
     expect(onCompact).toHaveBeenCalled();
     rerender(<ContextWarning view={contextView(ctx(310_000), "claude-haiku-4-5")!} runtime={false} busy={false} onCompact={onCompact} onDismiss={() => {}} />);
-    expect(screen.getByRole("status").textContent).toContain("past this model's window: 311k of 200k");
+    expect(screen.getByRole("status").textContent).toContain("Context is over the window (311k of 200k). It compacts before the next request.");
   });
 
   it("writes dollars to the cent below a hundred", () => {

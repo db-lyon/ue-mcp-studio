@@ -151,7 +151,7 @@ describe("a session row", () => {
 
   it("says what the session is doing and how many subagents run", () => {
     render(<SessionRow s={s} selected={false} onOpen={vi.fn()} onChanged={vi.fn()} />);
-    expect(screen.getByText("Working, 2 of 5 subagents running")).toBeTruthy();
+    expect(screen.getByText("Working, 2 subagents running")).toBeTruthy();
   });
 
   it("archives from its menu", async () => {

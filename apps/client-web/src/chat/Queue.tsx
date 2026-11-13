@@ -20,7 +20,7 @@ export function QueuedMessages({ queue, busy, onEdit, onRemove, onSendNext, onSe
   return (
     <div className="queue" aria-label="Queued messages">
       <div className="queue-head dim small">
-        <span>Queued ({queue.length}){busy ? ", sent one by one as each turn completes" : ""}</span>
+        <span>Queued ({queue.length})</span>
         <span className="spacer" />
         {!busy && <button className="ghost small-button" onClick={onSendNext}>Send next</button>}
       </div>

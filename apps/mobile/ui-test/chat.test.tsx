@@ -168,9 +168,9 @@ describe("QueuedMessages", () => {
     expect(onSendNow).toHaveBeenLastCalledWith("q1");
   });
 
-  it("says the queue goes one by one while a turn runs, without Send next", () => {
+  it("counts the queue while a turn runs, without Send next", () => {
     renderInProject(<QueuedMessages queue={queue} busy onEdit={() => undefined} onRemove={() => undefined} onSendNext={() => undefined} onSendNow={() => undefined} />);
-    expect(screen.getByText("Queued (2), sent one by one as each turn completes")).toBeTruthy();
+    expect(screen.getByText("Queued (2)")).toBeTruthy();
     expect(screen.queryByLabelText("Send next")).toBeNull();
   });
 });
@@ -235,7 +235,7 @@ describe("ContextMeter", () => {
     const onCompact = vi.fn();
     const onDismiss = vi.fn();
     renderInProject(<ContextWarning view={view} runtime={false} busy={false} onCompact={onCompact} onDismiss={onDismiss} />);
-    expect(screen.getByText("Context is 83% full. Studio compacts it at 85%; compact now to choose the moment.")).toBeTruthy();
+    expect(screen.getByText("Context is 83% full. It compacts at 85%.")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Compact now"));
     fireEvent.click(screen.getByLabelText("Dismiss"));
     expect(onCompact).toHaveBeenCalled();
@@ -376,7 +376,7 @@ describe("Chat", () => {
     await settle();
     expect(screen.getByText("Make the door swing")).toBeTruthy();
     expect(screen.getByLabelText("Back to sessions")).toBeTruthy();
-    fireEvent.change(screen.getByPlaceholderText("Ask for something in the editor, or drop files here"), { target: { value: "Now add a creak" } });
+    fireEvent.change(screen.getByPlaceholderText("Ask for something"), { target: { value: "Now add a creak" } });
     fireEvent.click(screen.getByLabelText("Send"));
     await settle();
     expect(api.send).toHaveBeenCalledWith("s1", "Now add a creak", []);

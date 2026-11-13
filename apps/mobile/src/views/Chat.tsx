@@ -9,7 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { DetailLoader, chatPane, composerPlaceholder, composerQueues, composerTarget, sessionGone, subagentsOf, unreachable } from "@ue-mcp-studio/client-core";
+import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, SUBAGENT_TEXT_ONLY, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsOf, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { writeLocation } from "../location";
 import { haptic } from "../native/haptics";
@@ -365,7 +365,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const toThread = (now: boolean) => {
     if (target.to === "main") return;
     if (target.to === "subagent" && attach.ready.length > 0) {
-      fail(new Error("A subagent takes text only. Remove the files, or send them to the main agent from the main thread."));
+      fail(new Error(SUBAGENT_TEXT_ONLY));
       return;
     }
     const callId = target.call.id;
@@ -497,13 +497,15 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   const openThread = (thread && agentMap.get(thread)) || null;
   // Who a message written now goes to: the open subagent while it runs, else the main agent.
   const target = composerTarget(openThread?.call);
+  // What the Subagents list shows, and so what the bar's badge counts: dismissed finished ones are gone from both.
+  const listedAgents = listedSubagents(agents, dismissed, openThread?.id ?? null);
   const drawerAgent = (drawerId && agentMap.get(drawerId)) || null;
   // The open thread, read by its id: its own entries, also those before the page of the session the phone holds.
   const drawerThread = useAgentThread(api.agentThread, detail?.id ?? null, drawerAgent ? drawerAgent.id : null, detail, detail?.transcript ?? []);
   // The bar's utilities after the context ring, as on the web: Checkpoints, and the subagents while there are some.
   const utilities: BarUtility[] = [
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
-    ...(agents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: agents.length, onClick: () => setSheet(true) }] : []),
+    ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: () => setSheet(true) }] : []),
   ];
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
@@ -578,7 +580,7 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
               <Banner kind="bad" role="alert">{error}</Banner>
             </Pressable>
           ) : null}
-          {!listed ? slow ? <T style={[small(t), { color: t.c.dim, marginVertical: 12 }]}>Studio is not answering yet. Your sessions are kept and show here when it does.</T> : <SessionRowsLoading /> : null}
+          {!listed ? slow ? <T style={[small(t), { color: t.c.dim, marginVertical: 12 }]}>{SESSIONS_SLOW}</T> : <SessionRowsLoading /> : null}
           {live.map((s) => (
             <SessionRow key={s.id} s={s} selected={s.id === selected} onOpen={() => setSelected(s.id)} onChanged={changed} />
           ))}
@@ -794,7 +796,7 @@ function Empty({ settings, onSettings, onCreate }: { settings: StudioSettings | 
     <ScrollView testID="chat-empty" style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1, justifyContent: "center", alignItems: "center", paddingTop: 28, paddingBottom: 28 + insets.bottom, paddingHorizontal: 14 }}>
       <Display t={t} />
       <T style={{ ...font(t, "sans", 400, 13.5, t.base.lineHeight / t.base.size), color: t.c.muted, textAlign: "center", maxWidth: 460, marginBottom: 20 }}>
-        The agent works in this project through ue-mcp: Blueprints, materials, levels, Niagara and more. It can also run commands, read and edit the project&apos;s files, and read the web. Approvals in Settings set what it asks you first.
+        {CHAT_INTRO}
       </T>
       {settings && disconnected ? <ConnectCard settings={settings} onSettings={onSettings} /> : null}
       {settings && !disconnected ? (
