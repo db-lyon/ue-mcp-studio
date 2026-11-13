@@ -42,6 +42,7 @@ import { USER_SENT, USER_STOP, interruptedResult, interruptionLine, interruption
 import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
+import type { LiveTurn } from "./subscription.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flowStepKind, type ActionEffects } from "./approval-kind.js";
@@ -317,7 +318,7 @@ const MAX_CARD_BYTES = 64 * 1024;
 export class AgentRunner {
   private readonly active = new Map<string, AbortController>();
   /** Turns on the Claude sign-in that are running, by session: their main agent and background subagents. */
-  private readonly live = new Map<string, { background: () => number; free: () => boolean; say: (blocks: unknown[]) => boolean; interrupt: () => Promise<void> }>();
+  private readonly live = new Map<string, LiveTurn>();
   /** Each running subagent, by its agent call id, so one can be stopped without the turn. */
   private readonly subagents = new Map<string, () => void>();
   /** Agent calls marked waiting to start before their transcript entry arrived. */
@@ -1199,6 +1200,11 @@ ${result}`);
             if (entry?.kind !== "tool" || entry.call.outcome !== "pending" || background.has(b.tool_use_id)) continue;
             const text = typeof b.content === "string" ? b.content
               : Array.isArray(b.content) ? b.content.map((c: { text?: string }) => c.text ?? "").join("") : "";
+            // A subagent moved to the background answers its call with a placeholder; its real result is its task report.
+            if (this.subagents.has(b.tool_use_id) && /in the background/i.test(text)) {
+              background.add(b.tool_use_id);
+              continue;
+            }
             this.recordOutcome(s, { id: b.tool_use_id, name: entry.call.name, input: {}, state: "done", result: text, isError: !!b.is_error }, b.is_error ? "error" : "done");
           }
           this.o.store.save(s);
@@ -1229,6 +1235,7 @@ ${result}`);
           if (live) this.live.set(s.id, live);
           else this.live.delete(s.id);
         },
+        onInputClosed: (why) => this.o.host.log.info(`session ${s.id}: the turn takes no more messages: ${why}`),
         onFree: (free) => {
           s.mainFree = free;
           this.o.store.save(s);
@@ -1356,7 +1363,16 @@ ${result}`);
   /** A Stop now ends only the main agent's reply: background subagents are working and it is still replying. */
   stopKeepsSubagents(sessionId: string): boolean {
     const live = this.live.get(sessionId);
-    return !!live && live.background() > 0 && !live.free();
+    const s = this.o.store.get(sessionId);
+    return !!live && !!s && (live.background() > 0 || this.runningSubagents(s) > 0) && !live.free();
+  }
+
+  /** Put a message first in the queue, for the next turn, with the files it carries. */
+  private queueFirst(s: StoredSession, text: string, attachments: Array<Attachment & { path: string }>): void {
+    const q: QueuedMessage = { id: crypto.randomUUID(), text, attachments: attachments.map(({ id, name, type, size }) => ({ id, name, type, size })), at: now() };
+    s.queue = [q, ...(s.queue ?? [])];
+    this.o.store.save(s);
+    this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
   }
 
   stop(sessionId: string): void {
@@ -1392,7 +1408,10 @@ ${result}`);
   }
 
   /** Interrupt the main agent's reply only. Its own open calls end as stopped; the subagents' calls go on. */
-  private async stopMain(sessionId: string, live: { interrupt: () => Promise<void> }): Promise<void> {
+  private async stopMain(sessionId: string, live: LiveTurn): Promise<void> {
+    // Foreground subagents and commands would end with the reply: they move to the background first.
+    const kept = await live.keep();
+    if (kept) this.o.host.log.info(`session ${sessionId}: moved foreground tasks to the background before stopping the main agent's reply`);
     await live.interrupt();
     const s = this.require(sessionId);
     for (const t of s.transcript) {
@@ -1803,14 +1822,25 @@ ${result}`);
   async sendNow(sessionId: string, text: string, attachments: Array<Attachment & { path: string }> = []): Promise<void> {
     const s = this.require(sessionId);
     const live = this.live.get(s.id);
-    if (live && live.background() > 0) {
-      // The subagents keep working: only the main agent's reply stops, and it takes this message next.
-      if (!live.free()) await this.stopMain(s.id, live);
-      if (await this.tell(s, text, attachments)) return;
-    } else if (live && this.runningSubagents(s) > 0) {
-      // The main agent is waiting on its subagents: stopping it would end them. The message goes in
-      // beside them instead, and the main agent reads it as soon as it can take input.
-      if (await this.tell(s, text, attachments)) return;
+    const subagents = this.runningSubagents(s);
+    if (live && (live.background() > 0 || subagents > 0)) {
+      // A message never ends a subagent. Foreground ones move to the background first, then only the
+      // main agent's reply stops, and it takes this message next.
+      const free = live.free();
+      if (!free) await this.stopMain(s.id, live);
+      if (await this.tell(s, text, attachments)) {
+        this.o.host.log.info(`session ${s.id}: message handed to the main agent beside ${Math.max(subagents, live.background())} subagent(s)${free ? "" : ", after stopping its reply"}`);
+        return;
+      }
+      // The turn takes no more messages: this one goes first in the queue, for the next turn.
+      this.queueFirst(s, text, attachments);
+      this.o.host.log.warn(`session ${s.id}: the turn's input had closed, so a message beside running subagents was queued instead of ending them`);
+      return;
+    }
+    if (subagents > 0 && this.busy(s)) {
+      // Not a Claude sign-in turn: nothing can reach the main agent mid-turn, and stopping would end the subagents.
+      this.queueFirst(s, text, attachments);
+      return;
     }
     if (this.busy(s)) this.interrupt(sessionId, USER_SENT);
     await this.send(sessionId, text, attachments);
