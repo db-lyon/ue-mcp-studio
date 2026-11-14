@@ -14,17 +14,22 @@ import { font, useInsets, useTheme } from "../ui";
 /** Natural size, once loaded; until then a 16:9 frame holds its place. */
 type Size = { w: number; h: number };
 
-/** `framed`: its own 8px rounded hairline, as `.md-image` has; off inside a tile that frames it already. */
-export function Picture({ uri, alt, maxWidth, maxHeight, framed = true }: { uri: string; alt: string; maxWidth: number; maxHeight: number; framed?: boolean }) {
+/**
+ * `framed`: its own 8px rounded hairline, as `.md-image` has; off inside a tile that frames it already.
+ * `fixed`: the box it is drawn in, known before it loads (a reply image's tile), so it never resizes;
+ * `onDrawn` hears when it has drawn.
+ */
+export function Picture({ uri, alt, maxWidth, maxHeight, framed = true, fixed, onDrawn }: { uri: string; alt: string; maxWidth: number; maxHeight: number; framed?: boolean; fixed?: { width: number; height: number }; onDrawn?: () => void }) {
   const t = useTheme();
   const [size, setSize] = useState<Size | null>(null);
   const [open, setOpen] = useState(false);
   // Shrunk to fit, never stretched past its own size: `.md-image`'s max-width and max-height.
   const k = size ? Math.min(1, maxWidth / size.w, maxHeight / size.h) : 1;
-  const box = size ? { width: Math.max(1, size.w * k), height: Math.max(1, size.h * k) } : { width: maxWidth, height: Math.min(maxHeight, (maxWidth * 9) / 16) };
+  const box = fixed ?? (size ? { width: Math.max(1, size.w * k), height: Math.max(1, size.h * k) } : { width: maxWidth, height: Math.min(maxHeight, (maxWidth * 9) / 16) });
   const loaded = (e: ImageLoadEventData) => {
+    onDrawn?.();
     const { width, height } = e.source ?? {};
-    if (width && height && (width !== size?.w || height !== size?.h)) setSize({ w: width, h: height });
+    if (!fixed && width && height && (width !== size?.w || height !== size?.h)) setSize({ w: width, h: height });
   };
   return (
     <>

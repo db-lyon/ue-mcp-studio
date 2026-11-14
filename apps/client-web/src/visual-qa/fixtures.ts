@@ -409,14 +409,26 @@ function withQueue(status: "running" | "stopped"): SessionDetail {
   };
 }
 
-/** A reply that shows a PIE capture: an animated GIF above its text, as the agent's markdown puts it. */
-function withReplyImage(): SessionDetail {
+/**
+ * A reply that shows a PIE capture: an animated GIF above its text, as the
+ * agent's markdown puts it, with what the daemon read of it. The pictures
+ * plugin answers by the file's name: "Pending" never answers, "Loading" sends
+ * its poster and then stalls at 40%, "Failed" answers 404. `legacy`: from a
+ * Studio that sent no facts with the reply.
+ */
+function withReplyImage(file = "ChargeAttack_Sequence", legacy = false): SessionDetail {
   const d = detail("Charge attack", []);
+  const path = `Saved/Captures/${file}.gif`;
   return {
     ...d,
     transcript: [
       { kind: "user", text: "Play the charge attack in PIE and show me how it looks now.", at: ago(6) },
-      { kind: "assistant", text: "![Charge attack: back step, charge, dash and knockdown](Saved/Captures/ChargeAttack_Sequence.gif)\nThe back step now leads straight into the charge, and the dash ends in the knockdown without the half-second stall.", at: ago(2) },
+      {
+        kind: "assistant",
+        text: `![Charge attack: back step, charge, dash and knockdown](${path})\nThe back step now leads straight into the charge, and the dash ends in the knockdown without the half-second stall.`,
+        at: ago(2),
+        ...(legacy ? {} : { images: { [path]: { type: "image/gif", width: 720, height: 366, bytes: 12_373_000, frames: 96, animated: true, poster: true } } }),
+      },
     ],
   };
 }
@@ -754,7 +766,11 @@ export const SCENARIOS: Record<string, Scenario> = {
   "steps-expanded": { title: "The run of reads opened: every read named by its file, the line range where given", hash: `#/chat/${SESSION_ID}`, session: withSteps("idle"), index: { playtests: [], listed: true }, click: '.thread-stage .steps-head:has-text("Read 8 files")', height: 1100 },
   "steps-running": { title: "A run of tool calls while the turn runs: the step going now on its summary line", hash: `#/chat/${SESSION_ID}`, session: withSteps("running"), index: { playtests: [], listed: true } },
   "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },
-  "reply-image": { title: "A reply that shows a PIE capture: the animated GIF inline above its text, loaded through Studio", hash: `#/chat/${SESSION_ID}`, session: withReplyImage(), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image", timeout: 3000 } },
+  "reply-image": { title: "A reply that shows a PIE capture: the animated GIF inline above its text, loaded through Studio", hash: `#/chat/${SESSION_ID}`, session: withReplyImage(), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-loaded", timeout: 5000 } },
+  "reply-image-pending": { title: "A reply's capture before any byte has come: its tile at the final size, the format and size, loading", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Pending_Sequence"), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-waiting", timeout: 3000 } },
+  "reply-image-loading": { title: "A reply's capture loading: the poster frame in its tile, with how far the 11.8 MB file has come", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Loading_Sequence"), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-bar > span", timeout: 5000 } },
+  "reply-image-failed": { title: "A reply's capture that did not load: the tile kept, with the caption and Retry", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Failed_Sequence"), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-failed", timeout: 3000 } },
+  "reply-image-legacy": { title: "A reply from an older Studio, without the capture's size: a 16:9 tile the GIF is fitted into", hash: `#/chat/${SESSION_ID}`, session: withReplyImage("Legacy_Sequence", true), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image-tile.is-loaded", timeout: 5000 } },
   "dialog-save-content": dialogScene("The Save Content prompt put to you: the caption, the packages as a table you tick, and the dialog's own buttons once", saveContentDialog("asking")),
   "dialog-save-content-agent": dialogScene("The Save Content prompt while the agent decides: the table's ticks read only, Answer it yourself", saveContentDialog("agent")),
   "dialog-save-content-flat": dialogScene("The Save Content prompt from a ue-mcp that sends no structure: its text, without the button labels, and the rows to tick", saveContentDialog("asking", false)),

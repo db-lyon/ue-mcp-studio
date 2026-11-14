@@ -715,6 +715,18 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .agent-link:hover { border-color: var(--accent-line); }
 .md-image-link { display: inline-block; max-width: 100%; }
 .md-image { display: block; max-width: min(100%, 640px); max-height: 480px; height: auto; margin: 6px 0; border: 1px solid var(--line); border-radius: 8px; }
+/* A project image: its tile at the final size from the start, the poster and then the file filling it. */
+.md-image-tile { position: relative; display: block; max-width: 100%; margin: 6px 0; overflow: hidden; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.md-image-tile > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.md-image-tile .md-image { max-width: none; max-height: none; margin: 0; border: 0; border-radius: 0; }
+.md-image-tile .md-image-poster { filter: saturate(0.85); }
+.md-image-kind { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--dim); font: 600 22px/1 var(--mono); letter-spacing: 0.08em; opacity: 0.55; }
+.md-image-status { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 7px; max-width: calc(100% - 16px); padding: 4px 9px; border-radius: 999px; background: rgba(0, 0, 0, 0.62); color: #fff; font: 500 12px/1.3 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.md-image-status .spinner { border-color: rgba(255, 255, 255, 0.3); border-top-color: #fff; }
+.md-image-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0, 0, 0, 0.35); }
+.md-image-bar > span { display: block; height: 100%; background: var(--accent); transition: width 0.2s linear; }
+.md-image-failed { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 12px; text-align: center; font-size: 13px; }
+.md-image-failed .md-image-caption { color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .agent-link-row { display: flex; gap: 6px; align-items: stretch; }
 .agent-link-row .agent-link { flex: 1; min-width: 0; }
 .agent-stop { flex-shrink: 0; height: auto; padding: 0 12px; background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--bad-text, var(--muted)); cursor: pointer; }

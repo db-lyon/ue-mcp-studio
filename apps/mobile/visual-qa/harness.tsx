@@ -53,8 +53,17 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
     // Pictures (a playtest capture, a review image or thumbnail, a reply's project image) come from the page's server, which draws them as the web harness does.
     if (/\/captures\/\d+$|\/review\/(thumbnails|images)\/|\/files\/image$/.test(url.pathname)) {
       const r = await fetch(url.pathname + url.search);
-      const bytes = new Uint8Array(await r.arrayBuffer());
-      return { status: r.status, headers: { "content-type": r.headers.get("content-type") ?? "" }, body: (async function* () { yield bytes; })() };
+      // Chunk by chunk as the relay delivers it, so a file that stalls part way shows how far it came.
+      const reader = r.body?.getReader();
+      const body = (async function* () {
+        if (!reader) return;
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) return;
+          yield value;
+        }
+      })();
+      return { status: r.status, headers: { "content-type": r.headers.get("content-type") ?? "" }, body };
     }
     if (scenario.remoteOffline && (url.pathname === "/v1/events" || url.pathname === "/v1/health")) return json(503, { error: "The project is offline." });
     if (url.pathname === "/v1/events") {
