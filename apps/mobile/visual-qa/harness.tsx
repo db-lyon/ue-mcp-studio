@@ -50,9 +50,9 @@ export function scenarioTransport(scenario: Scenario, theme: StudioTheme): Trans
     // The phone is a paired client: the computer refuses it what it refuses a paired browser.
     const sent = options.json !== undefined ? enc.encode(JSON.stringify(options.json)) : undefined;
     if (!remotePath(m, path) || !remoteBodyAllowed(m, url.pathname, sent)) return json(403, { error: "Not available remotely." });
-    // Pictures (a playtest capture, a review image or thumbnail) come from the page's server, which draws them as the web harness does.
-    if (/\/captures\/\d+$|\/review\/(thumbnails|images)\//.test(url.pathname)) {
-      const r = await fetch(url.pathname);
+    // Pictures (a playtest capture, a review image or thumbnail, a reply's project image) come from the page's server, which draws them as the web harness does.
+    if (/\/captures\/\d+$|\/review\/(thumbnails|images)\/|\/files\/image$/.test(url.pathname)) {
+      const r = await fetch(url.pathname + url.search);
       const bytes = new Uint8Array(await r.arrayBuffer());
       return { status: r.status, headers: { "content-type": r.headers.get("content-type") ?? "" }, body: (async function* () { yield bytes; })() };
     }

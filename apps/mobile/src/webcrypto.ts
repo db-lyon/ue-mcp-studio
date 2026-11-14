@@ -3,8 +3,14 @@
  * no crypto.subtle: P-256 ECDH, SHA-256, HKDF-SHA256, HMAC-SHA256 and
  * AES-256-GCM, on the audited noble libraries. Installed on globalThis before
  * the remote package is imported, so the protocol code runs unchanged.
+ *
+ * Opening a response frame of any size goes to the platform's own AES-GCM
+ * (expo-crypto, off the JS thread) once a self-check shows it agrees with noble:
+ * in Hermes, noble opens about a megabyte a second, so a 12 MB capture held the
+ * whole app for most of a minute before it could be drawn.
  */
 import "./random";
+import * as ExpoCrypto from "expo-crypto";
 import { p256 } from "@noble/curves/p256";
 import { sha256 } from "@noble/hashes/sha256";
 import { hmac } from "@noble/hashes/hmac";
@@ -45,6 +51,64 @@ function unb64u(s: string): Uint8Array {
 }
 
 const key = (k: Omit<Key, "usages"> & { usages?: string[] }): Key => ({ usages: [], ...k });
+
+/** expo-crypto's AES-GCM, as much of it as opening a frame needs. */
+export interface NativeAes {
+  AESEncryptionKey: { import(bytes: Uint8Array): Promise<unknown> };
+  AESSealedData: { fromParts(iv: Uint8Array, ciphertextWithTag: Uint8Array, tagLength?: number): unknown };
+  aesDecryptAsync(sealed: unknown, key: unknown, options?: { additionalData?: Uint8Array }): Promise<Uint8Array>;
+}
+
+/** Frames smaller than this open in noble: the call to the native thread costs more than it saves. */
+export const NATIVE_AES_MIN_BYTES = 4096;
+
+function platformAes(): NativeAes | null {
+  try {
+    const m = ExpoCrypto as unknown as Partial<NativeAes>;
+    return m.AESEncryptionKey?.import && m.AESSealedData?.fromParts && m.aesDecryptAsync ? (m as NativeAes) : null;
+  } catch {
+    // A build or test whose expo-crypto has no AES.
+    return null;
+  }
+}
+
+let nativeAes: NativeAes | null | undefined;
+let nativeChecked: Promise<NativeAes | null> | null = null;
+const nativeKeys = new WeakMap<Key, Promise<unknown>>();
+
+/** Use `aes` (null: none) in place of the platform's, for tests. */
+export function setNativeAes(aes: NativeAes | null): void {
+  nativeAes = aes ?? null;
+  nativeChecked = null;
+}
+
+async function nativeOpen(aes: NativeAes, k: Key, iv: Uint8Array, data: Uint8Array, aad: Uint8Array | undefined): Promise<Uint8Array> {
+  let nk = nativeKeys.get(k);
+  if (!nk) nativeKeys.set(k, (nk = aes.AESEncryptionKey.import(k.bytes)));
+  const sealed = aes.AESSealedData.fromParts(iv, data, 16);
+  return new Uint8Array(await aes.aesDecryptAsync(sealed, await nk, aad ? { additionalData: aad } : {}));
+}
+
+/** The platform's AES-GCM, once it has opened a frame noble sealed to the same bytes; null when there is none or it disagreed. */
+function nativeReady(): Promise<NativeAes | null> {
+  if (nativeChecked) return nativeChecked;
+  if (nativeAes === undefined) nativeAes = platformAes();
+  const aes = nativeAes;
+  nativeChecked = (async () => {
+    if (!aes) return null;
+    try {
+      const k = key({ type: "secret", kind: "aes-gcm", bytes: globalThis.crypto.getRandomValues(new Uint8Array(32)), extractable: false, algorithm: "AES-GCM" });
+      const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
+      const aad = new TextEncoder().encode("res/0/d");
+      const plain = globalThis.crypto.getRandomValues(new Uint8Array(NATIVE_AES_MIN_BYTES * 2));
+      const opened = await nativeOpen(aes, k, iv, gcm(k.bytes, iv, aad).encrypt(plain), aad);
+      return opened.length === plain.length && opened.every((b, i) => b === plain[i]) ? aes : null;
+    } catch {
+      return null;
+    }
+  })();
+  return nativeChecked;
+}
 
 export const subtle = {
   async generateKey(algorithm: unknown, extractable: boolean, usages: string[]) {
@@ -128,7 +192,21 @@ export const subtle = {
   async decrypt(algorithm: { iv: unknown; additionalData?: unknown }, k: Key, data: unknown) {
     if (k.kind !== "aes-gcm") throw new Error("decrypt supports AES-GCM only");
     const aad = algorithm.additionalData === undefined ? undefined : bytesOf(algorithm.additionalData);
-    return buf(gcm(k.bytes, bytesOf(algorithm.iv), aad).decrypt(bytesOf(data)));
+    const iv = bytesOf(algorithm.iv);
+    const body = bytesOf(data);
+    const aes = body.length >= NATIVE_AES_MIN_BYTES ? await nativeReady() : null;
+    if (aes) {
+      try {
+        return buf(await nativeOpen(aes, k, iv, body, aad));
+      } catch {
+        // Noble settles it: a frame that does not open throws there too; one that opens there means the platform's is wrong.
+      }
+      const opened = gcm(k.bytes, iv, aad).decrypt(body);
+      nativeAes = null;
+      nativeChecked = Promise.resolve(null);
+      return buf(opened);
+    }
+    return buf(gcm(k.bytes, iv, aad).decrypt(body));
   },
 };
 

@@ -8,8 +8,7 @@ import { createContext, useCallback, useEffect, useRef, useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as Clipboard from "expo-clipboard";
-import { MAX_BYTES, formatBytes, isImage, readAll } from "@ue-mcp-studio/client-core";
-import { base64 } from "../../../chat/daemon-image";
+import { MAX_BYTES, formatBytes, isImage } from "@ue-mcp-studio/client-core";
 import type { Attachment } from "@ue-mcp-studio/shared";
 import { useProjectNav } from "../../../nav";
 
@@ -149,31 +148,4 @@ export function useAttachments(sessionId: string | null) {
     uploading: files.some((f) => f.state === "uploading"),
     ready: files.flatMap((f) => (f.state === "ready" && f.attachment ? [f.attachment] : [])),
   };
-}
-
-// A file the daemon serves (an attachment or a tool's image), read through the sealed transport into a data URI the image can show.
-const imageCache = new Map<string, string>();
-
-export function useDaemonImage(path: string | undefined, type = "image/png"): string | null {
-  const { project } = useProjectNav();
-  const [uri, setUri] = useState<string | null>(() => (path ? imageCache.get(path) ?? null : null));
-  useEffect(() => {
-    if (!path) return setUri(null);
-    const hit = imageCache.get(path);
-    if (hit) return setUri(hit);
-    let alive = true;
-    project
-      .transport("GET", path)
-      .then(async (r) => {
-        if (r.status >= 400) return;
-        const data = `data:${r.headers["content-type"] ?? type};base64,${base64(await readAll(r))}`;
-        imageCache.set(path, data);
-        if (alive) setUri(data);
-      })
-      .catch(() => undefined);
-    return () => {
-      alive = false;
-    };
-  }, [path, project, type]);
-  return uri;
 }

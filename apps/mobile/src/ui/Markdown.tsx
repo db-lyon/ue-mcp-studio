@@ -230,7 +230,7 @@ function unitBlock(ctx: Ctx, u: Unit, lists: Map<HNode, Block[]>): Block {
     case "node":
       return block(ctx, u.node) ?? { el: () => null, mt: 0, mb: 0 };
     case "inline":
-      return { el: (s) => <Text style={[ctx.body, s as TextStyle]} selectable>{inlines(ctx, u.nodes, true)}</Text>, mt: 0, mb: 0 };
+      return { el: (s) => textRun(ctx, u.nodes, s), mt: 0, mb: 0 };
     case "item": {
       let lis = lists.get(u.list);
       if (!lis) lists.set(u.list, (lis = listItems(ctx, u.list)));
@@ -245,7 +245,7 @@ function unitBlock(ctx: Ctx, u: Unit, lists: Map<HNode, Block[]>): Block {
       return codeBlock(ctx, u.text, u.lang, u.first, u.last);
     case "lines": {
       const kids = (u.node.children ?? []).slice(u.from, u.to);
-      return { el: (s) => <Text style={[ctx.body, s as TextStyle]} selectable>{inlines(ctx, kids, true)}</Text>, mt: 0, mb: u.last ? (ctx.paragraphMargin ?? 8) : 0 };
+      return { el: (s) => textRun(ctx, kids, s), mt: 0, mb: u.last ? (ctx.paragraphMargin ?? 8) : 0 };
     }
   }
 }
@@ -290,6 +290,36 @@ const BLOCK = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li"
 const isBlock = (n: HNode) => n.type === "element" && BLOCK.has(n.tagName ?? "");
 const blank = (n: HNode) => n.type === "text" && !/\S/.test(n.value ?? "");
 
+const isImg = (n: HNode) => n.type === "element" && n.tagName === "img";
+const spacer = (n: HNode) => blank(n) || (n.type === "element" && n.tagName === "br");
+
+/**
+ * Inline content as one Text, or, when it holds images the caller draws, its
+ * runs of text with each image on a line of its own between them. `.md-image`
+ * is a block on the web, and an Image inside a Text is an inline attachment,
+ * which Android sizes and clips as a glyph.
+ */
+function textRun(ctx: Ctx, nodes: HNode[], style: TextStyle | ViewStyle, body: TextStyle = ctx.body, key?: number): ReactNode {
+  if (!ctx.renderImage || !nodes.some(isImg)) return <Text key={key} style={[body, style as TextStyle]} selectable>{inlines(ctx, nodes, true)}</Text>;
+  const parts: ReactNode[] = [];
+  let run: HNode[] = [];
+  const flush = () => {
+    let from = 0;
+    let to = run.length;
+    while (from < to && spacer(run[from])) from++;
+    while (to > from && spacer(run[to - 1])) to--;
+    if (from < to) parts.push(<Text key={parts.length} style={body} selectable>{inlines(ctx, run.slice(from, to), true)}</Text>);
+    run = [];
+  };
+  nodes.forEach((n, i) => {
+    if (!isImg(n)) return run.push(n);
+    flush();
+    parts.push(<View key={parts.length}>{inline(ctx, n, i, true)}</View>);
+  });
+  flush();
+  return <View key={key} style={style as ViewStyle}>{parts}</View>;
+}
+
 /** Children as blocks: runs of inline content become one paragraph-less line of text. */
 function flow(ctx: Ctx, nodes: HNode[]): Block[] {
   const out: Block[] = [];
@@ -297,7 +327,8 @@ function flow(ctx: Ctx, nodes: HNode[]): Block[] {
   const flush = () => {
     if (run.some((n) => !blank(n))) {
       const nodes = run;
-      out.push({ el: (style) => <Text key={out.length} style={[ctx.body, style as TextStyle]} selectable>{inlines(ctx, nodes, true)}</Text>, mt: 0, mb: 0 });
+      const key = out.length;
+      out.push({ el: (style) => textRun(ctx, nodes, style, ctx.body, key), mt: 0, mb: 0 });
     }
     run = [];
   };
@@ -336,7 +367,7 @@ function block(ctx: Ctx, n: HNode): Block | null {
   const kids = n.children ?? [];
   switch (tag) {
     case "p":
-      return { el: (s) => <Text style={[body, s as TextStyle]} selectable>{inlines(ctx, kids, true)}</Text>, mt: 0, mb: ctx.paragraphMargin ?? 8 };
+      return { el: (s) => textRun(ctx, kids, s), mt: 0, mb: ctx.paragraphMargin ?? 8 };
     case "h2":
       return { el: (s) => <Text accessibilityRole="header" style={[labelFont(t), s as TextStyle]} selectable>{inlines({ ...ctx, body: labelFont(t) }, kids, true)}</Text>, mt: 0, mb: 12 };
     case "h1":

@@ -3,13 +3,86 @@
  * pairs with and talks to a computer on the platform implementation, so the two
  * must agree byte for byte on every primitive the protocol uses.
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("expo-crypto", () => ({ getRandomValues: (a: Uint8Array<ArrayBuffer>) => globalThis.crypto.getRandomValues(a), randomUUID: () => globalThis.crypto.randomUUID() }));
 
-const { subtle: shim } = await import("../src/webcrypto");
+const { subtle: shim, setNativeAes, NATIVE_AES_MIN_BYTES } = await import("../src/webcrypto");
+type NativeAes = Parameters<typeof setNativeAes>[0] & object;
 const real = globalThis.crypto.subtle;
 const enc = new TextEncoder();
+
+/** expo-crypto's AES-GCM as the platform does it (here Node's WebCrypto), counting the frames it opens; `wrong` flips a byte of what it opens. */
+function platformAes(o: { wrong?: boolean; failAfter?: number } = {}) {
+  let opened = 0;
+  const aes: NativeAes = {
+    AESEncryptionKey: { import: async (bytes) => real.importKey("raw", new Uint8Array(bytes), "AES-GCM", false, ["decrypt"]) },
+    AESSealedData: { fromParts: (iv, data) => ({ iv: new Uint8Array(iv), data: new Uint8Array(data) }) },
+    async aesDecryptAsync(sealed, key, options) {
+      const s = sealed as { iv: Uint8Array<ArrayBuffer>; data: Uint8Array<ArrayBuffer> };
+      if (o.failAfter !== undefined && opened >= o.failAfter) throw new Error("native AES failed");
+      opened++;
+      const out = new Uint8Array(await real.decrypt({ name: "AES-GCM", iv: s.iv, ...(options?.additionalData ? { additionalData: options.additionalData as Uint8Array<ArrayBuffer> } : {}) }, key as CryptoKey, s.data));
+      if (o.wrong) out[0] ^= 1;
+      return out;
+    },
+  };
+  return { aes, opened: () => opened };
+}
+
+/** A frame the computer sealed with WebCrypto, and the shim's key for it. */
+async function frame(size: number) {
+  const raw = crypto.getRandomValues(new Uint8Array(32));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const additionalData = enc.encode("res/1/d");
+  const plain = crypto.getRandomValues(new Uint8Array(size));
+  const ct = await real.encrypt({ name: "AES-GCM", iv, additionalData }, await real.importKey("raw", raw, "AES-GCM", false, ["encrypt"]), plain);
+  const key = await shim.importKey("raw", raw, { name: "AES-GCM" }, false, ["decrypt"]);
+  return { plain, open: (data: ArrayBuffer = ct) => shim.decrypt({ iv, additionalData }, key, data) };
+}
+
+describe("opening response frames on the platform's AES-GCM", () => {
+  afterEach(() => setNativeAes(null));
+
+  it("opens a large frame there and a small one in noble, to the same bytes", async () => {
+    const p = platformAes();
+    setNativeAes(p.aes);
+    const big = await frame(32 * 1024);
+    expect(p.opened()).toBe(0);
+    expect(new Uint8Array(await big.open())).toEqual(big.plain);
+    const afterCheck = p.opened();
+    expect(afterCheck).toBe(2);
+    // With its 16-byte tag, still under the line.
+    const small = await frame(NATIVE_AES_MIN_BYTES - 17);
+    expect(new Uint8Array(await small.open())).toEqual(small.plain);
+    expect(p.opened()).toBe(afterCheck);
+  });
+
+  it("keeps to noble when the platform's opens the self-check to other bytes", async () => {
+    const p = platformAes({ wrong: true });
+    setNativeAes(p.aes);
+    const big = await frame(32 * 1024);
+    expect(new Uint8Array(await big.open())).toEqual(big.plain);
+    expect(p.opened()).toBe(1);
+  });
+
+  it("falls back to noble for good when the platform's fails on a frame noble opens", async () => {
+    const p = platformAes({ failAfter: 1 });
+    setNativeAes(p.aes);
+    const a = await frame(32 * 1024);
+    expect(new Uint8Array(await a.open())).toEqual(a.plain);
+    const b = await frame(32 * 1024);
+    expect(new Uint8Array(await b.open())).toEqual(b.plain);
+    expect(p.opened()).toBe(1);
+  });
+
+  it("still refuses a frame that was tampered with", async () => {
+    setNativeAes(platformAes().aes);
+    const f = await frame(32 * 1024);
+    const bad = new Uint8Array(await crypto.subtle.digest("SHA-256", new Uint8Array(1)));
+    await expect(f.open(new Uint8Array([...bad, ...new Uint8Array(32 * 1024)]).buffer)).rejects.toThrow();
+  });
+});
 
 describe("webcrypto shim", () => {
   it("agrees with WebCrypto on ECDH, HKDF and AES-GCM in both directions", async () => {

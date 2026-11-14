@@ -3,11 +3,12 @@
  * transcript and the file viewer. Each link draws as remarkReplyLinks
  * classified it: an asset link, a token linked once resolved, or a file link.
  */
-import type { ReactNode } from "react";
-import { Image, Text } from "react-native";
+import { useState, type ReactNode } from "react";
+import { Text, View, useWindowDimensions } from "react-native";
 import { localImagePath, projectImageType, projectImageUrl } from "@ue-mcp-studio/shared";
 import { Markdown, useTheme, type LinkMark } from "../ui";
-import { useDaemonImage } from "../screens/chat/composer/attachments";
+import { useDaemonPicture } from "./daemon-picture";
+import { Picture } from "./Picture";
 import { AssetToken, ExactAssetLink } from "./AssetLink";
 import { FileLink } from "./FileLink";
 import { breakable } from "./breakable";
@@ -17,14 +18,34 @@ export const renderReplyMark = (mark: LinkMark, children: ReactNode, key: number
     : mark.kind === "token" ? <AssetToken key={key} token={mark.token} code={mark.code} />
     : <FileLink key={key} path={mark.path} line={mark.line}>{children}</FileLink>;
 
-/** An image in a reply: a project file through Studio (a playtest's capture, a screenshot), a web image as it is; its alt text while it loads. */
+/** `.md-image`: at most 640 wide and 480 tall, within the message. */
+const IMAGE_MAX_WIDTH = 640;
+const IMAGE_MAX_HEIGHT = 480;
+
+/**
+ * An image in a reply, on a line of its own as `.md-image` is a block: a project
+ * file through Studio (a playtest's capture, a screenshot), a web image as it is.
+ * GIFs and animated WebPs play. Its alt text while it loads, and after a failed read.
+ */
 function ReplyImage({ src, alt }: { src: string; alt: string }) {
   const t = useTheme();
+  // The window less the transcript's sides until the line has been laid out.
+  const window = useWindowDimensions().width;
+  const [laid, setWidth] = useState(0);
+  const width = laid || Math.max(1, window - 24);
   const local = localImagePath(src);
-  const loaded = useDaemonImage(local ? projectImageUrl(local) : undefined, (local && projectImageType(local)) || "image/png");
-  const uri = local ? loaded : /^https?:/i.test(src) ? src : null;
-  if (!uri) return <Text style={{ color: t.c.accentHi }} accessibilityRole="image">{alt}</Text>;
-  return <Image accessibilityRole="image" accessibilityLabel={alt} source={{ uri }} resizeMode="contain" style={{ width: 280, height: 200, borderRadius: 8, borderWidth: 1, borderColor: t.c.line }} />;
+  const loaded = useDaemonPicture(local ? projectImageUrl(local) : undefined, (local && projectImageType(local)) || "image/png");
+  const uri = local ? (loaded === "failed" ? null : loaded) : /^https?:/i.test(src) ? src : null;
+  return (
+    // `.md-image`'s 6px margins, and below them the descent of the line the web's inline-block link sits on.
+    <View style={{ alignSelf: "stretch", marginTop: 6, marginBottom: 14 }} onLayout={(e) => setWidth(Math.round(e.nativeEvent.layout.width))}>
+      {uri ? (
+        <Picture uri={uri} alt={alt} maxWidth={Math.min(width, IMAGE_MAX_WIDTH)} maxHeight={IMAGE_MAX_HEIGHT} />
+      ) : (
+        <Text style={{ color: loaded === null && local ? t.c.dim : t.c.accentHi }} accessibilityRole="image" accessibilityLabel={alt}>{alt}</Text>
+      )}
+    </View>
+  );
 }
 
 export const renderReplyImage = (src: string, alt: string, key: number): ReactNode => <ReplyImage key={key} src={src} alt={alt} />;

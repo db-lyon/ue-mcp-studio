@@ -45,6 +45,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "steps-expanded": {owner: "chat", clicks: ["Read 8 files*"]},
   "steps-running": {owner: "chat"},
   "approvals-waiting": {owner: "chat"},
+  "reply-image": {owner: "chat"},
   "dialog-save-content": {owner: "chat"},
   "dialog-save-content-agent": {owner: "chat"},
   "dialog-save-content-flat": {owner: "chat"},

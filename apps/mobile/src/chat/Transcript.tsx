@@ -6,7 +6,7 @@
  * when they have scrolled up; a subagent's own thread is drawn the same way.
  */
 import { Component, createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { FlatList, Image, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle } from "react-native";
+import { FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle } from "react-native";
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type SessionAgent, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
@@ -48,7 +48,9 @@ import { QaCard } from "./Qa";
 import { TurnReviewCard } from "../screens/chat/items";
 import { FlowCard } from "./FlowCommand";
 import { CompactionMarker } from "../screens/chat/items";
-import { SessionIdContext, attachmentUrl, formatBytes, isImage, useDaemonImage } from "./attachments";
+import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
+import { useDaemonPicture } from "./daemon-picture";
+import { Picture } from "./Picture";
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
 import { LinkedText } from "./AssetLink";
@@ -295,17 +297,11 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
   );
 }
 
-/** A session file as a picture, loaded through the relay. */
+/** A session file as a picture, loaded through the relay; a GIF plays, and a tap opens it full screen. */
 function DaemonImage({ path, type, alt, maxWidth, maxHeight }: { path: string; type: string; alt: string; maxWidth: number; maxHeight: number }) {
-  const uri = useDaemonImage(path, type);
-  const [size, setSize] = useState<{ w: number; h: number } | null>(null);
-  useEffect(() => {
-    if (!uri) return;
-    Image.getSize(uri, (w, h) => setSize({ w, h }), () => setSize(null));
-  }, [uri]);
-  if (!uri || !size) return <View accessibilityLabel={alt} style={{ width: 48, height: 48 }} />;
-  const k = Math.min(1, maxWidth / size.w, maxHeight / size.h);
-  return <Image accessibilityLabel={alt} source={{ uri }} style={{ width: size.w * k, height: size.h * k }} />;
+  const uri = useDaemonPicture(path, type);
+  if (!uri || uri === "failed") return <View accessibilityLabel={alt} style={{ width: 48, height: 48 }} />;
+  return <Picture uri={uri} alt={alt} maxWidth={maxWidth} maxHeight={maxHeight} framed={false} />;
 }
 
 /** The files a message carried: images as thumbnails, the rest by name. */
