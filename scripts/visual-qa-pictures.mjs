@@ -1,4 +1,35 @@
 // The pictures visual QA fixtures name, served by a Vite plugin for both the web client and the mobile app.
+import { createRequire } from "node:module";
+
+const { GifWriter } = createRequire(import.meta.url)("omggif");
+
+/**
+ * A project image a reply shows (GET /files/image): an animated GIF of a ball
+ * crossing a floor, 320 by 180.
+ */
+function replyGif() {
+  const w = 320;
+  const h = 180;
+  // Background, floor, ball, ball shade.
+  const palette = [0x1d1f24, 0x3a3d45, 0xe8720c, 0x8a3f06];
+  const buf = new Uint8Array(w * h * 8 + 1024);
+  const gif = new GifWriter(buf, w, h, { loop: 0, palette });
+  for (let f = 0; f < 8; f++) {
+    const px = new Uint8Array(w * h);
+    const cx = 60 + f * 28;
+    const cy = 110 - Math.round(Math.sin((f / 7) * Math.PI) * 50);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const d = (x - cx) ** 2 + (y - cy) ** 2;
+        px[y * w + x] = d < 18 ** 2 ? (x + y < cx + cy - 6 ? 2 : 3) : y > 140 ? 1 : 0;
+      }
+    }
+    // The first frame holds for six seconds, so a shot taken soon after the page loads shows it on every side.
+    gif.addFrame(0, 0, w, h, px, { delay: f === 0 ? 600 : 12 });
+  }
+  return Buffer.from(buf.subarray(0, gif.end()));
+}
+
 /**
  * Pictures the fixtures name: a review thumbnail, a captured review image or a
  * playtest capture, drawn as a shaded sphere whose hue comes from the id. An id
@@ -10,7 +41,11 @@ export const pictures = {
   name: "visual-qa-pictures",
   configureServer(s) {
     s.middlewares.use((req, res, next) => {
-      const m = /^\/v1\/ext\/studio\/(?:review\/(?:thumbnails|images)\/[^/?]+|qa\/runs\/[^?]+\/captures\/\d+)/.exec(req.url ?? "");
+      if (/^\/v1\/ext\/studio\/files\/image\?/.test(req.url ?? "")) {
+        res.setHeader("content-type", "image/gif");
+        return res.end(replyGif());
+      }
+      const m =/^\/v1\/ext\/studio\/(?:review\/(?:thumbnails|images)\/[^/?]+|qa\/runs\/[^?]+\/captures\/\d+)/.exec(req.url ?? "");
       if (!m) return next();
       // A run id with "unreadable-<n>" in it loses only its capture n.
       const lost = /unreadable(?:-(\d+))?/.exec(req.url);

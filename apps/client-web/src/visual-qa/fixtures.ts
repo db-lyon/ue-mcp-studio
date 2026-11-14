@@ -409,6 +409,18 @@ function withQueue(status: "running" | "stopped"): SessionDetail {
   };
 }
 
+/** A reply that shows a PIE capture: an animated GIF above its text, as the agent's markdown puts it. */
+function withReplyImage(): SessionDetail {
+  const d = detail("Charge attack", []);
+  return {
+    ...d,
+    transcript: [
+      { kind: "user", text: "Play the charge attack in PIE and show me how it looks now.", at: ago(6) },
+      { kind: "assistant", text: "![Charge attack: back step, charge, dash and knockdown](Saved/Captures/ChargeAttack_Sequence.gif)\nThe back step now leads straight into the charge, and the dash ends in the knockdown without the half-second stall.", at: ago(2) },
+    ],
+  };
+}
+
 /** Two approvals waiting at once: a file edit with its diff, and a build command. */
 function withApprovals(): SessionDetail {
   const d = detail("Door hinge fix", []);
@@ -742,6 +754,7 @@ export const SCENARIOS: Record<string, Scenario> = {
   "steps-expanded": { title: "The run of reads opened: every read named by its file, the line range where given", hash: `#/chat/${SESSION_ID}`, session: withSteps("idle"), index: { playtests: [], listed: true }, click: '.thread-stage .steps-head:has-text("Read 8 files")', height: 1100 },
   "steps-running": { title: "A run of tool calls while the turn runs: the step going now on its summary line", hash: `#/chat/${SESSION_ID}`, session: withSteps("running"), index: { playtests: [], listed: true } },
   "approvals-waiting": { title: "Two approvals waiting: an edit with its diff and a build command", hash: `#/chat/${SESSION_ID}`, session: withApprovals(), index: { playtests: [], listed: true } },
+  "reply-image": { title: "A reply that shows a PIE capture: the animated GIF inline above its text, loaded through Studio", hash: `#/chat/${SESSION_ID}`, session: withReplyImage(), index: { playtests: [], listed: true }, waitFor: { selector: ".md-image", timeout: 3000 } },
   "dialog-save-content": dialogScene("The Save Content prompt put to you: the caption, the packages as a table you tick, and the dialog's own buttons once", saveContentDialog("asking")),
   "dialog-save-content-agent": dialogScene("The Save Content prompt while the agent decides: the table's ticks read only, Answer it yourself", saveContentDialog("agent")),
   "dialog-save-content-flat": dialogScene("The Save Content prompt from a ue-mcp that sends no structure: its text, without the button labels, and the rows to tick", saveContentDialog("asking", false)),
