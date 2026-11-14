@@ -119,10 +119,51 @@ export function statusLine(d: EditorDialog, now: number): string {
     const left = clock(a.deadline - now);
     return a.policy.kind === "agent" ? `Waiting for you. The agent decides in ${left}.` : `Waiting for you. ${a.safeButton} is pressed in ${left}.`;
   }
+  if (d.native) return d.mode === "auto" ? "The agent is deciding. You can answer it here too." : "Waiting for your answer, here or in the editor.";
   if (d.mode === "auto") return "The agent is deciding.";
   if (d.mode === "defer") return "Waiting for an answer in the editor.";
   return "Not put to Studio yet. Answer it in the editor, or here once Studio asks.";
 }
+
+/**
+ * Whether the card offers the dialog's own buttons while nobody asked the
+ * user: a native Windows dialog is answered from any client, whatever the mode.
+ */
+export function answerableHere(d: EditorDialog): boolean {
+  return !!d.native && !d.outcome && !d.held && d.buttons.length > 0;
+}
+
+/** The card's eyebrow: what kind of dialog this is. */
+export function dialogEyebrow(d: EditorDialog): string {
+  if (d.native?.kind === "gpu-crash") return "GPU device lost";
+  if (d.native) return "Windows dialog";
+  return "Editor dialog";
+}
+
+/** The banner's lead: what the editor is waiting on. */
+export function dialogBannerLead(d: EditorDialog): string {
+  if (d.native?.kind === "gpu-crash") return "The editor lost its GPU device:";
+  return d.native ? "Editor waiting on a Windows dialog:" : "Editor waiting on a dialog:";
+}
+
+/** What a native dialog means, in one sentence from ue-mcp, or null for a Slate dialog. */
+export function nativeSummary(d: EditorDialog): string | null {
+  return d.native?.summary ?? null;
+}
+
+/** What happens after it is answered, when that is worth saying: a GPU device loss ends the editor. */
+export function nativeAfterLine(d: EditorDialog): string | null {
+  if (d.native?.kind === "gpu-crash") return "Once the editor has exited, start it again from the editor banner.";
+  return null;
+}
+
+/** The editor log lines that explain a native dialog, such as the GPU state after a device loss. */
+export function nativeDetails(d: EditorDialog): string[] {
+  return d.native?.details ?? [];
+}
+
+/** The heading of the log lines under the card. */
+export const NATIVE_DETAILS_LABEL = "From the editor log";
 
 /** Which call met it: "editor(stop_editor)", with the subagent when one did. */
 export function whoLine(d: EditorDialog): string | null {

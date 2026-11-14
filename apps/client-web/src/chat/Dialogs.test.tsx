@@ -267,3 +267,60 @@ describe("the dialog policy setting", () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 });
+
+describe("a native Windows dialog's card", () => {
+  const gpu: EditorDialog = {
+    ...base,
+    id: "g1",
+    title: "Error",
+    message: "GPU Crashed or D3D Device Removed.\n\nCheck log for GPU state information.",
+    buttons: ["OK"],
+    mode: "defer",
+    sessionId: null,
+    toolUseId: null,
+    parent: null,
+    subagent: undefined,
+    call: null,
+    asking: null,
+    steps: [],
+    native: {
+      hwnd: "4242",
+      pid: 77,
+      kind: "gpu-crash",
+      summary: "The editor's GPU device was lost. Unreal cannot recover from this: the editor exits when OK is pressed.",
+      details: ["LogD3D12RHI: Error: GPU crash detected: DXGI_ERROR_DEVICE_REMOVED", "LogRHI: Error: Active GPU breadcrumbs: BasePass"],
+    },
+  };
+
+  it("says what it means, what happens next, and keeps the log lines folded", () => {
+    render(<DialogCards dialogs={[gpu]} now={T0} />);
+    expect(screen.getByText("GPU device lost")).toBeTruthy();
+    expect(screen.getByText(/the editor exits when OK is pressed/)).toBeTruthy();
+    expect(screen.getByText("Once the editor has exited, start it again from the editor banner.")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toBe("Waiting for your answer, here or in the editor.");
+    const details = document.querySelector("details.dialog-details") as HTMLDetailsElement;
+    expect(details.open).toBe(false);
+    expect(details.querySelector("summary")?.textContent).toBe("From the editor log (2)");
+    expect(details.textContent).toContain("DXGI_ERROR_DEVICE_REMOVED");
+  });
+
+  it("offers its own buttons in defer, where a Slate dialog has none, and sends the press", async () => {
+    render(<DialogCards dialogs={[gpu]} now={T0} />);
+    expect(screen.queryByRole("button", { name: "Let the agent decide" })).toBeNull();
+    await act(async () => fireEvent.click(button("OK")));
+    expect(api.answerDialog).toHaveBeenCalledWith("g1", { answer: "press", button: "OK" });
+  });
+
+  it("leads the banner and the transcript line with what kind of dialog it is", () => {
+    render(<><DialogBannerLine dialog={gpu} now={T0} /><DialogLine dialog={{ ...gpu, outcome: { kind: "pressed", button: "OK", by: "you", at: T0 } }} /></>);
+    expect(screen.getByText("The editor lost its GPU device:")).toBeTruthy();
+    expect(screen.getAllByText("GPU device lost")).toHaveLength(1);
+    expect(screen.getByText("You pressed OK.")).toBeTruthy();
+  });
+
+  it("shows no buttons once it is answered, and the agent's line in auto", () => {
+    expect(statusLine({ ...gpu, mode: "auto" }, T0)).toBe("The agent is deciding. You can answer it here too.");
+    render(<DialogCards dialogs={[{ ...gpu, outcome: { kind: "pressed", button: "OK", by: "you", at: T0 } }]} now={T0} />);
+    expect(screen.queryByRole("button", { name: "OK" })).toBeNull();
+  });
+});

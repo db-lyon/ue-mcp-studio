@@ -506,6 +506,46 @@ function saveContentDialog(state: "asking" | "agent", blocks = true): EditorDial
   };
 }
 
+/**
+ * The RHI's device-lost box, a native Windows dialog ue-mcp reads from outside
+ * the editor: no session met it (the GPU went while the user was idle), so it
+ * is drawn above every view with its OK and the GPU state from the editor log.
+ */
+function gpuCrashDialog(mode: "defer" | "auto" = "defer"): EditorDialog {
+  const now = Date.now();
+  const summary = "The editor's GPU device was lost (the GPU crashed or the D3D device was removed). Unreal cannot recover from this: the editor exits when OK is pressed, and it has to be started again.";
+  return {
+    id: "dlg-gpu",
+    editor: "StudioE2E",
+    title: "Error",
+    message: "GPU Crashed or D3D Device Removed.\n\nCheck log for GPU state information.",
+    buttons: ["OK"],
+    native: {
+      hwnd: "15470330",
+      pid: 26728,
+      kind: "gpu-crash",
+      summary,
+      details: [
+        "[2026.11.14-10.01.00:000][412]LogD3D12RHI: Error: GPU crash detected: DXGI_ERROR_DEVICE_REMOVED",
+        "[2026.11.14-10.01.00:001][412]LogD3D12RHI: Error: DRED: Last tracked GPU operations:",
+        "[2026.11.14-10.01.00:002][412]LogD3D12RHI: Error: DRED: Breadcrumb 4: BasePass (Finished)",
+        "[2026.11.14-10.01.00:003][412]LogD3D12RHI: Error: DRED: Breadcrumb 5: Lumen.SceneLighting (Started)",
+        "[2026.11.14-10.01.00:004][412]LogRHI: Error: Active GPU breadcrumbs: Frame 18233 > SceneRender > Lumen",
+      ],
+    },
+    mode,
+    openedAt: now - 12_000,
+    sessionId: null,
+    toolUseId: null,
+    parent: null,
+    call: null,
+    asking: null,
+    held: null,
+    outcome: null,
+    steps: [{ at: now - 12_000, text: "A Windows dialog opened in the editor. Answer it here or in the editor." }],
+  };
+}
+
 function withStopEditor(): SessionDetail {
   const d = detail("Rebuild with the hinge change", []);
   return {
@@ -774,6 +814,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   "dialog-save-content": dialogScene("The Save Content prompt put to you: the caption, the packages as a table you tick, and the dialog's own buttons once", saveContentDialog("asking")),
   "dialog-save-content-agent": dialogScene("The Save Content prompt while the agent decides: the table's ticks read only, Answer it yourself", saveContentDialog("agent")),
   "dialog-save-content-flat": dialogScene("The Save Content prompt from a ue-mcp that sends no structure: its text, without the button labels, and the rows to tick", saveContentDialog("asking", false)),
+  "dialog-native-gpu": dialogScene("The editor's GPU device lost: the native Windows box above every view, what it means, its OK, and the GPU state from the editor log", gpuCrashDialog()),
+  "dialog-native-gpu-details": { ...dialogScene("The GPU device-lost card with the editor log lines opened", gpuCrashDialog()), clicks: [".dialog-details summary"] },
   "queue-running": { title: "Three messages queued behind a running turn: Send now, Edit and Remove on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("running"), index: { playtests: [], listed: true } },
   "queue-stopped": { title: "The queue waiting after a Stop: Send next in its header, Send now on each row", hash: `#/chat/${SESSION_ID}`, session: withQueue("stopped"), index: { playtests: [], listed: true } },
   "vcs-changes": { title: "The source control chip opened: the changed files and the picked file's diff", hash: `#/chat/${SESSION_ID}`, session: withTools(), index: { playtests: [], listed: true }, get: vcsGet, clicks: ["button.chip.vcs", ".changes-list li button"], narrowClicks: [".bar-menu-button", ".drawer-foot button.chip.vcs", ".changes-list li button"] },

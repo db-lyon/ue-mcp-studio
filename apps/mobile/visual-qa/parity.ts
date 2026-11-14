@@ -53,6 +53,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "dialog-save-content": {owner: "chat"},
   "dialog-save-content-agent": {owner: "chat"},
   "dialog-save-content-flat": {owner: "chat"},
+  "dialog-native-gpu": {owner: "chat"},
+  "dialog-native-gpu-details": {owner: "chat", clicks: ["From the editor log"]},
   "queue-running": {owner: "chat"},
   "queue-stopped": {owner: "chat"},
   "vcs-changes": {owner: "agent-a", clicks: ["Open navigation", "Git feat/door-hinge-easing, 4 changed, 2 ahead. Show the changes.", "modified Source/StudioE2E/Door/DoorComponent.cpp"]},

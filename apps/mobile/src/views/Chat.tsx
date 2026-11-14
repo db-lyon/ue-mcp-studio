@@ -698,7 +698,8 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           onSendNext={() => queueCall(api.sendQueued(detail.id))}
                           onSendNow={(qid) => queueCall(api.sendQueuedNow(detail.id, qid))}
                         />
-                        <DialogCards dialogs={(dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === detail.id)} now={dialogs.now()} />
+                        {/* A native Windows dialog is drawn above every view (DialogBanner), not here as well. */}
+                        <DialogCards dialogs={(dialogs.state?.dialogs ?? []).filter((d) => d.sessionId === detail.id && !d.native)} now={dialogs.now()} />
                         <Approvals sessionId={detail.id} approvals={detail.approvals ?? []} />
                         <OutsideRuns runs={outside.runs} onDismiss={outside.dismiss} />
                         <FormCards forms={forms} runs={qaRuns} />

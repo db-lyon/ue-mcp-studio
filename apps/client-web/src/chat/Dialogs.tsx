@@ -2,8 +2,15 @@ import { useEffect, useState } from "react";
 import type { DialogAnswer, DialogBlock, EditorDialog } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 import {
+  NATIVE_DETAILS_LABEL,
+  answerableHere,
   decider,
+  dialogBannerLead,
   dialogBody,
+  dialogEyebrow,
+  nativeAfterLine,
+  nativeDetails,
+  nativeSummary,
   isPathCell,
   itemListShown,
   outcomeLine,
@@ -146,14 +153,25 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
     canTick: who === "you" && !busy,
     onTick: (index, checked) => setTicks({ ...ticks, [index]: checked }),
   };
+  const summary = nativeSummary(d);
+  const after = nativeAfterLine(d);
+  const details = nativeDetails(d);
   return (
-    <div className="approval card dialog-card" role="group" aria-label={`Editor dialog: ${d.title}`}>
+    <div className={`approval card dialog-card${d.native ? ` native ${d.native.kind}` : ""}`} role="group" aria-label={`${dialogEyebrow(d)}: ${d.title}`}>
       <div className="approval-head">
-        <span className="eyebrow">Editor dialog</span>
+        <span className="eyebrow">{dialogEyebrow(d)}</span>
         {meta && <span className="dim small">met by {meta}</span>}
       </div>
       <strong className="dialog-title">{d.title || "(untitled dialog)"}</strong>
+      {summary && <p className="dialog-summary">{summary}</p>}
       <DialogBody dialog={d} ticks={tickState} />
+      {after && <p className="dialog-after small">{after}</p>}
+      {details.length > 0 && (
+        <details className="dialog-details">
+          <summary className="small">{NATIVE_DETAILS_LABEL} ({details.length})</summary>
+          <pre className="output mono">{details.join("\n")}</pre>
+        </details>
+      )}
       {rows.length > 0 && itemListShown(d) && (
         <div className="dialog-items" role="group" aria-label="Assets">
           {rows.map((i) => (
@@ -170,7 +188,8 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
           ))}
         </div>
       )}
-      <div className={`dialog-status ${who}`} role="status">{statusLine(d, now)}</div>
+      {/* who- prefixed: a bare "editor" class picked up the code editor's box styles. */}
+      <div className={`dialog-status who-${who}`} role="status">{statusLine(d, now)}</div>
       {error && <div className="banner bad">{error}</div>}
       {d.held ? (
         <div className="row approval-actions">
@@ -191,6 +210,12 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
           <span className="dim small">Answer it yourself:</span>
           {d.buttons.map((b) => <button key={b} disabled={busy} onClick={() => press(b)}>{b}</button>)}
         </div>
+      ) : answerableHere(d) ? (
+        <div className="row approval-actions">
+          {d.buttons.map((b, i) => (
+            <button key={b} className={i === 0 ? "primary" : undefined} disabled={busy} onClick={() => press(b)}>{b}</button>
+          ))}
+        </div>
       ) : null}
       <Steps dialog={d} />
     </div>
@@ -203,7 +228,7 @@ export function DialogLine({ dialog: d }: { dialog: EditorDialog }) {
   const ended = outcomeLine(d);
   return (
     <div className="dialog-line" role="note">
-      <span className="eyebrow">Editor dialog</span> <strong>{d.title || "(untitled dialog)"}</strong>
+      <span className="eyebrow">{dialogEyebrow(d)}</span> <strong>{d.title || "(untitled dialog)"}</strong>
       {meta && <span className="dim small"> met by {meta}</span>}
       <Steps dialog={d} />
       {ended && <div className="small">{ended}</div>}
@@ -216,7 +241,7 @@ export function DialogBannerLine({ dialog: d, now }: { dialog: EditorDialog; now
   return (
     <div className="banner warn editor-banner dialog-banner" role="status">
       <span className="editor-banner-text">
-        <strong>Editor waiting on a dialog:</strong> {d.title || "(untitled dialog)"}
+        <strong>{dialogBannerLead(d)}</strong> {d.title || "(untitled dialog)"}
         <span className="dim"> {statusLine(d, now)}</span>
       </span>
     </div>
