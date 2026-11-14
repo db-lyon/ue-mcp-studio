@@ -14,6 +14,8 @@ describe("remotePath", () => {
     expect(remotePath("GET", "/v1/ext/studio/files/read?path=.wiki%2FDecisions.md")).toBe("/v1/ext/studio/files/read?path=.wiki%2FDecisions.md");
     // A reply's images load the same way on a paired phone and browser as on the computer.
     expect(remotePath("GET", "/v1/ext/studio/files/image?path=Saved%2FShots%2Fstep02.jpg")).toBe("/v1/ext/studio/files/image?path=Saved%2FShots%2Fstep02.jpg");
+    // And so does the poster a chat draws while a large one loads.
+    expect(remotePath("GET", "/v1/ext/studio/files/image?path=Saved%2FShots%2Frun.gif&poster=1")).toBe("/v1/ext/studio/files/image?path=Saved%2FShots%2Frun.gif&poster=1");
     for (const [m, p] of [
       ["POST", "/v1/mcp"],
       ["POST", "/v1/shutdown"],

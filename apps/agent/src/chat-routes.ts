@@ -96,6 +96,7 @@ import { ContextSurfaces, contextApiOf } from "./context-surface.js";
 import { fullModelName, modelName } from "./models.js";
 import { TurnHosts } from "./hosted-turn.js";
 import { userHome } from "./instructions.js";
+import { replyImages } from "./reply-images.js";
 import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, endpointVendor, type KeyProviderId, type VendorId } from "@ue-mcp-studio/shared";
@@ -293,6 +294,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   const stepHost = api as unknown as FlowStepHost;
   const runner = new AgentRunner({
     host: api,
+    replyImages: (text) => replyImages(text, { projectDir: api.projectDir, home: userHome() }, path.join(api.dataDir, "posters")),
     review,
     busy,
     dialogs,

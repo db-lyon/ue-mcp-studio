@@ -71,3 +71,52 @@ export function localImagePath(src: string | undefined | null): string | null {
 
 /** GET /v1/ext/studio/files/image?path= for a project image. */
 export const projectImageUrl = (path: string): string => `/v1/ext/studio/files/image?path=${encodeURIComponent(path)}`;
+
+/**
+ * GET /v1/ext/studio/files/image?path=&poster=1: the image's first frame as a
+ * small JPEG, made once by the daemon and kept, so a chat draws something
+ * within a second while the whole file (an 11 MB capture GIF) still loads.
+ */
+export const projectImagePosterUrl = (path: string): string => `${projectImageUrl(path)}&poster=1`;
+
+/** The longest side of a poster. */
+export const POSTER_EDGE = 480;
+/** The most bytes a poster is kept at; it is made smaller until it fits. */
+export const POSTER_MAX_BYTES = 48 * 1024;
+/** Images smaller than this get no poster: the whole file arrives about as fast. */
+export const POSTER_MIN_BYTES = 160 * 1024;
+
+/**
+ * What the daemon knows of an image a reply shows, sent with the reply so a
+ * chat can draw the picture's tile at its final size before any byte of it
+ * has arrived. Read from the file's header when the reply is written.
+ */
+export interface ReplyImageInfo {
+  /** Its MIME type, from its first bytes. */
+  type: string;
+  width: number;
+  height: number;
+  /** The file's size. */
+  bytes: number;
+  /** Frames it holds: 1 for a still. */
+  frames: number;
+  /** It plays: a GIF, WebP or PNG with more than one frame. */
+  animated: boolean;
+  /** GET projectImagePosterUrl(path) answers with its first frame; absent when it is small enough to load whole. */
+  poster?: boolean;
+}
+
+/**
+ * The project images a reply's markdown shows, as localImagePath reads each
+ * `![caption](src)`: the keys of an assistant entry's `images`. A web image
+ * is left out, and each path appears once.
+ */
+export function replyImagePaths(text: string): string[] {
+  const out: string[] = [];
+  const re = /!\[(?:[^\]\\]|\\.)*\]\(\s*(?:<([^>\n]+)>|([^\s)]+))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const local = localImagePath(m[1] ?? m[2]);
+    if (local && !out.includes(local)) out.push(local);
+  }
+  return out;
+}
