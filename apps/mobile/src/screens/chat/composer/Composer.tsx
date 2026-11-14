@@ -27,8 +27,11 @@ export { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeigh
 
 /** Two taps on the handle this close together forget the dragged height, as a double click does on the web. */
 const DOUBLE_TAP_MS = 300;
-/** The least the model pill truncates to before the utilities fold: its 16 px sides and a few letters. */
-const PILL_MIN = 72;
+/**
+ * The least the model pill truncates to before the utilities fold: its 16 px sides and a few letters.
+ * At 360 dp with Queue beside Stop, the pill at this width, the three utilities, Queue and Stop still fit.
+ */
+const PILL_MIN = 64;
 /** The box's line: 16px text at 1.5. */
 const LINE = 24;
 /** The box's padding (8 top and bottom) and border (1 each side). */
@@ -364,7 +367,7 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
             {extras}
           </BarTierContext.Provider>
           <View testID="composer-spacer" style={s.spacer} onLayout={(e) => setSpacerW(e.nativeEvent.layout.width)} />
-          {busy && onQueue && <Button title="Queue" label="Queue" hint={QUEUE_HINT} disabled={!canSend} onPress={queue} style={{ borderRadius: 22 }} />}
+          {busy && onQueue && <Button title="Queue" label="Queue" hint={QUEUE_HINT} disabled={!canSend} onPress={queue} style={{ borderRadius: 22, paddingHorizontal: 8 }} />}
           {/* The keys are told in the hint, for a tablet with a hardware keyboard: a phone's Return is a new line. */}
           {busy ? (
             <RoundButton label="Stop" hint={onQueue && window.width > 760 ? STOP_KEYS : undefined} kind="stop" onPress={stop}>

@@ -241,8 +241,8 @@ describe.each(["android", "ios"] as const)("the bar's utilities, on %s", (os) =>
     layOut(screen.getByTestId("composer-utilities-measure"), 136);
     layOut(screen.getByTestId("composer-utilities"), 136);
     layOut(screen.getByTestId("composer-spacer"), 0);
-    // A wide pill, then one squeezed to its least (72): the row still fits, so nothing folds.
-    for (const pill of [220, 72]) {
+    // A wide pill, then one squeezed to its least (64): the row still fits, so nothing folds.
+    for (const pill of [220, 64]) {
       layOut(screen.getByTestId("composer-picker"), pill);
       expect(within(screen.getByTestId("composer-utilities")).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Checkpoints", "Subagents (2)", "Attach"]);
       expect(screen.queryByLabelText(/More controls/)).toBeNull();
