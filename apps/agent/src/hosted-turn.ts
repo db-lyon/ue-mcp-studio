@@ -302,7 +302,7 @@ class HostLink {
           done(ours, ours ? undefined : "the socket is not this session's turn host");
         } else if (msg.t === "refused") done(false, String(msg.why ?? "refused"));
         else this.handle(sock, msg);
-      });
+      }, (e, msg) => this.o.log.warn(`session ${this.record.session}: applying the turn host's ${String(msg.t ?? "message")} event failed; the turn goes on`, e));
       sock.on("close", () => {
         done(false, "the turn host closed the connection");
         if (this.sock === sock) this.lost();
@@ -464,7 +464,13 @@ class HostLink {
    */
   fromJournal(): void {
     this.hideLive();
-    for (const ev of readJournal(journalFile(this.o.dataDir, this.record.host), this.applied)) this.apply(ev);
+    for (const ev of readJournal(journalFile(this.o.dataDir, this.record.host), this.applied)) {
+      try {
+        this.apply(ev);
+      } catch (e) {
+        this.o.log.warn(`session ${this.record.session}: applying the turn host's ${ev.t} event from its journal failed; the rest is applied`, e);
+      }
+    }
     if (this.settled) return;
     const r = readRecord(recordFile(this.o.dataDir, this.record.host));
     const running = !!r && !r.ended && pidAlive(r.pid);
