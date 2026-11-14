@@ -23,6 +23,7 @@ import {
   formatResult,
   isActive,
   liveStep,
+  messageDeliveryNote,
   mainTimeline,
   stepActivity,
   stepsSummary,
@@ -267,6 +268,8 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
     );
   }
   const editable = !!onEdit && at !== undefined && entry.source === undefined;
+  // A message written in a subagent's thread says when it is not read yet, or never was, as on the web.
+  const delivery = entry.parent ? messageDeliveryNote(entry.delivery) : null;
   return (
     <View style={[bubble, { maxWidth: Math.min(width * 0.92, width - 52) }]}>
       {entry.attachments && entry.attachments.length > 0 ? <SentFiles files={entry.attachments} /> : null}
@@ -274,6 +277,9 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
         <MentionText text={entry.text} />
         {entry.source !== undefined ? <Text style={small(t, t.c.dim)}> from the agent's message above</Text> : null}
       </Text>
+      {delivery ? (
+        <Text accessibilityLiveRegion="polite" style={entry.delivery === "main" ? { ...small(t, t.c.warnText), fontWeight: "600", marginTop: 4 } : { ...small(t, t.c.dim), marginTop: 4 }}>{delivery}</Text>
+      ) : null}
       {editable ? (
         <Pressable
           accessibilityRole="button"

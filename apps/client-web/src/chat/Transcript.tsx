@@ -24,6 +24,7 @@ import {
   formatResult,
   isActive,
   liveStep,
+  messageDeliveryNote,
   mainTimeline,
   stepActivity,
   stepsSummary,
@@ -225,11 +226,14 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
       </div>
     );
   }
+  // A message written in a subagent's thread says when it is not read yet, or never was.
+  const delivery = entry.parent ? messageDeliveryNote(entry.delivery) : null;
   return (
     <div className="msg user">
       {entry.attachments && entry.attachments.length > 0 && <SentFiles files={entry.attachments} />}
       <MentionText text={entry.text} />
       {entry.source !== undefined && <span className="dim small msg-source"> from the agent's message above</span>}
+      {delivery && <div className={`small msg-delivery${entry.delivery === "main" ? " undelivered" : " dim"}`} role="status">{delivery}</div>}
       {onEdit && at !== undefined && entry.source === undefined && (
         <button className="msg-edit icon-button" aria-label="Edit this message" title="Edit and send again from here" onClick={() => setText(entry.text)}>
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10.5 2.5l3 3L6 13H3v-3z" /></svg>

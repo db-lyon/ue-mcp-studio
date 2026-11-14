@@ -243,9 +243,9 @@ describe("subagents", () => {
     const fin = store.get(s.id)!;
     expect(fin.status).toBe("idle");
     expect(most).toBe(2);
-    // A subagent gets the work tools only, so it cannot start subagents of its own.
+    // A subagent gets the work tools and its reply to the user, so it cannot start subagents of its own.
     const subTools = requests.find((r) => r.system.some((b) => b.text.includes("You are a subagent")))!.tools.map((t) => (t as { name: string }).name);
-    expect(subTools).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch"]);
+    expect(subTools).toEqual(["ue_mcp", "editor_restart", "shell", "read_file", "write_file", "edit_file", "glob", "grep", "web_fetch", "reply"]);
     // Both prompts ask for assets as markdown links to their full object path.
     const link = "markdown link to its full object path";
     expect(requests.find((r) => r.system.some((b) => b.text.includes("You are a subagent")))!.system[0].text).toContain(link);

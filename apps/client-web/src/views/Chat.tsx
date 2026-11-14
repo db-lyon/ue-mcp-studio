@@ -34,7 +34,7 @@ import { AssetLinksContext, AssetTranscriptContext, useAssetLinks } from "../cha
 import { readLocation, writeLocation } from "../location";
 import { useSessionFocus } from "../focus";
 import { chatPane } from "../chat/pane";
-import { DetailLoader, composerPlaceholder, composerQueues, composerTarget, sessionGone } from "@ue-mcp-studio/client-core";
+import { DetailLoader, composerPlaceholder, composerQueues, composerTarget, sessionGone, toMainFromThread } from "@ue-mcp-studio/client-core";
 import { SessionLoading, SessionRowsLoading } from "../chat/Skeleton";
 import { ChatHeader } from "../chat/ChatHeader";
 import { Sheet } from "../chat/Sheet";
@@ -335,7 +335,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
       return;
     }
     const callId = target.call.id;
-    dispatch((id, text, files) => api.messageSubagent(id, callId, text, files, now), target.to === "finished");
+    dispatch((id, text, files) => api.messageSubagent(id, callId, text, files, now), toMainFromThread(target));
   };
   const runFlow =(request: FlowRunRequest) => {
     if (!selected) return Promise.reject(new Error("Open a session first."));
@@ -470,8 +470,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const agents = useMemo(() => (detail ? subagentsOf(detail) : []), [detail]);
   const agentMap = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
   const openThread = (thread && agentMap.get(thread)) || null;
-  // Who a message written now goes to: the open subagent while it runs, else the main agent.
-  const target = composerTarget(openThread?.call);
+  // Who a message written now goes to: the open subagent while it runs and the daemon says it takes one, else the main agent.
+  const target = composerTarget(openThread?.call, openThread);
   // What the Subagents list shows, and so what the bar's badge counts: dismissed finished ones are gone from both.
   const listedAgents = listedSubagents(agents, dismissed, openThread?.id ?? null);
   const drawerAgent = (drawerId && agentMap.get(drawerId)) || null;

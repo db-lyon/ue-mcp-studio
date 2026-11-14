@@ -330,9 +330,10 @@ ${text}` }] } as MessageParam,
     };
   }
 
-  static detail(s: StoredSession): SessionDetail {
+  /** `messageable`: whether a running subagent takes a message now, which only the runner knows. */
+  static detail(s: StoredSession, messageable?: (callId: string) => boolean): SessionDetail {
     // What a client must not work out from the page of the transcript it holds: from the whole one, here.
-    const derived = deriveSession(s.transcript, { status: s.status, asked: new Set((s.approvals ?? []).map((a) => a.toolUseId)), seen: s.seen, dismissed: s.dismissed, tokens: s.tokens, context: publicContext(s) });
+    const derived = deriveSession(s.transcript, { status: s.status, asked: new Set((s.approvals ?? []).map((a) => a.toolUseId)), seen: s.seen, dismissed: s.dismissed, tokens: s.tokens, context: publicContext(s), ...(messageable ? { messageable } : {}) });
     return { ...SessionStore.summary(s), ...derived, transcript: s.transcript, touched: s.touched, draft: s.draft, seen: s.seen ?? [], dismissed: s.dismissed ?? [], queue: s.queue ?? [], ...(s.mainFree && (s.status === "running" || s.status === "waiting") ? { mainFree: true } : {}), error: s.error, approvals: s.approvals ?? [], ...(s.turn ? { turn: turnFacts(s.transcript, s.turn) } : {}), review: s.review ?? null, timeline: s.timeline ?? [], tokens: s.tokens ?? {}, context: publicContext(s), ...(s.totals ? { totals: s.totals } : {}) };
   }
 }

@@ -344,9 +344,16 @@ export interface AttachmentUpload {
   data: string;
 }
 
+/** What became of a message the user wrote in a subagent's thread. */
+export type MessageDelivery = "waiting" | "read" | "main";
+
 export type TranscriptEntry = (
-  /** source: a /playtest made from an agent message, by that message's transcript index. With a parent: a message the user sent that subagent from its thread. */
-  | { kind: "user"; text: string; at: string; attachments?: Attachment[]; source?: number }
+  /**
+   * source: a /playtest made from an agent message, by that message's transcript index. With a parent: a message the user sent that subagent from its thread.
+   * delivery, on such a message, where the daemon can tell: waiting for the subagent's next step, read by it, or sent to the main agent
+   * because the subagent ended before it read it. Absent: from a Studio that did not track it, or a subagent that cannot confirm it read one.
+   */
+  | { kind: "user"; text: string; at: string; attachments?: Attachment[]; source?: number; delivery?: MessageDelivery }
   | { kind: "assistant"; text: string; at: string }
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }

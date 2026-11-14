@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
-import type { TranscriptEntry } from "@ue-mcp-studio/shared";
+import { sessionAgents, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { Chat } from "../src/views/Chat";
 import { fakeApi, renderInProject, session, settle } from "./helpers";
 
@@ -15,9 +15,13 @@ const at = "2026-11-04T12:00:00Z";
 const agent = (outcome: "pending" | "done") =>
   ({ kind: "tool", call: { id: "a1", name: "agent", input: { description: "Find the hinge", prompt: "x" }, outcome, startedAt: new Date(Date.now() - 60_000).toISOString(), ...(outcome === "done" ? { endedAt: new Date().toISOString(), result: "ok" } : {}) } }) as TranscriptEntry;
 
-async function openThread(outcome: "pending" | "done", status: "running" | "idle") {
+type Extra = { messageable?: boolean; thread?: TranscriptEntry[] };
+async function openThread(outcome: "pending" | "done", status: "running" | "idle", extra: Extra = {}) {
   const api = fakeApi();
-  const s = session({ status, agents: { total: 1, running: outcome === "pending" ? 1 : 0 }, transcript: [{ kind: "user", text: "Fix it", at } as TranscriptEntry, agent(outcome)] });
+  const transcript = [{ kind: "user", text: "Fix it", at } as TranscriptEntry, agent(outcome), ...(extra.thread ?? [])];
+  // The daemon's own answer on whether the running subagent takes a message.
+  const subagents = extra.messageable !== undefined ? { subagents: sessionAgents(transcript, { status, asked: new Set(), messageable: () => extra.messageable! }) } : {};
+  const s = session({ status, agents: { total: 1, running: outcome === "pending" ? 1 : 0 }, transcript, ...subagents });
   api.sessions.mockResolvedValue({ sessions: [{ ...s, transcript: undefined }] });
   api.sessionSync.mockResolvedValue(s);
   api.settings.mockResolvedValue({ route: "key" });
@@ -43,6 +47,32 @@ describe("the composer in a subagent's thread on a phone", () => {
     expect(api.queue).not.toHaveBeenCalled();
     expect(api.stop).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Back to the main thread")).toBeTruthy();
+  });
+
+  it("says before the user types when the daemon says a running subagent cannot read messages, and sends to the main agent", async () => {
+    const api = await openThread("pending", "running", { messageable: false });
+    const box = screen.getByPlaceholderText('"Find the hinge" can\'t read messages. Queue a message for the main agent');
+    fireEvent.change(box, { target: { value: "and the right one" } });
+    await settle();
+    fireEvent.click(screen.getByRole("button", { name: "Queue" }));
+    await settle();
+    // Through the thread's route, which hands it to the main agent naming the subagent.
+    expect(api.messageSubagent).toHaveBeenCalledWith("s1", "a1", "and the right one", [], false);
+    expect(api.send).not.toHaveBeenCalled();
+  });
+
+  it("marks a message the subagent has not read yet, and one it never read, as on the web", async () => {
+    await openThread("pending", "running", {
+      messageable: true,
+      thread: [
+        { kind: "user", text: "first", at, parent: "a1", delivery: "read" },
+        { kind: "user", text: "lost one", at, parent: "a1", delivery: "main" },
+        { kind: "user", text: "just sent", at, parent: "a1", delivery: "waiting" },
+      ],
+    });
+    expect(screen.getByText("Waiting for its next step")).toBeTruthy();
+    expect(screen.getByText("Not delivered: it ended first, so the main agent has it")).toBeTruthy();
+    expect(screen.getByText("first")).toBeTruthy();
   });
 
   it("says a finished subagent has finished, and sends to the main agent through its route", async () => {

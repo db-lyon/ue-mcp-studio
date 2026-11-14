@@ -140,6 +140,10 @@ export class TurnHost {
           this.pushState();
         },
         onInputClosed: (why) => this.emit({ t: "inputClosed", why }),
+        onHeard: (n) => {
+          this.log(`the conversation took in ${n} of the user's message(s)`);
+          this.emit({ t: "heard", n });
+        },
         runTool: (callId, name, input) => this.call(callId, name, input),
         onTokens: (n, parent) => this.emit({ t: "tokens", n, parent }),
         onUsage: (u) => this.emit({ t: "usage", u }),
@@ -274,8 +278,11 @@ export class TurnHost {
   private async op(op: HostOp, args: Record<string, unknown>): Promise<unknown> {
     const live = this.live;
     switch (op) {
-      case "say":
-        return live ? live.say(args.blocks as unknown[]) : false;
+      case "say": {
+        const said = live ? await live.say(args.blocks as unknown[]) : false;
+        this.log(`a message from the daemon: ${said ? "streamed into the conversation's input" : live ? "the input had closed" : "no conversation running"}`);
+        return said;
+      }
       case "interrupt":
         if (live) await live.interrupt();
         return true;

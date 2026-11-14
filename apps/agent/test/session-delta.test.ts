@@ -215,6 +215,17 @@ describe("the session state the daemon works out for every client", () => {
     expect(shows(held, Date.parse(at))).toEqual(shows(mergeSync(null, syncOf(session(later), undefined)), Date.parse(at)));
   });
 
+  it("says per running subagent whether it takes a message, as the daemon knows it, and nothing for a finished one", () => {
+    const t = [{ kind: "user", text: "go", at } as TranscriptEntry, agent("g1"), agent("g2"), agent("g3", "done", "ok")];
+    const d = deriveSession(t, { status: "running", asked: new Set(), messageable: (id) => id === "g1" });
+    expect(d.subagents.map((a) => [a.id, a.messageable])).toEqual([["g1", true], ["g2", false], ["g3", undefined]]);
+    // Through a page and a delta, the client holds what the daemon said.
+    const paged = mergeSync(null, syncOf({ ...session(t), ...d } as SessionDetail, undefined, { tail: 1 }));
+    expect(subagentsOf(paged).map((a) => a.messageable)).toEqual([true, false, undefined]);
+    // Without the daemon's answer (an older daemon), nothing is claimed.
+    expect(deriveSession(t, { status: "running", asked: new Set() }).subagents.every((a) => a.messageable === undefined)).toBe(true);
+  });
+
   it("pages a subagent's own thread by its id, newest first, lean as the session's entries", () => {
     const own = Array.from({ length: 7 }, (_, i) => ({ kind: "assistant", text: `s${i}`, at, parent: "g1" }) as TranscriptEntry);
     const t = [agent("g1"), own[0], agent("g2"), ...own.slice(1, 4), step("g2", "x", "done"), ...own.slice(4), { kind: "tool", parent: "g1", call: { id: "big", name: "shell", input: {}, outcome: "done", result: long, startedAt: at } } as TranscriptEntry];

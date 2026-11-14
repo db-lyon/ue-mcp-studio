@@ -47,7 +47,7 @@ import {
 export const DETACHED = Symbol("detached");
 export type HostedResult = string | null | typeof DETACHED;
 
-type SpecKeys = "projectDir" | "model" | "effort" | "system" | "agentTool" | "allowed" | "maxTurns" | "native" | "prompt" | "resume" | "editor";
+type SpecKeys = "projectDir" | "model" | "effort" | "system" | "agentTool" | "reply" | "allowed" | "maxTurns" | "native" | "prompt" | "resume" | "editor";
 
 /**
  * What a turn host from before STUDIO_SUBAGENTS_PROTOCOL reports about the
@@ -424,6 +424,7 @@ class HostLink {
       case "contextWindow": return cb.onContextWindow?.(ev.w);
       case "inputClosed": return cb.onInputClosed?.(ev.why);
       case "inboxTaken": return cb.onInboxTaken?.(ev.callId);
+      case "heard": return cb.onHeard?.(ev.n);
       case "end": {
         sendLine(this.sock, { t: "ack", seq: ev.seq });
         removeHostFiles(this.o.dataDir, this.record.host);
