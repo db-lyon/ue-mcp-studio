@@ -10,6 +10,7 @@ vi.mock("./api", () => {
   const api = new Proxy(m as Record<string, unknown>, { get: (t, k: string) => (k === "sessionSync" ? (id: string) => m.session(id) : t[k] ?? pending) });
   return { api, ApiError: class extends Error {} };
 });
+import { sessionAgents, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { ChatView } from "./views/Chat";
 
 const daemon = { events: [], health: null, streaming: true, error: null, refresh: () => {} } as never;
@@ -17,11 +18,17 @@ const agent = (outcome: "pending" | "done") => ({
   kind: "tool",
   call: { id: "a1", name: "agent", input: { description: "Dress the floor", prompt: "x" }, outcome, startedAt: new Date(Date.now() - 60_000).toISOString(), ...(outcome === "done" ? { endedAt: new Date().toISOString(), result: "ok" } : {}) },
 });
-const session = (outcome: "pending" | "done", status = "running") => ({
-  id: "s1", title: "Cave", status, createdAt: 1, updatedAt: 1, archived: false, agents: { total: 1, running: outcome === "pending" ? 1 : 0 }, awaiting: 0,
-  mainFree: false, draft: "",
-  transcript: [{ kind: "user", text: "dress the cave", at: new Date().toISOString() }, agent(outcome)],
-});
+type Extra = { messageable?: boolean; thread?: TranscriptEntry[] };
+const session = (outcome: "pending" | "done", status = "running", extra: Extra = {}) => {
+  const transcript = [{ kind: "user", text: "dress the cave", at: new Date().toISOString() }, agent(outcome), ...(extra.thread ?? [])] as TranscriptEntry[];
+  return {
+    id: "s1", title: "Cave", status, createdAt: 1, updatedAt: 1, archived: false, agents: { total: 1, running: outcome === "pending" ? 1 : 0 }, awaiting: 0,
+    mainFree: false, draft: "",
+    transcript,
+    // The daemon's own answer on whether the running subagent takes a message.
+    ...(extra.messageable !== undefined ? { subagents: sessionAgents(transcript, { status: status as "running", asked: new Set(), messageable: () => extra.messageable! }) } : {}),
+  };
+};
 
 afterEach(() => {
   cleanup();
@@ -29,9 +36,9 @@ afterEach(() => {
   window.location.hash = "";
 });
 
-async function openThread(outcome: "pending" | "done", status = "running") {
+async function openThread(outcome: "pending" | "done", status = "running", extra: Extra = {}) {
   window.location.hash = "#/chat/s1";
-  const s = session(outcome, status);
+  const s = session(outcome, status, extra);
   m.sessions.mockResolvedValue({ sessions: [s] });
   m.session.mockResolvedValue(s);
   m.messageSubagent.mockResolvedValue({ sessionId: "s1", to: outcome === "pending" ? "subagent" : "queue" });
@@ -55,6 +62,32 @@ describe("the composer in a subagent's thread", () => {
     expect(m.stop).not.toHaveBeenCalled();
     // Still in the subagent's thread.
     expect(screen.getByPlaceholderText('Message "Dress the floor"')).toBeTruthy();
+  });
+
+  it("says before the user types when the daemon says a running subagent cannot read messages, and sends to the main agent", async () => {
+    const box = await openThread("pending", "running", { messageable: false });
+    expect(box.placeholder).toBe('"Dress the floor" can\'t read messages. Queue a message for the main agent');
+    fireEvent.change(box, { target: { value: "make it wetter" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+    // Through the thread's route, which hands it to the main agent naming the subagent.
+    await waitFor(() => expect(m.messageSubagent).toHaveBeenCalledWith("s1", "a1", "make it wetter", [], false));
+    expect(m.send).not.toHaveBeenCalled();
+  });
+
+  it("marks a message the subagent has not read yet, and one it never read", async () => {
+    const at = new Date().toISOString();
+    await openThread("pending", "running", {
+      messageable: true,
+      thread: [
+        { kind: "user", text: "first", at, parent: "a1", delivery: "read" },
+        { kind: "user", text: "lost one", at, parent: "a1", delivery: "main" },
+        { kind: "user", text: "just sent", at, parent: "a1", delivery: "waiting" },
+      ],
+    });
+    expect(await screen.findByText("Waiting for its next step")).toBeTruthy();
+    expect(screen.getByText("Not delivered: it ended first, so the main agent has it").className).toContain("undelivered");
+    // A read one says nothing more.
+    expect(screen.getAllByRole("status").filter((n) => n.classList.contains("msg-delivery"))).toHaveLength(2);
   });
 
   it("says a finished subagent has finished, and sends to the main agent through its route, naming it", async () => {

@@ -616,7 +616,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   api.route("GET", "/sessions/:id", (req) => {
     const s = store.get(req.params.id);
     if (!s) return missing(req.params.id);
-    const detail = SessionStore.detail(s);
+    const detail = SessionStore.detail(s, (callId) => runner.canMessage(s, callId));
     if (req.query.sync === undefined) return { body: detail };
     const count = (v: unknown) => (typeof v === "string" && /^\d+$/.test(v) ? Number(v) : undefined);
     return { body: syncOf(detail, typeof req.query.have === "string" ? req.query.have : undefined, { tail: count(req.query.tail), before: count(req.query.before) }) };

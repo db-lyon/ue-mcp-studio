@@ -675,6 +675,8 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .queue-remove { width: 22px; height: 22px; padding: 0; display: grid; place-items: center; font-size: 13px; color: var(--muted); background: transparent; border-color: transparent; }
 .queue-remove:hover:not(:disabled) { color: var(--bad); background: var(--panel-3); border-color: transparent; }
 .msg.user { position: relative; }
+.msg.user .msg-delivery { margin-top: 4px; }
+.msg.user .msg-delivery.undelivered { color: var(--warn-text); font-weight: 600; }
 .msg.user .msg-edit { position: absolute; top: 2px; left: -44px; padding: 1px 6px; opacity: 0; }
 .msg.user:hover .msg-edit, .msg.user .msg-edit:focus-visible { opacity: 1; }
 .msg.user.editing { display: flex; flex-direction: column; gap: 6px; width: min(640px, 100%); }

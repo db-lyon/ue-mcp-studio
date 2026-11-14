@@ -37,6 +37,14 @@ export interface SessionAgent {
   seen: boolean;
   /** The user dismissed it from the thread list (finished ones only). */
   dismissed: boolean;
+  /**
+   * Whether it takes a message from its thread now, as the daemon knows it:
+   * false for one still running that cannot (the runtime's own subagent in a
+   * turn an older Studio started), whose thread sends to the main agent
+   * instead. Set only while it runs or waits to start; absent from a daemon
+   * older than 0.1.35-beta.29, where a running one is taken to.
+   */
+  messageable?: boolean;
 }
 
 /** The working line's facts: when the running turn started and the main agent's running call. */
@@ -65,6 +73,8 @@ export interface DeriveContext {
   dismissed?: readonly string[];
   tokens?: Record<string, number>;
   context?: Record<string, ContextUsage>;
+  /** Whether the running subagent of this agent call takes a message now: the daemon's own answer. */
+  messageable?: (callId: string) => boolean;
 }
 
 const timeOf = (t: TranscriptEntry): number =>
@@ -93,12 +103,13 @@ function agentOf(call: ToolCallRecord, steps: TranscriptEntry[], ctx: DeriveCont
   const finished: Partial<Record<ToolCallRecord["outcome"], AgentState>> = { done: "done", error: "failed", unknown: "unknown", stopped: "stopped", declined: "stopped" };
   const ended = finished[call.outcome];
   if (ended) return { ...base, state: ended };
-  if (call.queued) return { ...base, state: "queued" };
+  const open = { ...base, ...(ctx.messageable ? { messageable: ctx.messageable(call.id) } : {}) };
+  if (call.queued) return { ...open, state: "queued" };
   const held = calls.find((c) => c.outcome === "pending" && ctx.asked.has(c.id));
-  if (held) return { ...base, state: "approval", step: held };
-  if (ctx.status === "waiting") return { ...base, state: "waiting" };
+  if (held) return { ...open, state: "approval", step: held };
+  if (ctx.status === "waiting") return { ...open, state: "waiting" };
   const running = [...calls].reverse().find((c) => c.outcome === "pending");
-  return running ? { ...base, state: "working", step: running } : { ...base, state: "working" };
+  return running ? { ...open, state: "working", step: running } : { ...open, state: "working" };
 }
 
 /** Every subagent of the session, in the order they started. */
