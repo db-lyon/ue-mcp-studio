@@ -7,7 +7,7 @@ import { RemoteChatCard } from "./remote/RemoteChatCard";
 import type { SettingsSection } from "./settings/sections";
 import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
-import { CHAT_INTRO, SESSIONS_SLOW, SUBAGENT_TEXT_ONLY, listedSubagents, subagentsOf } from "@ue-mcp-studio/client-core";
+import { CHAT_INTRO, SESSIONS_SLOW, SUBAGENT_TEXT_ONLY, SUBAGENTS_SHOWN_KEY, listedSubagents, subagentsLine, subagentsOf, subagentsPress, subagentsShownFrom, subagentsShownValue } from "@ue-mcp-studio/client-core";
 import { useAgentThread } from "../chat/agent-thread";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
@@ -54,6 +54,22 @@ const EXAMPLES = [
   "List every Blueprint that has no references",
 ];
 
+/**
+ * Whether any of an element shows: inside the window and inside every scrolling box around it.
+ * An element with no layout (nothing measured) counts as in view.
+ */
+function inView(el: HTMLElement): boolean {
+  const r = el.getBoundingClientRect();
+  if (!(r.height > 0)) return true;
+  if (r.bottom <= 0 || r.top >= window.innerHeight) return false;
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (!/(auto|scroll|hidden)/.test(getComputedStyle(p).overflowY)) continue;
+    const b = p.getBoundingClientRect();
+    if (r.bottom <= b.top || r.top >= b.bottom) return false;
+  }
+  return true;
+}
+
 /** Events that change a session, keyed by the session they name. */
 function sessionOf(data: Record<string, unknown>): string | null {
   return typeof data.sessionId === "string" ? data.sessionId : null;
@@ -99,7 +115,28 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const [thread, setThread] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const narrow = useMedia(NARROW);
+  /** The Subagents sheet, opened from the bar where there is no inline list (narrow). */
   const [sheet, setSheet] = useState(false);
+  useEffect(() => {
+    if (!narrow) setSheet(false);
+  }, [narrow]);
+  /** Whether the inline subagent list shows (wide), as this viewer last chose with the bar's Subagents button. */
+  const [agentsShown, setAgentsShown] = useState(() => {
+    try {
+      return subagentsShownFrom(window.localStorage.getItem(SUBAGENTS_SHOWN_KEY));
+    } catch {
+      return true;
+    }
+  });
+  const showAgents = (shown: boolean) => {
+    setAgentsShown(shown);
+    try {
+      window.localStorage.setItem(SUBAGENTS_SHOWN_KEY, subagentsShownValue(shown));
+    } catch {
+      // Storage refused (a private window, blocked site data): the choice lasts this page.
+    }
+  };
+  const agentsList = useRef<HTMLDivElement>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   /** The thread the drawer shows, kept while it slides out, and whether it is in. */
   const [drawerId, setDrawerId] = useState<string | null>(null);
@@ -441,9 +478,21 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   // The open thread, read by its id: its own entries, whatever part of the session is held.
   const drawerThread = useAgentThread(api.agentThread, detail?.id ?? null, drawerAgent ? drawerAgent.id : null, detail, detail?.transcript ?? []);
   // The bar's utilities after the context meter, at every width: Checkpoints, and the subagents while there are some.
+  // Wide, the list is inline under the composer and the button shows or hides it; narrow, the button opens it in a sheet.
+  const pressAgents = () => {
+    const el = agentsList.current;
+    const press = subagentsPress({ inline: !narrow, shown: agentsShown, inView: !el || inView(el) });
+    if (press === "open-list") setSheet(true);
+    else if (press === "hide") showAgents(false);
+    else if (press === "reveal") el?.scrollIntoView?.({ block: "nearest" });
+    else {
+      showAgents(true);
+      requestAnimationFrame(() => agentsList.current?.scrollIntoView?.({ block: "nearest" }));
+    }
+  };
   const utilities: BarUtility[] = [
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
-    ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: () => setSheet(true) }] : []),
+    ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: pressAgents, pressed: narrow ? undefined : agentsShown }] : []),
   ];
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
@@ -459,9 +508,12 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     return () => clearTimeout(t);
   }, [thread]);
 
-  // The session's threads: under the composer when wide, and at every width in a sheet from the bar's Subagents button.
-  const threads = detail && (
+  // The session's threads: under the composer when wide, while this viewer has it shown; in a sheet from the
+  // bar's Subagents button when narrow, under the sheet's title, which is the list's one header line.
+  const threads = (inline: boolean) => detail && (
     <Threads
+      head={inline}
+      listRef={inline ? agentsList : undefined}
       agents={agents}
       thread={openThread ? thread : null}
       onThread={(id) => {
@@ -657,9 +709,9 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
               </>}
               utilities={utilities}
             >
-              {!narrow && threads}
+              {!narrow && agentsShown && threads(true)}
             </Composer>
-            <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>{(narrow || sheet) && threads}</Sheet>
+            {narrow && <Sheet open={sheet} title={subagentsLine(listedAgents.map((a) => a.state))} onClose={() => setSheet(false)}>{threads(false)}</Sheet>}
             <Sheet open={reviewOpen} title="Checkpoints" onClose={() => setReviewOpen(false)}>
               {reviewOpen && <ReviewPanel sessionId={detail.id} review={detail.review ?? null} timeline={detail.timeline ?? []} onChanged={() => void loadDetail(detail.id)} />}
             </Sheet>

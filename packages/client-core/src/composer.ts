@@ -54,6 +54,28 @@ export const UTILITY_TITLE: Record<BarUtilityId, string> = {
   attach: "Attach files (or drop or paste them)",
 };
 
+/**
+ * What a press on the bar's Subagents button does. Where the subagent list is
+ * drawn inline under the composer (a wide web layout), the button is a toggle
+ * for that list and never opens a second copy of it: a hidden list is shown, a
+ * shown list in view is hidden, and a shown list scrolled out of view is
+ * brought back into view. Where there is no inline list (a narrow web layout,
+ * a paired phone's browser, the app), it opens the list, the only one on screen.
+ */
+export type SubagentsPress = "open-list" | "show" | "hide" | "reveal";
+export function subagentsPress({ inline, shown, inView }: { inline: boolean; shown: boolean; inView: boolean }): SubagentsPress {
+  if (!inline) return "open-list";
+  if (!shown) return "show";
+  return inView ? "hide" : "reveal";
+}
+
+/** Where a viewer's choice to show or hide the inline subagent list is kept, per device. */
+export const SUBAGENTS_SHOWN_KEY = "studio.subagents.shown";
+/** Whether the inline subagent list shows, from what was stored: shown unless this viewer hid it. */
+export const subagentsShownFrom = (stored: string | null | undefined): boolean => stored !== "hidden";
+/** The value stored for a choice to show or hide the inline subagent list. */
+export const subagentsShownValue = (shown: boolean): string => (shown ? "shown" : "hidden");
+
 /** Send's and Stop's tooltips, where the keyboard's keys are told: the bar shows no words. */
 export const SEND_KEYS = "Send (Enter). Shift+Enter for a new line";
 export const STOP_KEYS = "Stop the turn. Enter queues the message, Ctrl+Enter stops the turn and sends it now";

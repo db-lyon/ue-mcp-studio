@@ -629,6 +629,8 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .composer-utilities-measure { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: hidden; visibility: hidden; pointer-events: none; }
 .composer-utilities-row { width: max-content; }
 .composer-bar .bar-button.icon-only { position: relative; flex: none; width: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+/* A pressed toggle (Subagents while its inline list shows): the accent wash, as a picked item. */
+.composer-bar .bar-button.icon-only[aria-pressed="true"], .composer-bar .bar-button.icon-only[aria-pressed="true"]:hover:not(:disabled) { color: var(--accent-hi); background: var(--accent-wash); border-color: var(--accent-line); }
 /* The subagents' count: a badge on the icon. */
 .utility-count { position: absolute; top: 1px; right: 0; min-width: 15px; height: 15px; padding: 0 3px; border-radius: 8px; background: var(--accent); color: var(--on-accent); font: 600 10px/15px var(--sans); letter-spacing: 0; text-align: center; pointer-events: none; }
 .composer-more { position: static; }
@@ -644,6 +646,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 .composer .composer-more-menu button.composer-more-item:hover:not(:disabled) { background: var(--panel-2); border-color: transparent; }
 .composer .composer-more-menu button.composer-more-item:disabled { color: var(--dim); }
 .composer-more-item svg { flex: none; color: var(--muted); }
+.composer .composer-more-menu button.composer-more-item[aria-checked="true"], .composer-more-item[aria-checked="true"] svg { color: var(--accent-hi); }
 .composer-bar:not([data-tier="full"]) .picker-button .picker-via,
 .composer-bar:not([data-tier="full"]) .effort-label { display: none; }
 .composer-bar:not([data-tier="full"]) > .effort { padding-left: 4px; }
@@ -1292,6 +1295,7 @@ button.chip.editor-chip { height: auto; cursor: pointer; background: transparent
 .sheet-root.open .sheet { transform: none; }
 @media (prefers-reduced-motion: reduce) { .sheet, .sheet-scrim { transition: none; } }
 .sheet-head { position: relative; display: flex; align-items: center; gap: 8px; padding: 12px 4px 8px; }
+.sheet-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sheet-grip { position: absolute; top: 0; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--line-strong); }
 .sheet-body { overflow-y: auto; min-height: 0; }
 .sheet-body .agents-bar { max-height: none; border-top: 0; padding-top: 0; }

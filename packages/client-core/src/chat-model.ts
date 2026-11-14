@@ -208,6 +208,9 @@ export function summarize(states: AgentState[]): string {
   ].filter(Boolean).join(", ");
 }
 
+/** The subagent list's one header line, "Subagents: 2 working, 1 done", inline or as the opened list's title. */
+export const subagentsLine = (states: AgentState[]): string => `Subagents: ${summarize(states)}`;
+
 /** A line of a thread (the main one or a subagent's) as the view draws it. */
 export type ThreadItem =
   | { kind: "entry"; entry: TranscriptEntry }

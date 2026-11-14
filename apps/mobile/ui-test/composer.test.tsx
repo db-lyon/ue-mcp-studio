@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ActionListing, FlowListing, MentionMatch, MentionSearchResponse, ModelCatalog, StudioSettings } from "@ue-mcp-studio/shared";
 import { mentionToken } from "@ue-mcp-studio/shared";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import { AgentsGlyph, Composer, CheckpointsGlyph } from "../src/chat/Composer";
 import { BarTierContext } from "../src/chat/barTier";
 import { MentionText, type MentionSearchFn } from "../src/chat/MentionMenu";
@@ -220,7 +220,7 @@ describe.each(["android", "ios"] as const)("the bar's utilities, on %s", (os) =>
     { id: "checkpoints" as const, icon: <CheckpointsGlyph />, onClick: review },
   ];
 
-  it("are icons after the model and the ring, in order, named for a screen reader, with Subagents' count as a badge", () => withOs(() => {
+  it("are icons after the model, in order, named for a screen reader, with Subagents' count as a badge", () => withOs(() => {
     const review = vi.fn();
     const agents = vi.fn();
     render(<Box utilities={utilities(review, agents)} />);
@@ -234,6 +234,22 @@ describe.each(["android", "ios"] as const)("the bar's utilities, on %s", (os) =>
     expect([review, agents].every((f) => f.mock.calls.length === 1)).toBe(true);
     // The keys' words are gone from the bar.
     expect(screen.queryByText(/Enter to send/)).toBeNull();
+  }));
+
+  it("stay shown while the model pill can give way, truncated to its least", () => withOs(() => {
+    render(<Box utilities={utilities(vi.fn(), vi.fn())} picker={<View testID="pill" />} />);
+    layOut(screen.getByTestId("composer-utilities-measure"), 136);
+    layOut(screen.getByTestId("composer-utilities"), 136);
+    layOut(screen.getByTestId("composer-spacer"), 0);
+    // A wide pill, then one squeezed to its least (64): the row still fits, so nothing folds.
+    for (const pill of [220, 64]) {
+      layOut(screen.getByTestId("composer-picker"), pill);
+      expect(within(screen.getByTestId("composer-utilities")).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["Checkpoints", "Subagents (2)", "Attach"]);
+      expect(screen.queryByLabelText(/More controls/)).toBeNull();
+    }
+    // Squeezed below its least, the bar truly cannot hold them: they fold.
+    layOut(screen.getByTestId("composer-picker"), 30);
+    expect(screen.getByLabelText("More controls, 2 subagents")).toBeTruthy();
   }));
 
   it("fold into one menu when the measured row does not fit, and unfold when it does", () => withOs(async () => {
