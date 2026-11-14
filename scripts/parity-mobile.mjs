@@ -1,7 +1,7 @@
 // Compare the mobile app with the web client, scenario by scenario, pixel by pixel.
 //
 //   node scripts/visual-qa.mjs --remote --widths 390 --out <web>     (the reference, once per change to client-web)
-//   node scripts/parity-mobile.mjs --web <web> [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell] [--lcd-text]
+//   node scripts/parity-mobile.mjs --web <web> [--width 320] [--out <dir>] [--only <scenario,prefix*,...>] [--themes ue-mcp,editor,editor-orange] [--owner chat,shell] [--lcd-text]
 //   node scripts/parity-mobile.mjs --list                                (the scenarios and who owns each)
 //   node scripts/parity-mobile.mjs [--web <web>] --inset-bottom 48 [--screens welcome,projects,...|all]
 //   node scripts/parity-mobile.mjs --scenes [name,prefix*,...|all] [--reference <dir>] [--inset-bottom 48] [--out <dir>] [--themes ...]
@@ -45,7 +45,8 @@ const owners = arg("owner")?.split(",");
 const insetBottom = Math.max(0, Number(arg("inset-bottom") ?? 0) || 0);
 const inset = insetBottom ? `&insetBottom=${insetBottom}` : "";
 const screensArg = arg("screens")?.split(",");
-const WIDTH = 390;
+// --width shoots a narrower or wider phone (320, 360), against the web's shots at that width.
+const WIDTH = Number(arg("width") ?? 390) || 390;
 const BROWSERS = [
   arg("browser"),
   process.env.STUDIO_QA_BROWSER,
@@ -183,7 +184,7 @@ const rows = [];
 for (const name of picked) {
   for (const theme of THEMES) {
     // The web shot's own height: a full-page scenario is shot in a taller window than its height says.
-    const webShot = path.join(webDir ?? "", `${name}-${theme}-390.png`);
+    const webShot = path.join(webDir ?? "", `${name}-${theme}-${WIDTH}.png`);
     const height = fs.existsSync(webShot) ? PNG.sync.read(fs.readFileSync(webShot)).height : scenarios[name].height ?? 860;
     const page = await browser.newPage({ viewport: { width: WIDTH, height }, deviceScaleFactor: 1, hasTouch: true, isMobile: true });
     const errors = [];
@@ -264,7 +265,7 @@ for (const name of picked) {
     await page.screenshot({ path: appPng });
     await page.close();
 
-    const webPng = path.join(webDir,`${name}-${theme}-390.png`);
+    const webPng = path.join(webDir,`${name}-${theme}-${WIDTH}.png`);
     let mismatch = null;
     if (fs.existsSync(webPng)) {
       const a = PNG.sync.read(fs.readFileSync(webPng));
