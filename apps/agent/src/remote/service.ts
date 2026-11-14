@@ -30,6 +30,7 @@ import {
 } from "@ue-mcp-studio/remote";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeFileAtomic } from "../atomic-write.js";
 import type { ComputerKeys, PairedPhone } from "./keys.js";
 import { LOCK_PATH, type PinLock } from "./pin-lock.js";
 
@@ -89,9 +90,7 @@ const DECIDED_KEEP_MS = 5 * 60_000;
 
 function writePrivate(file: string, value: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  writeFileAtomic(file, JSON.stringify(value), { mode: 0o600 });
 }
 
 /** An event stream with nothing to say for this long gets a comment line, so no proxy closes it as idle. */

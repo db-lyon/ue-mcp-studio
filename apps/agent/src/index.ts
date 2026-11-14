@@ -22,6 +22,7 @@ import { registerBilling } from "./billing-routes.js";
 import { SettingsStore } from "./settings.js";
 import { isNewer } from "./updates.js";
 import { floorRefusal, registerRefusal } from "./floor.js";
+import { installCrashGuard } from "./crash-guard.js";
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -83,6 +84,9 @@ const extension: DaemonExtension = {
       return { dispose: () => {} };
     }
 
+    // An error Studio lets escape is logged, not the end of the daemon, its other sessions and the editor bridge.
+    const unguard = installCrashGuard({ dir: packageDir, log: api.log });
+
     api.route("GET", "/about", () => ({ body: studioAbout(agentVersion, api) }));
 
     api.route("GET", "/config", () => ({ body: readConfig(api) }));
@@ -110,6 +114,7 @@ const extension: DaemonExtension = {
       dispose: () => {
         remote.dispose();
         chat.dispose();
+        unguard();
       },
     };
   },

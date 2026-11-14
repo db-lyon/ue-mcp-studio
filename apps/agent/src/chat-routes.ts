@@ -100,13 +100,16 @@ import { loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor, type NativeHelper, type NativeRun } from "./native-runtime.js";
 import { KEY_PROVIDER_IDS, STUDIO_PLAN_AVAILABLE, conventionOf, endpointIdOf, endpointVendor, type KeyProviderId, type VendorId } from "@ue-mcp-studio/shared";
 
+/** The longest a turn that starts or resumes after the daemon starts waits for the sign-ins to be read. */
+const SIGN_INS_READY_MS = 20_000;
+
 export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", packageDir?: string, sharedAccount?: AccountSource): { runner: AgentRunner; dispose(): void } {
   const settings = new SettingsStore(api.dataDir);
   // A sign-in from the panel wins; otherwise the account from `ue-mcp login`. Remote control reads the same source.
   const account = sharedAccount ?? new AccountSource(settings, () => api.registryAccount());
   // Every image the model is shown, from a tool or the user, goes at the project's Image size.
   setImageEdge(() => IMAGE_EDGES[settings.usage().imageSize]);
-  const store = new SessionStore(api.dataDir);
+  const store = new SessionStore(api.dataDir, (msg, e) => api.log.warn(`sessions: ${msg}`, e));
   const playtests = new PlaytestStore(api.dataDir);
   const attachments = new AttachmentStore(api.dataDir);
   // Custom OpenAI-compatible endpoints, for every project like the vendor keys.
@@ -193,8 +196,14 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const before = claudeLogin()?.method ?? null;
     if (((await refreshClaudeLogin())?.method ?? null) !== before) api.events.publish("settings.changed", {});
   };
-  void refreshAccount();
-  void refreshClaude();
+  // Until both are read the routes cannot tell signed in from signed out: turns that start or resume wait for them, up to a limit.
+  let signInsRead = false;
+  const signInsReady: Promise<void> = Promise.race([
+    Promise.allSettled([refreshAccount(), refreshClaude()]).then(() => undefined),
+    new Promise<void>((resolve) => setTimeout(resolve, SIGN_INS_READY_MS).unref?.()),
+  ]).then(() => {
+    signInsRead = true;
+  });
   const accountTimer = setInterval(() => {
     void refreshAccount();
     void refreshClaude();
@@ -296,6 +305,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     surfaces,
     subagentModel: () => settings.subagentModel(),
     subscription: () => route() === "claude",
+    ready: () => (signInsRead ? null : signInsReady),
     // A key names its vendor, since model names no longer do.
     route: () => {
       const r = route();
@@ -949,6 +959,8 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       dialogs.dispose();
       qa.dispose();
       runner.dispose();
+      // A save Windows refused earlier gets one more try before the daemon goes.
+      store.flush();
     },
   };
 }

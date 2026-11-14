@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { CLAUDE_SIGN_IN_AVAILABLE, STUDIO_PLAN_AVAILABLE } from "@ue-mcp-studio/shared";
 import { OpenAICompatibleProvider, PROVIDER_EXTRA, readChatStream, toChatRequest } from "../src/openai-compat.js";
-import { AnthropicProvider, requestBody, searchesIn, type ModelRequest } from "../src/providers.js";
+import { AnthropicProvider, notConnected, requestBody, searchesIn, type ModelRequest } from "../src/providers.js";
 import { chatModels, shortName, signInsFor } from "../src/models.js";
 import { StudioSignInFlow } from "../src/signin.js";
 import { TOOLS } from "../src/tools.js";
@@ -182,5 +182,15 @@ describe("the Anthropic API's own web search", () => {
   it("reads a failed search as an error", () => {
     expect(searchesIn([{ type: "server_tool_use", id: "x", name: "web_search", input: { query: "q" } }, { type: "web_search_tool_result", tool_use_id: "x", content: { type: "web_search_tool_result_error", error_code: "max_uses_exceeded" } }] as never))
       .toEqual([{ id: "x", query: "q", results: [], error: "max_uses_exceeded" }]);
+  });
+});
+
+describe("a model nothing runs", () => {
+  it("names the route and says what to do", () => {
+    expect(notConnected("claude-opus-5-5", "claude", "anthropic")).toMatch(/^claude-opus-5-5 runs on your Claude sign-in, which this step cannot use\. Add an Anthropic API key/);
+    expect(notConnected("claude-opus-5-5", "studio", "anthropic")).toMatch(/runs on your UE-MCP account, which is signed out/);
+    expect(notConnected("gpt-5", "chatgpt", "openai")).toMatch(/runs on your ChatGPT sign-in, which is signed out/);
+    expect(notConnected("claude-opus-5-5", null, "anthropic")).toBe("Nothing connected on this computer runs claude-opus-5-5. Sign in to Claude (run claude /login in a terminal) or add an Anthropic API key in the model picker, or pick another model there.");
+    expect(notConnected("gpt-5", null, "openai")).toMatch(/Sign in with ChatGPT or add an OpenAI API key/);
   });
 });

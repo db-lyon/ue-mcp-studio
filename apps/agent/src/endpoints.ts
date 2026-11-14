@@ -19,6 +19,7 @@ import type { DaemonExtensionApi } from "ue-mcp/daemon";
 import { ENDPOINT_ID, type CustomEndpoint, type CustomEndpointInput, type EndpointModel } from "@ue-mcp-studio/shared";
 import { globalKeysDir, readSecretFile, writeSecretFile } from "./settings.js";
 import { rememberWindow } from "./context-windows.js";
+import { writeFileAtomic } from "./atomic-write.js";
 
 interface Stored {
   id: string;
@@ -120,9 +121,7 @@ export class EndpointStore {
 
   private write(list: Stored[]): void {
     fs.mkdirSync(path.dirname(this.file), { recursive: true });
-    const tmp = `${this.file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify({ endpoints: list }, null, 2));
-    fs.renameSync(tmp, this.file);
+    writeFileAtomic(this.file, JSON.stringify({ endpoints: list }, null, 2));
   }
 
   private keyFile(id: string): string {

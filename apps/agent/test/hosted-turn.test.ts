@@ -70,10 +70,22 @@ const hostsOn = (o: { fail?: boolean } = {}) =>
   });
 
 /** One daemon: a runner on its own session store, loaded from disk as a new daemon loads it. */
-const daemon = (o: { ask?: boolean; fail?: boolean } = {}) => {
+const daemon = (o: { ask?: boolean; fail?: boolean; subscription?: () => boolean; ready?: () => Promise<void> | null } = {}) => {
   const store = new SessionStore(host.dataDir);
-  const runner = new AgentRunner({ host, store, provider: () => { throw new Error("the API route is not used"); }, model: () => "claude-opus-5-5", subscription: () => true, askBeforeChanges: () => !!o.ask, turnHosts: hostsOn(o) });
+  const runner = new AgentRunner({ host, store, provider: () => { throw new Error("the API route is not used"); }, model: () => "claude-opus-5-5", subscription: o.subscription ?? (() => true), ready: o.ready, askBeforeChanges: () => !!o.ask, turnHosts: hostsOn(o) });
   return { store, runner };
+};
+
+/**
+ * The daemon dies without going down (an uncaught exception): its connections
+ * to the hosts drop, and nothing of its own is ended or saved.
+ */
+const crash = (runner: InstanceType<typeof AgentRunner>) => {
+  const r = runner as unknown as { disposed: boolean; unsubscribe(): void; hosted: Map<string, { detach(): void }>; runs: Map<string, { hosted?: { detach(): void } | null }> };
+  r.disposed = true;
+  r.unsubscribe();
+  for (const run of r.hosted.values()) run.detach();
+  for (const run of r.runs.values()) run.hosted?.detach();
 };
 
 const texts = (s: { transcript: Array<{ kind: string; text?: string; parent?: string }> }) => s.transcript.filter((t) => t.kind === "assistant" && !t.parent).map((t) => t.text);
@@ -291,6 +303,71 @@ describe("steering on the Claude sign-in through host processes", () => {
     expect(texts(fin).at(-1)).toBe("The gate is done.");
     // The report started a reply of the same runtime session.
     expect(sdk.resumes.at(-1)).toBe("sdk-main");
+  }, 20_000);
+
+  // The crash a refused session save caused: the main agent's reply had ended beside a background subagent in its host.
+  it.each([
+    ["the restart waits for the sign-ins", true],
+    ["the report arrives before the sign-ins are read, and the reply it starts waits", false],
+  ])("after a crash, the subagent is taken over, the ended reply gets no note, and its report wakes the main agent on the Claude sign-in: %s", async (_name, recoverWaits) => {
+    let release: (() => void) | null = null;
+    sdk.script = async (b) => {
+      if (sub(b)) {
+        await new Promise<void>((r) => (release = r));
+        b.emit(assistant("s_end", [{ type: "text", text: "Gate built." }]));
+        b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-sub" });
+        return;
+      }
+      const first = await b.first();
+      if (first.includes("has ended")) {
+        b.emit(assistant("m_r", [{ type: "text", text: "The gate is done." }]));
+        b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-main" });
+        return;
+      }
+      b.emit({ type: "system", subtype: "init", session_id: "sdk-main" });
+      b.emit(assistant("m_a", [{ type: "tool_use", id: "ag", name: "mcp__studio__agent", input: { description: "Build the gate", prompt: "gate" } }]));
+      const r = await b.call("agent", { description: "Build the gate", prompt: "gate" });
+      b.emit(results("ag", r));
+      await until(() => b.said.length === 1);
+      b.emit(assistant("m_b", [{ type: "text", text: "Still on it." }]));
+      b.emit({ type: "result", subtype: "success", is_error: false, session_id: "sdk-main" });
+    };
+    const d1 = daemon();
+    const s = d1.store.create();
+    void d1.runner.send(s.id, "build the gate");
+    await until(() => !!release && d1.runner.mainFree(s.id));
+    await d1.runner.send(s.id, "how is it going?");
+    // The reply ended; only the subagent works, in its host.
+    const subLinked = () => !!(d1.runner as unknown as { runs: Map<string, { hosted?: unknown }> }).runs.get("ag")?.hosted;
+    await until(() => texts(d1.store.get(s.id)!).includes("Still on it.") && d1.store.get(s.id)!.mainFree === true && listRecords(host.dataDir).length === 1 && subLinked());
+    crash(d1.runner);
+    // It reports while no daemon is there.
+    release!();
+    // Ended, or already gone once no daemon acknowledged its end: either way its journal holds the report.
+    await until(() => listRecords(host.dataDir).every((r) => r.ended));
+
+    // The next daemon starts before `claude auth status` has answered: until then nothing reads as the Claude sign-in.
+    let signedIn = false;
+    let read!: () => void;
+    const readyP = new Promise<void>((r) => (read = r));
+    let calls = 0;
+    const d2 = daemon({
+      subscription: () => signedIn,
+      ready: () => (signedIn ? null : recoverWaits || calls++ > 0 ? readyP : null),
+    });
+    d2.runner.recover();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(d2.store.get(s.id)!.error ?? null).toBeNull();
+    signedIn = true;
+    read();
+    await until(() => texts(d2.store.get(s.id)!).includes("The gate is done.") && d2.store.get(s.id)!.status === "idle");
+    const fin = d2.store.get(s.id)!;
+    expect(fin.error ?? null).toBeNull();
+    expect(outcome(fin, "ag")).toMatchObject({ outcome: "done", result: "Gate built." });
+    // Nothing of the main agent's was cut off, so no turn ended.
+    expect(fin.transcript.filter((t) => t.kind === "note" && /Turn ended/.test(String((t as { text?: string }).text)))).toEqual([]);
+    expect(sdk.resumes.at(-1)).toBe("sdk-main");
+    expect(sdk.prompts.filter((p) => p === "gate")).toHaveLength(1);
   }, 20_000);
 });
 

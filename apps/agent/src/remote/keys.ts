@@ -5,6 +5,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeFileAtomic } from "../atomic-write.js";
 import { exportPrivateJwk, exportPublic, generateKeyPair, importPrivateJwk, keyId, sharedSecret } from "@ue-mcp-studio/remote";
 
 export interface PairedPhone {
@@ -24,9 +25,7 @@ function readJson<T>(file: string): T | null {
 
 function writePrivate(file: string, value: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, file);
+  writeFileAtomic(file, JSON.stringify(value, null, 2), { mode: 0o600 });
 }
 
 export class ComputerKeys {
