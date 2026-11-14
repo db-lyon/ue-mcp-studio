@@ -19,6 +19,7 @@ import { messagesUsage, usageGrowth, usageTokens, type TokenUsage } from "./usag
 import { ensureRuntime } from "./runtime.js";
 import { claudeEnv, claudeHome, claudeLogin, refreshClaudeLogin } from "./claude-auth.js";
 import { LOCAL_TOOL_NAMES, localToolDefinitions } from "./local-tools.js";
+import { REPLY_DESCRIPTION, REPLY_TOOL_NAME, messagesIn } from "./subagent-inbox.js";
 
 const SERVER = "studio";
 const PREFIX = `mcp__${SERVER}__`;
@@ -78,7 +79,7 @@ export const studioName = (name: string): string =>
  * neither it nor a project's .claude/agents file starts a subagent Studio does
  * not run.
  */
-export function toolOptions(o: { agent: boolean; allowed?: string[]; editor?: string[]; skills: boolean }) {
+export function toolOptions(o: { agent: boolean; reply?: boolean; allowed?: string[]; editor?: string[]; skills: boolean }) {
   const may = (name: string) => !o.allowed || o.allowed.includes(name);
   const studio = withEditor(STUDIO_TOOLS, may("ue_mcp") ? o.editor : undefined).filter((n) => {
     const base = n.slice(PREFIX.length);
@@ -88,7 +89,9 @@ export function toolOptions(o: { agent: boolean; allowed?: string[]; editor?: st
   const search = may("web_search") ? [SEARCH] : [];
   const skill = o.skills ? [SKILL] : [];
   const agent = o.agent ? [`${PREFIX}${AGENT_TOOL_NAME}`] : [];
-  return { tools: [...search, ...skill], allowedTools: [...studio, ...agent, ...search, ...skill], disallowedTools: [...RUNTIME_AGENT] };
+  // A helper's file never takes away the subagent's answer to the user.
+  const reply = o.reply ? [`${PREFIX}${REPLY_TOOL_NAME}`] : [];
+  return { tools: [...search, ...skill], allowedTools: [...studio, ...agent, ...reply, ...search, ...skill], disallowedTools: [...RUNTIME_AGENT] };
 }
 
 /** A built-in's arguments in the shape Studio's tool takes: file_path as path, -i as ignore_case. */
@@ -132,6 +135,13 @@ export interface SubscriptionTurn {
    * Absent: this conversation starts no subagents (they are off, or it is one).
    */
   agentTool?: { description: string; inputSchema: Record<string, unknown> };
+  /**
+   * A subagent's conversation: it has Studio's reply tool, whose calls go to
+   * runTool, and onHeard is told when it takes in the user's messages.
+   */
+  reply?: boolean;
+  /** The conversation took in n of the user's messages streamed into it (a subagent's, with reply). */
+  onHeard?: (n: number) => void;
   /** Studio's tools this conversation may use, by Studio's names; every one when absent. A project helper's file narrows them. */
   allowed?: string[];
   /** The most model calls this conversation makes before the runtime ends it, as a helper's file can say. */
@@ -358,6 +368,7 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
       // Studio's agent tool. Marked read-only so the runtime runs several calls of one message at once,
       // as it does its own subagents; what a subagent does goes through Studio's tools and approvals.
       ...(t.agentTool ? [tool(AGENT_TOOL_NAME, t.agentTool.description, zodShape(t.agentTool.inputSchema), handler(AGENT_TOOL_NAME), { annotations: { readOnlyHint: true } })] : []),
+      ...(t.reply ? [tool(REPLY_TOOL_NAME, REPLY_DESCRIPTION, { text: z.string() }, handler(REPLY_TOOL_NAME), { annotations: { readOnlyHint: true } })] : []),
     ],
   });
 
@@ -367,13 +378,22 @@ export async function runSubscriptionTurn(t: SubscriptionTurn): Promise<string |
   // no MCP call timeout cuts either off.
   const env = claudeEnv({ MCP_TOOL_TIMEOUT: day });
 
-  const tools = toolOptions({ agent: !!t.agentTool, allowed: t.allowed, editor: t.editor?.tools.map((p) => p.name), skills: !!t.native?.skills });
+  const tools = toolOptions({ agent: !!t.agentTool, reply: t.reply, allowed: t.allowed, editor: t.editor?.tools.map((p) => p.name), skills: !!t.native?.skills });
   // The summary a compaction of the conversation wrote, which only this hook hands over.
   const compacted: HookCallback = async (input) => {
     if (input.hook_event_name === "PostCompact" && !input.agent_id) t.onCompaction?.({ summary: input.compact_summary });
     return {};
   };
-  const hooks = { PostCompact: [{ hooks: [compacted] }] };
+  // A message streamed in mid-step is taken in at the conversation's next step, which the runtime's stream does not
+  // show: this hook runs then, for each prompt it takes in, so Studio knows the subagent has read the user's message.
+  const heard: HookCallback = async (input) => {
+    if (input.hook_event_name === "UserPromptSubmit") {
+      const n = messagesIn(String(input.prompt ?? ""));
+      if (n > 0) t.onHeard?.(n);
+    }
+    return {};
+  };
+  const hooks = { PostCompact: [{ hooks: [compacted] }], ...(t.onHeard ? { UserPromptSubmit: [{ hooks: [heard] }] } : {}) };
 
   const input = inputChannel(userMessage(t.prompt, t.resume ?? ""));
   let sessionId = t.resume ?? "";

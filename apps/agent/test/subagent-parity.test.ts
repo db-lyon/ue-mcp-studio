@@ -106,7 +106,11 @@ const loopProvider: ModelProvider = {
         return { content: [{ type: "tool_use", id: `c-${prompt}`, name: "ue_mcp", input: { action: "call", category: "asset", method: "create", args: { name: prompt } } } as never], stopReason: "tool_use" };
       }
       const texts = req.messages.filter((m) => m.role === "user").flatMap((m) => blocks(m)).filter((b) => b.type === "text").map((b) => b.text ?? "");
-      return say(reportOf(prompt, heardIn(texts)));
+      const heard = heardIn(texts);
+      // It answers the user in its thread first, with the reply tool.
+      const replied = req.messages.some((m) => m.role === "assistant" && blocks(m).some((b) => b.type === "tool_use" && (b as { name?: string }).name === "reply"));
+      if (heard.length && !replied) return { content: [{ type: "tool_use", id: `r-${prompt}`, name: "reply", input: { text: `On it: ${heard.join("; ")}` } } as never], stopReason: "tool_use" };
+      return say(reportOf(prompt, heard));
     }
     world.mainSaw.push(JSON.stringify(req.messages));
     if (req.messages.length === 1 && world.tasks.length) {
@@ -130,9 +134,14 @@ async function claudeScript(b: FakeBinary): Promise<void> {
     const task = prompt.split("\n\n")[0];
     world.started.push(task);
     await use(b, `c-${task}`, "ue_mcp", { action: "call", category: "asset", method: "create", args: { name: task } });
-    // What was streamed into its input meanwhile is read at this step.
+    // What was streamed into its input meanwhile is read at this step, as the runtime takes a prompt in: its hook runs.
     await sleep(20);
-    done(reportOf(task, heardIn(b.said.map(String))));
+    const said = b.said.map(String);
+    for (const p of said) await b.hook("UserPromptSubmit", { prompt: p });
+    const heard = heardIn(said);
+    // It answers the user in its thread first, with the reply tool.
+    if (heard.length) await use(b, `r-${task}`, "reply", { text: `On it: ${heard.join("; ")}` });
+    done(reportOf(task, heard));
     return;
   }
   world.mainSaw.push(prompt);
@@ -305,15 +314,39 @@ describe.each(routes)("subagents on $name", (route) => {
     void runner.send(s.id, "go build");
     await until(() => world.calls.includes("door") && runner.canMessage(store.get(s.id)!, "door"), T);
     expect(await runner.messageSubagent(s.id, "door", "make it red")).toBe(true);
-    expect(store.get(s.id)!.transcript.at(-1)).toMatchObject({ kind: "user", text: "make it red", parent: "door" });
+    // It shows in its thread as waiting until the subagent's next step reads it.
+    expect(store.get(s.id)!.transcript.at(-1)).toMatchObject({ kind: "user", text: "make it red", parent: "door", delivery: "waiting" });
     open();
     await until(() => store.get(s.id)!.status === "idle", T);
     const fin = store.get(s.id)!;
+    // Read, and answered in its thread in its own words, before its report.
+    const thread = fin.transcript.filter((t) => t.parent === "door");
+    expect(thread.find((t) => t.kind === "user")).toMatchObject({ text: "make it red", delivery: "read" });
+    expect(thread.filter((t) => t.kind === "assistant").map((t) => (t as { text: string }).text)).toContain("On it: make it red");
+    // The reply is its words, not a step of its work.
+    expect(thread.some((t) => t.kind === "tool" && t.call.name === "reply")).toBe(false);
     // Its report, and what the user wrote to it, so the main agent knows the instruction was the user's.
     expect(agentCall(fin, "door")!.call.result).toMatch(/^door done \(heard: make it red\)\n\n\[Studio\] While it worked, the user wrote to this subagent from its thread[\s\S]*make it red$/);
     // Nothing stopped, and the main agent saw the message only with that report.
     expect(world.mainSaw.some((m) => m.includes("make it red") && !m.includes("door done"))).toBe(false);
     expect(fin.transcript.some((t) => t.kind === "note" && /ended before it read/.test((t as { text: string }).text))).toBe(false);
+  }, 30_000);
+
+  it("a message the subagent never read is marked undelivered in its thread and goes to the main agent", async () => {
+    world.tasks = [{ id: "door", description: "Build the door", prompt: "door" }];
+    hold("door");
+    const { runner, store } = route.daemon();
+    const s = store.create();
+    void runner.send(s.id, "go build");
+    await until(() => world.calls.includes("door") && runner.canMessage(store.get(s.id)!, "door"), T);
+    expect(await runner.messageSubagent(s.id, "door", "use oak")).toBe(true);
+    // It ends before its next step reads the message.
+    expect(runner.stopSubagent(s.id, "door")).toBe(true);
+    await until(() => store.get(s.id)!.status === "idle", T);
+    const fin = store.get(s.id)!;
+    expect(fin.transcript.find((t) => t.kind === "user" && t.parent === "door")).toMatchObject({ text: "use oak", delivery: "main" });
+    expect(fin.transcript.some((t) => t.kind === "note" && /ended before it read your message/.test((t as { text: string }).text))).toBe(true);
+    expect(agentCall(fin, "door")!.call.result).toMatch(/The user sent a message to the subagent "Build the door", which ended before it read it[\s\S]*use oak/);
   }, 30_000);
 
   it("a message written in a finished subagent's thread goes to the main agent, saying whose thread it was", async () => {

@@ -42,10 +42,10 @@ import { USER_SENT, USER_STOP, interruptedResult, interruptionLine, interruption
 import { actionCommandText, flowCommandText, flowValue, parseActionArgs, parseFlowArgs, parseSlashCommand, splitActionName, type ActionRunRequest, type Attachment, type FlowRunRequest, type PlaytestRequest } from "@ue-mcp-studio/shared";
 import { applyStepEvent, type FlowCaller } from "./flow-run.js";
 import { QUEUED_STOP, SubagentSlots } from "./subagent-slots.js";
-import { SUBAGENT_MESSAGES_LINE, SubagentInbox, aboutNote, heardNote, toSubagent, unreadNote } from "./subagent-inbox.js";
+import { REPLY_SHOWN, REPLY_TOOL, REPLY_TOOL_NAME, SUBAGENT_MESSAGES_LINE, SubagentInbox, aboutNote, heardNote, toSubagent, unreadNote } from "./subagent-inbox.js";
 import type { LiveTurn } from "./subscription.js";
 import { DETACHED, type HostedCallbacks, type HostedResult, type HostedRun, type TurnHosts } from "./hosted-turn.js";
-import { STUDIO_SUBAGENTS_PROTOCOL, type TurnHostRecord, type TurnSpec } from "./turn-host-protocol.js";
+import { REPLY_PROTOCOL, STUDIO_SUBAGENTS_PROTOCOL, type TurnHostRecord, type TurnSpec } from "./turn-host-protocol.js";
 import { playtestParams, playtestTurnParams, type PlaytestFlow } from "./playtest-flow.js";
 import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.js";
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flowStepKind, type ActionEffects } from "./approval-kind.js";
@@ -192,6 +192,13 @@ interface AgentRun {
   hosted: HostedRun | null;
   /** What the user wrote to it from its thread, which its result names so the main agent knows where an instruction came from. */
   told: string[];
+  /**
+   * It has Studio's reply tool and says when it reads the user's message, so
+   * each message's delivery is tracked: Studio's loop, and a Claude sign-in
+   * session in a host of REPLY_PROTOCOL or later. A subagent in an older host
+   * is told to answer in text, and its messages carry no delivery.
+   */
+  replies: boolean;
 }
 
 /** Turn host session key of a subagent's conversation. */
@@ -2216,6 +2223,7 @@ ${result}`);
       say: null,
       hosted: null,
       told: [],
+      replies: true,
     };
     this.runs.set(callId, run);
     this.keepRun(s, run);
@@ -2250,7 +2258,11 @@ ${result}`);
         delete s.agentRuns[run.callId];
         this.o.store.save(s);
       }
-      const unread = this.inbox.drain(run.callId);
+      const left = this.inbox.drain(run.callId);
+      // What it never read: still in its inbox (Studio's loop), or streamed in and never taken in (the Claude sign-in).
+      const pending = run.replies ? this.waiting(s, run.callId).map((e) => e.text) : [];
+      const unread = [...pending, ...left.filter((t) => !pending.includes(t))];
+      this.deliver(s, run.callId, unread.length, "main");
       let result: AgentResult = { text: r.text, isError: r.isError, ...(r.stopped ? { stopped: true } : {}) };
       // What it read from the user goes with its result: the main agent never saw it, and would otherwise distrust a report that acts on it.
       const read = run.told.filter((t) => !unread.includes(t));
@@ -2648,9 +2660,35 @@ ${result}`);
     run.told.push(text);
     // Kept with the run, so its result still names it after a restart.
     this.keepRun(s, run);
-    this.addEntry(s, { kind: "user", text, at: now(), parent: callId });
-    this.o.host.log.info(`session ${s.id}: a message for subagent ${callId}, read at its next step`);
+    this.addEntry(s, { kind: "user", text, at: now(), parent: callId, ...(run.replies ? { delivery: "waiting" as const } : {}) });
+    this.o.host.log.info(`session ${s.id}: a message for subagent ${callId}, read at its next step${run.replies ? "" : " (its host cannot say when)"}`);
     return true;
+  }
+
+  /** The user's messages to this subagent still waiting for it to read them, oldest first. */
+  private waiting(s: StoredSession, callId: string): Array<Extract<TranscriptEntry, { kind: "user" }>> {
+    return s.transcript.filter((t): t is Extract<TranscriptEntry, { kind: "user" }> => t.kind === "user" && t.parent === callId && t.delivery === "waiting");
+  }
+
+  /** The oldest n of this subagent's waiting messages were read, or went to the main agent: their threads show it. */
+  private deliver(s: StoredSession, callId: string, n: number, to: "read" | "main"): void {
+    const marked = this.waiting(s, callId).slice(0, Math.max(0, n));
+    if (!marked.length) return;
+    for (const e of marked) e.delivery = to;
+    this.o.store.save(s);
+    this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
+    if (to === "read") this.o.host.log.info(`session ${s.id}: subagent ${callId} read ${marked.length} message(s) from the user`);
+  }
+
+  /**
+   * The subagent's reply tool: its answer to the user, shown in its thread as
+   * its own words. Not a step of its work, so no tool line, and not its report.
+   */
+  private replyToUser(s: StoredSession, callId: string, input: Record<string, unknown>): ToolExecution {
+    const text = typeof input.text === "string" ? input.text.trim() : "";
+    if (!text) return { text: "Give the reply as text.", isError: true, outcome: "error", touched: [], saved: [] };
+    this.addEntry(s, { kind: "assistant", text, at: now(), parent: callId });
+    return { text: REPLY_SHOWN, isError: false, outcome: "done", touched: [], saved: [] };
   }
 
   /** The subagent of this agent call is running, or waiting to start, and so can still read a message. */
@@ -3035,8 +3073,11 @@ ${result}`);
     const projectDir = this.o.host.projectDir;
     // Its runs are the user's when the user assigned it: the brief says to start one.
     const base = withSurface(subagentSystem(projectDir, run.assigned ? "automatic" : this.runsMode(), this.sdkComposed()), surface);
-    // What the user wrote to it before its session started goes with its task.
+    // What the user wrote to it before its session started goes with its task, read with it.
     const told = this.inbox.drain(call.id);
+    if (!attach) this.deliver(s, call.id, told.length, "read");
+    // A host an older Studio started has no reply tool and never says when it read a message.
+    run.replies = !attach || attach.record.protocol >= REPLY_PROTOCOL;
     const spec: TurnSpec = {
       projectDir,
       model: helper?.run?.model ?? this.subagentModel(),
@@ -3048,6 +3089,7 @@ ${result}`);
       ...sdkEditor(surface),
       prompt: [{ type: "text", text: prompt }, ...(told.length ? [{ type: "text", text: toSubagent(told) }] : [])],
       resume: null,
+      reply: true,
     };
     let report = "";
     const cb: HostedCallbacks = {
@@ -3065,11 +3107,13 @@ ${result}`);
             report = b.text;
             this.addEntry(s, { kind: "assistant", text: b.text, at: now(), parent: call.id });
           }
-          if (b.type === "tool_use" && !s.transcript.some((t) => t.kind === "tool" && t.call.id === b.id)) {
+          // Its reply to the user shows as its words when the call runs, not as a step.
+          if (b.type === "tool_use" && b.name !== REPLY_TOOL_NAME && !s.transcript.some((t) => t.kind === "tool" && t.call.id === b.id)) {
             this.addEntry(s, { kind: "tool", call: { id: b.id, name: b.name, input: b.input, outcome: "pending", startedAt: now() }, parent: call.id });
           }
         }
       },
+      onHeard: (n) => this.deliver(s, call.id, n, "read"),
       // Studio's tools record their outcome as they run; the runtime's own (web search) only here.
       onToolResults: (content) => {
         for (const b of content as Array<{ type?: string; tool_use_id?: string; content?: unknown; is_error?: boolean }>) {
@@ -3080,8 +3124,11 @@ ${result}`);
           this.recordOutcome(s, { id: b.tool_use_id, name: entry.call.name, input: {}, state: "done", result: text, isError: !!b.is_error }, b.is_error ? "error" : "done");
         }
       },
-      runTool: (toolId, name, input, onStart) => this.subscriptionTool(s, own, toolId, name, input, run.assigned, onStart),
-      lostTool: (toolId, name, input) => this.lostCall(s, toolId, name, input),
+      runTool: (toolId, name, input, onStart) => (name === REPLY_TOOL_NAME
+        ? Promise.resolve(this.replyToUser(s, call.id, input))
+        : this.subscriptionTool(s, own, toolId, name, input, run.assigned, onStart)),
+      // A reply the previous daemon was showing changes nothing in the project: it is answered as shown, not lost.
+      lostTool: (toolId, name, input) => (name === REPLY_TOOL_NAME ? Promise.resolve({ text: REPLY_SHOWN, isError: false, outcome: "done" as const, touched: [], saved: [] }) : this.lostCall(s, toolId, name, input)),
       onSeq: (seq) => this.keepRun(s, run, seq),
       onLive: (live) => {
         if (!live) {
@@ -3089,9 +3136,9 @@ ${result}`);
           return;
         }
         // The user's message to it is streamed into its own session's input.
-        run.say = async (text) => Promise.resolve(live.say([{ type: "text", text: toSubagent([text]) }])).catch(() => false);
+        run.say = async (text) => Promise.resolve(live.say([{ type: "text", text: toSubagent([text], run.replies) }])).catch(() => false);
         const later = this.inbox.drain(call.id);
-        if (later.length) void live.say([{ type: "text", text: toSubagent(later) }]);
+        if (later.length) void live.say([{ type: "text", text: toSubagent(later, run.replies) }]);
       },
       onInputClosed: () => {},
     };
@@ -3120,6 +3167,9 @@ ${result}`);
     const allows = (name: string) => helper!.allowed!.has(name as never) || (projected.has(name) && helper!.allowed!.has("ue_mcp" as never));
     const tools = helper?.allowed ? this.workTools(surf).filter((t) => allows((t as { name: string }).name)) : this.workTools(surf);
     if (n?.skills.length) tools.push(SKILL_TOOL);
+    // Its answer to the user who writes to it from its thread; a helper's file never takes it away.
+    tools.push(REPLY_TOOL);
+    run.replies = true;
     const steps = helper?.maxTurns ?? SUBAGENT_STEPS;
     const base = withSurface(subagentSystem(this.o.host.projectDir, detached ? "automatic" : this.runsMode(), this.composed()), surf);
     const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
@@ -3167,7 +3217,10 @@ ${result}`);
         if (signal.aborted) return stopped();
         // What the user sent it from its thread joins its conversation before its next model call.
         const told = this.inbox.drain(parent);
-        if (told.length) addUserText(messages, toSubagent(told));
+        if (told.length) {
+          addUserText(messages, toSubagent(told));
+          this.deliver(s, parent, told.length, "read");
+        }
         let turn: ModelTurn;
         try {
           turn = await provider().run({ sessionId: s.id, model, effort, system: sys, tools, messages }, () => {}, signal);
@@ -3201,6 +3254,11 @@ ${result}`);
           const c = surf.canon(raw.name, (raw.input ?? {}) as Record<string, unknown>);
           const u = { ...raw, name: c.name };
           const input = c.input;
+          if (u.name === REPLY_TOOL_NAME) {
+            const r = this.replyToUser(s, parent, input);
+            results.push({ type: "tool_result", tool_use_id: u.id, content: r.text, is_error: r.isError || undefined });
+            continue;
+          }
           this.addEntry(s, { kind: "tool", call: { id: u.id, name: u.name, input, outcome: "pending", startedAt: now() }, parent });
           if (u.name === "skill") {
             const r = skillResult(n?.skills ?? [], input.name);

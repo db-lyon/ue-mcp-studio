@@ -24,7 +24,14 @@ import type { ContentBlock } from "./providers.js";
 import { writeFileAtomic } from "./atomic-write.js";
 
 /** Bumped when a message is added or a meaning changes. Never reuse or change the meaning of an existing one. */
-export const TURN_HOST_PROTOCOL = 3;
+export const TURN_HOST_PROTOCOL = 4;
+/**
+ * The first protocol whose subagent conversations have Studio's reply tool
+ * (TurnSpec.reply) and say when they took in the user's message (event
+ * heard). A subagent in an older host is told to answer in text, and what
+ * became of a message to it is not tracked.
+ */
+export const REPLY_PROTOCOL = 4;
 /** The first protocol whose host takes the user's messages to a running subagent (op tellSubagent, event inboxTaken). Legacy hosts only. */
 export const TELL_SUBAGENT_PROTOCOL = 2;
 /**
@@ -61,6 +68,8 @@ export interface TurnSpec {
   system: string;
   /** Studio's agent tool, for a main agent that may start subagents. */
   agentTool?: { description: string; inputSchema: Record<string, unknown> };
+  /** A subagent's conversation: it has Studio's reply tool, and reports the user's messages it took in. Protocol 4. */
+  reply?: boolean;
   /** Studio's tools by name, when a helper's file narrows them. */
   allowed?: string[];
   maxTurns?: number;
@@ -101,6 +110,8 @@ export type TurnEvent =
   | { t: "inputClosed"; why: string }
   /** A subagent read the user's messages to it (callId null: the turn's own main agent). Protocol 2. */
   | { t: "inboxTaken"; callId: string | null }
+  /** The conversation took in n of the user's messages streamed into it. Protocol 4. */
+  | { t: "heard"; n: number }
   | { t: "end"; error: string | null };
 
 export type JournalEvent = TurnEvent & { seq: number };

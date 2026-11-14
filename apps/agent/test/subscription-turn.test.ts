@@ -487,7 +487,8 @@ describe("the project's own Claude Code files on the Claude sign-in", () => {
     expect(agentTool.description).toContain("- reviewer: Reviews changes");
     const sub = sdk.options.find((o) => String(o.systemPrompt).includes("You are a subagent"))!;
     expect(String(sub.systemPrompt)).toContain("Review carefully.");
-    expect(sub.allowedTools).toEqual(["mcp__studio__read_file", "mcp__studio__grep"]);
+    // The helper's file narrows its tools, never its reply to the user.
+    expect(sub.allowedTools).toEqual(["mcp__studio__read_file", "mcp__studio__grep", "mcp__studio__reply"]);
     expect(sub.maxTurns).toBe(5);
     expect(store.get(s.id)!.transcript.find((t) => t.kind === "tool" && t.call.id === "h")).toMatchObject({ call: { outcome: "done", result: "Reviewed." } });
   });
