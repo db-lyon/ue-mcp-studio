@@ -115,7 +115,8 @@
         }
       ],
       "./plugins/with-google-services",
-      "./plugins/with-release-signing"
+      "./plugins/with-release-signing",
+      "expo-image"
     ]
   }
 }
