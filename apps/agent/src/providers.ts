@@ -236,5 +236,30 @@ export function providerFor(
     const key = settings.key(vendor as KeyProviderId)!;
     return vendor === "anthropic" ? new AnthropicProvider(key) : new OpenAICompatibleProvider(OPENAI_BASE_URLS[vendor as keyof typeof OPENAI_BASE_URLS], key);
   }
-  throw new Error(`Sign in to run ${settings.model()}: open the model picker.`);
+  throw new Error(notConnected(settings.model(), route, vendor));
+}
+
+/**
+ * Why nothing runs `model` on `route`, and what to do, in plain words. The
+ * route is the one the model picker shows; null when nothing connected runs
+ * the model.
+ */
+export function notConnected(model: string, route: ModelRoute, vendor: VendorId): string {
+  const pick = "Open the model picker to connect it, or pick another model there.";
+  switch (route) {
+    case "claude":
+      return `${model} runs on your Claude sign-in, which this step cannot use. Add an Anthropic API key in the model picker, or pick another model there.`;
+    case "studio":
+      return `${model} runs on your UE-MCP account, which is signed out. ${pick}`;
+    case "chatgpt":
+      return `${model} runs on your ChatGPT sign-in, which is signed out. ${pick}`;
+    default:
+      break;
+  }
+  const ways = vendor === "anthropic"
+    ? "Sign in to Claude (run claude /login in a terminal) or add an Anthropic API key"
+    : vendor === "openai"
+      ? "Sign in with ChatGPT or add an OpenAI API key"
+      : vendor === "google" ? "Add a Google API key" : "Connect a sign-in or an API key for it";
+  return `Nothing connected on this computer runs ${model}. ${ways} in the model picker, or pick another model there.`;
 }
