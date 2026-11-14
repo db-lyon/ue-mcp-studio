@@ -1883,8 +1883,9 @@ pre.diff > .meta { color: var(--dim); }
 }
 
 @media (max-width: 760px) {
-  /* A subagent: its title on a line of its own, its state and activity under it, the whole row the target. */
-  .agent-link { display: grid; grid-template-columns: 6px auto auto minmax(0, 1fr); grid-template-areas: "dot name state open" ". title title title" ". meta meta meta"; align-items: center; gap: 4px 8px; height: auto; min-height: 44px; padding: 10px 12px; }
+  /* A subagent: its title on a line of its own, its state and activity under it, Open thread at its foot
+     so nothing on the first line pushes it past the edge, the whole row the target. */
+  .agent-link { display: grid; grid-template-columns: 6px auto auto minmax(0, 1fr); grid-template-areas: "dot name state ." ". title title title" ". meta meta meta" ". open open open"; align-items: center; gap: 4px 8px; height: auto; min-height: 44px; padding: 10px 12px; }
   .agent-link::before { grid-area: dot; }
   .agent-link .tool-name { grid-area: name; }
   .agent-link .agents-state { grid-area: state; }
