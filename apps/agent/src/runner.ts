@@ -22,7 +22,7 @@ import type { ContentBlock, ModelProvider, ModelTurn, MessageParam, WebSearchRec
 import { promptTokens, usageTokens, type TokenUsage } from "./usage.js";
 import { DEFAULT_SESSION_TITLE, SessionStore, type PendingTool, type StoredContext, type StoredSession } from "./sessions.js";
 import { compactedMessages, conversationText, estimateMessagesTokens, isCompactedSummary, isContextOverflow, summaryInstruction, summaryRequest } from "./compaction.js";
-import type { QueuedMessage } from "@ue-mcp-studio/shared";
+import type { QueuedMessage, ReplyImageInfo } from "@ue-mcp-studio/shared";
 import type { CardEntry, CardPost } from "@ue-mcp-studio/extension-api";
 import type { BusyTracker } from "./busy.js";
 import type { DialogBroker } from "./dialogs.js";
@@ -297,6 +297,8 @@ export interface RunnerOptions {
    * a step runs in the daemon.
    */
   turnHosts?: TurnHosts;
+  /** What each project image a reply's text shows is (size, type, frames), sent with the reply; none when not given. */
+  replyImages?: (text: string) => Record<string, ReplyImageInfo> | undefined;
 }
 
 /** Where a Claude sign-in reply's own bookkeeping stands; kept with the session while it runs in a host. */
@@ -2798,6 +2800,14 @@ ${result}`);
 
   private addEntry(s: StoredSession, entry: TranscriptEntry): void {
     if (entry.kind === "tool" && this.queuedEarly.delete(entry.call.id)) entry.call.queued = true;
+    if (entry.kind === "assistant" && !entry.images && this.o.replyImages) {
+      try {
+        const images = this.o.replyImages(entry.text);
+        if (images) entry.images = images;
+      } catch {
+        // The reply goes without them; the chat draws a plain tile.
+      }
+    }
     s.transcript.push(entry);
     this.o.store.save(s);
     this.o.host.events.publish("transcript.added", { sessionId: s.id, entry: entry as unknown as Record<string, unknown> });

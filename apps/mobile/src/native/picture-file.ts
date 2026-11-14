@@ -25,13 +25,18 @@ function pictures(): Directory {
 
 const EXT: Record<string, string> = { "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/bmp": "bmp", "image/svg+xml": "svg" };
 
-/** Writes `chunks` to a new file and gives its file:// URI. */
-export async function keepPicture(chunks: AsyncIterable<Uint8Array>, type: string): Promise<string> {
+/** Writes `chunks` to a new file and gives its file:// URI; `progress` hears the bytes written so far after each chunk. */
+export async function keepPicture(chunks: AsyncIterable<Uint8Array>, type: string, progress?: (received: number) => void): Promise<string> {
   const file = new File(pictures(), `${Date.now().toString(36)}-${++count}.${EXT[type.split(";")[0].trim().toLowerCase()] ?? "img"}`);
   file.create({ overwrite: true });
   const handle = file.open(FileMode.WriteOnly);
+  let received = 0;
   try {
-    for await (const chunk of chunks) await handle.writeBytes(chunk);
+    for await (const chunk of chunks) {
+      await handle.writeBytes(chunk);
+      received += chunk.byteLength;
+      progress?.(received);
+    }
   } catch (e) {
     handle.close();
     try {

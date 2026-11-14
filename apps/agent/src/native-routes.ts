@@ -16,6 +16,7 @@ import { CONVENTIONS, IMAGE_READ_MAX_BYTES, PROJECT_IMAGE_TYPES, conventionOf, o
 import { loadout, type Loadout } from "./native.js";
 import { composeNative, modelOf, toolsFor } from "./native-runtime.js";
 import { readProjectFile, resolveProjectFile, type FileScope } from "./project-files.js";
+import { posterFor } from "./reply-images.js";
 
 export interface NativeRouteOptions {
   /** "Read the project's own files". */
@@ -35,6 +36,8 @@ export interface NativeRouteOptions {
   top?: string;
   /** Opens a file with the system's default app; replaced in tests. */
   open?: (abs: string) => void;
+  /** Where reply images' posters are kept; the data folder's posters/ when not given. */
+  posters?: string;
 }
 
 const VENDOR_OF: Record<Convention, string | null> = { claude: "anthropic", codex: "openai", gemini: "google", agents: null };
@@ -142,8 +145,10 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
 
   api.route("GET", "/files/read", (req) => readProjectFile(scope(), req.query.path, req.query.from));
 
+  const posters = o.posters ?? (api.dataDir ? path.join(api.dataDir, "posters") : undefined);
   // An image a reply shows with markdown (![caption](Saved/Screenshots/shot.png)): the same files the viewer reaches, images only.
-  api.route("GET", "/files/image", (req) => {
+  // With poster=1, its first frame as a small JPEG, which a chat draws while the whole file loads.
+  api.route("GET", "/files/image", async (req) => {
     const r = resolveProjectFile(scope(), req.query.path, req.query.from);
     if (!r.ok) return { status: r.status, body: { error: r.error } };
     const type = projectImageType(r.real) ?? projectImageType(r.abs);
@@ -151,6 +156,14 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
     const stat = fs.statSync(r.real);
     if (!stat.isFile()) return { status: 400, body: { error: `${r.shown} is not a file.` } };
     if (stat.size > IMAGE_READ_MAX_BYTES) return { status: 413, body: { error: `${r.shown} is ${(stat.size / 1048576).toFixed(1)} MB; Studio shows images up to ${IMAGE_READ_MAX_BYTES / 1048576} MB.` } };
+    if (req.query.poster === "1") {
+      if (!posters) return { status: 404, body: { error: "Posters are not kept here." } };
+      try {
+        return { headers: { "content-type": "image/jpeg", "cache-control": "no-cache" }, body: await posterFor(r.real, posters) };
+      } catch (e) {
+        return { status: 422, body: { error: `${r.shown} has no poster: ${e instanceof Error ? e.message : String(e)}` } };
+      }
+    }
     return { headers: { "content-type": type, "cache-control": "no-cache" }, body: fs.readFileSync(r.real) };
   });
 

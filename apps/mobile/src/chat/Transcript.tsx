@@ -8,7 +8,7 @@
 import { Component, createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle } from "react-native";
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
-import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type SessionAgent, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
+import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type ReplyImageInfo, type SessionAgent, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
   EARLIER_ENTRIES,
   OUTCOME_LABEL,
@@ -54,7 +54,7 @@ import { Picture } from "./Picture";
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
 import { LinkedText } from "./AssetLink";
-import { ReplyMarkdown, renderReplyImage, renderReplyMark } from "./ReplyMarkdown";
+import { ReplyImagesContext, ReplyMarkdown, renderReplyImage, renderReplyMark } from "./ReplyMarkdown";
 import { noteError, noteRow, setDiag, useDiag } from "./diag";
 
 /** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
@@ -94,7 +94,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "assistant") {
     const at = positionIn(transcript, entry);
-    return <Reply text={entry.text} at={at < 0 ? undefined : from + at} />;
+    return <Reply text={entry.text} images={entry.images} at={at < 0 ? undefined : from + at} />;
   }
   if (entry.kind === "note") return <Note text={entry.text} />;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
@@ -333,37 +333,41 @@ function SentFiles({ files }: { files: Attachment[] }) {
  * A model reply, rendered as markdown without raw HTML; a single line break
  * stays a line break. at: its transcript index, for tracing the names in it.
  */
-export const Reply = memo(function Reply({ text, at }: { text: string; at?: number }) {
+export const Reply = memo(function Reply({ text, at, images }: { text: string; at?: number; images?: Record<string, ReplyImageInfo> }) {
   return (
     <AssetAnchorContext.Provider value={at}>
-      <View style={{ alignSelf: "flex-start", maxWidth: "100%", paddingVertical: 10, paddingRight: 13, paddingLeft: 2 }}>
-        <ReplyMarkdown text={text} />
-      </View>
+      <ReplyImagesContext.Provider value={images}>
+        <View style={{ alignSelf: "flex-start", maxWidth: "100%", paddingVertical: 10, paddingRight: 13, paddingLeft: 2 }}>
+          <ReplyMarkdown text={text} />
+        </View>
+      </ReplyImagesContext.Provider>
     </AssetAnchorContext.Provider>
   );
 });
 
 /** Piece `piece` of a long reply on a row of its own: the reply's padding only at its two ends. */
-export const ReplyPiece = memo(function ReplyPiece({ text, at, piece, count }: { text: string; at?: number; piece: number; count: number }) {
+export const ReplyPiece = memo(function ReplyPiece({ text, at, piece, count, images }: { text: string; at?: number; piece: number; count: number; images?: Record<string, ReplyImageInfo> }) {
   return (
     <AssetAnchorContext.Provider value={at}>
-      <View testID="reply-piece" style={{ alignSelf: "stretch", paddingTop: piece === 0 ? 10 : 0, paddingBottom: piece === count - 1 ? 10 : 0, paddingRight: 13, paddingLeft: 2 }}>
-        <MarkdownPiece text={text} piece={piece} links renderMark={renderReplyMark} renderCode={breakable} renderImage={renderReplyImage} />
-      </View>
+      <ReplyImagesContext.Provider value={images}>
+        <View testID="reply-piece" style={{ alignSelf: "stretch", paddingTop: piece === 0 ? 10 : 0, paddingBottom: piece === count - 1 ? 10 : 0, paddingRight: 13, paddingLeft: 2 }}>
+          <MarkdownPiece text={text} piece={piece} links renderMark={renderReplyMark} renderCode={breakable} renderImage={renderReplyImage} />
+        </View>
+      </ReplyImagesContext.Provider>
     </AssetAnchorContext.Provider>
   );
 });
 
 /** A reply's rows when it is long enough to be cut into pieces, or undefined when it fits one. */
-function replyPieces(key: string, text: string, at: number | undefined): ThreadRow[] | undefined {
+function replyPieces(key: string, text: string, at: number | undefined, images?: Record<string, ReplyImageInfo>): ThreadRow[] | undefined {
   const n = markdownPieces(text, true, true);
   if (n < 2) return undefined;
-  return Array.from({ length: n }, (_, i) => ({ key: `${key}.${i}`, render: () => <ReplyPiece text={text} at={at} piece={i} count={n} /> }));
+  return Array.from({ length: n }, (_, i) => ({ key: `${key}.${i}`, render: () => <ReplyPiece text={text} at={at} piece={i} count={n} images={images} /> }));
 }
 
 /** An entry's row, cut into pieces when it is a long reply. */
 function entryRow(key: string, entry: TranscriptEntry, at: number | undefined): ThreadRow {
-  return { key, render: () => <Entry entry={entry} />, pieces: entry.kind === "assistant" ? replyPieces(key, entry.text, at) : undefined };
+  return { key, render: () => <Entry entry={entry} />, pieces: entry.kind === "assistant" ? replyPieces(key, entry.text, at, entry.images) : undefined };
 }
 
 /**

@@ -5,29 +5,56 @@ const { GifWriter } = createRequire(import.meta.url)("omggif");
 
 /**
  * A project image a reply shows (GET /files/image): an animated GIF of a ball
- * crossing a floor, 320 by 180.
+ * crossing a floor, 720 by 366 as a PIE capture is. `frames` 1 is its poster.
  */
-function replyGif() {
-  const w = 320;
-  const h = 180;
+function replyGif(frames = 8) {
+  const w = 720;
+  const h = 366;
+  const k = w / 320;
   // Background, floor, ball, ball shade.
   const palette = [0x1d1f24, 0x3a3d45, 0xe8720c, 0x8a3f06];
-  const buf = new Uint8Array(w * h * 8 + 1024);
+  const buf = new Uint8Array(w * h * frames * 2 + 1024);
   const gif = new GifWriter(buf, w, h, { loop: 0, palette });
-  for (let f = 0; f < 8; f++) {
+  for (let f = 0; f < frames; f++) {
     const px = new Uint8Array(w * h);
-    const cx = 60 + f * 28;
-    const cy = 110 - Math.round(Math.sin((f / 7) * Math.PI) * 50);
+    const cx = (60 + f * 28) * k;
+    const cy = (110 - Math.round(Math.sin((f / 7) * Math.PI) * 50)) * k;
+    const r = 18 * k;
     for (let y = 0; y < h; y++) {
       for (let x = 0; x < w; x++) {
         const d = (x - cx) ** 2 + (y - cy) ** 2;
-        px[y * w + x] = d < 18 ** 2 ? (x + y < cx + cy - 6 ? 2 : 3) : y > 140 ? 1 : 0;
+        px[y * w + x] = d < r ** 2 ? (x + y < cx + cy - 6 * k ? 2 : 3) : y > 140 * k ? 1 : 0;
       }
     }
     // The first frame holds for six seconds, so a shot taken soon after the page loads shows it on every side.
     gif.addFrame(0, 0, w, h, px, { delay: f === 0 ? 600 : 12 });
   }
   return Buffer.from(buf.subarray(0, gif.end()));
+}
+let gifs = null;
+const replyGifs = () => (gifs ??= { full: replyGif(), poster: replyGif(1) });
+
+/**
+ * The reply image's states, by the file's name: "Pending" never answers (no
+ * poster yet), "Loading" answers its poster and then 40% of the file's
+ * 11.8 MB before it stalls, "Failed" answers 404, anything else the GIF whole.
+ */
+function replyImage(req, res) {
+  const url = new URL(req.url, "http://qa.invalid");
+  const name = url.searchParams.get("path") ?? "";
+  const poster = url.searchParams.get("poster") === "1";
+  if (/Pending/.test(name)) return;
+  if (/Failed/.test(name)) {
+    res.statusCode = 404;
+    return res.end();
+  }
+  res.setHeader("content-type", "image/gif");
+  if (poster) return res.end(replyGifs().poster);
+  if (/Loading/.test(name)) {
+    res.write(Buffer.alloc(Math.round(12_373_000 * 0.4)));
+    return;
+  }
+  res.end(replyGifs().full);
 }
 
 /**
@@ -41,10 +68,7 @@ export const pictures = {
   name: "visual-qa-pictures",
   configureServer(s) {
     s.middlewares.use((req, res, next) => {
-      if (/^\/v1\/ext\/studio\/files\/image\?/.test(req.url ?? "")) {
-        res.setHeader("content-type", "image/gif");
-        return res.end(replyGif());
-      }
+      if (/^\/v1\/ext\/studio\/files\/image\?/.test(req.url ?? "")) return replyImage(req, res);
       const m =/^\/v1\/ext\/studio\/(?:review\/(?:thumbnails|images)\/[^/?]+|qa\/runs\/[^?]+\/captures\/\d+)/.exec(req.url ?? "");
       if (!m) return next();
       // A run id with "unreadable-<n>" in it loses only its capture n.

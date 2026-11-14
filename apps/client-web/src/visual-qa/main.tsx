@@ -37,6 +37,8 @@ window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Res
       return new Response(JSON.stringify({ error: "Not available remotely." }), { status: 403, headers: { "content-type": "application/json" } });
     }
   }
+  // A reply's project image and its poster come from the page's server, which draws them for both harnesses.
+  if (url.pathname === "/v1/ext/studio/files/image") return realFetch(input, init);
   // ue-mcp away: the stream and health refuse, as the relay does while the computer's daemon is down.
   if (scenario.remoteOffline && (url.pathname === "/v1/events" || url.pathname === "/v1/health")) {
     return new Response(JSON.stringify({ error: "The project is offline." }), { status: 503, headers: { "content-type": "application/json" } });

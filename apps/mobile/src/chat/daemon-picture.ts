@@ -15,13 +15,15 @@ export type PictureState = string | null | "failed";
 const reading = new Map<string, Promise<string>>();
 const kept = new Map<string, string>();
 
-async function read(project: ReturnType<typeof useProjectNav>["project"], path: string, type: string): Promise<string> {
+/** Reads a picture through the project's transport into a file; `progress` hears the bytes so far and the size when the answer gives one. */
+export async function readDaemonPicture(project: ReturnType<typeof useProjectNav>["project"], path: string, type: string, progress?: (received: number, total: number | null) => void): Promise<string> {
   const r = await project.transport("GET", path, { headers: { accept: "image/*" } });
   if (r.status >= 400 || !r.body) {
     if (r.body) for await (const _ of r.body) void _;
     throw new Error(`The computer answered ${r.status}.`);
   }
-  return keepPicture(r.body, r.headers["content-type"] || type);
+  const total = Number(r.headers["content-length"]) || null;
+  return keepPicture(r.body, r.headers["content-type"] || type, progress && ((n) => progress(n, total)));
 }
 
 export function useDaemonPicture(path: string | undefined, type = "image/png"): PictureState {
@@ -35,7 +37,7 @@ export function useDaemonPicture(path: string | undefined, type = "image/png"): 
     let alive = true;
     let pending = reading.get(id);
     if (!pending) {
-      pending = read(project, path, type);
+      pending = readDaemonPicture(project, path, type);
       reading.set(id, pending);
       pending.then((uri) => kept.set(id, uri), () => undefined).finally(() => reading.delete(id));
     }

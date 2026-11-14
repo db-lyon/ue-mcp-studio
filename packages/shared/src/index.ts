@@ -14,6 +14,7 @@ import type { Approvals } from "./composer.js";
 import type { CardEntry } from "@ue-mcp-studio/extension-api";
 import type { CompactionRecord, ContextUsage, SessionSpend } from "./context.js";
 import type { SessionAgent, WorkingFacts } from "./agents.js";
+import type { ReplyImageInfo } from "./files.js";
 
 /** GET /v1/ext/studio/about */
 export interface StudioAbout {
@@ -354,7 +355,12 @@ export type TranscriptEntry = (
    * because the subagent ended before it read it. Absent: from a Studio that did not track it, or a subagent that cannot confirm it read one.
    */
   | { kind: "user"; text: string; at: string; attachments?: Attachment[]; source?: number; delivery?: MessageDelivery }
-  | { kind: "assistant"; text: string; at: string }
+  /**
+   * images: what the daemon read of each project image the text shows, by its path as
+   * replyImagePaths gives it. Absent from a Studio older than 0.1.35-beta.31, and for
+   * an image the daemon could not read.
+   */
+  | { kind: "assistant"; text: string; at: string; images?: Record<string, ReplyImageInfo> }
   | { kind: "tool"; call: ToolCallRecord }
   | { kind: "note"; text: string; at: string }
   | { kind: "dialog"; dialog: EditorDialog }

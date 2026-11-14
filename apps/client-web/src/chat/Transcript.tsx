@@ -4,7 +4,7 @@ import { MentionText } from "./MentionMenu";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import { DiffView } from "./Diff";
 import { useAgents, useAsked } from "./asked";
-import type { SessionAgent } from "@ue-mcp-studio/shared";
+import type { ReplyImageInfo, SessionAgent } from "@ue-mcp-studio/shared";
 import { DialogLine } from "./Dialogs";
 import { QaCard } from "./Qa";
 import { TurnReviewCard } from "./TurnReview";
@@ -39,6 +39,7 @@ import {
 import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
 import { ReplyMarkdown } from "./ReplyMarkdown";
+import { ReplyImagesContext } from "./ReplyImage";
 import { LinkedText } from "./AssetLink";
 import { useSlot } from "../extensions/registry";
 import { Contribution } from "../extensions/Slot";
@@ -77,7 +78,7 @@ export const Entry = memo(function Entry({ entry }: { entry: TranscriptEntry }) 
   }
   if (entry.kind === "assistant") {
     const at = positionIn(transcript, entry);
-    return <Reply text={entry.text} at={at < 0 ? undefined : at} />;
+    return <Reply text={entry.text} images={entry.images} at={at < 0 ? undefined : at} />;
   }
   if (entry.kind === "note") return <div className="banner warn note">{entry.text}</div>;
   if (entry.kind === "dialog") return <DialogLine dialog={entry.dialog} />;
@@ -264,10 +265,12 @@ function SentFiles({ files }: { files: Attachment[] }) {
  * A model reply, rendered as markdown without raw HTML; a single line break
  * stays a line break. at: its transcript index, for tracing the names in it.
  */
-export const Reply = memo(function Reply({ text, at }: { text: string; at?: number }) {
+export const Reply = memo(function Reply({ text, at, images }: { text: string; at?: number; images?: Record<string, ReplyImageInfo> }) {
   return (
     <AssetAnchorContext.Provider value={at}>
-      <div className="msg assistant md"><ReplyMarkdown text={text} /></div>
+      <ReplyImagesContext.Provider value={images}>
+        <div className="msg assistant md"><ReplyMarkdown text={text} /></div>
+      </ReplyImagesContext.Provider>
     </AssetAnchorContext.Provider>
   );
 });

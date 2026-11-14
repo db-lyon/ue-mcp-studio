@@ -86,7 +86,180 @@ const webpDecoder = () => (webpReady ??= (async () => {
   return mod.default;
 })());
 
-/** An image decoded to RGBA. GIF: its first frame. */
+/** A RIFF chunk of a WebP: its four-letter id, and where its payload starts and ends. */
+interface WebpChunk {
+  id: string;
+  at: number;
+  end: number;
+}
+
+/** The chunks of a RIFF payload from `from` to `to`, each padded to an even length. */
+function webpChunks(buf: Uint8Array, from = 12, to = buf.length): WebpChunk[] {
+  const out: WebpChunk[] = [];
+  for (let i = from; i + 8 <= to; ) {
+    const size = buf[i + 4] | (buf[i + 5] << 8) | (buf[i + 6] << 16) | (buf[i + 7] << 24);
+    if (size < 0) break;
+    const end = Math.min(to, i + 8 + size);
+    out.push({ id: ascii(buf, i, 4), at: i + 8, end });
+    i = i + 8 + size + (size & 1);
+  }
+  return out;
+}
+
+const u24 = (b: Uint8Array, at: number): number => b[at] | (b[at + 1] << 8) | (b[at + 2] << 16);
+
+/**
+ * An animated WebP's first frame as a still WebP the decoder takes: libwebp's
+ * simple decoder refuses animation, so the frame's own chunks (its alpha and
+ * its VP8 or VP8L bitstream) go into a file of their own. Null for a still.
+ */
+export function webpFirstFrame(buf: Uint8Array): Buffer | null {
+  const frame = webpChunks(buf).find((c) => c.id === "ANMF");
+  if (!frame || frame.end - frame.at < 16) return null;
+  const width = u24(buf, frame.at + 6) + 1;
+  const height = u24(buf, frame.at + 9) + 1;
+  const parts = webpChunks(buf, frame.at + 16, frame.end).filter((c) => c.id === "ALPH" || c.id === "VP8 " || c.id === "VP8L");
+  if (!parts.some((c) => c.id !== "ALPH")) return null;
+  const chunk = (c: WebpChunk): Buffer => {
+    const body = Buffer.from(buf.subarray(c.at - 8, c.end));
+    return body.length & 1 ? Buffer.concat([body, Buffer.alloc(1)]) : body;
+  };
+  const pieces: Buffer[] = [];
+  if (parts.some((c) => c.id === "ALPH")) {
+    const x = Buffer.alloc(18);
+    x.write("VP8X", 0, "ascii");
+    x.writeUInt32LE(10, 4);
+    x[8] = 0x10;
+    x.writeUIntLE(width - 1, 12, 3);
+    x.writeUIntLE(height - 1, 15, 3);
+    pieces.push(x);
+  }
+  pieces.push(...parts.map(chunk));
+  const body = Buffer.concat(pieces);
+  const head = Buffer.alloc(12);
+  head.write("RIFF", 0, "ascii");
+  head.writeUInt32LE(body.length + 4, 4);
+  head.write("WEBP", 8, "ascii");
+  return Buffer.concat([head, body]);
+}
+
+/** What an image's header says: its type, size and frames. */
+export interface ImageFacts {
+  type: string;
+  width: number;
+  height: number;
+  frames: number;
+  animated: boolean;
+}
+
+/** BMP is served too, though nothing here decodes it. */
+const isBmp = (b: Uint8Array): boolean => b.length >= 26 && b[0] === 0x42 && b[1] === 0x4d;
+
+/**
+ * An image's type, size and frame count from its bytes, without decoding a
+ * pixel: PNG's IHDR (and acTL for an animated PNG), JPEG's frame header,
+ * GIF's screen and frame list, WebP's VP8, VP8L or VP8X header (and its
+ * ANMF frames), BMP's info header. Null when it is none of them or is cut short.
+ */
+export function imageFacts(buf: Uint8Array): ImageFacts | null {
+  const type = sniffImage(buf) ?? (isBmp(buf) ? "image/bmp" : null);
+  const still = (width: number, height: number, frames = 1): ImageFacts | null =>
+    width > 0 && height > 0 ? { type: type!, width, height, frames, animated: frames > 1 } : null;
+  try {
+    if (type === "image/png") {
+      if (buf.length < 24 || ascii(buf, 12, 4) !== "IHDR") return null;
+      const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+      let frames = 1;
+      for (let i = 8; i + 8 <= buf.length; ) {
+        const size = v.getUint32(i);
+        const id = ascii(buf, i + 4, 4);
+        if (id === "acTL" && i + 12 <= buf.length) frames = Math.max(1, v.getUint32(i + 8));
+        if (id === "IDAT" || id === "IEND") break;
+        i += 12 + size;
+      }
+      return still(v.getUint32(16), v.getUint32(20), frames);
+    }
+    if (type === "image/jpeg") {
+      for (let i = 2; i + 9 < buf.length; ) {
+        if (buf[i] !== 0xff) return null;
+        const marker = buf[i + 1];
+        if (marker === 0xff) {
+          i++;
+          continue;
+        }
+        if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7) || marker === 0x01) {
+          i += 2;
+          continue;
+        }
+        const length = (buf[i + 2] << 8) | buf[i + 3];
+        if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+          return still((buf[i + 7] << 8) | buf[i + 8], (buf[i + 5] << 8) | buf[i + 6]);
+        }
+        if (marker === 0xda || length < 2) return null;
+        i += 2 + length;
+      }
+      return null;
+    }
+    if (type === "image/gif") {
+      const g = new GifReader(Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength));
+      return still(g.width, g.height, g.numFrames());
+    }
+    if (type === "image/webp") {
+      const chunks = webpChunks(buf);
+      const first = chunks[0];
+      if (!first) return null;
+      if (first.id === "VP8X") {
+        const frames = (buf[first.at] & 0x02) ? chunks.filter((c) => c.id === "ANMF").length : 1;
+        return still(u24(buf, first.at + 4) + 1, u24(buf, first.at + 7) + 1, Math.max(1, frames));
+      }
+      if (first.id === "VP8 ") return still(((buf[first.at + 7] << 8) | buf[first.at + 6]) & 0x3fff, ((buf[first.at + 9] << 8) | buf[first.at + 8]) & 0x3fff);
+      if (first.id === "VP8L" && buf[first.at] === 0x2f) {
+        const b = (k: number) => buf[first.at + 1 + k];
+        return still(1 + (((b(1) & 0x3f) << 8) | b(0)), 1 + (((b(3) & 0x0f) << 10) | (b(2) << 2) | ((b(1) & 0xc0) >> 6)));
+      }
+      return null;
+    }
+    if (type === "image/bmp") {
+      const v = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+      return still(Math.abs(v.getInt32(18, true)), Math.abs(v.getInt32(22, true)));
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+/** The colour a poster's transparent pixels are laid on: the chat's dark tile. */
+const POSTER_GROUND = [0x20, 0x22, 0x26];
+
+/**
+ * An image's first frame as a small JPEG, at most `edge` on its longest side
+ * and `maxBytes` long: what a chat draws while the whole file loads. Smaller
+ * and at lower quality until it fits.
+ */
+export async function makePoster(buf: Buffer, mediaType: string, edge: number, maxBytes: number): Promise<Buffer> {
+  const full = await decodeImage(buf, mediaType);
+  if (full.width < 1 || full.height < 1) throw new Error("the image has no pixels");
+  let long = Math.min(edge, Math.max(full.width, full.height));
+  for (;;) {
+    const fit = fitSize(full.width, full.height, long);
+    const img = downscale(full, fit.width, fit.height);
+    const px = img === full ? new Uint8Array(img.data) : img.data;
+    for (let i = 0; i < px.length; i += 4) {
+      const a = px[i + 3] / 255;
+      if (a === 1) continue;
+      for (let c = 0; c < 3; c++) px[i + c] = Math.round(px[i + c] * a + POSTER_GROUND[c] * (1 - a));
+      px[i + 3] = 255;
+    }
+    for (const quality of [72, 58, 45]) {
+      const out = jpeg.encode({ width: img.width, height: img.height, data: px }, quality).data;
+      if (out.length <= maxBytes || long <= 64) return Buffer.from(out);
+    }
+    long = Math.floor(long * 0.75);
+  }
+}
+
+/** An image decoded to RGBA. GIF and animated WebP: their first frame. */
 export async function decodeImage(buf: Buffer, mediaType: string): Promise<Rgba> {
   if (mediaType === "image/png") {
     const png = PNG.sync.read(buf);
@@ -104,7 +277,8 @@ export async function decodeImage(buf: Buffer, mediaType: string): Promise<Rgba>
   }
   if (mediaType === "image/webp") {
     const decode = await webpDecoder();
-    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    const still = webpFirstFrame(buf) ?? buf;
+    const ab = still.buffer.slice(still.byteOffset, still.byteOffset + still.byteLength) as ArrayBuffer;
     const img = await decode(ab);
     return { width: img.width, height: img.height, data: new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength) };
   }
