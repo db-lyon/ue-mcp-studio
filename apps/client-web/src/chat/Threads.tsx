@@ -1,12 +1,14 @@
-import { useState } from "react";
+import { useState, type Ref } from "react";
 import type { ContextUsage, SessionAgent } from "@ue-mcp-studio/shared";
-import { STATE_LABEL, agentView, describe, formatDuration, isActive, listedSubagents, summarize, tokenCount } from "@ue-mcp-studio/client-core";
+import { STATE_LABEL, agentView, describe, formatDuration, isActive, listedSubagents, subagentsLine, tokenCount } from "@ue-mcp-studio/client-core";
 import { useNow } from "./hooks";
 
 const EMPTY: ReadonlySet<string> = new Set();
 
 /**
- * The threads of the session, under the composer: the main agent, the
+ * The threads of the session, under the composer when wide (the bar's
+ * Subagents button shows and hides it there), in a sheet from that button
+ * when narrow: the main agent, the
  * subagents still running (each with a stop button), and the finished ones in
  * a section that starts collapsed. Finished ones this viewer has not opened
  * are marked new. A row switches the conversation to that thread. A finished
@@ -16,8 +18,12 @@ const EMPTY: ReadonlySet<string> = new Set();
  * The rows are the daemon's subagent list (SessionDetail.subagents), never
  * worked out from the transcript held, so a page and a whole one agree.
  */
-export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {} }: {
+export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {}, head = true, listRef }: {
   agents: SessionAgent[];
+  /** Whether the list draws its own "Subagents: ..." line; off where the sheet's title already is that line. */
+  head?: boolean;
+  /** The list's element, for the bar's Subagents button to tell whether it is in view. */
+  listRef?: Ref<HTMLDivElement>;
   thread: string | null;
   onThread: (id: string | null) => void;
   onStop: (id: string) => void;
@@ -82,8 +88,8 @@ export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EM
   };
 
   return (
-    <div className="agents-bar" role="tablist">
-      <div className="agents-head dim small">Subagents: {summarize(rows.map((r) => r.state))}</div>
+    <div className="agents-bar" role="tablist" aria-label="Subagents" ref={listRef}>
+      {head && <div className="agents-head dim small">{subagentsLine(rows.map((r) => r.state))}</div>}
       <div className={`agents-row main ${thread === null ? "current" : ""}`}>
         <button role="tab" aria-selected={thread === null} className="agents-open" onClick={() => onThread(null)}>
           <span className="agents-dot" />

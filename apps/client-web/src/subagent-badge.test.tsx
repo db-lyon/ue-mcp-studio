@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 // The bar's Subagents badge counts what the Subagents list shows: once the finished
 // subagents are cleared, the badge drops to the running ones, the same number the list has.
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+// Wide, the list is inline under the composer and the button shows and hides it, never
+// opening a second copy; narrow, there is no inline list and the button opens it in a sheet.
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { SUBAGENTS_SHOWN_KEY } from "@ue-mcp-studio/client-core";
 
 const m = vi.hoisted(() => ({ session: vi.fn(), sessions: vi.fn(), dismissAgents: vi.fn(), saveDraft: vi.fn() }));
 vi.mock("./api", () => {
@@ -25,11 +28,27 @@ const session = (dismissed: string[]) => ({
   transcript: [{ kind: "user", text: "dress the cave", at: new Date().toISOString() }, agent("r1", false), agent("r2", false), ...finished.map((id) => agent(id, true))],
 });
 
+/** This device's storage, as a page has it: Node's own global has none without a file. */
+let stored: Map<string, string>;
+beforeEach(() => {
+  stored = new Map();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => void stored.set(k, String(v)), removeItem: (k: string) => void stored.delete(k), clear: () => stored.clear() },
+  });
+});
+
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
   window.location.hash = "";
 });
+
+/** A narrow window: the media query the chat lays out by matches. */
+function narrowWindow() {
+  vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+}
 
 async function open(dismissed: string[] = []) {
   window.location.hash = "#/chat/s1";
@@ -42,25 +61,89 @@ async function open(dismissed: string[] = []) {
   return screen.findByRole("button", { name: /^Subagents \(\d+\)$/ });
 }
 
+const inlineList = () => screen.queryByRole("tablist", { name: "Subagents" });
+
 describe("the bar's Subagents badge", () => {
   it("counts every subagent while none is dismissed", async () => {
     expect((await open()).getAttribute("aria-label")).toBe("Subagents (14)");
   });
 
   it("drops to the running ones after Clear finished, matching the list", async () => {
-    fireEvent.click(await open());
-    // The list shows under the composer and in the sheet: clear from either.
-    fireEvent.click(screen.getAllByRole("button", { name: "Clear finished" })[0]);
+    await open();
+    fireEvent.click(screen.getByRole("button", { name: "Clear finished" }));
     await waitFor(() => expect(screen.getByRole("button", { name: /^Subagents \(\d+\)$/ }).getAttribute("aria-label")).toBe("Subagents (2)"));
     expect(m.dismissAgents).toHaveBeenCalledWith("s1", finished);
-    // Every list left says 2 working, and none has a Finished fold.
-    const summaries = screen.getAllByText(/^Subagents: /).map((e) => e.textContent);
-    expect(summaries.length).toBeGreaterThan(0);
-    for (const s of summaries) expect(s).toBe("Subagents: 2 working");
+    expect(screen.getAllByText(/^Subagents: /).map((e) => e.textContent)).toEqual(["Subagents: 2 working"]);
     expect(screen.queryByRole("button", { name: /Finished \(/ })).toBeNull();
   });
 
   it("reads the daemon's dismissals: a session reopened after clearing says 2", async () => {
     expect((await open(finished)).getAttribute("aria-label")).toBe("Subagents (2)");
+  });
+});
+
+describe("the Subagents button where the list is inline (wide)", () => {
+  it("shows the list by default and is pressed", async () => {
+    const button = await open();
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(inlineList()).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("hides the list, leaving nothing of it, and shows it again; never opens a sheet; the badge stays", async () => {
+    const button = await open();
+    fireEvent.click(button);
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(inlineList()).toBeNull();
+    expect(document.querySelector(".agents-bar")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(button.getAttribute("aria-label")).toBe("Subagents (14)");
+    expect(stored.get(SUBAGENTS_SHOWN_KEY)).toBe("hidden");
+    fireEvent.click(button);
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(inlineList()).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(stored.get(SUBAGENTS_SHOWN_KEY)).toBe("shown");
+  });
+
+  it("remembers this viewer's choice to hide it", async () => {
+    stored.set(SUBAGENTS_SHOWN_KEY, "hidden");
+    const button = await open();
+    expect(button.getAttribute("aria-pressed")).toBe("false");
+    expect(inlineList()).toBeNull();
+  });
+
+  it("shows the list when storage throws", async () => {
+    Object.defineProperty(window, "localStorage", { configurable: true, get: () => { throw new Error("blocked"); } });
+    const button = await open();
+    expect(inlineList()).toBeTruthy();
+    fireEvent.click(button);
+    expect(inlineList()).toBeNull();
+  });
+
+  it("brings a shown list scrolled out of view back into view instead of hiding it", async () => {
+    const button = await open();
+    const list = inlineList()!;
+    const scroll = vi.fn();
+    list.scrollIntoView = scroll;
+    list.getBoundingClientRect = () => ({ top: window.innerHeight + 200, bottom: window.innerHeight + 400, height: 200, left: 0, right: 100, width: 100, x: 0, y: window.innerHeight + 200, toJSON: () => ({}) });
+    fireEvent.click(button);
+    expect(scroll).toHaveBeenCalled();
+    expect(button.getAttribute("aria-pressed")).toBe("true");
+    expect(inlineList()).toBeTruthy();
+  });
+});
+
+describe("the Subagents button where there is no inline list (narrow)", () => {
+  it("opens the list in a sheet, the only list on screen, with one header line", async () => {
+    narrowWindow();
+    const button = await open();
+    expect(button.getAttribute("aria-pressed")).toBeNull();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await act(async () => fireEvent.click(button));
+    const sheet = screen.getByRole("dialog");
+    expect(sheet.getAttribute("aria-label")).toBe("Subagents: 2 working, 12 done");
+    expect(within(sheet).getAllByText(/^Subagents: /).map((e) => e.textContent)).toEqual(["Subagents: 2 working, 12 done"]);
+    expect(screen.getAllByRole("tablist")).toHaveLength(1);
   });
 });

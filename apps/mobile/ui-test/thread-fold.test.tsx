@@ -295,7 +295,9 @@ describe("a session opened in the chat", () => {
     expect(screen.queryByText("Place rocks")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Subagents (2)" }));
     await settle();
-    const sheet = screen.getByLabelText("Subagents");
+    // The sheet's title is the list's one header line; the list inside draws no second one.
+    const sheet = screen.getByLabelText(/^Subagents: /);
+    expect(within(sheet).getAllByText(/^Subagents: /)).toHaveLength(1);
     expect(within(sheet).getByLabelText("Place rocks")).toBeTruthy();
     expect(within(sheet).getByLabelText("Check the light")).toBeTruthy();
     // Opened, its thread is read by its id, its newest page first, whatever the phone holds of the session.

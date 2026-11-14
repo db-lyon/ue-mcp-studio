@@ -117,7 +117,7 @@ export function Sheet({ open, title, onClose, children }: { open: boolean; title
         {/* Tighter than the web's .sheet-head (owner, device build 6): no band between the grip and the title, or under it. */}
         <View testID="sheet-handle" {...pan.panHandlers} style={{ flexDirection: "row", alignItems: "center", gap: 8, paddingTop: SHEET_HEAD.top, paddingHorizontal: 4, paddingBottom: SHEET_HEAD.bottom }}>
           <View testID="sheet-grip" style={{ position: "absolute", top: 0, left: "50%", width: 36, height: 4, marginLeft: -18, borderRadius: 2, backgroundColor: t.c.lineStrong }} />
-          <T weight={700} size={t.base.size}>
+          <T weight={700} size={t.base.size} numberOfLines={1} style={{ flexShrink: 1 }}>
             {title}
           </T>
           <Spacer />

@@ -1,5 +1,6 @@
 /**
- * The threads of the session, in the Subagents sheet on the phone: the main
+ * The threads of the session, in the Subagents sheet on the phone, under the
+ * sheet's title, which is the list's one "Subagents: 2 working" line: the main
  * agent, the subagents still running (each with a stop button), and the
  * finished ones in a section that starts collapsed. Finished ones this viewer
  * has not opened are marked new. A row switches the conversation to that
@@ -12,7 +13,7 @@
 import { useState } from "react";
 import { Pressable, View } from "react-native";
 import type { ContextUsage, SessionAgent } from "@ue-mcp-studio/shared";
-import { STATE_LABEL, agentView, describe, formatDuration, isActive, listedSubagents, summarize, tokenCount, type AgentState } from "@ue-mcp-studio/client-core";
+import { STATE_LABEL, agentView, describe, formatDuration, isActive, listedSubagents, subagentsLine, tokenCount, type AgentState } from "@ue-mcp-studio/client-core";
 import { font, T, useTheme } from "../ui";
 import { useNow } from "./hooks";
 import { stateColors } from "./ChatHeader";
@@ -20,8 +21,10 @@ import { buttonText, small } from "./styles";
 
 const EMPTY: ReadonlySet<string> = new Set();
 
-export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {} }: {
+export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {}, head = true }: {
   agents: SessionAgent[];
+  /** Whether the list draws its own "Subagents: ..." line; off in the sheet, whose title already is that line. */
+  head?: boolean;
   thread: string | null;
   onThread: (id: string | null) => void;
   onStop: (id: string) => void;
@@ -102,7 +105,7 @@ export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EM
 
   return (
     <View accessibilityRole="tablist" style={{ gap: 2 }}>
-      <T style={[dimSmall, { paddingTop: 2, paddingHorizontal: 2, paddingBottom: 4 }]}>Subagents: {summarize(rows.map((r) => r.state))}</T>
+      {head ? <T style={[dimSmall, { paddingTop: 2, paddingHorizontal: 2, paddingBottom: 4 }]}>{subagentsLine(rows.map((r) => r.state))}</T> : null}
       {rowBox(
         thread === null,
         <Pressable accessibilityRole="tab" accessibilityState={{ selected: thread === null }} accessibilityLabel="Main" onPress={() => onThread(null)} style={openStyle}>

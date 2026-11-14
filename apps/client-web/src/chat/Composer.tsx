@@ -351,6 +351,8 @@ export interface BarUtility {
   /** Subagents: how many the Subagents list shows (listedSubagents). */
   count?: number;
   disabled?: boolean;
+  /** A toggle's state: Subagents where its list is inline, pressed while that list shows. Undefined is a plain button. */
+  pressed?: boolean;
 }
 
 /** Each utility's class, for styles and for the visual QA's clicks. */
@@ -360,8 +362,9 @@ const UTILITY_CLASS: Record<BarUtilityId, string> = { checkpoints: "composer-che
 function UtilityButton({ u, hidden }: { u: BarUtility; hidden?: boolean }) {
   return (
     <button
-      className={`ghost bar-button icon-only ${UTILITY_CLASS[u.id]}`}
+      className={`ghost bar-button icon-only ${UTILITY_CLASS[u.id]} ${u.pressed ? "selected" : ""}`}
       aria-label={utilityLabel(u.id, u.count)}
+      aria-pressed={u.pressed}
       title={UTILITY_TITLE[u.id]}
       disabled={u.disabled}
       tabIndex={hidden ? -1 : undefined}
@@ -438,7 +441,8 @@ function UtilityMenu({ items }: { items: BarUtility[] }) {
           {items.map((u) => (
             <button
               key={u.id}
-              role="menuitem"
+              role={u.pressed === undefined ? "menuitem" : "menuitemcheckbox"}
+              aria-checked={u.pressed}
               className={`composer-more-item ${UTILITY_CLASS[u.id]}`}
               title={UTILITY_TITLE[u.id]}
               disabled={u.disabled}

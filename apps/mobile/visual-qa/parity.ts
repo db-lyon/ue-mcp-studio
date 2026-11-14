@@ -69,6 +69,7 @@ export const PARITY: Record<string, ParityEntry> = {
   "agents-tokens": {owner: "chat"},
   "subagent-message": {owner: "chat", clicks: ["Open thread ›"]},
   "agents-sheet": {owner: "chat", clicks: ["Subagents (2)|More controls*", "?menuitem:Subagents (2)"]},
+  "agents-hidden": {notOnPhone: "The phone has no inline subagent list to hide: its Subagents button opens the list in a sheet, which agents-sheet shows."},
   "agents-cleared": {owner: "chat", clicks: ["Subagents (2)|More controls*", "?menuitem:Subagents (2)"]},
   "utilities-folded": {owner: "chat", clicks: ["?More controls*"]},
   "endpoints-empty": {owner: "agent-b"},

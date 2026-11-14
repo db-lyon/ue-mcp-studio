@@ -9,7 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, SUBAGENT_TEXT_ONLY, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsOf, unreachable } from "@ue-mcp-studio/client-core";
+import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, SUBAGENT_TEXT_ONLY, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsLine, subagentsOf, subagentsPress, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { writeLocation } from "../location";
 import { haptic } from "../native/haptics";
@@ -509,9 +509,13 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   // The open thread, read by its id: its own entries, also those before the page of the session the phone holds.
   const drawerThread = useAgentThread(api.agentThread, detail?.id ?? null, drawerAgent ? drawerAgent.id : null, detail, detail?.transcript ?? []);
   // The bar's utilities after the context ring, as on the web: Checkpoints, and the subagents while there are some.
+  // The phone has no inline list, so the shared rule opens the list in the sheet: the only list on screen.
+  const pressAgents = () => {
+    if (subagentsPress({ inline: false, shown: false, inView: false }) === "open-list") setSheet(true);
+  };
   const utilities: BarUtility[] = [
     { id: "checkpoints", icon: <CheckpointsGlyph />, onClick: () => setReviewOpen(true) },
-    ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: () => setSheet(true) }] : []),
+    ...(listedAgents.length > 0 ? [{ id: "subagents" as const, icon: <AgentsGlyph />, count: listedAgents.length, onClick: pressAgents }] : []),
   ];
 
   // A subagent thread is a drawer over the main thread: mounted off screen, then slid in;
@@ -526,8 +530,10 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
   }, [thread]);
 
   // The session's threads, in a sheet from the bar's Subagents button, so the composer stays at the bottom of the screen.
+  // The sheet's title is the list's one header line, so the list drops its own.
   const threads = detail && (
     <Threads
+      head={false}
       agents={agents}
       thread={openThread ? thread : null}
       onThread={(id) => {
@@ -621,6 +627,25 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
             onMain={() => setThread(null)}
             onStop={stopSubagent}
             onTitleLongPress={() => setDiagOpen((v) => !v)}
+            trailing={
+              settings ? (
+                <ContextMeter
+                  place="below"
+                  context={mainContext}
+                  totals={detail.totals}
+                  model={settings.model}
+                  modelName={nameOf(settings.model)}
+                  nameOf={nameOf}
+                  listedWindow={listedWindow}
+                  busy={busy}
+                  compacting={compacting}
+                  runtime={runtimeCompacts}
+                  route={settings.route}
+                  onCompact={() => compactNow()}
+                  owner={openThread ? "Main" : undefined}
+                />
+              ) : null
+            }
           />
         ) : null}
         {selected && diagOpen ? <DiagStrip /> : null}
@@ -720,32 +745,12 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
                           space={columnH > 0 ? columnH - cardsH : null}
                           height={settings?.composerHeight ?? null}
                           onHeight={(composerHeight) => void api.saveSettings({ composerHeight }).then(setSettings, fail)}
-                          picker={
-                            <>
-                              {settings ? <ModelAndEffort pill settings={settings} onSettings={setSettings} /> : null}
-                              {settings ? (
-                                <ContextMeter
-                                  context={mainContext}
-                                  totals={detail.totals}
-                                  model={settings.model}
-                                  modelName={nameOf(settings.model)}
-                                  nameOf={nameOf}
-                                  listedWindow={listedWindow}
-                                  busy={busy}
-                                  compacting={compacting}
-                                  runtime={runtimeCompacts}
-                                  route={settings.route}
-                                  onCompact={() => compactNow()}
-                                  owner={openThread ? "Main" : undefined}
-                                />
-                              ) : null}
-                            </>
-                          }
+                          picker={settings ? <ModelAndEffort pill settings={settings} onSettings={setSettings} /> : null}
                           utilities={utilities}
                         />
                         </View>
                         </View>
-                        <Sheet open={sheet} title="Subagents" onClose={() => setSheet(false)}>
+                        <Sheet open={sheet} title={subagentsLine(listedAgents.map((a) => a.state))} onClose={() => setSheet(false)}>
                           {threads}
                         </Sheet>
                         <Sheet open={reviewOpen} title="Checkpoints" onClose={() => setReviewOpen(false)}>
