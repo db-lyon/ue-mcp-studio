@@ -36,6 +36,7 @@ export * from "./chat-view.js";
 export * from "./review-view.js";
 export * from "./forms.js";
 export * from "./asset-tile.js";
+export * from "./reply-image.js";
 export * from "./project-switch.js";
 export * from "./working.js";
 export * from "./composer-target.js";
