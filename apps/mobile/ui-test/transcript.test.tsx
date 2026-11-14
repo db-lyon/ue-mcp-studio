@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { act, fireEvent, renderHook, screen } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, within } from "@testing-library/react";
 import { BOTTOM_SLACK, useFollow } from "../src/chat/hooks";
 import { sessionAgents, type ApprovalRequest, type EditorDialog, type PendingForm, type TranscriptEntry } from "@ue-mcp-studio/shared";
 import { AssetLinks } from "@ue-mcp-studio/client-core";
@@ -185,7 +185,16 @@ describe("MainTranscript", () => {
     const onStop = vi.fn();
     const running: TranscriptEntry[] = [{ kind: "tool", call: { id: "ag", name: "agent", input: { description: "Dress the cave", prompt: "Place rocks" }, outcome: "pending", startedAt: at } }];
     const first = renderInProject(<MainTranscript {...transcriptProps(running, { status: "running", onStop })} />);
-    fireEvent.click(screen.getByLabelText("Stop Dress the cave"));
+    // Nothing shares the first line with the state: Open thread is at the card's foot, last, and Stop is
+    // beside the card, outside it, so neither is pushed past the edge on a narrow phone.
+    const stop = screen.getByLabelText("Stop Dress the cave");
+    const open = screen.getByTestId("agent-open");
+    const card = open.parentElement!;
+    expect(card.lastElementChild).toBe(open);
+    expect(card.contains(stop)).toBe(false);
+    expect(card.parentElement!.contains(stop)).toBe(true);
+    expect(within(card.firstElementChild as HTMLElement).queryByText(/Open thread|Stop/)).toBeNull();
+    fireEvent.click(stop);
     expect(onStop).toHaveBeenCalledWith("ag");
     first.unmount();
     const ended: TranscriptEntry[] = [{ kind: "tool", call: { id: "ag", name: "agent", input: { description: "Dress the cave", prompt: "Place rocks" }, outcome: "stopped", result: "x", startedAt: at, endedAt: at } }];

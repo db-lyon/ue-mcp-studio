@@ -138,3 +138,39 @@ describe("the composer bar in a browser", () => {
     }
   }
 });
+
+describe("a subagent's card in the conversation, in a browser", () => {
+  for (const theme of THEMES) {
+    it(`keeps Open thread and Stop inside the card's row at phone widths, ${theme}`, async () => {
+      const page = await browser.newPage({ viewport: { width: 390, height: 860 } });
+      try {
+        await page.goto(`${base}/visual-qa.html?scenario=agents-tokens&theme=${theme}`);
+        await page.waitForSelector(".transcript .agent-link .agent-open", { timeout: 30_000 });
+        await page.evaluate(() => document.fonts.ready);
+        const failures: string[] = [];
+        for (const width of [320, 360, 390, 590]) {
+          await page.setViewportSize({ width, height: 860 });
+          await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+          const out: string[] = await page.evaluate(() => {
+            const bad: string[] = [];
+            for (const link of document.querySelectorAll<HTMLElement>(".transcript .agent-link")) {
+              const c = link.getBoundingClientRect();
+              const row = (link.closest(".agent-link-row") ?? link).getBoundingClientRect();
+              const open = link.querySelector<HTMLElement>(".agent-open")!.getBoundingClientRect();
+              if (open.right > c.right + 0.5 || open.left < c.left - 0.5) bad.push(`Open thread ${open.left}-${open.right} outside the card ${c.left}-${c.right}`);
+              const stop = link.closest(".agent-link-row")?.querySelector<HTMLElement>(".agent-stop")?.getBoundingClientRect();
+              if (stop && stop.right > row.right + 0.5) bad.push(`Stop ends at ${stop.right}, past the row's ${row.right}`);
+              const scroller = link.closest<HTMLElement>(".transcript")!;
+              if (row.right > scroller.getBoundingClientRect().right + 0.5) bad.push(`the row ends at ${row.right}, past the conversation`);
+            }
+            return bad;
+          });
+          for (const o of out) failures.push(`${width}px: ${o}`);
+        }
+        expect(failures).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    }, 90_000);
+  }
+});

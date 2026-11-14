@@ -918,8 +918,9 @@ export function StateDot({ state, size = 6 }: { state: AgentState; size?: number
 
 /**
  * In the main thread, a subagent is one row that opens its thread: on a phone
- * its dot, name, state and Open thread on the first line, its title on its own
- * line under them, and its activity under that.
+ * its dot, name and state on the first line, its title on its own line under
+ * them, its activity under that, and Open thread at the card's foot. A running
+ * one has Stop beside the card, as on the web.
  */
 function AgentLink({ row, onOpen, onStop }: { row: Row; onOpen: (id: string) => void; onStop?: (id: string) => void }) {
   const t = useTheme();
@@ -930,36 +931,39 @@ function AgentLink({ row, onOpen, onStop }: { row: Row; onOpen: (id: string) => 
   const text: TextStyle = { ...font(t, role, 400, 12, lh), letterSpacing: t.editor ? 0 : 0.24 };
   const colors = stateColors(t, row.state);
   const meta = `${row.activity ? `${row.activity}, ` : ""}${calls} ${calls === 1 ? "call" : "calls"}, ${formatDuration(row.secs)}`;
-  return (
+  const card = (
     <Pressable
       accessibilityRole="button"
       onPress={() => onOpen(row.call.id)}
-      style={({ pressed }) => ({ minHeight: 44, paddingVertical: 10, paddingHorizontal: 12, gap: 4, borderWidth: 1, borderColor: pressed ? t.c.accentLine : t.c.line, borderRadius: 8 })}
+      style={({ pressed }) => ({ flex: 1, minWidth: 0, minHeight: 44, paddingVertical: 10, paddingHorizontal: 12, gap: 4, borderWidth: 1, borderColor: pressed ? t.c.accentLine : t.c.line, borderRadius: 8 })}
     >
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <StateDot state={row.state} />
         <Text style={[text, font(t, role, 600, 12, lh), { color: t.c.text }]}>subagent</Text>
         <Text style={[text, { fontSize: 11, lineHeight: lineBox(11, lh), color: colors.label }]}>{STATE_LABEL[row.state]}</Text>
-        <View style={{ flex: 1 }} />
-        {onStop && isActive(row.state) ? (
-          // A running subagent stops from its row, as from its thread's header.
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`Stop ${describe(row.call)}`}
-            hitSlop={6}
-            onPress={() => onStop(row.call.id)}
-            style={({ pressed }) => ({ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: pressed ? t.c.bad : t.c.line, borderRadius: t.radius })}
-          >
-            <Text style={[text, { color: t.editor ? t.c.bad : t.c.badText }]}>Stop</Text>
-          </Pressable>
-        ) : null}
-        <View style={{ paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.accentLine, borderRadius: t.radius }}>
-          <Text style={[text, { color: t.c.accentHi }]}>{"Open thread ›"}</Text>
-        </View>
       </View>
       <Text style={[text, { color: t.c.text, marginLeft: 14 }]}>{describe(row.call)}</Text>
       <Text style={[text, { color: t.c.dim, marginLeft: 14 }]}>{meta}</Text>
+      {/* On a line of its own at the card's foot, so nothing on the first line pushes it past the edge. */}
+      <View testID="agent-open" style={{ alignSelf: "flex-end", marginTop: 2, paddingVertical: 6, paddingHorizontal: 10, borderWidth: 1, borderColor: t.c.accentLine, borderRadius: t.radius }}>
+        <Text style={[text, { color: t.c.accentHi }]}>{"Open thread ›"}</Text>
+      </View>
     </Pressable>
+  );
+  if (!onStop || !isActive(row.state)) return card;
+  // A running subagent stops from beside its row (.agent-link-row), as from its thread's header.
+  return (
+    <View style={{ flexDirection: "row", alignItems: "stretch", gap: 6 }}>
+      {card}
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Stop ${describe(row.call)}`}
+        onPress={() => onStop(row.call.id)}
+        style={({ pressed }) => ({ flexShrink: 0, minWidth: 44, justifyContent: "center", alignItems: "center", paddingHorizontal: 12, borderWidth: 1, borderColor: pressed ? t.c.bad : t.c.line, borderRadius: 8 })}
+      >
+        <Text style={[text, { color: t.editor ? t.c.bad : t.c.badText }]}>Stop</Text>
+      </Pressable>
+    </View>
   );
 }
 
