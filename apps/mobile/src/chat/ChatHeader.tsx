@@ -3,8 +3,10 @@
  * from a subagent's thread to the main thread, from the main thread to the
  * session list. The title is the thread on screen, with the session above it
  * in small type while a subagent's thread is open, and that thread's state
- * and Stop. Checkpoints and the subagents are in the composer bar.
+ * and Stop, and the context ring at the right end. Checkpoints, the subagents
+ * and Attach are in the composer bar.
  */
+import type { ReactNode } from "react";
 import { Pressable, View } from "react-native";
 import type { SessionAgent } from "@ue-mcp-studio/shared";
 import { STATE_LABEL, agentView, describe, isActive, type AgentState } from "@ue-mcp-studio/client-core";
@@ -45,8 +47,10 @@ export const HEADER_ROW = (t: Theme) => ({ flexDirection: "row" as const, alignI
  */
 const backSpacing = (t: Theme) => (t.editor ? 0 : 0.32);
 
-export function ChatHeader({ title, thread, onSessions, onMain, onStop, onTitleLongPress }: {
+export function ChatHeader({ title, thread, onSessions, onMain, onStop, onTitleLongPress, trailing }: {
   title: string;
+  /** At the right end of the row: the context ring. */
+  trailing?: ReactNode;
   /** The subagent whose thread is open, from the daemon's list; null on the main thread. */
   thread: SessionAgent | null;
   onSessions: () => void;
@@ -86,6 +90,7 @@ export function ChatHeader({ title, thread, onSessions, onMain, onStop, onTitleL
           <T style={[buttonText(t), { color: t.c.bad }]}>Stop</T>
         </Pressable>
       ) : null}
+      {trailing ? <View style={{ flexShrink: 0, marginRight: -4 }}>{trailing}</View> : null}
     </View>
   );
 }

@@ -93,6 +93,22 @@ describe("ChatHeader", () => {
     expect(onMain).toHaveBeenCalled();
     expect(onStop).toHaveBeenCalledWith("a1");
   });
+
+  it("holds the context ring at the right end of the row, after the title", () => {
+    const usage = { input: 698_000, cached: 0, output: 2400, model: "m", at: "2026-11-04T12:00:00Z" } as ContextUsage;
+    renderInProject(
+      <ChatHeader title="Cave door" thread={null} onSessions={() => undefined} onMain={() => undefined} onStop={() => undefined}
+        trailing={<ContextMeter place="below" context={usage} totals={undefined} model="m" listedWindow={1_000_000} busy={false} compacting={false} runtime={false} onCompact={() => undefined} />} />,
+    );
+    const row = screen.getByLabelText("Back to sessions").parentElement!;
+    const ring = screen.getByLabelText(/^Context 70% full/);
+    expect(row.contains(ring)).toBe(true);
+    expect(row.lastElementChild!.contains(ring)).toBe(true);
+    // No words beside it: the ring alone.
+    expect(screen.queryByText("70%")).toBeNull();
+    fireEvent.click(ring);
+    expect(screen.getByText("Context")).toBeTruthy();
+  });
 });
 
 describe("Threads", () => {

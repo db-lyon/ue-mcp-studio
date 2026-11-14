@@ -1,9 +1,10 @@
 /**
  * The web client's chat/Composer.tsx as native views: the message box with its
  * resize handle, the files and mentions it carries, the slash and @-mention
- * menus over it, and the bar with the model, the context ring, the utilities
- * (Checkpoints, Subagents, Attach, folded into one menu when they do not fit),
- * and Send, Queue or Stop.
+ * menus over it, and the bar with the model, the utilities (Checkpoints,
+ * Subagents, Attach, always shown: the model pill truncates first, and they
+ * fold into one menu only when they still do not fit), and Send, Queue or
+ * Stop. The context ring is in the chat header.
  * styles.css: .composer, .composer-divider, .composer-grip, .attach-*,
  * .composer-bar, at a phone's width and coarse pointer.
  */
@@ -26,6 +27,8 @@ export { MAX_LINES, MIN_HEIGHT, MIN_TRANSCRIPT, NUDGE, NUDGE_SAVE_MS, clampHeigh
 
 /** Two taps on the handle this close together forget the dragged height, as a double click does on the web. */
 const DOUBLE_TAP_MS = 300;
+/** The least the model pill truncates to before the utilities fold: its 16 px sides and a few letters. */
+const PILL_MIN = 72;
 /** The box's line: 16px text at 1.5. */
 const LINE = 24;
 /** The box's padding (8 top and bottom) and border (1 each side). */
@@ -178,10 +181,15 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
     ...utilities,
     { id: "attach" as const, icon: <PlusGlyph />, disabled: busy && !onQueue, onClick: () => openAttach() },
   ].sort((a, b) => BAR_UTILITIES.indexOf(a.id) - BAR_UTILITIES.indexOf(b.id));
+  // The utilities never shrink: the model pill truncates first, down to PILL_MIN, and only a row that still
+  // does not fit folds. Their room is the slot, the spacer and what the pill can give up; the three add up
+  // to the same width folded or not, so the answer does not flip back and forth.
   const [rowW, setRowW] = useState<number | null>(null);
   const [slotW, setSlotW] = useState<number | null>(null);
   const [spacerW, setSpacerW] = useState<number | null>(null);
-  const folded = foldUtilities(rowW, slotW === null || spacerW === null ? null : slotW + spacerW);
+  const [pickerW, setPickerW] = useState<number | null>(picker ? null : 0);
+  const slack = picker ? (pickerW === null ? null : pickerW - PILL_MIN) : 0;
+  const folded = foldUtilities(rowW, slotW === null || spacerW === null || slack === null ? null : slotW + spacerW + slack);
 
   const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => {
@@ -345,12 +353,12 @@ export function Composer({ draft, onDraft, onBlur, placeholder, busy, canSend, o
           onLayout={(e) => setLaidBox(e.nativeEvent.layout.height)}
           style={[s.box, textFont, { height: fit.height }, closed && { color: t.c.dim }]}
         />
-        {/* One row: the model and effort, the context ring, the utilities; Send or Stop last, never shrinking. No words: icons named for a screen reader. */}
+        {/* One row: the model and effort, the utilities; Send or Stop last, never shrinking. No words: icons named for a screen reader. */}
         <View style={s.bar} onLayout={onBar}>
           <BarTierContext.Provider value={tier}>
-            {picker}
-            {/* The slot shrinks first, so a row that does not fit shows as a slot narrower than the row: then it folds. */}
-            <View testID="composer-utilities" style={[s.utilities, folded && { flexShrink: 0 }]} onLayout={(e) => setSlotW(e.nativeEvent.layout.width)}>
+            {picker ? <View testID="composer-picker" style={s.picker} onLayout={(e) => setPickerW(e.nativeEvent.layout.width)}>{picker}</View> : null}
+            {/* The slot keeps its width: the pill gives way first, and a row that still does not fit folds. */}
+            <View testID="composer-utilities" style={s.utilities} onLayout={(e) => setSlotW(e.nativeEvent.layout.width)}>
               {folded ? <UtilityMenu items={all} /> : all.map((u) => <UtilityButton key={u.id} u={u} />)}
             </View>
             {extras}
@@ -605,8 +613,9 @@ const styles = (t: Theme) => ({
   box: { width: "100%" as const, backgroundColor: "transparent", color: t.c.text, paddingVertical: 8, paddingHorizontal: 10, textAlignVertical: "top" as const, outlineStyle: "none" as never },
   bar: { flexDirection: "row" as const, flexWrap: "nowrap" as const, alignItems: "center" as const, gap: 6, minWidth: 0, position: "relative" as const },
   spacer: { flex: 1, minWidth: 0 },
-  // The utilities' slot gives way first, ahead of the model (folded, the overflow button keeps its size); its row and the measured copy share a gap.
-  utilities: { flexDirection: "row" as const, alignItems: "center" as const, gap: 2, flexShrink: 1000, minWidth: 0 },
+  // The model pill gives way first, truncating its text; the utilities keep their size. Their row and the measured copy share a gap.
+  picker: { flexDirection: "row" as const, alignItems: "center" as const, flexShrink: 1, minWidth: 0 },
+  utilities: { flexDirection: "row" as const, alignItems: "center" as const, gap: 2, flexShrink: 0 },
   utilityRow: { flexDirection: "row" as const, alignItems: "center" as const, gap: 2, alignSelf: "flex-start" as const },
   measure: { position: "absolute" as const, left: 0, top: 0, opacity: 0, flexDirection: "row" as const },
   attachError: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.badText },

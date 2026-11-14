@@ -82,7 +82,9 @@ export function IconButton({ label, glyph, onPress }: { label: string; glyph: st
   );
 }
 
-export function ContextMeter({ context, totals, model, modelName, nameOf = (id) => id, listedWindow, busy, compacting, runtime, route = null, onCompact, owner }: {
+export function ContextMeter({ context, totals, model, modelName, nameOf = (id) => id, listedWindow, busy, compacting, runtime, route = null, onCompact, owner, place = "above" }: {
+  /** Where the details open from the ring: above it (a bar at the bottom), below it (the chat header). */
+  place?: "above" | "below";
   context: ContextUsage | undefined;
   totals: SessionSpend | undefined;
   /** The model the next turn runs on, by id, and as the picker names it. */
@@ -111,8 +113,12 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
   const open = anchored.shown;
   const setOpen = (v: boolean) => (v ? anchored.open() : anchored.close());
   useBack(open ? () => setOpen(false) : null, { overlay: true });
-  // The details open over the conversation, 6 px above the composer bar, across its width.
-  const bottom = anchored.anchor ? win.height - anchored.anchor.y + 6 : 0;
+  // The details open over the conversation across its width: 6 px above the ring in the composer bar,
+  // 6 px below it in the chat header.
+  const a = anchored.anchor;
+  const bottom = place === "above" ? (a ? win.height - a.y + 6 : 0) : undefined;
+  const top = place === "below" ? (a ? a.y + a.height + 6 : 0) : undefined;
+  const maxHeight = Math.min(win.height * 0.6, place === "above" ? win.height - (bottom ?? 0) - insets.top : win.height - (top ?? 0) - insets.bottom - 10);
   const view = contextView(context, model, listedWindow);
   if (!view && !totals?.requests) return null;
   const runtimeNow = runtime && !view?.measuredOn && !!context?.window;
@@ -145,7 +151,7 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
           accessibilityRole="none"
           accessibilityLabel="Context and session totals"
           accessibilityViewIsModal
-          style={{ position: "absolute", left: 10 + insets.left, right: 10 + insets.right, bottom, maxHeight: Math.min(win.height * 0.6, win.height - bottom - insets.top), backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radiusLg, ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}) }}
+          style={{ position: "absolute", left: 10 + insets.left, right: 10 + insets.right, ...(place === "above" ? { bottom } : { top }), maxHeight, backgroundColor: t.c.panel, borderWidth: 1, borderColor: t.c.lineStrong, borderRadius: t.radiusLg, ...(t.shadow ? { boxShadow: "0 20px 40px -24px rgba(0, 0, 0, 0.6)" } : {}) }}
         >
           <ScrollView contentContainerStyle={{ paddingTop: 10, paddingBottom: 14, paddingHorizontal: 12 }}>
             <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
