@@ -242,6 +242,13 @@ export interface RunnerOptions {
    * reply or one subagent, runs there. Orchestration is Studio's either way.
    */
   subscription?: () => boolean;
+  /**
+   * While the sign-ins are still being read after the daemon starts: a promise
+   * that settles once they are (or a time limit passes); null once they are.
+   * Until then `subscription` and the provider cannot tell a signed-in route
+   * from a signed-out one, so a turn that starts or resumes waits for it.
+   */
+  ready?: () => Promise<void> | null;
   /** How the model is reached for this turn: a sign-in or a key, by name. */
   route?: () => string | null;
   /** Ask the user before a command runs or a file changes; on when not given. Approvals, when given, decide instead. */
@@ -880,10 +887,25 @@ export class AgentRunner {
     }
   }
 
-  /** After a daemon restart: anything that was mid-turn continues, and a call that was mid-flight becomes unknown. */
+  /**
+   * After a daemon restart, clean or a crash: anything that was mid-turn
+   * continues, and a call that was mid-flight becomes unknown. What continues
+   * depends on the route, so it waits until the sign-ins have been read.
+   */
   recover(): void {
+    const wait = this.o.ready?.();
+    if (!wait) return this.recoverNow();
+    this.o.host.log.info("sessions resume once the sign-ins are read");
+    void wait.catch(() => {}).then(() => {
+      if (!this.disposed) this.recoverNow();
+    });
+  }
+
+  private recoverNow(): void {
     const why = this.restartCause(true) ?? "Studio's daemon restarted";
     for (const s of this.o.store.all()) {
+      // Read before the subagents are taken over, which marks each one as working in the background.
+      const replyEnded = this.replyHadEnded(s);
       // Subagents first: one whose conversation runs in a host is taken over; one that ran in the previous daemon ends here.
       const kept = this.recoverAgents(s, why);
       // A turn running in its own process outlived the previous daemon: this one takes it over.
@@ -891,8 +913,15 @@ export class AgentRunner {
       // Only subagents outlived it: the main agent is free beside them, and their reports wake it.
       if (kept.size > 0 && !s.pending?.some((p) => p.state !== "done")) {
         if (s.status === "running" || s.status === "waiting") {
-          const asked = new Set((s.approvals ?? []).filter((a) => !a.parent).map((a) => a.toolUseId));
-          this.endTurn(s, { by: "studio", why }, asked, kept);
+          if (replyEnded) {
+            // The main agent's reply had ended before the restart: nothing of it was cut off, so it says nothing.
+            if (s.status !== "running") this.setStatus(s, "running", null);
+            this.refreshFree(s);
+            this.o.host.log.info(`session ${s.id}: the main agent is free beside ${kept.size} subagent(s) that went on through the restart`);
+          } else {
+            const asked = new Set((s.approvals ?? []).filter((a) => !a.parent).map((a) => a.toolUseId));
+            this.endTurn(s, { by: "studio", why }, asked, kept);
+          }
         }
         continue;
       }
@@ -943,6 +972,17 @@ export class AgentRunner {
       this.o.store.save(s);
     }
     this.resumeAll();
+  }
+
+  /**
+   * Whether the main agent's reply had ended before the restart, leaving only
+   * subagents in the background: it was free beside them, and nothing of its
+   * own (no call, no agent call it waited on) was open.
+   */
+  private replyHadEnded(s: StoredSession): boolean {
+    if (!s.mainFree || (s.status !== "running" && s.status !== "waiting")) return false;
+    if (s.pending?.some((p) => p.state !== "done")) return false;
+    return !s.transcript.some((t) => t.kind === "tool" && !t.parent && t.call.outcome === "pending" && !(t.call.name === "agent" && s.agentRuns?.[t.call.id]?.background));
   }
 
   resumeAll(): void {
@@ -1012,6 +1052,9 @@ export class AgentRunner {
     s.messages.push({ role: "user", content } as MessageParam);
     this.replying.add(s.id);
     this.refreshFree(s);
+    // Just after the daemon started, as when a subagent's report wakes the main agent: the route is known once the sign-ins are read.
+    const wait = this.o.ready?.();
+    if (wait) await wait.catch(() => {});
     const onClaude = !!this.o.subscription?.();
     const rewound = !!s.rewound;
     s.rewound = false;
@@ -2729,6 +2772,12 @@ ${result}`);
     const controller = new AbortController();
     this.active.set(id, controller);
     const s = this.require(id);
+    const wait = this.o.ready?.();
+    if (wait) await wait.catch(() => {});
+    if (controller.signal.aborted) {
+      if (this.active.get(id) === controller) this.active.delete(id);
+      return;
+    }
     if (this.o.subscription?.()) {
       // The runtime cannot pick up a reply a restart cut off; its session continues from the next message.
       this.active.delete(id);
@@ -2966,7 +3015,8 @@ ${result}`);
     // One resumed from its saved conversation goes on where it ran, on Studio's loop.
     const resume = attach && "messages" in attach ? attach.messages : undefined;
     const host = attach && "record" in attach ? attach : undefined;
-    const onClaude = !resume && (helper?.run ? helper.run.route === "claude" : !!this.o.subscription?.());
+    // One taken over in its turn host is a Claude sign-in session whatever the route reads as now (the sign-ins may not be read yet).
+    const onClaude = !!host || (!resume && (helper?.run ? helper.run.route === "claude" : !!this.o.subscription?.()));
     try {
       return onClaude
         ? await this.claudeSubagent(s, call, prompt, helper, own, run, stopped, host)
