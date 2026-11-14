@@ -8,6 +8,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { writeFileAtomic } from "./atomic-write.js";
 import {
   DEFAULT_DIALOG_POLICY,
   DEFAULT_USAGE,
@@ -156,9 +157,7 @@ export function writeSecretFile(target: string, value: string): void {
     fs.rmSync(target, { force: true });
     return;
   }
-  const tmp = `${target}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, value, { mode: 0o600 });
-  fs.renameSync(tmp, target);
+  writeFileAtomic(target, value, { mode: 0o600 });
   // A rename keeps the temp file's mode; set it again in case the file pre-existed with another.
   fs.chmodSync(target, 0o600);
 }

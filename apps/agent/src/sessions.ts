@@ -10,6 +10,7 @@ import * as path from "node:path";
 import { COMPACTED_PREFIX, deriveSession, type ContextUsage, type SessionSpend } from "@ue-mcp-studio/shared";
 import type { TurnFacts, ApprovalRequest, QueuedMessage, SessionDetail, SessionSummary, TimelineMark, TouchedItem, TranscriptEntry, TurnStatus } from "@ue-mcp-studio/shared";
 import type { MessageParam } from "./providers.js";
+import { PendingWrites, writeFileAtomic } from "./atomic-write.js";
 import { modelName } from "./models.js";
 import type { ToolImage } from "./images.js";
 import { conversationText, estimateMessagesTokens, isCompactedSummary } from "./compaction.js";
@@ -142,8 +143,11 @@ export const DEFAULT_SESSION_TITLE = "New session";
 export class SessionStore {
   private readonly dir: string;
   private readonly cache = new Map<string, StoredSession>();
+  /** Saves Windows refused (another process had the file open): kept in memory and written again. */
+  private readonly writes: PendingWrites;
 
-  constructor(dataDir: string) {
+  constructor(dataDir: string, log: (msg: string, e?: unknown) => void = (msg, e) => console.warn(`[studio] ${msg}`, e ?? "")) {
+    this.writes = new PendingWrites({ log });
     this.dir = path.join(dataDir, "sessions");
     fs.mkdirSync(this.dir, { recursive: true });
     for (const f of fs.readdirSync(this.dir)) {
@@ -203,6 +207,11 @@ export class SessionStore {
   /**
    * Write through a rename, so a reader or a restart never sees half a session.
    * A blank one stays in memory only, so sessions opened and left do not pile up.
+   *
+   * Never throws: saves run inside event handlers, and an exception there would
+   * take the daemon down. A write the disk refuses (Windows, while another
+   * process has the file open) is kept and written again on the next save of
+   * any session, or shortly on its own, from what is in memory then.
    */
   save(s: StoredSession, opts: { touch?: boolean } = {}): void {
     // touch: false is bookkeeping, such as the crash flag, which must not move the session up the list (#144).
@@ -210,12 +219,30 @@ export class SessionStore {
     this.cache.set(s.id, s);
     const file = path.join(this.dir, `${s.id}.json`);
     if (SessionStore.isBlank(s)) {
-      fs.rmSync(file, { force: true });
+      this.writes.forget(file);
+      try {
+        fs.rmSync(file, { force: true });
+      } catch {
+        // A blank session left on disk is dropped when the store next loads.
+      }
       return;
     }
-    const tmp = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(s));
-    fs.renameSync(tmp, file);
+    this.writes.write(file, () => {
+      const now = this.cache.get(s.id);
+      // Deleted, or blank by now, meanwhile: nothing to bring back.
+      if (!now || SessionStore.isBlank(now)) return;
+      writeFileAtomic(file, JSON.stringify(now));
+    });
+  }
+
+  /** Session files that could not be written yet and wait in memory for another try. */
+  unsaved(): string[] {
+    return this.writes.pending();
+  }
+
+  /** Try the waiting writes now, as a daemon going down does. */
+  flush(): void {
+    this.writes.flush();
   }
 
   /**
@@ -289,6 +316,7 @@ ${text}` }] } as MessageParam,
   delete(id: string): boolean {
     const had = this.cache.delete(id);
     const file = path.join(this.dir, `${id}.json`);
+    this.writes.forget(file);
     if (!fs.existsSync(file)) return had;
     fs.rmSync(file);
     return true;

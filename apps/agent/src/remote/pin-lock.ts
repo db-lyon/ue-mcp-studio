@@ -15,6 +15,7 @@
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeFileAtomic } from "../atomic-write.js";
 import {
   REMOTE_LOCK_IDLE_CHOICES,
   REMOTE_LOCK_IDLE_DEFAULT,
@@ -245,9 +246,7 @@ export class PinLock {
 
   private save(s: Stored): void {
     fs.mkdirSync(path.dirname(this.o.file), { recursive: true });
-    const tmp = `${this.o.file}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(s, null, 2), { mode: 0o600 });
-    fs.renameSync(tmp, this.o.file);
+    writeFileAtomic(this.o.file, JSON.stringify(s, null, 2), { mode: 0o600 });
     this.cache = null;
   }
 

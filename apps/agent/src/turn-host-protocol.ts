@@ -21,6 +21,7 @@ import type { Effort } from "@ue-mcp-studio/shared";
 import type { ToolExecution } from "./tools.js";
 import type { TokenUsage } from "./usage.js";
 import type { ContentBlock } from "./providers.js";
+import { writeFileAtomic } from "./atomic-write.js";
 
 /** Bumped when a message is added or a meaning changes. Never reuse or change the meaning of an existing one. */
 export const TURN_HOST_PROTOCOL = 3;
@@ -153,9 +154,8 @@ export function socketPathFor(host: string): string {
 
 export function writeJsonAtomic(file: string, value: unknown): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const tmp = `${file}.${process.pid}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(value));
-  fs.renameSync(tmp, file);
+  // The daemon reads host records while hosts write them: a refused rename is tried again.
+  writeFileAtomic(file, JSON.stringify(value));
 }
 
 export function readRecord(file: string): TurnHostRecord | null {
@@ -230,7 +230,16 @@ export function sendLine(socket: net.Socket | null, msg: unknown): boolean {
 }
 
 /** Read JSON lines off a socket. A line that is not JSON is dropped. */
-export function onLines(socket: net.Socket, handle: (msg: Record<string, unknown>) => void): void {
+/**
+ * Read one JSON message per line. A message whose handling throws is reported
+ * to `failed` and the next line goes on: an exception in a socket's data
+ * handler is uncaught, and in the daemon it would end every session.
+ */
+export function onLines(
+  socket: net.Socket,
+  handle: (msg: Record<string, unknown>) => void,
+  failed: (e: unknown, msg: Record<string, unknown>) => void = (e) => console.warn("[studio] a turn host message failed", e),
+): void {
   let buf = "";
   socket.setEncoding("utf-8");
   socket.on("data", (chunk: string) => {
@@ -245,7 +254,16 @@ export function onLines(socket: net.Socket, handle: (msg: Record<string, unknown
       } catch {
         continue;
       }
-      if (msg && typeof msg === "object") handle(msg as Record<string, unknown>);
+      if (!msg || typeof msg !== "object") continue;
+      try {
+        handle(msg as Record<string, unknown>);
+      } catch (e) {
+        try {
+          failed(e, msg as Record<string, unknown>);
+        } catch {
+          // Reporting it must not throw either.
+        }
+      }
     }
   });
 }

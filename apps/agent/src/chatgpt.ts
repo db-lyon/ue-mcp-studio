@@ -17,6 +17,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { StudioSignIn } from "@ue-mcp-studio/shared";
 import { rememberWindow } from "./context-windows.js";
+import { writeFileAtomic } from "./atomic-write.js";
 
 const AUTH = "https://auth.openai.com";
 export const AUTHORIZE_URL = `${AUTH}/api/accounts/authorize`;
@@ -91,10 +92,7 @@ export class ChatGptAuth {
 
   save(s: Saved): void {
     fs.mkdirSync(chatgptHome(), { recursive: true });
-    const target = this.file("session.json");
-    const tmp = `${target}.${process.pid}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(s), { mode: 0o600 });
-    fs.renameSync(tmp, target);
+    writeFileAtomic(this.file("session.json"), JSON.stringify(s), { mode: 0o600 });
   }
 
   /** This install's host id: made once, kept, and opaque. */

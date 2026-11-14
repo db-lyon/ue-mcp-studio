@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as os from "node:os";
 import * as path from "node:path";
+import { writeFileAtomic } from "./atomic-write.js";
 import { promisify } from "node:util";
 import * as zlib from "node:zlib";
 
@@ -100,8 +101,6 @@ export async function fetchRuntime(fetchImpl: typeof fetch): Promise<string> {
   if (!binary) throw new Error("The Claude runtime package has no binary for this platform.");
   const dir = runtimeDir(version);
   fs.mkdirSync(dir, { recursive: true });
-  const tmp = path.join(dir, `${BINARY}.${process.pid}.tmp`);
-  fs.writeFileSync(tmp, binary, { mode: 0o755 });
-  fs.renameSync(tmp, path.join(dir, BINARY));
+  writeFileAtomic(path.join(dir, BINARY), binary, { mode: 0o755 });
   return path.join(dir, BINARY);
 }
