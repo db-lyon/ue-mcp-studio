@@ -416,3 +416,83 @@ describe("every transition is recorded, in order", () => {
     expect(calls.at(-1)).toMatchObject({ action: "respond_to_dialog", args: { buttonLabel: "Cancel" } });
   });
 });
+
+describe("a native Windows dialog of the editor (ue-mcp dialogs.native)", () => {
+  const NATIVE = {
+    hwnd: "4242",
+    pid: 77,
+    kind: "gpu-crash",
+    summary: "The editor's GPU device was lost (the GPU crashed or the D3D device was removed). Unreal cannot recover from this: the editor exits when OK is pressed, and it has to be started again.",
+    details: ["LogD3D12RHI: Error: GPU crash detected: DXGI_ERROR_DEVICE_REMOVED"],
+  };
+  const GPU = { editor: "Scratch", title: "Error", message: "GPU Crashed or D3D Device Removed.", buttons: ["OK"] };
+
+  function withNative() {
+    const d = setup();
+    const presses: Array<{ hwnd: string; button: string; pid?: number }> = [];
+    let result: { pressed: boolean; closed: boolean; button?: string; error?: string } = { pressed: true, closed: true, button: "OK" };
+    (d.host as unknown as { nativeDialogs: unknown }).nativeDialogs = {
+      press: async (hwnd: string, button: string, opts?: { pid?: number }) => {
+        presses.push({ hwnd, button, pid: opts?.pid });
+        return result;
+      },
+    };
+    return { ...d, presses, setResult: (r: typeof result) => (result = r) };
+  }
+
+  it("keeps what ue-mcp says it is, and says so in its first step", () => {
+    const { broker, emit } = withNative();
+    emit("dialog.opened", { ...GPU, mode: "defer", native: NATIVE });
+    const view = broker.state().dialogs[0];
+    expect(view.native).toEqual(NATIVE);
+    expect(view.sessionId).toBeNull();
+    // The summary is on the card already; the step says what happened and who answers.
+    expect(view.steps[0].text).toBe("A Windows dialog opened in the editor. Answer it here or in the editor.");
+  });
+
+  it("presses the user's button on that window by handle, in defer, where a Slate dialog is answered in the editor", async () => {
+    const { broker, emit, presses, calls } = withNative();
+    emit("dialog.opened", { ...GPU, mode: "defer", native: NATIVE });
+    expect(await broker.answer(broker.state().dialogs[0].id, { answer: "press", button: "OK" })).toBeNull();
+    expect(presses).toEqual([{ hwnd: "4242", button: "OK", pid: 77 }]);
+    expect(calls).toHaveLength(0);
+    // The daemon reports the press it made for the user, then the close.
+    emit("dialog.answered", { ...GPU, button: "OK", via: "person", native: NATIVE });
+    emit("dialog.closed", { ...GPU, native: NATIVE });
+    expect(broker.state().dialogs).toHaveLength(0);
+  });
+
+  it("credits the user with a press the daemon reports as a person's", () => {
+    const { host, broker, emit, store, s, setNext } = withNative();
+    // A Studio call is waiting on the editor when the box goes up, so the dialog is that session's.
+    setNext(() => new Promise(() => {}));
+    void broker.wrap(host, s.id).callAction("level", "get_outliner", {});
+    emit("dialog.opened", { ...GPU, mode: "auto", native: NATIVE });
+    emit("dialog.answered", { ...GPU, button: "OK", via: "person", native: NATIVE });
+    const line = store.get(s.id)!.transcript.find((t) => t.kind === "dialog");
+    expect(line?.kind === "dialog" && line.dialog.outcome).toMatchObject({ kind: "pressed", button: "OK", by: "you" });
+    expect(line?.kind === "dialog" && line.dialog.native?.kind).toBe("gpu-crash");
+  });
+
+  it("returns ue-mcp's reason when the press did not land", async () => {
+    const { broker, emit, setResult } = withNative();
+    emit("dialog.opened", { ...GPU, mode: "defer", native: NATIVE });
+    setResult({ pressed: false, closed: false, error: "That dialog is no longer open." });
+    expect(await broker.answer(broker.state().dialogs[0].id, { answer: "press", button: "OK" })).toBe("That dialog is no longer open.");
+  });
+
+  it("puts a prompt's answer through the prompt, which ue-mcp presses on the window", async () => {
+    const { broker, s, presses } = withNative();
+    const asked = broker.prompt(s.id, "level", "get_outliner", request({ title: "Error", message: "GPU Crashed", buttons: ["OK"], native: NATIVE as never, minHumanMs: 0 }));
+    expect(broker.state().dialogs[0].native?.kind).toBe("gpu-crash");
+    expect(await broker.answer(broker.state().dialogs[0].id, { answer: "press", button: "OK" })).toBeNull();
+    await expect(asked).resolves.toEqual({ action: "accept", content: { button: "OK" } });
+    expect(presses).toHaveLength(0);
+  });
+
+  it("says to update ue-mcp when the daemon cannot press native dialogs", async () => {
+    const { broker, emit } = setup();
+    emit("dialog.opened", { ...GPU, mode: "defer", native: NATIVE });
+    expect(await broker.answer(broker.state().dialogs[0].id, { answer: "press", button: "OK" })).toMatch(/Update ue-mcp/);
+  });
+});
