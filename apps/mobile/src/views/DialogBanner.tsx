@@ -3,7 +3,9 @@
  * silent (apps/client-web views/DialogBanner.tsx and its DialogBannerLine).
  */
 import { useEffect, useState } from "react";
-import { statusLine } from "@ue-mcp-studio/client-core";
+import { View } from "react-native";
+import { dialogBannerLead, statusLine } from "@ue-mcp-studio/client-core";
+import { DialogCard } from "../screens/chat/items";
 import type { DialogsState, EditorDialog } from "@ue-mcp-studio/shared";
 import { Banner, T, useTheme } from "../ui";
 import { useProjectNav } from "../nav";
@@ -42,7 +44,7 @@ export function DialogBannerLine({ dialog: d, now }: { dialog: EditorDialog; now
   return (
     <Banner kind="warn" role="status" style={SHELL_BANNER}>
       <T style={{ flexGrow: 1, flexShrink: 1, flexBasis: 220, minWidth: 0, color: t.c.warnText }}>
-        <T weight={700} style={{ color: t.c.warnText }}>Editor waiting on a dialog:</T> {d.title || "(untitled dialog)"}
+        <T weight={700} style={{ color: t.c.warnText }}>{dialogBannerLead(d)}</T> {d.title || "(untitled dialog)"}
         <T style={{ color: t.c.dim }}> {statusLine(d, now)}</T>
       </T>
     </Banner>
@@ -51,6 +53,16 @@ export function DialogBannerLine({ dialog: d, now }: { dialog: EditorDialog; now
 
 export function DialogBanner({ daemon }: { daemon: DaemonState }) {
   const { state, now } = useDialogs(daemon);
+  // A native Windows dialog (a GPU device loss, an assert box) is its whole card here, with its
+  // buttons: it may belong to no session, and it holds the editor whatever is open.
+  const native = (state?.dialogs ?? []).filter((d) => d.native);
+  if (native.length > 0) {
+    return (
+      <View accessibilityLabel="Windows dialog in the editor" testID="native-dialogs" style={{ gap: 8, paddingHorizontal: 16, paddingTop: 8 }}>
+        {native.map((d) => <DialogCard key={d.id} dialog={d} now={now()} />)}
+      </View>
+    );
+  }
   const first = state?.dialogs[0];
   return first ? <DialogBannerLine dialog={first} now={now()} /> : null;
 }

@@ -121,6 +121,30 @@ describe("DialogCard: who decides", () => {
   });
 });
 
+describe("DialogCard: a native Windows dialog", () => {
+  const gpu = {
+    id: "g1", sessionId: null, title: "Error", message: "GPU Crashed or D3D Device Removed.", buttons: ["OK"], steps: [], held: null, asking: null, outcome: null,
+    mode: "defer", editor: "UnrealEditor", openedAt: at, call: null,
+    native: { hwnd: "4242", pid: 77, kind: "gpu-crash", summary: "The editor's GPU device was lost. The editor exits when OK is pressed.", details: ["LogD3D12RHI: Error: DXGI_ERROR_DEVICE_REMOVED"] },
+  } as unknown as EditorDialog;
+
+  it("says what it means, offers OK in defer, and keeps the log lines folded until asked", async () => {
+    const api = fakeApi();
+    api.answerDialog.mockResolvedValue({});
+    renderInProject(<DialogCard dialog={gpu} now={now} />, api);
+    expect(screen.getByText("GPU device lost")).toBeTruthy();
+    expect(screen.getByText("The editor's GPU device was lost. The editor exits when OK is pressed.")).toBeTruthy();
+    expect(screen.getByText("Once the editor has exited, start it again from the editor banner.")).toBeTruthy();
+    expect(screen.queryByText(/DXGI_ERROR_DEVICE_REMOVED/)).toBeNull();
+    fireEvent.click(screen.getByLabelText("From the editor log"));
+    expect(screen.getByText(/DXGI_ERROR_DEVICE_REMOVED/)).toBeTruthy();
+    expect(screen.queryByText("Let the agent decide")).toBeNull();
+    fireEvent.click(screen.getByText("OK"));
+    await settle();
+    expect(api.answerDialog).toHaveBeenCalledWith("g1", { answer: "press", button: "OK" });
+  });
+});
+
 describe("DialogCard: the body as ue-mcp read it (#1891)", () => {
   const items = [
     { index: 0, label: "Asset", cells: ["Asset", "File", "Type"], checked: true },

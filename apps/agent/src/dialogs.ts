@@ -29,6 +29,7 @@ import {
   type DialogPolicy,
   type DialogsState,
   type EditorDialog,
+  type NativeDialogFacts,
 } from "@ue-mcp-studio/shared";
 import type { SessionStore } from "./sessions.js";
 import type { AgentHost } from "./tools.js";
@@ -45,6 +46,8 @@ export interface DialogPromptRequest {
     items?: Array<{ index: number; label: string; cells: string[]; checked: boolean }>;
     /** The body as paragraphs and tables, from a ue-mcp after 1.4.14-beta.1. */
     blocks?: DialogBlock[];
+    /** A native Windows dialog of the editor process, from a ue-mcp after 1.4.14-beta.3. */
+    native?: NativeDialogFacts;
     subject: string;
     minHumanMs: number;
   };
@@ -67,6 +70,29 @@ export interface DialogHost {
   events: {
     publish(type: string, data?: Record<string, unknown>): unknown;
     subscribe(listener: (e: { type: string; data: Record<string, unknown> }) => void): () => void;
+  };
+  /**
+   * ue-mcp's native dialog press (feature "dialogs.native", ue-mcp after
+   * 1.4.14-beta.3), restated so Studio builds against older releases: a
+   * person's press of one window's button by handle, whatever the mode.
+   */
+  nativeDialogs?: {
+    press(hwnd: string, button: string, opts?: { pid?: number }): Promise<{ pressed: boolean; closed: boolean; button?: string; error?: string }>;
+  };
+}
+
+/** The native facts an event or a prompt carries, or undefined. */
+function nativeOf(v: unknown): NativeDialogFacts | undefined {
+  if (!v || typeof v !== "object") return undefined;
+  const n = v as Partial<NativeDialogFacts>;
+  if (typeof n.hwnd !== "string" || typeof n.pid !== "number" || typeof n.summary !== "string") return undefined;
+  const kinds: NativeDialogFacts["kind"][] = ["gpu-crash", "assert", "ensure", "missing-modules", "crash", "message"];
+  return {
+    hwnd: n.hwnd,
+    pid: n.pid,
+    kind: kinds.includes(n.kind as NativeDialogFacts["kind"]) ? (n.kind as NativeDialogFacts["kind"]) : "message",
+    summary: n.summary,
+    ...(Array.isArray(n.details) ? { details: n.details.filter((l): l is string => typeof l === "string") } : {}),
   };
 }
 
@@ -196,7 +222,7 @@ export class DialogBroker {
   /** ue-mcp asks Studio about a dialog one of this session's calls met. */
   prompt(sessionId: string, category: string, action: string, req: DialogPromptRequest): Promise<DialogPromptResult> {
     const d = req.dialog;
-    const l = this.recordFor(d.editor, d.title, d.buttons, { message: d.message, items: d.items, blocks: d.blocks, mode: "interactive" });
+    const l = this.recordFor(d.editor, d.title, d.buttons, { message: d.message, items: d.items, blocks: d.blocks, native: nativeOf(d.native), mode: "interactive" });
     this.attribute(l, sessionId, category, action);
     // A prompt replaces any earlier one for the same dialog: ue-mcp asks once per dialog.
     l.resolve?.({ action: "cancel" });
@@ -294,6 +320,25 @@ export class DialogBroker {
       return null;
     }
 
+    // A native Windows dialog: the user's own press, on that window by handle,
+    // whatever the mode. The bridge cannot answer while one is up, so this is
+    // the only way to answer it from here.
+    const native = host.nativeDialogs ?? this.o.host.nativeDialogs;
+    if (l.view.native && native) {
+      l.pressedForUser = a.button;
+      const r = await native.press(l.view.native.hwnd, a.button, { pid: l.view.native.pid });
+      if (!r.pressed) {
+        l.pressedForUser = undefined;
+        return r.error || "The dialog did not take the press.";
+      }
+      if (l.view.outcome?.kind !== "pressed") {
+        l.view.outcome = { kind: "pressed", button: r.button ?? a.button, by: "you", at: this.now() };
+        this.step(l, `You pressed ${r.button ?? a.button}.`);
+        this.changed(l);
+      }
+      return null;
+    }
+
     // Not asked about: in auto, or once handed to the agent, the press calls are open, so press it for the user.
     if (l.view.mode === "auto" || l.view.outcome?.kind === "delegated") {
       l.pressedForUser = a.button;
@@ -309,6 +354,7 @@ export class DialogBroker {
       }
       return null;
     }
+    if (l.view.native) return "Answer this one in the editor: this ue-mcp cannot press Windows dialogs from Studio. Update ue-mcp to press it here.";
     return "Answer this one in the editor: ue-mcp did not put it to Studio.";
   }
 
@@ -386,20 +432,23 @@ export class DialogBroker {
     const items = Array.isArray(d.items) ? (d.items as EditorDialog["items"]) : undefined;
     const blocks = Array.isArray(d.blocks) ? (d.blocks as DialogBlock[]) : undefined;
     const message = typeof d.message === "string" ? d.message : "";
+    const native = nativeOf(d.native);
     if (e.type === "dialog.updated") {
       // The same dialog read again with its rows or blocks, which the first
       // report (the editor's status file) does not carry.
       const l = this.live.get(key);
       if (!l) return;
-      this.recordFor(editor, title, buttons, { message, items, blocks, mode: null });
+      this.recordFor(editor, title, buttons, { message, items, blocks, native, mode: null });
       this.changed(l);
       return;
     }
     if (e.type === "dialog.opened") {
       const mode = d.mode === "auto" || d.mode === "interactive" || d.mode === "defer" ? d.mode : null;
-      const l = this.recordFor(editor, title, buttons, { message, items, blocks, mode });
+      const l = this.recordFor(editor, title, buttons, { message, items, blocks, native, mode });
       if (l.view.steps.length === 0) {
-        this.step(l, mode === "auto" ? "Opened. The agent answers dialogs in this project, so the agent is deciding."
+        this.step(l, native
+          ? `A Windows dialog opened in the editor.${mode === "auto" ? " The agent answers dialogs in this project, and you can answer it here too." : " Answer it here or in the editor."}`
+          : mode === "auto" ? "Opened. The agent answers dialogs in this project, so the agent is deciding."
           : mode === "defer" ? "Opened. Dialogs in this project are answered in the editor."
           : "Opened in the editor.");
       }
@@ -416,7 +465,7 @@ export class DialogBroker {
     if (e.type === "dialog.answered") {
       const button = typeof d.button === "string" ? d.button : "";
       if (l.view.outcome?.kind !== "pressed" || l.view.outcome.button !== button) {
-        const by = l.pressedForUser === button || d.via === "prompt" ? "you" : "agent";
+        const by = l.pressedForUser === button || d.via === "prompt" || d.via === "person" ? "you" : "agent";
         l.view.outcome = { kind: "pressed", button, by, at: this.now() };
         this.step(l, by === "you" ? `You pressed ${button}.` : `The agent pressed ${button}.`);
       }
@@ -460,7 +509,7 @@ export class DialogBroker {
     editor: string,
     title: string,
     buttons: string[],
-    rest: { message: string; items?: EditorDialog["items"]; blocks?: DialogBlock[]; mode: EditorDialog["mode"] },
+    rest: { message: string; items?: EditorDialog["items"]; blocks?: DialogBlock[]; native?: NativeDialogFacts; mode: EditorDialog["mode"] },
   ): Live {
     const key = keyOf(editor, title, buttons);
     const existing = this.live.get(key);
@@ -468,6 +517,7 @@ export class DialogBroker {
       if (rest.message) existing.view.message = rest.message;
       if (rest.items) existing.view.items = rest.items;
       if (rest.blocks) existing.view.blocks = rest.blocks;
+      if (rest.native) existing.view.native = rest.native;
       if (rest.mode && existing.view.mode === null) existing.view.mode = rest.mode;
       return existing;
     }
@@ -482,6 +532,7 @@ export class DialogBroker {
         buttons,
         ...(rest.items ? { items: rest.items } : {}),
         ...(rest.blocks ? { blocks: rest.blocks } : {}),
+        ...(rest.native ? { native: rest.native } : {}),
         mode: rest.mode,
         openedAt: this.now(),
         sessionId: null,

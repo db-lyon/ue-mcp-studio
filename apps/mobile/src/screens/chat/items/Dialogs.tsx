@@ -1,9 +1,16 @@
 import { useEffect, useState } from "react";
-import { Text, View, useWindowDimensions } from "react-native";
+import { Pressable, Text, View, useWindowDimensions } from "react-native";
 import type { DialogAnswer, DialogBlock, EditorDialog } from "@ue-mcp-studio/shared";
 import {
+  NATIVE_DETAILS_LABEL,
+  answerableHere,
   decider,
+  dialogBannerLead,
   dialogBody,
+  dialogEyebrow,
+  nativeAfterLine,
+  nativeDetails,
+  nativeSummary,
   isPathCell,
   itemListShown,
   outcomeLine,
@@ -134,6 +141,22 @@ function Steps({ dialog: d }: { dialog: EditorDialog }) {
   );
 }
 
+/** The editor log lines under a native dialog's card (details.dialog-details), folded until opened. */
+function NativeDetails({ dialog: d, maxHeight }: { dialog: EditorDialog; maxHeight: number }) {
+  const t = useTheme();
+  const [open, setOpen] = useState(false);
+  const lines = nativeDetails(d);
+  if (lines.length === 0) return null;
+  return (
+    <View style={{ gap: 6 }}>
+      <Pressable accessibilityRole="button" accessibilityLabel={NATIVE_DETAILS_LABEL} accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} hitSlop={8}>
+        <Text style={[small(t), { color: t.c.muted }]}>{`${open ? "▾" : "▸"} ${NATIVE_DETAILS_LABEL} (${lines.length})`}</Text>
+      </Pressable>
+      {open ? <Output maxHeight={maxHeight}>{lines.join("\n")}</Output> : null}
+    </View>
+  );
+}
+
 /**
  * One dialog: its title, message and buttons, which call met it, and one line
  * that says who decides right now. A press is sent to ue-mcp, which presses
@@ -175,14 +198,20 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
     onTick: (index, checked) => setTicks({ ...ticks, [index]: checked }),
   };
   const actions = { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8, marginVertical: 6 } as const;
+  const summary = nativeSummary(d);
+  const after = nativeAfterLine(d);
+  const edge = d.native ? { borderColor: d.native.kind === "gpu-crash" ? t.c.bad : t.c.warn } : null;
   return (
-    <View accessibilityRole="none" accessibilityLabel={`Editor dialog: ${d.title}`} style={approvalCard(t)}>
+    <View accessibilityRole="none" accessibilityLabel={`${dialogEyebrow(d)}: ${d.title}`} style={[approvalCard(t), edge]}>
       <View style={{ flexDirection: "row", alignItems: "baseline", gap: 10 }}>
-        <Text style={labelFont(t)}>Editor dialog</Text>
+        <Text style={labelFont(t)}>{dialogEyebrow(d)}</Text>
         {meta ? <Text style={[small(t), { color: t.c.dim, flexShrink: 1 }]}>{`met by ${meta}`}</Text> : null}
       </View>
       <Text style={{ ...baseFont(t), ...font(t, "sans", 700, 14), lineHeight: 14 * (t.base.lineHeight / t.base.size) }}>{d.title || "(untitled dialog)"}</Text>
+      {summary ? <Text style={{ ...baseFont(t), ...font(t, "sans", 600, t.base.size), color: t.c.text }}>{summary}</Text> : null}
       <DialogBody dialog={d} ticks={tickState} maxHeight={vh * 0.24} />
+      {after ? <Text style={[small(t), { color: t.c.muted }]}>{after}</Text> : null}
+      <NativeDetails dialog={d} maxHeight={vh * 0.24} />
       {rows.length > 0 && itemListShown(d) ? (
         <View accessibilityLabel="Assets" style={{ gap: 4, maxHeight: vh * 0.2 }}>
           {rows.map((i) => (
@@ -217,6 +246,12 @@ export function DialogCard({ dialog: d, now }: { dialog: EditorDialog; now: numb
           <Text style={[small(t), { color: t.c.dim }]}>Answer it yourself:</Text>
           {d.buttons.map((b) => <ContentButton key={b} title={b} disabled={busy} onPress={() => press(b)} />)}
         </View>
+      ) : answerableHere(d) ? (
+        <View style={actions}>
+          {d.buttons.map((b, i) => (
+            <ContentButton key={b} kind={i === 0 ? "primary" : "default"} title={b} disabled={busy} onPress={() => press(b)} />
+          ))}
+        </View>
       ) : null}
       <Steps dialog={d} />
     </View>
@@ -231,7 +266,7 @@ export function DialogLine({ dialog: d }: { dialog: EditorDialog }) {
   return (
     <View accessibilityRole="none" style={{ borderLeftWidth: 2, borderLeftColor: t.c.accentLine, paddingVertical: 4, paddingHorizontal: 10, marginVertical: 6 }}>
       <Text style={baseFont(t)}>
-        <Text style={labelFont(t)}>Editor dialog</Text> <Text style={font(t, "sans", 700, t.base.size)}>{d.title || "(untitled dialog)"}</Text>
+        <Text style={labelFont(t)}>{dialogEyebrow(d)}</Text> <Text style={font(t, "sans", 700, t.base.size)}>{d.title || "(untitled dialog)"}</Text>
         {meta ? <Text style={[small(t), { color: t.c.dim }]}>{` met by ${meta}`}</Text> : null}
       </Text>
       <Steps dialog={d} />
@@ -246,7 +281,7 @@ export function DialogBannerLine({ dialog: d, now }: { dialog: EditorDialog; now
   return (
     <Banner kind="warn" role="status">
       <Text style={{ ...baseFont(t), color: t.c.warnText }}>
-        <Text style={font(t, "sans", 700, t.base.size)}>Editor waiting on a dialog:</Text> {d.title || "(untitled dialog)"}
+        <Text style={font(t, "sans", 700, t.base.size)}>{dialogBannerLead(d)}</Text> {d.title || "(untitled dialog)"}
         <Text style={{ color: t.c.dim }}>{` ${statusLine(d, now)}`}</Text>
       </Text>
     </Banner>

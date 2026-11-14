@@ -26,6 +26,7 @@ import {
   contextView,
   deliveryLine,
   deviceNotifyOf,
+  dialogWaitingBody,
   inputAge,
   notifyDeliveryOf,
   projectNotifyOf,
@@ -190,10 +191,12 @@ export class Notifier {
 
   private dialogs(state: DialogsState): void {
     for (const dlg of state?.dialogs ?? []) {
-      if (!dlg.asking || dlg.outcome || this.dialogsSeen.has(dlg.id)) continue;
+      // A native Windows dialog holds the editor whatever the mode, and may come up with no turn running
+      // (a GPU device loss while idle), so it is news as soon as it opens.
+      if ((!dlg.asking && !dlg.native) || dlg.outcome || this.dialogsSeen.has(dlg.id)) continue;
       this.dialogsSeen.add(dlg.id);
       const sid = dlg.sessionId ?? undefined;
-      this.emit("dialog.waiting", sid, subject(dlg.title, "Unreal Editor"), "An editor dialog needs your answer", { ...(sid ? { sessionId: sid } : {}), dialogId: dlg.id });
+      this.emit("dialog.waiting", sid, subject(dlg.title, "Unreal Editor"), dialogWaitingBody(dlg), { ...(sid ? { sessionId: sid } : {}), dialogId: dlg.id });
     }
     if (this.dialogsSeen.size > 500) this.dialogsSeen.clear();
   }

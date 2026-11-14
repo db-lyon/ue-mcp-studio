@@ -88,6 +88,18 @@ describe("Notifier", () => {
     ]);
   });
 
+  it("a native Windows dialog is news as it opens, with no session and nobody asked, once", () => {
+    const { ev, published } = setup({});
+    const gpu = { id: "d9", title: "Error", message: "GPU Crashed", asking: null, outcome: null, sessionId: null, mode: "defer", native: { hwnd: "1", pid: 2, kind: "gpu-crash", summary: "lost" } };
+    ev("dialog.changed", { now: 1, dialogs: [gpu] });
+    ev("dialog.changed", { now: 2, dialogs: [gpu] });
+    // A Slate dialog nobody put to Studio is not.
+    ev("dialog.changed", { now: 3, dialogs: [{ ...gpu, id: "d10", native: undefined }] });
+    expect(published.map((p) => [p.kind, p.title, p.text, p.target])).toEqual([
+      ["dialog.waiting", "Error", "The editor lost its GPU device and exits when OK is pressed", { dialogId: "d9" }],
+    ]);
+  });
+
   it("playtests: a verdict needed, a loop that needs you, and a finished run", () => {
     const { ev, published } = setup({ s1: session() });
     const run = (state: string, steps: Array<{ index: number; status: string }>) => ({ runId: "r1", scriptName: "Door test", state, steps, sessionId: "s1", summary: { failed: steps.filter((s) => s.status === "failed").length } });

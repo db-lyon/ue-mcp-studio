@@ -1017,7 +1017,15 @@ pre.diff .hunk { color: var(--accent-hi); display: block; }
 .dialog-policy .minutes { width: 5em; }
 .dialog-steps { margin: 2px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
 .dialog-status { font-weight: 600; }
-.dialog-status.agent { color: var(--accent); }
+.dialog-status.who-agent { color: var(--accent); }
+/* A native Windows dialog: its whole card above every view, since it holds the editor whatever is open. */
+.native-dialog-banner { display: flex; flex-direction: column; gap: 8px; padding: 8px 16px 0; min-width: 0; }
+.native-dialog-banner .approval.card.dialog-card { margin: 0; border-color: var(--warn); }
+.native-dialog-banner .approval.card.dialog-card.gpu-crash { border-color: var(--bad); }
+.dialog-summary { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.dialog-after { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.dialog-details summary { cursor: pointer; color: var(--muted); }
+.dialog-details pre { margin: 6px 0 0; max-height: 24vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11px; }
 
 /* Playtests: a PIE test script run as a card in the transcript, live while the run goes. */
 .qa-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; margin: 8px 0; min-width: 0; }

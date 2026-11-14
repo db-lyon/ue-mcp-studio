@@ -779,6 +779,22 @@ export type DialogBlock =
   | { type: "paragraph"; text: string }
   | { type: "table"; columns: string[]; rows: string[][]; checked?: Array<boolean | null>; items?: Array<number | null> };
 
+/** What ue-mcp says about a native dialog: its window, process, kind, what it means, and log lines that explain it. */
+export interface NativeDialogFacts {
+  hwnd: string;
+  pid: number;
+  kind: "gpu-crash" | "assert" | "ensure" | "missing-modules" | "crash" | "message";
+  summary: string;
+  details?: string[];
+}
+
+/** The notification line for a dialog waiting on the user: what it is, and for a GPU device loss, what pressing does. */
+export function dialogWaitingBody(d: { native?: NativeDialogFacts }): string {
+  if (d.native?.kind === "gpu-crash") return "The editor lost its GPU device and exits when OK is pressed";
+  if (d.native) return "A Windows dialog in the editor needs your answer";
+  return "An editor dialog needs your answer";
+}
+
 /**
  * A modal dialog in the editor, as Studio shows it: a card in the chat while
  * it is open, and a line in the transcript of the session whose call met it.
@@ -799,6 +815,14 @@ export interface EditorDialog {
    * ue-mcp or plugin that predates it, and then `message` is the body.
    */
   blocks?: DialogBlock[];
+  /**
+   * A native Windows dialog of the editor process (a GPU device loss, an
+   * assert box, a startup prompt), which ue-mcp reads from outside the editor
+   * because the bridge cannot answer while it is up. Its buttons can be
+   * pressed from any client whatever the dialog mode. Absent for Slate dialogs
+   * and from a ue-mcp before 1.4.14-beta.4.
+   */
+  native?: NativeDialogFacts;
   /** Who answers: auto the agent, interactive the user here, defer the user in the editor. Null when unknown. */
   mode: "auto" | "interactive" | "defer" | null;
   openedAt: number;
