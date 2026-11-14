@@ -11,7 +11,16 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { discoveryPath, readDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import type { BusyTracker } from "./busy.js";
-import { openInSystemBrowser, openWindow, parseWindowRequest, spawnDetached, type WindowHost } from "./window.js";
+import { linuxWindowBuilder } from "./linux-window-build.js";
+import { openInSystemBrowser, openWindow, parseWindowRequest, probeLinuxWindow, spawnDetached, type WindowHost } from "./window.js";
+
+/** Where versioned copies of the window run from (and the Linux window is built into). */
+export const windowRunDir = (): string => path.join(os.homedir(), ".ue-mcp", "studio", "window");
+
+/** The Linux window's builder for this package and version; asking starts the build. */
+export function linuxBuilder(api: Pick<DaemonExtensionApi, "log">, packageDir: string, version: string) {
+  return linuxWindowBuilder({ packageDir, runDir: windowRunDir(), version, log: (line) => api.log.info(line) });
+}
 
 export function registerWindowRoutes(
   api: Pick<DaemonExtensionApi, "route">,
@@ -32,7 +41,7 @@ export function daemonWindowHost(api: DaemonExtensionApi, packageDir: string, ve
   return {
     platform: process.platform,
     packageDir,
-    runDir: path.join(os.homedir(), ".ue-mcp", "studio", "window"),
+    runDir: windowRunDir(),
     version,
     projectDir: api.projectDir,
     discoveryFile: discoveryPath(api.projectDir),
@@ -46,5 +55,7 @@ export function daemonWindowHost(api: DaemonExtensionApi, packageDir: string, ve
     },
     spawn: spawnDetached,
     openUrl: openInSystemBrowser,
+    probe: process.platform === "linux" ? probeLinuxWindow : undefined,
+    buildWindow: process.platform === "linux" ? () => linuxBuilder(api, packageDir, version).ensure() : undefined,
   };
 }

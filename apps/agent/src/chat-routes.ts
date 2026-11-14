@@ -82,7 +82,7 @@ import { PlaytestIndex, registerPlaytestIndex, type PlaytestIndexHost } from "./
 import { registerReview } from "./review.js";
 import { PlaytestStore } from "./playtest-store.js";
 import { registerAgentSettings } from "./agent-settings.js";
-import { daemonWindowHost, registerWindowRoutes } from "./window-routes.js";
+import { daemonWindowHost, linuxBuilder, registerWindowRoutes } from "./window-routes.js";
 import { projectName } from "./window.js";
 import { registerQuickRoute } from "./quick.js";
 import { AssetResolver, editorBusy, missLine, openAsset, traceName } from "./asset-links.js";
@@ -939,7 +939,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     },
   });
 
-  if (packageDir) registerWindowRoutes(api, { busy, stopSession: (id) => runner.stop(id), window: () => daemonWindowHost(api, packageDir, agentVersion) });
+  if (packageDir) {
+    registerWindowRoutes(api, { busy, stopSession: (id) => runner.stop(id), window: () => daemonWindowHost(api, packageDir, agentVersion) });
+    // On Linux the window is built from the package's source: start now, so it is ready when Studio is opened.
+    if (process.platform === "linux" && !fs.existsSync(path.join(packageDir, "bin", "studio-window"))) linuxBuilder(api, packageDir, agentVersion).ensure();
+  }
 
   const notifications = registerNotifications(api, {
     project: projectName(api.projectDir),

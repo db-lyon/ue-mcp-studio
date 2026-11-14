@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { ExtensionHandler, ExtensionRequest } from "ue-mcp/daemon";
 import { BusyTracker } from "../src/busy.js";
 import { registerWindowRoutes } from "../src/window-routes.js";
-import { openWindow, parseWindowRequest, stagedExe, windowArgs, WINDOW_EXE, type WindowHost } from "../src/window.js";
+import { openWindow, parseWindowRequest, probeLinuxWindow, stagedExe, windowArgs, windowExeName, WINDOW_EXE, type WindowHost } from "../src/window.js";
 
 const tmp = (prefix: string) => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 
@@ -38,7 +38,7 @@ function fakeHost(over: Partial<WindowHost> = {}) {
   };
   const ship = () => {
     fs.mkdirSync(path.join(pkg, "bin"), { recursive: true });
-    fs.writeFileSync(path.join(pkg, "bin", WINDOW_EXE), "exe-v30");
+    fs.writeFileSync(path.join(pkg, "bin", windowExeName(host.platform) ?? WINDOW_EXE), "exe-v30");
   };
   return { host, spawned, opened, ship };
 }
@@ -112,12 +112,39 @@ describe("POST /window", () => {
     expect(opened).toEqual(["http://127.0.0.1:5555/ui/?token=ab"]);
   });
 
-  it("opens the system browser off Windows", async () => {
+  it("opens the system browser where Studio has no window", async () => {
     const { host, spawned, opened, ship } = fakeHost({ platform: "darwin" });
     ship();
     expect(openWindow(host, {})).toMatchObject({ opened: "browser" });
     expect(spawned).toEqual([]);
     expect(opened).toHaveLength(1);
+  });
+
+  it("starts the Linux window, executable, when it can run here", () => {
+    const probed: string[] = [];
+    const { host, spawned, opened, ship } = fakeHost({ platform: "linux", probe: (f) => (probed.push(f), null) });
+    ship();
+    expect(openWindow(host, {})).toEqual({ opened: "window", pid: 777 });
+    const exe = path.join(host.runDir, "0.1.0-beta.30", "studio-window");
+    expect(spawned[0].file).toBe(exe);
+    expect(probed).toEqual([exe]);
+    // Windows reports an execute bit only for .exe, .cmd, .bat and .com files, so this checks where it means something.
+    if (process.platform !== "win32") expect(fs.statSync(exe).mode & 0o111).not.toBe(0);
+    expect(opened).toEqual([]);
+  });
+
+  it("opens the system browser, saying why, when the Linux window cannot run here", () => {
+    const { host, spawned, opened, ship } = fakeHost({ platform: "linux", probe: () => "studio-window needs libwebkitgtk-6.0.so.4" });
+    ship();
+    expect(openWindow(host, {})).toEqual({ opened: "browser", reason: "studio-window needs libwebkitgtk-6.0.so.4" });
+    expect(spawned).toEqual([]);
+    expect(opened).toHaveLength(1);
+  });
+
+  it("names the window program per platform", () => {
+    expect(windowExeName("win32")).toBe("studio-window.exe");
+    expect(windowExeName("linux")).toBe("studio-window");
+    expect(windowExeName("darwin")).toBeNull();
   });
 
   it("opens the system browser when the window does not start", () => {
@@ -166,10 +193,11 @@ describe("GET /busy and POST /busy/stop", () => {
 });
 
 // The single-instance protocol of the real exe, without its window: --instance-test runs only the hand-off.
-const exe = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "window", "dist", WINDOW_EXE);
-const haveExe = process.platform === "win32" && fs.existsSync(exe);
+const exeName = windowExeName(process.platform);
+const exe = exeName ? path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "window", "dist", exeName) : "";
+const haveExe = !!exe && fs.existsSync(exe);
 
-describe.skipIf(!haveExe)("studio-window.exe, one window per project", () => {
+describe.skipIf(!haveExe)("studio-window, one window per project", () => {
   const waitFor = async (file: string, text: string) => {
     for (let i = 0; i < 100; i++) {
       if (fs.existsSync(file) && fs.readFileSync(file, "utf-8").includes(text)) return;
@@ -200,6 +228,17 @@ describe.skipIf(!haveExe)("studio-window.exe, one window per project", () => {
       first.kill();
       other.kill();
     }
+  });
+
+  it.skipIf(process.platform !== "linux")("probes as runnable where its libraries are", () => {
+    expect(probeLinuxWindow(exe)).toBeNull();
+  });
+
+  it.skipIf(process.platform !== "linux")("exits on a quit with no window to hand it to, opening none", () => {
+    const dir = tmp("studio-instance-");
+    const r = spawnSync(exe, ["--key", `quit${process.pid}${Date.now()}`, "--project", dir, "--quit", "--instance-test", path.join(dir, "q.txt")], { timeout: 10_000 });
+    expect(r.status).toBe(0);
+    expect(fs.existsSync(path.join(dir, "q.txt"))).toBe(false);
   });
 
   it("refuses a key that cannot name a window", () => {
