@@ -26,6 +26,8 @@ export interface ParityEntry {
   afterType?: { clicks: string[]; wait: number };
   /** Scrolled to the top of the conversation before the shot, by accessibility label (or text), or a CSS selector starting with "[": the web scenario's `scroll`. */
   scroll?: string;
+  /** Every match (a CSS selector) scrolled sideways to its end before the shot: the web scenario's `scrollEnd`. */
+  scrollEnd?: string;
   /** Typed into several fields one after another, each by its accessibility label: the web scenario's types. */
   types?: Array<{ into: string; text: string }>;
 }
@@ -76,6 +78,8 @@ export const PARITY: Record<string, ParityEntry> = {
   "agents-tokens": {owner: "chat"},
   "subagent-message": {owner: "chat", clicks: ["Open thread ›"]},
   "agents-sheet": {owner: "chat", clicks: ["Subagents (2)|More controls*", "?menuitem:Subagents (2)"]},
+  "agents-long-titles": {owner: "chat", clicks: ["Subagents (4)|More controls*", "?menuitem:Subagents (4)", "Finished (2)"]},
+  "agents-long-titles-end": {owner: "chat", clicks: ["Subagents (4)|More controls*", "?menuitem:Subagents (4)", "Finished (2)"], scrollEnd: '[data-testid="agents-row-scroll"]'},
   "agents-hidden": {notOnPhone: "The phone has no inline subagent list to hide: its Subagents button opens the list in a sheet, which agents-sheet shows."},
   "agents-cleared": {owner: "chat", clicks: ["Subagents (2)|More controls*", "?menuitem:Subagents (2)"]},
   "utilities-folded": {owner: "chat", clicks: ["?More controls*"]},

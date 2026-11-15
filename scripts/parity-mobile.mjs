@@ -261,6 +261,16 @@ for (const name of picked) {
       if (!found) errors.push(`nothing to scroll to: ${what}`);
       await page.waitForTimeout(200);
     }
+    if (parity[name].scrollEnd) {
+      // The web scenario's scrollEnd: every match scrolled sideways to its end.
+      const n = await page.evaluate((sel) => {
+        const all = [...document.querySelectorAll(sel)];
+        for (const el of all) el.scrollLeft = el.scrollWidth;
+        return all.length;
+      }, parity[name].scrollEnd);
+      if (!n) errors.push(`nothing matched ${parity[name].scrollEnd}`);
+      await page.waitForTimeout(200);
+    }
     const appPng = path.join(out, `${name}-${theme}-app.png`);
     await page.screenshot({ path: appPng });
     await page.close();

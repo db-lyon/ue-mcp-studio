@@ -17,6 +17,11 @@ const EMPTY: ReadonlySet<string> = new Set();
  * shows that agent's context now, and what it spent this session on hover.
  * The rows are the daemon's subagent list (SessionDetail.subagents), never
  * worked out from the transcript held, so a page and a whole one agree.
+ *
+ * Nothing in a row is cut short: its dot, whole title, state, activity, calls
+ * and usage sit on one line in a horizontal scroller of the row's own
+ * (.agents-scroll), and Stop and Dismiss stay outside it at the right, so they
+ * never sit over the text.
  */
 export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EMPTY, onDismiss, tokens = {}, context = {}, head = true, listRef }: {
   agents: SessionAgent[];
@@ -64,15 +69,17 @@ export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EM
     const isNew = !isActive(r.state) && !seen.has(r.call.id);
     return (
       <div key={r.call.id} className={`agents-row state-${r.state} ${thread === r.call.id ? "current" : ""}`}>
-        <button role="tab" aria-selected={thread === r.call.id} className="agents-open" onClick={() => onThread(r.call.id)}>
-          <span className="agents-dot" />
-          <span className="agents-name">{describe(r.call)}</span>
-          {isNew && <span className="agents-new" title="Not opened yet">new</span>}
-          <span className="agents-state">{STATE_LABEL[r.state]}</span>
-          {r.activity && <span className="agents-activity dim">{r.activity}</span>}
-          <span className="agents-meta dim small">{calls} {calls === 1 ? "call" : "calls"}, {formatDuration(r.secs)}</span>
-          {usage(r.call.id)}
-        </button>
+        <div className="agents-scroll" data-scroll-x="">
+          <button role="tab" aria-selected={thread === r.call.id} className="agents-open" onClick={() => onThread(r.call.id)}>
+            <span className="agents-dot" />
+            <span className="agents-name">{describe(r.call)}</span>
+            {isNew && <span className="agents-new" title="Not opened yet">new</span>}
+            <span className="agents-state">{STATE_LABEL[r.state]}</span>
+            {r.activity && <span className="agents-activity dim">{r.activity}</span>}
+            <span className="agents-meta dim small">{calls} {calls === 1 ? "call" : "calls"}, {formatDuration(r.secs)}</span>
+            {usage(r.call.id)}
+          </button>
+        </div>
         {isActive(r.state) && (
           <button className="agents-stop" aria-label={`Stop ${describe(r.call)}`} title="Stop this subagent" onClick={() => onStop(r.call.id)}>
             {"■"}
@@ -91,11 +98,13 @@ export function Threads({ agents, thread, onThread, onStop, seen, dismissed = EM
     <div className="agents-bar" role="tablist" aria-label="Subagents" ref={listRef}>
       {head && <div className="agents-head dim small">{subagentsLine(rows.map((r) => r.state))}</div>}
       <div className={`agents-row main ${thread === null ? "current" : ""}`}>
-        <button role="tab" aria-selected={thread === null} className="agents-open" onClick={() => onThread(null)}>
-          <span className="agents-dot" />
-          <span className="agents-name">Main</span>
-          {usage("main")}
-        </button>
+        <div className="agents-scroll" data-scroll-x="">
+          <button role="tab" aria-selected={thread === null} className="agents-open" onClick={() => onThread(null)}>
+            <span className="agents-dot" />
+            <span className="agents-name">Main</span>
+            {usage("main")}
+          </button>
+        </div>
       </div>
       {active.map(row)}
       {finished.length > 0 && (

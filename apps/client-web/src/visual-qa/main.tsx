@@ -126,6 +126,7 @@ window.open = () => null;
   clicks: scenario.clicks ?? [],
   narrowClicks: scenario.narrowClicks ?? null,
   scroll: scenario.scroll ?? null,
+  scrollEnd: scenario.scrollEnd ?? null,
   heights: Object.fromEntries(Object.entries(SCENARIOS).flatMap(([name, s]) => (s.height ? [[name, s.height]] : []))),
   focus: scenario.focus ?? null,
   type: scenario.type ?? null,

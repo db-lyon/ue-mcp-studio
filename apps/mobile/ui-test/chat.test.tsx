@@ -122,8 +122,11 @@ describe("Threads", () => {
     );
     expect(screen.getByText(/^context 4\d/)).toBeTruthy();
     expect(screen.getByText("3.0k spent")).toBeTruthy();
-    // A row's calls and tokens stay on one line each (.agents-meta, .agents-tokens: nowrap).
-    for (const meta of [screen.getByText("3.0k spent"), screen.getByText(/^\d+ calls?, /)]) expect(getComputedStyle(meta).whiteSpace).toBe("nowrap");
+    // Nothing in a row is cut short or shrunk: its calls and tokens sit whole inside the row's horizontal scroller.
+    for (const meta of [screen.getByText("3.0k spent"), screen.getByText(/^\d+ calls?, /)]) {
+      expect(getComputedStyle(meta).flexShrink).toBe("0");
+      expect(meta.closest('[data-testid="agents-row-scroll"]')).not.toBeNull();
+    }
     // Main's numbers sit beside its name, as the web's main row has no spacer.
     const main = screen.getByLabelText("Main");
     expect(main.children[1].textContent).toBe("Main");
@@ -142,6 +145,42 @@ describe("Threads", () => {
     expect(onDismiss).toHaveBeenLastCalledWith(["a2", "a3"]);
     fireEvent.click(screen.getByLabelText("Main"));
     expect(onThread).toHaveBeenCalledWith(null);
+  });
+
+  it("never truncates a title: each row's content scrolls sideways on its own, the buttons pinned outside the scroller", () => {
+    const long = "Review the region restore design and the checkpoints it writes for each streamed World Partition cell";
+    const transcript = [agent("a1", long), agent("a2", `${long}, finished`, "done")];
+    const onThread = vi.fn();
+    renderInProject(
+      <Threads agents={sessionAgents(transcript, { status: "running", asked: new Set(), tokens: { a1: 3000, a2: 41_000 } })} thread={null} onThread={onThread} onStop={() => undefined} seen={new Set()} onDismiss={() => undefined} tokens={{ main: 12_000 }} />,
+    );
+    fireEvent.click(screen.getByLabelText("Finished (1)"));
+    const titles = screen.getAllByTestId("agents-row-title");
+    expect(titles.map((t) => t.textContent)).toEqual([long, `${long}, finished`]);
+    for (const title of titles) {
+      // No numberOfLines: react-native-web draws one as a line clamp or an ellipsis.
+      const s = getComputedStyle(title);
+      expect(s.textOverflow).not.toBe("ellipsis");
+      expect(s.webkitLineClamp ?? "").toBe("");
+      expect(s.overflow).not.toBe("hidden");
+      expect(s.flexShrink).toBe("0");
+    }
+    const scrollers = screen.getAllByTestId("agents-row-scroll");
+    // Main, the running row and the finished row each have one.
+    expect(scrollers.length).toBe(3);
+    for (const sc of scrollers) expect(getComputedStyle(sc).overflowX).toMatch(/auto|scroll/);
+    expect(scrollers[0].contains(screen.getByLabelText("Main"))).toBe(true);
+    for (const [label, button] of [[long, `Stop ${long}`], [`${long}, finished`, `Dismiss ${long}, finished`]]) {
+      const open = screen.getByLabelText(label);
+      const scroller = open.closest('[data-testid="agents-row-scroll"]')!;
+      expect(scroller).not.toBeNull();
+      const b = screen.getByLabelText(button);
+      // The button is the row's, beside the scroller, never inside it.
+      expect(scroller.contains(b)).toBe(false);
+      expect(scroller.parentElement!.contains(b)).toBe(true);
+    }
+    fireEvent.click(screen.getByLabelText(long));
+    expect(onThread).toHaveBeenCalledWith("a1");
   });
 
   it("draws nothing with no subagents", () => {
