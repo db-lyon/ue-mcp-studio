@@ -85,7 +85,8 @@ const auditPage = (page) =>
       const s = getComputedStyle(el);
       return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none";
     };
-    const scrollers = [document.documentElement, ...document.querySelectorAll(".app, main, [class*=pane], [class*=scroll]")];
+    // A box marked data-scroll-x scrolls sideways on purpose (a subagent row), so it is not the page doing it.
+    const scrollers = [document.documentElement, ...document.querySelectorAll(".app, main, [class*=pane], [class*=scroll]")].filter((s) => !s.hasAttribute("data-scroll-x"));
     for (const s of scrollers) {
       const st = getComputedStyle(s);
       if (s.scrollWidth > s.clientWidth + 1 && st.overflowX !== "hidden" && st.overflowX !== "clip" && (s === document.documentElement || st.overflowX !== "visible"))
@@ -283,6 +284,16 @@ async function shootStudio() {
           return !!el;
         }, scroll);
         if (!found) errors.push(`nothing matched ${scroll}`);
+        await page.waitForTimeout(200);
+      }
+      const scrollEnd = await page.evaluate(() => window.__visualQa.scrollEnd);
+      if (scrollEnd) {
+        const n = await page.evaluate((sel) => {
+          const all = [...document.querySelectorAll(sel)];
+          for (const el of all) el.scrollLeft = el.scrollWidth;
+          return all.length;
+        }, scrollEnd);
+        if (!n) errors.push(`nothing matched ${scrollEnd}`);
         await page.waitForTimeout(200);
       }
       const focus = await page.evaluate(() => window.__visualQa.focus);

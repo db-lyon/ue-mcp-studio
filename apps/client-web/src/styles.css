@@ -700,7 +700,13 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 /* Subagents of the latest turn, under the composer */
 .agents-bar { display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow: auto; padding-top: 4px; border-top: 1px solid var(--line); }
 .agents-head { padding: 2px 2px 4px; }
-.agents-row .agents-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A row's content never cut short: one line in a horizontal scroller of its own, the buttons outside it. */
+.agents-scroll { flex: 1; min-width: 0; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; overscroll-behavior-x: contain; }
+.agents-row .agents-open > * { flex-shrink: 0; white-space: nowrap; }
+@media (hover: none) {
+  .agents-scroll { scrollbar-width: none; }
+  .agents-scroll::-webkit-scrollbar { display: none; }
+}
 .agents-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
 .agents-row.current { background: var(--accent-wash); box-shadow: inset 2px 0 0 var(--accent); }
 .agents-row.main .agents-dot { background: var(--text); }
@@ -757,9 +763,8 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 @media (prefers-reduced-motion: reduce) { .thread-drawer { transition: none; } }
 
 /* Subagent states: dot, label and activity */
-.agents-row .agents-name { flex: 0 1 auto; }
 .agents-row .agents-state { font-size: 11px; color: var(--muted); white-space: nowrap; }
-.agents-row .agents-activity { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); }
+.agents-row .agents-activity { white-space: nowrap; font: 11px var(--mono); }
 .agents-row .agents-meta { margin-left: auto; white-space: nowrap; }
 .agents-row .agents-tokens { white-space: nowrap; }
 .state-working .agents-dot, .agent-link.state-working::before { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
@@ -797,7 +802,7 @@ button.small-button { padding: 0 4px; height: auto; font-size: inherit; }
 /* A list row: the thread it opens, and a stop button while it runs */
 .agents-row { display: flex; align-items: center; border-radius: 6px; }
 .agents-row:hover { background: var(--accent-wash); }
-.agents-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: auto; padding: 3px 8px; background: transparent; border: 0; text-align: left; font: 12px/1.5 var(--mono); color: var(--text); cursor: pointer; }
+.agents-open { flex: 1 0 auto; display: flex; align-items: center; gap: 8px; height: auto; padding: 3px 8px; background: transparent; border: 0; text-align: left; font: 12px/1.5 var(--mono); color: var(--text); cursor: pointer; }
 .composer .agents-open, .composer .agents-stop { height: auto; }
 .agents-open:hover:not(:disabled) { background: transparent; }
 .agents-stop { width: 22px; height: 22px; margin-right: 4px; padding: 0; display: grid; place-items: center; font-size: 9px; color: var(--muted); background: transparent; border-color: transparent; opacity: 0; }

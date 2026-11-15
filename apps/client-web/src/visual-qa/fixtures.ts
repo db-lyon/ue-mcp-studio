@@ -193,6 +193,8 @@ export interface Scenario {
   events?: Array<{ type: string; at: string; data: Record<string, unknown> }>;
   /** Scrolled to the top of its scroller after the clicks, to show what lies below the fold: a CSS selector. */
   scroll?: string;
+  /** Every match scrolled sideways to its end after the clicks, to show what a horizontal scroller holds past the edge: a CSS selector. */
+  scrollEnd?: string;
   /** The window's height for the shot, for a page taller than the default 860 pixels. */
   height?: number;
   /** Settings the scenario changes from the harness's own. */
@@ -331,6 +333,33 @@ function withClearedAgents(): SessionDetail {
     transcript: [d.transcript[0], ...done, ...d.transcript.slice(1)],
     dismissed: done.map((t) => (t.kind === "tool" ? t.call.id : "")),
     agents: { total: 14, running: 2 },
+  };
+}
+
+/**
+ * Subagents with titles far longer than a phone is wide: two running (one
+ * with a long activity), one done and not yet opened, one failed. Each row's
+ * whole title is there to scroll to, and Stop and Dismiss sit outside it.
+ */
+function withLongAgents(): SessionDetail {
+  const d = detail("Region restore review", []);
+  const call = (id: string, description: string, outcome: "pending" | "done" | "error", minutes: number, steps: number): TranscriptEntry[] => [
+    { kind: "tool", call: { id, name: "agent", input: { description, prompt: description }, outcome, startedAt: ago(minutes), ...(outcome === "pending" ? {} : { endedAt: ago(1), result: outcome === "done" ? "Done." : "Failed." }) } },
+    ...Array.from({ length: steps }, (_, i): TranscriptEntry =>
+      ({ kind: "tool", call: { id: `${id}-${i}`, name: "ue_mcp", input: { action: "call", category: "level", method: i % 2 ? "get_world_partition_cells" : "get_streaming_state" }, outcome: outcome === "pending" && i === steps - 1 ? "pending" : "done", startedAt: ago(minutes - 1), ...(outcome === "pending" && i === steps - 1 ? {} : { endedAt: ago(minutes - 1), result: "{}" }) }, parent: id })),
+  ];
+  return {
+    ...d,
+    status: "running",
+    transcript: [
+      { kind: "user", text: "Review the region restore design end to end and check every streaming edge case.", at: ago(12) },
+      ...call("agent-design", "Review #96 region restore design and the checkpoints it writes for each streamed cell", "pending", 9, 14),
+      ...call("agent-edges", "Check World Partition streaming edge cases when a cell unloads during a restore", "pending", 8, 6),
+      ...call("agent-notes", "Write the migration notes for projects that saved regions before the checkpoint format changed", "done", 11, 22),
+      ...call("agent-perf", "Profile the restore of a two hundred cell region on the slowest supported machine", "error", 10, 3),
+    ],
+    agents: { total: 4, running: 2 },
+    tokens: { main: 52_000, "agent-design": 91_400, "agent-edges": 7_300, "agent-notes": 184_200, "agent-perf": 12_900 },
   };
 }
 
@@ -912,6 +941,8 @@ export const SCENARIOS: Record<string, Scenario> = {
   "agents-tokens": { title: "The thread list: the main agent and its subagents, each with the tokens it spent this session", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true } },
   "subagent-message": { title: "A running subagent's thread: the composer messages that subagent, and the message the user sent it shows in its thread", hash: `#/chat/${SESSION_ID}`, session: withSubagentMessage(), index: { playtests: [], listed: true }, click: '.thread-stage .tool-call:has-text("Place rocks along the cave floor")' },
   "agents-sheet": { title: "The subagents from the composer bar's Subagents button (or its overflow menu, folded): narrow, the thread list in a sheet titled with its one summary line; wide, the list inline under the composer with the button pressed, and no sheet", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true }, clicks: [], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`] },
+  "agents-long-titles": { title: "Subagents with titles longer than the screen, the finished ones open: every title whole on one line in its row's own sideways scroller, never cut short, with Stop and Dismiss pinned at the right outside it (the sheet narrow, inline wide)", hash: `#/chat/${SESSION_ID}`, session: withLongAgents(), index: { playtests: [], listed: true }, clicks: [".agents-fold"], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`, ".sheet-body .agents-fold"] },
+  "agents-long-titles-end": { title: "The same rows, each scrolled sideways to its end: the rest of every title, its state, activity, calls and usage, still clear of Stop and Dismiss", hash: `#/chat/${SESSION_ID}`, session: withLongAgents(), index: { playtests: [], listed: true }, clicks: [".agents-fold"], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`, ".sheet-body .agents-fold"], scrollEnd: ".agents-scroll" },
   "agents-hidden": { title: "Wide, the Subagents button pressed once: the inline list is hidden and takes no room, the button is no longer pressed and keeps its badge (narrow, the list is in a sheet and nothing is inline)", hash: `#/chat/${SESSION_ID}`, session: withAgents(), index: { playtests: [], listed: true }, clicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`], narrowClicks: [] },
   "agents-cleared": { title: "Two subagents running after twelve finished ones were cleared, the main agent free: the badge and the list both say 2 (the sheet narrow, inline wide), the working line reads 2 subagents working", hash: `#/chat/${SESSION_ID}`, session: withClearedAgents(), index: { playtests: [], listed: true }, clicks: [], narrowClicks: [UTILITY_OR_MORE("composer-agents"), `?.composer-more-item.composer-agents`] },
   "utilities-folded": {

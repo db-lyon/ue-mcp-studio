@@ -1,4 +1,7 @@
 // @vitest-environment jsdom
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { sessionAgents, type SessionSummary, type ToolCallRecord, type TranscriptEntry } from "@ue-mcp-studio/shared";
@@ -80,6 +83,46 @@ describe("the thread list", () => {
     expect(screen.getByText("Task a").closest(".agents-row")!.textContent).toContain("950 spent");
     fireEvent.click(screen.getByRole("button", { name: /Finished \(3\)/ }));
     expect(screen.getByText("Task b").closest(".agents-row")!.textContent).toContain("0 spent");
+  });
+
+  it("never truncates a title: each row's content scrolls sideways on its own, the buttons outside the scroller", () => {
+    const long = "Review the region restore design and the checkpoints it writes for each streamed World Partition cell";
+    const named = (id: string, outcome: ToolCallRecord["outcome"] = "pending", end?: number): TranscriptEntry => {
+      const e = agent(id, outcome, end) as Extract<TranscriptEntry, { kind: "tool" }>;
+      return { ...e, call: { ...e.call, input: { description: `${long} ${id}`, prompt: "x" } } };
+    };
+    const p = renderThreads({ transcript: [named("a"), named("b", "done", 4)], onDismiss: vi.fn() });
+    fireEvent.click(screen.getByRole("button", { name: /Finished \(1\)/ }));
+    const rows = [...document.querySelectorAll(".agents-row")];
+    // Main, the running row and the finished row: each one's content in a scroller of its own.
+    expect(rows.map((r) => r.querySelectorAll(":scope > .agents-scroll").length)).toEqual([1, 1, 1]);
+    for (const row of rows) {
+      const scroller = row.querySelector(":scope > .agents-scroll")!;
+      expect(scroller.querySelector(".agents-open")).not.toBeNull();
+      // Stop and Dismiss sit beside the scroller, never inside it.
+      for (const b of row.querySelectorAll(".agents-stop, .agents-dismiss")) {
+        expect(scroller.contains(b)).toBe(false);
+        expect(b.parentElement).toBe(row);
+      }
+    }
+    expect(rows[1].querySelector(".agents-stop")).not.toBeNull();
+    expect(rows[2].querySelector(".agents-dismiss")).not.toBeNull();
+    for (const id of ["a", "b"]) expect(screen.getByText(`${long} ${id}`).className).toBe("agents-name");
+    fireEvent.click(screen.getByText(`${long} a`));
+    expect(p.onThread).toHaveBeenCalledWith("a");
+
+    // The stylesheet: the scroller scrolls sideways, every piece of the row keeps its whole width on one line,
+    // and no rule cuts a title or an activity short. The real layout is shot by visual QA (agents-long-titles).
+    const css = fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "styles.css"), "utf-8").replace(/\/\*[\s\S]*?\*\//g, "");
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sel: m[1].trim(), body: m[2] }));
+    const body = (sel: string) => rules.filter((r) => r.sel.split(",").map((s) => s.trim()).includes(sel)).map((r) => r.body).join(";");
+    expect(body(".agents-scroll")).toMatch(/overflow-x:\s*auto/);
+    expect(body(".agents-scroll")).toMatch(/min-width:\s*0/);
+    expect(body(".agents-row .agents-open > *")).toMatch(/flex-shrink:\s*0/);
+    expect(body(".agents-row .agents-open > *")).toMatch(/white-space:\s*nowrap/);
+    for (const r of rules.filter((r) => /agents-(name|activity|open|meta|tokens)/.test(r.sel))) {
+      expect(r.body, r.sel).not.toMatch(/text-overflow|overflow:\s*hidden/);
+    }
   });
 
   it("opens a thread from its row, and stops a running one without opening it", () => {
