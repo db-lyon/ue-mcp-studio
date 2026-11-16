@@ -210,6 +210,9 @@ export const SETTINGS_SCENARIOS: Record<string, Scenario> = {
     focus: ".yaml-editor textarea",
   }),
   "settings-general": page("General: themes and updates", "general"),
+  "settings-whats-new-card": page("General with an update waiting: What's new right under the Update button, right-aligned to it", "general", {
+    get: (p) => (p === "/v1/ext/studio/whats-new" ? WHATS_NEW : p === "/v1/ext/studio/updates" ? WHATS_NEW_UPDATES : undefined),
+  }),
   "settings-whats-new": page("General with What's new open: the three Studio releases newer than the installed one, one with a folded Editor dialogs section, and the editor plugin's notes that could not be read with Retry and the release page", "general", {
     get: (p) => (p === "/v1/ext/studio/whats-new" ? WHATS_NEW : p === "/v1/ext/studio/updates" ? WHATS_NEW_UPDATES : undefined),
     clicks: [".whats-new-open", ".whats-new-fold > summary"],
