@@ -193,12 +193,14 @@ describe("a /flow in a session", () => {
     expect(store.get(s.id)!.notes.join("\n")).toContain("the flow failed. project.build: UBT exited 6");
   });
 
-  it("refuses while a turn runs, and a run with no name", async () => {
+  it("queues behind a running turn, and refuses a run with no name", async () => {
     const { runner, s } = setup(() => ok);
     const live = store.get(s.id)!;
     live.status = "running";
     store.save(live);
-    await expect(runner.flow(s.id, { name: "rebuild", params: {} })).rejects.toThrow(/in progress/);
+    await runner.flow(s.id, { name: "rebuild", params: {} });
+    expect(store.get(s.id)!.queue!.map((q) => q.text)).toEqual(["/flow rebuild"]);
+    live.queue = [];
     live.status = "idle";
     store.save(live);
     await expect(runner.flow(s.id, { name: " ", params: {} })).rejects.toThrow(/name the flow/);
