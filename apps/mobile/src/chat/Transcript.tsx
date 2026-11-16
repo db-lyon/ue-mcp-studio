@@ -5,12 +5,14 @@
  * line while the reader is at the bottom, with a New messages pill under it
  * when they have scrolled up; a subagent's own thread is drawn the same way.
  */
-import { Component, createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, memo, useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { FlatList, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions, type LayoutChangeEvent, type NativeScrollEvent, type NativeSyntheticEvent, type TextStyle } from "react-native";
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from "react-native-svg";
 import { lineDiff, type Attachment, type PlaytestRequest, type PlaytestStage, type ReplyImageInfo, type SessionAgent, type TranscriptEntry, type TurnStatus } from "@ue-mcp-studio/shared";
 import {
   EARLIER_ENTRIES,
+  IMAGE_LOAD_FAILED,
+  IMAGE_RETRY,
   OUTCOME_LABEL,
   RESULT_PREVIEW_LINES,
   TOOL_TAG,
@@ -57,7 +59,8 @@ import { useFollow, useNow } from "./hooks";
 import { AssetAnchorContext, AssetTranscriptContext } from "./asset-links";
 import { LinkedText } from "./AssetLink";
 import { ReplyImagesContext, ReplyMarkdown, renderReplyImage, renderReplyMark } from "./ReplyMarkdown";
-import { noteError, noteRow, setDiag, useDiag } from "./diag";
+import { noteRow, setDiag, useDiag } from "./diag";
+import { ErrorBoundary } from "../views/ErrorBoundary";
 
 /** Each entry's position in its transcript, built once per transcript rather than searched per entry. */
 const positions = new WeakMap<readonly unknown[], Map<unknown, number>>();
@@ -299,10 +302,25 @@ function UserMessage({ entry, at }: { entry: Extract<TranscriptEntry, { kind: "u
   );
 }
 
-/** A session file as a picture, loaded through the relay; a GIF plays, and a tap opens it full screen. */
+/**
+ * A session file as a picture, loaded through the relay; a GIF plays, and a tap
+ * opens it full screen. A failed read says so with the file's name and Retry,
+ * as a reply's picture does (web chat/ReplyImage.tsx).
+ */
 function DaemonImage({ path, type, alt, maxWidth, maxHeight }: { path: string; type: string; alt: string; maxWidth: number; maxHeight: number }) {
-  const uri = useDaemonPicture(path, type);
-  if (!uri || uri === "failed") return <View accessibilityLabel={alt} style={{ width: 48, height: 48 }} />;
+  const t = useTheme();
+  const [attempt, setAttempt] = useState(0);
+  const uri = useDaemonPicture(path, type, attempt);
+  if (uri === "failed") {
+    return (
+      <View accessibilityRole="alert" style={{ maxWidth, alignItems: "center", gap: 6, paddingVertical: 10, paddingHorizontal: 12 }}>
+        {alt ? <Text numberOfLines={2} style={{ ...font(t, "sans", 400, 13), color: t.c.text, textAlign: "center" }}>{alt}</Text> : null}
+        <Text style={{ ...font(t, "sans", 400, 13), color: t.c.dim, textAlign: "center" }}>{IMAGE_LOAD_FAILED}</Text>
+        <Button title={IMAGE_RETRY} label={`Load ${alt || "the picture"} again`} size="small" onPress={() => setAttempt((n) => n + 1)} />
+      </View>
+    );
+  }
+  if (!uri) return <View accessibilityLabel={alt} style={{ width: 48, height: 48 }} />;
   return <Picture uri={uri} alt={alt} maxWidth={maxWidth} maxHeight={maxHeight} framed={false} />;
 }
 
@@ -425,19 +443,16 @@ function JumpLatest({ onPress }: { onPress: () => void }) {
   );
 }
 
-/** One line that fails to draw says so in its place, and the rest of the thread still shows. */
-export class EntryBoundary extends Component<{ children: ReactNode }, { failed: string | null }> {
-  state = { failed: null as string | null };
-  static getDerivedStateFromError(e: unknown) {
-    return { failed: e instanceof Error ? e.message : String(e) };
-  }
-  componentDidCatch(e: unknown) {
-    noteError(e);
-  }
-  render() {
-    if (this.state.failed === null) return this.props.children;
-    return <Banner kind="bad">{`This item could not be shown: ${this.state.failed}`}</Banner>;
-  }
+/**
+ * One line that fails to draw says so in its place, with Reload and Report this
+ * problem, and the rest of the thread still shows.
+ */
+export function EntryBoundary({ children }: { children: ReactNode }) {
+  return (
+    <ErrorBoundary what="This item" where="Chat > transcript item">
+      {children}
+    </ErrorBoundary>
+  );
 }
 
 /** One line of a thread as the list draws it: a stable key and what to draw. */

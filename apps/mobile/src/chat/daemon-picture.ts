@@ -26,7 +26,8 @@ export async function readDaemonPicture(project: ReturnType<typeof useProjectNav
   return keepPicture(r.body, r.headers["content-type"] || type, progress && ((n) => progress(n, total)));
 }
 
-export function useDaemonPicture(path: string | undefined, type = "image/png"): PictureState {
+/** `attempt`: raised by a Retry, which reads a failed picture again. */
+export function useDaemonPicture(path: string | undefined, type = "image/png", attempt = 0): PictureState {
   const { project } = useProjectNav();
   const id = path ? `${project.device.id} ${path}` : "";
   const [state, setState] = useState<{ id: string; value: PictureState }>(() => ({ id, value: kept.get(id) ?? null }));
@@ -34,6 +35,8 @@ export function useDaemonPicture(path: string | undefined, type = "image/png"): 
     if (!path) return;
     const hit = kept.get(id);
     if (hit) return setState({ id, value: hit });
+    // A retry shows the picture loading again, not still failed.
+    setState((s) => (s.id === id && s.value === "failed" ? { id, value: null } : s));
     let alive = true;
     let pending = reading.get(id);
     if (!pending) {
@@ -45,7 +48,7 @@ export function useDaemonPicture(path: string | undefined, type = "image/png"): 
     return () => {
       alive = false;
     };
-  }, [id, path, project, type]);
+  }, [id, path, project, type, attempt]);
   if (!path) return null;
   return state.id === id ? state.value : kept.get(id) ?? null;
 }

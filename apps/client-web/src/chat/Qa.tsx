@@ -223,6 +223,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const [assigning, setAssigning] = useState(false);
   /** A draft's open panel: Start playtest's options, Edit, or Delete waiting for its second click. */
   const [panel, setPanel] = useState<"run" | "edit" | "delete" | null>(null);
+  /** The greyed Assign was pressed: why it waits shows under the card. */
+  const [whyAssign, setWhyAssign] = useState(false);
   /** The script as saved, read for Edit on a card drawn outside a session. */
   const [editing, setEditing] = useState<QaRun | null>(null);
   const [working, setWorking] = useState(false);
@@ -406,8 +408,8 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
   const cancelAssigned = assigned && <IconButton label={assignment?.loop ? "End the loop" : "Cancel the subagent"} disabled={assigning || !!offline} title={offline} onClick={toggleAssign} glyph={GLYPH.cancel} />;
   const assignButton = canAssign && !assigned
     ? <IconButton label={needsYouLoop ? "Assign again" : "Assign to subagent"} disabled={assigning || !!offline} onClick={toggleAssign} title={offline ?? "Assign to subagent: it runs the playtest, fixes what fails and runs it again until every step passes, or stops and asks for you"} glyph={GLYPH.assign} />
-    // Greyed out with why, not missing: the span carries the tooltip a disabled button does not show.
-    : assignWaits && <span title={assignWaits}><IconButton label="Assign to subagent" title={assignWaits} disabled onClick={() => {}} glyph={GLYPH.assign} /></span>;
+    // Greyed out, not missing: a press says why under the card, where a touch screen shows it too.
+    : assignWaits && <IconButton label="Assign to subagent" title={assignWaits} waiting expanded={whyAssign} onClick={() => setWhyAssign(!whyAssign)} glyph={GLYPH.assign} />;
   const endLoop = needsYouLoop && <IconButton label="End loop" disabled={assigning || !!offline} title={offline ?? "End loop: it stops waiting for you, and its attempts stay to review and revert"} onClick={closeLoop} glyph={GLYPH.cancel} />;
   /** Edit and Delete: on a session's own draft, or on any saved script where the card is drawn with `script` actions. */
   // A saved script is editable wherever its card is drawn, in a session's chat as on the Playtests page.
@@ -516,6 +518,7 @@ export function QaCard({ run: saved, form: own, onDismiss, actions: outside, met
             </span>
           </div>
         )}
+        {whyAssign && assignWaits && <div className="qa-waits small dim" role="note">{assignWaits}</div>}
         {error && panel !== "edit" && <div className="banner bad small">{error}</div>}
       </div>
       {open && <div className="qa-body-wrap">
@@ -694,11 +697,12 @@ const GLYPH = {
 };
 
 /** A card action as an icon: its name is the tooltip and the accessible label. */
-function IconButton({ label, title, glyph: g, onClick, disabled, expanded, primary, danger }: {
-  label: string; title?: string; glyph: ReactNode; onClick: () => void; disabled?: boolean; expanded?: boolean; primary?: boolean; danger?: boolean;
+/** `waiting`: greyed out but still pressable, so a press can say why it cannot act yet. */
+function IconButton({ label, title, glyph: g, onClick, disabled, expanded, primary, danger, waiting }: {
+  label: string; title?: string; glyph: ReactNode; onClick: () => void; disabled?: boolean; expanded?: boolean; primary?: boolean; danger?: boolean; waiting?: boolean;
 }) {
   return (
-    <button className={`icon-button${primary ? " primary" : ""}${danger ? " danger-button" : ""}`} aria-label={label} title={title ?? label} aria-expanded={expanded} disabled={disabled} onClick={onClick}>{g}</button>
+    <button className={`icon-button${primary ? " primary" : ""}${danger ? " danger-button" : ""}${waiting ? " is-waiting" : ""}`} aria-label={label} title={title ?? label} aria-expanded={expanded} aria-disabled={waiting || undefined} disabled={disabled} onClick={onClick}>{g}</button>
   );
 }
 

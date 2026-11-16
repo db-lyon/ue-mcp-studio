@@ -99,6 +99,20 @@ describe("<Slot>", () => {
     expect([...container.querySelectorAll(".ext-slot")].map((e) => e.getAttribute("data-contribution"))).toEqual(["good"]);
     expect(good.calls.map((c) => c.call)).toEqual(["mount"]);
     expect(error.mock.calls.some((c) => String(c[0]).includes("pro:bad") && (c[1] as Error).message === "boom")).toBe(true);
+    // Not a silent gap: its place says which extension failed, with Reload.
+    expect(container.querySelector(".ext-failed")?.textContent).toContain("Extension pro failed.");
+  });
+
+  it("mounts a failed contribution again on Reload", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let tries = 0;
+    register("toolbar.action", { id: "flaky", mount: (el) => { if (++tries === 1) throw new Error("first try"); el.textContent = "mounted"; return { unmount: () => {} }; } }, "pro");
+    const { container, getByRole } = render(<Slot name="toolbar.action" ctx={{}} />);
+    expect(container.querySelector(".ext-slot")).toBeNull();
+    act(() => getByRole("button", { name: "Reload extension pro" }).click());
+    expect(tries).toBe(2);
+    expect(container.querySelector(".ext-slot")?.textContent).toBe("mounted");
+    expect(container.querySelector(".ext-failed")).toBeNull();
   });
 
   it("hides and unmounts a contribution whose update throws", () => {

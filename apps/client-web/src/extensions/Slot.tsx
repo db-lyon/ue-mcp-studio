@@ -28,14 +28,30 @@ export function Slot<S extends SlotName>({ name, ctx, wrap }: {
   );
 }
 
-/** One contribution: a failure in it is logged and hides it, and the rest of the panel carries on. */
+/**
+ * One contribution: a failure in it is logged and leaves a small note with
+ * Reload in its place, and the rest of the panel carries on.
+ */
 export function Contribution<S extends SlotName>({ item, ctx }: { item: SlotItem<S>; ctx: SlotCtx<S> }) {
   return (
-    <Contained label={`${item.slot} ${item.key}`}>
+    <Contained label={`${item.slot} ${item.key}`} failed={(reload) => <FailedNote item={item} onReload={reload} />}>
       <Host item={item} ctx={ctx} />
     </Contained>
   );
 }
+
+/** A contribution that failed, named by its extension, with Reload to mount it again. */
+function FailedNote({ item, onReload }: { item: SlotItem; onReload: () => void }) {
+  return (
+    <span className="ext-failed small" role="status" data-slot={item.slot} data-ext={item.ext}>
+      <span className="dim">{extensionFailed(item.ext)}</span>
+      <button type="button" className="ghost small-button" aria-label={`Reload extension ${item.ext}`} onClick={onReload}>Reload</button>
+    </span>
+  );
+}
+
+/** What a failed contribution says in its place. */
+export const extensionFailed = (ext: string): string => `Extension ${ext} failed.`;
 
 function Host<S extends SlotName>({ item, ctx }: { item: SlotItem<S>; ctx: SlotCtx<S> }) {
   const el = useRef<HTMLDivElement>(null);
@@ -80,7 +96,7 @@ function Host<S extends SlotName>({ item, ctx }: { item: SlotItem<S>; ctx: SlotC
     }
   }, [full]);
 
-  if (failed) return null;
+  if (failed) return <FailedNote item={item} onReload={() => setFailed(false)} />;
   return <div ref={el} className="ext-slot" data-slot={item.slot} data-ext={item.ext} data-contribution={item.contribution.id} />;
 }
 
@@ -94,9 +110,9 @@ function useStable<T extends object>(value: T): T {
   return last.current;
 }
 
-/** Catches a render-time throw below it; the contribution is left out. */
-class Contained extends Component<{ label: string; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+/** Catches a render-time throw below it; `failed` draws what shows instead, with a reload that mounts it again. */
+class Contained extends Component<{ label: string; failed: (reload: () => void) => ReactNode; children: ReactNode }, { failed: boolean; mount: number }> {
+  state = { failed: false, mount: 0 };
 
   static getDerivedStateFromError(): { failed: boolean } {
     return { failed: true };
@@ -107,6 +123,7 @@ class Contained extends Component<{ label: string; children: ReactNode }, { fail
   }
 
   render(): ReactNode {
-    return this.state.failed ? null : this.props.children;
+    if (this.state.failed) return this.props.failed(() => this.setState((s) => ({ failed: false, mount: s.mount + 1 })));
+    return <Fragment key={this.state.mount}>{this.props.children}</Fragment>;
   }
 }
