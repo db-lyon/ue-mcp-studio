@@ -112,6 +112,24 @@ describe("durable runtime", () => {
     expect(t[t.length - 1]).toMatchObject({ kind: "assistant", text: "The subagent listed them." });
   }, 60_000);
 
+  it("sets no turn limit on a subagent: one past the old 200 steps still reports", async () => {
+    const STEPS = 205;
+    fake = await startFakeAnthropic(({ toolResults, system }) => {
+      const sub = system.includes("You are a subagent");
+      if (sub) return toolResults < STEPS ? { tool: { name: "ue_mcp", input: { action: "call", category: "asset", method: "list", args: { page: toolResults } } }, paceMs: 0 } : { text: "Report: listed every page." };
+      return toolResults === 0 ? { tool: { name: "agent", input: { description: "List pages", prompt: "List every page." } } } : { text: "Done." };
+    });
+    rig = durableRunner({ projectDir: path.join(dir, "project"), dataDir: path.join(dir, "data"), base: fake.base, start });
+    const s = rig.store.create("t");
+    await rig.runner.send(s.id, "list every page with a subagent");
+    await until(() => rig.store.get(s.id)!.status === "idle" || rig.store.get(s.id)!.status === "error", 150_000, "the turn to end");
+    const agent = transcript(rig.store, s.id).find((e) => e.kind === "tool" && e.call.name === "agent");
+    expect(agent?.kind === "tool" && agent.call.outcome).toBe("done");
+    expect(agent?.kind === "tool" && agent.call.result).toContain("Report: listed every page.");
+    expect(agent?.kind === "tool" && agent.call.result).not.toMatch(/turn_limit/);
+    expect(editorCalls(path.join(dir, "data")).filter((c) => c.action === "list")).toHaveLength(STEPS);
+  }, 180_000);
+
   it("shows the same conversation as Studio's loop does, and Android build 40's loader reads it", async () => {
     const script = ({ toolResults }: { toolResults: number }): FakeTurn => toolResults === 0
       ? { text: "Placing it.", tool: { name: "ue_mcp", input: { action: "call", category: "level", method: "place_actor", args: { class: "Cube" } } } }
