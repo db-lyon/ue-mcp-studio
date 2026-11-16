@@ -467,6 +467,25 @@ describe("Chat", () => {
     expect(api.saveDraft).toHaveBeenCalledWith("s9", "Build a Niagara fire at the player start");
   });
 
+  it("a failed new session shows its error with Retry, which runs it again", async () => {
+    const api = fakeApi();
+    api.sessions.mockResolvedValue({ sessions: [] });
+    api.settings.mockResolvedValue(settings);
+    api.models.mockResolvedValue({ signedIn: {}, providers: [] });
+    api.newSession.mockRejectedValueOnce(new Error("the computer answered 503"));
+    api.newSession.mockResolvedValue(session({ id: "s9" }));
+    renderInProject(<Chat />, api);
+    await settle();
+    fireEvent.click(screen.getByLabelText("Build a Niagara fire at the player start"));
+    await settle();
+    expect(screen.getByText("the computer answered 503")).toBeTruthy();
+    expect(screen.getByText("Dismiss")).toBeTruthy();
+    fireEvent.click(screen.getByText("Retry"));
+    await settle();
+    expect(api.newSession).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("the computer answered 503")).toBeNull();
+  });
+
   it("sets an example's caret inline in its text, so a second line wraps under it as the web's ::before does", async () => {
     const api = fakeApi();
     api.sessions.mockResolvedValue({ sessions: [] });
