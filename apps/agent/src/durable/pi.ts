@@ -19,7 +19,7 @@ import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messag
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
-import { createRegistry, defineDoc, defineExtension, defineTool, GenerationTask, Harness, hook, LiveDoc, ToolTask } from "@earendil-works/pi-durable";
+import { createRegistry, defineDoc, defineExtension, defineTask, defineTool, GenerationTask, Harness, hook, LiveDoc, ToolTask } from "@earendil-works/pi-durable";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 import { createCodemodeExtension } from "@earendil-works/pi-durable/codemode";
 import { CodemodeSandbox, loadQuickJSWasm } from "@earendil-works/pi-codemode";
@@ -127,9 +127,13 @@ interface ChildRecord {
   submission?: string;
   /** The user started it from the chat (a playtest card), not the main agent: its report goes to Studio, and a stop of the main agent leaves it running. */
   assigned?: boolean;
+  /** The durable task delivering its report (#463 L5), made once it goes to the background or is assigned. */
+  reporter?: unknown;
 }
 interface SessionRecord {
   conv: string;
+  /** The background task new subagent conversations are owned by (#463 L5); made with the session's first subagent. */
+  anchor?: unknown;
   children: Record<string, ChildRecord>;
   /** The user's messages to subagents, by request id, until each is read or goes to the main agent. */
   told: Record<string, { callId: string; submission: string }>;
@@ -505,7 +509,6 @@ export class DurableEngine {
   /** Foreground agent calls waiting on their subagent, by call id: how to send each to the background. */
   private readonly waiting = new Map<string, () => void>();
   /** Reporters of background subagents running in this process, by call id. */
-  private readonly reporters = new Set<string>();
 
   /** `traces`: the trace store's file; without one, or when it cannot be opened, the harness records nothing and runs as before. */
   /** The project folder Studio's local tools run in (#463 L3); without one they run in the daemon. */
@@ -514,6 +517,8 @@ export class DurableEngine {
   static async open(file: string, host: EngineHost, traces?: string, projectDir?: string): Promise<DurableEngine> {
     const routes = new RouteModels(host);
     const registry = createRegistry();
+    // Studio's own tasks (#463 L5) resolve before anything resumes.
+    registry.install(RuntimeTasks as never);
     const storage = await openNodeSqliteStorage(file);
     let traceStore: TraceStore | null = null;
     let traceNote: string | undefined = traces ? undefined : "This runtime keeps no traces.";
@@ -552,6 +557,7 @@ export class DurableEngine {
     });
     const engine = new DurableEngine(harness, registry, routes, host, reports, traceStore, traceNote);
     engine.projectDir = projectDir ?? null;
+    running = engine;
     await engine.load();
     return engine;
   }
@@ -671,19 +677,22 @@ export class DurableEngine {
       await this.watch(rec.conv);
       for (const [callId, c] of Object.entries(rec.children)) {
         await this.watch(c.conv);
-        if (c.background && !c.reported) this.report(sessionId, callId);
+        // A reporter task resumes by itself; one an earlier Studio's in-memory reporter owed is made now, once.
+        if (c.background && !c.reported) await this.report(sessionId, callId);
       }
     }
   }
 
   /** Some task can run now or is running: a run, a tool call, a subagent, a compaction, a sleep due. */
   active(): boolean {
-    return this.harness.wake().active || this.reporters.size > 0;
+    // A reporter waiting on its subagent is a running task, so it counts here.
+    return this.harness.wake().active;
   }
 
   async close(): Promise<void> {
     for (const w of this.watched.values()) await w.stop().catch(() => undefined);
     await this.harness.close(CTX);
+    if (running === this) running = null;
     // After the harness: its last spans settle as it closes, and close drains them.
     await this.traceStore?.close().catch((e: unknown) => this.host.log(`trace store close failed: ${e instanceof Error ? e.message : String(e)}`));
   }
@@ -1142,7 +1151,11 @@ export class DurableEngine {
         rec.children[callId] = { conv: from.conv, background: false, reported: false, description };
         return from.conv;
       }
-      const created = await (tx as unknown as { createConversation(o: unknown): Promise<{ id: string }> }).createConversation({ ownership: { kind: "ownerless" } });
+      // Owned by the session's anchor (#463 L5): a background task, so the main agent's Stop and idle waits never reach
+      // it, that stays live as long as the session, so the child outlives its call and a stopped one can be resumed.
+      const t = tx as unknown as { createConversation(o: unknown): Promise<{ id: string }>; createTask(task: unknown, input: unknown, o: unknown): Promise<unknown> };
+      rec.anchor ??= await t.createTask(Anchor, { sessionId }, { ownership: { kind: "conversation" }, conversationId: idOf(rec.conv), background: true });
+      const created = await t.createConversation({ ownership: { kind: "task", taskId: rec.anchor } });
       rec.children[callId] = { conv: String(created.id), background: false, reported: false, description };
       return String(created.id);
     }, CTX);
@@ -1236,7 +1249,7 @@ export class DurableEngine {
       const first = await Promise.race([submission.wait(CTX), backgrounded, aborted]);
       if (first === "background") {
         await this.markChild(sessionId, callId, { background: true });
-        this.report(sessionId, callId);
+        await this.report(sessionId, callId);
         return { text: backgroundText(start.description), isError: false };
       }
       if (first === "aborted") {
@@ -1269,42 +1282,121 @@ export class DurableEngine {
     await this.configure(conv, start.spec, "child");
     const submission = await conv.submit({ type: "input", content: start.prompt, requestId: `agent:${callId}` } as never, CTX);
     await this.markChild(sessionId, callId, { submission: String(submission.id), background: true, assigned: true });
-    this.report(sessionId, callId);
+    await this.report(sessionId, callId);
   }
 
-  /** A background subagent's reporter: when it ends, its report goes to the main agent as a message, once (to the daemon only, for one the user assigned). */
-  private report(sessionId: string, callId: string): void {
-    if (this.reporters.has(callId)) return;
-    this.reporters.add(callId);
-    void (async () => {
-      try {
-        const doc = await this.sessions();
-        const rec = doc.sessions[sessionId];
-        const c = rec?.children[callId];
-        if (!rec || !c || c.reported) return;
-        const conv = await this.harness.conversation(c.conv as never, CTX);
-        const sub = c.submission ? await this.harness.submission(c.submission as never, CTX) : undefined;
-        if (!conv || !sub) return;
-        const settled = await sub.wait(CTX);
-        const r = await this.reportOf(conv, settled as unknown as { status: string; reason?: string; detail?: string });
-        const unread = await this.unread(sessionId, callId);
-        const text = unread.length ? `${r.text}\n\n[Studio] The user wrote to this subagent and it ended before reading it:\n${unread.map((t) => `- ${t}`).join("\n")}` : r.text;
-        this.host.emit({ t: "agentEnd", sessionId, callId, text, isError: r.isError, stopped: r.stopped, background: true, ...(c.assigned ? { assigned: true } : {}) });
-        // One the user stopped wakes nobody: the daemon keeps its note for the next message. One the user assigned reports to the daemon alone.
-        if (!r.stopped && !c.assigned) {
-          const main = await this.harness.conversation(rec.conv as never, CTX);
-          const note = `[Studio] The subagent "${c.description}" (agent call ${callId}), which kept working in the background, has ended. ${r.isError ? "It failed." : "It finished."} Its report:\n${text}`;
-          await main?.submit({ type: "input", content: note, requestId: `report:${callId}`, whenBusy: "steer" } as never, CTX);
-        }
-        await this.markChild(sessionId, callId, { reported: true });
-      } catch (e) {
-        this.host.log(`reporter ${callId}: ${e instanceof Error ? e.message : String(e)}`);
-      } finally {
-        this.reporters.delete(callId);
-      }
-    })();
+  /**
+   * A background subagent's reporter (#463 L5): a durable task on the child's
+   * conversation, made once, in the commit that records it. A background task,
+   * so neither the main agent's Stop nor the child's own abort cancels it; it
+   * resumes by itself after a restart.
+   */
+  private async report(sessionId: string, callId: string): Promise<void> {
+    await this.harness.commit(async (tx) => {
+      const t = tx as unknown as { doc(t: unknown): Promise<SessionsDoc>; createTask(task: unknown, input: unknown, o: unknown): Promise<unknown> };
+      const c = (await t.doc(Sessions)).sessions[sessionId]?.children[callId];
+      if (!c || c.reported || c.reporter !== undefined) return;
+      c.reporter = await t.createTask(Reporter, { sessionId, callId }, { ownership: { kind: "conversation" }, conversationId: idOf(c.conv), background: true });
+    }, CTX);
+  }
+
+  /** The reporter's wait: the subagent's prompt settles, and what its report says. Null when there is nothing to report. */
+  async awaitReport(sessionId: string, callId: string): Promise<ReportState | null> {
+    const c = (await this.sessions()).sessions[sessionId]?.children[callId];
+    if (!c || c.reported) return null;
+    const conv = await this.harness.conversation(c.conv as never, CTX);
+    const sub = c.submission ? await this.harness.submission(c.submission as never, CTX) : undefined;
+    if (!conv || !sub) return null;
+    const settled = await sub.wait(CTX);
+    const r = await this.reportOf(conv, settled as unknown as { status: string; reason?: string; detail?: string });
+    const unread = await this.unread(sessionId, callId);
+    const text = unread.length ? `${r.text}\n\n[Studio] The user wrote to this subagent and it ended before reading it:\n${unread.map((t) => `- ${t}`).join("\n")}` : r.text;
+    return { text, isError: r.isError, stopped: r.stopped };
+  }
+
+  /** The reporter's delivery, once: to the daemon, and to the main agent as a message (by request id, so a rerun sends nothing twice). */
+  async deliverReport(sessionId: string, callId: string, r: ReportState): Promise<void> {
+    const rec = (await this.sessions()).sessions[sessionId];
+    const c = rec?.children[callId];
+    if (!rec || !c || c.reported) return;
+    this.host.emit({ t: "agentEnd", sessionId, callId, text: r.text, isError: r.isError, stopped: r.stopped, background: true, ...(c.assigned ? { assigned: true } : {}) });
+    // One the user stopped wakes nobody: the daemon keeps its note for the next message. One the user assigned reports to the daemon alone.
+    if (!r.stopped && !c.assigned) {
+      const main = await this.harness.conversation(rec.conv as never, CTX);
+      const note = `[Studio] The subagent "${c.description}" (agent call ${callId}), which kept working in the background, has ended. ${r.isError ? "It failed." : "It finished."} Its report:\n${r.text}`;
+      await main?.submit({ type: "input", content: note, requestId: `report:${callId}`, whenBusy: "steer" } as never, CTX);
+    }
+    await this.markChild(sessionId, callId, { reported: true });
   }
 }
+
+/** A conversation id as Pi Durable made it: Studio keeps them as text, Pi Durable's are numbers. */
+const idOf = (conv: string): unknown => (/^\d+$/.test(conv) ? Number(conv) : conv);
+
+/** What a reporter task carries from its wait to its delivery. */
+interface ReportState {
+  text: string;
+  isError: boolean;
+  stopped: boolean;
+}
+
+/** The engine running in this process, which Studio's own tasks act through. */
+let running: DurableEngine | null = null;
+const engine = (): DurableEngine => {
+  if (!running) throw new Error("no durable engine is running in this process");
+  return running;
+};
+
+type Done = { status: "terminal"; outcome: { status: "completed"; result: null } };
+const DONE: Done = { status: "terminal", outcome: { status: "completed", result: null } };
+const ABORTED = { status: "terminal" as const, outcome: { status: "aborted" as const } };
+type Runtime = { commit(change: () => unknown, context: Ctx): Promise<void> };
+
+/**
+ * A background subagent's reporter (#463 L5): waits for its prompt to settle,
+ * then delivers its report once. Each phase commits before the next runs, so a
+ * restart between them repeats only the delivery, which is idempotent.
+ */
+const Reporter = (defineTask as unknown as (d: unknown) => unknown)({
+  name: "studio.reporter",
+  version: 1,
+  initial: () => ({ phase: "wait" }),
+  phases: {
+    wait: async (task: { input: { sessionId: string; callId: string } }, runtime: Runtime, context: Ctx) => {
+      const r = await engine().awaitReport(task.input.sessionId, task.input.callId);
+      await runtime.commit(() => (r ? { status: "running", checkpoint: { phase: "deliver", ...r } } : DONE), context);
+    },
+    deliver: async (task: { input: { sessionId: string; callId: string }; state: { checkpoint: ReportState } }, runtime: Runtime, context: Ctx) => {
+      await engine().deliverReport(task.input.sessionId, task.input.callId, task.state.checkpoint);
+      await runtime.commit(() => DONE, context);
+    },
+  },
+  abort: async (_task: unknown, runtime: Runtime, context: Ctx) => runtime.commit(() => ABORTED, context),
+});
+
+/** How long the anchor sleeps at a time: well inside a timer's range. It never runs except to sleep again. */
+const ANCHOR_SLEEP_MS = 7 * 24 * 60 * 60_000;
+
+/**
+ * A session's subagent anchor (#463 L5): the background task its subagent
+ * conversations are owned by. It holds asleep for as long as the session
+ * lives, so the harness knows whose every child is, while the main agent's
+ * Stop and idle waits never reach them.
+ */
+const Anchor = (defineTask as unknown as (d: unknown) => unknown)({
+  name: "studio.subagents",
+  version: 1,
+  initial: () => ({ phase: "hold" }),
+  phases: {
+    hold: async (_task: unknown, runtime: Runtime, context: Ctx) => {
+      await runtime.commit(() => ({ status: "sleeping", checkpoint: { phase: "hold" }, until: Date.now() + ANCHOR_SLEEP_MS }), context);
+    },
+  },
+  abort: async (_task: unknown, runtime: Runtime, context: Ctx) => runtime.commit(() => ABORTED, context),
+});
+
+/** Studio's own durable tasks, resolved by name for every conversation. */
+const RuntimeTasks: unknown = (defineExtension as unknown as (d: unknown) => unknown)({ name: "studio-runtime", tasks: [Reporter, Anchor] });
 
 const backgroundText = (description: string): string =>
   `The subagent "${description}" keeps working in the background: the user wrote to you, or stopped only your reply, while it worked. `
