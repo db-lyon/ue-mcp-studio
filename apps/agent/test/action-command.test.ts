@@ -13,7 +13,6 @@ import { ActionCatalog, type ActionEffectRow } from "../src/action-catalog.js";
 import { ACTION_NOTE_CHARS, AgentRunner } from "../src/runner.js";
 import { SessionStore } from "../src/sessions.js";
 import type { AgentHost } from "../src/tools.js";
-import type { ModelProvider } from "../src/providers.js";
 
 const answer = (body: unknown, isError = false): ActionResult => ({ isError, content: [{ type: "text", text: typeof body === "string" ? body : JSON.stringify(body) }] });
 
@@ -114,8 +113,8 @@ describe("a /action in a session", () => {
       setBusy: () => {},
       log: { info() {}, warn() {} },
     } as unknown as AgentHost;
-    const model: ModelProvider = { run: async () => { throw new Error("a /action runs no chat turn"); } };
-    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", approvals, effects });
+    // A /action runs no chat turn: the runner has no durable harness, so a reply would fail.
+    const runner = new AgentRunner({ host, store, model: () => "claude-opus-5-5", approvals, effects });
     const s = store.create("New session");
     return { runner, s };
   }

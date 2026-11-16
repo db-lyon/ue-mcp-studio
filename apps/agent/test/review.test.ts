@@ -7,15 +7,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ActionResult, EditorStatus } from "ue-mcp/daemon";
 import { assetPathOf, readableValue, refineAssetDiff, reviewGroupOf, unifiedLines, WIDGET_TREE_NOT_COMPARED, type AssetDiff, type TurnReview } from "@ue-mcp-studio/shared";
 import { PNG } from "pngjs";
 import { BLANK_CAPTURE, ReviewBroker, type ReviewHost } from "../src/review.js";
 import { SessionStore, type StoredSession } from "../src/sessions.js";
-import { AgentRunner } from "../src/runner.js";
-import type { ModelProvider, ModelRequest, ModelTurn } from "../src/providers.js";
-import type { AgentHost } from "../src/tools.js";
+import { runHarness } from "../src/durable/harness-main.js";
 import { FakeCheckpoints } from "./checkpoint-fake.js";
+import { FakeHost, durableRunner, until } from "./durable/helpers.js";
+import { startFakeAnthropic } from "./durable/fake-anthropic.js";
 
 let root: string;
 let store: SessionStore;
@@ -395,46 +394,45 @@ describe("the review model", () => {
 
 // ── With the runner ──────────────────────────────────────────────────
 
-class EditingModel implements ModelProvider {
-  requests: ModelRequest[] = [];
-  constructor(private readonly turns: Array<() => ModelTurn>) {}
-  async run(req: ModelRequest): Promise<ModelTurn> {
-    this.requests.push(req);
-    return this.turns.shift()!();
-  }
-}
-
 describe("a reviewed turn in the runner", () => {
   it("checkpoints before the model runs and reviews the turn once it ends", async () => {
-    const host: AgentHost = {
-      projectDir: path.join(root, "project"),
-      dataDir: path.join(root, "data"),
-      callAction: async (): Promise<ActionResult> => {
-        cp.files.set("Config/DefaultGame.ini", "Speed=5");
-        return { isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, updated: true }) }] };
-      },
-      editors: (): EditorStatus[] => [{ name: "P", connected: true, port: 1, pid: 1, lastDisconnect: null }],
-      editorOperation: async (op) => ({ op }),
-      events: { publish: () => undefined as never, subscribe: () => () => {} },
-      setBusy: () => {},
-      log: { info() {}, warn() {} } as never,
-    };
+    fs.mkdirSync(path.join(root, "project"), { recursive: true });
     const review = new ReviewBroker({ host: hostOf(), store, defaultOn: () => true });
     let createdBeforeModel = false;
-    const model = new EditingModel([
-      () => {
-        createdBeforeModel = cp.log.some((l) => l.startsWith("create Before"));
-        return { content: [{ type: "tool_use", id: "t1", name: "ue_mcp", input: { action: "call", category: "project", method: "set_config", args: {} } } as never], stopReason: "tool_use" };
+    const fake = await startFakeAnthropic(({ toolResults }) => {
+      if (toolResults > 0) return { text: "Done." };
+      createdBeforeModel = cp.log.some((l) => l.startsWith("create Before"));
+      return { tool: { id: "t1", name: "ue_mcp", input: { action: "call", category: "project", method: "set_config", args: {} } } };
+    });
+    let harness: { close(): Promise<void> } | null = null;
+    const host = new FakeHost(path.join(root, "project"), path.join(root, "data"));
+    host.handler = async (category, action) => {
+      if (category === "editor" && action === "list_dirty_packages") return { isError: false, content: [{ type: "text", text: "{\"success\":true,\"content\":[]}" }] };
+      cp.files.set("Config/DefaultGame.ini", "Speed=5");
+      return { isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, updated: true }) }] };
+    };
+    const { runner } = durableRunner({
+      projectDir: host.projectDir,
+      dataDir: host.dataDir,
+      base: fake.base,
+      host,
+      store,
+      start: async (launch) => {
+        harness = await runHarness(launch);
       },
-      () => ({ content: [{ type: "text", text: "Done.", citations: null } as never], stopReason: "end_turn" }),
-    ]);
-    const runner = new AgentRunner({ host, store, review, provider: () => model, model: () => "m" });
-    const s = store.create();
-    await runner.send(s.id, "Set the speed");
-    const end = Date.now() + 2000;
-    while (!reviewOf(s) && Date.now() < end) await new Promise((r) => setTimeout(r, 5));
-    expect(createdBeforeModel).toBe(true);
-    expect(reviewOf(s)!.items.map((i) => i.path)).toEqual(["Config/DefaultGame.ini"]);
-    expect(store.get(s.id)!.reviewing).toBeNull();
-  });
+      extra: { review },
+    });
+    try {
+      const s = store.create();
+      await runner.send(s.id, "Set the speed");
+      await until(() => !!reviewOf(s), 30_000, "the turn's review");
+      expect(createdBeforeModel).toBe(true);
+      expect(reviewOf(s)!.items.map((i) => i.path)).toEqual(["Config/DefaultGame.ini"]);
+      expect(store.get(s.id)!.reviewing).toBeNull();
+    } finally {
+      runner.dispose();
+      await (harness as { close(): Promise<void> } | null)?.close();
+      await fake.close();
+    }
+  }, 60_000);
 });

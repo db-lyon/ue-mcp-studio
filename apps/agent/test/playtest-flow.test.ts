@@ -10,12 +10,12 @@ import * as path from "node:path";
 import type { ActionResult } from "ue-mcp/daemon";
 import type { TranscriptEntry } from "@ue-mcp-studio/shared";
 import { PLAYTEST_LINKS_LINE, PlaytestFlow, flowErrors, outcomeOf, playtestParams, playtestTarget, playtestTurnParams, type FlowEventLike } from "../src/playtest-flow.js";
-import { AgentRunner } from "../src/runner.js";
 import { SessionStore } from "../src/sessions.js";
-import { QaBroker, type QaHost } from "../src/qa.js";
-import type { AgentHost } from "../src/tools.js";
-import type { ModelProvider, ModelTurn } from "../src/providers.js";
+import { QaBroker } from "../src/qa.js";
 import { SessionStore as Sessions } from "../src/sessions.js";
+import { runHarness } from "../src/durable/harness-main.js";
+import { FakeHost, durableRunner, until, type DurableRig } from "./durable/helpers.js";
+import { startFakeAnthropic, type FakeAnthropic, type FakeTurn } from "./durable/fake-anthropic.js";
 
 const PATH = "/Game/PIEStudio/Scripts/TS_Playtest_BP_Hero";
 const saved = { success: true, path: PATH, name: "TS_Playtest_BP_Hero", steps: [{ instruction: "Press Space twice", judge: "auto", expect: { value: "Pawn.JumpCount", op: "eq", target: 2 } }], step_count: 1 };
@@ -169,37 +169,54 @@ describe("a /playtest in a session", () => {
   let root: string;
   let store: SessionStore;
   let published: Array<{ type: string; data?: Record<string, unknown> }>;
+  let fake: FakeAnthropic | null;
+  let harness: { close(): Promise<void> } | null;
+  let rig: DurableRig | null;
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), "studio-playtest-flow-"));
     fs.mkdirSync(path.join(root, "project"), { recursive: true });
+    fs.mkdirSync(path.join(root, "data"), { recursive: true });
     store = new SessionStore(path.join(root, "data"));
     published = [];
+    fake = null;
+    harness = null;
+    rig = null;
   });
-  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+  afterEach(async () => {
+    rig?.runner.dispose();
+    await harness?.close();
+    await fake?.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
 
-  function setup(answer: () => { status: number; body: unknown }, events: FlowEventLike[] = [], turns: ModelTurn[] = [], editor: (category: string, action: string) => Record<string, unknown> = () => ({})) {
+  /** A runner on the durable harness; the model answers `turns` in order, and a /playtest asks it nothing. */
+  async function setup(answer: () => { status: number; body: unknown }, events: FlowEventLike[] = [], turns: FakeTurn[] = [], editor: (category: string, action: string) => Record<string, unknown> = () => ({})) {
     const ok = (body: Record<string, unknown>): ActionResult => ({ isError: false, content: [{ type: "text", text: JSON.stringify({ success: true, ...body }) }] });
-    const host = {
-      projectDir: path.join(root, "project"),
-      dataDir: path.join(root, "data"),
-      callAction: async (category: string, action: string) => ok(editor(category, action)),
-      editors: () => [{ connected: true, name: "P", port: 1, pid: 1, lastDisconnect: null }],
-      editorOperation: async (op: string) => ({ op, steps: [] }),
-      events: { publish: (type: string, data?: Record<string, unknown>) => void published.push({ type, data }), subscribe: () => () => {} },
-      setBusy: () => {},
-      log: { info() {}, warn() {} },
-    } as unknown as QaHost & AgentHost;
+    const host = new FakeHost(path.join(root, "project"), path.join(root, "data"));
+    host.handler = async (category, action) => ok(editor(category, action));
+    published = host.published;
     const qa = new QaBroker({ host, store });
-    const model: ModelProvider = { run: async () => { const t = turns.shift(); if (!t) throw new Error("a /playtest runs no chat turn"); return t; } };
+    if (turns.length) fake = await startFakeAnthropic(() => turns.shift() ?? { text: "out of turns" });
     const d = fakeDaemon(answer, events);
-    const runner = new AgentRunner({ host, store, qa, provider: () => model, model: () => "claude-opus-5-5", playtestFlow: d.flow });
+    rig = durableRunner({
+      projectDir: host.projectDir,
+      dataDir: host.dataDir,
+      base: fake?.base ?? "http://127.0.0.1:1",
+      host,
+      store,
+      start: async (launch) => {
+        harness = await runHarness(launch);
+      },
+      extra: { qa, playtestFlow: d.flow },
+    });
     const s = store.create("New session");
-    return { runner, s, d };
+    return { runner: rig.runner, s, d };
   }
+  const settled = (id: string) => until(() => store.get(id)!.status === "idle", 30_000, "the turn to end");
 
   it("runs the flow for a /playtest message, shows its stages, and ends with the Draft card", async () => {
-    const { runner, s, d } = setup(() => success, [started("r1"), step("r1", "playtest.gather"), step("r1", "playtest.draft"), step("r1", "playtest.check")]);
+    const { runner, s, d } = await setup(() => success, [started("r1"), step("r1", "playtest.gather"), step("r1", "playtest.draft"), step("r1", "playtest.check")]);
     await runner.send(s.id, "/playtest the double jump");
     const after = store.get(s.id)!;
     expect(JSON.parse(String(d.requests[0].init.body)).params.target).toBe("the double jump");
@@ -215,7 +232,7 @@ describe("a /playtest in a session", () => {
   });
 
   it("says no playtest was made, with the flow's errors, and keeps the request for Retry", async () => {
-    const { runner, s } = setup(() => failure);
+    const { runner, s } = await setup(() => failure);
     await runner.playtest(s.id, { text: "" });
     const after = store.get(s.id)!;
     const card = after.transcript.find((t) => t.kind === "playtest");
@@ -227,7 +244,7 @@ describe("a /playtest in a session", () => {
   });
 
   it("makes a playtest from an agent message, and refuses an entry that is not one", async () => {
-    const { runner, s, d } = setup(() => success);
+    const { runner, s, d } = await setup(() => success);
     const live = store.get(s.id)!;
     live.transcript.push({ kind: "assistant", text: "Added a dash to /Game/BP_Dasher.", at: "" });
     store.save(live);
@@ -237,8 +254,8 @@ describe("a /playtest in a session", () => {
     expect(store.get(s.id)!.transcript[1]).toMatchObject({ kind: "user", text: "/playtest", source: 0 });
   });
 
-  it("ends a card a daemon restart cut off as failed, so Retry can run it again", () => {
-    const { runner, s } = setup(() => success);
+  it("ends a card a daemon restart cut off as failed, so Retry can run it again", async () => {
+    const { runner, s } = await setup(() => success);
     const live = store.get(s.id)!;
     live.transcript.push({ kind: "playtest", state: "drafting", request: { text: "" }, attempt: 1, at: "" });
     live.status = "running";
@@ -249,19 +266,19 @@ describe("a /playtest in a session", () => {
     expect(after.status).toBe("idle");
   });
 
-  const call = (id: string, category: string, method: string, args: Record<string, unknown> = {}): ModelTurn => ({
-    content: [{ type: "tool_use", id, name: "ue_mcp", input: { action: "call", category, method, args } } as never],
-    stopReason: "tool_use",
+  const call = (id: string, category: string, method: string, args: Record<string, unknown> = {}): FakeTurn => ({
+    tool: { id, name: "ue_mcp", input: { action: "call", category, method, args } },
   });
-  const said = (t: string): ModelTurn => ({ content: [{ type: "text", text: t, citations: null } as never], stopReason: "end_turn" });
+  const said = (t: string): FakeTurn => ({ text: t });
 
   it("records what a turn changed from its calls, for the Make playtest pill, and runs the flow on it", async () => {
-    const { runner, s, d } = setup(() => success, [], [
+    const { runner, s, d } = await setup(() => success, [], [
       call("c1", "blueprint", "read_blueprint", { assetPath: "/Game/BP_Door" }),
       call("c2", "blueprint", "add_component", { assetPath: "/Game/BP_Hero", componentClass: "AudioComponent" }),
       said("Added a jump sound to BP_Hero."),
     ], (_c, action) => (action === "add_component" ? { updated: true } : {}));
     await runner.send(s.id, "add a jump sound to the hero");
+    await settled(s.id);
     const facts = Sessions.detail(store.get(s.id)!).turn!;
     expect(facts).toEqual({ start: 0, mutations: 1, targets: [{ kind: "asset", path: "/Game/BP_Hero", saved: false }], playtest: false });
     await expect(runner.playtest(s.id, { text: "", turn: 3 })).rejects.toThrow(/does not begin the latest turn/);
@@ -272,18 +289,20 @@ describe("a /playtest in a session", () => {
     expect(params.context).toContain("Assistant: Added a jump sound to BP_Hero.");
     // The /playtest is the latest turn now, and it made a playtest: no pill follows it.
     expect(Sessions.detail(store.get(s.id)!).turn).toMatchObject({ playtest: true, mutations: 0 });
-  });
+  }, 60_000);
 
   it("counts no change for a turn that only read, and marks one that saved a playtest itself", async () => {
-    const { runner, s } = setup(() => success, [], [
+    const { runner, s } = await setup(() => success, [], [
       call("c1", "blueprint", "read_blueprint", { assetPath: "/Game/BP_Door" }),
       said("It has a hinge."),
       call("c2", "pie", "script_create", { name: "Door", steps: [{ instruction: "Open it" }] }),
       said("Saved a playtest."),
     ], (_c, action) => (action === "script_create" ? { created: true, path: "/Game/Scripts/Door", name: "Door", steps: [{ instruction: "Open it", judge: "manual" }] } : {}));
     await runner.send(s.id, "what does the door have?");
+    await settled(s.id);
     expect(Sessions.detail(store.get(s.id)!).turn).toMatchObject({ mutations: 0, playtest: false });
     await runner.send(s.id, "make a playtest of the door");
+    await until(() => store.get(s.id)!.status === "idle" && store.get(s.id)!.transcript.at(-1)?.kind === "assistant" && store.get(s.id)!.transcript.filter((t) => t.kind === "user").length === 2, 30_000, "the second turn");
     expect(Sessions.detail(store.get(s.id)!).turn).toMatchObject({ playtest: true });
-  });
+  }, 60_000);
 });

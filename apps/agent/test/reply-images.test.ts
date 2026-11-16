@@ -13,11 +13,10 @@ import { GifWriter } from "omggif";
 import { POSTER_MAX_BYTES, POSTER_MIN_BYTES, replyImagePaths } from "@ue-mcp-studio/shared";
 import { decodeImage, imageFacts, makePoster, webpFirstFrame } from "../src/images.js";
 import { imageInfoOf, posterFor, replyImages } from "../src/reply-images.js";
-import { AgentRunner } from "../src/runner.js";
-import { SessionStore } from "../src/sessions.js";
-import type { ModelProvider } from "../src/providers.js";
-import type { AgentHost } from "../src/tools.js";
+import { runHarness } from "../src/durable/harness-main.js";
 import { jpegBytes, pngBytes } from "./image-fixtures.js";
+import { durableRunner, until } from "./durable/helpers.js";
+import { startFakeAnthropic } from "./durable/fake-anthropic.js";
 
 let dir: string;
 beforeEach(() => {
@@ -223,26 +222,32 @@ describe("the images a reply shows", () => {
     const project = path.join(dir, "Game");
     fs.mkdirSync(path.join(project, "Saved"), { recursive: true });
     fs.writeFileSync(path.join(project, "Saved", "shot.jpg"), jpegBytes(320, 180));
-    const published: Array<{ type: string; data?: Record<string, unknown> }> = [];
-    const host = {
+    fs.mkdirSync(path.join(dir, "data"), { recursive: true });
+    const fake = await startFakeAnthropic(() => ({ text: "Here it is.\n![The shot](Saved/shot.jpg)" }));
+    let harness: { close(): Promise<void> } | null = null;
+    const rig = durableRunner({
       projectDir: project,
       dataDir: path.join(dir, "data"),
-      log: { info() {}, warn() {} },
-      events: { publish: (type: string, data?: Record<string, unknown>) => void published.push({ type, data }), subscribe: () => () => {} },
-      callAction: async () => ({ isError: false, content: [{ type: "text", text: "{}" }] }),
-      editors: () => [],
-      editorOperation: async (op: string) => ({ op, steps: [] }),
-      setBusy() {},
-    } as unknown as AgentHost;
-    const store = new SessionStore(path.join(dir, "data"));
-    const model = { run: async () => ({ content: [{ type: "text", text: "Here it is.\n![The shot](Saved/shot.jpg)", citations: null }], stopReason: "end_turn" }) } as unknown as ModelProvider;
-    const r = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", replyImages: (text) => replyImages(text, { projectDir: project, home: dir }) });
-    const s = store.create();
-    await r.send(s.id, "show me");
-    const reply = store.get(s.id)!.transcript.find((e) => e.kind === "assistant");
-    const info = { type: "image/jpeg", width: 320, height: 180, bytes: fs.statSync(path.join(project, "Saved", "shot.jpg")).size, frames: 1, animated: false };
-    expect(reply).toMatchObject({ kind: "assistant", images: { "Saved/shot.jpg": info } });
-    const added = published.filter((e) => e.type === "transcript.added").map((e) => e.data?.entry as { kind: string; images?: unknown });
-    expect(added.find((e) => e.kind === "assistant")?.images).toEqual({ "Saved/shot.jpg": info });
-  });
+      base: fake.base,
+      start: async (launch) => {
+        harness = await runHarness(launch);
+      },
+      extra: { replyImages: (text) => replyImages(text, { projectDir: project, home: dir }) },
+    });
+    try {
+      const { store, host, runner } = rig;
+      const s = store.create();
+      await runner.send(s.id, "show me");
+      await until(() => store.get(s.id)!.status === "idle", 30_000, "the reply");
+      const reply = store.get(s.id)!.transcript.find((e) => e.kind === "assistant");
+      const info = { type: "image/jpeg", width: 320, height: 180, bytes: fs.statSync(path.join(project, "Saved", "shot.jpg")).size, frames: 1, animated: false };
+      expect(reply).toMatchObject({ kind: "assistant", images: { "Saved/shot.jpg": info } });
+      const added = host.published.filter((e) => e.type === "transcript.added").map((e) => e.data?.entry as { kind: string; images?: unknown });
+      expect(added.find((e) => e.kind === "assistant")?.images).toEqual({ "Saved/shot.jpg": info });
+    } finally {
+      rig.runner.dispose();
+      await (harness as { close(): Promise<void> } | null)?.close();
+      await fake.close();
+    }
+  }, 60_000);
 });

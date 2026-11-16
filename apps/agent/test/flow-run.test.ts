@@ -14,7 +14,6 @@ import type { FlowEventLike } from "../src/playtest-flow.js";
 import { AgentRunner } from "../src/runner.js";
 import { SessionStore } from "../src/sessions.js";
 import type { AgentHost } from "../src/tools.js";
-import type { ModelProvider } from "../src/providers.js";
 
 /** A daemon: the run route answers from `answer`, and emits `script` while the run is in progress. */
 function fakeDaemon(answer: () => { status: number; body: unknown } | Promise<{ status: number; body: unknown }>, script: FlowEventLike[] = [], plan: () => { status: number; body: unknown } = () => ({ status: 200, body: { success: true, steps: [{ stepNumber: 1, type: "task", name: "editor.stop" }, { stepNumber: 2, type: "task", name: "project.build" }] } })) {
@@ -140,10 +139,10 @@ describe("a /flow in a session", () => {
       setBusy: () => {},
       log: { info() {}, warn() {} },
     } as unknown as AgentHost;
-    const model: ModelProvider = { run: async () => { throw new Error("a /flow runs no chat turn"); } };
     const d = fakeDaemon(answer, events, o.plan);
     const approvals = o.approvals ? () => ({ shell: "ask", files: "ask", editorRestart: "ask", destructive: "ask", ...o.approvals }) as Approvals : undefined;
-    const runner = new AgentRunner({ host, store, provider: () => model, model: () => "claude-opus-5-5", flows: d.caller, ...(approvals ? { approvals } : {}), ...(o.effects ? { effects: o.effects } : {}), ...(o.live ? { flowStepApproval: () => true } : {}) });
+    // A /flow runs no chat turn: the runner has no durable harness, so a reply would fail.
+    const runner = new AgentRunner({ host, store, model: () => "claude-opus-5-5", flows: d.caller, ...(approvals ? { approvals } : {}), ...(o.effects ? { effects: o.effects } : {}), ...(o.live ? { flowStepApproval: () => true } : {}) });
     const s = store.create("New session");
     return { runner, s, d };
   }
