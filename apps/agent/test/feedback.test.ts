@@ -20,6 +20,17 @@ describe("Studio feedback", () => {
     expect(validate(report)).toBeNull();
   });
 
+  it("takes a title of any length: a long one is cut at a word and leads the description whole", async () => {
+    const long = `${"word ".repeat(60)}end`;
+    expect(validate({ ...report, title: long })).toBeNull();
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true, url: "u", number: 1 }), { status: 201 }));
+    await submitFeedback({ ...report, title: long }, null, fetchImpl as never);
+    const sent = JSON.parse(String((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(sent.title.length).toBeLessThanOrEqual(200);
+    expect(sent.title.endsWith("word...")).toBe(true);
+    expect(sent.body).toContain(long);
+  });
+
   it("files it on Studio's tracker as a bug or an enhancement", async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ ok: true, url: "https://github.com/db-lyon/ue-mcp-studio/issues/9", number: 9 }), { status: 201 }));
     expect(await submitFeedback(report, env, fetchImpl as never)).toEqual({ filed: true, url: "https://github.com/db-lyon/ue-mcp-studio/issues/9", number: 9 });

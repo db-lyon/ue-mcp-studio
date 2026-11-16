@@ -66,7 +66,7 @@ export function FeedbackDialog({ onClose, initial }: { onClose: () => void; init
               <button role="radio" aria-checked={kind === "problem"} className={kind === "problem" ? "current" : "ghost"} onClick={() => setKind("problem")}>Report a problem</button>
               <button role="radio" aria-checked={kind === "idea"} className={kind === "idea" ? "current" : "ghost"} onClick={() => setKind("idea")}>Suggest an idea</button>
             </div>
-            <input aria-label="Title" placeholder={kind === "problem" ? "What went wrong, in a line" : "The idea, in a line"} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
+            <input aria-label="Title" placeholder={kind === "problem" ? "What went wrong, in a line" : "The idea, in a line"} value={title} onChange={(e) => setTitle(e.target.value)} />
             <textarea
               aria-label="Description"
               rows={7}
