@@ -7,7 +7,7 @@ import { RemoteChatCard } from "./remote/RemoteChatCard";
 import type { SettingsSection } from "./settings/sections";
 import { ConnectModel, ModelAndEffort, ModelPicker, SignInForm, useCatalog } from "./ModelPicker";
 import type { DaemonState } from "../state";
-import { CHAT_INTRO, SESSIONS_SLOW, SUBAGENT_TEXT_ONLY, SUBAGENTS_SHOWN_KEY, listedSubagents, subagentsLine, subagentsOf, subagentsPress, subagentsShownFrom, subagentsShownValue } from "@ue-mcp-studio/client-core";
+import { CHAT_INTRO, SESSIONS_SLOW, SESSION_TRY_AGAIN, SESSION_TRY_AGAIN_LABEL, SUBAGENT_TEXT_ONLY, sessionLoadFailed, SUBAGENTS_SHOWN_KEY, listedSubagents, subagentsLine, subagentsOf, subagentsPress, subagentsShownFrom, subagentsShownValue } from "@ue-mcp-studio/client-core";
 import { useAgentThread } from "../chat/agent-thread";
 import { useDismissed, useSeen } from "../chat/hooks";
 import { EditMessageContext, MainTranscript, PlaytestCommandContext, SubagentThread, type EditMode } from "../chat/Transcript";
@@ -105,6 +105,8 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** Why the open session's last read failed: in place of the transcript when there is none yet, with Try again. */
+  const [detailError, setDetailError] = useState<string | null>(null);
   /** An action that failed. A session deleted meanwhile is not an error: the list drops it. */
   const fail = (e: Error) => (sessionGone(e) ? undefined : setError(e.message));
   const seenEvent = useRef(0);
@@ -163,12 +165,13 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     (id, have) => api.sessionSync(id, have),
     (d) => {
       setDetail(d);
+      setDetailError(null);
       setDraft((cur) => (cur ? cur : d.draft));
     },
-    (e) => setError(e.message),
+    (e) => setDetailError(e.message),
     // A session deleted meanwhile closes quietly instead of showing an error.
     {
-      gone: (id) => (setSelected((cur) => (cur === id ? null : cur)), setDetail((d) => (d?.id === id ? null : d))),
+      gone: (id) => (setSelected((cur) => (cur === id ? null : cur)), setDetail((d) => (d?.id === id ? null : d)), setDetailError(null)),
       // What of an answer could not be read was mended in place; the console says what.
       problem: (id, problems) => console.warn(`Session ${id}: answer mended: ${problems.join("; ")}`),
     },
@@ -211,6 +214,7 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
     if (!selected) return;
     // The last session's transcript does not stand in for this one while it loads.
     setDetail((d) => (d && d.id === selected ? d : null));
+    setDetailError(null);
     // Another session opens on its main thread, with no drawer sliding out over it.
     setThread(null);
     setDrawerId(null);
@@ -576,7 +580,13 @@ export function ChatView({ daemon, nav, active = true, onSettings }: {
           />
         )}
         {error && <div className="banner bad" onClick={() => setError(null)}>{error}</div>}
-        {!detail && selected && <SessionLoading />}
+        {detail && detailError && <div className="banner bad" onClick={() => setDetailError(null)}>{detailError}</div>}
+        {!detail && selected && (detailError ? (
+          <div className="session-load-failed" role="alert">
+            <div className="banner bad">{sessionLoadFailed(detailError)}</div>
+            <button aria-label={SESSION_TRY_AGAIN_LABEL} onClick={() => (setDetailError(null), void loadDetail(selected))}>{SESSION_TRY_AGAIN}</button>
+          </div>
+        ) : <SessionLoading />)}
         {!detail && !selected && (
           <div className="empty">
             <h1 className="display"><em>Start</em> a session.</h1>

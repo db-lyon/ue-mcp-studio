@@ -11,7 +11,7 @@ import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { Animated, Easing, Image, Pressable, View, type TextStyle, type ViewStyle } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { REVIEW_GROUPS, unifiedLines, type CheckpointChange, type RestoreOutcome, type ReviewItem, type ReviewStatus, type TimelineMark, type TurnReview } from "@ue-mcp-studio/shared";
-import { REVIEW_STATUS, blueprintLines, fileName, markKind, markTime, nativeTitle, openedText, outcomeNote, pictureSides, type PictureSide } from "@ue-mcp-studio/client-core";
+import { REVIEW_STATUS, blueprintLines, fileName, markKind, markTime, nativeTitle, nativeUnavailable, openedText, outcomeNote, pictureSides, type PictureSide } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../../../nav";
 import { haptic } from "../../../native/haptics";
 import { Banner, buttonFont, Check, font, labelFont, Pill, T, useTheme, type Theme } from "../../../ui";
@@ -416,7 +416,8 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
   const c = diff.change;
   const name = fileName(item.path);
   // A failed diff's reason is already the banner; the native view's reason would repeat it.
-  const native = item.native && !item.native.available && c.assetDiff?.state !== "error" ? <T style={dimSmall}>{`No Unreal diff view: ${item.native.reason}`}</T> : null;
+  const why = c.assetDiff?.state !== "error" ? nativeUnavailable(item) : null;
+  const native = why ? <T style={dimSmall}>{why}</T> : null;
   // The engine records are the whole diff, so blueprint(diff)'s structural summary is not repeated under them.
   if (c.assetDiff) {
     return (

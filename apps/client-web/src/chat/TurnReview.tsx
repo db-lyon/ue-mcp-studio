@@ -18,7 +18,7 @@ import {
   type TimelineMark,
   type TurnReview,
 } from "@ue-mcp-studio/shared";
-import { fileName, outcomeNote, pictureSides, type PictureSide } from "@ue-mcp-studio/client-core";
+import { fileName, nativeTitle, nativeUnavailable, outcomeNote, pictureSides, type PictureSide } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { AssetDiffView } from "./AssetDiff";
 import { AssetTile } from "./AssetTile";
@@ -135,11 +135,12 @@ export function TurnReviewCard({ review: saved }: { review: TurnReview }) {
                       {it.state === "reverted" && <span className="pill small">Reverted</span>}
                       {it.untracked && <span className="pill small warn" title="Written outside the agent's calls">Outside the agent</span>}
                     </span>
+                    {/* Greyed out where Unreal has no view, but a press opens the item, which says why in words. */}
                     <button
-                      className="ghost small-button review-native"
-                      disabled={!it.native?.available}
-                      title={it.native?.available ? (it.status === "added" ? "Open the new asset in its editor in Unreal" : it.status === "deleted" ? "Open the deleted version in its editor in Unreal" : "Open Unreal's own diff of before and after") : it.native?.reason ?? "Unreal cannot open a diff of this item."}
-                      onClick={() => openNative(it.path)}
+                      className={`ghost small-button review-native${it.native?.available ? "" : " is-waiting"}`}
+                      aria-disabled={it.native?.available ? undefined : true}
+                      title={nativeTitle(it)}
+                      onClick={() => (it.native?.available ? openNative(it.path) : setOpen(it.path))}
                     >
                       Open in Unreal diff
                     </button>
@@ -206,7 +207,8 @@ export function ItemDiff({ sessionId, reviewId, item }: { sessionId: string; rev
   const c = diff.change;
   const name = fileName(item.path);
   // A failed diff's reason is already the banner; the native view's reason would repeat it.
-  const native = item.native && !item.native.available && c.assetDiff?.state !== "error" ? <div className="dim small review-native-note">No Unreal diff view: {item.native.reason}</div> : null;
+  const why = c.assetDiff?.state !== "error" ? nativeUnavailable(item) : null;
+  const native = why ? <div className="dim small review-native-note">{why}</div> : null;
   if (c.assetDiff) {
     return (
       <div className="review-diff">
