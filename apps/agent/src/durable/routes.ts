@@ -32,7 +32,9 @@ export function durableRouteOf(route: ModelRoute, vendor: VendorId): DurableRout
  * Each route is switched on by default on its own, as its kill tests and
  * live check pass; a route that fails them comes out of this list alone.
  */
-export const DURABLE_DEFAULT_ON: readonly DurableRoute[] = ["claude", "key:anthropic", "key:openai", "key:google", "chatgpt", "endpoint", "studio"];
+// The OpenAI key, Google key, ChatGPT sign-in, custom endpoints and the UE-MCP gateway stay off by default
+// until each has passed the kill tests and a live turn on its own credential.
+export const DURABLE_DEFAULT_ON: readonly DurableRoute[] = ["claude", "key:anthropic"];
 
 export class DurableSetting {
   constructor(private readonly dir: string, private readonly defaults: readonly DurableRoute[] = DURABLE_DEFAULT_ON) {}
