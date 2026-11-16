@@ -124,6 +124,8 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
         return ret(sock, msg.id, () => engine.sync(msg.sessionId, msg.after));
       case "compact":
         return ret(sock, msg.id, () => engine.compact(msg.sessionId, msg.instructions));
+      case "assign":
+        return ret(sock, msg.id, () => engine.assign(msg.sessionId, msg.callId, msg.start));
       case "res": {
         const p = pending.get(msg.reqId);
         if (!p) return;

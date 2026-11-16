@@ -82,7 +82,8 @@ export function routeSpec(o: {
       const id = endpointIdOf(o.vendor);
       const e = id !== null ? o.endpoint(id) : null;
       if (!e) throw new Error(`The endpoint for ${o.model} was removed: pick another model.`);
-      return { route: o.route, provider: `endpoint-${id}`, api: "openai-completions", model: o.model, baseUrl: e.baseUrl, auth: e.key ? "apiKey" : "none" };
+      // Its credential is asked for by the endpoint's own id: a helper can run on another endpoint than the main agent's.
+      return { route: `endpoint:${id}`, provider: `endpoint-${id}`, api: "openai-completions", model: o.model, baseUrl: e.baseUrl, auth: e.key ? "apiKey" : "none" };
     }
     case "claude":
       return { route: o.route, provider: "claude-code", api: "claude-code", model: o.model, auth: "none" };

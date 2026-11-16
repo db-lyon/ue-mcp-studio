@@ -54,7 +54,7 @@ export class HarnessClient {
   private readonly goes = new Map<string, () => void>();
   private closed = false;
   /** The harness's own Studio version and the extension it runs, from its hello. */
-  harness: { version: string; extension: string; pid: number } | null = null;
+  harness: { version: string; extension: string; pid: number; protocol: number } | null = null;
 
   constructor(private readonly o: HarnessClientOptions) {}
 
@@ -150,7 +150,7 @@ export class HarnessClient {
           done = true;
           clearTimeout(timer);
           sock.off("error", fail);
-          this.harness = { version: msg.version, extension: msg.extension, pid: msg.pid };
+          this.harness = { version: msg.version, extension: msg.extension, pid: msg.pid, protocol: msg.protocol };
           this.sock = sock;
           sock.on("error", () => undefined);
           sock.on("close", () => this.dropped(sock));

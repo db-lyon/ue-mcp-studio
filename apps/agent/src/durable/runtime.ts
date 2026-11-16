@@ -30,7 +30,7 @@ export interface DurableHooks {
   recordOutcome(s: StoredSession, p: PendingTool, outcome: "done" | "error" | "unknown" | "stopped" | "declined"): void;
   setStatus(s: StoredSession, status: StoredSession["status"], cause: string | null): void;
   /** One of Studio's tools, as AgentRunner runs every route's: editor wait, gate, call, outcome. `onStart` runs once it is past the gate. */
-  runTool(s: StoredSession, controller: AbortController, callId: string, name: string, input: Record<string, unknown>, onStart: () => Promise<boolean>): Promise<ToolExecution>;
+  runTool(s: StoredSession, controller: AbortController, callId: string, name: string, input: Record<string, unknown>, onStart: () => Promise<boolean>, parent: string | null): Promise<ToolExecution>;
   lostCall(s: StoredSession, callId: string, name: string, input: Record<string, unknown>): Promise<ToolExecution>;
   replyToUser(s: StoredSession, callId: string, input: Record<string, unknown>): ToolExecution;
   skill(name: unknown): { text: string; isError: boolean };
@@ -154,25 +154,45 @@ export class DurableTurns {
    * one is running (the main agent waits only on subagents), steered into it.
    */
   async reply(s: StoredSession, content: unknown[]): Promise<void> {
-    s.durable ??= { key: `${s.id}~${crypto.randomUUID()}`, applied: {}, children: {}, seeded: false };
-    this.h.store.save(s);
     const controller = new AbortController();
     this.h.active.set(s.id, controller);
     this.h.replying.add(s.id);
     this.stopping.delete(s.id);
     this.controller(s);
     try {
-      if (!s.durable.seeded) {
-        const earlier = seedMessages(s.messages.slice(0, -1));
-        if (earlier.length) await this.client.call("seed", { sessionId: keyOf(s), messages: earlier });
-        s.durable.seeded = true;
-        this.h.store.save(s);
-      }
+      // The conversation so far, without the message this reply answers.
+      await this.move(s, s.messages.slice(0, -1));
       await this.client.call("submit", { sessionId: keyOf(s), requestId: crypto.randomUUID(), content: userContent(content), agent: this.h.mainSpec(), whenBusy: "steer" });
     } catch (e) {
       if (this.h.active.get(s.id) === controller) this.h.active.delete(s.id);
       this.h.replyEnded(s, `The durable runtime could not start the reply: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  /** The session moves onto this runtime: its conversation so far (`earlier`) is written into the harness once. */
+  private async move(s: StoredSession, earlier: MessageParam[]): Promise<void> {
+    s.durable ??= { key: `${s.id}~${crypto.randomUUID()}`, applied: {}, children: {}, seeded: false };
+    this.h.store.save(s);
+    if (s.durable.seeded) return;
+    const messages = seedMessages(earlier);
+    if (messages.length) await this.client.call("seed", { sessionId: keyOf(s), messages });
+    s.durable.seeded = true;
+    this.h.store.save(s);
+  }
+
+  /**
+   * A subagent the user assigned from the chat runs in the harness, beside
+   * the main agent's runs, and reports to Studio when it ends (agentEnd).
+   * False, with nothing sent, when the running harness is older than the
+   * message: the subagent then runs on Studio's loop.
+   */
+  async assign(s: StoredSession, callId: string, start: Extract<AgentStart, { ok: true }>): Promise<boolean> {
+    await this.client.ensure();
+    if ((this.client.harness?.protocol ?? 1) < 2) return false;
+    await this.move(s, s.messages);
+    this.controller(s);
+    await this.client.call("assign", { sessionId: keyOf(s), callId, start });
+    return true;
   }
 
   /** The user's message to a main agent that waits only on its subagents: they go on in the background, and it reads the message next. */
@@ -430,7 +450,7 @@ export class DurableTurns {
           const go = await this.client.started(reqId);
           if (go) slot.executing = true;
           return go;
-        });
+        }, req.parent);
         if (!this.disposed) this.client.answer(reqId, exec);
       } finally {
         session.signal.removeEventListener("abort", off);

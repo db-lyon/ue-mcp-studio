@@ -14,6 +14,8 @@ import { SessionStore } from "../../src/sessions.js";
 import type { ModelProvider, ModelTurn } from "../../src/providers.js";
 import { syncOf } from "../../src/session-delta.js";
 import { DetailLoader as Build40Loader } from "../fixtures/build40-session-sync.js";
+import { loadout } from "../../src/native.js";
+import { composeNative, type NativeRun } from "../../src/native-runtime.js";
 import { FakeHost, durableRunner, editorCalls, until, type DurableRig } from "./helpers.js";
 import { startFakeAnthropic, type FakeAnthropic, type FakeTurn } from "./fake-anthropic.js";
 
@@ -239,6 +241,56 @@ describe("durable runtime", () => {
     await until(() => rig.store.get(s.id)!.status === "idle", 30_000, "the turn to end");
     expect(editorCalls(path.join(dir, "data")).filter((c) => c.category === "level")).toHaveLength(1);
     expect(transcript(rig.store, s.id).at(-1)).toMatchObject({ kind: "assistant", text: "The editor is back." });
+  }, 60_000);
+
+  it("runs a subagent the user assigned from a card in the harness, beside the main agent, and keeps its report for the next turn", async () => {
+    fake = await startFakeAnthropic(({ toolResults, system }) => {
+      if (system.includes("You are a subagent")) return toolResults === 0 ? { tool: { name: "ue_mcp", input: { action: "call", category: "level", method: "play", args: {} } } } : { text: "Report: the playtest passed." };
+      return { text: "The main agent should not run." };
+    });
+    rig = durableRunner({ projectDir: path.join(dir, "project"), dataDir: path.join(dir, "data"), base: fake.base, start });
+    const s = rig.store.create("t");
+    const { callId, done } = rig.runner.assignSubagent(s.id, "Playtest the door", "Open the door in PIE.");
+    const r = await done;
+    expect(r).toMatchObject({ text: "Report: the playtest passed.", isError: false });
+    const t = transcript(rig.store, s.id);
+    const call = t.find((e) => e.kind === "tool" && e.call.id === callId);
+    expect(call?.kind === "tool" && call.call.outcome).toBe("done");
+    expect(t.filter((e) => e.parent === callId).map((e) => e.kind)).toEqual(["tool", "assistant"]);
+    // It ran in the harness, made one editor call, and never woke the main agent.
+    expect(rig.store.get(s.id)!.durable).toBeTruthy();
+    expect(editorCalls(path.join(dir, "data")).filter((c) => c.category === "level")).toHaveLength(1);
+    expect(fake.requests.every((q) => q.system.includes("You are a subagent"))).toBe(true);
+    expect(rig.store.get(s.id)!.notes.join("\n")).toContain("Report: the playtest passed.");
+    expect(rig.store.get(s.id)!.status).not.toBe("running");
+  }, 60_000);
+
+  it("runs a helper on its own vendor's model, on that model's route", async () => {
+    fake = await startFakeAnthropic(({ toolResults, system }) => {
+      if (system.includes("You are a subagent")) return { text: "Report from the reviewer." };
+      return toolResults === 0 ? { tool: { name: "agent", input: { description: "Review", prompt: "Review it.", helper: "reviewer" } } } : { text: "Reviewed." };
+    });
+    const projectDir = path.join(dir, "project");
+    const l = loadout("claude", projectDir, path.join(dir, "home"), new Map(), dir);
+    const asked: Array<{ model: string; on?: { route: string; vendor: string } }> = [];
+    const native: NativeRun = {
+      convention: "claude", loadout: l, composed: composeNative(l), skills: l.skills, sdkLoads: false,
+      helpers: [{ name: "reviewer", description: "Reviews", prompt: "Review carefully.", allowed: null, maxTurns: null, effort: null, run: { provider: () => { throw new Error("unused"); }, model: "gpt-review", vendor: "openai", route: "key" } }],
+    };
+    rig = durableRunner({ projectDir, dataDir: path.join(dir, "data"), base: fake.base, start, extra: { native: () => native } });
+    // The rig's routes, with the helper's own route recorded: both reach the stand-in.
+    const durable = (rig.runner as unknown as { o: { durable: { routeSpec: (m: string, on?: { route: string; vendor: string }) => unknown } } }).o.durable;
+    const base = durable.routeSpec;
+    durable.routeSpec = (m, on) => {
+      asked.push({ model: m, ...(on ? { on } : {}) });
+      return on ? { route: "key:openai", provider: "other-vendor", api: "anthropic-messages", model: m, baseUrl: fake.base, auth: "apiKey" } : base(m);
+    };
+    const s = rig.store.create("t");
+    await rig.runner.send(s.id, "review with the helper");
+    await until(() => rig.store.get(s.id)!.status === "idle", 40_000, "the turn to end");
+    expect(asked).toContainEqual({ model: "gpt-review", on: { route: "key", vendor: "openai" } });
+    expect(fake.requests.find((q) => q.system.includes("You are a subagent"))?.model).toBe("gpt-review");
+    expect(fake.requests.filter((q) => !q.system.includes("You are a subagent")).every((q) => q.model === "claude-opus-5-5")).toBe(true);
   }, 60_000);
 
   it("moves a saved session onto the durable runtime with its conversation so far", async () => {

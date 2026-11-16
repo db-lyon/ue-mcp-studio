@@ -50,6 +50,8 @@ interface ChildRecord {
   description: string;
   /** Its prompt's submission, which its report answers. */
   submission?: string;
+  /** The user started it from the chat (a playtest card), not the main agent: its report goes to Studio, and a stop of the main agent leaves it running. */
+  assigned?: boolean;
 }
 interface SessionRecord {
   conv: string;
@@ -431,6 +433,8 @@ export class DurableEngine {
     const jobs: Array<Promise<unknown>> = [];
     if (children) {
       for (const [callId, c] of Object.entries(rec.children)) {
+        // One the user assigned runs beside the main agent's runs: only stopping it stops it.
+        if (c.assigned) continue;
         this.waiting.delete(callId);
         const conv = await this.harness.conversation(c.conv as never, CTX);
         if (conv) jobs.push(conv.abort(CTX));
@@ -718,7 +722,25 @@ export class DurableEngine {
     }
   }
 
-  /** A background subagent's reporter: when it ends, its report goes to the main agent as a message, once. */
+  /**
+   * A subagent the user assigned from the chat: the same subagent conversation
+   * an agent call makes, under its own call id, but no agent call waits on it.
+   * It runs beside the main agent's runs, whether one is running or not, and
+   * its reporter hands its report to the daemon only. Sent again after a
+   * restart, it finds the same conversation and the same submission.
+   */
+  async assign(sessionId: string, callId: string, start: Extract<AgentStart, { ok: true }>): Promise<void> {
+    await this.mainConversation(sessionId);
+    const conv = await this.childConversation(sessionId, callId, start.description);
+    const rec = (await this.sessions()).sessions[sessionId]?.children[callId];
+    if (rec?.reported) return;
+    await this.configure(conv, start.spec, "child");
+    const submission = await conv.submit({ type: "input", content: start.prompt, requestId: `agent:${callId}` } as never, CTX);
+    await this.markChild(sessionId, callId, { submission: String(submission.id), background: true, assigned: true });
+    this.report(sessionId, callId);
+  }
+
+  /** A background subagent's reporter: when it ends, its report goes to the main agent as a message, once (to the daemon only, for one the user assigned). */
   private report(sessionId: string, callId: string): void {
     if (this.reporters.has(callId)) return;
     this.reporters.add(callId);
@@ -735,9 +757,9 @@ export class DurableEngine {
         const r = await this.reportOf(conv, settled as unknown as { status: string; reason?: string; detail?: string });
         const unread = await this.unread(sessionId, callId);
         const text = unread.length ? `${r.text}\n\n[Studio] The user wrote to this subagent and it ended before reading it:\n${unread.map((t) => `- ${t}`).join("\n")}` : r.text;
-        this.host.emit({ t: "agentEnd", sessionId, callId, text, isError: r.isError, stopped: r.stopped, background: true });
-        // One the user stopped wakes nobody: the daemon keeps its note for the next message.
-        if (!r.stopped) {
+        this.host.emit({ t: "agentEnd", sessionId, callId, text, isError: r.isError, stopped: r.stopped, background: true, ...(c.assigned ? { assigned: true } : {}) });
+        // One the user stopped wakes nobody: the daemon keeps its note for the next message. One the user assigned reports to the daemon alone.
+        if (!r.stopped && !c.assigned) {
           const main = await this.harness.conversation(rec.conv as never, CTX);
           const note = `[Studio] The subagent "${c.description}" (agent call ${callId}), which kept working in the background, has ended. ${r.isError ? "It failed." : "It finished."} Its report:\n${text}`;
           await main?.submit({ type: "input", content: note, requestId: `report:${callId}`, whenBusy: "steer" } as never, CTX);
