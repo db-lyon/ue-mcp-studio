@@ -6,7 +6,10 @@
  */
 import { useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View, type ScrollViewInstance, type ViewStyle } from "react-native";
-import { FileViewer, fileLines, fileLinkTitle, type FileView } from "@ue-mcp-studio/client-core";
+import { FILE_REFUSED_REMOTE, FileViewer, fileLines, fileLinkTitle, type FileView } from "@ue-mcp-studio/client-core";
+import { projectImageType, projectImageUrl } from "@ue-mcp-studio/shared";
+import { useDaemonPicture } from "./daemon-picture";
+import { Picture } from "./Picture";
 import { useBack } from "../back";
 import { useProjectNav } from "../nav";
 import { Button, font, useInsets, useStyles, type Theme } from "../ui";
@@ -52,11 +55,32 @@ function FileViewerPanel({ viewer }: { viewer: FileViewer }) {
   );
 }
 
+/** The web client's FileRefused: an image shows as itself; anything else says where it can still be reached. */
+function FileRefused({ view }: { view: Extract<FileView, { status: "error" }> }) {
+  const s = useStyles(styles);
+  const path = view.request.path;
+  const type = projectImageType(path);
+  const uri = useDaemonPicture(type ? projectImageUrl(path) : undefined, type ?? undefined);
+  if (type && uri && uri !== "failed") {
+    return (
+      <ScrollView style={s.body}>
+        <Picture uri={uri} alt={path} maxWidth={360} maxHeight={600} framed={false} />
+      </ScrollView>
+    );
+  }
+  return (
+    <View>
+      <Text style={[s.note, s.error]} accessibilityRole="alert">{view.error}</Text>
+      <Text style={s.note}>{FILE_REFUSED_REMOTE}</Text>
+    </View>
+  );
+}
+
 function FileBody({ view }: { view: FileView }) {
   const s = useStyles(styles);
   const scroll = useRef<ScrollViewInstance>(null);
   if (view.status === "loading") return <Text style={s.note}>Reading the file.</Text>;
-  if (view.status === "error") return <Text style={[s.note, s.error]} accessibilityRole="alert">{view.error}</Text>;
+  if (view.status === "error") return <FileRefused view={view} />;
   const { file } = view;
   return (
     <ScrollView ref={scroll} style={s.body} testID="file-viewer-body">

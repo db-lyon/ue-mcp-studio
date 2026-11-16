@@ -70,6 +70,7 @@ import type {
 } from "@ue-mcp-studio/shared";
 import { alive, fromUeMcp, recordDiag } from "./diag";
 import { notificationsOf, threadQuery, uploadInParts } from "@ue-mcp-studio/client-core";
+import { FILE_REVEAL_PATH } from "@ue-mcp-studio/shared";
 import type { AgentThreadPage, Notice, NotifyDelivery, NotifyDevice, ProjectNotifyUpdate } from "@ue-mcp-studio/shared";
 import { agentSettingsOf, catalogOf, contextOf, healthOf, installOf, nativeOf, settingsOf } from "./normalize";
 
@@ -328,6 +329,7 @@ export const api = {
     call<FileReadResponse>("GET", `/v1/ext/studio/files/read?path=${encodeURIComponent(path)}${from ? `&from=${encodeURIComponent(from)}` : ""}`),
   /** Open a text file in the computer's editor; the paired browser is refused it. */
   openFile: (path: string, from?: string) => call<void>("POST", "/v1/ext/studio/files/open", from ? { path, from } : { path }),
+  revealFile: (path: string, from?: string) => call<void>("POST", FILE_REVEAL_PATH, from ? { path, from } : { path }),
   contextStrategy: () => call<unknown>("GET", "/v1/ext/studio/context-strategy").then(contextOf),
   saveContextStrategy: (strategy: ContextStrategy) => call<unknown>("PUT", "/v1/ext/studio/context-strategy", { strategy }).then(contextOf),
   feedbackEnvironment: () => call<{ body: string }>("GET", "/v1/ext/studio/feedback/environment"),

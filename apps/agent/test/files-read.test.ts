@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { FILE_READ_MAX_BYTES, FILE_SHOW_BYTES, type FileReadResponse } from "@ue-mcp-studio/shared";
+import { FILE_SHOW_BYTES, type FileReadResponse } from "@ue-mcp-studio/shared";
 import { registerNativeRoutes } from "../src/native-routes.js";
 
 type Reply = { status?: number; body?: unknown };
@@ -110,11 +110,11 @@ describe("GET /files/read", () => {
     expect(error(r)).toBe("Content/Door.uasset is not a text file.");
   });
 
-  it("refuses a file over the size cap, and shows a long one up to its limit", () => {
-    write(path.join(project, "huge.log"), Buffer.alloc(FILE_READ_MAX_BYTES + 1, 0x61));
-    const r = read({ path: "huge.log" });
-    expect(r.status).toBe(413);
-    expect(error(r)).toMatch(/^huge\.log is 4\.0 MB; Studio shows files up to 4 MB\.$/);
+  it("shows the start of a file of any size, and a long one up to its limit", () => {
+    write(path.join(project, "huge.log"), Buffer.alloc(5 * 1024 * 1024, 0x61));
+    const huge = ok(read({ path: "huge.log" }));
+    expect(huge).toMatchObject({ size: 5 * 1024 * 1024, truncated: true });
+    expect(huge.text).toHaveLength(FILE_SHOW_BYTES);
     write(path.join(project, "long.log"), Buffer.alloc(FILE_SHOW_BYTES + 10, 0x62));
     const long = ok(read({ path: "long.log" }));
     expect(long).toMatchObject({ size: FILE_SHOW_BYTES + 10, truncated: true });

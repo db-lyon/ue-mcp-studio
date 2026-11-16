@@ -15,10 +15,7 @@ export interface FileReadResponse {
   truncated?: boolean;
 }
 
-/** Files larger than this are refused. */
-export const FILE_READ_MAX_BYTES = 4 * 1024 * 1024;
-
-/** The viewer shows at most this much of a file. */
+/** The viewer shows at most this much of a file; a larger one shows its start, marked truncated. */
 export const FILE_SHOW_BYTES = 512 * 1024;
 
 /**
@@ -68,6 +65,9 @@ export function localImagePath(src: string | undefined | null): string | null {
   }
   return projectImageType(decoded) ? decoded : null;
 }
+
+/** POST /v1/ext/studio/files/reveal { path, from? }: the file selected in the computer's file manager. Never remote. */
+export const FILE_REVEAL_PATH = "/v1/ext/studio/files/reveal";
 
 /** GET /v1/ext/studio/files/image?path= for a project image. */
 export const projectImageUrl = (path: string): string => `/v1/ext/studio/files/image?path=${encodeURIComponent(path)}`;

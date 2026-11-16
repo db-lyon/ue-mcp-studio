@@ -6,7 +6,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { FILE_READ_MAX_BYTES, FILE_SHOW_BYTES, type FileReadResponse } from "@ue-mcp-studio/shared";
+import { FILE_SHOW_BYTES, type FileReadResponse } from "@ue-mcp-studio/shared";
 import { repoRoot, shown } from "./native.js";
 
 /** The agents' folders in the home folder that Studio reads. */
@@ -73,11 +73,23 @@ export function readProjectFile(scope: FileScope, request: unknown, from?: unkno
   const stat = fs.statSync(r.real);
   if (stat.isDirectory()) return { status: 400, body: { error: `${r.shown} is a folder.` } };
   if (!stat.isFile()) return { status: 400, body: { error: `${r.shown} is not a file.` } };
-  if (stat.size > FILE_READ_MAX_BYTES) return { status: 413, body: { error: `${r.shown} is ${(stat.size / 1048576).toFixed(1)} MB; Studio shows files up to ${FILE_READ_MAX_BYTES / 1048576} MB.` } };
-  const buf = fs.readFileSync(r.real);
-  const text = decodeText(buf.subarray(0, FILE_SHOW_BYTES));
+  // Only the start is read, so a file of any size shows: its first FILE_SHOW_BYTES, marked as cut.
+  const buf = readStart(r.real, FILE_SHOW_BYTES);
+  const text = decodeText(buf);
   if (text === null) return { status: 415, body: { error: `${r.shown} is not a text file.` } };
-  return { status: 200, body: { path: r.shown, text, size: stat.size, ...(buf.length > FILE_SHOW_BYTES ? { truncated: true } : {}) } };
+  return { status: 200, body: { path: r.shown, text, size: stat.size, ...(stat.size > FILE_SHOW_BYTES ? { truncated: true } : {}) } };
+}
+
+/** The first `n` bytes of a file, without reading the rest. */
+function readStart(file: string, n: number): Buffer {
+  const fd = fs.openSync(file, "r");
+  try {
+    const buf = Buffer.alloc(n);
+    const got = fs.readSync(fd, buf, 0, n, 0);
+    return buf.subarray(0, got);
+  } finally {
+    fs.closeSync(fd);
+  }
 }
 
 /** UTF-8, or UTF-16 with its byte order mark; null for bytes with a NUL in them, which no text file holds. */

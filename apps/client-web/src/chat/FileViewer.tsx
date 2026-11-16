@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { openableInEditor } from "@ue-mcp-studio/shared";
-import { FileViewer, fileLines, fileLinkTitle, type FileView } from "@ue-mcp-studio/client-core";
+import { openableInEditor, projectImageType, projectImageUrl } from "@ue-mcp-studio/shared";
+import { FILE_REFUSED_REMOTE, FileViewer, fileLines, fileLinkTitle, type FileView } from "@ue-mcp-studio/client-core";
 import { api } from "../api";
 import { onRemotePage } from "../connection";
 import { FileFromContext, FileViewerContext } from "./FileLink";
@@ -49,9 +49,41 @@ export function FileViewerPanel({ viewer }: { viewer: FileViewer }) {
   );
 }
 
+/**
+ * A file the viewer could not show as text: an image shows as itself; on the
+ * computer anything else can be shown in its folder, and a text type opened
+ * in its editor. Never a bare refusal.
+ */
+function FileRefused({ view }: { view: Extract<FileView, { status: "error" }> }) {
+  const path = view.request.path;
+  const [failed, setFailed] = useState<string | null>(null);
+  if (projectImageType(path)) {
+    return (
+      <div className="file-viewer-body">
+        <img className="file-viewer-image" src={projectImageUrl(path)} alt={path} />
+      </div>
+    );
+  }
+  const remote = onRemotePage();
+  return (
+    <div className="file-viewer-note">
+      <p className="bad" role="alert">{view.error}</p>
+      {remote ? (
+        <p className="muted">{FILE_REFUSED_REMOTE}</p>
+      ) : (
+        <p className="row">
+          <button onClick={() => api.revealFile(path).catch((e: Error) => setFailed(e.message))}>Show in folder</button>
+          {openableInEditor(path) && <OpenInEditor path={path} />}
+        </p>
+      )}
+      {failed && <p className="bad" role="alert">{failed}</p>}
+    </div>
+  );
+}
+
 function FileBody({ view }: { view: FileView }) {
   if (view.status === "loading") return <p className="muted file-viewer-note">Reading the file.</p>;
-  if (view.status === "error") return <p className="file-viewer-note bad" role="alert">{view.error}</p>;
+  if (view.status === "error") return <FileRefused view={view} />;
   const { file } = view;
   const cut = file.truncated && <p className="muted file-viewer-note">Showing the first {Math.round(file.text.length / 1024)} KB of {Math.round(file.size / 1024)} KB.</p>;
   if (view.markdown) {

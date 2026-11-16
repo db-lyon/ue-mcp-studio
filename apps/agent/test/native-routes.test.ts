@@ -41,6 +41,7 @@ function setup(main = { vendor: "openai", model: "gpt-6-sol", route: "chatgpt" a
     owners: () => new Map(),
     top: root,
     open: (abs) => void opened.push(abs),
+    reveal: (abs) => void opened.push(`reveal ${abs}`),
   });
   return (key: string, body?: unknown, query: Record<string, string> = {}) => routes.get(key)!({ body, query });
 }
@@ -130,5 +131,15 @@ describe("Open file", () => {
       "https://evil.example/",
     ]) expect(call("POST /files/open", { path: p }).status, p).not.toBe(204);
     expect(opened).toEqual([]);
+  });
+
+  it("shows any file in scope in its folder, the way on for one Studio cannot show, and nothing outside the project", () => {
+    write("AGENTS.md", "Shared.");
+    const call = setup();
+    expect(call("POST /files/reveal", { path: "AGENTS.md" }).status).toBe(204);
+    expect(opened).toEqual([`reveal ${real("AGENTS.md")}`]);
+    expect(call("POST /files/reveal", { path: "../../outside.txt" }).status).not.toBe(204);
+    expect(call("POST /files/reveal", {}).status).toBe(400);
+    expect(opened).toHaveLength(1);
   });
 });
