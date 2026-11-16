@@ -117,7 +117,7 @@ describe("Settings > Notifications by remote control's state", () => {
     for (const n of relayEvents) expect(screen.queryByRole("switch", { name: n })).toBeNull();
     const text = document.body.textContent ?? "";
     for (const r of RELAY) expect(text).not.toMatch(r);
-    expect(screen.getByText("This computer never skips its own notifications for Studio being open or in use.")).toBeTruthy();
+    expect(screen.getByText("None comes for a chat you have open in front of you, or for a turn you stopped. Other chats still notify while Studio is open.")).toBeTruthy();
     expect(screen.getByText("Old experiment")).toBeTruthy();
     // Only a free account, while the plan is offered, gets the one line about it.
     if (remote === "upsell") expect(screen.getByText(PLAN)).toBeTruthy();
