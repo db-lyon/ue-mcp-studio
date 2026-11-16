@@ -4,26 +4,34 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { DaemonExtensionApi } from "ue-mcp/daemon";
-import { VIDEO_PLAY_BYTES, VIDEO_PLAY_PAID_BYTES, isVideo, videoOfferText, videoVerdict, type Attachment } from "@ue-mcp-studio/shared";
+import { isVideo, videoOfferText, videoVerdict, type AccountUsage, type Attachment } from "@ue-mcp-studio/shared";
 import { AttachmentStore } from "../src/attachments.js";
-import { registerVideoRoutes } from "../src/video-routes.js";
+import { registerVideoRoutes, relayLimit } from "../src/video-routes.js";
 import { durationOf, videoBitrate, widthFor } from "../src/video.js";
 
 type Reply = { status?: number; body?: unknown };
 type Handler = (req: { params: Record<string, string>; body?: unknown }) => Reply | Promise<Reply>;
 
+const MB = 1024 * 1024;
 let dir: string;
 let store: AttachmentStore;
 let routes: Map<string, Handler>;
 let encodes: number;
+let opened: string[];
 
-function setup(o: { paid: boolean; ffmpeg: string | null; fail?: string }) {
+const future = new Date(Date.now() + 30 * 86_400_000).toISOString();
+const usageOn = (id: string, extra: Record<string, unknown> = {}): AccountUsage =>
+  ({ userId: "u", login: "l", plan: { id, name: id, models: [], ...extra }, status: id === "free" ? "none" : "active", periodStart: "", periodEnd: future, used: {}, billableTokens: 0, quota: 0, remaining: 0 }) as unknown as AccountUsage;
+
+function setup(o: { plan: string | null; ffmpeg: string | null; fail?: string }) {
   routes = new Map();
   encodes = 0;
+  opened = [];
   const api = { route: (m: string, p: string, h: Handler) => void routes.set(`${m} ${p}`, h) } as unknown as DaemonExtensionApi;
   registerVideoRoutes(api, {
     attachments: store,
-    paid: async () => o.paid,
+    usage: async () => (o.plan ? usageOn(o.plan) : null),
+    open: (abs) => void opened.push(abs),
     ffmpeg: () => o.ffmpeg,
     compress: async (_src, dest, bytes) => {
       encodes++;
@@ -42,21 +50,34 @@ beforeEach(() => {
 });
 
 describe("the video limits", () => {
-  it("plays 4 MB for everyone and 20 MB on a paid plan, and says whether it can compress", async () => {
-    setup({ paid: false, ffmpeg: null });
-    expect((await routes.get("GET /video")!({ params: {} })).body).toEqual({ limit: VIDEO_PLAY_BYTES, paid: false, compress: false });
-    setup({ paid: true, ffmpeg: "ffmpeg" });
-    expect((await routes.get("GET /video")!({ params: {} })).body).toEqual({ limit: VIDEO_PLAY_PAID_BYTES, paid: true, compress: true });
+  it("gives the relay limit from the plan: none on Free, 10 MB on Remote, 50 MB on Pro, the gateway's figure first", async () => {
+    setup({ plan: null, ffmpeg: null });
+    expect((await routes.get("GET /video")!({ params: {} })).body).toEqual({ relay: 0, compress: false });
+    setup({ plan: "remote", ffmpeg: "ffmpeg" });
+    expect((await routes.get("GET /video")!({ params: {} })).body).toEqual({ relay: 10 * MB, compress: true });
+    expect(relayLimit(usageOn("pro"))).toBe(50 * MB);
+    expect(relayLimit(usageOn("free"))).toBe(0);
+    expect(relayLimit(usageOn("pro", { relayMediaBytes: 80 * MB }))).toBe(80 * MB);
   });
 
-  it("never leaves a dead end: past the limit it offers a smaller copy, and the upgrade where a plan plays it", () => {
-    const free = { limit: VIDEO_PLAY_BYTES, paid: false, compress: true };
-    expect(videoVerdict(3 * 1024 * 1024, free)).toEqual({ kind: "play" });
-    expect(videoVerdict(10 * 1024 * 1024, free)).toEqual({ kind: "offer", upgrade: true });
-    expect(videoVerdict(30 * 1024 * 1024, free)).toEqual({ kind: "offer", upgrade: false });
+  it("never leaves a dead end: any size on the computer, and past the relay limit a smaller copy or the computer", () => {
+    const remote = { relay: 10 * MB, compress: true };
+    expect(videoVerdict(500 * MB, remote, false)).toEqual({ kind: "play" });
+    expect(videoVerdict(9 * MB, remote, true)).toEqual({ kind: "play" });
+    expect(videoVerdict(30 * MB, remote, true)).toEqual({ kind: "offer" });
     const mb = (n: number) => `${(n / 1048576).toFixed(1)} MB`;
-    expect(videoOfferText(10 * 1048576, free, mb)).toContain("Compress it");
-    expect(videoOfferText(10 * 1048576, { ...free, compress: false }, mb)).toContain("winget install ffmpeg");
+    expect(videoOfferText(30 * MB, remote, mb)).toContain("Compress it");
+    expect(videoOfferText(30 * MB, { ...remote, compress: false }, mb)).toContain("winget install ffmpeg");
+  });
+
+  it("plays a video on the computer from a paired device, and opens nothing that is not a video", async () => {
+    setup({ plan: "remote", ffmpeg: null });
+    const a = video(5000);
+    expect((await routes.get("POST /sessions/:id/attachments/:aid/open")!({ params: { id: "s1", aid: a.id } })).status).toBe(204);
+    expect(opened).toEqual([a.path]);
+    const exe = store.keep("s1", "clip.exe", "video/mp4", Buffer.from("MZ"));
+    expect((await routes.get("POST /sessions/:id/attachments/:aid/open")!({ params: { id: "s1", aid: exe.id } })).status).toBe(415);
+    expect(opened).toHaveLength(1);
   });
 
   it("knows a video by its type, or by its name when the type is missing", () => {
@@ -69,7 +90,7 @@ describe("the video limits", () => {
 
 describe("POST .../compress", () => {
   it("keeps a smaller copy as one of the session's files, and answers the same copy when asked again", async () => {
-    setup({ paid: false, ffmpeg: "ffmpeg" });
+    setup({ plan: "remote", ffmpeg: "ffmpeg" });
     const a = video(5000);
     const first = await routes.get("POST /sessions/:id/attachments/:aid/compress")!({ params: { id: "s1", aid: a.id } });
     expect(first.status).toBe(201);
@@ -82,7 +103,7 @@ describe("POST .../compress", () => {
   });
 
   it("passes on what the encoder said when it cannot, and refuses what is not a video", async () => {
-    setup({ paid: false, ffmpeg: null, fail: "No video encoder: install ffmpeg" });
+    setup({ plan: "remote", ffmpeg: null, fail: "No video encoder: install ffmpeg" });
     const a = video(5000);
     const r = await routes.get("POST /sessions/:id/attachments/:aid/compress")!({ params: { id: "s1", aid: a.id } });
     expect(r).toMatchObject({ status: 422, body: { error: expect.stringContaining("install ffmpeg") } });

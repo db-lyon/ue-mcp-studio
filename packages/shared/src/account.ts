@@ -10,6 +10,8 @@ export interface Plan {
   name: string;
   /** Models this plan may run. The first is the default. */
   models: string[];
+  /** The largest media item that plays through the relay, in bytes; absent from an older gateway (RELAY_MEDIA_DEFAULTS). */
+  relayMediaBytes?: number;
 }
 
 export type EntitlementStatus = "active" | "past_due" | "canceled" | "none";
