@@ -164,7 +164,7 @@ export async function runHarness(launch: HarnessLaunch): Promise<{ close(): Prom
         }
         authed = true;
         clients.add(sock);
-        sendLine(sock, { t: "hello", protocol: DURABLE_PROTOCOL, version: launch.version, pid: process.pid, extension: extensionVersion, features: ["usage"] } satisfies HarnessMessage);
+        sendLine(sock, { t: "hello", protocol: DURABLE_PROTOCOL, version: launch.version, pid: process.pid, extension: extensionVersion, features: ["usage", "abortSettles"] } satisfies HarnessMessage);
         if (msg.role === "daemon") {
           daemon = sock;
           lastDaemonAt = Date.now();

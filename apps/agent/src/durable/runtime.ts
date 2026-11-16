@@ -140,6 +140,8 @@ export class DurableTurns {
   private readonly stopping = new Set<string>();
   /** A reply waiting for a stopped run's end before it starts, by session. */
   private readonly stopEnded = new Map<string, () => void>();
+  /** The stop sent to the harness per session, answered once its runs have stopped and their ends were sent. */
+  private readonly aborting = new Map<string, Promise<unknown>>();
   private disposed = false;
 
   constructor(private readonly h: DurableHooks, opts: Omit<HarnessClientOptions, "onMessage" | "onConnection" | "log">) {
@@ -180,13 +182,19 @@ export class DurableTurns {
   async reply(s: StoredSession, content: unknown[]): Promise<void> {
     if (this.stopping.has(s.id)) {
       // A run just stopped (Send now, an edit): its end can still be on its way, and must not be taken for this reply's end.
+      // A harness that settles its stops sends that end before it answers the stop, so once the stop is answered
+      // nothing more is coming; with an older one, wait for the end a little while.
+      const settled = this.client.harness?.features.includes("abortSettles") ? this.aborting.get(s.id) : undefined;
       await new Promise<void>((resolve) => {
         const t = setTimeout(resolve, STOP_END_WAIT_MS);
-        this.stopEnded.set(s.id, () => {
+        const done = () => {
           clearTimeout(t);
           resolve();
-        });
+        };
+        this.stopEnded.set(s.id, done);
+        void settled?.then(done, done);
       });
+      this.aborting.delete(s.id);
       this.stopEnded.delete(s.id);
       this.stopping.delete(s.id);
     }
@@ -257,7 +265,8 @@ export class DurableTurns {
     if (!s.durable) return;
     this.stopping.add(s.id);
     if (children) this.controllers.get(s.id)?.abort();
-    void this.client.call("abort", { sessionId: keyOf(s), children }).catch((e) => this.h.host.log.warn(`session ${s.id}: stopping in the durable runtime failed`, e));
+    const call = this.client.call("abort", { sessionId: keyOf(s), children }).catch((e) => this.h.host.log.warn(`session ${s.id}: stopping in the durable runtime failed`, e));
+    this.aborting.set(s.id, call);
   }
 
   stopChild(s: StoredSession, callId: string): void {
