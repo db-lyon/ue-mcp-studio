@@ -276,7 +276,7 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       // A model only the Claude sign-in reaches runs as a session of its own in that runtime, as any subagent there does.
       return { ...base, run: { model: wants.model, vendor: wants.vendor, route: r } };
     });
-    const run: NativeRun = { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills, sdkLoads: route() === "claude" };
+    const run: NativeRun = { convention, loadout: l, composed: composeNative(l), helpers, skills: l.skills };
     nativeCache = { at: Date.now(), key, run };
     return run;
   };

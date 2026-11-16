@@ -42,7 +42,7 @@ export const KEY_PROVIDER_IDS: readonly KeyProviderId[] = ["anthropic", "openai"
 
 /**
  * Accounts the user signs in to instead of pasting a key. Claude runs Claude
- * models on the user's Claude plan through the Agent SDK's runtime and its own
+ * models on the user's Claude plan through the Claude runtime and its own
  * sign-in; Studio runs the models its plan includes. A sign-in is the default way to run
  * a model; a vendor key is the fallback.
  */
@@ -55,7 +55,7 @@ export const STUDIO_PLAN_AVAILABLE = false;
 /**
  * Whether Claude models may run on the user's Claude Code login. Studio has no
  * Claude sign-in of its own: the user runs `claude /login`. Off: Claude models
- * run on a key only, and the release bundle leaves out the Agent SDK.
+ * run on a key only.
  */
 export const CLAUDE_SIGN_IN_AVAILABLE = true;
 

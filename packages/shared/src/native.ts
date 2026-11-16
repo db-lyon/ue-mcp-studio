@@ -132,8 +132,8 @@ export interface NativePreview {
   tokens: number;
   /** The instruction files read on every call, in load order. */
   files: number;
-  /** On the Claude sign-in the Agent SDK reads the files itself; this is what it reads. */
+  /** Always "studio" now: Studio sends the text on every route. "sdk" came from Studios that ran the Claude sign-in on the Agent SDK, which read the files itself. */
   loadedBy: "studio" | "sdk";
-  /** On the Claude sign-in: each file as the SDK reads it, in load order, with nothing added between them. */
+  /** Only with "sdk": each file as the SDK read it, in load order. */
   parts?: Array<{ path: string; text: string }>;
 }

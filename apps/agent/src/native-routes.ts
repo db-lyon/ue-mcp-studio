@@ -123,14 +123,10 @@ export function registerNativeRoutes(api: DaemonExtensionApi, o: NativeRouteOpti
     const c = req.query.convention as Convention;
     if (!CONVENTIONS.includes(c)) return { status: 400, body: { error: `convention must be one of ${CONVENTIONS.join(", ")}` } };
     const l = loadout(c, api.projectDir, o.home(), o.owners(), o.top);
-    const main = o.main();
-    const sdk = c === "claude" && main.route === "claude";
-    // On the Claude sign-in Studio adds no instruction text: the Agent SDK reads the files, so the preview is the files.
+    // Studio sends the instruction text on every route, the Claude sign-in included: the preview is what it sends.
     const always = l.instructions.filter((f) => f.scope.kind === "always");
     const composed = composeNative(l);
-    const text = sdk ? always.map((f) => `## ${f.path}\n${f.text}`).join("\n\n") : composed.text ?? "";
-    const tokens = sdk ? always.reduce((n, f) => n + f.tokens, 0) : composed.tokens;
-    const body: NativePreview = { convention: c, text, tokens, files: always.length, loadedBy: sdk ? "sdk" : "studio", ...(sdk ? { parts: always.map((f) => ({ path: f.path, text: f.text })) } : {}) };
+    const body: NativePreview = { convention: c, text: composed.text ?? "", tokens: composed.tokens, files: always.length, loadedBy: "studio" };
     return { body };
   });
 

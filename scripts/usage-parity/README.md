@@ -1,5 +1,7 @@
 # Usage parity: Studio against Claude Code
 
+> **Out of date.** The `studio` harness below drives the Claude sign-in's Agent SDK turn (`runSubscriptionTurn`), which the durable runtime replaced (#446). It no longer builds; it needs rewriting to run a turn through the durable harness before Studio's side can be measured again. The `cc` side is unchanged.
+
 Measures what Studio spends on a set of Unreal tasks against Claude Code doing the same tasks through ue-mcp, over repeated runs, and checks in the editor that each run did its task.
 
 ```bash

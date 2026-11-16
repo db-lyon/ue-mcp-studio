@@ -259,7 +259,7 @@ describe("durable runtime", () => {
     const l = loadout("claude", projectDir, path.join(dir, "home"), new Map(), dir);
     const asked: Array<{ model: string; on?: { route: string; vendor: string } }> = [];
     const native: NativeRun = {
-      convention: "claude", loadout: l, composed: composeNative(l), skills: l.skills, sdkLoads: false,
+      convention: "claude", loadout: l, composed: composeNative(l), skills: l.skills,
       helpers: [{ name: "reviewer", description: "Reviews", prompt: "Review carefully.", allowed: null, maxTurns: null, effort: null, run: { model: "gpt-review", vendor: "openai", route: "key" } }],
     };
     rig = durableRunner({ projectDir, dataDir: path.join(dir, "data"), base: fake.base, start, extra: { native: () => native } });

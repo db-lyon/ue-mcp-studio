@@ -148,6 +148,4 @@ export interface NativeRun {
   composed: Composed;
   helpers: NativeHelper[];
   skills: FoundSkill[];
-  /** On the Claude sign-in the runtime reads the instruction files itself: Studio adds no instruction text. */
-  sdkLoads: boolean;
 }

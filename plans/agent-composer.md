@@ -2,6 +2,8 @@
 
 Status: the plan in force. Phases 1 to 5 are built (section 8); the Usage section, its ledger, budgets, prices and plan meters were removed afterwards (section 4), Auto was removed from the context strategies (#125), and the built-in worker's model, effort and start are editable again (#129). The "Shared with other clients" badge and Playtest runs as ue-mcp's shared mode were planned and are not built. Every decision is settled; there are no open questions.
 
+Changed by the durable runtime (#446): every route, the Claude sign-in included, runs in the durable harness, and the Claude sign-in runs Claude Code as a model with no tools or files of its own. Where this plan says the Agent SDK loads the project's files itself on the Claude sign-in, Studio now sends the same instruction text, skills and projected tools there as on every other route, and the preview is that text.
+
 ## Why
 
 Settings grew one card at a time, and it shows:
