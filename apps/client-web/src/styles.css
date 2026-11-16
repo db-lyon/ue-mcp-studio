@@ -312,6 +312,8 @@ main.parked { position: absolute; inset: 0; visibility: hidden; pointer-events: 
 .refused-head { margin: 0; max-width: 460px; font: 600 18px/1.35 var(--sans); color: var(--text); overflow-wrap: anywhere; }
 .refused-head .version { white-space: nowrap; }
 .refused > p { margin: 0; }
+.refused-pending { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.refused-actions { flex-wrap: wrap; justify-content: center; gap: 8px; }
 .refused-error { margin: 0; max-width: 460px; white-space: pre-wrap; overflow-wrap: anywhere; text-align: left; }
 button.large { padding: 10px 20px; font-size: 12.5px; }
 .examples { display: flex; flex-direction: column; gap: 8px; margin-top: 28px; width: min(520px, 100%); }

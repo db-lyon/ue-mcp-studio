@@ -19,7 +19,7 @@ import { readLocation, resetLocation, writeLocation } from "./location";
 import { useSessionFocus } from "./focus";
 import { useNotifications } from "./notifications/useNotifications";
 import { useSettingsApi } from "./screens/settings/hooks";
-import { Banner, font, PageGlow, T, useInsets, useSetTheme, useStyles, useTheme, type Theme } from "./ui";
+import { Banner, Button, font, PageGlow, T, useInsets, useSetTheme, useStyles, useTheme, type Theme } from "./ui";
 import { Chat } from "./views/Chat";
 import { PlaytestsView, usePlaytestIndex } from "./views/Playtests";
 import { PluginsView } from "./views/Plugins";
@@ -33,7 +33,7 @@ import { DialogBanner } from "./views/DialogBanner";
 import { SHELL_BANNER, VersionNotice } from "./views/VersionNotice";
 import { DrawerTool, NavDrawer, TabDot, useDrawerClose } from "./views/NavDrawer";
 import { UpdateRunner } from "./views/UpdateOverlay";
-import { RefusedScreen, useRefusal } from "./views/Refused";
+import { RefusalPending, RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { RemoteLock } from "./views/remote/RemoteLock";
 import { CompatBanner } from "./native/CompatBanner";
@@ -105,9 +105,16 @@ function Root({ initial, onBack, device }: { initial?: PanelLocation; onBack: ()
   const t = useTheme();
   const { project } = useProjectNav();
   const daemon = useDaemon(project);
-  const refusal = useRefusal(daemon.health);
-  if (refusal === undefined) return <View style={{ flex: 1, backgroundColor: t.c.bg }} />;
-  if (refusal) return <RefusedScreen refusal={refusal} />;
+  const [attempt, setAttempt] = useState(0);
+  const refusal = useRefusal(daemon.health, attempt);
+  /** Open Studio anyway: the check never answered, and the user chose not to wait for it. */
+  const [skipCheck, setSkipCheck] = useState(false);
+  const check = () => {
+    setAttempt((n) => n + 1);
+    daemon.refresh();
+  };
+  if (refusal === undefined && !skipCheck) return <View style={{ flex: 1, backgroundColor: t.c.bg }}><RefusalPending key={attempt} onCheck={check} onOpen={() => setSkipCheck(true)} onBack={onBack} /></View>;
+  if (refusal) return <RefusedScreen refusal={refusal} onCheck={check} onBack={onBack} />;
   return <Studio daemon={daemon} initial={initial} onBack={onBack} device={device} />;
 }
 
@@ -172,8 +179,9 @@ function Studio({ daemon, initial, onBack, device }: { daemon: ReturnType<typeof
       {offline ? <View style={{ height: OFFLINE_STRIP }} /> : null}
       <CompatBanner />
       {daemon.error && daemon.streaming ? (
-        <Banner kind="bad" style={SHELL_BANNER}>
-          <T style={{ color: t.c.badText }}>Daemon unreachable: {daemon.error}</T>
+        <Banner kind="bad" role="alert" style={SHELL_BANNER}>
+          <T style={{ color: t.c.badText, flexGrow: 1, flexShrink: 1, flexBasis: 200, minWidth: 0 }}>Daemon unreachable: {daemon.error}</T>
+          <Button title="Retry" label="Ask ue-mcp again" onPress={() => daemon.refresh()} />
         </Banner>
       ) : null}
       <DialogBanner daemon={daemon} />

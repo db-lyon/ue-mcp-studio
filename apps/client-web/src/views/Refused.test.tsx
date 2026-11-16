@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { RefusedScreen, updateUeMcp, useRefusal } from "./Refused";
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import { REFUSAL_WAIT_MS } from "@ue-mcp-studio/client-core";
+import { RefusalPending, RefusedScreen, updateUeMcp, useRefusal } from "./Refused";
 import type { StudioBinding } from "../native";
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -40,6 +41,42 @@ describe("Studio refused for an older ue-mcp", () => {
     expect(screen.getAllByRole("button").map((b) => b.textContent)).toEqual(["Update ue-mcp"]);
   });
 
+  it("checks again on Check again, and on a paired browser offers Switch project", () => {
+    const check = vi.fn();
+    const sw = vi.fn();
+    render(<RefusedScreen refusal={{ needs: "1.4.11-beta.6", have: "1.4.10" }} remote onCheck={check} onSwitch={sw} />);
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Checked again: Studio still needs ue-mcp 1.4.11-beta.6.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Switch project" }));
+    expect(sw).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks again when the check is raised", async () => {
+    const fetch = vi.fn(async () => json({ error: "not found" }, 404));
+    vi.stubGlobal("fetch", fetch);
+    const { rerender } = renderHook(({ n }) => useRefusal({ version: "1.4.10" }, n), { initialProps: { n: 0 } });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    rerender({ n: 1 });
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  });
+
+  it("while the check has not answered, spins, then offers Check again, Open Studio anyway and Switch project", async () => {
+    vi.useFakeTimers();
+    const check = vi.fn();
+    const open = vi.fn();
+    const sw = vi.fn();
+    render(<RefusalPending onCheck={check} onOpen={open} onSwitch={sw} />);
+    expect(screen.getByRole("status").textContent).toContain("Checking that this ue-mcp can run Studio");
+    expect(screen.queryAllByRole("button")).toEqual([]);
+    act(() => void vi.advanceTimersByTime(REFUSAL_WAIT_MS + 1));
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Studio anyway" }));
+    fireEvent.click(screen.getByRole("button", { name: "Switch project" }));
+    expect([check, open, sw].map((f) => f.mock.calls.length)).toEqual([1, 1, 1]);
+    vi.useRealTimers();
+  });
+
   it("in a paired browser offers no button and says the update runs on the computer", () => {
     render(<RefusedScreen refusal={{ needs: "1.4.11-beta.6", have: "1.4.10" }} remote />);
     expect(screen.queryAllByRole("button")).toEqual([]);
@@ -51,7 +88,7 @@ describe("Studio refused for an older ue-mcp", () => {
     vi.stubGlobal("fetch", fetch);
     render(<RefusedScreen refusal={{ needs: "1.4.11-beta.6", have: "1.4.10" }} />);
     fireEvent.click(screen.getByRole("button", { name: "Update ue-mcp" }));
-    await screen.findByText("ue-mcp 1.4.11-beta.6 is installed. Restart the editor to finish.");
+    await screen.findByText("ue-mcp 1.4.11-beta.6 is installed. Restart the editor to finish, then check again.");
     expect(fetch.mock.calls.map((c) => c[0])).toEqual(["/v1/update?channel=beta", "/v1/ext/studio/refusal/update"]);
     expect(JSON.parse(String((fetch.mock.calls[1][1] as RequestInit).body))).toEqual({ version: "1.4.11-beta.6" });
   });

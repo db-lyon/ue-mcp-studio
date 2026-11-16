@@ -1,7 +1,28 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { UpdateWaiting } from "./UpdateOverlay";
+import { UpdateScreen, UpdateWaiting } from "./UpdateOverlay";
+
+describe("an update that stopped", () => {
+  const failed = { target: null, at: Date.now(), steps: [{ key: "plugin" as const, state: "failed" as const }], error: "The editor plugin did not install." };
+
+  it("offers Retry and Open log on the computer, not only Close", () => {
+    const retry = vi.fn();
+    const openLog = vi.fn(async () => true);
+    render(<UpdateScreen run={failed} slow={false} onClose={() => {}} onRetry={retry} openLog={openLog} />);
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open log" }));
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(openLog).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  });
+
+  it("on a paired browser says where to try again instead", () => {
+    render(<UpdateScreen run={failed} slow={false} onClose={() => {}} />);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    expect(screen.getByText("To try again, choose Update in Studio on the computer.")).toBeTruthy();
+  });
+});
 
 afterEach(() => {
   cleanup();

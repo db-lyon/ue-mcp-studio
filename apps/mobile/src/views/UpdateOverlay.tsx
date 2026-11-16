@@ -6,7 +6,7 @@
  */
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { StyleSheet, View } from "react-native";
-import { STEP_NAME, STEP_NOTE, waitingSteps, waitingWho, type UpdateRun } from "@ue-mcp-studio/client-core";
+import { UPDATE_RETRY_ON_COMPUTER, STEP_NAME, STEP_NOTE, waitingSteps, waitingWho, type UpdateRun } from "@ue-mcp-studio/client-core";
 import { Banner, Button, edgePadding, font, Row, Spacer, Spinner, T, useInsets, useStyles, useTheme, type Theme } from "../ui";
 import { useProjectNav } from "../nav";
 import type { DaemonEvent } from "../state";
@@ -144,6 +144,8 @@ export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boo
           </Banner>
         ) : null}
         {finished && run.summary ? <T style={[s.small, { color: t.c.muted }]}>{run.summary}</T> : null}
+        {/* The way on from a phone: the update runs again from Studio on the computer. */}
+        {failed ? <T style={[s.smallFlat, { color: t.c.dim }]}>{UPDATE_RETRY_ON_COMPUTER}</T> : null}
         {finished || failed ? (
           <Row style={{ marginVertical: 6 }}>
             <Spacer />

@@ -5,11 +5,11 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { createLock, REMOTE_RECONNECT_MS, type Transport } from "@ue-mcp-studio/client-core";
+import { createLock, REFUSAL_WAIT_MS, REMOTE_RECONNECT_MS, type Transport } from "@ue-mcp-studio/client-core";
 import type { SessionSummary } from "@ue-mcp-studio/shared";
 import { RemoteLock } from "../src/views/remote/RemoteLock";
 import { ConnectionOverlay, useConnection } from "../src/views/ConnectionOverlay";
-import { RefusedScreen } from "../src/views/Refused";
+import { RefusalPending, RefusedScreen } from "../src/views/Refused";
 import { VersionNotice } from "../src/views/VersionNotice";
 import { DrawerTool, NavDrawer, useDrawerClose } from "../src/views/NavDrawer";
 import { EditorBanner } from "../src/views/EditorBanner";
@@ -178,6 +178,33 @@ describe("refused", () => {
     expect(screen.getByText("Studio needs ue-mcp 1.4.11-beta.6 or later. You have 1.4.11-beta.4.")).toBeTruthy();
     expect(screen.getByText("Updates run from Studio on the computer.")).toBeTruthy();
     expect(screen.queryByText("Update ue-mcp")).toBeNull();
+  });
+
+  it("offers Check again and Back to projects", () => {
+    const check = vi.fn();
+    const back = vi.fn();
+    render(<RefusedScreen refusal={{ needs: "1.4.11-beta.6", have: "1.4.11-beta.4" }} onCheck={check} onBack={back} />);
+    fireEvent.click(screen.getByText("Check again"));
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Checked again: Studio still needs ue-mcp 1.4.11-beta.6.")).toBeTruthy();
+    fireEvent.click(screen.getByText("Back to projects"));
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+
+  it("while the check has not answered, spins, then offers a way on", async () => {
+    vi.useFakeTimers();
+    const check = vi.fn();
+    const open = vi.fn();
+    const back = vi.fn();
+    render(<RefusalPending onCheck={check} onOpen={open} onBack={back} />);
+    expect(screen.getByText("Checking that this ue-mcp can run Studio")).toBeTruthy();
+    expect(screen.queryByText("Check again")).toBeNull();
+    await act(async () => void vi.advanceTimersByTime(REFUSAL_WAIT_MS + 1));
+    fireEvent.click(screen.getByText("Check again"));
+    fireEvent.click(screen.getByText("Open Studio anyway"));
+    fireEvent.click(screen.getByText("Back to projects"));
+    expect([check, open, back].map((f) => f.mock.calls.length)).toEqual([1, 1, 1]);
+    vi.useRealTimers();
   });
 });
 
@@ -351,6 +378,8 @@ describe("an update run on the computer", () => {
     const box = screen.getByText("The editor plugin did not install.").parentElement!;
     expect(getComputedStyle(box).marginBottom).toBe("10px");
     expect(screen.getByText("Close")).toBeTruthy();
+    // The way on from a phone, which never runs the update itself.
+    expect(screen.getByText("To try again, choose Update in Studio on the computer.")).toBeTruthy();
   });
 });
 

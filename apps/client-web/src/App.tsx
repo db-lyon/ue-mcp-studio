@@ -28,7 +28,7 @@ import { useSessionFocus } from "./focus";
 import { focusRun } from "./attention";
 import { useNotifications, usePresence, useWebPush } from "./notify";
 import { replaceStaleWindow } from "./window-version";
-import { RefusedScreen, useRefusal } from "./views/Refused";
+import { RefusalPending, RefusedScreen, useRefusal } from "./views/Refused";
 import { ErrorBoundary } from "./views/ErrorBoundary";
 import { onRemotePage } from "./connection";
 import { projectListUrl } from "@ue-mcp-studio/client-core";
@@ -46,7 +46,15 @@ type Tab = (typeof TABS)[number];
 /** Studio, or the one screen that says it needs a newer ue-mcp. */
 export function App() {
   const daemon = useDaemon();
-  const refusal = useRefusal(daemon.health);
+  const [attempt, setAttempt] = useState(0);
+  const refusal = useRefusal(daemon.health, attempt);
+  /** Open Studio anyway: the check never answered, and the user chose not to wait for it. */
+  const [skipCheck, setSkipCheck] = useState(false);
+  const check = () => {
+    setAttempt((n) => n + 1);
+    daemon.refresh();
+  };
+  const switchProject = onRemotePage() ? () => window.location.assign(projectListUrl(window.location.origin)) : undefined;
   useEffect(() => {
     api.settings().then((s) => void applyTheme(s.theme), () => void applyTheme("ue-mcp"));
   }, []);
@@ -54,7 +62,13 @@ export function App() {
   // until the PIN is in, so the lock screen must show before Studio has loaded anything.
   return (
     <>
-      {refusal === undefined ? <div className="app" /> : refusal ? <RefusedScreen refusal={refusal} /> : <Studio daemon={daemon} />}
+      {refusal === undefined && !skipCheck ? (
+        <RefusalPending key={attempt} onCheck={check} onOpen={() => setSkipCheck(true)} onSwitch={switchProject} />
+      ) : refusal ? (
+        <RefusedScreen refusal={refusal} onCheck={check} onSwitch={switchProject} />
+      ) : (
+        <Studio daemon={daemon} />
+      )}
       <RemoteLock />
     </>
   );
@@ -196,7 +210,12 @@ function Studio({ daemon }: { daemon: DaemonState }) {
           </NavDrawer>
         )}
         {/* While the connection overlay is up it says the same thing; the banner is for a stream that is up but health failing. */}
-        {daemon.error && daemon.streaming && <div className="banner bad">Daemon unreachable: {daemon.error}</div>}
+        {daemon.error && daemon.streaming && (
+          <div className="banner bad banner-actions" role="alert">
+            <span className="banner-text">Daemon unreachable: {daemon.error}</span>
+            <button className="small-button" onClick={() => daemon.refresh()}>Retry</button>
+          </div>
+        )}
         <DialogBanner daemon={daemon} />
         <VersionNotice daemon={daemon} />
         <RemoteApprovalBanner />

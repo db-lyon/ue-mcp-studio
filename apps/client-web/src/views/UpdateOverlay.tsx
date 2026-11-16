@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import type { DaemonEvent } from "ue-mcp/daemon";
-import type { StudioUpdates, UeMcpUpdate } from "./Updates";
+import { readUpdates, type StudioUpdates, type UeMcpUpdate } from "./Updates";
 import { STEP_NAME, STEP_NOTE, afterRunning, execute, loadRun, planRun, restartNow, saveRun, settle, waitingSteps, type UpdateRun } from "./update-run";
 import { ConnectionOverlay, useConnection } from "./ConnectionOverlay";
 import { onRemotePage } from "../connection";
-import { waitingWho } from "@ue-mcp-studio/client-core";
+import { native } from "../native";
+import { UPDATE_RETRY_ON_COMPUTER, waitingWho } from "@ue-mcp-studio/client-core";
 
 let current: UpdateRun | null = null;
 const listeners = new Set<() => void>();
@@ -25,6 +26,21 @@ export const useRun = (): UpdateRun | null => useSyncExternalStore(subscribe, ()
 export function startUpdate(u: { studio: StudioUpdates | null; ueMcp: UeMcpUpdate | null }): void {
   const run = planRun(u);
   if (run) void execute(run, setRun);
+}
+
+/**
+ * Retry a stopped update: read what is newer now and run an Update of it,
+ * which skips what already landed. Nothing newer left closes the screen.
+ */
+export async function retryUpdate(failed: UpdateRun, read = readUpdates): Promise<void> {
+  setRun({ ...failed, error: undefined, detail: undefined, steps: failed.steps.map((s) => (s.state === "failed" ? { ...s, state: "pending" as const } : s)) });
+  try {
+    const run = planRun(await read());
+    setRun(run);
+    if (run) await execute(run, setRun);
+  } catch (e) {
+    setRun({ ...failed, error: (e as Error).message || failed.error });
+  }
 }
 
 /** How long a restart may take before the panel says what to do if it never reloads. */
@@ -84,7 +100,7 @@ export function UpdateRunner({ streaming, events }: { streaming: boolean; events
   }, [run?.summary]);
 
   if (run && waitingSteps(run).length > 0) return <><UpdateWaiting run={run} />{overlay}</>;
-  if (run && !escalated) return createPortal(<UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} />, document.body);
+  if (run && !escalated) return createPortal(<UpdateScreen run={run} slow={slow} onClose={() => setRun(null)} onRetry={onRemotePage() ? undefined : () => retryUpdate(run)} />, document.body);
   return overlay;
 }
 
@@ -105,7 +121,11 @@ export function UpdateWaiting({ run }: { run: UpdateRun }) {
   );
 }
 
-export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boolean; onClose: () => void }) {
+/**
+ * `onRetry`: Studio on the computer runs the update again from what is still
+ * newer; a paired browser has none and says the update runs on the computer.
+ */
+export function UpdateScreen({ run, slow, onClose, onRetry, openLog = native().openlog }: { run: UpdateRun; slow: boolean; onClose: () => void; onRetry?: () => void; openLog?: () => Promise<boolean> }) {
   const finished = run.summary !== undefined;
   const failed = !!run.error;
   const title = failed ? "Update stopped" : finished ? "Updated" : "Updating";
@@ -131,9 +151,12 @@ export function UpdateScreen({ run, slow, onClose }: { run: UpdateRun; slow: boo
         {slow && !failed && <p className="dim small">Taking longer than it should. If Studio does not reload, close Studio and open it again.</p>}
         {failed && <div className="banner bad small update-error">{run.error}</div>}
         {finished && run.summary && <p className="muted small">{run.summary}</p>}
+        {failed && !onRetry && <p className="dim small">{UPDATE_RETRY_ON_COMPUTER}</p>}
         {(finished || failed) && (
           <div className="row">
+            {failed && onRetry && openLog && <button className="ghost" onClick={() => void openLog()}>Open log</button>}
             <span className="spacer" />
+            {failed && onRetry && <button className="primary" onClick={onRetry}>Retry</button>}
             <button className={failed ? "" : "primary"} onClick={onClose}>{failed ? "Close" : "Done"}</button>
           </div>
         )}
