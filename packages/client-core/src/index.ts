@@ -19,6 +19,7 @@ export * from "./notifications.js";
 export * from "./settings-status.js";
 export * from "./updates.js";
 export * from "./whats-new.js";
+export * from "./release-notes.js";
 export * from "./native-files.js";
 export * from "./yaml-tokens.js";
 export * from "./install-problems.js";

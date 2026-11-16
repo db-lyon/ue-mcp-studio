@@ -9,14 +9,14 @@
  * a panel-2 header, links in the bright accent, and `##` in the label style
  * (the web's global h2 rule). Vertical margins collapse as CSS collapses them.
  */
-import { memo, useMemo, type ReactNode } from "react";
-import { Linking, ScrollView, Text, View, type TextStyle, type ViewStyle } from "react-native";
+import { memo, useMemo, useState, type ReactNode } from "react";
+import { Linking, Pressable, ScrollView, Text, View, type TextStyle, type ViewStyle } from "react-native";
 import { unified, type Processor } from "unified";
 import remarkParse from "remark-parse";
 import remarkGfm from "remark-gfm";
 import remarkBreaks from "remark-breaks";
 import remarkRehype from "remark-rehype";
-import { classifyLink, remarkReplyLinks } from "@ue-mcp-studio/client-core";
+import { RELEASE_NOTES_REHYPE, classifyLink, remarkReplyLinks } from "@ue-mcp-studio/client-core";
 import { baseFont, font, italic, labelFont, monoNormal } from "./Text";
 import { useTheme } from "./ThemeProvider";
 import type { Theme } from "./theme";
@@ -45,6 +45,12 @@ export interface MarkdownProps {
   page?: boolean;
   /** The margin under a paragraph: 8, or what the page sets (a plugin card's p is 0). */
   paragraphMargin?: number;
+  /**
+   * Release notes (client-web WhatsNew's ReleaseNotes): the safe HTML subset
+   * through client-core's sanitiser, <details> as a fold, and headings in the
+   * body's own weight rather than the label style.
+   */
+  notes?: boolean;
 }
 
 interface HNode {
@@ -56,37 +62,42 @@ interface HNode {
 }
 
 const processors = new Map<string, Processor<never, never, never, never, never>>();
-function processor(breaks: boolean, links: boolean) {
-  const key = `${breaks}:${links}`;
+function processor(breaks: boolean, links: boolean, notes = false) {
+  const key = `${breaks}:${links}:${notes}`;
   let p = processors.get(key);
   if (!p) {
     let u = unified().use(remarkParse).use(remarkGfm) as never as Processor;
     if (breaks) u = u.use(remarkBreaks) as never;
     if (links) u = u.use(remarkReplyLinks as never) as never;
-    p = u.use(remarkRehype) as never;
+    if (notes) {
+      // Raw HTML is kept only to be parsed and sanitised before anything draws it.
+      u = u.use(remarkRehype, { allowDangerousHtml: true }) as never;
+      for (const plugin of RELEASE_NOTES_REHYPE) u = (Array.isArray(plugin) ? u.use(plugin[0] as never, plugin[1] as never) : u.use(plugin as never)) as never;
+      p = u as never;
+    } else p = u.use(remarkRehype) as never;
     processors.set(key, p!);
   }
   return p!;
 }
 
 /** The HTML tree react-markdown would render for `text`. */
-export function markdownTree(text: string, breaks = true, links = false): HNode {
-  const p = processor(breaks, links) as never as { parse(t: string): unknown; runSync(t: unknown): HNode };
+export function markdownTree(text: string, breaks = true, links = false, notes = false): HNode {
+  const p = processor(breaks, links, notes) as never as { parse(t: string): unknown; runSync(t: unknown): HNode };
   return p.runSync(p.parse(text));
 }
 
-export const Markdown = memo(function Markdown({ text, tone, breaks = true, links = false, renderMark, renderCode, renderImage, page, paragraphMargin = 8 }: MarkdownProps) {
+export const Markdown = memo(function Markdown({ text, tone, breaks = true, links = false, renderMark, renderCode, renderImage, page, paragraphMargin = 8, notes = false }: MarkdownProps) {
   const t = useTheme();
   const tree = useMemo(() => {
     try {
-      return markdownTree(text, breaks, links);
+      return markdownTree(text, breaks, links, notes);
     } catch {
       return null;
     }
-  }, [text, breaks, links]);
+  }, [text, breaks, links, notes]);
   const body: TextStyle = { ...baseFont(t), ...tone };
-  if (!tree) return <Text style={body}>{text}</Text>;
-  const ctx: Ctx = { t, body, renderMark, renderCode, renderImage, depth: 0, paragraphMargin };
+  if (!tree) return <Text style={body}>{notes ? text.replace(/<[^>]*>/g, "") : text}</Text>;
+  const ctx: Ctx = { t, body, renderMark, renderCode, renderImage, depth: 0, paragraphMargin, notes };
   const blocks = flow(ctx, tree.children ?? []);
   const edges = page && blocks.length ? { marginTop: blocks[0].mt, marginBottom: blocks[blocks.length - 1].mb } : null;
   return <View style={edges}>{place(blocks, true)}</View>;
@@ -277,6 +288,8 @@ interface Ctx {
   /** List nesting, for the marker: disc, circle, square. */
   depth: number;
   paragraphMargin?: number;
+  /** Release notes: plain headings and <details> folds (MarkdownProps.notes). */
+  notes?: boolean;
 }
 
 /** A block and the margins CSS gives it above and below, before collapsing. */
@@ -286,7 +299,7 @@ interface Block {
   mb: number;
 }
 
-const BLOCK = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "pre", "blockquote", "table", "hr", "div", "section"]);
+const BLOCK = new Set(["p", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "pre", "blockquote", "table", "hr", "div", "section", "details", "summary"]);
 const isBlock = (n: HNode) => n.type === "element" && BLOCK.has(n.tagName ?? "");
 const blank = (n: HNode) => n.type === "text" && !/\S/.test(n.value ?? "");
 
@@ -352,6 +365,30 @@ function place(blocks: Block[], top: boolean): ReactNode[] {
   });
 }
 
+/** The disclosure box a fold's caret sits in; the fold's content starts after it, under the summary text (the browser's marker is 1.06em of 12px). */
+export const FOLD_CARET = 12 * 1.06;
+
+/**
+ * A release body's <details>: its summary with the dialog's caret, a 44px
+ * tap target, and its content under the summary's text while open.
+ */
+function NoteFold({ ctx, summary, content, startOpen, style }: { ctx: Ctx; summary: HNode[]; content: Block[]; startOpen: boolean; style?: ViewStyle }) {
+  const [open, setOpen] = useState(startOpen);
+  const { t, body } = ctx;
+  const lh = (body.lineHeight as number) ?? t.base.lineHeight;
+  return (
+    <View style={style}>
+      <Pressable accessibilityRole="button" accessibilityState={{ expanded: open }} onPress={() => setOpen(!open)} style={{ flexDirection: "row", alignItems: "flex-start", minHeight: 44 }}>
+        <View style={{ width: FOLD_CARET, height: lh, alignItems: "center", justifyContent: "center" }}>
+          <View style={{ width: 0, height: 0, borderTopWidth: 4, borderBottomWidth: 4, borderLeftWidth: 6, borderTopColor: "transparent", borderBottomColor: "transparent", borderLeftColor: t.c.dim, transform: [{ rotate: open ? "90deg" : "0deg" }] }} />
+        </View>
+        <Text style={[body, { flex: 1, color: t.c.text }]}>{inlines(ctx, summary, true)}</Text>
+      </Pressable>
+      {open ? <View style={{ marginLeft: FOLD_CARET, marginTop: 6 }}>{place(content, false)}</View> : null}
+    </View>
+  );
+}
+
 /** A container's margins: its own, collapsed with its first child's top and last child's bottom. */
 function through(own: { mt: number; mb: number }, kids: Block[]) {
   return { mt: Math.max(own.mt, kids[0]?.mt ?? 0), mb: Math.max(own.mb, kids[kids.length - 1]?.mb ?? 0) };
@@ -365,9 +402,20 @@ function block(ctx: Ctx, n: HNode): Block | null {
   const lh = ((body.lineHeight as number) ?? t.base.lineHeight) / size;
   const tag = n.tagName ?? "";
   const kids = n.children ?? [];
+  // Release notes: every heading in the body's size at weight 600, as the web's .whats-new-notes headings.
+  if (ctx.notes && /^h[1-6]$/.test(tag)) {
+    const hs = { ...body, ...font(t, "sans", 600, size, lh), color: t.c.text };
+    return { el: (s) => <Text accessibilityRole="header" style={[hs, s as TextStyle]} selectable>{inlines({ ...ctx, body: hs }, kids, true)}</Text>, mt: 12, mb: 6 };
+  }
   switch (tag) {
     case "p":
+    case "summary":
       return { el: (s) => textRun(ctx, kids, s), mt: 0, mb: ctx.paragraphMargin ?? 8 };
+    case "details": {
+      const summary = kids.find((k) => k.type === "element" && k.tagName === "summary");
+      const content = flow(ctx, kids.filter((k) => k !== summary));
+      return { mt: 0, mb: 8, el: (s) => <NoteFold ctx={ctx} summary={summary?.children ?? []} content={content} startOpen={n.properties?.open === true || n.properties?.open === ""} style={s as ViewStyle} /> };
+    }
     case "h2":
       return { el: (s) => <Text accessibilityRole="header" style={[labelFont(t), s as TextStyle]} selectable>{inlines({ ...ctx, body: labelFont(t) }, kids, true)}</Text>, mt: 0, mb: 12 };
     case "h1":
