@@ -95,6 +95,8 @@ import { registerNativeRoutes } from "./native-routes.js";
 import { ContextSurfaces, contextApiOf } from "./context-surface.js";
 import { fullModelName, modelName } from "./models.js";
 import { TurnHosts } from "./hosted-turn.js";
+import { DurableSetting, durableRouteOf, registerDurableRoutes, routeSpec } from "./durable/routes.js";
+import { ensureRuntime } from "./runtime.js";
 import { userHome } from "./instructions.js";
 import { replyImages } from "./reply-images.js";
 import { loadout } from "./native.js";
@@ -292,6 +294,16 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
   };
   // ue-mcp asks before each flow step as it runs when it offers "flows.stepApproval"; older daemons get the plan check.
   const stepHost = api as unknown as FlowStepHost;
+  // The durable runtime, per route, off by default (durable/routes.ts).
+  const durableSetting = new DurableSetting(api.dataDir);
+  const durableRoute = () => {
+    const r = durableRouteOf(route(), settings.provider());
+    return durableSetting.on(r) ? r : null;
+  };
+  const endpointOf = (id: string) => {
+    const e = endpoints.get(id);
+    return e ? { baseUrl: e.baseUrl, key: endpoints.key(id) } : null;
+  };
   const runner = new AgentRunner({
     host: api,
     replyImages: (text) => replyImages(text, { projectDir: api.projectDir, home: userHome() }, path.join(api.dataDir, "posters")),
@@ -332,7 +344,34 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
       script: packageDir ? path.join(packageDir, "dist", "turn-host.js") : null,
       log: api.log,
     }),
+    durable: {
+      route: durableRoute,
+      routeSpec: (model) => {
+        const r = durableRoute();
+        if (!r) throw new Error("The durable runtime is off for this route.");
+        return routeSpec({ route: r, model, vendor: settings.provider(), gatewayUrl: settings.gatewayUrl(), agentVersion, endpoint: endpointOf });
+      },
+      credential: async (r) => {
+        if (r === "studio") return accountToken();
+        if (r === "key:anthropic" || r === "key:openai" || r === "key:google") return settings.key(r.slice(4) as KeyProviderId);
+        if (r === "chatgpt") return chatgpt.accessToken();
+        if (r === "endpoint") {
+          const id = endpointIdOf(settings.provider());
+          return id !== null ? endpointOf(id)?.key ?? null : null;
+        }
+        return null;
+      },
+      harness: {
+        dataDir: api.dataDir,
+        projectDir: api.projectDir,
+        version: agentVersion,
+        script: packageDir ? path.join(packageDir, "dist", "durable-harness.js") : null,
+        extensionFile: packageDir ? path.join(packageDir, "dist", "durable-extension.js") : null,
+        claudeCommand: () => (CLAUDE_SIGN_IN_AVAILABLE ? ensureRuntime() : Promise.resolve(null)),
+      },
+    },
   });
+  registerDurableRoutes(api, { setting: durableSetting, harness: () => runner.durableHarness() });
   const unregisterSteps = offersStepApproval(stepHost) ? stepHost.flows!.approveSteps((r) => runner.approveFlowStep(r)) : () => {};
   // Flow agent steps, such as the playtest flow's draft, run on the model picked here, on its route.
   const unregisterModel = registerFlowModel(api as ModelHost, {

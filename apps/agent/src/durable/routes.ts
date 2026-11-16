@@ -1,0 +1,101 @@
+/**
+ * Which routes run on the durable runtime, and how a conversation on each
+ * reaches its model. One setting per route, off by default: with every route
+ * off, Studio runs as before. The setting is the project's, kept beside its
+ * sessions, and read at each reply, so a change applies from the next one.
+ *
+ * GET /runtime answers the setting and the harness's state; PUT /runtime
+ * { route, durable } changes one route.
+ */
+import * as fs from "node:fs";
+import * as path from "node:path";
+import type { DaemonExtensionApi } from "ue-mcp/daemon";
+import { GATEWAY_CLIENT_HEADER, GATEWAY_CLIENT_PREFIX, GATEWAY_SESSION_HEADER, endpointIdOf, type ModelRoute, type VendorId } from "@ue-mcp-studio/shared";
+import { writeFileAtomic } from "../atomic-write.js";
+import type { RouteSpec } from "./protocol.js";
+
+/** The routes the setting names: the gateway, each key, the two sign-ins and custom endpoints. */
+export const DURABLE_ROUTES = ["studio", "key:anthropic", "key:openai", "key:google", "chatgpt", "endpoint", "claude"] as const;
+export type DurableRoute = (typeof DURABLE_ROUTES)[number];
+
+/** The setting's key for the route a model runs on. */
+export function durableRouteOf(route: ModelRoute, vendor: VendorId): DurableRoute | null {
+  if (route === "key") return (["anthropic", "openai", "google"] as const).includes(vendor as never) ? (`key:${vendor}` as DurableRoute) : null;
+  if (route === "studio" || route === "chatgpt" || route === "endpoint" || route === "claude") return route;
+  return null;
+}
+
+export class DurableSetting {
+  constructor(private readonly dir: string) {}
+
+  private get file(): string {
+    return path.join(this.dir, "durable-routes.json");
+  }
+
+  /** Routes switched on; every other route is off. */
+  read(): Partial<Record<DurableRoute, boolean>> {
+    try {
+      const v = JSON.parse(fs.readFileSync(this.file, "utf-8")) as Record<string, unknown>;
+      return Object.fromEntries(DURABLE_ROUTES.filter((r) => v[r] === true).map((r) => [r, true]));
+    } catch {
+      return {};
+    }
+  }
+
+  on(route: DurableRoute | null): boolean {
+    return !!route && this.read()[route] === true;
+  }
+
+  set(route: DurableRoute, on: boolean): void {
+    const v = this.read();
+    if (on) v[route] = true;
+    else delete v[route];
+    fs.mkdirSync(this.dir, { recursive: true });
+    writeFileAtomic(this.file, JSON.stringify(v, null, 2));
+  }
+}
+
+/** Where each route is reached, and how its credential is sent. */
+export function routeSpec(o: {
+  route: DurableRoute;
+  model: string;
+  vendor: VendorId;
+  gatewayUrl: string;
+  agentVersion: string;
+  endpoint: (id: string) => { baseUrl: string; key: string | null } | null;
+}): RouteSpec {
+  switch (o.route) {
+    case "studio":
+      return {
+        route: o.route, provider: "studio", api: "anthropic-messages", model: o.model, baseUrl: o.gatewayUrl.replace(/\/+$/, ""), auth: "bearer", maxTokens: 64_000,
+        headers: { [GATEWAY_CLIENT_HEADER]: `${GATEWAY_CLIENT_PREFIX}${o.agentVersion}` }, sessionHeader: GATEWAY_SESSION_HEADER,
+      };
+    case "key:anthropic":
+      return { route: o.route, provider: "anthropic", api: "anthropic-messages", model: o.model, baseUrl: "https://api.anthropic.com", auth: "apiKey" };
+    case "key:openai":
+      return { route: o.route, provider: "openai", api: "openai-responses", model: o.model, baseUrl: "https://api.openai.com/v1", auth: "apiKey" };
+    case "key:google":
+      return { route: o.route, provider: "google", api: "google-generative-ai", model: o.model, baseUrl: "https://generativelanguage.googleapis.com/v1beta", auth: "apiKey" };
+    case "chatgpt":
+      return { route: o.route, provider: "chatgpt", api: "openai-responses", model: o.model, baseUrl: "https://api.openai.com/v1", auth: "bearer" };
+    case "endpoint": {
+      const id = endpointIdOf(o.vendor);
+      const e = id !== null ? o.endpoint(id) : null;
+      if (!e) throw new Error(`The endpoint for ${o.model} was removed: pick another model.`);
+      return { route: o.route, provider: `endpoint-${id}`, api: "openai-completions", model: o.model, baseUrl: e.baseUrl, auth: e.key ? "apiKey" : "none" };
+    }
+    case "claude":
+      return { route: o.route, provider: "claude-code", api: "claude-code", model: o.model, auth: "none" };
+  }
+}
+
+export function registerDurableRoutes(api: DaemonExtensionApi, o: { setting: DurableSetting; harness: () => { available: boolean; connected: boolean; version: string | null; pid: number | null } }): void {
+  api.route("GET", "/runtime", () => ({ body: { durable: o.setting.read(), routes: DURABLE_ROUTES, harness: o.harness() } }));
+  api.route("PUT", "/runtime", (req) => {
+    const b = (req.body ?? {}) as { route?: unknown; durable?: unknown };
+    if (!DURABLE_ROUTES.includes(b.route as DurableRoute)) return { status: 400, body: { error: `route is one of ${DURABLE_ROUTES.join(", ")}` } };
+    if (typeof b.durable !== "boolean") return { status: 400, body: { error: "durable is true or false" } };
+    o.setting.set(b.route as DurableRoute, b.durable);
+    return { body: { durable: o.setting.read() } };
+  });
+}

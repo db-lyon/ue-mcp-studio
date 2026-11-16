@@ -51,6 +51,9 @@ import { NOTHING, conditionalFor, pathsOf, type Composed } from "./instructions.
 import { NO_EFFECTS, SESSION_KEY, approvalKind, editorPreview, flowStepCall, flowStepKind, type ActionEffects } from "./approval-kind.js";
 import { AGENT_TOOL } from "./tools.js";
 import { SKILL_TOOL, agentTool, skillResult, skillsSection, type NativeHelper, type NativeRun } from "./native-runtime.js";
+import { DurableTurns } from "./durable/runtime.js";
+import type { HarnessClientOptions } from "./durable/client.js";
+import type { AgentSpec, AgentStart, RouteSpec, ToolDef } from "./durable/protocol.js";
 
 /** The most of a /action's answer the agent's note carries; the transcript keeps all of it. */
 export const ACTION_NOTE_CHARS = 4000;
@@ -299,6 +302,20 @@ export interface RunnerOptions {
   turnHosts?: TurnHosts;
   /** What each project image a reply's text shows is (size, type, frames), sent with the reply; none when not given. */
   replyImages?: (text: string) => Record<string, ReplyImageInfo> | undefined;
+  /**
+   * The durable runtime (durable/): conversations in a long-lived harness
+   * process, selected per route by a setting that is off by default. Without
+   * it, or with the current route's setting off, a session runs as before.
+   */
+  durable?: {
+    /** The current route's key when its setting selects the durable runtime; null when it is off. */
+    route(): string | null;
+    /** How a conversation on the current route reaches `model`. */
+    routeSpec(model: string): RouteSpec;
+    /** A fresh credential for a route, by its key. */
+    credential(route: string): Promise<string | null>;
+    harness: Omit<HarnessClientOptions, "onMessage" | "onConnection" | "log">;
+  };
 }
 
 /** Where a Claude sign-in reply's own bookkeeping stands; kept with the session while it runs in a host. */
@@ -420,6 +437,12 @@ export function addUserContent(messages: MessageParam[], content: unknown[]): vo
   last.content = [...blocks, ...content] as MessageParam["content"];
 }
 
+/** A tool definition as the durable harness takes it. */
+const toolDef = (t: Anthropic.Beta.BetaToolUnion): ToolDef => {
+  const b = t as { name: string; description?: string; input_schema?: Record<string, unknown> };
+  return { name: b.name, description: b.description ?? "", input_schema: b.input_schema ?? { type: "object", properties: {} } };
+};
+
 /** Card extension names and types: the same rule the client's slot registry applies. */
 const CARD_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 /** A card is a summary for the panel; anything bigger belongs behind the extension's own route. */
@@ -464,8 +487,38 @@ export class AgentRunner {
   /** Where the images a tool showed the model are kept for the panel. */
   private readonly files: AttachmentStore;
 
+  /** The durable runtime, when this Studio has one; sessions whose route selects it run there. */
+  private readonly durable: DurableTurns | null;
+
   constructor(private readonly o: RunnerOptions) {
     this.files = new AttachmentStore(o.host.dataDir);
+    this.durable = o.durable ? new DurableTurns({
+      host: o.host,
+      store: o.store,
+      addEntry: (s, e) => this.addEntry(s, e),
+      recordOutcome: (s, p, outcome) => this.recordOutcome(s, p, outcome),
+      setStatus: (s, status, cause) => this.setStatus(s, status, cause),
+      runTool: (s, c, id, name, input, onStart) => this.subscriptionTool(s, c, id, name, input, false, onStart),
+      lostCall: (s, id, name, input) => this.lostCall(s, id, name, input),
+      replyToUser: (s, id, input) => this.replyToUser(s, id, input),
+      skill: (name) => skillResult(this.native()?.skills ?? [], name),
+      spent: (s, agent, u, model) => {
+        this.count(s, usageTokens(u), agent);
+        this.spend(s, u, model);
+        this.measure(s, agent, u, model);
+      },
+      canon: (name, input) => this.surface().canon(name, input),
+      replyEnded: (s, error) => this.replyEnded(s, error),
+      replying: this.replying,
+      active: this.active,
+      refreshFree: (s) => this.refreshFree(s),
+      agentStart: (s, id, input, signal, say, stop) => this.durableAgentStart(s, id, input, signal, say, stop),
+      agentEnded: (s, id, r, background) => this.durableAgentEnded(s, id, r, background),
+      runningAgents: (s) => this.runsOf(s.id, true).map((r) => r.callId),
+      deliver: (s, id, n, to) => this.deliver(s, id, n, to),
+      mainSpec: () => this.durableMainSpec(),
+      credential: (route) => o.durable!.credential(route),
+    }, o.durable.harness) : null;
     o.host.setBusy(() => this.runs.size > 0 || o.store.all().some((s) => s.status === "running" || s.status === "waiting"));
     this.unsubscribe = o.host.events.subscribe((e) => {
       if (e.type === "editor.disconnected") {
@@ -755,6 +808,8 @@ export class AgentRunner {
     const s = this.require(sessionId);
     if (this.busy(s)) throw new Error("a turn is in progress; compact when it ends");
     if (s.messages.length === 0) throw new Error("there is nothing to compact yet");
+    // On the durable runtime the harness compacts the conversation, as it does on its own near the window.
+    if (this.durable?.owns(s) && this.o.durable?.route()) return this.durable.compact(s, instructions.trim());
     const onClaude = !!this.o.subscription?.();
     const asked = instructions.trim();
     s.error = null;
@@ -878,7 +933,11 @@ export class AgentRunner {
       this.o.host.log.info(`session ${run.sessionId}: subagent ${run.callId} goes on in its host process ${run.hosted.host}`);
     }
     const cause: Interruption = { by: "studio", why: this.restartCause(false) ?? "Studio's daemon shut down" };
+    // A session on the durable runtime goes on in the harness: its calls waiting on this daemon go to the next one.
+    this.durable?.dispose();
     for (const [id, c] of [...this.active]) {
+      const s = this.o.store.get(id);
+      if (s && this.durable?.owns(s)) continue;
       if (this.o.subscription?.()) this.interrupt(id, cause, kept);
       else c.abort(cause);
     }
@@ -913,6 +972,11 @@ export class AgentRunner {
   private recoverNow(): void {
     const why = this.restartCause(true) ?? "Studio's daemon restarted";
     for (const s of this.o.store.all()) {
+      // A session on the durable runtime went on in the harness: this daemon takes over where it is.
+      if (s.durable && this.durable) {
+        this.recoverDurable(s);
+        continue;
+      }
       // Read before the subagents are taken over, which marks each one as working in the background.
       const replyEnded = this.replyHadEnded(s);
       // Subagents first: one whose conversation runs in a host is taken over; one that ran in the previous daemon ends here.
@@ -996,8 +1060,134 @@ export class AgentRunner {
 
   resumeAll(): void {
     for (const s of this.o.store.all()) {
+      // A durable session's calls wait for the editor in the harness's requests, not in a turn loop here.
+      if (this.durable?.owns(s)) continue;
       if (s.status === "waiting" && !this.active.has(s.id)) void this.runTurn(s.id);
     }
+  }
+
+  /**
+   * After a daemon restart, a session on the durable runtime: its subagents
+   * that are still going are agent runs again here (their slots too), an
+   * approval only the previous daemon showed is asked again when the harness
+   * hands its call to this one, and what the harness did meanwhile is applied.
+   */
+  private recoverDurable(s: StoredSession): void {
+    if (s.approvals?.length) s.approvals = [];
+    for (const t of s.transcript) {
+      if (t.kind !== "tool" || t.call.name !== "agent" || t.parent || t.call.outcome !== "pending") continue;
+      const id = t.call.id;
+      const saved = s.agentRuns?.[id];
+      if (!saved || this.runs.has(id)) continue;
+      const run = this.newRun(s, id, t.call.input as Record<string, unknown>, saved.assigned);
+      run.background = saved.background;
+      run.told = [...(saved.told ?? [])];
+      run.say = this.durable!.sayTo(s, id);
+      this.subagents.set(id, () => this.durable!.stopChild(s, id));
+      void this.slotsFor(s.id).acquire(id);
+    }
+    this.o.store.save(s);
+    this.durable!.reattach(s);
+    this.o.host.log.info(`session ${s.id}: on the durable runtime, taken over from the harness`);
+  }
+
+  /** The durable harness as GET /runtime shows it. */
+  durableHarness(): { available: boolean; connected: boolean; version: string | null; pid: number | null } {
+    const c = this.durable?.client;
+    return { available: !!this.durable?.available(), connected: !!c?.connected(), version: c?.harness?.version ?? null, pid: c?.harness?.pid ?? null };
+  }
+
+  /** The main agent's conversation as the durable runtime runs it: the same prompt, tools and effort as every route's. */
+  private durableMainSpec(): AgentSpec {
+    const surf = this.surface();
+    const text = [withSurface(system(this.o.host.projectDir, this.runsMode(), this.usage(), this.composed()), surf), this.skillLines()].filter(Boolean).join("\n");
+    return { route: this.o.durable!.routeSpec(this.o.model()), system: text, tools: this.mainTools(surf).map(toolDef), effort: this.o.effort?.() ?? "high" };
+  }
+
+  /**
+   * An agent call on the durable runtime: the same agent run, slot, helper and
+   * prompt as on every route, and what its conversation runs with. Resolves
+   * once it has its slot, or with why it does not start.
+   */
+  private async durableAgentStart(s: StoredSession, id: string, input: Record<string, unknown>, signal: AbortSignal, say: (text: string) => Promise<boolean>, stop: () => void): Promise<AgentStart> {
+    const prompt = input.prompt;
+    if (typeof prompt !== "string" || !prompt.trim()) return { ok: false, text: "Invalid input: agent needs prompt" };
+    const n = this.native();
+    let helper: NativeHelper | null = null;
+    if (typeof input.helper === "string") {
+      helper = n?.helpers.find((h) => h.name === input.helper) ?? null;
+      if (!helper) return { ok: false, text: `No helper named ${input.helper}. The project's helpers are: ${(n?.helpers ?? []).map((h) => h.name).join(", ") || "none"}.` };
+    }
+    let run = this.runs.get(id);
+    if (!run) {
+      if (s.turn) s.turn.agents = (s.turn.agents ?? 0) + 1;
+      run = this.newRun(s, id, input, false);
+    }
+    run.say = say;
+    run.replies = true;
+    const slots = this.slotsFor(s.id);
+    const cancel = () => slots.cancel(id);
+    signal.addEventListener("abort", cancel, { once: true });
+    const started = await slots.acquire(id, () => this.markQueued(s, id, () => slots.cancel(id)));
+    signal.removeEventListener("abort", cancel);
+    if (!started) {
+      this.runs.delete(id);
+      this.subagents.delete(id);
+      return { ok: false, text: QUEUED_STOP, stopped: true };
+    }
+    this.markQueued(s, id, null);
+    this.subagents.set(id, stop);
+    this.refreshFree(s);
+    const told = this.inbox.drain(id);
+    this.deliver(s, id, told.length, "read");
+    const surf = this.surface();
+    const projected = new Set(surf.projected.map((p) => p.name));
+    const allows = (name: string) => helper!.allowed!.has(name as never) || (projected.has(name) && helper!.allowed!.has("ue_mcp" as never));
+    const tools = helper?.allowed ? this.workTools(surf).filter((t) => allows((t as { name: string }).name)) : this.workTools(surf);
+    if (n?.skills.length) tools.push(SKILL_TOOL);
+    tools.push(REPLY_TOOL as Anthropic.Beta.BetaToolUnion);
+    const base = withSurface(subagentSystem(this.o.host.projectDir, this.runsMode(), this.composed()), surf);
+    const systemText = [base, helper ? `You are the project's ${helper.name} helper. Its own instructions follow.\n\n${helper.prompt}` : null, this.skillLines()].filter(Boolean).join("\n\n");
+    // A helper on another vendor's model runs on the route's own model here: one route per durable session.
+    const model = helper?.run && helper.run.route === this.o.durable!.route() ? helper.run.model : this.subagentModel();
+    return {
+      ok: true,
+      description: describeCall(input),
+      spec: { route: this.o.durable!.routeSpec(model), system: systemText, tools: tools.map(toolDef), effort: (helper?.effort as Effort | null) ?? this.subagentEffort(), maxTurns: helper?.maxTurns ?? SUBAGENT_STEPS },
+      prompt: [{ type: "text", text: prompt }, ...(told.length ? [{ type: "text" as const, text: toSubagent(told) }] : [])],
+    };
+  }
+
+  /**
+   * An agent call's subagent ended on the durable runtime: its run is let go
+   * with its slot, what the user sent it that it never read is marked as gone
+   * to the main agent, and its call shows its report. One that went on in the
+   * background reports to the main agent through the harness; one the user
+   * stopped leaves a note for the next message instead.
+   */
+  private durableAgentEnded(s: StoredSession, id: string, r: { text: string; isError: boolean; stopped: boolean }, background: boolean): void {
+    const run = this.runs.get(id);
+    this.runs.delete(id);
+    this.subagents.delete(id);
+    this.subagentStops.delete(id);
+    this.dropApprovals(s.id, id);
+    this.slots.get(s.id)?.release(id);
+    if (s.agentRuns?.[id]) delete s.agentRuns[id];
+    const unread = this.waiting(s, id);
+    if (unread.length) {
+      this.deliver(s, id, unread.length, "main");
+      this.addEntry(s, { kind: "note", text: `"${run?.description ?? "The subagent"}" ended before it read your message, so it went to the main agent.`, at: now() });
+    }
+    this.endCalls(s, () => "The subagent ended before this call returned a result.", "error", id);
+    const entry = s.transcript.find((t) => t.kind === "tool" && t.call.id === id);
+    if (entry?.kind === "tool" && entry.call.outcome === "pending") {
+      this.recordOutcome(s, { id, name: "agent", input: (entry.call.input ?? {}) as Record<string, unknown>, state: "done", result: r.text, isError: r.isError }, r.stopped ? "stopped" : r.isError ? "error" : "done");
+    }
+    if (background && r.stopped) s.notes.push(backgroundReport(run?.description ?? describeCall(entry?.kind === "tool" ? entry.call.input : null), id, { ...r, stopped: true }));
+    this.o.store.save(s);
+    this.refreshFree(s);
+    // The last subagent of a free main agent ended with nothing to wake it: the turn is over.
+    if (this.busy(s) && !this.replying.has(s.id) && this.runsOf(s.id).length === 0 && (r.stopped || !background)) this.setStatus(s, "idle", null);
   }
 
   /**
@@ -1069,6 +1259,10 @@ export class AgentRunner {
     s.rewound = false;
     s.model = this.o.model();
     s.route = this.o.route?.() ?? null;
+    // The route's setting selects the durable runtime: the reply runs in the harness, whatever the route.
+    if (this.durable && this.o.durable?.route() && this.durable.available()) return this.durable.reply(s, content);
+    // Back on another runtime: a later move to the durable one starts its conversation again from what Studio kept.
+    if (s.durable) this.durable?.release(s);
     if (onClaude) {
       // The runtime's session has not seen the turns that ran on other routes: a new one starts, carrying the whole conversation.
       const earlier = s.messages.slice(0, -1);
@@ -1653,7 +1847,7 @@ ${result}`);
    * approval, or its subagent got its slot, and runs now. `detached`: a
    * subagent the user assigned, whose calls are the user's own.
    */
-  private async subscriptionTool(s: StoredSession, controller: AbortController, toolId: string, name: string, input: Record<string, unknown>, detached = false, onStart?: () => void): Promise<ToolExecution> {
+  private async subscriptionTool(s: StoredSession, controller: AbortController, toolId: string, name: string, input: Record<string, unknown>, detached = false, onStart?: () => void | Promise<boolean>): Promise<ToolExecution> {
     // The turn ended while the binary was still asking: nothing runs after a stop.
     if (controller.signal.aborted) return { text: interruptedResult({ name, input }, this.causeOf(controller), false), isError: true, outcome: "error", touched: [], saved: [] };
     if (name === "agent") {
@@ -1679,7 +1873,8 @@ ${result}`);
       this.recordOutcome(s, { id: toolId, name, input, state: "done", result: text, isError: true }, "stopped" in gate ? "stopped" : "declined");
       return { text, isError: true, outcome: "error", touched: [], saved: [] };
     }
-    onStart?.();
+    // The durable harness records that the call started before it runs: false when it went away first, and the call does not run here.
+    if ((await onStart?.()) === false) return { text: "The call was handed back before it ran.", isError: true, outcome: "error", touched: [], saved: [] };
     const running = this.execute(this.hostFor(s.id, detached), name, input, signal);
     // What a call does after its subagent was stopped is still tracked for the crash report.
     if (sub) void running.then((e) => sub.aborted && this.mergeExec(s, e, e.outcome !== "unknown"), () => {});
@@ -1868,6 +2063,8 @@ ${result}`);
     this.active.delete(s.id);
     this.replying.delete(s.id);
     c?.abort(cause);
+    // On the durable runtime the main agent's run stops in the harness; its subagents' conversations go on.
+    if (this.durable?.owns(s)) this.durable.stop(s, false);
     this.endTurn(s, cause, asked, this.liveRunCalls(s.id));
     this.o.host.log.info(`session ${s.id}: stopped the main agent's reply; ${this.runsOf(s.id).length} subagent(s) go on`);
   }
@@ -1884,6 +2081,8 @@ ${result}`);
       this.oneToBackground(s, run, backgroundNote(run.description));
       n++;
     }
+    // On the durable runtime the harness answers their agent calls with the same note.
+    if (n && this.durable?.owns(s)) this.durable.background(s);
     if (n) this.refreshFree(s);
     return n;
   }
@@ -2011,10 +2210,16 @@ ${result}`);
     for (const note of [...s.notes, ...this.aboutNotes(s, about)]) content.push({ type: "text", text: `[Studio] ${note}` });
     for (const a of attachments) content.push(...(await contentFor(a)));
     if (text.trim()) content.push({ type: "text", text });
+    const durable = !old && !!this.durable?.owns(s);
     if (old) {
       // Compatibility: a legacy host's main agent takes it straight into its turn.
       if (!(await old.say(content))) return false;
       s.messages.push({ role: "user", content } as MessageParam);
+    } else if (durable) {
+      // On the durable runtime its subagents go on in the background and the harness steers the message into the main agent's run.
+      if (this.replying.has(s.id)) this.toBackground(s);
+      if (!(await this.durable!.tell(s, content))) return false;
+      addUserContent(s.messages, content);
     } else {
       if (!this.mainFreeNow(s)) return false;
       if (this.replying.has(s.id)) this.toBackground(s);
@@ -2032,7 +2237,7 @@ ${result}`);
     s.draft = "";
     this.o.store.save(s);
     this.o.host.events.publish("session.changed", { sessionId: s.id, status: s.status, waitingCause: s.waitingCause });
-    if (!old) {
+    if (!old && !durable) {
       if (this.replying.has(s.id)) this.flushMainInbox(s);
       else this.startReply(s);
     }
@@ -2074,11 +2279,19 @@ ${result}`);
    */
   pinnedSessions(): string[] {
     const ids = new Set<string>();
+    const durable = new Set<string>();
+    for (const s of this.o.store.all()) {
+      if (!this.durable?.owns(s)) continue;
+      // Its conversation goes on in the harness: only a tool call running in this daemon would be cut off.
+      durable.add(s.id);
+      if (this.durable.pinned(s.id)) ids.add(s.id);
+    }
     for (const id of this.activeSessions()) {
+      if (durable.has(id)) continue;
       const runs = this.runsOf(id, true);
       if (this.replying.has(id) ? !this.hosted.has(id) : runs.length === 0) ids.add(id);
     }
-    for (const r of this.runs.values()) if (!r.hosted) ids.add(r.sessionId);
+    for (const r of this.runs.values()) if (!r.hosted && !durable.has(r.sessionId)) ids.add(r.sessionId);
     return [...ids];
   }
 
@@ -2091,6 +2304,8 @@ ${result}`);
   interrupt(sessionId: string, cause: Interruption, keep: Set<string> = new Set()): void {
     const s = this.require(sessionId);
     const asked = new Set((s.approvals ?? []).map((a) => a.toolUseId));
+    // On the durable runtime the run and its subagents stop in the harness, except those `keep` names.
+    if (this.durable?.owns(s)) this.durable.stop(s, keep.size === 0);
     this.active.get(s.id)?.abort(cause);
     this.active.delete(s.id);
     this.replying.delete(s.id);
@@ -2729,6 +2944,8 @@ ${result}`);
     });
     const later = index < s.transcript.length - 1;
     SessionStore.truncateAt(s, index);
+    // The durable conversation holds what the edit cut: the next reply starts a new one from what is left.
+    this.durable?.release(s);
     if (later) s.notes.push(REWOUND_NOTE);
     s.status = "idle";
     s.waitingCause = null;
@@ -2753,6 +2970,8 @@ ${result}`);
     // The original's running subagents and reply stay the original's.
     delete copy.agentRuns;
     delete copy.hostTurn;
+    // The original's durable conversation stays the original's: the fork's first reply starts its own.
+    delete copy.durable;
     SessionStore.truncateAt(copy, index);
     // The original's Claude conversations stay the original's: deleting the fork must not take them with it.
     copy.sdkPast = [];
@@ -2817,6 +3036,8 @@ ${result}`);
 
   private async runTurn(id: string): Promise<void> {
     if (this.active.has(id)) return;
+    const owned = this.o.store.get(id);
+    if (owned && this.durable?.owns(owned)) return;
     const controller = new AbortController();
     this.active.set(id, controller);
     const s = this.require(id);

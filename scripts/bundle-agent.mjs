@@ -14,7 +14,18 @@ const result = await build({
   entryPoints: {
     index: path.join(root, "apps", "agent", "src", "index.ts"),
     "turn-host": path.join(root, "apps", "agent", "src", "turn-host-main.ts"),
+    // The durable harness: one long-lived process per project that owns its Pi Durable storage.
+    "durable-harness": path.join(root, "apps", "agent", "src", "durable", "harness-main.ts"),
+    // Studio's extension alone, which a harness an older Studio started installs over its own.
+    "durable-extension": path.join(root, "apps", "agent", "src", "durable", "extension.ts"),
   },
+  // pi-claude-code ships as TypeScript source from its pinned commit: only the durable harness imports it, by this name.
+  plugins: [{
+    name: "pi-claude-code",
+    setup(b) {
+      b.onResolve({ filter: /^studio-pi-claude-code$/ }, () => ({ path: path.join(root, "node_modules", "@earendil-works", "pi-claude-code", "src", "provider.ts") }));
+    },
+  }],
   outdir: path.join(root, "apps", "agent", "dist"),
   bundle: true,
   platform: "node",
@@ -33,6 +44,8 @@ const result = await build({
 });
 // The WebP decoder's code, which the agent loads from beside the bundle.
 fs.copyFileSync(path.join(root, "node_modules", "@jsquash", "webp", "codec", "dec", "webp_dec.wasm"), path.join(root, "apps", "agent", "dist", "webp_dec.wasm"));
+// pi-claude-code starts this script beside its own module, which in the bundle is dist/durable-harness.js.
+fs.copyFileSync(path.join(root, "node_modules", "@earendil-works", "pi-claude-code", "src", "inert-mcp.mjs"), path.join(root, "apps", "agent", "dist", "inert-mcp.mjs"));
 // Which packages went into the bundle, for the third-party notices.
 fs.writeFileSync(path.join(root, "apps", "agent", "dist", "meta.json"), JSON.stringify(result.metafile));
-console.log("bundled the agent into apps/agent/dist/index.js and dist/turn-host.js");
+console.log("bundled the agent into apps/agent/dist/index.js, dist/turn-host.js, dist/durable-harness.js and dist/durable-extension.js");
