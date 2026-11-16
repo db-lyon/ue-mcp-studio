@@ -20,7 +20,7 @@ import * as path from "node:path";
 import qrcode from "qrcode-generator";
 import { readLiveDiscovery, type DaemonExtensionApi } from "ue-mcp/daemon";
 import { pairingFragment } from "@ue-mcp-studio/remote";
-import { NOTIFY_EVENT, noticeOf, type RemoteApproval, type RemoteAvailability, type RemoteBrowser, type RemoteLockSettings, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
+import { NOTIFY_EVENT, noticeOf, REMOTE_ASK_KINDS, type RemoteAsk, type RemoteAskKind, type RemoteApproval, type RemoteAvailability, type RemoteBrowser, type RemoteLockSettings, type RemotePairing, type RemoteStatus } from "@ue-mcp-studio/shared";
 import type { ExtensionHandler } from "ue-mcp/daemon";
 import { SettingsStore } from "../settings.js";
 import { relayName } from "../about.js";
@@ -248,6 +248,23 @@ export function registerRemote(api: DaemonExtensionApi, o: RemoteOptions = {}): 
     if (!r.ok) return { status: 409, body: { error: r.error } };
     api.events.publish("remote.approval", { id: req.params.id, decided: allow ? "allowed" : "denied" });
     return { body: { ok: true, ...(r.phone ? { browser: { id: r.phone.id, label: r.phone.label, addedAt: r.phone.addedAt } } : {}) } };
+  });
+  // A paired device cannot update, change plugins or add model keys, so it asks. Nothing runs from the ask:
+  // the owner sees it on the computer and does the change there. Asking again refreshes it, so it cannot pile up.
+  const asks = new Map<RemoteAskKind, RemoteAsk>();
+  route("POST", "/remote-asks", (req) => {
+    const what = (req.body as { what?: unknown } | undefined)?.what;
+    if (typeof what !== "string" || !(REMOTE_ASK_KINDS as readonly string[]).includes(what)) return { status: 400, body: { error: `what must be one of ${REMOTE_ASK_KINDS.join(", ")}` } };
+    const ask: RemoteAsk = { what: what as RemoteAskKind, at: Date.now(), project };
+    asks.set(ask.what, ask);
+    api.events.publish("remote.ask", { ...ask });
+    return { status: 202, body: { ok: true } };
+  });
+  route("GET", "/remote/asks", () => ({ body: { asks: [...asks.values()] } }));
+  route("DELETE", "/remote/asks/:what", (req) => {
+    asks.delete(req.params.what as RemoteAskKind);
+    api.events.publish("remote.ask", { what: req.params.what, cleared: true });
+    return { status: 204 };
   });
   route("GET", "/remote/browsers", () => {
     const browsers: RemoteBrowser[] = keys.phones().map(({ id, label, addedAt }) => ({ id, label, addedAt }));

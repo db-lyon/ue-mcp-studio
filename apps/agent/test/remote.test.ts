@@ -357,7 +357,7 @@ afterAll(async () => {
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-const REMOTE_ROUTES = ["DELETE /remote/browsers/:id", "GET /remote/approvals", "GET /remote/browsers", "POST /remote/approvals/:id", "GET /remote/status", "POST /remote/pair", "PUT /remote/config", "GET /remote/lock", "PUT /remote/lock", "PUT /remote/lock/pin", "DELETE /remote/lock/pin", "POST /remote/lock/forget"];
+const REMOTE_ROUTES = ["POST /remote-asks", "GET /remote/asks", "DELETE /remote/asks/:what", "DELETE /remote/browsers/:id", "GET /remote/approvals", "GET /remote/browsers", "POST /remote/approvals/:id", "GET /remote/status", "POST /remote/pair", "PUT /remote/config", "GET /remote/lock", "PUT /remote/lock", "PUT /remote/lock/pin", "DELETE /remote/lock/pin", "POST /remote/lock/forget"];
 const available = async (h: Host, refresh = false) =>
   ((await h.routes.get("GET /remote/available")!({ method: "GET", path: "", params: {}, query: refresh ? { refresh: "1" } : {}, headers: {}, body: undefined } as never))!.body as { available: boolean }).available;
 const settle = () => new Promise((r) => setTimeout(r, 100));
@@ -434,6 +434,19 @@ describe("remote control, offered or not", () => {
     const pairing = (await h.call("POST /remote/pair")).body as { url: string; svg: string; expiresAt: string };
     expect(pairing.svg).toMatch(/^<svg/);
     expect(pairing.expiresAt).toBe("2030-01-01T00:00:00.000Z");
+  });
+
+  it("a paired device's ask for an update lands on the computer as a notice, and runs nothing", async () => {
+    const h = host({ plan: new FakePlan(true) });
+    expect((await h.call("POST /remote-asks", { what: "reboot" })).status).toBe(400);
+    const sent = await h.call("POST /remote-asks", { what: "update" });
+    expect(sent.status).toBe(202);
+    await h.call("POST /remote-asks", { what: "update" });
+    expect(h.events.filter((e) => e.type === "remote.ask" && e.data.what === "update")).toHaveLength(2);
+    const listed = (await h.call("GET /remote/asks")).body as { asks: Array<{ what: string }> };
+    expect(listed.asks.map((a) => a.what)).toEqual(["update"]);
+    expect((await h.call("DELETE /remote/asks/:what", {}, { what: "update" })).status).toBe(204);
+    expect(((await h.call("GET /remote/asks")).body as { asks: unknown[] }).asks).toEqual([]);
   });
 
   it("is off until turned on: no socket to the relay, and pairing waits for it", async () => {
