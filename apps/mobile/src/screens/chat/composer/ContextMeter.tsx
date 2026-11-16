@@ -12,7 +12,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Modal, Platform, Pressable, ScrollView, StyleSheet, View, useWindowDimensions, type HostInstance } from "react-native";
 import Svg, { Circle, Line } from "react-native-svg";
 import { contextView, type ContextUsage, type ContextView, type SessionSpend } from "@ue-mcp-studio/shared";
-import { compactLine, contextLabel, contextRing, contextWarningText, dollars, pct, planCoversLine, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
+import { compactHint, compactLabel, compactLine, contextLabel, contextRing, contextWarningText, dollars, pct, planCoversLine, tipLines, tokenCount } from "@ue-mcp-studio/client-core";
 import { Button, Pulse, font, labelFont, lineBox, T, useInsets, useTheme, type Theme } from "../../../ui";
 import { buttonText, small } from "../../../chat/styles";
 
@@ -158,9 +158,9 @@ export function ContextMeter({ context, totals, model, modelName, nameOf = (id) 
               <T style={labelFont(t)}>{owner ? `${owner} agent's context` : "Context"}</T>
               <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
                 <SmallButtonWide
-                  title="Compact now"
-                  hint={busy ? "Available when the turn ends" : "Summarize the conversation to free context; the transcript stays"}
-                  disabled={busy || compacting || !view}
+                  title={compactLabel(busy)}
+                  hint={compactHint(busy)}
+                  disabled={compacting || !view}
                   onPress={() => {
                     setOpen(false);
                     onCompact();
@@ -259,7 +259,7 @@ export function ContextWarning({ view, runtime, busy, onCompact, onDismiss }: { 
     >
       <ContextRing view={view} />
       <T style={{ ...(inner > 0 ? { flexBasis: inner - 90, flexGrow: 1, flexShrink: 1 } : { flex: 1 }), minWidth: 0, fontSize: 12.5, lineHeight: 12.5 * (t.editor ? 1.5 : 1.55), color: t.c.text }}>{contextWarningText(view, runtime)}</T>
-      <SmallButtonPrimary title="Compact now" hint={busy ? "Available when the turn ends" : undefined} disabled={busy} onPress={onCompact} />
+      <SmallButtonPrimary title={compactLabel(busy)} hint={busy ? compactHint(busy) : undefined} onPress={onCompact} />
       <IconButton label="Dismiss" glyph={"×"} onPress={onDismiss} />
     </View>
   );

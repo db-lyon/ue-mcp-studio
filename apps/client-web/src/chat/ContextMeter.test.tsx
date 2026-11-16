@@ -147,14 +147,24 @@ describe("ContextMeter", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("disables Compact now while a turn runs, and pulses and says Compacting while it compacts", () => {
+  it("disables Compact while it compacts, and pulses and says Compacting", () => {
     meter({ busy: true, compacting: true });
     const b = screen.getByRole("button", { name: /Context 70% full: .*, compacting/ });
     expect(b.className).toContain("compacting");
     expect(b.querySelector(".context-ring-fill")).not.toBeNull();
     expect(screen.getByRole("tooltip", { hidden: true }).textContent).toContain("Compacting now");
     fireEvent.click(b);
-    expect((screen.getByRole("button", { name: "Compact now" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Compact after this turn" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("offers Compact after this turn while a turn runs, never a disabled button", () => {
+    const onCompact = vi.fn();
+    meter({ busy: true, onCompact });
+    fireEvent.click(screen.getByRole("button", { name: /Context 70% full/ }));
+    const c = screen.getByRole("button", { name: "Compact after this turn" }) as HTMLButtonElement;
+    expect(c.disabled).toBe(false);
+    fireEvent.click(c);
+    expect(onCompact).toHaveBeenCalled();
   });
 
   it("marks an estimate, and says so inside", () => {

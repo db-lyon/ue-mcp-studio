@@ -470,6 +470,9 @@ const toolDef = (t: Anthropic.Beta.BetaToolUnion): ToolDef => {
 const CARD_NAME = /^[A-Za-z0-9_-]{1,64}$/;
 /** A card is a summary for the panel; anything bigger belongs behind the extension's own route. */
 const MAX_CARD_BYTES = 64 * 1024;
+/** How many times in a row a reply cut off at the output limit is asked to go on. */
+export const MAX_CUT_OFF_CONTINUES = 3;
+export const CUT_OFF_CONTINUE = "Your reply was cut off at the output limit. Continue from where it stopped; if you were calling a tool, call it again, and split a large file write into smaller edits.";
 
 export class AgentRunner {
   /** The main agent's running reply, by session: what its Stop aborts. */
@@ -1373,6 +1376,26 @@ export class AgentRunner {
     this.setStatus(s, "running", null);
     // The checkpoint before the turn lands before the model can change anything.
     await this.o.review?.turnStarted(s).catch((e) => this.o.host.log.warn("the review checkpoint before the turn failed", e));
+    await this.reply(s, content);
+  }
+
+  /**
+   * A reply that failed, sent again: the message it answered (the last user
+   * message, kept in the conversation) goes to the model once more, with no new
+   * line in the transcript. After a reply that failed partway, the model is
+   * told to continue from where it was.
+   */
+  async retry(sessionId: string): Promise<void> {
+    const s = this.o.store.get(sessionId);
+    if (!s) throw new Error(`no session ${sessionId}`);
+    if (s.status === "running" || s.status === "waiting") throw new Error("a turn is already in progress");
+    if (s.messages.length === 0) throw new Error("there is nothing to retry yet");
+    const last = s.messages[s.messages.length - 1];
+    const content: unknown[] = last.role === "user"
+      ? (s.messages.pop(), typeof last.content === "string" ? [{ type: "text", text: last.content }] : [...(last.content as unknown[])])
+      : [{ type: "text", text: "[Studio] Your last reply stopped on an error. Continue from where it stopped." }];
+    s.error = null;
+    this.setStatus(s, "running", null);
     await this.reply(s, content);
   }
 
@@ -3250,6 +3273,7 @@ ${result}`);
     }
     this.replying.add(id);
     let overflowed = false;
+    let cutOffs = 0;
     try {
       for (;;) {
         if (controller.signal.aborted) return;
@@ -3289,6 +3313,23 @@ ${result}`);
         this.count(s, usageTokens(turn.usage), null);
         this.spend(s, turn.usage, conv.model);
         if (controller.signal.aborted) return;
+
+        // Cut off at the output limit: a tool call it was writing is incomplete, so it is dropped, and
+        // the model is asked to go on, up to a few times in a row, rather than the reply ending mid-way.
+        if (turn.stopReason === "max_tokens") {
+          const kept = turn.content.filter((b) => b.type !== "tool_use");
+          if (kept.length) s.messages.push({ role: "assistant", content: kept } as MessageParam);
+          const cut = kept.filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text").map((b) => b.text).join("");
+          if (cut) this.addEntry(s, { kind: "assistant", text: cut, at: now() });
+          this.measure(s, null, turn.usage, conv.model, { messages: s.messages.length });
+          if (++cutOffs <= MAX_CUT_OFF_CONTINUES) {
+            addUserContent(s.messages, [{ type: "text", text: CUT_OFF_CONTINUE }]);
+            continue;
+          }
+          this.replyEnded(s, `The reply reached the model's output limit ${MAX_CUT_OFF_CONTINUES + 1} times in a row. Send "continue" to go on, or ask for a shorter step.`);
+          return;
+        }
+        cutOffs = 0;
 
         s.messages.push({ role: "assistant", content: turn.content } as MessageParam);
         this.measure(s, null, turn.usage, conv.model, { messages: s.messages.length });

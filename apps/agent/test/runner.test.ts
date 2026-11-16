@@ -146,6 +146,46 @@ describe("a turn", () => {
   });
 });
 
+describe("a reply cut off at the output limit", () => {
+  it("drops the half-written tool call and asks the model to go on, instead of ending mid-way", async () => {
+    const cut: ModelTurn = { content: [{ type: "text", text: "Writing the file", citations: null } as never, { type: "tool_use", id: "w", name: "write_file", input: { path: "a" } } as never], stopReason: "max_tokens" };
+    const model = new ScriptedModel([() => cut, () => text("Done in parts.")]);
+    const s = store.create();
+    await runnerWith(model).send(s.id, "write it");
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    expect(JSON.stringify(fin.messages)).not.toContain("\"tool_use\"");
+    expect(JSON.stringify(model.requests[1].messages)).toContain("cut off at the output limit");
+    expect(fin.transcript.filter((t) => t.kind === "assistant").map((t) => (t as { text: string }).text)).toEqual(["Writing the file", "Done in parts."]);
+  });
+
+  it("stops after a few cut-offs in a row and says how to go on", async () => {
+    const cut = (): ModelTurn => ({ content: [{ type: "text", text: "more", citations: null } as never], stopReason: "max_tokens" });
+    const model = new ScriptedModel([cut, cut, cut, cut]);
+    const s = store.create();
+    await runnerWith(model).send(s.id, "go");
+    expect(model.requests).toHaveLength(4);
+    expect(store.get(s.id)!.error).toContain('Send "continue" to go on');
+  });
+});
+
+describe("Retry on a failed turn", () => {
+  it("sends the message the failed reply answered again, with no new line in the transcript", async () => {
+    const model = new ScriptedModel([() => { throw new Error("gateway 503: busy"); }, () => text("Here it is.")]);
+    const runner = runnerWith(model);
+    const s = store.create();
+    await runner.send(s.id, "build the door").catch(() => {});
+    expect(store.get(s.id)!.status).toBe("error");
+    await runner.retry(s.id);
+    const fin = store.get(s.id)!;
+    expect(fin.status).toBe("idle");
+    expect(fin.error).toBeNull();
+    expect(fin.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(JSON.stringify(model.requests[1].messages[0])).toContain("build the door");
+    expect(fin.transcript.filter((t) => t.kind === "user")).toHaveLength(1);
+  });
+});
+
 describe("attachments in a message", () => {
   it("go to the model before the text, and into the transcript by name", async () => {
     const model = new ScriptedModel([() => text("Seen.")]);

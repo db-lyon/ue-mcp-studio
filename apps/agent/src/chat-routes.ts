@@ -903,8 +903,11 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     const callId = req.params.callId;
     if (!s.transcript.some((t) => t.kind === "tool" && t.call.id === callId && t.call.name === "agent")) return { status: 404, body: { error: `no subagent ${callId}` } };
     if (runner.canMessage(s, callId)) {
-      if (m.files.length) return bad("a subagent takes text only; send files to the main agent from the main thread");
-      if (await runner.messageSubagent(s.id, callId, m.text)) return { status: 202, body: { sessionId: s.id, to: "subagent" } };
+      // A subagent's inbox takes text: files go in as their saved paths, which its tools can read.
+      const withFiles = m.files.length
+        ? `${m.text}\n\n${m.files.map((f) => `[Attached file] ${f.name} (${f.type}), saved at ${f.path}. Read it with read_file, or import it with ue-mcp.`).join("\n")}`
+        : m.text;
+      if (await runner.messageSubagent(s.id, callId, withFiles)) return { status: 202, body: { sessionId: s.id, to: "subagent" } };
       // Its turn could not take it after all (it ended meanwhile, or runs in a host from an older Studio): the main agent has it.
     }
     const now = (req.body as { now?: unknown } | undefined)?.now === true;
@@ -932,9 +935,22 @@ export function registerChat(api: DaemonExtensionApi, agentVersion = "0.0.0", pa
     if (!s) return missing(req.params.id);
     const instructions = (req.body as { instructions?: unknown } | undefined)?.instructions;
     if (instructions !== undefined && typeof instructions !== "string") return bad("body must be { instructions?: string }");
-    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is in progress; compact when it ends" } };
+    // During a turn the compaction waits behind it as a queued /compact, which runs when the turn ends.
+    if (s.status === "running" || s.status === "waiting") {
+      const queued = runner.enqueue(s.id, `/compact ${instructions ?? ""}`.trim(), []);
+      return { status: 202, body: { sessionId: s.id, queued } };
+    }
     if (s.messages.length === 0) return { status: 409, body: { error: "there is nothing to compact yet" } };
     runner.compact(s.id, instructions ?? "").catch((e) => api.log.warn(`compacting session ${s.id} failed`, e));
+    return { status: 202, body: { sessionId: s.id } };
+  });
+  // Retry on a failed turn: the message it answered goes to the model again.
+  api.route("POST", "/sessions/:id/retry", (req) => {
+    const s = store.get(req.params.id);
+    if (!s) return missing(req.params.id);
+    if (s.status === "running" || s.status === "waiting") return { status: 409, body: { error: "a turn is already in progress" } };
+    if (s.messages.length === 0) return { status: 409, body: { error: "there is nothing to retry yet; send a message" } };
+    runner.retry(s.id).catch((e) => api.log.warn(`retrying session ${s.id} failed`, e));
     return { status: 202, body: { sessionId: s.id } };
   });
   api.route("POST", "/sessions/:id/stop", (req) => {

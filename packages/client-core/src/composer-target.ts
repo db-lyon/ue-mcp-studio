@@ -40,8 +40,13 @@ type Detail = Pick<SessionDetail, "status"> & { mainFree?: boolean };
 export const composerQueues = (detail: Detail | null | undefined, target: ComposerTarget): boolean =>
   target.to !== "subagent" && composerBusy(detail);
 
-/** The error for files sent in a running subagent's thread. */
-export const SUBAGENT_TEXT_ONLY = "Subagents take text only. Remove the files, or send them from the main thread.";
+/** Compact now, and during a turn the queued compaction that runs when it ends. */
+export const compactLabel = (busy: boolean): string => (busy ? "Compact after this turn" : "Compact now");
+export const compactHint = (busy: boolean): string =>
+  busy ? "Queued behind the running turn: it summarizes the conversation when the turn ends" : "Summarize the conversation to free context; the transcript stays";
+
+/** The button on a failed turn's banner: the message it answered goes to the model again. */
+export const TURN_RETRY_LABEL = "Retry";
 
 /** What the empty message box says: who the message goes to, and whether it queues. */
 export function composerPlaceholder(detail: Detail, target: ComposerTarget): string {

@@ -107,6 +107,7 @@ export function studioApi(t: Transport) {
     /** A message written in a subagent's thread: to it while it runs, else to the main agent, naming it (queued behind its reply unless now). */
     messageSubagent: (id: string, callId: string, text: string, attachments: string[] = [], now = false) =>
       send<{ sessionId: string; to: "subagent" | "queue" | "main" }>("POST", `${session(id)}/agents/${enc(callId)}/messages`, now ? { text, attachments, now } : { text, attachments }),
+    retry: (id: string) => send<{ sessionId: string }>("POST", `${session(id)}/retry`),
     compact: (id: string, instructions?: string) => send<{ sessionId: string }>("POST", `${session(id)}/compact`, instructions ? { instructions } : {}),
     playtest: (id: string, request: PlaytestRequest) => send<{ sessionId: string }>("POST", `${session(id)}/playtest`, request),
     forms: (sessionId: string) => get<{ forms: PendingForm[] }>(`${S}/forms?session=${enc(sessionId)}`),

@@ -12,7 +12,7 @@ import { FlowCard } from "./FlowCommand";
 import { CompactionMarker } from "./Compaction";
 import { SessionIdContext, attachmentUrl, formatBytes, isImage } from "./attachments";
 import { isVideo, type VideoLimits } from "@ue-mcp-studio/shared";
-import { VIDEO_COMPRESSING_LABEL, VIDEO_COMPRESS_LABEL, VIDEO_LIMITS_UNKNOWN, VIDEO_OPENED_ON_COMPUTER, VIDEO_OPEN_ON_COMPUTER_LABEL, VIDEO_RECHECK_LABEL, forgetVideoLimits, videoLimitsOnce, videoTile } from "@ue-mcp-studio/client-core";
+import { TURN_RETRY_LABEL, VIDEO_COMPRESSING_LABEL, VIDEO_COMPRESS_LABEL, VIDEO_LIMITS_UNKNOWN, VIDEO_OPENED_ON_COMPUTER, VIDEO_OPEN_ON_COMPUTER_LABEL, VIDEO_RECHECK_LABEL, forgetVideoLimits, videoLimitsOnce, videoTile } from "@ue-mcp-studio/client-core";
 import { onRemotePage } from "../connection";
 import {
   OUTCOME_LABEL,
@@ -307,6 +307,26 @@ function SentVideo({ file, sessionId }: { file: Attachment; sessionId: string })
   );
 }
 
+/** A turn that failed: why, and Retry, which sends the message it answered to the model again. */
+function TurnFailed({ error }: { error: string }) {
+  const sessionId = useContext(SessionIdContext);
+  const [failed, setFailed] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const retry = () => {
+    if (!sessionId) return;
+    setBusy(true);
+    setFailed(null);
+    api.retry(sessionId).catch((e: Error) => setFailed(e.message)).finally(() => setBusy(false));
+  };
+  return (
+    <div className="banner bad turn-failed" role="alert">
+      <span>{error}</span>
+      {failed && <span> {failed}</span>}
+      {sessionId && <button className="small-button" disabled={busy} onClick={retry}>{TURN_RETRY_LABEL}</button>}
+    </div>
+  );
+}
+
 /** The files a message carried: images as thumbnails, videos as players, the rest by name. Each opens the file. */
 function SentFiles({ files }: { files: Attachment[] }) {
   const sessionId = useContext(SessionIdContext);
@@ -370,7 +390,7 @@ export const MainTranscript = memo(function MainTranscript({ transcript, status,
         {streaming && <div className="msg assistant">{streaming}</div>}
         {asked > 0 && <div className="banner warn" role="status">Waiting on you: {asked === 1 ? "a call needs" : `${asked} calls need`} your approval below.</div>}
         {waiting && <div className="banner warn">Waiting for editor: {waitingCause ?? "not connected"}. The turn continues when it is back.</div>}
-        {status === "error" && error && <div className="banner bad">{error}</div>}
+        {status === "error" && error && <TurnFailed error={error} />}
       </div>
       {follow.behind && <button className="jump-latest" onClick={follow.jump}>New messages {"↓"}</button>}
     </>

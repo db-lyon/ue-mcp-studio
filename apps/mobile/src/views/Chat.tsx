@@ -9,7 +9,7 @@ import { useBack } from "../back";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, AppState, Pressable, RefreshControl, ScrollView, useWindowDimensions, View } from "react-native";
 import { SLASH_COMMANDS, contextView, parseSlashCommand, type ActionRunRequest, type FlowRunRequest, type PlaytestRequest, type SessionDetail, type SessionSummary, type StudioSettings } from "@ue-mcp-studio/shared";
-import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, SUBAGENT_TEXT_ONLY, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsLine, subagentsOf, subagentsPress, toMainFromThread, unreachable } from "@ue-mcp-studio/client-core";
+import { CHAT_INTRO, DetailLoader, SESSIONS_SLOW, chatPane, composerPlaceholder, composerQueues, composerTarget, listedSubagents, sessionGone, subagentsLine, subagentsOf, subagentsPress, toMainFromThread, unreachable } from "@ue-mcp-studio/client-core";
 import { useProjectNav } from "../nav";
 import { writeLocation } from "../location";
 import { haptic } from "../native/haptics";
@@ -372,10 +372,6 @@ export function Chat({ nav, initialSession = null, onSettings, active = true }: 
    */
   const toThread = (now: boolean) => {
     if (target.to === "main") return;
-    if (target.to === "subagent" && attach.ready.length > 0) {
-      fail(new Error(SUBAGENT_TEXT_ONLY));
-      return;
-    }
     const callId = target.call.id;
     dispatch((id, text, files) => api.messageSubagent(id, callId, text, files, now), toMainFromThread(target));
   };
