@@ -6,13 +6,11 @@
  * nothing the user wrote is lost.
  */
 import * as os from "node:os";
-import type { FeedbackReport, FeedbackResult } from "@ue-mcp-studio/shared";
+import { FEEDBACK_FOOTER, FEEDBACK_LABEL, FEEDBACK_REPO, feedbackIssueLink, type FeedbackReport, type FeedbackResult } from "@ue-mcp-studio/shared";
 
 export const FEEDBACK_ENDPOINT = process.env.UE_MCP_FEEDBACK_ENDPOINT || "https://feedback.ue-mcp.com/";
-export const STUDIO_REPO = "db-lyon/ue-mcp-studio";
-const LABEL = { problem: "bug", idea: "enhancement" } as const;
-/** GitHub refuses new-issue links much longer than this. */
-const MAX_LINK = 7500;
+export const STUDIO_REPO = FEEDBACK_REPO;
+const LABEL = FEEDBACK_LABEL;
 
 /** What is installed, for a report that includes it. Never keys, paths or project names. */
 export interface Environment {
@@ -25,7 +23,8 @@ export interface Environment {
 }
 
 export function issueBody(r: FeedbackReport, env: Environment | null): string {
-  const parts = [r.description.trim()];
+  const description = (r.description ?? "").trim();
+  const parts = description ? [description] : [];
   if (env) {
     parts.push(
       [
@@ -39,25 +38,20 @@ export function issueBody(r: FeedbackReport, env: Environment | null): string {
       ].join("\n"),
     );
   }
-  parts.push("_Filed from the Studio panel._");
+  parts.push(FEEDBACK_FOOTER);
   return parts.join("\n\n");
 }
 
 /** A prefilled new-issue page with the same report, shortened to fit a link. */
-export function issueLink(title: string, body: string, labels: string[]): string {
-  const make = (b: string) =>
-    `https://github.com/${STUDIO_REPO}/issues/new?${new URLSearchParams({ title, body: b, labels: labels.join(",") })}`;
-  let link = make(body);
-  for (let cut = body.length; link.length > MAX_LINK && cut > 0; cut -= 500) link = make(`${body.slice(0, cut)}\n\n(shortened)`);
-  return link;
-}
+export const issueLink = feedbackIssueLink;
 
+/** Only what a report cannot be filed without: a kind and a title. No minimum lengths. */
 export function validate(r: Partial<FeedbackReport>): string | null {
   if (r.kind !== "problem" && r.kind !== "idea") return "kind must be problem or idea";
-  if (typeof r.title !== "string" || r.title.trim().length < 5) return "Give it a title of at least 5 characters.";
+  if (typeof r.title !== "string" || r.title.trim().length === 0) return "Give it a title.";
   if (r.title.trim().length > 200) return "Keep the title under 200 characters.";
-  if (typeof r.description !== "string" || r.description.trim().length < 20) return "Describe it in at least 20 characters.";
-  if (r.description.length > 50_000) return "The description is too long.";
+  if (r.description !== undefined && typeof r.description !== "string") return "The description must be text.";
+  if ((r.description ?? "").length > 50_000) return "The description is too long.";
   return null;
 }
 

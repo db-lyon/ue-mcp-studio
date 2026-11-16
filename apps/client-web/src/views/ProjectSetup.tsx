@@ -53,6 +53,8 @@ const engineAtLeast = (v: string | null, major: number, minor: number): boolean 
 export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
   const [plan, setPlan] = useState<SetupPlan | null>(null);
   const [failed, setFailed] = useState(false);
+  /** Raised by Check again: reads the setup again after a failed read. */
+  const [attempt, setAttempt] = useState(0);
   const [clients, setClients] = useState<Set<string>>(new Set());
   const [nativeTools, setNativeTools] = useState(true);
   const [feedback, setFeedback] = useState(false);
@@ -84,7 +86,7 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
     return () => {
       stopped = true;
     };
-  }, []);
+  }, [attempt]);
 
   // Outside the editor the setup cannot be read or run; the MCP clients card says where to change it.
   if (!inEditor()) return null;
@@ -93,6 +95,9 @@ export function ProjectSetup({ onApplied }: { onApplied: () => void }) {
       <section className="card">
         <h2>Clients and tools setup</h2>
         <p className="muted">The current setup could not be read. The editor's Output Log has the reason.</p>
+        <div className="actions">
+          <button onClick={() => (setFailed(false), setAttempt((n) => n + 1))}>Check again</button>
+        </div>
       </section>
     );
   }

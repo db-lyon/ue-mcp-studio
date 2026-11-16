@@ -8,7 +8,7 @@ import { useBack } from "../../back";
 import { useEffect, useState } from "react";
 import { Linking, Modal, Pressable, ScrollView, TextInput, View } from "react-native";
 import Svg, { Path } from "react-native-svg";
-import type { FeedbackReport, FeedbackResult } from "@ue-mcp-studio/shared";
+import { feedbackLinkOf, type FeedbackReport, type FeedbackResult } from "@ue-mcp-studio/shared";
 import { Banner, Button, Input, Spacer, bannerText, font, T, useSheetInsets, useTheme } from "../../ui";
 import { Box, Txt, pageScroll, ratio } from "../settings/controls";
 import { Details } from "../settings/Details";
@@ -32,7 +32,10 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
   useEffect(() => {
     api.feedbackEnvironment().then((e) => setEnvironment(e.body), () => setEnvironment(null));
   }, [api]);
-  const ready = title.trim().length >= 5 && description.trim().length >= 20;
+  // A title is all a report needs; how much to write is the user's call.
+  const ready = title.trim().length > 0;
+  /** The same report on GitHub, for when it could not be sent at all. */
+  const onGitHub = () => open(feedbackLinkOf({ kind, title, description }, includeEnvironment ? environment : null));
   const send = () => {
     setSending(true);
     setError(null);
@@ -129,10 +132,11 @@ export function FeedbackSheet({ onClose, initial }: { onClose: () => void; initi
                   Filed publicly on github.com/db-lyon/ue-mcp-studio. No keys, files or project names are sent.
                 </Txt>
                 {error ? (
-                  <Banner kind="bad">
+                  <Banner kind="bad" role="alert" style={{ gap: 8 }}>
                     <Txt size={12} style={{ color: bannerText(t, "bad") }}>
                       {error}
                     </Txt>
+                    <Button title="Open on GitHub" label="Open the report on GitHub, filled in" onPress={onGitHub} style={{ alignSelf: "flex-start" }} />
                   </Banner>
                 ) : null}
                 <Actions>

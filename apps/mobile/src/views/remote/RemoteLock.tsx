@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useBack } from "../../back";
 import { Animated, Pressable, StyleSheet, View } from "react-native";
 import Svg, { Path, Rect } from "react-native-svg";
-import type { Lock, LockView } from "@ue-mcp-studio/client-core";
+import { PIN_FORGOT_WHERE, PIN_TOO_SHORT, type Lock, type LockView } from "@ue-mcp-studio/client-core";
 import { Button, font, T, useInsets, useSheetInsets, useStyles, useTheme, type Theme } from "../../ui";
 import { useLockView } from "../../connection";
 import { haptic } from "../../native/haptics";
@@ -122,6 +122,8 @@ function PinForm({ lock, submitLabel, onCancel, bio, onUnlocked }: { lock: Lock;
             {remaining} {remaining === 1 ? "try" : "tries"} left before this device is removed.
           </T>
         ) : null}
+        {/* Enter stays greyed for a short PIN: say why, not only grey it. */}
+        {!length && !busy && !error && pin.length > 0 && pin.length < MIN_PIN ? <T style={s.noteText}>{PIN_TOO_SHORT}</T> : null}
       </View>
       <View style={s.pad} accessibilityRole="none" accessibilityLabel="PIN keypad">
         {KEYS.map((d) => (
@@ -216,6 +218,7 @@ export function LockScreen({ lock, bio, onUnlocked, onRemoved }: { lock: Lock; b
           <>
             <T style={s.lead}>Enter the PIN set in Studio on your computer.</T>
             <PinForm lock={lock} submitLabel="Unlock" bio={bio} onUnlocked={onUnlocked} />
+            <T style={s.hint}>{PIN_FORGOT_WHERE}</T>
           </>
         )}
       </View>
@@ -313,6 +316,7 @@ const styles = (t: Theme) => ({
   dotOn: { backgroundColor: t.c.text, borderColor: t.c.text },
   note: { minHeight: 18, alignItems: "center" as const, gap: 2 },
   noteText: { ...font(t, "sans", 400, 12, t.editor ? 1.5 : 1.55), color: t.c.dim, textAlign: "center" as const },
+  hint: { ...font(t, "sans", 400, 12, 1.5), color: t.c.dim, textAlign: "center" as const, marginTop: 6 },
   pad: { flexDirection: "row" as const, flexWrap: "wrap" as const, width: 72 * 3 + 24 * 2, columnGap: 24, rowGap: 14, justifyContent: "flex-start" as const },
   key: { width: 72, height: 72, borderRadius: 36, borderWidth: 1, borderColor: t.c.lineStrong, backgroundColor: t.c.panel2, alignItems: "center" as const, justifyContent: "center" as const },
   keyFn: { backgroundColor: "transparent", borderColor: "transparent" },

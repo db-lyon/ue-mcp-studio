@@ -11,16 +11,47 @@ vi.mock("../../remote-lock", () => ({
   installLockGuard: () => {},
   refreshLock: async () => null,
 }));
-import { LockScreen, PinSheet } from "./RemoteLock";
+import { LockScreen, PairAgain, PinSheet } from "./RemoteLock";
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
   m.view = { screen: true, prompt: false, removed: false, state: null };
 });
 
 const key = (name: string) => screen.getByRole("button", { name });
 const filled = () => document.querySelectorAll(".pin-dot.on").length;
+
+describe("the lock screen's ways on", () => {
+  it("says a PIN needs at least 4 digits while Enter is greyed, and where Forgot PIN is", () => {
+    render(<LockScreen />);
+    expect(screen.queryByText("At least 4 digits.")).toBeNull();
+    fireEvent.click(key("1"));
+    expect(screen.getByText("At least 4 digits.")).toBeTruthy();
+    for (const d of "234") fireEvent.click(key(d));
+    expect(screen.queryByText("At least 4 digits.")).toBeNull();
+    expect(screen.getByText(/Settings > Remote control and choose Forgot PIN/)).toBeTruthy();
+  });
+
+  it("on a removed device, says a fresh link is needed and opens a pasted one for this relay only", () => {
+    m.view = { screen: true, prompt: false, removed: true, state: null };
+    render(<LockScreen />);
+    expect(screen.getByText(/choose New code under Settings > Remote control/)).toBeTruthy();
+    expect(screen.getByLabelText("Pairing link")).toBeTruthy();
+    cleanup();
+    const assign = vi.fn();
+    render(<PairAgain origin="https://remote.test" go={assign} />);
+    const input = screen.getByLabelText("Pairing link");
+    fireEvent.change(input, { target: { value: "https://elsewhere.test/pair#A.B.C" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pair again" }));
+    expect(screen.getByRole("alert").textContent).toMatch(/not a pairing link from this relay/);
+    expect(assign).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: " https://remote.test/pair#K7Q2.PUB.SECRET " } });
+    fireEvent.click(screen.getByRole("button", { name: "Pair again" }));
+    expect(assign).toHaveBeenCalledWith("https://remote.test/pair#K7Q2.PUB.SECRET");
+  });
+});
 
 describe("the remote PIN keypad", () => {
   it("has no text field, so the device keyboard never opens", () => {

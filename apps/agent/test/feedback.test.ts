@@ -10,9 +10,12 @@ describe("Studio feedback", () => {
     expect(issueBody(report, null)).not.toMatch(/Environment/);
   });
 
-  it("asks for a real title and description", () => {
-    expect(validate({ ...report, title: "x" })).toMatch(/title/);
-    expect(validate({ ...report, description: "short" })).toMatch(/at least 20/);
+  it("asks only for a title, with no minimum lengths", () => {
+    expect(validate({ ...report, title: "  " })).toMatch(/title/);
+    expect(validate({ ...report, title: "x" })).toBeNull();
+    expect(validate({ ...report, description: "short" })).toBeNull();
+    expect(validate({ ...report, description: "" })).toBeNull();
+    expect(issueBody({ ...report, description: "" }, null)).toBe("_Filed from the Studio panel._");
     expect(validate({ ...report, kind: "rant" as never })).toMatch(/kind/);
     expect(validate(report)).toBeNull();
   });

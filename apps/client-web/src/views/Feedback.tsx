@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import type { FeedbackReport, FeedbackResult } from "@ue-mcp-studio/shared";
+import { feedbackLinkOf, type FeedbackReport, type FeedbackResult } from "@ue-mcp-studio/shared";
 import { api } from "../api";
 
 /** Opens in the system browser from the editor panel; a plain browser opens a tab. */
@@ -28,7 +28,10 @@ export function FeedbackDialog({ onClose, initial }: { onClose: () => void; init
     return () => window.removeEventListener("keydown", esc);
   }, []);
 
-  const ready = title.trim().length >= 5 && description.trim().length >= 20;
+  // A title is all a report needs; how much to write is the user's call.
+  const ready = title.trim().length > 0;
+  /** The same report on GitHub, for when it could not be sent at all. */
+  const onGitHub = () => openLink(feedbackLinkOf({ kind, title, description }, includeEnvironment ? environment : null));
   const send = () => {
     setSending(true);
     setError(null);
@@ -82,7 +85,12 @@ export function FeedbackDialog({ onClose, initial }: { onClose: () => void; init
               </details>
             )}
             <p className="dim small">Filed publicly on github.com/db-lyon/ue-mcp-studio. No keys, files or project names are sent.</p>
-            {error && <div className="banner bad small">{error}</div>}
+            {error && (
+              <div className="banner bad small banner-actions" role="alert">
+                <span className="banner-text">{error}</span>
+                <button className="small-button" onClick={onGitHub}>Open on GitHub</button>
+              </div>
+            )}
             <div className="row">
               <span className="spacer" />
               <button className="ghost" onClick={onClose}>Cancel</button>

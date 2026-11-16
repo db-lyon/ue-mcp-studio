@@ -52,6 +52,12 @@ describe("Feedback", () => {
     fireEvent.click(screen.getByLabelText("Send"));
     await settled();
     expect(screen.getByText("The feedback service could not be reached.")).toBeTruthy();
+    // Not a dead end: the same report opens on GitHub, filled in.
+    open.mockClear();
+    fireEvent.click(screen.getByLabelText("Open the report on GitHub, filled in"));
+    const url = new URL(String(open.mock.calls[0][0]));
+    expect(url.pathname).toBe("/db-lyon/ue-mcp-studio/issues/new");
+    expect(url.searchParams.get("title")).toBe("The model picker forgets my effort");
     open.mockRestore();
   });
 });

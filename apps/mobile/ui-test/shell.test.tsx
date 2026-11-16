@@ -71,6 +71,9 @@ describe("the lock screen", () => {
     render(<RemoteLock lock={lock} computerKey="k" />);
     expect(screen.getByLabelText("0 of up to 8 digits entered")).toBeTruthy();
     for (const d of ["9", "9"]) fireEvent.click(screen.getByLabelText(d));
+    // Enter is greyed for a short PIN, and says why.
+    expect(screen.getByText("At least 4 digits.")).toBeTruthy();
+    expect(screen.getByText(/Settings > Remote control and choose Forgot PIN/)).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Delete"));
     for (const d of ["1", "2", "3"]) fireEvent.click(screen.getByLabelText(d));
     fireEvent.click(screen.getByLabelText("Unlock"));

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { onRemotePage } from "../../connection";
+import { PAIR_AGAIN_STEPS, PAIR_LINK_INVALID, PIN_FORGOT_WHERE, PIN_TOO_SHORT, pairingLinkOn } from "@ue-mcp-studio/client-core";
 import { cancelPrompt, installLockGuard, lockView, refreshLock, subscribeLock, unlockWith, type LockView } from "../../remote-lock";
 
 function useLock(): LockView {
@@ -107,6 +108,8 @@ function PinForm({ submitLabel, onCancel }: { submitLabel: string; onCancel?: ()
         {error && <div className="pin-error">{error}</div>}
         {left > 0 && <div>Try again in {left} s.</div>}
         {remaining !== undefined && remaining <= 5 && !lock.removed && <div>{remaining} {remaining === 1 ? "try" : "tries"} left before this device is removed.</div>}
+        {/* Enter stays greyed for a short PIN: say why, not only grey it. */}
+        {!length && !busy && !error && pin.length > 0 && pin.length < MIN_PIN && <div>{PIN_TOO_SHORT}</div>}
       </div>
       <div className={`pin-pad${blocked ? " blocked" : ""}`} role="group" aria-label="PIN keypad">
         {KEYS.map((d) => (
@@ -168,15 +171,41 @@ export function LockScreen() {
         <LockGlyph />
         <h1 id="lock-title" className="lock-title">{lock.removed ? "This device was removed" : "Studio is locked"}</h1>
         {lock.removed ? (
-          <p className="lock-lead">Too many wrong PINs. Pair this device again from Studio on the computer.</p>
+          <>
+            <p className="lock-lead">Too many wrong PINs.</p>
+            <PairAgain />
+          </>
         ) : (
           <>
             <p className="lock-lead">Enter the PIN set in Studio on your computer.</p>
             <PinForm submitLabel="Unlock" />
+            <p className="lock-hint">{PIN_FORGOT_WHERE}</p>
           </>
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Pair again, for a browser the computer removed: what to do on the computer,
+ * and a field that takes the new pairing link and opens it here.
+ */
+export function PairAgain({ origin = window.location.origin, go = (url: string) => window.location.assign(url) }: { origin?: string; go?: (url: string) => void }) {
+  const [link, setLink] = useState("");
+  const [bad, setBad] = useState(false);
+  const pair = () => {
+    const url = pairingLinkOn(link, origin);
+    if (!url) return setBad(true);
+    go(url);
+  };
+  return (
+    <form className="pair-again" onSubmit={(e) => (e.preventDefault(), pair())}>
+      <p className="lock-hint">{PAIR_AGAIN_STEPS}</p>
+      <input aria-label="Pairing link" placeholder={`${origin}/pair#...`} value={link} onChange={(e) => (setLink(e.target.value), setBad(false))} />
+      {bad && <div className="pin-error" role="alert">{PAIR_LINK_INVALID}</div>}
+      <button type="submit" className="primary" disabled={!link.trim()}>Pair again</button>
+    </form>
   );
 }
 
