@@ -137,6 +137,13 @@ export function useAttachments(sessionId: string | null) {
 
   const remove = useCallback((key: string) => setFiles((cur) => cur.filter((x) => x.key !== key)), []);
   const clear = useCallback(() => setFiles([]), []);
+  /** The web client's take and restore: a failed send gives its files back with the text. */
+  const take = useCallback((): PendingFile[] => {
+    const all = live.current;
+    setFiles([]);
+    return all;
+  }, []);
+  const restore = useCallback((list: PendingFile[]) => setFiles((cur) => [...list, ...cur.filter((f) => !list.some((x) => x.key === f.key))]), []);
 
   // Another session starts with nothing attached.
   useEffect(() => clear, [sessionId, clear]);
@@ -146,6 +153,8 @@ export function useAttachments(sessionId: string | null) {
     add,
     remove,
     clear,
+    take,
+    restore,
     uploading: files.some((f) => f.state === "uploading"),
     ready: files.flatMap((f) => (f.state === "ready" && f.attachment ? [f.attachment] : [])),
   };

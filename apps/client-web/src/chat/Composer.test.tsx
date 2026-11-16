@@ -180,6 +180,23 @@ describe("adding files", () => {
     expect(result.current.files).toHaveLength(0);
   });
 
+  it("gives a failed send's files back, previews kept, ahead of any added since", async () => {
+    globalThis.URL.createObjectURL = vi.fn(() => "blob:preview");
+    globalThis.URL.revokeObjectURL = vi.fn();
+    const { result } = renderHook(() => useAttachments("s1"));
+    act(() => result.current.add([new File(["abc"], "ref.png", { type: "image/png" })]));
+    await waitFor(() => expect(result.current.ready).toHaveLength(1));
+    let taken: PendingFile[] = [];
+    act(() => {
+      taken = result.current.take();
+    });
+    expect(result.current.files).toHaveLength(0);
+    expect(globalThis.URL.revokeObjectURL).not.toHaveBeenCalled();
+    act(() => result.current.restore(taken));
+    expect(result.current.ready.map((a) => a.name)).toEqual(["ref.png"]);
+    expect(result.current.files[0].preview).toBe("blob:preview");
+  });
+
   it("refuses a file over the limit without uploading it", () => {
     const { result } = renderHook(() => useAttachments("s1"));
     const huge = new File(["x"], "huge.mov", { type: "video/quicktime" });
